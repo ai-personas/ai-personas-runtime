@@ -1709,3 +1709,461 @@ fn model_evidence_rejects_same_response_qualification_change() {
         .contains("qualification bindings changed"));
     assert_eq!(persisted_state(&x.fixture.app), before);
 }
+
+#[test]
+fn pending_read_supplies_new_warning_qualification_once_with_original_receipt() {
+    let mut x = warning_fixture();
+    let prepared = x.fixture.prepare("read-before-other-work-warning");
+    let mut response = decision(&prepared, true);
+    response.next_assets = p::SelectionIntent::Clear {
+        reason: "Observe the exact read separately from optional selections.".into(),
+    };
+    response.operations.push(p::Operation::Read {
+        id: "read-before-warning".into(),
+        reference: reference(&x.target),
+    });
+    assert_eq!(
+        x.fixture.run(&prepared, &response).status,
+        AdoptionStatus::Adopted
+    );
+    let before = x.fixture.app.snapshot().unwrap();
+    let retained = before
+        .observations
+        .values()
+        .find(|o| {
+            o.invocation.as_deref() == Some("read-before-other-work-warning")
+                && o.kind == "qualified_read"
+        })
+        .unwrap();
+    assert_eq!(
+        retained.payload["result"]["entries"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
+    let mut other_need = need();
+    other_need.id = "warning-work".into();
+    x.fixture.app.add_need("operator", other_need).unwrap();
+    let prepare_other = |fixture: &mut Fixture, id: &str| {
+        fixture
+            .app
+            .prepare(
+                PrepareRequest {
+                    id: id.into(),
+                    persona: "a".into(),
+                    work: "warning-work".into(),
+                    profile: Profile::Synthetic,
+                    mode: Mode::Ordinary,
+                },
+                NOW,
+            )
+            .unwrap()
+    };
+    let prepared = prepare_other(&mut x.fixture, "prime-other-work-warning");
+    let mut response = decision(&prepared, false);
+    let control = interface_control(&prepared);
+    let offer = &control["own_pending_offers"][0];
+    response.operations.push(p::Operation::Responsibility {
+        id: offer["id"].as_str().unwrap().into(),
+        work_id: "warning-work".into(),
+        terms_revision: offer["terms_revision"].as_str().unwrap().into(),
+        disposition: "accept".into(),
+        reason: "Accept this independent synthetic maintenance responsibility.".into(),
+    });
+    response.next_assets = p::SelectionIntent::Replace {
+        reason: "Supply the target and warning basis in this independent work.".into(),
+        references: vec![
+            reference(&x.target),
+            reference(&x.basis),
+            reference(&x.qualification),
+        ],
+    };
+    assert_eq!(
+        x.fixture.run(&prepared, &response).status,
+        AdoptionStatus::Adopted
+    );
+    let prepared = prepare_other(&mut x.fixture, "adopt-other-work-warning");
+    let response = warning_response(&prepared, adopt_operation(&x, false));
+    let report = x.fixture.run(&prepared, &response);
+    assert_eq!(report.status, AdoptionStatus::Adopted, "{report:?}");
+
+    let prepared = x.fixture.prepare("recheck-pending-read-warning");
+    let control = warning_control(&prepared);
+    let observation = control["actual_observations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["id"] == retained.id)
+        .unwrap();
+    let entries = observation["payload"]["result"]["entries"]
+        .as_array()
+        .unwrap();
+    for source in [&x.target, &x.qualification] {
+        assert_eq!(
+            entries
+                .iter()
+                .filter(
+                    |e| e["reference"] == json!(source.reference(f::Representation::Utf8))
+                        && e["text"] == std::str::from_utf8(&source.bytes).unwrap()
+                )
+                .count(),
+            1
+        );
+    }
+    let target = entries
+        .iter()
+        .find(|e| e["reference"]["source"] == x.target.source)
+        .unwrap();
+    assert!(!target["accepted_bindings"].as_array().unwrap().is_empty());
+    assert!(!target["binding_restrictions"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert!(entries.iter().any(|e| e["reference"]["source"]
+        .as_str()
+        .unwrap()
+        .starts_with("semantic-warning:")));
+    assert!(observation["current_required_qualifications"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        observation["payload"]["read_receipt"]["manifest_sha256"],
+        retained.payload["result"]["manifest_sha256"]
+    );
+    assert_eq!(
+        serde_json::to_value(&x.fixture.app.snapshot().unwrap().observations[&retained.id])
+            .unwrap(),
+        serde_json::to_value(retained).unwrap()
+    );
+}
+
+// Leave a successful Read pending while an independent responsibility changes
+// its warning accompaniment through the public adoption/resolution path.
+fn pending_read_after_warning_release(
+    repair: bool,
+    replacement: bool,
+) -> (WarningFixture, Observation) {
+    let mut configuration = repair_config(1);
+    // Fund the host's conservative traversal envelope for the retained warning
+    // history and the independent work; these are explicit fixture allowances.
+    configuration.navigation_per_call.scanned_bytes = 900 * 1024 * 1024;
+    configuration.navigation_per_call.inspected_revisions = 8_000_000;
+    configuration.navigation_per_work.scanned_bytes = 7 * 1024 * 1024 * 1024;
+    configuration.navigation_per_work.inspected_revisions = 64_000_000;
+    configuration.response_bytes = 8 * 1024;
+    configuration.navigation_per_call.result_bytes = 8 * 1024;
+    configuration.policies.active_policies.extend(
+        warning_config()
+            .policies
+            .active_policies
+            .into_iter()
+            .filter(|p| p.id == "qualification-policy"),
+    );
+    let mut x = warning_fixture_with(configuration, seed("a"), "a");
+    accept_warning(&mut x, false);
+    let large = record(
+        "read-accounting-large",
+        f::Scope::Assets,
+        &"L".repeat(60_000),
+    );
+    x.fixture
+        .app
+        .import_files("operator", "a", vec![large.clone()], false, NOW)
+        .unwrap();
+    let prepared = x.fixture.prepare("read-before-warning-release");
+    let mut response = decision(&prepared, true);
+    response.next_assets = if repair {
+        p::SelectionIntent::Replace {
+            reason: "Keep optional bodies whose supply receipt can be checked after repair.".into(),
+            references: vec![reference(&large), reference(&x.qualification)],
+        }
+    } else {
+        p::SelectionIntent::Clear {
+            reason: "Inspect only the pending Read and artifact metadata next time.".into(),
+        }
+    };
+    response.operations.push(effect(
+        "register-old-qualification",
+        WorkAction::PutArtifact {
+            artifact: "old-qualification-artifact".into(),
+            base: None,
+            subject: reference(&x.qualification),
+        },
+        &[],
+    ));
+    response.operations.push(p::Operation::Read {
+        id: "pending-read-before-release".into(),
+        reference: reference(&x.target),
+    });
+    let report = x.fixture.run(&prepared, &response);
+    assert_eq!(report.status, AdoptionStatus::Adopted, "{report:?}");
+    let retained = x
+        .fixture
+        .app
+        .snapshot()
+        .unwrap()
+        .observations
+        .values()
+        .find(|o| {
+            o.invocation.as_deref() == Some("read-before-warning-release")
+                && o.kind == "qualified_read"
+        })
+        .unwrap()
+        .clone();
+    assert!(retained
+        .sources
+        .contains(&x.qualification.reference(f::Representation::Utf8)));
+
+    let mut other_need = need();
+    other_need.id = "warning-release-work".into();
+    x.fixture.app.add_need("operator", other_need).unwrap();
+    let prepare_other = |fixture: &mut Fixture, id: &str| {
+        fixture
+            .app
+            .prepare(
+                PrepareRequest {
+                    id: id.into(),
+                    persona: "a".into(),
+                    work: "warning-release-work".into(),
+                    profile: Profile::Synthetic,
+                    mode: Mode::Ordinary,
+                },
+                NOW,
+            )
+            .unwrap()
+    };
+    let prepared = prepare_other(&mut x.fixture, "accept-warning-release-work");
+    let mut response = decision(&prepared, false);
+    let control = warning_control(&prepared);
+    let offer = &control["own_pending_offers"][0];
+    response.operations.push(p::Operation::Responsibility {
+        id: offer["id"].as_str().unwrap().into(),
+        work_id: "warning-release-work".into(),
+        terms_revision: offer["terms_revision"].as_str().unwrap().into(),
+        disposition: "accept".into(),
+        reason: "Accept the independent synthetic warning-maintenance responsibility.".into(),
+    });
+    response.next_assets = p::SelectionIntent::Replace {
+        reason: "Supply the exact subject and resolution basis.".into(),
+        references: vec![reference(&x.target), reference(&x.basis)],
+    };
+    let report = x.fixture.run(&prepared, &response);
+    assert_eq!(report.status, AdoptionStatus::Adopted, "{report:?}");
+    let prepared = prepare_other(&mut x.fixture, "release-other-work-warning");
+    let revision = x.fixture.app.snapshot().unwrap().semantic_warnings["warning1"]
+        .current_revision()
+        .to_owned();
+    let response = warning_response(&prepared, resolve_operation(&x, &revision, true));
+    let report = x.fixture.run(&prepared, &response);
+    assert_eq!(report.status, AdoptionStatus::Adopted, "{report:?}");
+
+    if replacement {
+        let new_qualification = record(
+            "replacement-qualification",
+            f::Scope::Assets,
+            "Fresh replacement qualification supplied in full.",
+        );
+        x.fixture
+            .app
+            .import_files("operator", "a", vec![new_qualification.clone()], false, NOW)
+            .unwrap();
+        let prepared = prepare_other(&mut x.fixture, "replace-other-work-warning");
+        let mut operation = adopt_operation(&x, false);
+        if let p::Operation::WarningAdopt {
+            warning_id,
+            disposition,
+            ..
+        } = &mut operation
+        {
+            *warning_id = "replacement-warning".into();
+            *disposition = p::WarningDisposition::Qualify {
+                required: vec![reference(&new_qualification)],
+            };
+        }
+        let response = warning_response(&prepared, operation);
+        let report = x.fixture.run(&prepared, &response);
+        assert_eq!(report.status, AdoptionStatus::Adopted, "{report:?}");
+    }
+    (x, retained)
+}
+
+fn assert_released_read_body(
+    x: &mut WarningFixture,
+    retained: &Observation,
+    prepared: &Prepared,
+    replacement: bool,
+) -> Vec<f::Reference> {
+    let control = warning_control(prepared);
+    let observation = control["actual_observations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["id"] == retained.id)
+        .unwrap();
+    let entries = observation["payload"]["result"]["entries"]
+        .as_array()
+        .unwrap();
+    assert!(entries
+        .iter()
+        .any(|e| e["reference"]["source"] == x.target.source));
+    assert!(!entries
+        .iter()
+        .any(|e| e["reference"]["source"] == x.qualification.source));
+    assert!(!prepared
+        .prompt
+        .contains(std::str::from_utf8(&x.qualification.bytes).unwrap()));
+    assert_eq!(
+        entries
+            .iter()
+            .any(|e| e["reference"]["source"] == "replacement-qualification"),
+        replacement,
+    );
+    assert_eq!(
+        observation["payload"]["read_receipt"]["manifest_sha256"],
+        retained.payload["result"]["manifest_sha256"],
+    );
+    assert!(observation["current_required_qualifications"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        serde_json::to_value(&x.fixture.app.snapshot().unwrap().observations[&retained.id])
+            .unwrap(),
+        serde_json::to_value(retained).unwrap(),
+    );
+    // Removing an old body from projection must not erase confidentiality lineage.
+    assert!(prepared
+        .exposure
+        .as_ref()
+        .unwrap()
+        .sources
+        .contains(&x.qualification.reference(f::Representation::Utf8)));
+    entries
+        .iter()
+        .map(|e| serde_json::from_value(e["reference"].clone()).unwrap())
+        .collect()
+}
+
+#[test]
+fn released_pending_read_repair_receipts_only_claim_current_bodies() {
+    for replacement in [false, true] {
+        let (mut x, retained) = pending_read_after_warning_release(true, replacement);
+        let accepted = x.fixture.app.snapshot().unwrap();
+        let fit = accepted.personas["a"].focus["work"]
+            .selection_fit
+            .as_ref()
+            .unwrap();
+        let growth = accepted.config.context_bytes - fit.ordinary_bytes + 8192;
+        for index in 0..growth.div_ceil(8192) {
+            x.fixture
+                .app
+                .record_human_evidence(
+                    "operator",
+                    "work",
+                    &format!("read-accounting-growth-{index}"),
+                    &"Observed mandatory evidence. ".repeat(300),
+                    Vec::new(),
+                    set(&["result"]),
+                )
+                .unwrap();
+        }
+        let result = x.fixture.app.prepare(
+            PrepareRequest {
+                mode: Mode::Ordinary,
+                ..repair_request("released-read-overflow")
+            },
+            NOW,
+        );
+        assert!(
+            matches!(result, Err(RuntimeError::SelectionOverflow { .. })),
+            "{result:?}"
+        );
+        let prepared = x
+            .fixture
+            .app
+            .prepare(repair_request("released-read-repair"), NOW)
+            .unwrap();
+        let fresh = assert_released_read_body(&mut x, &retained, &prepared, replacement);
+        let control = warning_control(&prepared);
+        let repair = &control["selection_repair"];
+        let mandatory: BTreeSet<f::Reference> =
+            serde_json::from_value(repair["mandatory_body_references"].clone()).unwrap();
+        let mut expected: BTreeSet<_> = fresh.into_iter().collect();
+        expected.extend(
+            warning_context(&prepared)["entries"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| serde_json::from_value::<f::Reference>(e["reference"].clone()).unwrap()),
+        );
+        assert_eq!(
+            mandatory, expected,
+            "replacement={replacement}: receipts must describe rendered bodies only"
+        );
+        let old = repair["body_receipt"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["reference"] == json!(x.qualification.reference(f::Representation::Utf8)))
+            .unwrap();
+        assert_eq!(old["status"], "withheld_optional_body");
+        assert_eq!(old["independently_supplied_ranges"], json!([]));
+
+        x.fixture
+            .app
+            .revoke_policy(
+                "operator",
+                x.qualification.policy.identity(),
+                "The omitted old body still carries current confidentiality restrictions.",
+            )
+            .unwrap();
+        assert!(x
+            .fixture
+            .app
+            .dispatch_synthetic(&prepared.request.id, NOW)
+            .is_err());
+    }
+}
+
+#[test]
+fn released_pending_read_does_not_authorize_omitted_body_as_evidence() {
+    for warning_basis in [false, true] {
+        let (mut x, retained) = pending_read_after_warning_release(false, false);
+        let prepared = x.fixture.prepare("released-read-evidence-attempt");
+        assert_released_read_body(&mut x, &retained, &prepared, false);
+        let response = if warning_basis {
+            let mut operation = adopt_operation(&x, false);
+            if let p::Operation::WarningAdopt {
+                warning_id, basis, ..
+            } = &mut operation
+            {
+                *warning_id = "omitted-body-basis-warning".into();
+                *basis = vec![reference(&x.qualification)];
+            }
+            warning_response(&prepared, operation)
+        } else {
+            let key: ArtifactKey = serde_json::from_value(
+                warning_control(&prepared)["work_artifacts"][0]["artifact"].clone(),
+            )
+            .unwrap();
+            let mut response = decision(&prepared, true);
+            response.operations.push(model_evidence_operation(&key));
+            response
+        };
+        let before = persisted_state(&x.fixture.app);
+        let result = x.fixture.run(&prepared, &response);
+        assert_eq!(result.status, AdoptionStatus::Held, "{result:?}");
+        assert!(result.reason.unwrap().contains(if warning_basis {
+            "warning basis was not an exact body supplied"
+        } else {
+            "actually supplied"
+        }));
+        assert_eq!(persisted_state(&x.fixture.app), before);
+        assert!(x.fixture.app.snapshot().unwrap().work_meta["work"]
+            .model_evidence
+            .is_empty());
+    }
+}

@@ -2977,24 +2977,118 @@ mod tests {
     }
 
     #[cfg(target_os = "linux")]
+    fn process_observation_dead(pid: u32, observation: io::Result<String>) -> bool {
+        match observation {
+            // Linux may open procfs while the task exists, then return ESRCH
+            // from the read after it exits. This is disappearance, like ENOENT;
+            // other observation failures must still fail the cleanup test.
+            Err(error)
+                if error.kind() == io::ErrorKind::NotFound
+                    || error.raw_os_error() == Some(libc::ESRCH) =>
+            {
+                true
+            }
+            Ok(stat) => stat
+                .rsplit_once(')')
+                .is_some_and(|(_, rest)| rest.trim_start().starts_with('Z')),
+            Err(error) => panic!(
+                "process-state observation failed: pid={pid} kind={:?} raw_os_error={:?} display={error}",
+                error.kind(),
+                error.raw_os_error()
+            ),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
     async fn assert_process_dead(pid: u32) {
         let deadline = Instant::now() + Duration::from_secs(3);
         loop {
             // Observation only: this helper never signals a numeric PID. An
             // orphan zombie cannot execute or keep inherited pipes open.
-            let dead = match fs::read_to_string(format!("/proc/{pid}/stat")) {
-                Err(e) if e.kind() == io::ErrorKind::NotFound => true,
-                Ok(stat) => stat
-                    .rsplit_once(')')
-                    .is_some_and(|(_, rest)| rest.trim_start().starts_with('Z')),
-                Err(e) => panic!("process-state observation failed: {:?}", e.kind()),
-            };
-            if dead {
+            if process_observation_dead(pid, fs::read_to_string(format!("/proc/{pid}/stat"))) {
                 return;
             }
             assert!(Instant::now() < deadline, "fixture process remained live");
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
+    }
+
+    // Hold a procfs descriptor across exit of our own child to exercise ESRCH.
+    #[cfg(target_os = "linux")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn process_stat_read_after_owned_child_exit_reports_disappearance() {
+        use std::io::Read;
+        let root = tempfile::tempdir().unwrap();
+        let pid_file = root.path().join("owned.pid");
+        let mut command = fixture_command("wait");
+        command
+            .env("PERSONA_PROVIDER_PID_FILE", &pid_file)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let mut child = command.spawn().unwrap();
+        let pid = acknowledged_pid(&pid_file).await;
+        assert_eq!(pid, child.id());
+        let mut stat = fs::File::open(format!("/proc/{pid}/stat")).unwrap();
+        child.kill().unwrap();
+        child.wait().unwrap();
+        let error = stat.read_to_string(&mut String::new()).unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(libc::ESRCH));
+        assert!(process_observation_dead(pid, Err(error)));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn process_observation_rejects_other_errors_and_non_zombie_states() {
+        for errno in [libc::ENOENT, libc::ESRCH] {
+            assert!(process_observation_dead(
+                0,
+                Err(io::Error::from_raw_os_error(errno))
+            ));
+        }
+        for errno in [
+            libc::EACCES,
+            libc::EPERM,
+            libc::EIO,
+            libc::EBADF,
+            libc::EINTR,
+            libc::EAGAIN,
+        ] {
+            assert!(
+                std::panic::catch_unwind(|| {
+                    process_observation_dead(0, Err(io::Error::from_raw_os_error(errno)))
+                })
+                .is_err(),
+                "unexpected observation error {errno} was ignored"
+            );
+        }
+        assert!(std::panic::catch_unwind(|| {
+            process_observation_dead(0, Err(io::Error::other("unclassified synthetic failure")))
+        })
+        .is_err());
+        for state in ["R", "S", "D", "T", "t", "I"] {
+            assert!(!process_observation_dead(
+                0,
+                Ok(format!("0 (fixture) {state} 0"))
+            ));
+        }
+        assert!(!process_observation_dead(0, Ok("malformed".into())));
+        assert!(process_observation_dead(0, Ok("0 (fixture) Z 0".into())));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn process_liveness_assertion_still_rejects_a_live_process() {
+        let failure = tokio::spawn(async { assert_process_dead(std::process::id()).await })
+            .await
+            .expect_err("a live process must not satisfy the death assertion");
+        assert!(failure.is_panic());
+        let payload = failure.into_panic();
+        let message = payload
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| payload.downcast_ref::<&str>().copied())
+            .unwrap();
+        assert!(message.contains("fixture process remained live"));
     }
 
     /// The test executable itself is the only fixture program. Running this

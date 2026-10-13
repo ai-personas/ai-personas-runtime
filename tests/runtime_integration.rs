@@ -16,8 +16,20 @@ mod scheduler_cases;
 #[path = "warnings/cases.rs"]
 mod warning_cases;
 
+#[path = "discovery/cases.rs"]
+mod discovery_cases;
+
 #[path = "combined/cases.rs"]
 mod combined_cases;
+
+#[path = "collaboration/cases.rs"]
+mod collaboration_cases;
+
+#[path = "observability/cases.rs"]
+mod observability_cases;
+
+#[path = "work_inspection/cases.rs"]
+mod work_inspection_cases;
 
 const NOW: i64 = 1_800_000_000;
 fn set(values: &[&str]) -> BTreeSet<String> {
@@ -3894,8 +3906,8 @@ fn complete_wrong_headers_are_journaled_held_and_explicitly_recoverable() {
             .as_deref()
             .unwrap()
             .contains(private_reason));
-        assert!(!next.prompt.contains(private_reason));
-        assert!(next.prompt.contains("private_invocation_history_only"));
+        assert!(next.prompt.contains(private_reason));
+        assert!(!next.prompt.contains("private_invocation_history_only"));
         assert!(f.app.ledger().unwrap().ordinary.uncertain.output_bytes > 0);
     }
 }
@@ -7957,6 +7969,103 @@ fn model_evidence_rejects_metadata_partial_body_and_same_response_read() {
 }
 
 #[test]
+fn late_local_delivery_failure_rolls_back_earlier_deposit_and_receipt() {
+    for fail_second_delivery in [false, true] {
+        let (mut f, prepared, key) = model_evidence_fixture("full", false);
+        assert!(prepared.prompt.contains(MODEL_NOTE));
+        let mut response = decision(&prepared, true);
+        response.operations.push(model_evidence_operation(&key));
+        response.operations.extend(model_judgment_and_shared(&key));
+        response.operations.push(effect(
+            "release-note",
+            WorkAction::Release {
+                id: "rollback-release".into(),
+                shared: "model-note-shared".into(),
+            },
+            &[],
+        ));
+        assert_eq!(f.run(&prepared, &response).status, AdoptionStatus::Adopted);
+        let prepared = f.prepare("deliver-then-reject");
+        let control = interface_control(&prepared);
+        let release = control["actual_observations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|observation| observation["kind"] == "accepted_work_release")
+            .unwrap()["payload"]["release"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let mut response = decision(&prepared, true);
+        response.operations.push(effect(
+            "first-valid-deposit",
+            WorkAction::DeliverRelease {
+                release: release.clone(),
+                recipients: set(&["human"]),
+            },
+            &[],
+        ));
+        if fail_second_delivery {
+            // b is in the admitted source audience, so package assembly is
+            // permitted. Its absent configured delivery inbox is checked in
+            // the second delivery loop, after the first deposit, board receipt
+            // and accepted_local_delivery observation have been staged.
+            assert!(prepared.audience.contains("b"));
+            response.operations.push(effect(
+                "second-invalid-inbox",
+                WorkAction::DeliverRelease {
+                    release,
+                    recipients: set(&["b"]),
+                },
+                &[],
+            ));
+        }
+        let before = persisted_state(&f.app);
+        let result = f.run(&prepared, &response);
+        let after = persisted_state(&f.app);
+        if fail_second_delivery {
+            assert_eq!(result.status, AdoptionStatus::Held);
+            assert!(result
+                .reason
+                .unwrap()
+                .contains("only explicitly configured local recipient inboxes are supported"));
+            assert_eq!(after["board"], before["board"]);
+            assert_eq!(after["local_deliveries"], before["local_deliveries"]);
+            assert_eq!(after["observations"], before["observations"]);
+            assert_eq!(
+                after["personas"]["a"]["focus"]["work"]["pending_observations"],
+                before["personas"]["a"]["focus"]["work"]["pending_observations"]
+            );
+            assert_eq!(after, before);
+        } else {
+            // Same first operation in isolation is a positive control: it
+            // actually deposits bytes and queues the new metadata receipt.
+            assert_eq!(result.status, AdoptionStatus::Adopted);
+            assert_eq!(after["local_deliveries"].as_object().unwrap().len(), 1);
+            assert_eq!(
+                after["observations"]
+                    .as_object()
+                    .unwrap()
+                    .values()
+                    .filter(|o| o["kind"] == "accepted_local_delivery")
+                    .count(),
+                1
+            );
+            let state = f.app.snapshot().unwrap();
+            assert_eq!(
+                state
+                    .board
+                    .work(&w::WorkId("work".into()))
+                    .unwrap()
+                    .deliveries
+                    .len(),
+                1
+            );
+        }
+    }
+}
+
+#[test]
 fn model_evidence_invalid_tail_or_outcome_cannot_partially_commit() {
     for wrong_outcome in [false, true] {
         let (mut f, prepared, key) = model_evidence_fixture("full", false);
@@ -8233,5 +8342,246 @@ fn local_delivery_cannot_forward_reference_a_later_release() {
             assert!(result.reason.unwrap().contains("release must exist before"));
             assert_eq!(persisted_state(&f.app), before);
         }
+    }
+}
+
+#[test]
+fn qualified_read_supplies_one_complete_current_body_within_context_bound() {
+    let mut configuration = config();
+    configuration.context_bytes = 128 * 1024;
+    configuration.navigation_per_call.result_bytes = 64 * 1024;
+    let mut fixture = Fixture::with_config(true, configuration);
+    fixture.accept();
+    let root_text = "READ_ROOT_COMPLETE_".repeat(1500);
+    let qualification_text = "READ_QUALIFICATION_COMPLETE_".repeat(300);
+    let qualification = record(
+        "read-cost-qualification",
+        f::Scope::Assets,
+        &qualification_text,
+    );
+    let mut root = record("read-cost-root", f::Scope::Assets, &root_text);
+    root.qualifications
+        .push(qualification.reference(f::Representation::Utf8));
+    root = root.seal().unwrap();
+    fixture
+        .app
+        .import_files(
+            "operator",
+            "a",
+            vec![root.clone(), qualification.clone()],
+            true,
+            NOW,
+        )
+        .unwrap();
+    let prepared = fixture.prepare("request-complete-read");
+    eprintln!(
+        "read-cost baseline bytes={} bound={}",
+        prepared.assembled_bytes_with_reserve,
+        128 * 1024
+    );
+    let mut response = decision(&prepared, true);
+    response.operations.push(p::Operation::Read {
+        id: "read-complete".into(),
+        reference: reference(&root),
+    });
+    let report = fixture.run(&prepared, &response);
+    assert_eq!(report.status, AdoptionStatus::Adopted, "{report:?}");
+    let before = fixture.app.snapshot().unwrap();
+    let retained = before
+        .observations
+        .values()
+        .find(|o| o.kind == "qualified_read")
+        .unwrap();
+    assert!(retained.payload["result"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|e| e["text"] == root_text));
+    let receipt_manifest = retained.payload["result"]["manifest_sha256"].clone();
+    let receipt_bytes = retained.payload["result"]["context_bytes"].clone();
+    let next = fixture
+        .app
+        .prepare(
+            PrepareRequest {
+                id: "observe-complete-read".into(),
+                persona: "a".into(),
+                work: "work".into(),
+                profile: Profile::Synthetic,
+                mode: Mode::Ordinary,
+            },
+            NOW,
+        )
+        .expect("one complete qualified observation must fit without trimming");
+    eprintln!(
+        "read-cost observed bytes={} bound={}",
+        next.assembled_bytes_with_reserve,
+        128 * 1024
+    );
+    assert!(next.assembled_bytes_with_reserve <= 128 * 1024);
+    assert_eq!(next.prompt.matches(&root_text).count(), 1);
+    assert_eq!(next.prompt.matches(&qualification_text).count(), 1);
+    let control = interface_control(&next);
+    let observation = control["actual_observations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["kind"] == "qualified_read")
+        .unwrap();
+    let result = &observation["payload"]["result"];
+    for source in [&root, &qualification] {
+        let entry = result["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["reference"]["source"] == source.source)
+            .unwrap();
+        assert_eq!(
+            entry["reference"],
+            json!(source.reference(f::Representation::Utf8))
+        );
+        assert_eq!(entry["text"], std::str::from_utf8(&source.bytes).unwrap());
+        assert_eq!(entry["policy"], json!(source.policy));
+        assert!(result["source_attribution"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|a| a["reference"]["source"] == source.source && a["imported_by"] == "operator"));
+    }
+    assert_eq!(
+        observation["payload"]["read_receipt"]["manifest_sha256"],
+        receipt_manifest
+    );
+    assert_eq!(
+        observation["payload"]["read_receipt"]["context_bytes"],
+        receipt_bytes
+    );
+    assert!(observation["current_required_qualifications"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert!(result.get("rendered_context").is_none());
+    assert_eq!(
+        serde_json::to_value(&fixture.app.snapshot().unwrap().observations[&retained.id]).unwrap(),
+        serde_json::to_value(retained).unwrap()
+    );
+}
+
+#[test]
+fn qualified_read_rechecks_required_policy_before_supplying_retained_body() {
+    for restriction in ["revoked", "expired", "withdrawn"] {
+        let mut configuration = config();
+        let mut required_policy = policy();
+        required_policy.id = "read-recheck-policy".into();
+        if restriction == "expired" {
+            required_policy.expires_at_unix = Some(NOW + 1);
+        }
+        configuration
+            .policies
+            .active_policies
+            .push(required_policy.clone());
+        let mut fixture = Fixture::with_config(true, configuration);
+        fixture.accept();
+        let mut required = record(
+            "read-recheck-required",
+            f::Scope::Assets,
+            "RECHECK_REQUIRED_COMPLETE_BODY",
+        );
+        required.policy = required_policy.clone();
+        required = required.seal().unwrap();
+        let mut root = record(
+            "read-recheck-root",
+            f::Scope::Assets,
+            "RECHECK_ROOT_COMPLETE_BODY",
+        );
+        root.qualifications
+            .push(required.reference(f::Representation::Utf8));
+        root = root.seal().unwrap();
+        fixture
+            .app
+            .import_files(
+                "operator",
+                "a",
+                vec![root.clone(), required.clone()],
+                true,
+                NOW,
+            )
+            .unwrap();
+        let prepared = fixture.prepare("read-before-restriction");
+        let mut response = decision(&prepared, true);
+        response.operations.push(p::Operation::Read {
+            id: "read-before-restriction".into(),
+            reference: reference(&root),
+        });
+        assert_eq!(
+            fixture.run(&prepared, &response).status,
+            AdoptionStatus::Adopted
+        );
+        let before = fixture.app.snapshot().unwrap();
+        let retained = before
+            .observations
+            .values()
+            .find(|o| o.kind == "qualified_read")
+            .unwrap();
+        assert_eq!(
+            retained.qualified_roots,
+            vec![root.reference(f::Representation::Utf8)]
+        );
+        match restriction {
+            "revoked" => fixture
+                .app
+                .revoke_policy(
+                    "operator",
+                    required_policy.identity(),
+                    "Synthetic revocation.",
+                )
+                .unwrap(),
+            "withdrawn" => fixture
+                .app
+                .withdraw_source("operator", &required.source, "Synthetic withdrawal.")
+                .unwrap(),
+            _ => (),
+        }
+        let next = fixture
+            .app
+            .prepare(
+                PrepareRequest {
+                    id: "observe-after-restriction".into(),
+                    persona: "a".into(),
+                    work: "work".into(),
+                    profile: Profile::Synthetic,
+                    mode: Mode::Ordinary,
+                },
+                if restriction == "expired" {
+                    NOW + 1
+                } else {
+                    NOW
+                },
+            )
+            .unwrap();
+        assert!(
+            !next.prompt.contains("RECHECK_ROOT_COMPLETE_BODY"),
+            "{restriction}"
+        );
+        assert!(
+            !next.prompt.contains("RECHECK_REQUIRED_COMPLETE_BODY"),
+            "{restriction}"
+        );
+        assert!(
+            !next.supplied_observations.contains(&retained.id),
+            "{restriction}"
+        );
+        assert!(
+            interface_control(&next)["actual_observations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|o| o["status"] == "withheld_unavailable" && o["body_supplied"] == false),
+            "{restriction}"
+        );
+        assert_eq!(
+            serde_json::to_value(&fixture.app.snapshot().unwrap().observations[&retained.id])
+                .unwrap(),
+            serde_json::to_value(retained).unwrap()
+        );
     }
 }

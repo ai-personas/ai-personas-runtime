@@ -17,6 +17,7 @@
 //! fixed_overhead_bytes, and must recheck actual provider expansion separately.
 
 use regex::{Regex, RegexBuilder};
+use schemars::JsonSchema;
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Number, Value};
@@ -42,14 +43,16 @@ where
     Option::<T>::deserialize(deserializer)
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum Scope {
     Fragments,
     Assets,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Representation {
     Utf8,
@@ -1414,14 +1417,14 @@ pub fn assemble(
     })
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum HiddenPaths {
     Include,
     Exclude,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum RetirementFilter {
     ActiveOnly,
@@ -1429,21 +1432,21 @@ pub enum RetirementFilter {
     AllRetained,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SearchSurface {
     Path,
     Text { representation: Representation },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum RegexDialect {
     RustRegex1,
     Unsupported { name: String },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SearchMode {
     Listing,
@@ -1456,7 +1459,7 @@ pub enum SearchMode {
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DiscoveryRequest {
     pub scope: Scope,
@@ -1544,7 +1547,7 @@ impl NavigationBudget {
         })
     }
 
-    fn begin_call(&mut self) -> Result<(), FilesError> {
+    pub(crate) fn begin_call(&mut self) -> Result<(), FilesError> {
         if self.charge(NavigationUsage {
             calls: 1,
             ..NavigationUsage::default()
@@ -1555,7 +1558,7 @@ impl NavigationBudget {
         }
     }
 
-    fn charge(&mut self, cost: NavigationUsage) -> bool {
+    pub(crate) fn charge(&mut self, cost: NavigationUsage) -> bool {
         fn fits(used: usize, added: usize, limit: usize) -> bool {
             used <= limit && added <= limit - used
         }
@@ -1625,18 +1628,40 @@ pub enum DiscoveryStop {
     PageResultLimit,
     PageCountLimit,
     Navigation,
+    StalePage,
     SurfaceUnavailable(WithholdReason),
 }
 
-/// Trusted in-process cursor: deliberately neither Serialize nor Deserialize.
-/// The host may retain it behind its own authenticated opaque handle. Do not
-/// reconstruct cursors from caller-supplied offsets or claim skipped coverage.
+/// Trusted in-process cursor. Callers cannot deserialize offsets. The runtime
+/// retains its crate-private checkpoint behind a persona/work-bound opaque handle.
 #[derive(Clone)]
 pub struct PageCursor {
+    retained: RetainedPageCursor,
+}
+
+/// Host state only; never accepted as a caller-supplied cursor or rendered.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RetainedPageCursor {
     snapshot: String,
     query: String,
     next_index: usize,
     emitted_before: bool,
+    unavailable_before: bool,
+}
+
+impl PageCursor {
+    pub(crate) fn retain(&self) -> RetainedPageCursor {
+        self.retained.clone()
+    }
+}
+
+impl RetainedPageCursor {
+    pub(crate) fn restore(&self) -> PageCursor {
+        PageCursor {
+            retained: self.clone(),
+        }
+    }
 }
 
 impl fmt::Debug for PageCursor {
@@ -1655,6 +1680,8 @@ pub struct SearchPage {
     pub hits: Vec<DiscoveryHit>,
     pub next: Option<PageCursor>,
     pub charged_result_bytes: usize,
+    /// Host-only lineage of the permission-filtered query view, never rendered.
+    pub(crate) consulted: Vec<Reference>,
 }
 
 impl SearchPage {
@@ -1797,6 +1824,7 @@ impl Corpus {
             hits: Vec::new(),
             next: None,
             charged_result_bytes: DISCOVERY_CONTROL_BYTES,
+            consulted: Vec::new(),
         };
         let query_bytes = serialized_len(request, self.limits.max_record_bytes)
             .map_err(|_| FilesError::InvalidQuery)?;
@@ -1841,33 +1869,50 @@ impl Corpus {
             .collect();
         // Mutable accepted retirement affects advertised metadata even when the
         // retained immutable source identities remain the same.
-        let identities: Vec<(&str, &str, bool)> = visible
+        let identities: Vec<_> = visible
             .iter()
             .map(|stored| {
                 (
                     stored.record.source.as_str(),
                     stored.record.revision.as_str(),
                     self.retired(&stored.record),
+                    self.bindings_for(&stored.record),
                 )
             })
             .collect();
         let query = hash_json(&("discovery-query-v1", request))?;
         let snapshot = hash_json(&(
-            "permitted-discovery-view-v1",
-            admission,
+            "permitted-discovery-view-v2",
+            &admission.principal,
+            &admission.destination,
+            &admission.audience,
             &query,
             &identities,
         ))?;
-        let (mut position, emitted_before) = if let Some(cursor) = cursor {
+        // Even a stale continuation is an observation about this permitted view.
+        // Retain its restrictions before validating the old checkpoint; hidden
+        // records were excluded above and no file bodies are supplied here.
+        page.consulted = visible
+            .iter()
+            .map(|stored| stored.record.reference(Representation::Utf8))
+            .collect();
+        let (mut position, emitted_before, mut unavailable_before) = if let Some(cursor) = cursor {
+            let cursor = &cursor.retained;
             if cursor.snapshot != snapshot
                 || cursor.query != query
                 || cursor.next_index > visible.len()
             {
-                return Err(FilesError::StalePage);
+                page.status = SearchStatus::Unavailable;
+                page.stop = Some(DiscoveryStop::StalePage);
+                return Ok(page);
             }
-            (cursor.next_index, cursor.emitted_before)
+            (
+                cursor.next_index,
+                cursor.emitted_before,
+                cursor.unavailable_before,
+            )
         } else {
-            (0, false)
+            (0, false, false)
         };
         page.snapshot = Some(snapshot.clone());
         let mut matched = 0usize;
@@ -1913,6 +1958,10 @@ impl Corpus {
                 Err(reason) => {
                     page.status = SearchStatus::Unavailable;
                     page.stop = Some(DiscoveryStop::SurfaceUnavailable(reason));
+                    // This revision was inspected but its projection is unavailable.
+                    // Explicit continuation moves past it without claiming coverage.
+                    unavailable_before = true;
+                    position += 1;
                     break;
                 }
             };
@@ -1960,18 +2009,28 @@ impl Corpus {
             position += 1;
         }
         if position == visible.len() {
-            page.status = if page.hits.is_empty() && !emitted_before {
-                SearchStatus::NoMatch
+            if unavailable_before {
+                page.status = SearchStatus::Unavailable;
+                page.stop.get_or_insert(DiscoveryStop::SurfaceUnavailable(
+                    WithholdReason::Unavailable,
+                ));
             } else {
-                SearchStatus::Complete
-            };
-            page.stop = None;
+                page.status = if page.hits.is_empty() && !emitted_before {
+                    SearchStatus::NoMatch
+                } else {
+                    SearchStatus::Complete
+                };
+                page.stop = None;
+            }
         } else {
             page.next = Some(PageCursor {
-                snapshot,
-                query,
-                next_index: position,
-                emitted_before: emitted_before || !page.hits.is_empty(),
+                retained: RetainedPageCursor {
+                    snapshot,
+                    query,
+                    next_index: position,
+                    emitted_before: emitted_before || !page.hits.is_empty(),
+                    unavailable_before,
+                },
             });
         }
         Ok(page)
@@ -3018,6 +3077,18 @@ mod tests {
         assert_eq!(bounded.used().scanned_bytes, header + 4);
     }
 
+    fn assert_stale_page(result: Result<SearchPage, FilesError>) -> SearchPage {
+        let page = result.unwrap();
+        assert_eq!(page.status, SearchStatus::Unavailable);
+        assert_eq!(page.stop, Some(DiscoveryStop::StalePage));
+        assert!(page.snapshot.is_none());
+        assert!(page.hits.is_empty());
+        assert!(page.next.is_none());
+        assert!(!page.coverage_complete());
+        assert!(page.rendered_json().unwrap().len() <= page.charged_result_bytes);
+        page
+    }
+
     #[test]
     fn pagination_rejects_changed_view_query_or_admission() {
         let a = file("a", "a", Scope::Fragments, vec![]);
@@ -3030,26 +3101,149 @@ mod tests {
             .unwrap();
         let cursor = first.next.as_ref().unwrap();
         let changed = corpus(vec![a, b, file("c", "c", Scope::Fragments, vec![])]);
-        assert!(matches!(
-            changed.discover(&listing(), &admission(), one, &mut nav(), Some(cursor)),
-            Err(FilesError::StalePage)
+        let stale = assert_stale_page(changed.discover(
+            &listing(),
+            &admission(),
+            one,
+            &mut nav(),
+            Some(cursor),
         ));
-        assert!(matches!(
-            c.discover(
-                &text_query("a"),
-                &admission(),
-                one,
-                &mut nav(),
-                Some(cursor)
-            ),
-            Err(FilesError::StalePage)
+        assert_eq!(stale.consulted.len(), 3);
+        let stale = assert_stale_page(c.discover(
+            &text_query("a"),
+            &admission(),
+            one,
+            &mut nav(),
+            Some(cursor),
         ));
+        assert_eq!(stale.consulted.len(), 2);
+        let mut later = admission();
+        later.destination = "other-destination".into();
+        let stale =
+            assert_stale_page(c.discover(&listing(), &later, one, &mut nav(), Some(cursor)));
+        assert!(stale.consulted.is_empty());
+    }
+
+    #[test]
+    fn discovery_cursor_expiry_and_revocation_change_the_permitted_view() {
+        let mut expiring = policy();
+        expiring.expires_at_unix = Some(admission().now_unix + 2);
+        let records = ["a", "b"]
+            .into_iter()
+            .map(|source| {
+                let mut record = file(source, "body", Scope::Fragments, vec![]);
+                record.policy = expiring.clone();
+                record.seal().unwrap()
+            })
+            .collect::<Vec<_>>();
+        let c = corpus(records.clone());
+        let mut one = page_limits();
+        one.results = 1;
+        let mut budget = nav();
+        let first = c
+            .discover(&listing(), &admission(), one, &mut budget, None)
+            .unwrap();
         let mut later = admission();
         later.now_unix += 1;
-        assert!(matches!(
-            c.discover(&listing(), &later, one, &mut nav(), Some(cursor)),
-            Err(FilesError::StalePage)
+        assert!(c
+            .discover(&listing(), &later, one, &mut budget, first.next.as_ref())
+            .is_ok());
+        later.now_unix += 1;
+        let stale = assert_stale_page(c.discover(
+            &listing(),
+            &later,
+            one,
+            &mut budget,
+            first.next.as_ref(),
         ));
+        assert!(stale.consulted.is_empty());
+        let mut revoked = snapshot(vec![expiring.clone()]);
+        revoked.revoked_policies.insert(expiring.identity());
+        let revoked = Corpus::from_revisions(records, revoked, limits()).unwrap();
+        let stale = assert_stale_page(revoked.discover(
+            &listing(),
+            &admission(),
+            one,
+            &mut budget,
+            first.next.as_ref(),
+        ));
+        assert!(stale.consulted.is_empty());
+    }
+
+    #[test]
+    fn discovery_binary_last_revision_never_becomes_no_match() {
+        let mut binary = file("a", "placeholder", Scope::Fragments, vec![]);
+        binary.bytes = vec![0xff];
+        binary = binary.seal().unwrap();
+        let c = corpus(vec![binary]);
+        let page = c
+            .discover(
+                &text_query("needle"),
+                &admission(),
+                page_limits(),
+                &mut nav(),
+                None,
+            )
+            .unwrap();
+        assert_eq!(page.status, SearchStatus::Unavailable);
+        assert!(!page.coverage_complete());
+        assert!(page.next.is_none());
+        // Explicit path listing remains available without decoding the body.
+        let paths = c
+            .discover(&listing(), &admission(), page_limits(), &mut nav(), None)
+            .unwrap();
+        assert_eq!(paths.hits.len(), 1);
+        assert!(paths.coverage_complete());
+    }
+
+    #[test]
+    fn discovery_cursor_survives_clock_only_change() {
+        let c = corpus(vec![
+            file("a", "a", Scope::Fragments, vec![]),
+            file("b", "b", Scope::Fragments, vec![]),
+        ]);
+        let mut one = page_limits();
+        one.results = 1;
+        let mut budget = nav();
+        let first = c
+            .discover(&listing(), &admission(), one, &mut budget, None)
+            .unwrap();
+        let mut later = admission();
+        later.now_unix += 1;
+        let second = c
+            .discover(&listing(), &later, one, &mut budget, first.next.as_ref())
+            .unwrap();
+        assert_eq!(second.hits[0].reference.source, "b");
+        assert!(second.coverage_complete());
+    }
+
+    #[test]
+    fn discovery_binary_unavailable_continuation_reaches_later_text_without_complete_claim() {
+        let mut binary = file("a", "placeholder", Scope::Fragments, vec![]);
+        binary.bytes = vec![0xff];
+        binary = binary.seal().unwrap();
+        let c = corpus(vec![binary, file("b", "needle", Scope::Fragments, vec![])]);
+        let query = text_query("needle");
+        let mut budget = nav();
+        let first = c
+            .discover(&query, &admission(), page_limits(), &mut budget, None)
+            .unwrap();
+        assert_eq!(first.status, SearchStatus::Unavailable);
+        assert!(!first.coverage_complete());
+        let second = c
+            .discover(
+                &query,
+                &admission(),
+                page_limits(),
+                &mut budget,
+                first.next.as_ref(),
+            )
+            .unwrap();
+        assert_eq!(second.hits.len(), 1);
+        assert_eq!(second.hits[0].reference.source, "b");
+        assert!(!second.coverage_complete());
+        assert!(second.next.is_none());
+        assert_eq!(budget.used().calls, 2);
     }
 
     #[test]
@@ -3989,10 +4183,14 @@ mod tests {
             .unwrap();
         let cursor = first.next.as_ref().unwrap();
         let changed = c.with_bindings(vec![binding]).unwrap();
-        assert!(matches!(
-            changed.discover(&request, &admission(), bounds, &mut nav(), Some(cursor)),
-            Err(FilesError::StalePage)
+        let stale = assert_stale_page(changed.discover(
+            &request,
+            &admission(),
+            bounds,
+            &mut nav(),
+            Some(cursor),
         ));
+        assert_eq!(stale.consulted.len(), 2);
         let fresh = changed
             .discover(&request, &admission(), bounds, &mut nav(), None)
             .unwrap();

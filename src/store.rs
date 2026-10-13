@@ -86,6 +86,7 @@ const INVOCATION_EVENTS: u64 = 8;
 const INTENT_EVENTS: u64 = 6;
 const RESERVATION_EVENTS: u64 = 4;
 const MAX_DETAIL_BYTES: usize = 256;
+const MAX_RUNTIME_FAILURE_CONTEXT_BYTES: u64 = 4096;
 const MAX_JSON_DEPTH: usize = 64;
 pub(crate) const RUNTIME_CONTROL_STATE_ID: &str = "runtime-state-v1";
 const RUNTIME_CONTROL_HEADROOM: u64 = 32 * 1024;
@@ -520,6 +521,9 @@ pub struct InvocationRecord {
     pub response_hash: Option<String>,
     pub history: Vec<Receipt>,
     pub reconciliation: Option<ReconciliationObservation>,
+    /// Trusted runtime-only rejection provenance; absence is legacy/unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_failure_context: Option<Value>,
     pub expired_at_epoch: Option<u64>,
 }
 
@@ -821,6 +825,24 @@ pub struct TrustedHost<'a> {
 }
 
 impl TrustedHost<'_> {
+    /// Retain bounded failure provenance atomically with local rejection. The
+    /// opaque context is not an authority token or a replacement terminal body.
+    /// Oversized context becomes explicitly unknown; reserved capacity never grows.
+    pub(crate) fn reject_runtime_invocation(
+        &mut self,
+        id: &str,
+        reason: &str,
+        context: Value,
+    ) -> Result<Receipt> {
+        let context = if encode(&context, MAX_RUNTIME_FAILURE_CONTEXT_BYTES).is_ok() {
+            context
+        } else {
+            serde_json::json!({"kind":"unknown"})
+        };
+        self.store
+            .transaction(|work| work.reject_invocation(id, reason, Some(context)))
+    }
+
     /// Atomically admit one runtime navigation envelope and its exact state debit
     /// from Ordinary capacity. The trusted runtime validates authority and builds
     /// the debit. Both heads and the complete attempt digest bind the standalone
@@ -2044,30 +2066,7 @@ impl Store {
     /// A local rejection of a prepared or fully responded invocation. It does not
     /// assert zero provider usage and does not release reservations.
     pub fn reject_invocation(&mut self, id: &str, reason: &str) -> Result<Receipt> {
-        self.transaction(|work| {
-            detail_valid(reason)?;
-            let mut record: InvocationRecord = work.required("invocation", id)?;
-            live_invocation(&record)?;
-            if record.state == InvocationState::Uncertain {
-                return Err(StoreError::ReconciliationRequired);
-            }
-            if !matches!(
-                record.state,
-                InvocationState::Prepared | InvocationState::Responded
-            ) {
-                return Err(StoreError::InvalidState(id.into()));
-            }
-            record.state = InvocationState::Failed;
-            let receipt = work.event(
-                EntityId::Invocation(id.into()),
-                ReceiptStatus::Failed,
-                Some(reason.into()),
-                None,
-            )?;
-            append(&mut record.history, receipt.clone(), INVOCATION_EVENTS)?;
-            work.update("invocation", id, &record)?;
-            Ok(receipt)
-        })
+        self.transaction(|work| work.reject_invocation(id, reason, None))
     }
 
     /// Trusted host only: an authenticated terminal transport observation is
@@ -3533,6 +3532,7 @@ impl<'a> Work<'a> {
             response_hash: None,
             history: vec![receipt],
             reconciliation: None,
+            runtime_failure_context: None,
             expired_at_epoch: None,
         };
         self.insert_control(
@@ -3742,6 +3742,48 @@ impl<'a> Work<'a> {
                 Ok((record, overrun))
             }
         }
+    }
+
+    fn reject_invocation(
+        &mut self,
+        id: &str,
+        reason: &str,
+        context: Option<Value>,
+    ) -> Result<Receipt> {
+        detail_valid(reason)?;
+        let mut record: InvocationRecord = self.required("invocation", id)?;
+        live_invocation(&record)?;
+        if record.state == InvocationState::Uncertain {
+            return Err(StoreError::ReconciliationRequired);
+        }
+        if !matches!(
+            record.state,
+            InvocationState::Prepared | InvocationState::Responded
+        ) {
+            return Err(StoreError::InvalidState(id.into()));
+        }
+        record.state = InvocationState::Failed;
+        record.runtime_failure_context = context;
+        let receipt = self.event(
+            EntityId::Invocation(id.into()),
+            ReceiptStatus::Failed,
+            Some(reason.into()),
+            None,
+        )?;
+        append(&mut record.history, receipt.clone(), INVOCATION_EVENTS)?;
+        if record.runtime_failure_context.is_some() {
+            let capacity = self
+                .cell("invocation", id)?
+                .ok_or_else(|| StoreError::Missing(id.into()))?
+                .capacity;
+            if matches!(encode(&record, capacity), Err(StoreError::TooLarge)) {
+                record.runtime_failure_context = Some(serde_json::json!({"kind":"unknown"}));
+            }
+        }
+        // If even the small unknown marker cannot fit, rejection and its receipt
+        // both roll back. Recovery must never see Failed without its provenance.
+        self.update("invocation", id, &record)?;
+        Ok(receipt)
     }
 
     fn uncertain_invocation(&mut self, id: &str, reason: &str) -> Result<Receipt> {
@@ -6565,5 +6607,150 @@ mod tests {
             Store::open(&path, limits()),
             Err(StoreError::InsecurePath(_))
         ));
+    }
+
+    #[test]
+    fn runtime_failure_context_is_atomic_bounded_and_retained_on_restart() {
+        let (_directory, path, mut store) = database();
+        responded(&mut store, "known");
+        let context = json!({"kind":"known", "terminal_sha256":sha256_bytes(b"terminal"),
+            "exposure":{"sources":[],"policies":[{"id":"private"}]}});
+        let before = store.ledger().unwrap();
+        let capacity = store
+            .transaction(|work| Ok(work.cell("invocation", "known")?.unwrap().capacity))
+            .unwrap();
+        store
+            .trusted_host()
+            .reject_runtime_invocation("known", "bounded cause", context.clone())
+            .unwrap();
+        assert_eq!(store.ledger().unwrap(), before);
+        let after_capacity = store
+            .transaction(|work| Ok(work.cell("invocation", "known")?.unwrap().capacity))
+            .unwrap();
+        assert_eq!(after_capacity, capacity);
+        let record = store.invocation("known").unwrap();
+        assert_eq!(record.state, InvocationState::Failed);
+        assert_eq!(record.runtime_failure_context, Some(context.clone()));
+        assert_eq!(
+            record.history.last().unwrap().detail.as_deref(),
+            Some("bounded cause")
+        );
+        let before = admission_snapshot(&store);
+        assert!(store
+            .trusted_host()
+            .reject_runtime_invocation("known", "replace", serde_json::json!({"kind":"unknown"}))
+            .is_err());
+        assert_eq!(admission_snapshot(&store), before);
+        drop(store);
+        let mut store = Store::open(&path, limits()).unwrap();
+        assert_eq!(
+            store.invocation("known").unwrap().runtime_failure_context,
+            Some(context)
+        );
+        responded(&mut store, "oversize");
+        store
+            .trusted_host()
+            .reject_runtime_invocation(
+                "oversize",
+                "bounded cause",
+                json!({"kind":"known","exposure":"P".repeat(4096)}),
+            )
+            .unwrap();
+        assert_eq!(
+            store
+                .invocation("oversize")
+                .unwrap()
+                .runtime_failure_context,
+            Some(serde_json::json!({"kind":"unknown"}))
+        );
+        store.prepare_invocation(spec(&store, "generic")).unwrap();
+        store
+            .reject_invocation("generic", "generic rejection")
+            .unwrap();
+        let legacy = store.invocation("generic").unwrap();
+        assert!(legacy.runtime_failure_context.is_none());
+        let encoded = serde_json::to_value(&legacy).unwrap();
+        assert!(encoded.get("runtime_failure_context").is_none());
+        assert!(serde_json::from_value::<InvocationRecord>(encoded)
+            .unwrap()
+            .runtime_failure_context
+            .is_none());
+    }
+
+    #[test]
+    fn runtime_failure_context_rejection_preserves_lifecycle_and_atomicity() {
+        let (_directory, _path, mut store) = database();
+        store.prepare_invocation(spec(&store, "uncertain")).unwrap();
+        store.dispatch_invocation("uncertain").unwrap();
+        store
+            .mark_invocation_uncertain("uncertain", "lost connection")
+            .unwrap();
+        let before = admission_snapshot(&store);
+        assert!(matches!(
+            store.trusted_host().reject_runtime_invocation(
+                "uncertain",
+                "reject",
+                serde_json::json!({"kind":"unknown"})
+            ),
+            Err(StoreError::ReconciliationRequired)
+        ));
+        assert_eq!(admission_snapshot(&store), before);
+        responded(&mut store, "invalid-detail");
+        let before = admission_snapshot(&store);
+        assert!(store
+            .trusted_host()
+            .reject_runtime_invocation("invalid-detail", "", serde_json::json!({"kind":"unknown"}))
+            .is_err());
+        assert_eq!(admission_snapshot(&store), before);
+    }
+
+    #[test]
+    fn runtime_failure_context_uses_unknown_or_rolls_back_when_reserved_cell_is_tight() {
+        for (id, room, succeeds) in [("fallback", 1024, true), ("rollback", 0, false)] {
+            let (_directory, _path, mut store) = database();
+            responded(&mut store, id);
+            // Synthetic retained-capacity fixture: shrink only this cell and
+            // reconcile its prepaid retention charge. No production path expands it.
+            store
+                .transaction(|work| {
+                    let mut cell = work.cell("invocation", id)?.unwrap();
+                    let old_charge = cell.charge("invocation", id)?;
+                    cell.capacity = cell.data.len() as u64 + room;
+                    let new_charge = cell.charge("invocation", id)?;
+                    let account = work.meta.account_mut(cell.class);
+                    account.consumed.retained_bytes -= old_charge - new_charge;
+                    work.pending.insert(("invocation".into(), id.into()), cell);
+                    Ok(())
+                })
+                .unwrap();
+            let before = admission_snapshot(&store);
+            let ledger = store.ledger().unwrap();
+            let result = store.trusted_host().reject_runtime_invocation(
+                id,
+                "bounded cause",
+                json!({"kind":"known","exposure":"P".repeat(3000)}),
+            );
+            if succeeds {
+                result.unwrap();
+                assert_eq!(store.ledger().unwrap(), ledger);
+                let record = store.invocation(id).unwrap();
+                assert_eq!(record.state, InvocationState::Failed);
+                assert_eq!(
+                    record.runtime_failure_context,
+                    Some(json!({"kind":"unknown"}))
+                );
+            } else {
+                assert!(matches!(result, Err(StoreError::TooLarge)));
+                assert_eq!(
+                    admission_snapshot(&store),
+                    before,
+                    "Failed state, receipt and provenance must roll back together"
+                );
+                assert_eq!(
+                    store.invocation(id).unwrap().state,
+                    InvocationState::Responded
+                );
+            }
+        }
     }
 }

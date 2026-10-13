@@ -221,6 +221,20 @@ pub enum WarningResolutionDisposition {
     Release {},
 }
 
+/// Explicit current-work record collections. Inspection supplies records, never artifact bodies.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkCollection {
+    CurrentCommitments,
+    Assessments,
+    Judgments,
+    Findings,
+    BlockerDispositions,
+    SharedDecisions,
+    Releases,
+    Deliveries,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Operation {
@@ -278,12 +292,27 @@ pub enum Operation {
         id: String,
         reference: ExactRef,
     },
+    /// One bounded page from this invocation's work. Copy returned cursors exactly;
+    /// results become available only through a fresh request's protected observations.
+    InspectWork {
+        id: String,
+        collection: WorkCollection,
+        limit: usize,
+        cursor: Option<String>,
+    },
     Search {
         id: String,
         scope: Scope,
         query: String,
         regex: bool,
         limit: usize,
+    },
+    /// Explicit bounded lexical discovery; continuation is a retained host handle.
+    Discover {
+        id: String,
+        request: crate::files::DiscoveryRequest,
+        limit: usize,
+        cursor: Option<String>,
     },
     Communicate {
         id: String,
@@ -335,6 +364,8 @@ impl Operation {
             | Self::CharacterAdopt { id, .. }
             | Self::Read { id, .. }
             | Self::Search { id, .. }
+            | Self::Discover { id, .. }
+            | Self::InspectWork { id, .. }
             | Self::Communicate { id, .. }
             | Self::Responsibility { id, .. }
             | Self::Assess { id, .. }
@@ -1163,12 +1194,92 @@ fn check_operation(
         Operation::Read { reference, .. } => {
             check_reference(reference, &format!("{path}.reference"))
         }
+        Operation::InspectWork { limit, cursor, .. } => {
+            if !(1..=128).contains(limit) {
+                return Err(invalid(
+                    &format!("{path}.limit"),
+                    "work inspection limit must be 1..128",
+                ));
+            }
+            if let Some(cursor) = cursor {
+                check_id(cursor, &format!("{path}.cursor"))?;
+            }
+            Ok(())
+        }
         Operation::Search { query, limit, .. } => {
             check_text(query, MAX_STRING_BYTES, &format!("{path}.query"))?;
             if !(1..=MAX_SEARCH_LIMIT).contains(limit) {
                 return Err(invalid(
                     &format!("{path}.limit"),
                     "search limit must be positive and bounded",
+                ));
+            }
+            Ok(())
+        }
+        Operation::Discover {
+            request,
+            limit,
+            cursor,
+            ..
+        } => {
+            use crate::files::{Representation, SearchMode, SearchSurface};
+            if !(1..=MAX_SEARCH_LIMIT).contains(limit) {
+                return Err(invalid(
+                    &format!("{path}.limit"),
+                    "discovery limit must be positive and bounded",
+                ));
+            }
+            if let Some(cursor) = cursor {
+                check_id(cursor, &format!("{path}.cursor"))?;
+            }
+            match &request.mode {
+                SearchMode::Listing if request.surface != SearchSurface::Path => {
+                    return Err(invalid(
+                        &format!("{path}.request"),
+                        "listing requires the path surface",
+                    ))
+                }
+                SearchMode::Listing => (),
+                SearchMode::Literal { needle } => check_text(
+                    needle,
+                    MAX_STRING_BYTES,
+                    &format!("{path}.request.mode.needle"),
+                )?,
+                SearchMode::Regex { pattern, .. } => check_text(
+                    pattern,
+                    MAX_STRING_BYTES,
+                    &format!("{path}.request.mode.pattern"),
+                )?,
+            }
+            match &request.surface {
+                SearchSurface::Text {
+                    representation: Representation::JsonString { pointer },
+                } if pointer.len() > MAX_STRING_BYTES => {
+                    return Err(invalid(
+                        &format!("{path}.request.surface"),
+                        "oversized JSON pointer",
+                    ))
+                }
+                SearchSurface::Text {
+                    representation: Representation::Unsupported { .. },
+                } => {
+                    return Err(invalid(
+                        &format!("{path}.request.surface"),
+                        "unsupported representation",
+                    ))
+                }
+                _ => (),
+            }
+            if matches!(
+                &request.mode,
+                SearchMode::Regex {
+                    dialect: crate::files::RegexDialect::Unsupported { .. },
+                    ..
+                }
+            ) {
+                return Err(invalid(
+                    &format!("{path}.request.mode"),
+                    "unsupported regex dialect",
                 ));
             }
             Ok(())
@@ -1937,6 +2048,43 @@ mod tests {
         value["operations"] = json!([effect(
             json!({"empty":"", "nil":null, "flag":false, "number":0})
         )]);
+        assert!(parse(&value).is_ok());
+    }
+
+    #[test]
+    fn discover_is_closed_explicit_and_bounded() {
+        let discover = json!({"kind":"discover","id":"list","request":{
+            "scope":"assets","surface":{"kind":"path"},"mode":{"kind":"listing"},
+            "hidden_paths":"exclude","retirement":"all_retained"
+        },"limit":130,"cursor":null});
+        let mut value = base();
+        value["operations"] = json!([discover.clone()]);
+        assert!(parse(&value).is_ok());
+        for limit in [0, MAX_SEARCH_LIMIT + 1] {
+            value["operations"][0]["limit"] = json!(limit);
+            assert!(parse(&value).is_err());
+        }
+        for (pointer, replacement) in [
+            (
+                "/request/surface",
+                json!({"kind":"text","representation":{"kind":"utf8"}}),
+            ),
+            ("/cursor", json!({"offset":10})),
+            ("/cursor", json!("invalid handle")),
+            (
+                "/request",
+                json!({"scope":"assets","surface":{"kind":"path"},"mode":{"kind":"listing"},
+                "hidden_paths":"include","retirement":"all_retained","automatic":true}),
+            ),
+        ] {
+            value["operations"] = json!([discover.clone()]);
+            *value["operations"][0].pointer_mut(pointer).unwrap() = replacement;
+            assert!(parse(&value).is_err(), "{pointer}");
+        }
+        value["operations"] = json!([discover]);
+        value["operations"][0]["request"]["mode"] =
+            json!({"kind":"regex","pattern":"item-.*","dialect":{"kind":"rust_regex1"}});
+        value["operations"][0]["cursor"] = json!("discovery:retained-handle");
         assert!(parse(&value).is_ok());
     }
 

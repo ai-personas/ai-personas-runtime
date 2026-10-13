@@ -913,7 +913,44 @@ impl DTrace {
                     .observations
                     .get(id)
                     .ok_or("supplied observation not retained")?;
-                if retained.kind != "host_accounting" {
+                if matches!(
+                    retained.kind.as_str(),
+                    "qualified_read" | "selection_repair_read"
+                ) && retained.payload["result"].is_object()
+                {
+                    let payload = &observation["payload"];
+                    d_require(
+                        payload["read_receipt"]
+                            == json!({
+                                "context_bytes": retained.payload["result"]["context_bytes"],
+                                "manifest_sha256": retained.payload["result"]["manifest_sha256"],
+                            }),
+                        "original exact Read receipt mismatch",
+                    )?;
+                    let entries = payload["result"]["entries"]
+                        .as_array()
+                        .ok_or("complete rechecked Read entries absent")?;
+                    for original in retained.payload["result"]["entries"]
+                        .as_array()
+                        .ok_or("retained Read entries absent")?
+                    {
+                        d_require(
+                            entries.iter().any(|entry| {
+                                entry["reference"] == original["reference"]
+                                    && entry["text"] == original["text"]
+                                    && entry["policy"] == original["policy"]
+                            }),
+                            "rechecked Read omitted an original complete body",
+                        )?;
+                    }
+                    d_require(
+                        payload["result"].get("rendered_context").is_none()
+                            && observation["current_required_qualifications"]
+                                .as_array()
+                                .is_some_and(Vec::is_empty),
+                        "Read supplied duplicate qualified body encodings",
+                    )?;
+                } else if retained.kind != "host_accounting" {
                     d_require(
                         observation["payload"] == retained.payload,
                         "actual supplied observation body mismatch",
