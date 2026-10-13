@@ -185,7 +185,11 @@ pub enum ReplyDisposition {
 )]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Scope {
+    /// Reusable own-voice characteristic-bearing prompt parts expressing the
+    /// persona's approach, rather than a store of factual task notes.
     Fragments {},
+    /// Supporting task notes, specifications, knowledge, generic procedures,
+    /// tools, skills, code and data, regardless of author or first-person style.
     Assets {},
 }
 
@@ -680,7 +684,7 @@ fn check_text(value: &str, maximum: usize, path: &str) -> Result<(), ProtocolErr
     Ok(())
 }
 
-fn check_id(value: &str, path: &str) -> Result<(), ProtocolError> {
+pub(crate) fn check_id(value: &str, path: &str) -> Result<(), ProtocolError> {
     if value.is_empty()
         || value.len() > MAX_ID_BYTES
         || value.chars().any(|c| c.is_whitespace() || c.is_control())
@@ -758,7 +762,7 @@ fn check_ids(values: &[String], minimum: usize, path: &str) -> Result<(), Protoc
     Ok(())
 }
 
-fn check_reference(reference: &ExactRef, path: &str) -> Result<(), ProtocolError> {
+pub(crate) fn check_reference(reference: &ExactRef, path: &str) -> Result<(), ProtocolError> {
     check_id(&reference.source, &format!("{path}.source"))?;
     check_revision(&reference.revision, &format!("{path}.revision"))?;
     check_id(&reference.representation, &format!("{path}.representation"))?;

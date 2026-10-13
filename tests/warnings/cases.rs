@@ -1665,3 +1665,47 @@ fn restricted_repair_rejects_both_warning_operations_before_dispatch() {
         );
     }
 }
+
+#[test]
+fn model_evidence_rejects_same_response_qualification_change() {
+    let mut x = warning_fixture();
+    let prepared = x.fixture.prepare("register-before-model-warning");
+    let mut response = decision(&prepared, true);
+    response.next_assets = p::SelectionIntent::Replace {
+        reason: "Select the target and basis; the unused qualification is not selected.".into(),
+        references: vec![reference(&x.target), reference(&x.basis)],
+    };
+    response.operations.push(effect(
+        "register-model-warning-target",
+        WorkAction::PutArtifact {
+            artifact: "model-warning-artifact".into(),
+            base: None,
+            subject: reference(&x.target),
+        },
+        &[],
+    ));
+    assert_eq!(
+        x.fixture.run(&prepared, &response).status,
+        AdoptionStatus::Adopted
+    );
+    let prepared = x.fixture.prepare("warn-and-record-model-evidence");
+    assert!(!prepared
+        .prompt
+        .contains("Explicit qualification supplied in full."));
+    let artifact: ArtifactKey = serde_json::from_value(
+        interface_control(&prepared)["work_artifacts"][0]["artifact"].clone(),
+    )
+    .unwrap();
+    let mut response = warning_response(&prepared, adopt_operation(&x, false));
+    response
+        .operations
+        .push(model_evidence_operation(&artifact));
+    let before = persisted_state(&x.fixture.app);
+    let result = x.fixture.run(&prepared, &response);
+    assert_eq!(result.status, AdoptionStatus::Held);
+    assert!(result
+        .reason
+        .unwrap()
+        .contains("qualification bindings changed"));
+    assert_eq!(persisted_state(&x.fixture.app), before);
+}

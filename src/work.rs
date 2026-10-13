@@ -580,6 +580,14 @@ pub enum Command {
         inputs: BTreeSet<ExactRef>,
         policy: ExactRef,
     },
+    /// The runtime binds this authored judgment to an exact artifact body
+    /// actually supplied to the decision. It grants no independent assurance.
+    RecordModelEvidence {
+        id: RecordId,
+        artifact: ArtifactRef,
+        outcome: OutcomeId,
+        exact: ExactRef,
+    },
     Finding {
         id: RecordId,
         artifact: Option<ArtifactRef>,
@@ -1696,6 +1704,39 @@ fn apply_command(
                             producer: by.clone(),
                             inputs,
                             policy,
+                        },
+                    );
+                }
+                Command::RecordModelEvidence {
+                    id,
+                    artifact,
+                    outcome,
+                    exact,
+                } => {
+                    require(text(&id.0) && exact.valid(), "model evidence identity")?;
+                    require(
+                        artifact_current(w, &artifact),
+                        "model evidence current artifact",
+                    )?;
+                    let criterion = w
+                        .mandate()
+                        .outcomes
+                        .get(&outcome)
+                        .ok_or(WorkError::Missing("model evidence outcome"))?
+                        .criterion
+                        .clone();
+                    if w.evidence.contains_key(&id) {
+                        return Err(WorkError::Conflict);
+                    }
+                    w.evidence.insert(
+                        id.clone(),
+                        EvidenceRecord {
+                            id,
+                            exact,
+                            source: SourceKind::ModelJudgment,
+                            availability: Availability::Available,
+                            artifacts: BTreeSet::from([artifact]),
+                            criteria: BTreeSet::from([criterion]),
                         },
                     );
                 }

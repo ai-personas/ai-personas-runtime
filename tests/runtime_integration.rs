@@ -7539,3 +7539,669 @@ fn preserved_own_asset_does_not_supply_peer_body_until_explicit_read() {
             .as_array()
             .is_some_and(|entries| entries.iter().any(|e| e["text"] == "PEER_SELECTION_BODY"))));
 }
+
+#[test]
+fn imported_source_identifiers_follow_decision_reference_rules() {
+    let mut f = Fixture::new(true);
+    for invalid_source in ["peer draft".to_owned(), "x".repeat(257)] {
+        let before = persisted_state(&f.app);
+        let imported = record(
+            &invalid_source,
+            f::Scope::Assets,
+            "Unreachable source fixture.",
+        );
+        assert!(f
+            .app
+            .import_files("operator", "b", vec![imported], false, NOW)
+            .is_err());
+        assert_eq!(persisted_state(&f.app), before);
+    }
+    let source = "s".repeat(256);
+    let imported = record(&source, f::Scope::Assets, "REACHABLE_BOUNDARY_ASSET");
+    f.app
+        .import_files("operator", "b", vec![imported.clone()], false, NOW)
+        .unwrap();
+    f.accept();
+    let prepared = f.prepare("select-boundary-source");
+    let mut response = decision(&prepared, true);
+    response.next_assets = p::SelectionIntent::Replace {
+        reason: "Inspect the exact permitted imported asset.".into(),
+        references: vec![reference(&imported)],
+    };
+    assert_eq!(f.run(&prepared, &response).status, AdoptionStatus::Adopted);
+    let prepared = f.prepare("boundary-body-supplied");
+    assert!(prepared.prompt.contains("REACHABLE_BOUNDARY_ASSET"));
+}
+
+#[test]
+fn artifact_identifiers_round_trip_through_registration_and_update() {
+    for length in [129, 256] {
+        let mut f = Fixture::new(true);
+        f.accept();
+        let asset = record("identifier-source", f::Scope::Assets, "Exact asset body.");
+        f.app
+            .import_files("operator", "a", vec![asset.clone()], false, NOW)
+            .unwrap();
+        let artifact = "a".repeat(length);
+        let prepared = f.prepare("register-long-artifact");
+        let mut response = decision(&prepared, true);
+        response.operations.push(effect(
+            "register",
+            WorkAction::PutArtifact {
+                artifact: artifact.clone(),
+                base: None,
+                subject: reference(&asset),
+            },
+            &[],
+        ));
+        assert_eq!(f.run(&prepared, &response).status, AdoptionStatus::Adopted);
+        let prepared = f.prepare("update-long-artifact");
+        let key: ArtifactKey = serde_json::from_value(
+            interface_control(&prepared)["work_artifacts"][0]["artifact"].clone(),
+        )
+        .unwrap();
+        assert_eq!(key.id, artifact);
+        let mut response = decision(&prepared, true);
+        response.operations.push(effect(
+            "update",
+            WorkAction::PutArtifact {
+                artifact: artifact.clone(),
+                base: Some(key.clone()),
+                subject: reference(&asset),
+            },
+            &[],
+        ));
+        assert_eq!(f.run(&prepared, &response).status, AdoptionStatus::Adopted);
+        let prepared = f.prepare("updated-long-artifact");
+        assert_eq!(
+            interface_control(&prepared)["work_artifacts"][0]["artifact"]["revision"],
+            key.revision + 1
+        );
+    }
+}
+
+#[test]
+fn accepted_selection_fit_records_instruction_and_schema_measurement() {
+    let mut f = Fixture::new(true);
+    f.accept();
+    let before = f.app.snapshot().unwrap();
+    let fit = before.personas["a"].focus["work"]
+        .selection_fit
+        .as_ref()
+        .unwrap();
+    let measured = fit.fixed_contract_bytes.unwrap();
+    assert!(measured > serde_json::to_vec(&p::decision_schema()).unwrap().len());
+    let prepared = f.prepare("unchanged-fixed-contract");
+    assert_eq!(
+        f.run(&prepared, &decision(&prepared, true)).status,
+        AdoptionStatus::Adopted
+    );
+    let after = f.app.snapshot().unwrap();
+    let fit = after.personas["a"].focus["work"]
+        .selection_fit
+        .as_ref()
+        .unwrap();
+    assert_eq!(fit.fixed_contract_bytes, Some(measured));
+    assert!(fit.ordinary_bytes <= after.config.context_bytes);
+}
+
+const MODEL_NOTE: &str = "Option A favors a small first draft. Option B favors a fuller outline. Cost is unknown. No external verification is claimed.";
+fn model_evidence_fixture(
+    selection: &str,
+    outside_review: bool,
+) -> (Fixture, Prepared, ArtifactKey) {
+    model_evidence_fixture_with_peer(selection, outside_review, false)
+}
+fn model_evidence_fixture_with_peer(
+    selection: &str,
+    outside_review: bool,
+    peer: bool,
+) -> (Fixture, Prepared, ArtifactKey) {
+    let mut original = need();
+    original.request =
+        "Write a brief comparison of two ordinary planning options, stating unknown costs.".into();
+    original.outcomes.get_mut("result").unwrap().criterion =
+        "The exact note compares both options, states cost is unknown, and makes no outside verification claim. An explained judgment of the actual note suffices.".into();
+    if outside_review {
+        original.review_roles.insert(
+            "outside".into(),
+            RoleSpec {
+                terms: "Qualified outside assessment is explicitly required for this fixture."
+                    .into(),
+                funding: "Existing finite fixture allowance.".into(),
+                policy: "No self-assessment substitute.".into(),
+                independence: w::Independence::QualifiedOutside,
+            },
+        );
+        original
+            .outcomes
+            .get_mut("result")
+            .unwrap()
+            .required_reviews
+            .insert("outside".into());
+        original.invitations[0]
+            .terms
+            .review_roles
+            .insert(w::RoleId("outside".into()));
+    }
+    if peer {
+        let mut terms = original.invitations[0].terms.clone();
+        terms.outcomes.clear();
+        terms.review_roles.clear();
+        terms.exact_terms = "Optional contribution without exclusive outcome ownership.".into();
+        original.invitations.push(Invitation {
+            id: "offer-b".into(),
+            to: "b".into(),
+            terms,
+        });
+    }
+    let mut f = Fixture::configured(true, config(), seed("a"), original);
+    f.accept();
+    let prepared = f.prepare("author-model-note");
+    let mut response = decision(&prepared, true);
+    response.asset_maintenance = p::Maintenance::Change {
+        reason: "Retain the exact authored comparison as a supporting asset.".into(),
+        operation_ids: vec!["save-note".into()],
+    };
+    response.operations = vec![
+        write(
+            "save-note",
+            p::Scope::Assets {},
+            "model-note",
+            MODEL_NOTE,
+            None,
+        ),
+        effect(
+            "register-note",
+            WorkAction::PutArtifact {
+                artifact: "model-artifact".into(),
+                base: None,
+                subject: proposed("model-note", "save-note"),
+            },
+            &["save-note"],
+        ),
+    ];
+    if selection != "none" {
+        let mut selected = proposed("model-note", "save-note");
+        if selection == "partial" {
+            selected.start = Some(0);
+            selected.end = Some(6);
+        }
+        response.next_assets = p::SelectionIntent::Replace {
+            reason: "Explicitly choose the exact authored note for the next call.".into(),
+            references: vec![selected],
+        };
+    }
+    assert_eq!(f.run(&prepared, &response).status, AdoptionStatus::Adopted);
+    let prepared = f.prepare("inspect-model-note");
+    let key: ArtifactKey = serde_json::from_value(
+        interface_control(&prepared)["work_artifacts"][0]["artifact"].clone(),
+    )
+    .unwrap();
+    (f, prepared, key)
+}
+fn model_evidence_operation(key: &ArtifactKey) -> p::Operation {
+    effect("record-note-judgment", WorkAction::RecordModelEvidence {
+        id: "model-note-evidence".into(), artifact: key.clone(), outcome: "result".into(),
+        explanation: "I read both named options and the explicit unknown-cost and no-verification statements in the supplied note.".into(),
+        limitations: vec!["This is a model judgment of a text, not execution, measurement, human acceptance or independent assurance.".into()],
+    }, &[])
+}
+fn model_judgment_and_shared(key: &ArtifactKey) -> Vec<p::Operation> {
+    let artifacts = BTreeMap::from([("result".into(), key.clone())]);
+    vec![
+        effect(
+            "judge-note",
+            WorkAction::Judge {
+                id: "model-note-judgment".into(),
+                artifacts: artifacts.clone(),
+                sufficient: true,
+                claims: BTreeMap::from([(
+                    "result".into(),
+                    ClaimInput {
+                        met: true,
+                        explanation: "The actual note satisfies this bounded writing criterion."
+                            .into(),
+                        evidence: set(&["model-note-evidence"]),
+                    },
+                )]),
+                explanation: "Attributed sufficiency judgment under a writing-only criterion."
+                    .into(),
+            },
+            &[],
+        ),
+        effect(
+            "agree-note",
+            WorkAction::DecideShared {
+                id: "model-note-shared".into(),
+                artifacts,
+            },
+            &[],
+        ),
+    ]
+}
+
+#[test]
+fn ordinary_model_evidence_can_complete_an_exact_synthetic_writing_task_without_human_testimony() {
+    let (mut f, prepared, key) = model_evidence_fixture("none", false);
+    assert!(!prepared.prompt.contains(MODEL_NOTE));
+    let source: p::ExactRef =
+        serde_json::from_value(interface_control(&prepared)["work_artifacts"][0]["source"].clone())
+            .unwrap();
+    let mut read = decision(&prepared, true);
+    read.operations.push(p::Operation::Read {
+        id: "read-note".into(),
+        reference: source,
+    });
+    assert_eq!(f.run(&prepared, &read).status, AdoptionStatus::Adopted);
+    let prepared = f.prepare("record-and-judge-note");
+    assert!(prepared.prompt.contains(MODEL_NOTE));
+    let mut response = decision(&prepared, true);
+    response.operations.push(model_evidence_operation(&key));
+    response.operations.extend(model_judgment_and_shared(&key));
+    response.operations.push(effect(
+        "release-note",
+        WorkAction::Release {
+            id: "model-note-release".into(),
+            shared: "model-note-shared".into(),
+        },
+        &[],
+    ));
+    let result = f.run(&prepared, &response);
+    assert_eq!(
+        result.status,
+        AdoptionStatus::Adopted,
+        "{:?}",
+        result.reason
+    );
+    let state = f.app.snapshot().unwrap();
+    assert!(state.work_meta["work"].human_evidence.is_empty());
+    let work = state.board.work(&w::WorkId("work".into())).unwrap();
+    let evidence = &work.evidence[&w::RecordId("model-note-evidence".into())];
+    assert_eq!(evidence.source, w::SourceKind::ModelJudgment);
+    assert_eq!(evidence.artifacts.len(), 1);
+    assert_eq!(evidence.criteria.len(), 1);
+    let record = &state.work_meta["work"].model_evidence["model-note-evidence"];
+    assert_eq!(record["judgment"]["persona"], "a");
+    assert_eq!(record["judgment"]["synthetic"], true);
+    assert_eq!(record["judgment"]["operation"], "record-note-judgment");
+    assert!(
+        record["judgment"]["qualified_subject"]["qualified_bundle_sha256"]
+            .as_str()
+            .is_some()
+    );
+    assert!(record["judgment"]["qualified_subject"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entry| entry["reference"]["source"] == "model-note"
+            && entry["body_sha256"] == s::sha256_bytes(MODEL_NOTE.as_bytes())));
+    assert_eq!(record["judgment"]["invocation"], prepared.request.id);
+    assert_eq!(record["judgment"]["prompt_sha256"], prepared.prompt_sha256);
+    assert_eq!(
+        record["judgment"]["semantic_truth_verified_by_runtime"],
+        false
+    );
+    assert_eq!(record["judgment"]["independent_assurance"], false);
+    assert_eq!(record["judgment"]["execution_or_measurement"], false);
+    assert_eq!(
+        hex::encode(evidence.exact.digest),
+        s::sha256_bytes(&serde_json::to_vec(&record["judgment"]).unwrap())
+    );
+    assert!(!state.board.completion_supported(&w::WorkId("work".into())));
+
+    let prepared = f.prepare("deliver-model-note");
+    assert_eq!(
+        interface_control(&prepared)["model_evidence"]["model-note-evidence"]["record"]["source"],
+        "ModelJudgment"
+    );
+    let mut response = decision(&prepared, true);
+    response.operations.push(effect(
+        "deliver-note",
+        WorkAction::DeliverRelease {
+            release: "model-note-release".into(),
+            recipients: set(&["human"]),
+        },
+        &[],
+    ));
+    assert_eq!(f.run(&prepared, &response).status, AdoptionStatus::Adopted);
+    let state = persisted_state(&f.app);
+    let delivery = state["local_deliveries"]
+        .as_object()
+        .unwrap()
+        .values()
+        .next()
+        .unwrap();
+    assert_eq!(delivery["external_export"], false);
+    let bytes: Vec<u8> = serde_json::from_value(delivery["artifacts"][0]["bytes"].clone()).unwrap();
+    assert_eq!(bytes, MODEL_NOTE.as_bytes());
+    let prepared = f.prepare("close-model-note");
+    let mut response = decision(&prepared, true);
+    response.operations.push(effect(
+        "close-note",
+        WorkAction::CloseGoal {
+            release: "model-note-release".into(),
+        },
+        &[],
+    ));
+    response.continuation = p::Continuation::Stop {
+        reason: "The exact local writing artifact was delivered under the accepted criterion."
+            .into(),
+    };
+    assert_eq!(f.run(&prepared, &response).status, AdoptionStatus::Adopted);
+    let state = f.app.snapshot().unwrap();
+    assert!(state.board.completion_supported(&w::WorkId("work".into())));
+    assert!(state.work_meta["work"].human_evidence.is_empty());
+    assert_eq!(
+        state
+            .board
+            .work(&w::WorkId("work".into()))
+            .unwrap()
+            .evidence
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn model_evidence_rejects_metadata_partial_body_and_same_response_read() {
+    for mode in ["none", "partial", "same-response-read"] {
+        let (mut f, prepared, key) =
+            model_evidence_fixture(if mode == "partial" { "partial" } else { "none" }, false);
+        assert!(!prepared.prompt.contains(MODEL_NOTE));
+        let mut response = decision(&prepared, true);
+        if mode == "same-response-read" {
+            let reference = serde_json::from_value(
+                interface_control(&prepared)["work_artifacts"][0]["source"].clone(),
+            )
+            .unwrap();
+            response.operations.push(p::Operation::Read {
+                id: "not-yet-observed".into(),
+                reference,
+            });
+        }
+        response.operations.push(model_evidence_operation(&key));
+        let before = persisted_state(&f.app);
+        let result = f.run(&prepared, &response);
+        assert_eq!(result.status, AdoptionStatus::Held);
+        assert!(result.reason.unwrap().contains("actually supplied"));
+        assert_eq!(persisted_state(&f.app), before);
+    }
+}
+
+#[test]
+fn model_evidence_invalid_tail_or_outcome_cannot_partially_commit() {
+    for wrong_outcome in [false, true] {
+        let (mut f, prepared, key) = model_evidence_fixture("full", false);
+        let mut response = decision(&prepared, true);
+        let mut evidence = model_evidence_operation(&key);
+        if wrong_outcome {
+            if let p::Operation::Effect { inputs, .. } = &mut evidence {
+                inputs["outcome"] = json!("unadopted-outcome");
+            }
+        }
+        response.operations.push(evidence);
+        response.operations.push(effect(
+            "invalid-late-release",
+            WorkAction::Release {
+                id: "invalid-release".into(),
+                shared: "missing-shared-decision".into(),
+            },
+            &[],
+        ));
+        let before = persisted_state(&f.app);
+        assert_eq!(f.run(&prepared, &response).status, AdoptionStatus::Held);
+        assert_eq!(persisted_state(&f.app), before);
+    }
+}
+
+#[test]
+fn model_evidence_does_not_complete_automatically_or_allow_duplicate_or_forged_provenance() {
+    for forge in [false, true] {
+        let (mut f, prepared, key) = model_evidence_fixture("full", false);
+        let mut response = decision(&prepared, true);
+        response.operations.push(model_evidence_operation(&key));
+        assert_eq!(f.run(&prepared, &response).status, AdoptionStatus::Adopted);
+        let state = f.app.snapshot().unwrap();
+        let work = state.board.work(&w::WorkId("work".into())).unwrap();
+        assert_eq!(work.evidence.len(), 1);
+        assert!(work.judgments.is_empty() && work.shared.is_empty() && work.releases.is_empty());
+        assert!(!state.board.completion_supported(&w::WorkId("work".into())));
+        let prepared = f.prepare("repeat-or-forge-model-evidence");
+        let mut response = decision(&prepared, true);
+        let mut operation = model_evidence_operation(&key);
+        if forge {
+            if let p::Operation::Effect { inputs, .. } = &mut operation {
+                inputs["id"] = json!("forged-evidence");
+                inputs["source_kind"] = json!("HumanJudgment");
+            }
+        }
+        response.operations.push(operation);
+        let before = persisted_state(&f.app);
+        assert_eq!(f.run(&prepared, &response).status, AdoptionStatus::Held);
+        assert_eq!(persisted_state(&f.app), before);
+    }
+}
+
+#[test]
+fn model_evidence_stale_artifact_cannot_use_an_old_supplied_body() {
+    let (mut f, prepared, old) = model_evidence_fixture("full", false);
+    let subject =
+        serde_json::from_value(interface_control(&prepared)["work_artifacts"][0]["source"].clone())
+            .unwrap();
+    let mut response = decision(&prepared, true);
+    response.operations.push(effect(
+        "new-artifact-revision",
+        WorkAction::PutArtifact {
+            artifact: old.id.clone(),
+            base: Some(old.clone()),
+            subject,
+        },
+        &[],
+    ));
+    assert_eq!(f.run(&prepared, &response).status, AdoptionStatus::Adopted);
+    let prepared = f.prepare("reject-stale-model-evidence");
+    assert!(prepared.prompt.contains(MODEL_NOTE));
+    let mut response = decision(&prepared, true);
+    response.operations.push(model_evidence_operation(&old));
+    let before = persisted_state(&f.app);
+    let result = f.run(&prepared, &response);
+    assert_eq!(result.status, AdoptionStatus::Held);
+    assert!(result.reason.unwrap().contains("exact current artifact"));
+    assert_eq!(persisted_state(&f.app), before);
+}
+
+#[test]
+fn model_evidence_cannot_waive_required_outside_review() {
+    let (mut f, prepared, key) = model_evidence_fixture("full", true);
+    let mut response = decision(&prepared, true);
+    response.operations.push(model_evidence_operation(&key));
+    response.operations.push(effect(
+        "self-assessment",
+        WorkAction::Assess {
+            id: "self-assessment".into(),
+            artifact: key.clone(),
+            outcome: "result".into(),
+            role: "outside".into(),
+            evidence: set(&["model-note-evidence"]),
+            passes: true,
+            explanation: "An attributed self-assessment of the actual note.".into(),
+            limitations: vec!["No qualified outside assessor participated.".into()],
+        },
+        &[],
+    ));
+    response.operations.extend(model_judgment_and_shared(&key));
+    let before = persisted_state(&f.app);
+    assert_eq!(f.run(&prepared, &response).status, AdoptionStatus::Held);
+    assert_eq!(persisted_state(&f.app), before);
+}
+
+#[test]
+fn local_delivery_requires_responsibility_accepted_before_its_operation() {
+    for accept_first in [false, true] {
+        let (mut f, prepared, key) = model_evidence_fixture_with_peer("full", false, true);
+        let mut response = decision(&prepared, true);
+        response.operations.push(model_evidence_operation(&key));
+        response.operations.extend(model_judgment_and_shared(&key));
+        response.operations.push(effect(
+            "release-for-peer-delivery",
+            WorkAction::Release {
+                id: "model-note-release".into(),
+                shared: "model-note-shared".into(),
+            },
+            &[],
+        ));
+        assert_eq!(f.run(&prepared, &response).status, AdoptionStatus::Adopted);
+        initialize_interface_peer(&mut f);
+        let prepared = f
+            .app
+            .prepare(
+                PrepareRequest {
+                    id: "peer-delivery".into(),
+                    persona: "b".into(),
+                    work: "work".into(),
+                    profile: Profile::Synthetic,
+                    mode: Mode::Ordinary,
+                },
+                NOW,
+            )
+            .unwrap();
+        let mut response = decision(&prepared, true);
+        response.continuation = p::Continuation::Stop {
+            reason: "Stop after the explicit delivery disposition.".into(),
+        };
+        if accept_first {
+            let control = interface_control(&prepared);
+            let offer = &control["own_pending_offers"][0];
+            response.operations.push(p::Operation::Responsibility {
+                id: offer["id"].as_str().unwrap().into(),
+                work_id: "work".into(),
+                terms_revision: offer["terms_revision"].as_str().unwrap().into(),
+                disposition: "accept".into(),
+                reason: "Voluntarily accept the current contribution terms before delivery.".into(),
+            });
+        }
+        response.operations.push(effect(
+            "peer-deliver-note",
+            WorkAction::DeliverRelease {
+                release: "model-note-release".into(),
+                recipients: set(&["human"]),
+            },
+            &[],
+        ));
+        let before = persisted_state(&f.app);
+        let result = f.run(&prepared, &response);
+        if accept_first {
+            assert_eq!(
+                result.status,
+                AdoptionStatus::Adopted,
+                "{:?}",
+                result.reason
+            );
+            assert_eq!(
+                persisted_state(&f.app)["local_deliveries"]
+                    .as_object()
+                    .unwrap()
+                    .len(),
+                1
+            );
+        } else {
+            assert_eq!(result.status, AdoptionStatus::Held);
+            assert!(result.reason.unwrap().contains("accepted responsibility"));
+            assert_eq!(persisted_state(&f.app), before);
+        }
+    }
+}
+
+#[test]
+fn model_evidence_forward_reference_and_malformed_action_are_rejected_atomically() {
+    for mode in [
+        "forward",
+        "array",
+        "oversized",
+        "blank",
+        "too-many-limitations",
+    ] {
+        let (mut f, prepared, key) = model_evidence_fixture("full", false);
+        let mut response = decision(&prepared, true);
+        if mode == "forward" {
+            response.operations.extend(model_judgment_and_shared(&key));
+        }
+        let mut operation = model_evidence_operation(&key);
+        if let p::Operation::Effect { inputs, .. } = &mut operation {
+            match mode {
+                "array" => inputs["artifact"] = json!([key.id, key.revision, key.digest]),
+                "oversized" => inputs["explanation"] = json!("x".repeat(16_385)),
+                "blank" => inputs["explanation"] = json!(" "),
+                "too-many-limitations" => {
+                    inputs["limitations"] = json!(vec!["Bounded limitation"; 257])
+                }
+                _ => (),
+            }
+        }
+        response.operations.push(operation);
+        let before = persisted_state(&f.app);
+        assert_eq!(f.run(&prepared, &response).status, AdoptionStatus::Held);
+        assert_eq!(persisted_state(&f.app), before);
+    }
+}
+
+#[test]
+fn local_delivery_cannot_forward_reference_a_later_release() {
+    for release_first in [false, true] {
+        let (mut f, prepared, key) = model_evidence_fixture("full", false);
+        let mut response = decision(&prepared, true);
+        response.operations.push(model_evidence_operation(&key));
+        response.operations.extend(model_judgment_and_shared(&key));
+        let release = effect(
+            "release-in-order",
+            WorkAction::Release {
+                id: "ordered-release".into(),
+                shared: "model-note-shared".into(),
+            },
+            &[],
+        );
+        let delivery = effect(
+            "deliver-in-order",
+            WorkAction::DeliverRelease {
+                release: "ordered-release".into(),
+                recipients: set(&["human"]),
+            },
+            &[],
+        );
+        response.operations.extend(if release_first {
+            vec![release, delivery]
+        } else {
+            vec![delivery, release]
+        });
+        let before = persisted_state(&f.app);
+        let result = f.run(&prepared, &response);
+        if release_first {
+            assert_eq!(
+                result.status,
+                AdoptionStatus::Adopted,
+                "{:?}",
+                result.reason
+            );
+            let state = persisted_state(&f.app);
+            assert_eq!(state["local_deliveries"].as_object().unwrap().len(), 1);
+            let prepared = f.prepare("close-after-ordered-delivery");
+            let mut response = decision(&prepared, false);
+            response.operations.push(effect(
+                "close-ordered-goal",
+                WorkAction::CloseGoal {
+                    release: "ordered-release".into(),
+                },
+                &[],
+            ));
+            response.continuation = p::Continuation::Stop {
+                reason: "Close after the retained exact local delivery.".into(),
+            };
+            assert_eq!(f.run(&prepared, &response).status, AdoptionStatus::Adopted);
+        } else {
+            assert_eq!(result.status, AdoptionStatus::Held);
+            assert!(result.reason.unwrap().contains("release must exist before"));
+            assert_eq!(persisted_state(&f.app), before);
+        }
+    }
+}

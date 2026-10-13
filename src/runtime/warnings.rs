@@ -245,6 +245,56 @@ fn supplied_bodies(control: &Value, context: &Value) -> Result<BTreeSet<f::Refer
     Ok(result)
 }
 
+/// Validate exact complete entry bytes and qualification bindings against the
+/// retained host-rendered prompt, not a provenance-only reference inventory.
+pub(super) fn supplied_bundle_proof(
+    prepared: &Prepared,
+    expected: &[f::ContextEntry],
+) -> Result<Value> {
+    fn append(value: &Value, entries: &mut Vec<Value>) {
+        if let Some(values) = value.get("entries").and_then(Value::as_array) {
+            entries.extend(values.iter().cloned());
+        }
+    }
+    fn without_roles(mut entry: Value) -> Value {
+        // A subject may also be selected as another root's qualification. That
+        // role label does not change its bytes or enforced binding restrictions.
+        if let Some(object) = entry.as_object_mut() {
+            object.remove("roles");
+        }
+        entry
+    }
+    let (control, context) = control_and_context(prepared)?;
+    let mut actual = Vec::new();
+    append(&context, &mut actual);
+    if let Some(observations) = control["actual_observations"].as_array() {
+        for observation in observations {
+            if matches!(
+                observation["kind"].as_str(),
+                Some("qualified_read" | "selection_repair_read" | "local_dependency_event")
+            ) {
+                append(&observation["payload"]["result"], &mut actual);
+            }
+            if let Some(bundles) = observation["current_required_qualifications"].as_array() {
+                for bundle in bundles {
+                    append(bundle, &mut actual);
+                }
+            }
+        }
+    }
+    let actual: Vec<_> = actual.into_iter().map(without_roles).collect();
+    let mut proof = Vec::new();
+    for entry in expected {
+        let expected_entry = without_roles(serde_json::to_value(entry)?);
+        require(actual.contains(&expected_entry),
+            "model evidence requires the exact complete body and qualifications actually supplied to this invocation")?;
+        proof.push(json!({"reference":entry.reference,"body_sha256":s::sha256_bytes(entry.text.as_bytes()),
+            "accepted_bindings":entry.accepted_bindings,"binding_restrictions":entry.binding_restrictions,
+            "policy":entry.policy}));
+    }
+    Ok(json!({"qualified_bundle_sha256":digest(expected)?,"entries":proof}))
+}
+
 fn validate_basis(
     state: &State,
     a: &f::Admission,

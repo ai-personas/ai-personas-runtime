@@ -1377,12 +1377,46 @@ impl TrustedHost<'_> {
 }
 
 /// Exclusive execution ownership for cooperating trusted hosts. Retain this
-/// guard through dispatch and terminal disposition. Closing it, unwinding, or
-/// process death releases ownership; the persistent lock file is never removed.
+/// guard through dispatch and terminal disposition. Normal drop and unwinding
+/// explicitly unlock in the acquiring process; the persistent file is never
+/// removed. Abrupt death relies on all inherited descriptors closing or execing.
 /// It does not exclude semantic mutations, which retain their epoch fences.
 #[must_use = "retain execution ownership through transport and terminal disposition"]
 pub struct ExecutionOwner {
     _file: fs::File,
+    acquiring_pid: u32,
+}
+
+impl Drop for ExecutionOwner {
+    fn drop(&mut self) {
+        #[cfg(any(
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "freebsd",
+            target_os = "openbsd",
+            target_os = "netbsd",
+            target_os = "dragonfly"
+        ))]
+        {
+            use std::os::fd::AsRawFd;
+            // A fork child shares the open file description. It must not
+            // unlock an owner still running in its parent. Closing its own
+            // descriptor below is sufficient; only the acquiring process
+            // explicitly releases the shared lock on normal guard drop.
+            if unsafe { libc::getpid() } as u32 == self.acquiring_pid {
+                loop {
+                    if unsafe { libc::flock(self._file.as_raw_fd(), libc::LOCK_UN) } == 0 {
+                        break;
+                    }
+                    if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+                        // Drop cannot report failure. File close remains the
+                        // fallback, with the usual inherited-descriptor limit.
+                        break;
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl ExecutionOwner {
@@ -1428,8 +1462,8 @@ impl ExecutionOwner {
             return Err(StoreError::InsecurePath(path));
         }
         // flock is associated with this open file description, including between
-        // independent connections in one process. CLOEXEC prevents a launched
-        // provider from retaining ownership after its runtime owner disappears.
+        // independent connections in one process. CLOEXEC closes inherited
+        // descriptors on successful exec, not during the pre-exec interval.
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
             let error = std::io::Error::last_os_error();
             if error.kind() == std::io::ErrorKind::WouldBlock {
@@ -1443,6 +1477,11 @@ impl ExecutionOwner {
             }
             return Err(error.into());
         }
+        // Install the releasing guard before any further fallible check.
+        let owner = Self {
+            _file: file,
+            acquiring_pid: unsafe { libc::getpid() } as u32,
+        };
         let linked = fs::symlink_metadata(&path)?;
         if linked.file_type().is_symlink()
             || linked.dev() != metadata.dev()
@@ -1450,7 +1489,7 @@ impl ExecutionOwner {
         {
             return Err(StoreError::InsecurePath(path));
         }
-        Ok(Some(Self { _file: file }))
+        Ok(Some(owner))
     }
 
     #[cfg(not(any(
@@ -4065,6 +4104,127 @@ mod tests {
         let path = directory.path().join("state.sqlite");
         let store = Store::open(&path, limits()).unwrap();
         (directory, path, store)
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn execution_owner_drop_releases_lock_while_pre_exec_child_retains_fd() {
+        // The child only uses async-signal-safe syscalls. The parent owns all
+        // assertions and Store operations; EOF releases the child on unwind.
+        struct ChildHolder {
+            pid: libc::pid_t,
+            gate: libc::c_int,
+        }
+        impl ChildHolder {
+            fn release_and_reap(&mut self) -> std::io::Result<i32> {
+                if self.gate >= 0 {
+                    // shutdown affects inherited copies too; a concurrent fork
+                    // must not prolong this test's EOF release signal.
+                    unsafe { libc::shutdown(self.gate, libc::SHUT_WR) };
+                    unsafe { libc::close(self.gate) };
+                    self.gate = -1;
+                }
+                if self.pid <= 0 {
+                    return Ok(0);
+                }
+                loop {
+                    let mut status = 0;
+                    let result = unsafe { libc::waitpid(self.pid, &mut status, 0) };
+                    if result == self.pid {
+                        self.pid = 0;
+                        return Ok(status);
+                    }
+                    let error = std::io::Error::last_os_error();
+                    if error.kind() != std::io::ErrorKind::Interrupted {
+                        return Err(error);
+                    }
+                }
+            }
+        }
+        impl Drop for ChildHolder {
+            fn drop(&mut self) {
+                let _ = self.release_and_reap();
+            }
+        }
+        let (_directory, path, mut store) = database();
+        let owner = store.acquire_execution_owner().unwrap();
+        let mut gate = [-1; 2];
+        assert_eq!(
+            unsafe {
+                libc::socketpair(
+                    libc::AF_UNIX,
+                    libc::SOCK_STREAM | libc::SOCK_CLOEXEC,
+                    0,
+                    gate.as_mut_ptr(),
+                )
+            },
+            0
+        );
+        let pid = unsafe { libc::fork() };
+        if pid == 0 {
+            unsafe {
+                libc::close(gate[1]);
+                libc::alarm(10);
+                let mut byte = 0u8;
+                loop {
+                    let result = libc::read(gate[0], (&mut byte as *mut u8).cast(), 1);
+                    if result == 0 {
+                        libc::_exit(0); // Only the parent's gate closure succeeds.
+                    }
+                    if result < 0 && *libc::__errno_location() == libc::EINTR {
+                        continue;
+                    }
+                    libc::_exit(1);
+                }
+            }
+        }
+        if pid < 0 {
+            unsafe {
+                libc::close(gate[0]);
+                libc::close(gate[1]);
+            }
+            panic!("fork failed: {}", std::io::Error::last_os_error());
+        }
+        unsafe { libc::close(gate[0]) };
+        let mut child = ChildHolder { pid, gate: gate[1] };
+        assert!(ExecutionOwner::try_acquire(&path).unwrap().is_none());
+        drop(owner);
+        let replacement = store.acquire_execution_owner().unwrap();
+        assert!(ExecutionOwner::try_acquire(&path).unwrap().is_none());
+        let status = child.release_and_reap().unwrap();
+        assert!(libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0);
+        // A watchdog expiry or interrupted/error read cannot falsely pass by
+        // closing the inherited descriptor before the parent's guard drop.
+        // Closing the old inherited descriptor cannot release the new owner's
+        // independent open file description.
+        assert!(ExecutionOwner::try_acquire(&path).unwrap().is_none());
+        drop(replacement);
+        assert!(ExecutionOwner::try_acquire(&path).unwrap().is_some());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn execution_owner_from_another_pid_closes_without_unlocking_shared_description() {
+        use std::os::fd::{AsRawFd, FromRawFd};
+        let (_directory, path, mut store) = database();
+        let mut owner = store.acquire_execution_owner().unwrap();
+        let duplicate = unsafe { libc::dup(owner._file.as_raw_fd()) };
+        assert!(duplicate >= 0);
+        let inherited_description = unsafe { fs::File::from_raw_fd(duplicate) };
+        // Model the PID distinction without running Rust destructors in a
+        // forked multithreaded test harness.
+        owner.acquiring_pid = owner.acquiring_pid.wrapping_add(1);
+        drop(owner);
+        assert!(ExecutionOwner::try_acquire(&path).unwrap().is_none());
+        // This synthetic foreign-PID guard deliberately skipped owner release.
+        // Other tests may fork this duplicate too, so explicitly release it for
+        // cleanup rather than assuming our close is the last descriptor.
+        assert_eq!(
+            unsafe { libc::flock(inherited_description.as_raw_fd(), libc::LOCK_UN) },
+            0
+        );
+        drop(inherited_description);
+        assert!(ExecutionOwner::try_acquire(&path).unwrap().is_some());
     }
 
     fn object(id: &str, revision: u64, value: i64) -> StoredObject {
