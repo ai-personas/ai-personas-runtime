@@ -2634,6 +2634,10 @@ fn withdrawal_withholds_entire_optional_bundle_and_blocks_exposed_old_response()
 fn assert_only_navigation_charged(mut before: s::LedgerReport, after: s::LedgerReport) {
     assert!(after.ordinary.consumed.navigation_bytes >= before.ordinary.consumed.navigation_bytes);
     before.ordinary.consumed.navigation_bytes = after.ordinary.consumed.navigation_bytes;
+    // Immutable terminal lookup on exact recovery/replay uses the finite
+    // protected navigation account. All other counters still must be equal.
+    assert!(after.closeout.consumed.navigation_bytes >= before.closeout.consumed.navigation_bytes);
+    before.closeout.consumed.navigation_bytes = after.closeout.consumed.navigation_bytes;
     assert_eq!(before, after);
 }
 
@@ -3737,6 +3741,14 @@ fn receipt_replay_keeps_exact_bytes_and_never_rebases_a_concurrent_mutation() {
         );
         assert_eq!(f.app.epoch().unwrap(), prepared.epoch);
         let terminal = f.app.terminal_evidence("terminal-boundary").unwrap();
+        assert_eq!(
+            terminal.body["response_body"]["text"]
+                .as_str()
+                .unwrap()
+                .as_bytes(),
+            bytes.as_slice()
+        );
+        assert_eq!(terminal.body["response_body"]["sha256"], hash);
         let reference = terminal.exact_ref().unwrap();
         fault
             .execute_batch("DROP TRIGGER terminal_boundary_fault")
@@ -3868,11 +3880,22 @@ fn complete_wrong_headers_are_journaled_held_and_explicitly_recoverable() {
         f.app = Runtime::open(&root).unwrap();
         f.app.resume("operator", "a", "work").unwrap();
         let next = f.prepare("recovered-header");
-        assert!(next.prompt.contains(if wrong_id {
+        let private_reason = if wrong_id {
             "response invocation identity mismatch"
         } else {
             "response epoch mismatch"
-        }));
+        };
+        assert!(report.reason.as_deref().unwrap().contains(private_reason));
+        assert!(inv
+            .history
+            .last()
+            .unwrap()
+            .detail
+            .as_deref()
+            .unwrap()
+            .contains(private_reason));
+        assert!(!next.prompt.contains(private_reason));
+        assert!(next.prompt.contains("private_invocation_history_only"));
         assert!(f.app.ledger().unwrap().ordinary.uncertain.output_bytes > 0);
     }
 }
@@ -3967,6 +3990,561 @@ fn read_and_self_message_have_distinct_immutable_observation_ids() {
     assert!(serde_json::to_string(&message.payload)
         .unwrap()
         .contains("MESSAGE SENTINEL"));
+}
+
+fn diagnostic_slot(app: &Runtime, id: &str) -> (Value, u64) {
+    let key = format!("terminal:{}", s::sha256_bytes(id.as_bytes()));
+    let (_, cells) = closeout_snapshot(app.state_root());
+    let cell = cells
+        .into_iter()
+        .find(|cell| cell.0 == "terminal_evidence" && cell.1 == key)
+        .unwrap();
+    (serde_json::from_slice(&cell.2).unwrap(), cell.3 as u64)
+}
+
+#[test]
+fn held_decision_retains_exact_private_body_without_partial_adoption_after_reopen() {
+    for ownership_conflict in [false, true] {
+        let mut f = Fixture::new(true);
+        f.accept();
+        let foreign = record(
+            "diagnostic-foreign",
+            f::Scope::Assets,
+            "Existing foreign material.",
+        );
+        f.app
+            .import_files("operator", "b", vec![foreign.clone()], false, NOW)
+            .unwrap();
+        let prepared = f.prepare("diagnostic-held");
+        let mut d = decision(&prepared, true);
+        let private = "PRIVATE_EXACT_OPERATION quote \" backslash \\ and λ\n";
+        d.operations.push(write(
+            "candidate-write",
+            p::Scope::Assets {},
+            "diagnostic-candidate",
+            private,
+            None,
+        ));
+        d.operations.push(p::Operation::Communicate {
+            id: "candidate-message".into(),
+            recipient: "human".into(),
+            subject: "Unaccepted fixture proposal".into(),
+            text: private.into(),
+        });
+        let mut mutations = vec!["candidate-write".into()];
+        if ownership_conflict {
+            d.operations.push(write(
+                "foreign-write",
+                p::Scope::Assets {},
+                &foreign.source,
+                private,
+                Some(foreign.revision.clone()),
+            ));
+            mutations.push("foreign-write".into());
+        } else {
+            d.operations.push(p::Operation::Effect {
+                id: "unavailable-effect".into(),
+                capability_id: "unavailable.fixture".into(),
+                binding_revision: "fixture-binding".into(),
+                inputs: Value::Null,
+                depends_on: vec![],
+            });
+        }
+        d.asset_maintenance = p::Maintenance::Change {
+            reason: "Account for every proposed asset mutation.".into(),
+            operation_ids: mutations,
+        };
+        d.reply = p::ReplyDisposition::Authored {
+            audience: vec!["human".into()],
+            text: private.into(),
+        };
+        let encoded = serde_json::to_string(&d).unwrap().replace('λ', "\\u03bb");
+        let raw = format!(" \r\n{encoded}\t ");
+        assert_eq!(
+            p::parse_decision(raw.as_bytes(), config().response_bytes).unwrap(),
+            d
+        );
+        let hash = s::sha256_bytes(raw.as_bytes());
+        let state_before = persisted_state(&f.app);
+        let ledger_before = f.app.ledger().unwrap();
+        let slot_before = diagnostic_slot(&f.app, &prepared.request.id);
+        assert!(slot_before.0["object"].is_null());
+        f.app.dispatch_synthetic(&prepared.request.id, NOW).unwrap();
+        let report = f
+            .app
+            .adopt_response(&prepared.request.id, raw.as_bytes(), NOW)
+            .unwrap();
+        assert_eq!(report.status, AdoptionStatus::Held);
+        assert!(report.applied.is_empty());
+        assert!(report
+            .reason
+            .as_ref()
+            .unwrap()
+            .contains(if ownership_conflict {
+                "ownership"
+            } else {
+                "capability"
+            }));
+        assert_eq!(persisted_state(&f.app), state_before);
+        assert!(f.app.adopted(&prepared.request.id).is_err());
+        let inv = f.app.invocation(&prepared.request.id).unwrap();
+        assert_eq!(inv.state, s::InvocationState::Failed);
+        assert_eq!(inv.response_hash.as_deref(), Some(hash.as_str()));
+        let terminal = f.app.terminal_evidence(&prepared.request.id).unwrap();
+        let body = &terminal.body["response_body"];
+        assert_eq!(body["text"].as_str().unwrap().as_bytes(), raw.as_bytes());
+        assert_eq!(body["bytes"], raw.len());
+        assert_eq!(body["sha256"], hash);
+        assert_eq!(body["kind"], "decision_json");
+        assert_eq!(terminal.body["prepare_hash"], inv.prepare_hash);
+        assert_eq!(terminal.body["invocation_id"], prepared.request.id);
+        assert_eq!(terminal.body["prepared_epoch"], prepared.epoch);
+        assert_eq!(terminal.body["prompt_sha256"], prepared.prompt_sha256);
+        assert_eq!(
+            inv.history
+                .iter()
+                .find(|r| r.status == s::ReceiptStatus::Responded)
+                .unwrap()
+                .evidence,
+            Some(terminal.exact_ref().unwrap())
+        );
+        let slot_after = diagnostic_slot(&f.app, &prepared.request.id);
+        assert_eq!(slot_after.1, slot_before.1);
+        assert_eq!(
+            slot_after.0["max_object_bytes"],
+            slot_before.0["max_object_bytes"]
+        );
+        assert!(serde_json::to_vec(&slot_after.0).unwrap().len() as u64 <= slot_after.1);
+        let ledger_after = f.app.ledger().unwrap();
+        assert_eq!(ledger_after.limits, ledger_before.limits);
+        assert_eq!(
+            ledger_after.permanent_records,
+            ledger_before.permanent_records
+        );
+        assert_eq!(
+            ledger_after.ordinary.consumed.attempts,
+            ledger_before.ordinary.consumed.attempts
+        );
+        assert_eq!(
+            ledger_after.ordinary.consumed.retained_bytes,
+            ledger_before.ordinary.consumed.retained_bytes
+        );
+        assert_eq!(
+            ledger_after
+                .ordinary
+                .reserved
+                .checked_add(ledger_after.ordinary.uncertain)
+                .unwrap(),
+            ledger_before
+                .ordinary
+                .reserved
+                .checked_add(ledger_before.ordinary.uncertain)
+                .unwrap()
+        );
+        let root = f.app.state_root().to_owned();
+        drop(f.app);
+        f.app = Runtime::open(&root).unwrap();
+        assert_eq!(persisted_state(&f.app), state_before);
+        assert_eq!(f.app.invocation(&prepared.request.id).unwrap(), inv);
+        assert_eq!(
+            f.app.terminal_evidence(&prepared.request.id).unwrap(),
+            terminal
+        );
+        f.app.resume("operator", "a", "work").unwrap();
+        let resumed = persisted_state(&f.app);
+        assert_eq!(resumed["work_meta"], state_before["work_meta"]);
+        let recovery = resumed["observations"]
+            .as_object()
+            .unwrap()
+            .values()
+            .find(|o| o["kind"] == "terminal_recovery" && o["invocation"] == prepared.request.id)
+            .unwrap();
+        assert!(recovery["payload"]["terminal"]["response_body"]
+            .get("text")
+            .is_none());
+        assert_eq!(
+            recovery["payload"]["terminal"]["response_body"]["availability"],
+            "private_terminal_only"
+        );
+        assert_eq!(
+            recovery["payload"]["terminal_evidence"],
+            json!(terminal.exact_ref().unwrap())
+        );
+        assert!(!serde_json::to_string(&resumed)
+            .unwrap()
+            .contains("PRIVATE_EXACT_OPERATION"));
+        assert_eq!(
+            f.app.terminal_evidence(&prepared.request.id).unwrap(),
+            terminal
+        );
+    }
+}
+
+#[test]
+fn terminal_slot_prepays_escaping_and_oversize_ingress_cannot_fill_or_expand_it() {
+    let mut f = Fixture::new(true);
+    f.accept();
+    let prepared = f.prepare("diagnostic-size");
+    let maximum = config().response_bytes;
+    assert_eq!(prepared.terminal_response_bytes, Some(maximum));
+    let (slot, cell_capacity) = diagnostic_slot(&f.app, &prepared.request.id);
+    let object_capacity = 65_536 + 6 * maximum as u64 + 1024;
+    assert_eq!(slot["max_object_bytes"], object_capacity);
+    assert_eq!(cell_capacity, object_capacity + 16 * 1024);
+    assert_eq!(object_capacity, 263_168);
+    assert_eq!(2 * (cell_capacity + 17 + 73 + 128), 559_540);
+    let mut d = decision(&prepared, true);
+    d.reply = p::ReplyDisposition::Authored {
+        audience: vec!["human".into()],
+        text: "quote \" slash \\ λ\n".repeat(512),
+    };
+    d.operations.push(p::Operation::Effect {
+        id: "bounded-unavailable".into(),
+        capability_id: "unavailable.fixture".into(),
+        binding_revision: "fixture-binding".into(),
+        inputs: Value::Null,
+        depends_on: vec![],
+    });
+    let mut raw = serde_json::to_string(&d).unwrap();
+    assert!(raw.len() < maximum);
+    raw.push_str(&"\t".repeat(maximum - raw.len()));
+    assert_eq!(raw.len(), maximum);
+    assert!(p::parse_decision(raw.as_bytes(), maximum).is_ok());
+    let state_before = persisted_state(&f.app);
+    f.app.dispatch_synthetic(&prepared.request.id, NOW).unwrap();
+    for length in [maximum + 1, 262_145] {
+        let mut oversized = raw.clone();
+        oversized.push_str(&" ".repeat(length - oversized.len()));
+        let mut before = closeout_snapshot(f.app.state_root());
+        assert!(f
+            .app
+            .adopt_response(&prepared.request.id, oversized.as_bytes(), NOW)
+            .is_err());
+        let after = closeout_snapshot(f.app.state_root());
+        for class in ["ordinary", "closeout"] {
+            let previous = before.0[class]["consumed"]["navigation_bytes"]
+                .as_u64()
+                .unwrap();
+            let current = after.0[class]["consumed"]["navigation_bytes"]
+                .as_u64()
+                .unwrap();
+            assert!(current >= previous);
+            before.0[class]["consumed"]["navigation_bytes"] = json!(current);
+        }
+        assert_eq!(before, after);
+        assert_eq!(
+            diagnostic_slot(&f.app, &prepared.request.id),
+            (slot.clone(), cell_capacity)
+        );
+        let inv = f.app.invocation(&prepared.request.id).unwrap();
+        assert_eq!(inv.state, s::InvocationState::Dispatched);
+        assert!(inv.response_hash.is_none());
+        assert_eq!(persisted_state(&f.app), state_before);
+    }
+    let retained_before = f.app.ledger().unwrap().ordinary.consumed.retained_bytes;
+    assert_eq!(
+        f.app
+            .adopt_response(&prepared.request.id, raw.as_bytes(), NOW)
+            .unwrap()
+            .status,
+        AdoptionStatus::Held
+    );
+    let terminal = f.app.terminal_evidence(&prepared.request.id).unwrap();
+    assert_eq!(
+        terminal.body["response_body"]["text"]
+            .as_str()
+            .unwrap()
+            .as_bytes(),
+        raw.as_bytes()
+    );
+    assert_eq!(
+        terminal.body["response_body"]["sha256"],
+        s::sha256_bytes(raw.as_bytes())
+    );
+    let serialized = serde_json::to_vec(&terminal).unwrap().len() as u64;
+    assert!(serialized > maximum as u64);
+    assert!(serialized <= object_capacity);
+    let filled = diagnostic_slot(&f.app, &prepared.request.id);
+    assert_eq!(filled.1, cell_capacity);
+    assert!(serde_json::to_vec(&filled.0).unwrap().len() as u64 <= cell_capacity);
+    assert_eq!(
+        f.app.ledger().unwrap().ordinary.consumed.retained_bytes,
+        retained_before
+    );
+    assert_eq!(persisted_state(&f.app), state_before);
+}
+
+#[test]
+fn complete_response_is_durable_before_ordinary_state_read_exhaustion() {
+    let mut f = Fixture::new(true);
+    f.accept();
+    let prepared = f.prepare("completion-before-state-read");
+    let root = f.app.state_root().to_owned();
+    let mut host =
+        s::Store::open_for_inspection(&root.join("state.sqlite3"), storage_limits()).unwrap();
+    f.app.dispatch_synthetic(&prepared.request.id, NOW).unwrap();
+    let invocation = f.app.invocation(&prepared.request.id).unwrap();
+    // Exhaust the complete ordinary navigation allowance through a real finite
+    // reservation. Protected terminal reads and the prepaid slot remain available.
+    exhaust_control_navigation(&mut host, s::BudgetClass::Ordinary);
+    let before = persisted_state(&f.app);
+    let raw = serde_json::to_vec(&decision(&prepared, true)).unwrap();
+    assert!(f
+        .app
+        .adopt_response(&prepared.request.id, &raw, NOW)
+        .is_err());
+    let terminal = f.app.terminal_evidence(&prepared.request.id).unwrap();
+    assert_eq!(
+        terminal.body["response_body"]["text"]
+            .as_str()
+            .unwrap()
+            .as_bytes(),
+        raw
+    );
+    let completed = host
+        .trusted_host()
+        .invocation(&prepared.request.id)
+        .unwrap();
+    assert_eq!(completed.state, s::InvocationState::Responded);
+    assert_eq!(completed.response_hash, Some(s::sha256_bytes(&raw)));
+    assert_eq!(persisted_state(&f.app), before);
+    assert_eq!(
+        host.trusted_host()
+            .reservation(&invocation.reservation)
+            .unwrap()
+            .state,
+        s::ReservationState::Reserved
+    );
+    drop(host);
+    drop(f.app);
+    let mut reopened = Runtime::open_for_closeout(&root).unwrap();
+    assert_eq!(
+        reopened.terminal_evidence(&prepared.request.id).unwrap(),
+        terminal
+    );
+}
+
+#[test]
+fn legacy_unfilled_metadata_slot_completes_large_response_without_expansion() {
+    let mut f = Fixture::new(true);
+    f.accept();
+    let mut donor = Fixture::new(true);
+    donor.accept();
+    let mut prepared = donor.prepare("legacy-unfilled-slot");
+    prepared.terminal_response_bytes = None;
+    let root = f.app.state_root().to_owned();
+    let old = closeout_head(&root);
+    let new = closeout_head(donor.app.state_root());
+    assert_eq!(new.revision, old.revision + 1);
+    let mut host =
+        s::Store::open_for_inspection(&root.join("state.sqlite3"), storage_limits()).unwrap();
+    let donor_inv = donor.app.invocation(&prepared.request.id).unwrap();
+    let reservation: s::ReservationRecord = adoption_accounting_record(
+        donor.app.state_root(),
+        "reservation",
+        &format!("v:{}", donor_inv.id),
+    );
+    host.prepare_invocation_with_changes(
+        f.app.epoch().unwrap(),
+        vec![s::Change {
+            expected_revision: Some(old.revision),
+            object: new,
+            depends_on: Vec::new(),
+        }],
+        s::InvocationSpec {
+            id: prepared.request.id.clone(),
+            expected_epoch: prepared.epoch,
+            request: serde_json::to_value(&prepared).unwrap(),
+            reservation: reservation.amount,
+            class: s::BudgetClass::Ordinary,
+        },
+        vec![s::TerminalEvidenceReservation {
+            id: format!(
+                "terminal:{}",
+                s::sha256_bytes(prepared.request.id.as_bytes())
+            ),
+            max_object_bytes: 65_536,
+            class: s::BudgetClass::Ordinary,
+        }],
+    )
+    .unwrap();
+    let stored = f.app.invocation(&prepared.request.id).unwrap();
+    assert!(stored
+        .request
+        .as_ref()
+        .unwrap()
+        .get("terminal_response_bytes")
+        .is_none());
+    let (_, capacity) = diagnostic_slot(&f.app, &prepared.request.id);
+    assert_eq!(capacity, 65_536 + 16_384);
+    f.app.dispatch_synthetic(&prepared.request.id, NOW).unwrap();
+    let mut response = decision(&prepared, true);
+    response.epoch += 1;
+    // Leading JSON whitespace is authored, bounded data; no large prose limit is bypassed.
+    let raw = format!(
+        "{}{}",
+        " ".repeat(100_000),
+        serde_json::to_string(&response).unwrap()
+    );
+    let retained = f.app.ledger().unwrap().ordinary.consumed.retained_bytes;
+    assert_eq!(
+        f.app
+            .adopt_response(&prepared.request.id, raw.as_bytes(), NOW)
+            .unwrap()
+            .status,
+        AdoptionStatus::Held
+    );
+    let terminal = f.app.terminal_evidence(&prepared.request.id).unwrap();
+    assert!(terminal.body.get("response_body").is_none());
+    assert_eq!(
+        terminal.body["receipt"]["inner_sha256"],
+        s::sha256_bytes(raw.as_bytes())
+    );
+    assert_eq!(diagnostic_slot(&f.app, &prepared.request.id).1, capacity);
+    assert_eq!(
+        f.app.ledger().unwrap().ordinary.consumed.retained_bytes,
+        retained
+    );
+    f.app.resume("operator", "a", "work").unwrap();
+    let next = f.prepare("after-legacy-unfilled-slot");
+    assert!(interface_control(&next)["actual_observations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|o| o["payload"]["terminal"]["response_body"]["availability"] == "unavailable"));
+}
+
+#[test]
+fn legacy_metadata_only_terminal_is_replayed_unchanged_and_reported_unavailable() {
+    let mut f = Fixture::new(true);
+    f.accept();
+    let prepared = f.prepare("legacy-diagnostic");
+    let mut legacy_request = serde_json::to_value(&prepared).unwrap();
+    legacy_request
+        .as_object_mut()
+        .unwrap()
+        .remove("terminal_response_bytes");
+    let legacy: Prepared = serde_json::from_value(legacy_request.clone()).unwrap();
+    assert!(legacy.terminal_response_bytes.is_none());
+    assert_eq!(serde_json::to_value(legacy).unwrap(), legacy_request);
+    let mut d = decision(&prepared, true);
+    d.epoch += 1;
+    let raw = serde_json::to_vec(&d).unwrap();
+    let hash = s::sha256_bytes(&raw);
+    let root = f.app.state_root().to_owned();
+    let mut host =
+        s::Store::open_for_inspection(&root.join("state.sqlite3"), storage_limits()).unwrap();
+    f.app.dispatch_synthetic(&prepared.request.id, NOW).unwrap();
+    let inv = f.app.invocation(&prepared.request.id).unwrap();
+    let original = s::StoredObject {
+        id: format!(
+            "terminal:{}",
+            s::sha256_bytes(prepared.request.id.as_bytes())
+        ),
+        revision: 1,
+        kind: "runtime-terminal-transport".into(),
+        body: json!({
+            "invocation_id":prepared.request.id,"prepared_epoch":prepared.epoch,
+            "prompt_sha256":prepared.prompt_sha256,
+            "receipt":{"kind":"synthetic_complete","synthetic":true,
+                "inner_sha256":hash,"transport_sha256":hash,
+                "response_bytes":raw.len(),"provider_usage":"unknown"}
+        }),
+    };
+    let completion = host
+        .trusted_host()
+        .complete_invocation_transport(
+            &prepared.request.id,
+            &inv.prepare_hash,
+            &hash,
+            original.clone(),
+            |bound, observed| {
+                assert_eq!(bound.request, inv.request);
+                assert_eq!(observed, &original);
+                Ok(())
+            },
+        )
+        .unwrap();
+    let state_before = persisted_state(&f.app);
+    let retained_before = f.app.ledger().unwrap().ordinary.consumed.retained_bytes;
+    assert_eq!(
+        f.app
+            .adopt_response(&prepared.request.id, &raw, NOW)
+            .unwrap()
+            .status,
+        AdoptionStatus::Held
+    );
+    assert_eq!(persisted_state(&f.app), state_before);
+    assert_eq!(
+        f.app.terminal_evidence(&prepared.request.id).unwrap(),
+        original
+    );
+    assert!(original.body.get("response_body").is_none());
+    assert_eq!(
+        f.app.ledger().unwrap().ordinary.consumed.retained_bytes,
+        retained_before
+    );
+    let closed = f.app.invocation(&prepared.request.id).unwrap();
+    assert_eq!(
+        closed
+            .history
+            .iter()
+            .find(|r| r.status == s::ReceiptStatus::Responded),
+        Some(&completion)
+    );
+    drop(host);
+    drop(f.app);
+    f.app = Runtime::open(&root).unwrap();
+    assert_eq!(f.app.invocation(&prepared.request.id).unwrap(), closed);
+    assert_eq!(
+        f.app.terminal_evidence(&prepared.request.id).unwrap(),
+        original
+    );
+    assert_eq!(persisted_state(&f.app), state_before);
+    f.app
+        .acknowledge_complete_rejection(
+            "operator",
+            &prepared.request.id,
+            original.exact_ref().unwrap(),
+        )
+        .unwrap();
+    f.app.resume("operator", "a", "work").unwrap();
+    let resumed = persisted_state(&f.app);
+    assert_eq!(resumed["work_meta"], state_before["work_meta"]);
+    let recovery = resumed["observations"]
+        .as_object()
+        .unwrap()
+        .values()
+        .find(|o| o["kind"] == "terminal_recovery" && o["invocation"] == prepared.request.id)
+        .unwrap();
+    assert_eq!(
+        recovery["payload"]["terminal"]["response_body"],
+        json!({"availability":"unavailable"})
+    );
+    assert_eq!(
+        f.app.terminal_evidence(&prepared.request.id).unwrap(),
+        original
+    );
+    let next = f.prepare("fresh-diagnostic");
+    assert_eq!(next.terminal_response_bytes, Some(config().response_bytes));
+    let after = persisted_state(&f.app);
+    assert_eq!(
+        after["work_meta"]["work"]["attempts_left"]
+            .as_u64()
+            .unwrap(),
+        resumed["work_meta"]["work"]["attempts_left"]
+            .as_u64()
+            .unwrap()
+            - 1
+    );
+    assert_eq!(
+        diagnostic_slot(&f.app, &next.request.id).0["max_object_bytes"],
+        263_168
+    );
+    assert_eq!(
+        f.app.terminal_evidence(&prepared.request.id).unwrap(),
+        original
+    );
 }
 
 #[test]
@@ -4106,9 +4684,15 @@ async fn actual_application_transport_uses_carrier_and_retains_terminal_failures
         "correct",
         "wrong-id",
         "wrong-epoch",
+        "held-interface",
         "malformed-inner",
+        "empty-inner",
+        "escaped-malformed-inner",
         "wrong-carrier",
         "duplicate-outer",
+        "malformed-outer",
+        "malformed-outer-changed-executable",
+        "malformed-outer-cleanup",
         "native",
     ] {
         let mut f = live_fixture();
@@ -4123,16 +4707,68 @@ async fn actual_application_transport_uses_carrier_and_retains_terminal_failures
         if mode == "wrong-epoch" {
             d.epoch += 1;
         }
+        if mode == "held-interface" {
+            d.operations.push(write(
+                "held-write",
+                p::Scope::Assets {},
+                "held-transport-source",
+                "PRIVATE TRANSPORT OPERATION \"\\λ",
+                None,
+            ));
+            d.asset_maintenance = p::Maintenance::Change {
+                reason: "Account for the proposed save.".into(),
+                operation_ids: vec!["held-write".into()],
+            };
+            d.operations.push(p::Operation::Communicate {
+                id: "held-message".into(),
+                recipient: "human".into(),
+                subject: "Unaccepted transport proposal".into(),
+                text: "PRIVATE TRANSPORT OPERATION \"\\λ".into(),
+            });
+            d.operations.push(p::Operation::Effect {
+                id: "held-interface".into(),
+                capability_id: "unavailable.fixture".into(),
+                binding_revision: "fixture-binding".into(),
+                inputs: Value::Null,
+                depends_on: vec![],
+            });
+        }
         let inner = format!(" \n{}\n", serde_json::to_string(&d).unwrap());
         let outer = match mode {
             "malformed-inner" => {
                 serde_json::to_string(&json!({"decision_json":"{\"version\":1}"})).unwrap()
             }
+            "empty-inner" => serde_json::to_string(&json!({"decision_json":""})).unwrap(),
+            "escaped-malformed-inner" => serde_json::to_string(&json!({
+                "decision_json":"\0\"\\λ".repeat(128)
+            }))
+            .unwrap(),
             "wrong-carrier" => "{\"response\":\"{}\"}".into(),
             "duplicate-outer" => "{\"decision_json\":\"{}\",\"decision_json\":\"{}\"}".into(),
+            "malformed-outer"
+            | "malformed-outer-changed-executable"
+            | "malformed-outer-cleanup" => "{invalid final carrier".into(),
             _ => serde_json::to_string(&json!({"decision_json":inner})).unwrap(),
         };
-        let (settings, working) = transport_fixture(&f, &outer, mode == "native");
+        let (mut settings, working) = transport_fixture(&f, &outer, mode == "native");
+        let temporary_directory = settings.temporary_directory.clone();
+        if matches!(
+            mode,
+            "malformed-outer-changed-executable" | "malformed-outer-cleanup"
+        ) {
+            let script = std::fs::read_to_string(&settings.executable).unwrap();
+            let alteration = if mode == "malformed-outer-changed-executable" {
+                concat!(r#"/bin/printf '\n# altered after launch\n' >> "$0""#, "\n").to_owned()
+            } else {
+                format!(
+                    "/bin/chmod 500 {}\n",
+                    shell_quote(temporary_directory.to_str().unwrap())
+                )
+            };
+            let changed = script.replacen("#!/bin/sh\n", &format!("#!/bin/sh\n{alteration}"), 1);
+            std::fs::write(&settings.executable, &changed).unwrap();
+            settings.executable_sha256 = s::sha256_bytes(changed.as_bytes());
+        }
         let before = persisted_state(&f.app);
         let result = f
             .app
@@ -4149,6 +4785,8 @@ async fn actual_application_transport_uses_carrier_and_retains_terminal_failures
                 NOW,
             )
             .await;
+        std::fs::set_permissions(&temporary_directory, std::fs::Permissions::from_mode(0o700))
+            .unwrap();
         assert!(
             f._temp.path().join("fixture-entered").exists(),
             "fixture body must actually run"
@@ -4164,7 +4802,14 @@ async fn actual_application_transport_uses_carrier_and_retains_terminal_failures
             let adopted = f.app.adopted("transport-call").unwrap();
             assert_eq!(adopted.authored_json.as_deref(), Some(inner.as_str()));
             assert_eq!(adopted.response_hash, s::sha256_bytes(inner.as_bytes()));
-        } else if matches!(mode, "native" | "duplicate-outer") {
+        } else if matches!(
+            mode,
+            "native"
+                | "duplicate-outer"
+                | "malformed-outer"
+                | "malformed-outer-changed-executable"
+                | "malformed-outer-cleanup"
+        ) {
             assert!(matches!(result, Err(RuntimeError::Provider(_))));
         } else {
             assert_eq!(result.unwrap().status, AdoptionStatus::Held);
@@ -4176,7 +4821,29 @@ async fn actual_application_transport_uses_carrier_and_retains_terminal_failures
         assert!(!serde_json::to_string(&terminal)
             .unwrap()
             .contains("PRIVATE DISCARDED FIXTURE PAYLOAD"));
-        if matches!(mode, "native" | "duplicate-outer") {
+        if matches!(
+            mode,
+            "native"
+                | "duplicate-outer"
+                | "malformed-outer"
+                | "malformed-outer-changed-executable"
+                | "malformed-outer-cleanup"
+        ) {
+            if matches!(
+                mode,
+                "native" | "malformed-outer-changed-executable" | "malformed-outer-cleanup"
+            ) {
+                assert!(terminal.body.get("response_body").is_none());
+            } else {
+                let retained = &terminal.body["response_body"];
+                assert_eq!(retained["text"].as_str(), Some(outer.as_str()));
+                assert_eq!(retained["bytes"], outer.len());
+                assert_eq!(retained["sha256"], s::sha256_bytes(outer.as_bytes()));
+                assert_eq!(retained["eligibility"], "rejected_final_carrier");
+                assert!(terminal.body["receipt"]["attempt_receipt"]
+                    .get("rejected_final_response")
+                    .is_none());
+            }
             assert_eq!(terminal.body["receipt"]["kind"], "provider_attempt_failed");
             assert_eq!(
                 terminal.body["receipt"]["attempt_receipt"]["process"]["launched"],
@@ -4206,11 +4873,69 @@ async fn actual_application_transport_uses_carrier_and_retains_terminal_failures
                 terminal.body["receipt"]["transport_sha256"],
                 s::sha256_bytes(outer.as_bytes())
             );
+            let expected_body = match mode {
+                "malformed-inner" => "{\"version\":1}".to_owned(),
+                "empty-inner" => String::new(),
+                "escaped-malformed-inner" => "\0\"\\λ".repeat(128),
+                "wrong-carrier" => outer.clone(),
+                _ => inner.clone(),
+            };
+            let retained = &terminal.body["response_body"];
+            assert_eq!(
+                retained["text"].as_str().unwrap().as_bytes(),
+                expected_body.as_bytes()
+            );
+            assert_eq!(retained["bytes"], expected_body.len());
+            assert_eq!(
+                retained["sha256"],
+                s::sha256_bytes(expected_body.as_bytes())
+            );
+            assert_eq!(
+                retained["kind"],
+                if mode == "wrong-carrier" {
+                    "provider_body"
+                } else {
+                    "decision_json"
+                }
+            );
+            let invocation = f.app.invocation("transport-call").unwrap();
+            assert_eq!(terminal.body["prepare_hash"], invocation.prepare_hash);
+            assert_eq!(
+                invocation.response_hash.as_deref(),
+                Some(s::sha256_bytes(expected_body.as_bytes()).as_str())
+            );
+            let admitted: Prepared = serde_json::from_value(invocation.request.unwrap()).unwrap();
+            assert_eq!(terminal.body["invocation_id"], admitted.request.id);
+            assert_eq!(terminal.body["prepared_epoch"], admitted.epoch);
+            assert_eq!(terminal.body["prompt_sha256"], admitted.prompt_sha256);
+            let slot = diagnostic_slot(&f.app, "transport-call");
+            assert_eq!(slot.0["max_object_bytes"], 263_168);
+            assert!(serde_json::to_vec(&slot.0).unwrap().len() as u64 <= slot.1);
             if mode != "correct" {
                 let after = persisted_state(&f.app);
                 assert_eq!(before["messages"], after["messages"]);
                 assert_eq!(before["sources"], after["sources"]);
+                assert_eq!(before["board"], after["board"]);
+                assert_eq!(before["observations"], after["observations"]);
+                assert_eq!(before["semantic_warnings"], after["semantic_warnings"]);
                 f.app.resume("operator", "a", "work").unwrap();
+                assert_eq!(f.app.terminal_evidence("transport-call").unwrap(), terminal);
+                let resumed = persisted_state(&f.app);
+                let recovery = resumed["observations"]
+                    .as_object()
+                    .unwrap()
+                    .values()
+                    .find(|o| {
+                        o["kind"] == "terminal_recovery" && o["invocation"] == "transport-call"
+                    })
+                    .unwrap();
+                assert!(recovery["payload"]["terminal"]["response_body"]
+                    .get("text")
+                    .is_none());
+                assert_eq!(
+                    recovery["payload"]["terminal"]["response_body"]["availability"],
+                    "private_terminal_only"
+                );
             }
         }
         assert!(f.app.dispatch_synthetic("transport-call", NOW).is_err());
@@ -5483,6 +6208,658 @@ async fn cli_owned_step_allows_status_fences_mutation_and_recovers_owner_death()
     }
 }
 
+fn interface_control(prepared: &Prepared) -> Value {
+    let tail = prepared.prompt.split_once("\nCONTROL\n").unwrap().1;
+    serde_json::from_str(tail.split_once("\nQUALIFIED_CONTEXT\n").unwrap().0).unwrap()
+}
+
+fn interface_peer_need(overlapping: bool) -> NeedInput {
+    let mut original = need();
+    let mut terms = original.invitations[0].terms.clone();
+    if overlapping {
+        terms.exact_terms = "Accept the explicitly offered exclusive outcome.".into();
+    } else {
+        terms.outcomes.clear();
+        terms.exact_terms = "Contribute without exclusive outcome or review-role ownership.".into();
+    }
+    original.invitations.push(Invitation {
+        id: "offer-b".into(),
+        to: "b".into(),
+        terms,
+    });
+    original
+}
+
+fn initialize_interface_peer(fixture: &mut Fixture) {
+    let prepared = fixture
+        .app
+        .prepare(
+            PrepareRequest {
+                id: "interface-initialize-b".into(),
+                persona: "b".into(),
+                work: "work".into(),
+                profile: Profile::Synthetic,
+                mode: Mode::Ordinary,
+            },
+            NOW,
+        )
+        .unwrap();
+    let (ocean, vad) = profiles();
+    let mut response = decision(&prepared, false);
+    response.operations = vec![
+        write(
+            "interface-save-voice",
+            p::Scope::Fragments {},
+            "interface-voice-b",
+            "I distinguish supplied bodies from metadata and attributed judgments.",
+            None,
+        ),
+        p::Operation::CharacterAdopt {
+            id: "interface-adopt-voice".into(),
+            base_revision: None,
+            ocean,
+            vad,
+            own_voice: vec![proposed("interface-voice-b", "interface-save-voice")],
+            reason: "Initialize this synthetic participant's exact character.".into(),
+            evidence: Vec::new(),
+        },
+    ];
+    response.fragment_maintenance = p::Maintenance::Change {
+        reason: "Account for both initialization operations.".into(),
+        operation_ids: vec![
+            "interface-save-voice".into(),
+            "interface-adopt-voice".into(),
+        ],
+    };
+    assert_eq!(
+        fixture.run(&prepared, &response).status,
+        AdoptionStatus::CharacterOnly
+    );
+    fixture.app.resume("operator", "b", "work").unwrap();
+}
+
+#[test]
+fn pending_offer_context_exposes_exclusive_conflicts_without_changing_acceptance() {
+    for overlapping in [true, false] {
+        let mut fixture =
+            Fixture::configured(true, config(), seed("a"), interface_peer_need(overlapping));
+        initialize_interface_peer(&mut fixture);
+        fixture.accept();
+        let prepared = fixture
+            .app
+            .prepare(
+                PrepareRequest {
+                    id: "interface-accept-b".into(),
+                    persona: "b".into(),
+                    work: "work".into(),
+                    profile: Profile::Synthetic,
+                    mode: Mode::Ordinary,
+                },
+                NOW,
+            )
+            .unwrap();
+        let core = interface_control(&prepared);
+        assert_eq!(core["work_id"], "work");
+        assert!(core["own_acceptance"].is_null());
+        let offer = &core["own_pending_offers"][0];
+        assert_eq!(offer["id"], "offer-b");
+        assert_eq!(offer["mandate_current"], true);
+        assert!(offer["handoff_from"].is_null());
+        assert_eq!(
+            offer["ownership_conflicts"],
+            if overlapping {
+                json!([{"persona":"a","acceptance_id":"offer-a",
+                "outcomes":["result"],"review_roles":[]}])
+            } else {
+                json!([])
+            }
+        );
+        let mut response = decision(&prepared, true);
+        response.continuation = p::Continuation::Stop {
+            reason: "Stop this bounded contribution while retaining any accepted responsibility."
+                .into(),
+        };
+        response.operations.push(p::Operation::Responsibility {
+            id: offer["id"].as_str().unwrap().into(),
+            work_id: core["work_id"].as_str().unwrap().into(),
+            terms_revision: offer["terms_revision"].as_str().unwrap().into(),
+            disposition: "accept".into(),
+            reason: "Explicitly accept exactly these supplied terms.".into(),
+        });
+        let before = persisted_state(&fixture.app);
+        let report = fixture.run(&prepared, &response);
+        let after = persisted_state(&fixture.app);
+        if overlapping {
+            assert_eq!(report.status, AdoptionStatus::Held);
+            assert_eq!(
+                report.reason.as_deref(),
+                Some("conflicting immutable identity or ownership")
+            );
+            assert_eq!(after, before);
+            assert_eq!(
+                after["board"]["works"]["work"]["offers"]["offer-b"]["status"],
+                "Pending"
+            );
+        } else {
+            assert_eq!(report.status, AdoptionStatus::Adopted);
+            assert_eq!(
+                after["board"]["works"]["work"]["participants"]["b"]["acceptance"],
+                "offer-b"
+            );
+            assert_eq!(
+                after["board"]["works"]["work"]["acceptances"]["offer-a"],
+                before["board"]["works"]["work"]["acceptances"]["offer-a"]
+            );
+        }
+        assert_eq!(
+            after["work_meta"]["work"]["attempts_left"],
+            before["work_meta"]["work"]["attempts_left"]
+        );
+        assert_eq!(
+            after["work_meta"]["work"]["attempts_left"],
+            config().max_work_attempts - 3
+        );
+        assert!(after["board"]["works"]["work"]["artifacts"]
+            .as_object()
+            .unwrap()
+            .is_empty());
+    }
+}
+
+#[test]
+fn work_capability_schema_accepts_optional_fields_and_preserves_binding_rejection() {
+    for fault in [
+        "none",
+        "base",
+        "start",
+        "end",
+        "lifetime",
+        "capability",
+        "binding",
+        "unknown_subject",
+        "subject_array",
+        "withdraw",
+    ] {
+        let mut fixture = Fixture::new(true);
+        fixture.accept();
+        let prepared = fixture.prepare("interface-register");
+        let core = interface_control(&prepared);
+        let schema = &core["work_capability"]["inputs_schema"];
+        let put = schema["oneOf"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|variant| variant["properties"]["kind"]["const"] == "put_artifact")
+            .unwrap();
+        assert!(!put["required"].as_array().unwrap().contains(&json!("base")));
+        for field in ["start", "end", "lifetime"] {
+            assert!(!schema["$defs"]["ExactRef"]["required"]
+                .as_array()
+                .unwrap()
+                .contains(&json!(field)));
+        }
+        let body = "Exact abstract note.\nLiteral \\n and λ.";
+        let mut response = decision(&prepared, true);
+        response.asset_maintenance = p::Maintenance::Change {
+            reason: "Retain the exact proposed supporting asset.".into(),
+            operation_ids: vec!["interface-save".into()],
+        };
+        response.operations = vec![
+            write(
+                "interface-save",
+                p::Scope::Assets {},
+                "interface-source",
+                body,
+                None,
+            ),
+            effect(
+                "interface-register",
+                WorkAction::PutArtifact {
+                    artifact: "interface-artifact".into(),
+                    base: None,
+                    subject: proposed("interface-source", "interface-save"),
+                },
+                &["interface-save"],
+            ),
+        ];
+        if let p::Operation::Effect {
+            capability_id,
+            binding_revision,
+            inputs,
+            ..
+        } = response.operations.last_mut().unwrap()
+        {
+            *capability_id = core["work_capability"]["id"].as_str().unwrap().into();
+            *binding_revision = core["work_capability"]["binding_revision"]
+                .as_str()
+                .unwrap()
+                .into();
+            match fault {
+                "none" | "withdraw" => (),
+                "base" => {
+                    inputs.as_object_mut().unwrap().remove("base");
+                }
+                field @ ("start" | "end" | "lifetime") => {
+                    inputs["subject"].as_object_mut().unwrap().remove(field);
+                }
+                "capability" => *capability_id = "unexposed.command.v1".into(),
+                "binding" => *binding_revision = "unexposed-binding".into(),
+                "unknown_subject" => inputs["subject"]["PRIVATE_REJECTED_FIELD"] = json!(true),
+                "subject_array" => {
+                    inputs["subject"] = json!([
+                        "interface-source",
+                        "proposal-op:interface-save",
+                        "utf8",
+                        null,
+                        null,
+                        null
+                    ])
+                }
+                _ => unreachable!(),
+            }
+        } else {
+            unreachable!();
+        }
+        // The outer protocol deliberately leaves capability inputs opaque.
+        p::parse_decision(
+            &serde_json::to_vec(&response).unwrap(),
+            config().response_bytes,
+        )
+        .unwrap();
+        let before = persisted_state(&fixture.app);
+        let report = fixture.run(&prepared, &response);
+        if matches!(
+            fault,
+            "capability" | "binding" | "unknown_subject" | "subject_array"
+        ) {
+            assert_eq!(report.status, AdoptionStatus::Held, "{fault}: {report:?}");
+            assert!(report.applied.is_empty());
+            assert_eq!(persisted_state(&fixture.app), before);
+            let reason = report.reason.unwrap();
+            assert!(
+                reason.contains(if matches!(fault, "capability" | "binding") {
+                    "unknown, unimplemented, or stale capability"
+                } else if fault == "subject_array" {
+                    "requires an object"
+                } else {
+                    "unknown field"
+                })
+            );
+            if fault == "unknown_subject" {
+                assert!(reason.contains("PRIVATE_REJECTED_FIELD"));
+                let terminal = fixture.app.terminal_evidence(&prepared.request.id).unwrap();
+                assert!(terminal.body["response_body"]["text"]
+                    .as_str()
+                    .unwrap()
+                    .contains("PRIVATE_REJECTED_FIELD"));
+                fixture.app.resume("operator", "a", "work").unwrap();
+                let next = fixture.prepare("private-diagnostic-recovery");
+                assert!(!next.prompt.contains("PRIVATE_REJECTED_FIELD"));
+                assert!(!serde_json::to_string(&persisted_state(&fixture.app))
+                    .unwrap()
+                    .contains("PRIVATE_REJECTED_FIELD"));
+            }
+            continue;
+        }
+        assert_eq!(report.status, AdoptionStatus::Adopted);
+        let state = fixture.app.snapshot().unwrap();
+        let work = state.board.work(&w::WorkId("work".into())).unwrap();
+        let artifact = &work.artifacts[&w::ArtifactId("interface-artifact".into())];
+        let revision = &artifact.revisions[&artifact.current];
+        assert_eq!(revision.bytes, body.as_bytes());
+        let key = ArtifactKey {
+            id: revision.reference.id.0.clone(),
+            revision: revision.reference.revision,
+            digest: hex::encode(revision.reference.digest),
+        };
+        let mapping_id = s::sha256_bytes(&serde_json::to_vec(&key).unwrap());
+        let subject = &state.work_meta["work"].artifact_sources[&mapping_id];
+        assert_eq!(subject.source, "interface-source");
+        assert_eq!(subject.revision, state.sources["interface-source"].head);
+        assert_eq!(
+            state.sources["interface-source"].revisions[0].record.bytes,
+            body.as_bytes()
+        );
+        if fault == "withdraw" {
+            fixture
+                .app
+                .withdraw_source(
+                    "operator",
+                    "interface-source",
+                    "Withdraw exact source access.",
+                )
+                .unwrap();
+        }
+        let next = fixture.prepare("interface-observe-binding");
+        let next_core = interface_control(&next);
+        if fault == "withdraw" {
+            assert!(next_core["work_artifacts"].as_array().unwrap().is_empty());
+            assert!(!next.prompt.contains("interface-source"));
+            assert!(!next.prompt.contains("interface-artifact"));
+            assert!(!next_core["actual_observations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|observation| observation["kind"] == "accepted_artifact_binding"));
+            continue;
+        }
+        let catalog = &next_core["work_artifacts"][0];
+        assert_eq!(catalog["artifact"], json!(key));
+        assert_eq!(catalog["source"], json!(subject));
+        assert_eq!(catalog["owner"], "a");
+        assert_eq!(catalog["source_owner"], "a");
+        assert_eq!(catalog["metadata_only"], true);
+        let receipt = next_core["actual_observations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|observation| observation["kind"] == "accepted_artifact_binding")
+            .unwrap();
+        assert_eq!(receipt["payload"], json!({"artifact":key,"source":subject}));
+        assert!(!next
+            .sources
+            .iter()
+            .any(|reference| reference.source == "interface-source"));
+        let context: Value =
+            serde_json::from_str(next.prompt.split_once("\nQUALIFIED_CONTEXT\n").unwrap().1)
+                .unwrap();
+        assert!(context["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|entry| entry["reference"]["source"] != "interface-source"));
+    }
+}
+
+#[test]
+fn revoked_asset_policy_withholds_mapping_without_claiming_body_supply() {
+    let mut configuration = config();
+    let mut asset_policy = policy();
+    asset_policy.id = "revocable-asset-policy".into();
+    asset_policy.revision = "revocable-asset-policy-1".into();
+    configuration
+        .policies
+        .active_policies
+        .push(asset_policy.clone());
+    let mut primary = seed("a");
+    primary
+        .grants
+        .write_policies
+        .insert(asset_policy.id.clone());
+    let mut fixture = Fixture::configured(true, configuration, primary, need());
+    fixture.accept();
+    let prepared = fixture.prepare("register-revocable-asset");
+    let mut save = write(
+        "save-revocable",
+        p::Scope::Assets {},
+        "revocable-asset",
+        "REVOKED_BODY_SENTINEL",
+        None,
+    );
+    if let p::Operation::FileWrite { policy_id, .. } = &mut save {
+        *policy_id = asset_policy.id.clone();
+    }
+    let mut response = decision(&prepared, true);
+    response.asset_maintenance = p::Maintenance::Change {
+        reason: "Retain an exact supporting asset under its own policy.".into(),
+        operation_ids: vec!["save-revocable".into()],
+    };
+    response.operations = vec![
+        save,
+        effect(
+            "register-revocable",
+            WorkAction::PutArtifact {
+                artifact: "revocable-artifact".into(),
+                base: None,
+                subject: proposed("revocable-asset", "save-revocable"),
+            },
+            &["save-revocable"],
+        ),
+    ];
+    assert_eq!(
+        fixture.run(&prepared, &response).status,
+        AdoptionStatus::Adopted
+    );
+    let before = fixture.app.snapshot().unwrap();
+    let binding = before
+        .observations
+        .values()
+        .find(|o| o.kind == "accepted_artifact_binding")
+        .unwrap();
+    assert!(binding.sources.is_empty());
+    assert!(binding.qualified_roots.is_empty());
+    assert!(binding
+        .exposure
+        .as_ref()
+        .unwrap()
+        .sources
+        .iter()
+        .any(|r| r.source == "revocable-asset"));
+    fixture
+        .app
+        .revoke_policy(
+            "operator",
+            asset_policy.identity(),
+            "Withdraw asset processing permission.",
+        )
+        .unwrap();
+    let next = fixture.prepare("observe-after-asset-revocation");
+    let core = interface_control(&next);
+    assert!(core["work_artifacts"].as_array().unwrap().is_empty());
+    assert!(!core["actual_observations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|o| o["kind"] == "accepted_artifact_binding"));
+    assert!(!next.prompt.contains("\"revocable-asset\""));
+    assert!(!next.prompt.contains("revocable-artifact"));
+    assert!(!next.prompt.contains("REVOKED_BODY_SENTINEL"));
+    assert!(!next.sources.iter().any(|r| r.source == "revocable-asset"));
+    let after = fixture.app.snapshot().unwrap();
+    assert_eq!(
+        serde_json::to_value(after.observations.get(&binding.id)).unwrap(),
+        serde_json::to_value(Some(binding)).unwrap()
+    );
+}
+
+#[test]
+fn artifact_catalog_filters_private_sources_and_separates_file_and_artifact_owners() {
+    let mut configuration = config();
+    let mut private = policy();
+    private.id = "interface-private-policy".into();
+    private.revision = "interface-private-policy-1".into();
+    private.readers = set(&["a"]);
+    private.audience = set(&["a", "human"]);
+    configuration.policies.active_policies.push(private.clone());
+    let mut primary = seed("a");
+    primary.audience = private.audience.clone();
+    primary.grants.write_policies.insert(private.id.clone());
+    let mut fixture = Fixture::configured(true, configuration, primary, interface_peer_need(false));
+    initialize_interface_peer(&mut fixture);
+    fixture.accept();
+    let shared = record(
+        "interface-shared-source",
+        f::Scope::Assets,
+        "INTERFACE_SHARED_BODY",
+    );
+    fixture
+        .app
+        .import_files("operator", "b", vec![shared.clone()], false, NOW)
+        .unwrap();
+    let prepared = fixture.prepare("interface-read-shared");
+    let mut response = decision(&prepared, true);
+    response.operations.push(p::Operation::Read {
+        id: "interface-read".into(),
+        reference: reference(&shared),
+    });
+    assert_eq!(
+        fixture.run(&prepared, &response).status,
+        AdoptionStatus::Adopted
+    );
+    let prepared = fixture.prepare("interface-publish");
+    assert!(interface_control(&prepared)["actual_observations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|observation| observation["payload"]["result"]["entries"]
+            .as_array()
+            .is_some_and(|entries| entries
+                .iter()
+                .any(|entry| entry["text"] == "INTERFACE_SHARED_BODY"))));
+    let mut private_write = write(
+        "interface-save-private",
+        p::Scope::Assets {},
+        "interface-private-source",
+        "INTERFACE_PRIVATE_BODY",
+        None,
+    );
+    if let p::Operation::FileWrite { policy_id, .. } = &mut private_write {
+        *policy_id = private.id;
+    }
+    let mut response = decision(&prepared, true);
+    response.asset_maintenance = p::Maintenance::Change {
+        reason: "Retain one explicitly restricted supporting asset.".into(),
+        operation_ids: vec!["interface-save-private".into()],
+    };
+    response.operations = vec![
+        effect(
+            "interface-register-shared",
+            WorkAction::PutArtifact {
+                artifact: "interface-shared-artifact".into(),
+                base: None,
+                subject: reference(&shared),
+            },
+            &[],
+        ),
+        private_write,
+        effect(
+            "interface-register-private",
+            WorkAction::PutArtifact {
+                artifact: "interface-private-artifact".into(),
+                base: None,
+                subject: proposed("interface-private-source", "interface-save-private"),
+            },
+            &["interface-save-private"],
+        ),
+    ];
+    assert_eq!(
+        fixture.run(&prepared, &response).status,
+        AdoptionStatus::Adopted
+    );
+    assert_eq!(
+        fixture
+            .app
+            .snapshot()
+            .unwrap()
+            .board
+            .work(&w::WorkId("work".into()))
+            .unwrap()
+            .artifacts
+            .len(),
+        2
+    );
+    let peer = fixture
+        .app
+        .prepare(
+            PrepareRequest {
+                id: "interface-peer-catalog".into(),
+                persona: "b".into(),
+                work: "work".into(),
+                profile: Profile::Synthetic,
+                mode: Mode::Ordinary,
+            },
+            NOW,
+        )
+        .unwrap();
+    for hidden in [
+        "interface-private-source",
+        "interface-private-artifact",
+        "INTERFACE_PRIVATE_BODY",
+    ] {
+        assert!(!peer.prompt.contains(hidden));
+    }
+    assert!(!peer
+        .sources
+        .iter()
+        .any(|reference| reference.source == shared.source));
+    let core = interface_control(&peer);
+    let catalog = core["work_artifacts"].as_array().unwrap();
+    assert_eq!(catalog.len(), 1);
+    assert_eq!(catalog[0]["owner"], "a");
+    assert_eq!(catalog[0]["source_owner"], "b");
+    assert_eq!(catalog[0]["source_protected"], false);
+    assert_eq!(catalog[0]["metadata_only"], true);
+    let key: ArtifactKey = serde_json::from_value(catalog[0]["artifact"].clone()).unwrap();
+    let subject: p::ExactRef = serde_json::from_value(catalog[0]["source"].clone()).unwrap();
+    assert_eq!(subject, reference(&shared));
+    let offer = &core["own_pending_offers"][0];
+    let mut response = decision(&peer, true);
+    response.operations = vec![
+        p::Operation::Responsibility {
+            id: offer["id"].as_str().unwrap().into(),
+            work_id: core["work_id"].as_str().unwrap().into(),
+            terms_revision: offer["terms_revision"].as_str().unwrap().into(),
+            disposition: "accept".into(),
+            reason: "Explicitly accept this distinct contribution scope.".into(),
+        },
+        p::Operation::Read {
+            id: "interface-read".into(),
+            reference: subject.clone(),
+        },
+    ];
+    assert_eq!(
+        fixture.run(&peer, &response).status,
+        AdoptionStatus::Adopted
+    );
+    assert!(fixture.app.snapshot().unwrap().personas["b"].focus["work"]
+        .assets
+        .as_ref()
+        .unwrap()
+        .is_empty());
+    let received = fixture
+        .app
+        .prepare(
+            PrepareRequest {
+                id: "interface-peer-received".into(),
+                persona: "b".into(),
+                work: "work".into(),
+                profile: Profile::Synthetic,
+                mode: Mode::Ordinary,
+            },
+            NOW,
+        )
+        .unwrap();
+    assert!(interface_control(&received)["actual_observations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|observation| observation["payload"]["result"]["entries"]
+            .as_array()
+            .is_some_and(|entries| entries
+                .iter()
+                .any(|entry| entry["text"] == "INTERFACE_SHARED_BODY"))));
+    let mut response = decision(&received, true);
+    // Reusing an outer operation id is legal across invocations. Owning the
+    // supporting file still does not authorize updating another actor's artifact.
+    response.operations.push(effect(
+        "interface-register-shared",
+        WorkAction::PutArtifact {
+            artifact: key.id.clone(),
+            base: Some(key),
+            subject,
+        },
+        &[],
+    ));
+    let before = persisted_state(&fixture.app);
+    let report = fixture.run(&received, &response);
+    assert_eq!(report.status, AdoptionStatus::Held);
+    assert_eq!(
+        report.reason.as_deref(),
+        Some("context or decision lacks authority")
+    );
+    assert_eq!(persisted_state(&fixture.app), before);
+}
+
 #[test]
 fn initialization_seed_is_not_resupplied_after_accepted_character_or_reopen() {
     let marker = "BOOTSTRAP_ONLY_SENTINEL_START_FROM_THIS_SEED";
@@ -5693,7 +7070,18 @@ fn synthetic_owner_acknowledgement_allows_fresh_dispatch_and_submit_in_same_runt
             })
             .collect::<Vec<_>>();
         assert_eq!(recoveries.len(), 1);
-        assert_eq!(recoveries[0].payload["terminal"], terminal.body);
+        let mut diagnostic = terminal.body.clone();
+        diagnostic["response_body"]
+            .as_object_mut()
+            .unwrap()
+            .remove("text");
+        diagnostic["response_body"]["availability"] = json!("private_terminal_only");
+        assert_eq!(recoveries[0].payload["terminal"], diagnostic);
+        assert_eq!(
+            recoveries[0].payload["terminal_evidence"],
+            json!(terminal.exact_ref().unwrap())
+        );
+        assert_eq!(f.app.terminal_evidence(id).unwrap(), terminal);
         assert_eq!(recoveries[0].payload["provider_usage"], "unknown");
         assert_eq!(recoveries[0].payload["replay_authorized"], false);
         let recovered_ledger = f.app.ledger().unwrap();

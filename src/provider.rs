@@ -325,6 +325,26 @@ pub struct AttemptReceipt {
     pub process: ProcessReport,
     pub stream: StreamSummary,
     pub remote_effects_and_charges_may_remain: bool,
+    /// Private diagnostic only: a bounded final candidate from a completed turn
+    /// whose structured JSON validation failed (including parser limits). Never serialized as receipt
+    /// metadata or treated as successful output or permission to replay.
+    #[serde(skip_serializing)]
+    pub rejected_final_response: Option<RejectedFinalResponse>,
+}
+
+#[derive(Clone)]
+pub struct RejectedFinalResponse(String);
+impl RejectedFinalResponse {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+impl fmt::Debug for RejectedFinalResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RejectedFinalResponse")
+            .field("bytes", &self.0.len())
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -685,6 +705,18 @@ impl CodexProvider {
         }
         let summary = collector.summary.clone();
         if let Some(failure) = failure {
+            let rejected_final_response = if unchanged
+                && audit.schema_cleanup_confirmed
+                && matches!(
+                    failure,
+                    AttemptFailure::Process(ProcessFailureKind::Sink(
+                        StreamFailure::InvalidStructuredResponse
+                    ))
+                ) {
+                collector.take_rejected_final_response()
+            } else {
+                None
+            };
             return Err(ProviderError::Attempt {
                 failure,
                 receipt: Box::new(AttemptReceipt {
@@ -692,6 +724,7 @@ impl CodexProvider {
                     process,
                     stream: summary,
                     remote_effects_and_charges_may_remain: true,
+                    rejected_final_response,
                 }),
             });
         }
@@ -705,6 +738,7 @@ impl CodexProvider {
                         process,
                         stream: summary,
                         remote_effects_and_charges_may_remain: true,
+                        rejected_final_response: None,
                     }),
                 })
             }
@@ -747,6 +781,7 @@ impl CodexProvider {
                     process: process.clone(),
                     stream: summary.clone(),
                     remote_effects_and_charges_may_remain: true,
+                    rejected_final_response: None,
                 }),
             })?;
         Ok(ProviderOutput {
@@ -2028,6 +2063,22 @@ impl JsonlCollector {
         Ok(())
     }
 
+    fn take_rejected_final_response(&mut self) -> Option<RejectedFinalResponse> {
+        if self.rejection == Some(StreamFailure::InvalidStructuredResponse)
+            && self.summary.completed_turn
+            && self.line.is_empty()
+            && !self.summary.native_action_observed
+            && !self.summary.unsupported_item_observed
+        {
+            self.candidate
+                .take()
+                .filter(|text| text.len() <= self.maximum_response)
+                .map(RejectedFinalResponse)
+        } else {
+            None
+        }
+    }
+
     fn take_response(mut self) -> Result<String, StreamFailure> {
         if let Some(error) = self.rejection {
             return Err(error);
@@ -2103,7 +2154,12 @@ impl StdoutSink for JsonlCollector {
         self.validated = result.is_ok();
         if let Err(error) = result {
             self.rejection = Some(error);
-            self.candidate = None;
+            // Only an observed completed turn with a bounded final message can
+            // preserve a private rejected carrier. All stream/action failures
+            // still discard the candidate and remain non-replayable failures.
+            if error != StreamFailure::InvalidStructuredResponse {
+                self.candidate = None;
+            }
         }
         result
     }
@@ -2227,6 +2283,31 @@ mod tests {
         }
         collector.finish()?;
         Ok(collector)
+    }
+
+    #[test]
+    fn bounded_rejected_final_diagnostics_include_parser_limits_without_becoming_output() {
+        for response in [
+            "{invalid".to_owned(),
+            "{\"key\":1,\"key\":2}".to_owned(),
+            "1e400".to_owned(),
+            format!("{}0{}", "[".repeat(129), "]".repeat(129)),
+        ] {
+            let mut collector = JsonlCollector::new("model-a", 16_384, 4096);
+            collector.bytes(&events(&response, None, None)).unwrap();
+            assert_eq!(
+                collector.finish(),
+                Err(StreamFailure::InvalidStructuredResponse)
+            );
+            assert!(!collector.validated);
+            let diagnostic = collector.take_rejected_final_response().unwrap();
+            assert_eq!(diagnostic.as_str(), response);
+            assert!(!format!("{diagnostic:?}").contains(&response));
+            assert_eq!(
+                collector.take_response().unwrap_err(),
+                StreamFailure::InvalidStructuredResponse
+            );
+        }
     }
 
     #[test]
