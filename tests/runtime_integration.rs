@@ -7851,6 +7851,22 @@ fn ordinary_model_evidence_can_complete_an_exact_synthetic_writing_task_without_
     assert!(!state.board.completion_supported(&w::WorkId("work".into())));
 
     let prepared = f.prepare("deliver-model-note");
+    let supplied = interface_control(&prepared);
+    let release_receipt = supplied["actual_observations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|observation| observation["kind"] == "accepted_work_release")
+        .expect("a fresh decision must receive the exact persisted release identity");
+    let exposed_release = release_receipt["payload"]["release"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(release_receipt["payload"]["metadata_only"], true);
+    assert_eq!(
+        release_receipt["payload"]["record"],
+        serde_json::to_value(&work.releases[&w::RecordId(exposed_release.clone())]).unwrap()
+    );
     assert_eq!(
         interface_control(&prepared)["model_evidence"]["model-note-evidence"]["record"]["source"],
         "ModelJudgment"
@@ -7859,7 +7875,7 @@ fn ordinary_model_evidence_can_complete_an_exact_synthetic_writing_task_without_
     response.operations.push(effect(
         "deliver-note",
         WorkAction::DeliverRelease {
-            release: "model-note-release".into(),
+            release: exposed_release.clone(),
             recipients: set(&["human"]),
         },
         &[],
@@ -7876,11 +7892,22 @@ fn ordinary_model_evidence_can_complete_an_exact_synthetic_writing_task_without_
     let bytes: Vec<u8> = serde_json::from_value(delivery["artifacts"][0]["bytes"].clone()).unwrap();
     assert_eq!(bytes, MODEL_NOTE.as_bytes());
     let prepared = f.prepare("close-model-note");
+    let supplied = interface_control(&prepared);
+    let receipt = &supplied["actual_observations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|observation| observation["kind"] == "accepted_local_delivery")
+        .expect("a fresh close decision must receive the exact local delivery receipt")["payload"]
+        ["record"];
+    assert_eq!(receipt["release"], exposed_release);
+    assert_eq!(receipt["recipient"], "human");
+    assert!(receipt["receipt"]["id"].as_str().is_some());
     let mut response = decision(&prepared, true);
     response.operations.push(effect(
         "close-note",
         WorkAction::CloseGoal {
-            release: "model-note-release".into(),
+            release: exposed_release.clone(),
         },
         &[],
     ));
@@ -7941,14 +7968,17 @@ fn model_evidence_invalid_tail_or_outcome_cannot_partially_commit() {
             }
         }
         response.operations.push(evidence);
-        response.operations.push(effect(
-            "invalid-late-release",
-            WorkAction::Release {
-                id: "invalid-release".into(),
-                shared: "missing-shared-decision".into(),
-            },
-            &[],
-        ));
+        // Isolate the invalid outcome from the independently invalid tail.
+        if !wrong_outcome {
+            response.operations.push(effect(
+                "invalid-late-release",
+                WorkAction::Release {
+                    id: "invalid-release".into(),
+                    shared: "missing-shared-decision".into(),
+                },
+                &[],
+            ));
+        }
         let before = persisted_state(&f.app);
         assert_eq!(f.run(&prepared, &response).status, AdoptionStatus::Held);
         assert_eq!(persisted_state(&f.app), before);

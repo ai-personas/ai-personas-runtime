@@ -162,3 +162,10 @@ Selection-fit checkpoints now retain a separate measured instruction/schema size
 
 
 An ordinary accepted persona may explicitly call `record_model_evidence` for a current registered artifact and an adopted outcome. The complete qualified artifact body must already be present in that invocation, through an explicit selection or an earlier read; metadata and same-response reads or saves do not qualify. The runtime binds the persona, invocation, prompt, exact artifact/source and criterion, retaining the authored explanation and limitations as `ModelJudgment`. It does not record human acceptance, measurement, execution or independent assurance, or verify semantic truth. Required outside evidence and review remain obligations. The evidence action may precede an explicitly authored judgment and completion commands in one atomically accepted response; it does not automatically pass or close anything. Invalid later commands roll back the entire response. `CONTROL.model_evidence` exposes the attributed record under the work's inherited source restrictions. This path supports explained judgment of ordinary artifacts; it cannot establish engineering validation from a conceptual document.
+
+Successful release and local-delivery operations queue exact metadata receipts for
+the acting persona's next ordinary request. These protected observations provide
+the persisted release identity and local deposit receipt across the required
+fresh-call boundary; subsequent work gates still revalidate current state. The
+receipts supply no artifact body, human attention, stakeholder acceptance or
+semantic assurance, and they do not expose a complete work-history inventory.
