@@ -1,0 +1,9 @@
+/target/
+*.db
+*.db-shm
+*.db-wal
+*-secrets/
+operator.token*
+.env*
+/state/
+/audit/
