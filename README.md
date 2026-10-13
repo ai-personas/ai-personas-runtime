@@ -29,6 +29,8 @@ ai-personas --state-root /absolute/private/state --operator local-operator statu
 
 A seed is attributed to its operator. Initial own-voice files and character must be proposed and accepted before ordinary persona work. An imported persona is labeled as an operator import. Neither operation claims model authorship or prior experience. Once a character is accepted, subsequent requests supply its exact account and own-voice fragments. The original seed remains retained as creation provenance but its bootstrap body is no longer resupplied as continuing guidance.
 
+During initial character adoption, the proposed own-voice references belong in `CharacterAdopt.own_voice`; accepted bindings supply mandatory context on a fresh request. `next_fragments` and `next_assets` control optional context. Within this character-change unit, use `clear` for an uninitialized scope: it does not discard mandatory own voice, and `preserve` always requires an existing initialized choice. A changed-character unit may preserve existing choices or explicitly clear/reduce them, but cannot optionally select a new proposal, even the same own-voice fragment. Ordinary responses without an effective character change retain authorized same-response save-and-select support.
+
 `prepare` admits one named invocation and renders its exact bounded input. For fixtures, `synthetic-submit` validates the complete raw Decision before dispatch, then dispatches and adopts within one execution lifecycle. It requires a still-Prepared synthetic invocation and never calls a model:
 
 ```sh

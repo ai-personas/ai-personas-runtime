@@ -121,12 +121,12 @@ pub enum Maintenance {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SelectionIntent {
-    Preserve {
-        reason: String,
-    },
-    Clear {
-        reason: String,
-    },
+    /// Retain an already initialized optional choice without renewing its lifetime.
+    Preserve { reason: String },
+    /// Clear optional context only, even if uninitialized; CharacterAdopt.own_voice remains mandatory.
+    Clear { reason: String },
+    /// Choose exact optional references, including authorized same-response proposals.
+    /// An effective character change permits only subsets of whole exact existing entries, never new optional references.
     Replace {
         reason: String,
         references: Vec<ExactRef>,

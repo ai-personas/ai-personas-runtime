@@ -8347,12 +8347,23 @@ fn local_delivery_cannot_forward_reference_a_later_release() {
 
 #[test]
 fn qualified_read_supplies_one_complete_current_body_within_context_bound() {
+    // Keep the original complete body and 128 KiB cap. The helper also proves
+    // that even one duplicate body would exceed this cap.
+    qualified_read_context_bound_case(1500, true);
+}
+
+#[test]
+fn qualified_read_complete_body_exceeding_context_bound_is_held_without_trimming() {
+    qualified_read_context_bound_case(1600, false);
+}
+
+fn qualified_read_context_bound_case(root_repetitions: usize, expect_fit: bool) {
     let mut configuration = config();
     configuration.context_bytes = 128 * 1024;
     configuration.navigation_per_call.result_bytes = 64 * 1024;
     let mut fixture = Fixture::with_config(true, configuration);
     fixture.accept();
-    let root_text = "READ_ROOT_COMPLETE_".repeat(1500);
+    let root_text = "READ_ROOT_COMPLETE_".repeat(root_repetitions);
     let qualification_text = "READ_QUALIFICATION_COMPLETE_".repeat(300);
     let qualification = record(
         "read-cost-qualification",
@@ -8384,7 +8395,28 @@ fn qualified_read_supplies_one_complete_current_body_within_context_bound() {
         id: "read-complete".into(),
         reference: reference(&root),
     });
+    let state_before = persisted_state(&fixture.app);
     let report = fixture.run(&prepared, &response);
+    eprintln!("read-cost root_repetitions={root_repetitions}: {report:?}");
+    if !expect_fit {
+        assert_eq!(report.status, AdoptionStatus::Held, "{report:?}");
+        let reason = report.reason.unwrap();
+        assert!(
+            reason.contains("mandatory attributed context exceeds admitted bound")
+                || (reason.contains("mandatory context requires")
+                    && reason.contains("limit 131072")),
+            "{reason}"
+        );
+        assert_eq!(persisted_state(&fixture.app), state_before);
+        assert!(!fixture
+            .app
+            .snapshot()
+            .unwrap()
+            .observations
+            .values()
+            .any(|observation| observation.kind == "qualified_read"));
+        return;
+    }
     assert_eq!(report.status, AdoptionStatus::Adopted, "{report:?}");
     let before = fixture.app.snapshot().unwrap();
     let retained = before
@@ -8418,6 +8450,10 @@ fn qualified_read_supplies_one_complete_current_body_within_context_bound() {
         128 * 1024
     );
     assert!(next.assembled_bytes_with_reserve <= 128 * 1024);
+    assert!(
+        next.assembled_bytes_with_reserve + root_text.len() + qualification_text.len() > 128 * 1024,
+        "the fixture must reject even one additional raw copy of the qualified body"
+    );
     assert_eq!(next.prompt.matches(&root_text).count(), 1);
     assert_eq!(next.prompt.matches(&qualification_text).count(), 1);
     let control = interface_control(&next);
@@ -8582,6 +8618,189 @@ fn qualified_read_rechecks_required_policy_before_supplying_retained_body() {
             serde_json::to_value(&fixture.app.snapshot().unwrap().observations[&retained.id])
                 .unwrap(),
             serde_json::to_value(retained).unwrap()
+        );
+    }
+}
+
+const INITIAL_CHARACTER_VOICE: &str =
+    "SYNTHETIC OWN VOICE: I distinguish an intended choice from an accepted observation.";
+
+fn character_selection_response(prepared: &Prepared) -> p::Decision {
+    let mut response = decision(prepared, false);
+    let (ocean, vad) = profiles();
+    response.operations = vec![
+        write(
+            "new-voice",
+            p::Scope::Fragments {},
+            "new-character-voice",
+            INITIAL_CHARACTER_VOICE,
+            None,
+        ),
+        p::Operation::CharacterAdopt {
+            id: "new-character".into(),
+            base_revision: prepared.character_revision.clone(),
+            ocean,
+            vad,
+            own_voice: vec![proposed("new-character-voice", "new-voice")],
+            reason: "Adopt this synthetic coherent character account.".into(),
+            evidence: vec![],
+        },
+    ];
+    response.fragment_maintenance = p::Maintenance::Change {
+        reason: "The exact voice write and character binding form one unit.".into(),
+        operation_ids: vec!["new-voice".into(), "new-character".into()],
+    };
+    response.continuation = p::Continuation::Pause {
+        reason: "Wait for an explicitly authorized fresh request.".into(),
+    };
+    response
+}
+
+fn assert_character_voice_is_mandatory_on_fresh_request(f: &mut Fixture, optional_count: usize) {
+    let state = f.app.snapshot().unwrap();
+    let focus = &state.personas["a"].focus["work"];
+    assert!(!focus.permit);
+    assert!(state.personas["a"].active_invocation.is_none());
+    assert_eq!(focus.fragments.as_ref().unwrap().len(), optional_count);
+    assert!(focus.assets.as_ref().unwrap().is_empty());
+    let character = state.personas["a"].character.as_ref().unwrap();
+    assert_eq!(character.own_voice.len(), 1);
+    assert_eq!(character.own_voice[0].source, "new-character-voice");
+    let voice_revision = character.own_voice[0].revision.clone();
+    assert!(f
+        .app
+        .prepare(
+            PrepareRequest {
+                id: "not-automatically-resumed".into(),
+                persona: "a".into(),
+                work: "work".into(),
+                profile: Profile::Synthetic,
+                mode: Mode::Ordinary
+            },
+            NOW
+        )
+        .is_err());
+    f.app.resume("operator", "a", "work").unwrap();
+    let fresh = f.prepare("fresh-character-contract");
+    assert!(fresh.prompt.contains(INITIAL_CHARACTER_VOICE));
+    let roots = fresh.bundle_roots.as_ref().unwrap();
+    assert!(roots
+        .mandatory
+        .iter()
+        .any(|r| r.source == "new-character-voice" && r.revision == voice_revision));
+    assert!(!roots
+        .fragments
+        .iter()
+        .any(|r| r.source == "new-character-voice"));
+    assert!(roots.assets.is_empty());
+    assert_eq!(roots.fragments.len(), optional_count);
+}
+
+#[test]
+fn character_initialization_selection_contract_clear_preserve_and_proposal_are_distinct() {
+    for variant in [
+        "clear",
+        "preserve-uninitialized",
+        "replace-own-voice-proposal",
+    ] {
+        let mut f = Fixture::new(false);
+        let prepared = f.prepare("initial-character-contract");
+        // Both the supplied duties and emitted schema explain the distinction;
+        // README-only guidance would not help the primary form this response.
+        assert!(prepared
+            .prompt
+            .contains("Clearing optional selections does not remove"));
+        assert!(prepared
+            .prompt
+            .contains("Retain an already initialized optional choice"));
+        assert!(prepared.prompt.contains("Clear optional context only"));
+        let state = f.app.snapshot().unwrap();
+        assert!(state.personas["a"].character.is_none());
+        assert!(state.personas["a"].focus["work"].fragments.is_none());
+        assert!(state.personas["a"].focus["work"].assets.is_none());
+        let mut response = character_selection_response(&prepared);
+        match variant {
+            "preserve-uninitialized" => {
+                response.next_fragments = p::SelectionIntent::Preserve {
+                    reason: "Try preserving a choice before one exists.".into(),
+                }
+            }
+            "replace-own-voice-proposal" => {
+                response.next_fragments = p::SelectionIntent::Replace {
+                    reason: "Try additionally selecting the same new mandatory voice.".into(),
+                    references: vec![proposed("new-character-voice", "new-voice")],
+                }
+            }
+            _ => (),
+        }
+        let before = persisted_state(&f.app);
+        let report = f.run(&prepared, &response);
+        println!(
+            "initial {variant}: {:?}, {:?}",
+            report.status, report.reason
+        );
+        if variant == "clear" {
+            assert_eq!(report.status, AdoptionStatus::CharacterOnly);
+            assert_eq!(report.applied, vec!["new-voice", "new-character"]);
+            assert_character_voice_is_mandatory_on_fresh_request(&mut f, 0);
+        } else {
+            assert_eq!(report.status, AdoptionStatus::Held);
+            let reason = report.reason.unwrap();
+            assert!(reason.contains(if variant == "preserve-uninitialized" {
+                "cannot preserve a nonexistent choice"
+            } else {
+                "restricted unit permits only subsets of whole exact existing optional entries"
+            }));
+            assert_eq!(persisted_state(&f.app), before);
+            let state = f.app.snapshot().unwrap();
+            assert!(state.personas["a"].character.is_none());
+            assert!(!state.sources.contains_key("new-character-voice"));
+        }
+    }
+}
+
+#[test]
+fn character_change_preserves_initialized_optional_choices_or_explicitly_clears_them() {
+    for variant in ["preserve-empty", "preserve-existing", "clear-existing"] {
+        let mut f = Fixture::new(true);
+        f.accept();
+        if variant != "preserve-empty" {
+            let optional = record(
+                "existing-optional-character-context",
+                f::Scope::Fragments,
+                "SYNTHETIC OPTIONAL CONTEXT: I ask for an exact observation.",
+            );
+            f.app
+                .import_files("operator", "a", vec![optional.clone()], false, NOW)
+                .unwrap();
+            let prepared = f.prepare("choose-existing-optional-context");
+            let mut response = decision(&prepared, true);
+            response.next_fragments = p::SelectionIntent::Replace {
+                reason: "Select an exact existing optional fragment before changing character."
+                    .into(),
+                references: vec![reference(&optional)],
+            };
+            assert_eq!(f.run(&prepared, &response).status, AdoptionStatus::Adopted);
+        }
+        let prepared = f.prepare("changed-character-contract");
+        let mut response = character_selection_response(&prepared);
+        if variant != "clear-existing" {
+            response.next_fragments = p::SelectionIntent::Preserve {
+                reason: "Retain the initialized optional choice without renewal.".into(),
+            };
+        }
+        response.next_assets = p::SelectionIntent::Preserve {
+            reason: "Retain the already initialized empty asset choice.".into(),
+        };
+        let report = f.run(&prepared, &response);
+        println!(
+            "changed {variant}: {:?}, {:?}",
+            report.status, report.reason
+        );
+        assert_eq!(report.status, AdoptionStatus::CharacterOnly);
+        assert_character_voice_is_mandatory_on_fresh_request(
+            &mut f,
+            usize::from(variant == "preserve-existing"),
         );
     }
 }
