@@ -8804,3 +8804,443 @@ fn character_change_preserves_initialized_optional_choices_or_explicitly_clears_
         );
     }
 }
+
+fn aggregate_selection_response(prepared: &Prepared, caveat: &f::FileRevision) -> p::Decision {
+    let mut response = decision(prepared, true);
+    let mut a = write(
+        "save-a",
+        p::Scope::Assets {},
+        "aggregate-a",
+        "EXACT_AGGREGATE_ASSET_A",
+        None,
+    );
+    if let p::Operation::FileWrite { qualifications, .. } = &mut a {
+        qualifications.push(reference(caveat));
+    }
+    response.operations = vec![
+        a,
+        write(
+            "save-b",
+            p::Scope::Assets {},
+            "aggregate-b",
+            "EXACT_AGGREGATE_ASSET_B",
+            None,
+        ),
+        effect(
+            "register-a",
+            WorkAction::PutArtifact {
+                artifact: "aggregate-artifact".into(),
+                base: None,
+                subject: proposed("aggregate-a", "save-a"),
+            },
+            &["save-a"],
+        ),
+    ];
+    response.asset_maintenance = p::Maintenance::Change {
+        reason: "Retain both exact synthetic assets.".into(),
+        operation_ids: vec!["save-a".into(), "save-b".into()],
+    };
+    response.next_assets = p::SelectionIntent::Replace {
+        reason: "Explicitly select the qualified asset and independent asset.".into(),
+        references: vec![
+            proposed("aggregate-a", "save-a"),
+            proposed("aggregate-b", "save-b"),
+        ],
+    };
+    response
+}
+
+#[test]
+fn aggregate_selection_admission_rejects_unusable_replacement_and_supplies_complete_fitting_pair() {
+    for bound in [4, 6] {
+        let mut configuration = config();
+        configuration.corpus.max_closure_references = bound;
+        let mut fixture = Fixture::with_config(true, configuration);
+        fixture.accept();
+        let caveat = record(
+            "aggregate-caveat",
+            f::Scope::Assets,
+            "EXACT_AGGREGATE_CAVEAT",
+        );
+        fixture
+            .app
+            .import_files("operator", "a", vec![caveat.clone()], false, NOW)
+            .unwrap();
+        let prepared = fixture.prepare("aggregate-selection");
+        let response = aggregate_selection_response(&prepared, &caveat);
+        let prior_assets = fixture.app.snapshot().unwrap().personas["a"].focus["work"]
+            .assets
+            .clone();
+        let before = json!(fixture.app.snapshot().unwrap());
+        let report = fixture.run(&prepared, &response);
+        let snapshot = fixture.app.snapshot().unwrap();
+        if bound == 4 {
+            // Store terminal/accounting changes are separate from Runtime state.
+            // No staged file, work effect, observation or fit checkpoint commits.
+            assert_eq!(json!(snapshot), before);
+            assert_eq!(
+                report.status,
+                AdoptionStatus::Held,
+                "already inadmissible replacement"
+            );
+            assert!(report
+                .reason
+                .unwrap()
+                .contains("combined context allowance"));
+            assert_eq!(
+                fixture
+                    .app
+                    .invocation("aggregate-selection")
+                    .unwrap()
+                    .runtime_failure_context,
+                Some(json!({"kind":"unknown"}))
+            );
+            assert_eq!(
+                json!(snapshot.personas["a"].focus["work"].assets),
+                json!(prior_assets)
+            );
+            assert!(!snapshot.sources.contains_key("aggregate-a"));
+            assert!(!snapshot.sources.contains_key("aggregate-b"));
+            assert!(snapshot
+                .board
+                .work(&w::WorkId("work".into()))
+                .unwrap()
+                .artifacts
+                .is_empty());
+        } else {
+            assert_eq!(report.status, AdoptionStatus::Adopted);
+            assert_eq!(
+                snapshot
+                    .board
+                    .work(&w::WorkId("work".into()))
+                    .unwrap()
+                    .artifacts
+                    .len(),
+                1
+            );
+            let root = fixture.app.state_root().to_owned();
+            fixture.app = Runtime::open(&root).unwrap();
+            let fresh = fixture.prepare("aggregate-fresh");
+            let context: Value =
+                serde_json::from_str(fresh.prompt.split("QUALIFIED_CONTEXT\n").nth(1).unwrap())
+                    .unwrap();
+            assert_eq!(context["withheld"], json!([]));
+            for source in ["voice", "aggregate-a", "aggregate-b", "aggregate-caveat"] {
+                assert!(
+                    context["entries"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|e| e["reference"]["source"] == source),
+                    "missing {source}"
+                );
+            }
+            assert!(fresh.prompt.contains("EXACT_AGGREGATE_ASSET_A"));
+            assert!(fresh.prompt.contains("EXACT_AGGREGATE_CAVEAT"));
+            assert!(fresh.prompt.contains("EXACT_AGGREGATE_ASSET_B"));
+            let entries = context["entries"].as_array().unwrap();
+            let qualified = entries
+                .iter()
+                .find(|e| e["reference"]["source"] == "aggregate-a")
+                .unwrap();
+            assert_eq!(qualified["text"], "EXACT_AGGREGATE_ASSET_A");
+            assert!(qualified["roles"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|role| role["role"] == "root"
+                    && role["bundle"] == json!({"kind":"selected_asset","index":0})));
+            let caveat_entry = entries
+                .iter()
+                .find(|e| e["reference"]["source"] == "aggregate-caveat")
+                .unwrap();
+            assert_eq!(caveat_entry["text"], "EXACT_AGGREGATE_CAVEAT");
+            assert!(caveat_entry["roles"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|role| role["role"] == "qualification"
+                    && role["bundle"] == json!({"kind":"selected_asset","index":0})
+                    && role["required_by"] == qualified["reference"]));
+        }
+    }
+}
+
+fn aggregate_preserved_fixture() -> (Fixture, f::FileRevision) {
+    let mut configuration = config();
+    configuration.corpus.max_closure_references = 4;
+    let mut fixture = Fixture::with_config(true, configuration);
+    fixture.accept();
+    let caveat = record(
+        "aggregate-caveat",
+        f::Scope::Assets,
+        "EXACT_AGGREGATE_CAVEAT",
+    );
+    let mut asset = record("aggregate-a", f::Scope::Assets, "EXACT_AGGREGATE_ASSET_A");
+    asset
+        .qualifications
+        .push(caveat.reference(f::Representation::Utf8));
+    asset = asset.seal().unwrap();
+    fixture
+        .app
+        .import_files("operator", "a", vec![caveat, asset.clone()], false, NOW)
+        .unwrap();
+    let prepared = fixture.prepare("select-qualified-a");
+    let mut response = decision(&prepared, true);
+    response.next_assets = p::SelectionIntent::Replace {
+        reason: "Select the complete qualified asset.".into(),
+        references: vec![reference(&asset)],
+    };
+    assert_eq!(
+        fixture.run(&prepared, &response).status,
+        AdoptionStatus::Adopted
+    );
+    (fixture, asset)
+}
+
+fn aggregate_cross_scope_response(prepared: &Prepared) -> p::Decision {
+    let mut response = decision(prepared, true);
+    response.operations.push(write(
+        "save-fragment",
+        p::Scope::Fragments {},
+        "aggregate-fragment",
+        "EXACT_NEW_FRAGMENT",
+        None,
+    ));
+    response.fragment_maintenance = p::Maintenance::Change {
+        reason: "Retain an independent synthetic fragment.".into(),
+        operation_ids: vec!["save-fragment".into()],
+    };
+    response.next_fragments = p::SelectionIntent::Replace {
+        reason: "Select this exact fragment.".into(),
+        references: vec![proposed("aggregate-fragment", "save-fragment")],
+    };
+    response
+}
+
+#[test]
+fn aggregate_selection_admission_cannot_displace_a_preserved_other_scope() {
+    let (mut fixture, _) = aggregate_preserved_fixture();
+    let prepared = fixture.prepare("cross-scope-addition");
+    assert!(prepared.prompt.contains("EXACT_AGGREGATE_ASSET_A"));
+    assert!(prepared.prompt.contains("EXACT_AGGREGATE_CAVEAT"));
+    let prior = fixture.app.snapshot().unwrap().personas["a"].focus["work"].clone();
+    let report = fixture.run(&prepared, &aggregate_cross_scope_response(&prepared));
+    assert_eq!(report.status, AdoptionStatus::Held);
+    assert!(report
+        .reason
+        .unwrap()
+        .contains("makes preserved context unavailable"));
+    let snapshot = fixture.app.snapshot().unwrap();
+    assert_eq!(
+        json!(snapshot.personas["a"].focus["work"].assets),
+        json!(prior.assets)
+    );
+    assert_eq!(
+        json!(snapshot.personas["a"].focus["work"].fragments),
+        json!(prior.fragments)
+    );
+    assert!(!snapshot.sources.contains_key("aggregate-fragment"));
+}
+
+#[test]
+fn aggregate_selection_admission_allows_preserving_already_unavailable_other_scope() {
+    let (mut fixture, _) = aggregate_preserved_fixture();
+    fixture
+        .app
+        .withdraw_source(
+            "operator",
+            "aggregate-caveat",
+            "Synthetic authority withdrawal.",
+        )
+        .unwrap();
+    let prepared = fixture.prepare("already-unavailable-addition");
+    assert!(!prepared.prompt.contains("EXACT_AGGREGATE_ASSET_A"));
+    assert!(!prepared.prompt.contains("EXACT_AGGREGATE_CAVEAT"));
+    let report = fixture.run(&prepared, &aggregate_cross_scope_response(&prepared));
+    assert_eq!(report.status, AdoptionStatus::Adopted, "{report:?}");
+    let fresh = fixture.prepare("after-unavailable-preserved");
+    assert!(fresh.prompt.contains("EXACT_NEW_FRAGMENT"));
+    assert!(!fresh.prompt.contains("EXACT_AGGREGATE_ASSET_A"));
+    assert_eq!(
+        fixture.app.snapshot().unwrap().personas["a"].focus["work"]
+            .assets
+            .as_ref()
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn aggregate_selection_admission_preserves_clear_and_fitting_reduction() {
+    let mut configuration = config();
+    configuration.corpus.max_closure_references = 6;
+    let mut fixture = Fixture::with_config(true, configuration);
+    fixture.accept();
+    let caveat = record(
+        "aggregate-caveat",
+        f::Scope::Assets,
+        "EXACT_AGGREGATE_CAVEAT",
+    );
+    fixture
+        .app
+        .import_files("operator", "a", vec![caveat.clone()], false, NOW)
+        .unwrap();
+    let prepared = fixture.prepare("fit-pair");
+    assert_eq!(
+        fixture
+            .run(&prepared, &aggregate_selection_response(&prepared, &caveat))
+            .status,
+        AdoptionStatus::Adopted
+    );
+    let selected = fixture.app.snapshot().unwrap().personas["a"].focus["work"]
+        .assets
+        .as_ref()
+        .unwrap()[0]
+        .reference
+        .clone();
+    let prepared = fixture.prepare("reduce-pair");
+    let mut response = decision(&prepared, true);
+    response.next_assets = p::SelectionIntent::Replace {
+        reason: "Retain only the qualified asset.".into(),
+        references: vec![selected],
+    };
+    assert_eq!(
+        fixture.run(&prepared, &response).status,
+        AdoptionStatus::Adopted
+    );
+    let prepared = fixture.prepare("clear-pair");
+    assert!(prepared.prompt.contains("EXACT_AGGREGATE_ASSET_A"));
+    assert!(!prepared.prompt.contains("EXACT_AGGREGATE_ASSET_B"));
+    let mut response = decision(&prepared, true);
+    response.next_assets = p::SelectionIntent::Clear {
+        reason: "Explicitly remove optional assets.".into(),
+    };
+    assert_eq!(
+        fixture.run(&prepared, &response).status,
+        AdoptionStatus::Adopted
+    );
+    let fresh = fixture.prepare("cleared-pair");
+    assert!(!fresh.prompt.contains("EXACT_AGGREGATE_ASSET_A"));
+    assert!(fixture.app.snapshot().unwrap().personas["a"].focus["work"]
+        .assets
+        .as_ref()
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn aggregate_selection_admission_uses_edge_and_byte_quotas_too() {
+    for dimension in ["edges", "bytes"] {
+        let caveat = record("aggregate-caveat", f::Scope::Assets, &"CAVEAT_".repeat(200));
+        let mut asset = record("aggregate-a", f::Scope::Assets, &"QUALIFIED_".repeat(200));
+        asset
+            .qualifications
+            .push(caveat.reference(f::Representation::Utf8));
+        asset = asset.seal().unwrap();
+        let mut configuration = config();
+        if dimension == "edges" {
+            configuration.corpus.max_closure_edges = 2;
+        } else {
+            let closure_bytes = serde_json::to_vec(&asset).unwrap().len()
+                + serde_json::to_vec(&caveat).unwrap().len();
+            configuration.corpus.max_closure_bytes = closure_bytes * 2;
+        }
+        let mut fixture = Fixture::with_config(true, configuration);
+        fixture.accept();
+        fixture
+            .app
+            .import_files("operator", "a", vec![caveat, asset.clone()], false, NOW)
+            .unwrap();
+        let prepared = fixture.prepare("select-single");
+        let mut response = decision(&prepared, true);
+        response.next_assets = p::SelectionIntent::Replace {
+            reason: "The qualified asset fits its two-root share.".into(),
+            references: vec![reference(&asset)],
+        };
+        assert_eq!(
+            fixture.run(&prepared, &response).status,
+            AdoptionStatus::Adopted,
+            "{dimension}"
+        );
+        let prepared = fixture.prepare("add-third-root");
+        assert!(prepared.prompt.contains(&"QUALIFIED_".repeat(200)));
+        let report = fixture.run(&prepared, &aggregate_cross_scope_response(&prepared));
+        assert_eq!(report.status, AdoptionStatus::Held, "{dimension}");
+        assert!(report
+            .reason
+            .unwrap()
+            .contains("makes preserved context unavailable"));
+        assert!(!fixture
+            .app
+            .snapshot()
+            .unwrap()
+            .sources
+            .contains_key("aggregate-fragment"));
+    }
+}
+
+#[test]
+fn aggregate_selection_admission_does_not_count_expired_next_call_roots() {
+    let mut configuration = config();
+    configuration.corpus.max_closure_references = 4;
+    let mut fixture = Fixture::with_config(true, configuration);
+    fixture.accept();
+    let caveat = record(
+        "aggregate-caveat",
+        f::Scope::Assets,
+        "EXACT_AGGREGATE_CAVEAT",
+    );
+    let mut asset = record("aggregate-a", f::Scope::Assets, "EXACT_EXPIRING_ASSET");
+    asset
+        .qualifications
+        .push(caveat.reference(f::Representation::Utf8));
+    asset = asset.seal().unwrap();
+    let mut fragment = record(
+        "aggregate-fragment",
+        f::Scope::Fragments,
+        "EXACT_QUALIFIED_FRAGMENT",
+    );
+    fragment
+        .qualifications
+        .push(caveat.reference(f::Representation::Utf8));
+    fragment = fragment.seal().unwrap();
+    fixture
+        .app
+        .import_files(
+            "operator",
+            "a",
+            vec![caveat, asset.clone(), fragment.clone()],
+            false,
+            NOW,
+        )
+        .unwrap();
+    let prepared = fixture.prepare("select-expiring");
+    let mut response = decision(&prepared, true);
+    let mut once = reference(&asset);
+    once.lifetime = Some("next_call".into());
+    response.next_assets = p::SelectionIntent::Replace {
+        reason: "Retain the asset for one admission only.".into(),
+        references: vec![once],
+    };
+    assert_eq!(
+        fixture.run(&prepared, &response).status,
+        AdoptionStatus::Adopted
+    );
+    let prepared = fixture.prepare("consume-expiring");
+    assert!(prepared.prompt.contains("EXACT_EXPIRING_ASSET"));
+    let mut response = decision(&prepared, true);
+    response.next_fragments = p::SelectionIntent::Replace {
+        reason: "Choose qualified context after the asset expires.".into(),
+        references: vec![reference(&fragment)],
+    };
+    assert_eq!(
+        fixture.run(&prepared, &response).status,
+        AdoptionStatus::Adopted
+    );
+    let fresh = fixture.prepare("after-expiring");
+    assert!(fresh.prompt.contains("EXACT_QUALIFIED_FRAGMENT"));
+    assert!(fresh.prompt.contains("EXACT_AGGREGATE_CAVEAT"));
+    assert!(!fresh.prompt.contains("EXACT_EXPIRING_ASSET"));
+}

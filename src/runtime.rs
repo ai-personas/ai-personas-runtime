@@ -1020,13 +1020,15 @@ fn action(value: &Value) -> Result<WorkAction> {
         )
     };
     match &parsed {
+        WorkAction::Handoff { offer, .. } => p::check_id(offer, "handoff.offer")?,
         WorkAction::PutArtifact {
             artifact, subject, ..
         } => {
             p::check_id(artifact, "put_artifact.artifact")?;
             p::check_reference(subject, "put_artifact.subject")?;
         }
-        WorkAction::Invite { terms, .. } => {
+        WorkAction::Invite { offer, terms, .. } => {
+            p::check_id(offer, "invite.offer")?;
             unique(&value["terms"]["outcomes"], terms.outcomes.len())?;
             unique(&value["terms"]["review_roles"], terms.review_roles.len())?;
         }
@@ -1982,6 +1984,9 @@ impl Runtime {
             &input.terms,
         ] {
             text(t, 16_384)?;
+        }
+        for invitation in &input.invitations {
+            p::check_id(&invitation.id, "invitations.id")?;
         }
         let (old, mut state) = self.load()?;
         let policy = current_policy(&state, &input.policy_id)?.clone();
@@ -5019,6 +5024,7 @@ fn allocate_navigation(
 const REPAIR_DUTIES: &str = "RESTRICTED SELECTION REPAIR ONLY. Retain current identity, character, authority, policies, work, observations, and maintenance duties. Optional bodies may be omitted only as recorded in the receipt. Inventory is metadata, never supplied guidance or task evidence. You may preserve, clear, or choose a subset of whole exact existing selection entries. Range narrowing, added sources, changed revisions, and lifetime renewal are not implemented in this mode. Only the exact inventory body references may be read, with complete qualifications and within the remaining bound. A response requesting reads must preserve both selections; a later explicitly admitted repair must observe the results before a dependent choice. No search, source write, retirement, character or warning change, communication, delivery, assessment, responsibility operation, work command, model change, or substantive task action is permitted. Work must remain ongoing with no evidence claims. Both maintenance outcomes must be explicit no_change, blocked, or deferred; a known useful prohibited edit is blocked/deferred, not completed. Reply must be none and continuation stop or pause. Preserving an oversized selection does not repair fit. No response creates a retry, wake, funding, or ordinary task authority. Every subsequent request requires fresh admission.";
 
 struct Rendered {
+    withheld: Vec<f::WithheldBundle>,
     prompt: String,
     total: usize,
     sources: Vec<f::Reference>,
@@ -5796,6 +5802,7 @@ fn render_mode(
         "complete supplied exposure unavailable",
     )?;
     Ok(Rendered {
+        withheld: assembly.withheld,
         prompt,
         total,
         exposure,
@@ -6240,6 +6247,71 @@ fn check_replacement(
         )?;
     }
     Ok(())
+}
+// A replacement must be usable under the actual combined-root allocation, not
+// merely when each candidate is checked with the entire closure allowance.
+fn check_aggregate_replacement(
+    state: &State,
+    prepared: &Prepared,
+    decision: &p::Decision,
+    previous: &Focus,
+    rendered: &Rendered,
+    now: i64,
+) -> Result<()> {
+    let mut preserved_withheld = Vec::new();
+    for withheld in &rendered.withheld {
+        let intent = match withheld.bundle.kind {
+            f::BundleKind::SelectedFragment => &decision.next_fragments,
+            f::BundleKind::SelectedAsset => &decision.next_assets,
+            _ => continue,
+        };
+        require(
+            !matches!(intent, p::SelectionIntent::Replace { .. }),
+            "replacement selection is unavailable under the combined context allowance",
+        )?;
+        if matches!(intent, p::SelectionIntent::Preserve { .. }) {
+            preserved_withheld.push(withheld.bundle);
+        }
+    }
+    if preserved_withheld.is_empty() {
+        return Ok(());
+    }
+    let serial = increment(prepared.admission_serial)?;
+    let old_fragments = active_selection(&previous.fragments, serial)
+        .iter()
+        .map(|s| file_reference(&s.reference))
+        .collect::<Result<Vec<_>>>()?;
+    let old_assets = active_selection(&previous.assets, serial)
+        .iter()
+        .map(|s| file_reference(&s.reference))
+        .collect::<Result<Vec<_>>>()?;
+    if rendered.roots.fragments.len() + rendered.roots.assets.len()
+        <= old_fragments.len() + old_assets.len()
+    {
+        return Ok(());
+    }
+    // Hold authority, accepted bindings, file revisions and mandatory character
+    // at their final candidate values. Change only the optional request shape:
+    // an already unavailable preserved choice remains valid to preserve, while
+    // adding other roots cannot silently take away its previously usable share.
+    let persona = &state.personas[&prepared.request.persona];
+    let a = admission(persona, now);
+    let prior = f::assemble(
+        &corpus(state, &a)?,
+        &rendered.roots.mandatory,
+        &old_fragments,
+        &old_assets,
+        &a,
+        usize::MAX,
+        0,
+        0,
+    )?;
+    require(
+        preserved_withheld
+            .iter()
+            .all(|id| prior.withheld.iter().any(|w| w.bundle == *id)),
+        "replacement selection makes preserved context unavailable under the combined allowance",
+    )
 }
 fn validate_operation_interfaces(
     state: &State,
@@ -6843,6 +6915,7 @@ fn plan_response(
         false,
         None,
     )?;
+    check_aggregate_replacement(&state, prepared, decision, &previous_focus, &fitted, now)?;
     *planning_exposure = before_final_render;
     planning_exposure.include(&fitted.exposure);
     let persona = state.personas.get_mut(actor).unwrap();
@@ -7653,7 +7726,9 @@ fn apply_work_actions(
     let closing = commands
         .iter()
         .any(|c| matches!(c, w::Command::CloseGoal { .. }));
-    let declining_only = !commands.is_empty()
+    // Declining a new offer does not end an already accepted responsibility.
+    let declining_only = initial.acceptance(&actor).is_none()
+        && !commands.is_empty()
         && commands
             .iter()
             .all(|c| matches!(c, w::Command::Decline { .. }));

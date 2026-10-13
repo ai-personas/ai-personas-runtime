@@ -542,3 +542,273 @@ fn first_invite_requires_authorized_work_commands_even_with_a_passive_inbox() {
         .prepare(peer_request("no-unauthorized-wake"), NOW)
         .is_err());
 }
+
+fn explicit_offer(operation: &str, offer: &str, handoff: bool, recipient: &str) -> p::Operation {
+    let action = if handoff {
+        WorkAction::Handoff {
+            offer: offer.into(),
+            to: recipient.into(),
+        }
+    } else {
+        WorkAction::Invite {
+            offer: offer.into(),
+            to: recipient.into(),
+            terms: Commitment {
+                mandate_revision: 1,
+                exact_terms: "Optional contribution without exclusive outcome ownership.".into(),
+                outcomes: BTreeSet::new(),
+                review_roles: BTreeSet::new(),
+            },
+        }
+    };
+    effect(operation, action, &[])
+}
+
+fn answer_offer(prepared: &Prepared, offer_id: &str, disposition: &str) -> p::Decision {
+    let core = interface_control(prepared);
+    let offer = core["own_pending_offers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|offer| offer["id"] == offer_id)
+        .unwrap();
+    let mut response = decision(prepared, false);
+    response.operations.push(p::Operation::Responsibility {
+        id: offer_id.into(),
+        work_id: "work".into(),
+        terms_revision: offer["terms_revision"].as_str().unwrap().into(),
+        disposition: disposition.into(),
+        reason: "Explicit voluntary response to this exact offer.".into(),
+    });
+    if disposition == "decline" {
+        response.continuation = p::Continuation::Stop {
+            reason: "Decline this offer and stop local continuation.".into(),
+        };
+    }
+    response
+}
+
+#[test]
+fn accepted_participant_can_decline_new_offer_and_stop_without_losing_responsibility() {
+    let mut fixture =
+        fixture_with_peers(config(), seed("a"), seed("b"), interface_peer_need(false));
+    fixture.accept();
+    accept_peer(&mut fixture, "accept-contributor");
+    let original = fixture
+        .app
+        .snapshot()
+        .unwrap()
+        .board
+        .work(&w::WorkId("work".into()))
+        .unwrap()
+        .acceptance(&w::PersonaId("a".into()))
+        .unwrap()
+        .1
+        .clone();
+    let prepared = fixture
+        .app
+        .prepare(peer_request("peer-new-offer-to-accepted-owner"), NOW)
+        .unwrap();
+    let mut response = decision(&prepared, true);
+    response
+        .operations
+        .push(explicit_offer("offer-again", "extra-offer-a", false, "a"));
+    assert_eq!(
+        fixture.run(&prepared, &response).status,
+        AdoptionStatus::Adopted
+    );
+    let prepared = fixture.prepare("decline-extra-offer-and-stop");
+    let response = answer_offer(&prepared, "extra-offer-a", "decline");
+    let report = fixture.run(&prepared, &response);
+    eprintln!(
+        "ACCEPTED-DECLINE status={:?} reason={:?}",
+        report.status, report.reason
+    );
+    assert_eq!(
+        report.status,
+        AdoptionStatus::Adopted,
+        "{:?}",
+        report.reason
+    );
+    let state = fixture.app.snapshot().unwrap();
+    let work = state.board.work(&w::WorkId("work".into())).unwrap();
+    assert!(matches!(
+        work.offers[&w::RecordId("extra-offer-a".into())].status,
+        w::OfferStatus::Declined { .. }
+    ));
+    assert_eq!(
+        work.acceptance(&w::PersonaId("a".into())).unwrap().1,
+        &original
+    );
+    assert!(matches!(work.phase, w::Phase::Open));
+    assert!(matches!(
+        work.participants[&w::PersonaId("a".into())].continuation,
+        Some(w::Continuation::Paused { .. })
+    ));
+    assert!(!state.personas["a"].focus["work"].permit);
+    assert!(fixture
+        .app
+        .prepare(
+            PrepareRequest {
+                id: "no-implicit-restart".into(),
+                persona: "a".into(),
+                work: "work".into(),
+                profile: Profile::Synthetic,
+                mode: Mode::Ordinary,
+            },
+            NOW
+        )
+        .is_err());
+}
+
+fn invalid_action_offer_is_atomic(offer: &str, handoff: bool) {
+    let mut fixture = fixture_with_peers(config(), seed("a"), seed("b"), need());
+    fixture.accept();
+    let prepared = fixture.prepare("invalid-inner-offer");
+    let mut response = decision(&prepared, true);
+    response.operations = vec![
+        write(
+            "companion-save",
+            p::Scope::Assets {},
+            "uncommitted-companion",
+            "Must roll back with invalid offer.",
+            None,
+        ),
+        explicit_offer("valid-operation-id", offer, handoff, "b"),
+    ];
+    response.asset_maintenance = p::Maintenance::Change {
+        reason: "Account for the companion save.".into(),
+        operation_ids: vec!["companion-save".into()],
+    };
+    let before = persisted_state(&fixture.app);
+    let report = fixture.run(&prepared, &response);
+    eprintln!(
+        "OFFER-ID handoff={handoff} bytes={} status={:?} reason={:?}",
+        offer.len(),
+        report.status,
+        report.reason
+    );
+    assert_eq!(report.status, AdoptionStatus::Held);
+    assert!(report
+        .reason
+        .unwrap()
+        .contains("identifier must be nonempty, bounded"));
+    assert_eq!(persisted_state(&fixture.app), before);
+    assert!(report.applied.is_empty());
+    assert!(fixture
+        .app
+        .prepare(peer_request("no-phantom-offer-admission"), NOW)
+        .is_err());
+}
+#[test]
+fn invite_offer_whitespace_id_is_rejected_atomically() {
+    invalid_action_offer_is_atomic("peer offer", false);
+}
+#[test]
+fn invite_offer_257_byte_id_is_rejected_atomically() {
+    invalid_action_offer_is_atomic(&"x".repeat(257), false);
+}
+#[test]
+fn handoff_offer_whitespace_id_is_rejected_atomically() {
+    invalid_action_offer_is_atomic("peer offer", true);
+}
+#[test]
+fn handoff_offer_257_byte_id_is_rejected_atomically() {
+    invalid_action_offer_is_atomic(&"x".repeat(257), true);
+}
+
+fn invalid_intake_offer_is_atomic(offer: &str) {
+    let mut fixture = Fixture::new(true);
+    let mut original = need();
+    original.id = "second-work".into();
+    original.invitations[0].id = offer.into();
+    let before = persisted_state(&fixture.app);
+    let ledger = fixture.app.ledger().unwrap();
+    let epoch = fixture.app.epoch().unwrap();
+    let result = fixture.app.add_need("operator", original);
+    eprintln!("INTAKE-OFFER-ID bytes={} result={result:?}", offer.len());
+    assert!(matches!(result, Err(RuntimeError::Protocol(_))));
+    assert_eq!(
+        fixture.app.ledger().unwrap(),
+        ledger,
+        "invalid ID must fail before Store reads or admission"
+    );
+    assert_eq!(fixture.app.epoch().unwrap(), epoch);
+    assert_eq!(persisted_state(&fixture.app), before);
+}
+#[test]
+fn intake_offer_whitespace_id_is_rejected_before_admission() {
+    invalid_intake_offer_is_atomic("peer offer");
+}
+#[test]
+fn intake_offer_257_byte_id_is_rejected_before_admission() {
+    invalid_intake_offer_is_atomic(&"x".repeat(257));
+}
+
+#[test]
+fn valid_offer_ids_remain_answerable_for_invite_handoff_and_intake() {
+    for origin in ["invite", "handoff", "intake"] {
+        for disposition in ["accept", "decline"] {
+            for offer in ["peer-offer".to_owned(), "x".repeat(256)] {
+                let mut original = need();
+                if origin == "intake" {
+                    let mut invitation = original.invitations[0].clone();
+                    invitation.id = offer.clone();
+                    invitation.to = "b".into();
+                    invitation.terms.outcomes.clear();
+                    original.invitations.push(invitation);
+                }
+                let mut fixture = fixture_with_peers(config(), seed("a"), seed("b"), original);
+                fixture.accept();
+                if origin != "intake" {
+                    let prepared = fixture.prepare("originate-valid-peer-offer");
+                    let mut response = decision(&prepared, true);
+                    response.operations.push(explicit_offer(
+                        "make-valid-offer",
+                        &offer,
+                        origin == "handoff",
+                        "b",
+                    ));
+                    assert_eq!(
+                        fixture.run(&prepared, &response).status,
+                        AdoptionStatus::Adopted
+                    );
+                }
+                let prepared = fixture
+                    .app
+                    .prepare(peer_request("answer-valid-peer-offer"), NOW)
+                    .unwrap();
+                let response = answer_offer(&prepared, &offer, disposition);
+                let report = fixture.run(&prepared, &response);
+                assert_eq!(
+                    report.status,
+                    AdoptionStatus::Adopted,
+                    "{origin}/{disposition}/{}: {:?}",
+                    offer.len(),
+                    report.reason
+                );
+                let state = fixture.app.snapshot().unwrap();
+                let work = state.board.work(&w::WorkId("work".into())).unwrap();
+                if disposition == "accept" {
+                    assert!(work.acceptance(&w::PersonaId("b".into())).is_some());
+                    assert!(matches!(
+                        work.offers[&w::RecordId(offer)].status,
+                        w::OfferStatus::Accepted(_)
+                    ));
+                    assert_eq!(
+                        work.acceptance(&w::PersonaId("a".into())).is_none(),
+                        origin == "handoff"
+                    );
+                } else {
+                    assert!(work.acceptance(&w::PersonaId("b".into())).is_none());
+                    assert!(work.acceptance(&w::PersonaId("a".into())).is_some());
+                    assert!(matches!(
+                        work.offers[&w::RecordId(offer)].status,
+                        w::OfferStatus::Declined { .. }
+                    ));
+                    assert!(!state.personas["b"].focus["work"].permit);
+                }
+            }
+        }
+    }
+}
