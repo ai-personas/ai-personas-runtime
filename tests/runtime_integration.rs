@@ -7403,3 +7403,139 @@ fn resume_cannot_abandon_another_work_prepared_or_responded_invocation() {
         assert!(closeout_head(&root).body["personas"]["a"]["active_invocation"].is_null());
     }
 }
+
+#[test]
+fn formal_assessment_requires_a_real_accepted_review_role() {
+    let mut f = Fixture::new(true);
+    f.accept();
+    let prepared = f.prepare("role-artifact");
+    let mut response = decision(&prepared, true);
+    response.asset_maintenance = p::Maintenance::Change {
+        reason: "Retain an exact supporting asset.".into(),
+        operation_ids: vec!["role-save".into()],
+    };
+    response.operations = vec![
+        write(
+            "role-save",
+            p::Scope::Assets {},
+            "role-source",
+            "Bounded authored contribution.",
+            None,
+        ),
+        effect(
+            "role-register",
+            WorkAction::PutArtifact {
+                artifact: "role-artifact".into(),
+                base: None,
+                subject: proposed("role-source", "role-save"),
+            },
+            &["role-save"],
+        ),
+    ];
+    assert_eq!(f.run(&prepared, &response).status, AdoptionStatus::Adopted);
+    let prepared = f.prepare("ungranted-review");
+    let core = interface_control(&prepared);
+    assert_eq!(core["mandate"]["review_roles"], json!({}));
+    assert_eq!(
+        core["own_acceptance"][1]["terms"]["review_roles"],
+        json!([])
+    );
+    assert!(prepared
+        .prompt
+        .contains("Empty accepted review_roles means no formal assessment role"));
+    assert!(prepared
+        .prompt
+        .contains("empty evidence cannot establish a passing assessment"));
+    let artifact: ArtifactKey =
+        serde_json::from_value(core["work_artifacts"][0]["artifact"].clone()).unwrap();
+    let mut response = decision(&prepared, true);
+    response.operations = vec![
+        effect(
+            "ungranted-assess",
+            WorkAction::Assess {
+                id: "ungranted-assessment".into(),
+                artifact,
+                outcome: "result".into(),
+                role: "contributor".into(),
+                evidence: BTreeSet::new(),
+                passes: true,
+                explanation: "An authored opinion is not an accepted reviewer role.".into(),
+                limitations: vec!["No formal reviewer authority or bound evidence.".into()],
+            },
+            &[],
+        ),
+        p::Operation::Communicate {
+            id: "ungranted-message".into(),
+            recipient: "b".into(),
+            subject: "Unaccepted assessment".into(),
+            text: "This must not be deposited.".into(),
+        },
+    ];
+    let before = persisted_state(&f.app);
+    let report = f.run(&prepared, &response);
+    assert_eq!(report.status, AdoptionStatus::Held);
+    assert_eq!(
+        report.reason.as_deref(),
+        Some("invalid accepted reviewer role")
+    );
+    assert!(report.applied.is_empty());
+    assert_eq!(persisted_state(&f.app), before);
+}
+
+#[test]
+fn preserved_own_asset_does_not_supply_peer_body_until_explicit_read() {
+    let mut f = Fixture::new(true);
+    f.accept();
+    let own = record("selection-own", f::Scope::Assets, "OWN_SELECTION_BODY");
+    let peer = record("selection-peer", f::Scope::Assets, "PEER_SELECTION_BODY");
+    f.app
+        .import_files("operator", "a", vec![own.clone()], false, NOW)
+        .unwrap();
+    f.app
+        .import_files("operator", "b", vec![peer.clone()], false, NOW)
+        .unwrap();
+    let prepared = f.prepare("select-own");
+    let mut response = decision(&prepared, true);
+    response.next_assets = p::SelectionIntent::Replace {
+        reason: "Select this exact own asset.".into(),
+        references: vec![reference(&own)],
+    };
+    assert_eq!(f.run(&prepared, &response).status, AdoptionStatus::Adopted);
+    let prepared = f.prepare("preserve-own");
+    assert!(prepared.prompt.contains("OWN_SELECTION_BODY"));
+    assert!(!prepared.prompt.contains("PEER_SELECTION_BODY"));
+    assert!(prepared
+        .prompt
+        .contains("next_assets preserve keeps the previously selected exact asset references"));
+    assert_eq!(
+        prepared.bundle_roots.as_ref().unwrap().assets[0].source,
+        "selection-own"
+    );
+    assert_eq!(
+        f.run(&prepared, &decision(&prepared, true)).status,
+        AdoptionStatus::Adopted
+    );
+    let prepared = f.prepare("read-peer");
+    assert!(!prepared.prompt.contains("PEER_SELECTION_BODY"));
+    let mut response = decision(&prepared, true);
+    response.operations.push(p::Operation::Read {
+        id: "explicit-peer-read".into(),
+        reference: reference(&peer),
+    });
+    assert_eq!(f.run(&prepared, &response).status, AdoptionStatus::Adopted);
+    let prepared = f.prepare("peer-result-supplied");
+    assert!(prepared.prompt.contains("OWN_SELECTION_BODY"));
+    assert!(prepared.prompt.contains("PEER_SELECTION_BODY"));
+    assert_eq!(prepared.bundle_roots.as_ref().unwrap().assets.len(), 1);
+    assert_eq!(
+        prepared.bundle_roots.as_ref().unwrap().assets[0].source,
+        "selection-own"
+    );
+    assert!(interface_control(&prepared)["actual_observations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|o| o["payload"]["result"]["entries"]
+            .as_array()
+            .is_some_and(|entries| entries.iter().any(|e| e["text"] == "PEER_SELECTION_BODY"))));
+}
