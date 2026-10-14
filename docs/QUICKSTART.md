@@ -8,7 +8,7 @@ After one explicit setup, give the saved cohort a need with `ai-personas run 'â€
 
 ## Once: verify the profile and save the cohort
 
-Build with Rust 1.85 or later:
+Build with Rust 1.88 or later (development checks use 1.95.0):
 
 ```sh
 cargo build --locked --release
@@ -17,16 +17,15 @@ cargo build --locked --release
 
 The examples below assume `ai-personas` is on your `PATH`; otherwise use `./target/release/ai-personas` from the checkout.
 
-First prepare a verified [`ResearchSettings`](../src/runtime.rs) JSON file for this computer's installed Codex CLI. It binds the executable path, SHA-256 and version, confirmed model and effort, catalog evidence, supported feature settings, temporary directory, and finite transport limits. Verify installed CLI support and existing authentication through its supported interface. The profile is configuration, not a credential file. Setup imports it; it does not discover models, create credentials, refresh pins, or establish strict execution.
+First prepare a verified [`DirectSettings`](../src/provider.rs) JSON file. It selects one access mode, explicit credential references, immutable account and route capability evidence, exact model and effort, and finite request/stream limits. [Direct provider configuration](direct-provider.md) explains the three separate authentication routes. Configuration does not establish access by itself; setup neither resolves credentials nor performs inference.
 
-Replace the two path placeholders below. The working directory must already exist, pass the CLI's existing trust checks, and be separate from private state. `--destination` must name the intended processing destination. Review the [research transport limits](../README.md#codex-cli-research-transport) before opting in: native actions can be detected after occurrence, not guaranteed absent.
-
+Replace the two path placeholders below. The working directory must already exist and be separate from private state; it is compatibility metadata and is not read or transmitted by the provider. `--destination` names your approved processing destination. Read the [transport limits](direct-provider.md) before opting in.
 ```sh
 ai-personas --operator local-operator setup \
   --provider-config /absolute/private/verified-provider.json \
   --working-directory /absolute/operator-approved/checkout \
-  --destination codex-cli \
-  --share-cohort --allow-nonconformant-research
+  --destination approved-model-destination \
+  --share-cohort --allow-direct-provider
 ```
 
 Setup performs no inference. It saves three continuing personas by default and explicitly permits sharing within that cohort and with the requester. Creation seeds assert no prior experience. State defaults to `$XDG_STATE_HOME/ai-personas`, or `$HOME/.local/state/ai-personas`; keep it outside repositories. If you choose another location with `--state-root`, pass that same flag on subsequent commands.
@@ -86,4 +85,4 @@ This command neither invents consent nor resumes or completes work. Explicit `ru
 2. **Three separate workspaces.** Each persona reasons with its accepted character and own voice. It can request bounded file discovery and choose exact permitted fragments and supporting assets for later calls. Tools, skills, knowledge, data, and history remain supporting assets. Stored, discovered, selected, supplied, and used are different states; shelves are not loaded wholesale. Useful revision and organization are discretionary, under the same authority and limits.
 3. **Shared handoff, local inbox, saved bookmark.** Accepted contributions can inform a result. Local delivery, collective completion, human acceptance, and an individual's continuation remain separate. Pausing preserves the work's place; restarting the application is not permission to replay an uncertain call or erase responsibilities.
 
-For the deeper design, see the [illustrated guide at revision 294d5c6](https://github.com/ai-personas/ai-personas-design/blob/294d5c6bf29b6d5fe597c40b4c9c33e9da3bc03c/VISUAL-GUIDE.md) and [runtime limits](../README.md). This quickstart describes the current local research workflow, not unattended production operation or full design conformance.
+For the deeper design, see the [illustrated guide at revision 294d5c6](https://github.com/ai-personas/ai-personas-design/blob/294d5c6bf29b6d5fe597c40b4c9c33e9da3bc03c/VISUAL-GUIDE.md) and [runtime limits](../README.md). This quickstart describes the current bounded local workflow, not unattended production operation or full design conformance.

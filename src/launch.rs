@@ -15,7 +15,7 @@ pub struct Setup {
     pub cohort: usize,
     pub owner: usize,
     pub destination: String,
-    pub provider: ResearchSettings,
+    pub provider: DirectProviderSettings,
     pub working_directory: PathBuf,
     pub share_cohort: bool,
     pub max_steps: usize,
@@ -24,16 +24,61 @@ pub struct Setup {
     pub max_total_steps: u64,
     pub max_works: u64,
 }
+const PROVIDER_MIGRATION: &str = "saved provider is incompatible with direct HTTP execution; explicitly migrate provider mode and authorization while preserving history, counters, grants and unresolved attempts; existing records remain readable through open/result";
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SavedSetup {
+    cohort: usize,
+    owner: usize,
+    destination: String,
+    provider: serde_json::Value,
+    working_directory: PathBuf,
+    share_cohort: bool,
+    max_steps: usize,
+    max_considerations: usize,
+    max_work_attempts: u64,
+    max_total_steps: u64,
+    max_works: u64,
+}
+impl SavedSetup {
+    fn execution_provider(&self) -> Result<ResearchSettings> {
+        // CLI identity remains forbidden even if a settings deserializer accepts it.
+        if ["executable", "cli_version", "temporary_directory"]
+            .iter()
+            .any(|key| self.provider.get(*key).is_some())
+        {
+            return Err(invalid(PROVIDER_MIGRATION));
+        }
+        let provider: DirectProviderSettings = serde_json::from_value(self.provider.clone())
+            .map_err(|_| invalid(PROVIDER_MIGRATION))?;
+        provider
+            .validate()
+            .map_err(|_| invalid(PROVIDER_MIGRATION))?;
+        Ok(provider)
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Saved {
     format: u32,
     operator: String,
-    research_opt_in: bool,
-    setup: Setup,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    research_opt_in: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    direct_provider_opt_in: Option<bool>,
+    setup: SavedSetup,
     working_directory: PathBuf,
     works: BTreeMap<String, Option<String>>,
     steps: u64,
+}
+impl Saved {
+    fn execution_provider(&self) -> Result<DirectProviderSettings> {
+        if self.format != 2 || self.direct_provider_opt_in != Some(true) {
+            return Err(invalid(PROVIDER_MIGRATION));
+        }
+        self.setup.execution_provider()
+    }
 }
 fn people(count: usize) -> Vec<String> {
     (1..=count).map(|n| format!("persona-{n:04}")).collect()
@@ -46,8 +91,13 @@ fn load(app: &mut Runtime) -> Result<(s::StoredObject, Saved)> {
     require(object.kind == "foreground-launch", "launch object kind")?;
     let saved: Saved = serde_json::from_value(object.body.clone())?;
     require(
-        saved.format == 1 && saved.research_opt_in,
-        "saved research setup required",
+        (saved.format == 1
+            && saved.research_opt_in == Some(true)
+            && saved.direct_provider_opt_in.is_none())
+            || (saved.format == 2
+                && saved.direct_provider_opt_in == Some(true)
+                && saved.research_opt_in.is_none()),
+        "saved launch format and authorization metadata are invalid",
     )?;
     Ok((object, saved))
 }
@@ -95,7 +145,7 @@ fn private_tree(path: &Path) -> Result<PathBuf> {
     }
     secure_state_root(path, true)
 }
-fn seed_for(saved: &Saved, id: &str) -> Seed {
+fn seed_for(saved: &Saved, provider: &ResearchSettings, id: &str) -> Seed {
     let mut audience: BTreeSet<_> = people(saved.setup.cohort).into_iter().collect();
     audience.insert(saved.operator.clone());
     Seed {
@@ -103,8 +153,8 @@ fn seed_for(saved: &Saved, id: &str) -> Seed {
         label: id.into(),
         text: format!("Unaccepted creation material for {id}; no prior experience asserted."),
         provenance: "operator-supplied generic seed".into(),
-        requested_model: saved.setup.provider.model.clone(),
-        requested_effort: saved.setup.provider.effort.clone(),
+        requested_model: provider.model.clone(),
+        requested_effort: provider.effort.clone(),
         model_confirmed: true,
         destination: saved.setup.destination.clone(),
         audience: audience.clone(),
@@ -119,9 +169,10 @@ fn seed_for(saved: &Saved, id: &str) -> Seed {
     }
 }
 fn ensure_cohort(app: &mut Runtime, saved: &Saved) -> Result<()> {
+    let provider = saved.execution_provider()?;
     let state = app.snapshot()?;
     for id in people(saved.setup.cohort) {
-        let seed = seed_for(saved, &id);
+        let seed = seed_for(saved, &provider, &id);
         if let Some(existing) = state.personas.get(&id) {
             require(
                 serde_json::to_value(&existing.seed)? == serde_json::to_value(&seed)?,
@@ -137,7 +188,7 @@ pub fn setup(root: &Path, operator: &str, settings: Setup, opt_in: bool) -> Resu
     identity(operator)?;
     require(
         opt_in && settings.share_cohort,
-        "explicit research and cohort sharing consent required",
+        "explicit direct-provider access and cohort sharing consent required",
     )?;
     require(
         (2..=8).contains(&settings.cohort) && (1..=settings.cohort).contains(&settings.owner),
@@ -175,18 +226,20 @@ pub fn setup(root: &Path, operator: &str, settings: Setup, opt_in: bool) -> Resu
         revoked_policies: BTreeSet::new(),
     });
     config.local_recipients = BTreeSet::from([operator.into()]);
-    config.allow_nonconformant_research = true;
+    config.allow_direct_provider = true;
     config.max_work_attempts = settings.max_work_attempts;
-    settings.provider.build(&config)?;
+    settings.provider.validate()?;
     require(
-        settings.provider.max_response_bytes <= config.response_bytes
-            && settings.provider.max_stdout_bytes as u64
-                + settings.provider.max_stderr_bytes as u64
+        settings.provider.limits.max_prompt_bytes <= config.context_bytes
+            && settings.provider.limits.max_response_bytes <= config.response_bytes
+            && settings.provider.limits.max_stream_bytes as u64
                 <= config.transport_output_reserve_bytes,
         "provider output exceeds saved runtime bounds",
     )?;
     let working = fs::canonicalize(&settings.working_directory)?;
     require(working.is_dir(), "working directory must exist")?;
+    let settings: SavedSetup = serde_json::from_value(serde_json::to_value(settings)?)?;
+    settings.execution_provider()?;
     let root = private_tree(root)?;
     require(
         !working.starts_with(&root) && !root.starts_with(&working),
@@ -194,9 +247,10 @@ pub fn setup(root: &Path, operator: &str, settings: Setup, opt_in: bool) -> Resu
     )?;
     let mut app = Runtime::create(&root, config, operator)?;
     let saved = Saved {
-        format: 1,
+        format: 2,
         operator: operator.into(),
-        research_opt_in: opt_in,
+        direct_provider_opt_in: Some(opt_in),
+        research_opt_in: None,
         setup: settings,
         working_directory: working,
         works: BTreeMap::new(),
@@ -337,6 +391,7 @@ fn select(app: &mut Runtime, work: &str, limit: usize, now: i64) -> Result<Pick>
 }
 fn reserve(app: &mut Runtime, work: &str, persona: &str) -> Result<(PrepareRequest, Saved)> {
     let (old, mut saved) = load(app)?;
+    saved.execution_provider()?;
     require(
         saved.steps < saved.setup.max_total_steps,
         "lifetime step limit reached",
@@ -353,7 +408,7 @@ fn reserve(app: &mut Runtime, work: &str, persona: &str) -> Result<(PrepareReque
             id,
             persona: persona.into(),
             work: work.into(),
-            profile: Profile::NonconformantResearch,
+            profile: Profile::Direct,
             mode: Mode::Ordinary,
         },
         saved,
@@ -379,7 +434,7 @@ impl Driver for Live {
     ) -> Result<AdoptionReport> {
         app.step(
             request,
-            saved.setup.provider.clone(),
+            saved.execution_provider()?,
             saved.working_directory.clone(),
             now,
         )
@@ -405,6 +460,7 @@ async fn run_with_options<D: Driver>(
     mut explicit_continue: bool,
 ) -> Result<Output> {
     let (_, saved) = load(app)?;
+    saved.execution_provider()?;
     require(saved.works.contains_key(work), "unknown launch work")?;
     let mut remaining = saved.setup.max_considerations;
     let mut stop = "step_limit";

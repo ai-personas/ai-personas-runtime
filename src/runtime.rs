@@ -2,7 +2,7 @@
 //!
 //! Supported deployment: one trusted local operator, protected SQLite state,
 //! explicit invocation admission, synthetic fixtures, and separately opted-in
-//! nonconformant Codex research transport. This is not an OS isolation boundary.
+//! explicitly configured direct HTTPS model transport. This is not an OS isolation boundary.
 //! No scheduler, retry, provider probe, credential reader, or external-effect
 //! runner is started implicitly. See `readiness` for deliberately blocked paths.
 mod closure_readiness;
@@ -57,7 +57,7 @@ fn terminal_evidence_capacity(response_bytes: usize) -> Result<u64> {
         .ok_or_else(|| invalid("terminal evidence capacity overflow"))
 }
 
-/// The CLI schema describes only the transport carrier. The application schema
+/// The provider schema describes only the transport carrier. The application schema
 /// remains protocol::decision_schema(), and adopt_response accepts raw Decisions.
 pub fn provider_schema() -> Value {
     json!({"type":"object","properties":{"decision_json":{"type":"string"}},
@@ -249,7 +249,10 @@ pub struct Config {
     pub corpus: f::CorpusLimits,
     pub policies: f::PolicySnapshot,
     pub local_recipients: BTreeSet<String>,
+    /// Historical metadata only; this flag no longer authorizes a live adapter.
     pub allow_nonconformant_research: bool,
+    #[serde(default)]
+    pub allow_direct_provider: bool,
     pub require_physical_hard_bound: bool,
     pub require_token_hard_bound: bool,
     pub require_dollar_hard_bound: bool,
@@ -302,6 +305,7 @@ impl Config {
             policies,
             local_recipients: BTreeSet::new(),
             allow_nonconformant_research: false,
+            allow_direct_provider: false,
             require_physical_hard_bound: false,
             require_token_hard_bound: false,
             require_dollar_hard_bound: false,
@@ -799,7 +803,9 @@ pub struct BundleRoots {
 pub enum Profile {
     Synthetic,
     Strict,
+    /// Retained only to decode historical requests and terminal receipts.
     NonconformantResearch,
+    Direct,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -3334,7 +3340,12 @@ impl Runtime {
         }
         if request.profile == Profile::Strict {
             return Err(RuntimeError::NotReady(
-                "strict CLI context and verified actionless admission are not established".into(),
+                "strict remote context, token and cost guarantees are not established".into(),
+            ));
+        }
+        if request.profile == Profile::NonconformantResearch {
+            return Err(RuntimeError::NotReady(
+                "legacy CLI research dispatch was removed; explicitly configure the direct profile without resetting retained state".into(),
             ));
         }
         match self.store.invocation(&request.id) {
@@ -3415,10 +3426,10 @@ impl Runtime {
                 .contains_key(&w::PersonaId(request.persona.clone())),
             "no work invitation or accepted responsibility",
         )?;
-        if request.profile == Profile::NonconformantResearch {
+        if request.profile == Profile::Direct {
             require(
-                state.config.allow_nonconformant_research,
-                "operator has not enabled the nonconformant research profile",
+                state.config.allow_direct_provider,
+                "operator has not enabled direct model access",
             )?;
             require(
                 persona.seed.model_confirmed,
@@ -3636,7 +3647,7 @@ impl Runtime {
         )?;
         Ok(prepared)
     }
-    /// Explicit synthetic transport boundary. This never calls Codex. The same
+    /// Explicit synthetic transport boundary. This makes no model request. The same
     /// Runtime must retain ownership until adoption finishes or it is dropped.
     pub fn dispatch_synthetic(&mut self, id: &str, now: i64) -> Result<s::Receipt> {
         require(
@@ -3754,7 +3765,7 @@ impl Runtime {
         require(
             match &provider_observation {
                 None => prepared.request.profile == Profile::Synthetic,
-                Some(_) => prepared.request.profile == Profile::NonconformantResearch,
+                Some(_) => matches!(prepared.request.profile, Profile::Direct | Profile::NonconformantResearch),
             },
             "raw adopt_response is fixture-only; provider completion requires an actual host transport receipt",
         )?;
@@ -4019,7 +4030,7 @@ impl Runtime {
                     receipt["kind"] == "synthetic_complete"
                         && receipt["synthetic"].as_bool() == Some(true)
                 }
-                Profile::NonconformantResearch => {
+                Profile::Direct | Profile::NonconformantResearch => {
                     receipt["kind"] == "provider_complete"
                         && receipt["synthetic"].as_bool() == Some(false)
                 }
@@ -4584,22 +4595,38 @@ impl Runtime {
             .filter(|m| m.recipient == recipient && m.work == work)
             .collect())
     }
-    /// Explicit live step; no retry, loop, probe, fallback model, or attestation.
+    /// Explicit direct HTTPS step. The directory argument is compatibility
+    /// metadata only and is never consumed by the provider.
     pub async fn step(
         &mut self,
         request: PrepareRequest,
-        settings: ResearchSettings,
-        working_directory: PathBuf,
+        settings: DirectProviderSettings,
+        _working_directory: PathBuf,
         now: i64,
     ) -> Result<AdoptionReport> {
-        if request.profile != Profile::NonconformantResearch {
+        if request.profile != Profile::Direct {
             return Err(RuntimeError::NotReady(
-                "step requires explicit nonconformant_research; strict dispatch is unavailable"
-                    .into(),
+                "step requires the explicit direct profile".into(),
             ));
         }
-        // Retained across preparation, actual subprocess execution, response
-        // handling, and every terminal disposition, including error returns.
+        let provider = settings.build(&self.snapshot()?.config)?;
+        self.step_with_provider(request, &provider, provider::Cancellation::default(), now)
+            .await
+    }
+    /// Trusted host injection seam for providers and offline fixtures. Serialized
+    /// responses cannot select this interface or manufacture a provider receipt.
+    pub async fn step_with_provider(
+        &mut self,
+        request: PrepareRequest,
+        provider: &dyn provider::ModelProvider,
+        cancellation: provider::Cancellation,
+        now: i64,
+    ) -> Result<AdoptionReport> {
+        if request.profile != Profile::Direct {
+            return Err(RuntimeError::NotReady(
+                "step requires the explicit direct profile".into(),
+            ));
+        }
         let _execution_owner = self.store.acquire_execution_owner()?;
         let (_, state) = self.load()?;
         let persona = state
@@ -4607,19 +4634,24 @@ impl Runtime {
             .get(&request.persona)
             .ok_or_else(|| held("persona absent"))?;
         require(
-            state.config.allow_nonconformant_research && persona.seed.model_confirmed,
-            "research opt-in and exact model confirmation required",
+            state.config.allow_direct_provider && persona.seed.model_confirmed,
+            "direct access opt-in and exact model confirmation required",
         )?;
+        let intent = provider.intent();
         require(
-            settings.model == persona.seed.requested_model
-                && settings.effort == persona.seed.requested_effort,
+            intent.model == persona.seed.requested_model
+                && intent.effort == persona.seed.requested_effort,
             "provider configuration must retain the exact requested model and effort",
         )?;
         require(
-            settings.max_response_bytes <= state.config.response_bytes
-                && settings.max_stdout_bytes as u64 + settings.max_stderr_bytes as u64
-                    <= state.config.transport_output_reserve_bytes,
-            "provider output bounds exceed reservation",
+            intent.max_prompt_bytes > 0
+                && intent.max_prompt_bytes <= state.config.context_bytes
+                && intent.max_request_bytes > 0
+                && intent.max_response_bytes > 0
+                && intent.max_response_bytes <= state.config.response_bytes
+                && intent.max_stream_bytes >= intent.max_response_bytes
+                && intent.max_stream_bytes as u64 <= state.config.transport_output_reserve_bytes,
+            "provider byte bounds exceed reservation",
         )?;
         match self.store.invocation(&request.id) {
             Err(s::StoreError::Missing(_)) => (),
@@ -4628,29 +4660,51 @@ impl Runtime {
                     "step identity already exists; no re-preparation or replay",
                 ))
             }
-            Err(e) => return Err(e.into()),
+            Err(error) => return Err(error.into()),
         }
-        let codex = settings.build(&state.config)?;
         let mut native_preparation = None;
         let prepared = self.prepare_with(request, now, |prepared| {
-            let native = codex.prepare(provider::ProviderRequest {
+            let native = provider.prepare(provider::ProviderRequest {
                 prompt: prepared.prompt.clone(),
                 output_schema: prepared.output_schema.clone(),
-                working_directory,
                 invocation_id: prepared.request.id.clone(),
             })?;
-            let audit = serde_json::to_value(native.audit())?;
+            let audit = native.audit();
+            require(
+                audit.invocation_id == prepared.request.id
+                    && audit.prompt_sha256 == prepared.prompt_sha256
+                    && audit.prompt_bytes == prepared.prompt.len() as u64
+                    && audit.schema_sha256
+                        == s::sha256_bytes(&serde_json::to_vec(&prepared.output_schema)?)
+                    && audit.schema_bytes
+                        == serde_json::to_vec(&prepared.output_schema)?.len() as u64
+                    && audit.request_bytes <= intent.max_request_bytes as u64,
+                "provider preparation does not bind the exact native request",
+            )?;
+            let audit = serde_json::to_value(audit)?;
+            // Existing admission reserves twice the serialized Prepared bytes.
+            // Verify that the actual serialized HTTP body fits that reservation.
+            let mut bound = prepared.clone();
+            bound.provider_preparation = Some(audit.clone());
+            let reserved_input = (serde_json::to_vec(&bound)?.len() as u64)
+                .checked_mul(2)
+                .ok_or_else(|| invalid("input reservation overflow"))?;
+            require(
+                native.audit().request_bytes <= reserved_input,
+                "direct request exceeds input reservation",
+            )?;
             native_preparation = Some(native);
             Ok(Some(audit))
         })?;
         let native = native_preparation.ok_or_else(|| held("provider preparation absent"))?;
+        let native_audit = native.audit().clone();
         let authorization = (|| -> Result<()> {
             let (_, fresh) = self.load()?;
             self.current(&fresh, &prepared, unix_now()?)?;
             let exposure = expanded_exposure(&fresh, prepared_exposure(&prepared)?)?;
-            // This provider API performs additional synchronous checks before
-            // spawning and has no final prelaunch expiry guard. Do not pretend
-            // that a runtime timestamp closes that interval.
+            // Credential expiry is rechecked by the direct provider. The host
+            // exposure deadline is a distinct authority boundary, and this seam
+            // does not yet carry a final dispatch guard for expiring policies.
             require(
                 exposure
                     .policies
@@ -4692,30 +4746,27 @@ impl Runtime {
             cancellation?;
             return Err(error);
         }
-        let output = match codex.dispatch_research(native).await {
+        let output = match native
+            .dispatch(cancellation.clone())
+            .await
+            .and_then(|output| output.bound_to(&native_audit, &intent))
+        {
             Ok(output) => output,
             Err(error) => {
                 let receipt = match &error {
                     provider::ProviderError::Attempt { failure, receipt } => json!({
-                        "kind":"provider_attempt_failed","synthetic":false,
-                        "failure":format!("{failure:?}"),"attempt_receipt":receipt,
-                        "remote_outcome":"unknown","replay_authorized":false}),
-                    _ => json!({"kind":"provider_prelaunch_rejection","synthetic":false,
-                        "failure":bounded_detail(&error.to_string(), 1024),"launched":false}),
+                        "kind":if receipt.dispatch_may_have_begun { "provider_attempt_failed" } else { "provider_prelaunch_rejection" },
+                        "synthetic":false,"failure":failure,"attempt_receipt":receipt,
+                        "requested_effort":prepared.requested_effort,
+                        "reported_effort":receipt.reported_effort,
+                        "dispatch_may_have_begun":receipt.dispatch_may_have_begun,
+                        "remote_outcome":if receipt.dispatch_may_have_begun { "unknown" } else { "not_dispatched" },
+                        "replay_authorized":false}),
+                    provider::ProviderError::Rejected(failure) => json!({
+                        "kind":"provider_prelaunch_rejection","synthetic":false,
+                        "failure":failure,"dispatch_may_have_begun":false,"replay_authorized":false}),
                 };
-                let mut terminal = terminal_object(&prepared, receipt)?;
-                if let (Some(maximum), provider::ProviderError::Attempt { receipt, .. }) =
-                    (prepared.terminal_response_bytes, &error)
-                {
-                    if let Some(rejected) = &receipt.rejected_final_response {
-                        let text = rejected.as_str();
-                        let hash = s::sha256_bytes(text.as_bytes());
-                        terminal.body["response_body"] =
-                            terminal_response_body(&json!({}), &hash, text, maximum)?;
-                        terminal.body["response_body"]["eligibility"] =
-                            json!("rejected_final_carrier");
-                    }
-                }
+                let terminal = terminal_object(&prepared, receipt)?;
                 let evidence = self.persist_terminal(&prepared, terminal)?;
                 // Failed here means an observed local failure, never proof that
                 // a launched attempt had no remote effects. resume checks it.
@@ -4727,21 +4778,12 @@ impl Runtime {
             }
         };
         let transport_hash = s::sha256_bytes(output.response.as_bytes());
-        let inner =
-            decode_provider_carrier(output.response.as_bytes(), settings.max_response_bytes);
+        let inner = decode_provider_carrier(output.response.as_bytes(), intent.max_response_bytes);
         let inner_hash = inner
             .as_ref()
             .ok()
             .map(|text| s::sha256_bytes(text.as_bytes()));
-        let metadata = json!({"kind":"provider_complete","synthetic":false,
-            "transport_sha256":transport_hash,"inner_sha256":inner_hash,
-            "transport_response_bytes":output.response.len(),
-            "requested_model":output.requested_model,"reported_model":output.reported_model,
-            "requested_effort":output.requested_effort,"reported_effort":Value::Null,
-            "usage":output.usage,"transport":output.transport_bytes,"audit":output.audit,
-            "process":output.process,"exit_status":output.exit_status,
-            "event_type_counts":output.event_type_counts,"item_type_counts":output.item_type_counts,
-            "profile":output.profile,"limitations":output.observable_limitations});
+        let transport_response_bytes = output.response.len();
         // Keep the exact decoded inner even when whole-Decision parsing fails.
         // If carrier decoding fails, only the complete final response body is
         // eligible here; provider streams, reasoning and stderr never enter it.
@@ -4752,6 +4794,31 @@ impl Runtime {
                 (bytes, parsed)
             }
             Err(error) => (output.response, Err(error)),
+        };
+        // Preserve the provider's disposition, also observing cancellation at
+        // the native handoff. A cancelled completion follows the complete-
+        // transport persistence path below before any local rejection.
+        let disposition = if cancellation.is_cancelled() {
+            provider::CompletionDisposition::Cancelled
+        } else {
+            output.disposition
+        };
+        let metadata = json!({"kind":"provider_complete","synthetic":false,
+            "transport_sha256":transport_hash,"inner_sha256":inner_hash,
+            "transport_response_bytes":transport_response_bytes,
+            "completion_disposition":disposition,
+            "requested_model":output.requested_model,"reported_model":output.reported_model,
+            "requested_effort":output.requested_effort,
+            "reported_effort":output.attempt.reported_effort,
+            "usage":output.usage,"audit":output.audit,"attempt":output.attempt,
+            "limitations":["remote stop unconfirmed","actual charges unknown",
+                "reported model and effort are provider reports, not independently verified served identity",
+                "remote token/context bounds unsupported","provider retention and hidden inputs unobserved"]});
+        let parsed = match disposition {
+            provider::CompletionDisposition::Ready => parsed,
+            provider::CompletionDisposition::Cancelled => {
+                Err(held(provider::Failure::Cancelled.to_string()))
+            }
         };
         match parsed {
             Ok(decision) => self.adopt_parsed(
@@ -4768,7 +4835,7 @@ impl Runtime {
                     &prepared,
                     inner_hash.as_deref().unwrap_or(&transport_hash),
                     metadata,
-                    (bytes.len() <= settings.max_response_bytes
+                    (bytes.len() <= intent.max_response_bytes
                         && bytes.len() <= state.config.response_bytes)
                         .then_some(bytes.as_str()),
                 )?;
@@ -9002,77 +9069,19 @@ fn corpus_for_delivery(state: &State, a: &f::Admission) -> Result<f::Corpus> {
     corpus(state, a)
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ResearchSettings {
-    pub executable: PathBuf,
-    pub executable_sha256: String,
-    pub cli_version: String,
-    pub temporary_directory: PathBuf,
-    pub catalog_evidence_sha256: String,
-    pub verified_model: String,
-    pub verified_efforts: BTreeSet<String>,
-    pub model: String,
-    pub effort: String,
-    pub timeout_ms: u64,
-    pub max_stdout_bytes: usize,
-    pub max_stderr_bytes: usize,
-    pub max_response_bytes: usize,
-    pub max_executable_bytes: u64,
-    pub max_control_bytes: usize,
-    pub supported_disable_features: BTreeSet<String>,
-    pub disabled_features: BTreeSet<String>,
-}
-impl ResearchSettings {
-    fn build(&self, config: &Config) -> Result<provider::CodexProvider> {
+pub type DirectProviderSettings = provider::DirectSettings;
+/// Source-name compatibility only. The legacy serialized CLI shape is rejected.
+pub type ResearchSettings = DirectProviderSettings;
+impl provider::DirectSettings {
+    fn build(&self, config: &Config) -> Result<provider::DirectProvider> {
+        self.validate()?;
         require(
-            self.verified_model == self.model,
-            "exact requested model lacks operator catalog evidence",
+            self.limits.max_prompt_bytes <= config.context_bytes
+                && self.limits.max_response_bytes <= config.response_bytes
+                && self.limits.max_stream_bytes as u64 <= config.transport_output_reserve_bytes,
+            "direct provider bounds exceed the existing runtime reservation",
         )?;
-        Ok(provider::CodexProvider::new(
-            provider::ProviderConfig {
-                executable: self.executable.clone(),
-                model: self.model.clone(),
-                effort: self.effort.clone(),
-                timeout_ms: self.timeout_ms,
-                max_stdout_bytes: self.max_stdout_bytes,
-                max_stderr_bytes: self.max_stderr_bytes,
-                max_response_bytes: self.max_response_bytes,
-                require_hard_context_bound: false,
-                require_actionless: false,
-            },
-            provider::ModelCatalog {
-                entries: BTreeMap::from([(
-                    self.verified_model.clone(),
-                    provider::ModelSupport {
-                        availability: provider::ModelAvailability::VerifiedAvailable,
-                        efforts: self.verified_efforts.clone(),
-                    },
-                )]),
-                evidence_sha256: self.catalog_evidence_sha256.clone(),
-            },
-            provider::OperatorPolicy {
-                executable: provider::ExecutablePin {
-                    operator_path: self.executable.clone(),
-                    sha256: self.executable_sha256.clone(),
-                    cli_version: self.cli_version.clone(),
-                },
-                temporary_directory: self.temporary_directory.clone(),
-                supported_disable_features: self.supported_disable_features.clone(),
-                disabled_features: self.disabled_features.clone(),
-            },
-            provider::AdmissionLimits {
-                max_prompt_bytes: config.context_bytes,
-                max_schema_bytes: 262_144,
-                max_schema_nodes: 65_536,
-                max_schema_depth: 64,
-                max_control_bytes: self.max_control_bytes,
-                max_executable_bytes: self.max_executable_bytes,
-                max_timeout_ms: self.timeout_ms,
-                max_stream_bytes: self.max_stdout_bytes.max(self.max_stderr_bytes),
-                cleanup_timeout_ms: 5000,
-            },
-        )?)
+        Ok(self.connect()?)
     }
 }
 pub fn readiness() -> Value {
@@ -9083,8 +9092,8 @@ pub fn readiness() -> Value {
         "protected_closeout":"prepaid per-work control snapshots support bounded pause and ending during logical admission freeze; physical storage failures remain possible",
         "qualification_bindings":"immutable file identities sealed before coherent exact-version bindings; persisted atomically",
         "synthetic":"explicit fixture transport only; no provider/model evidence",
-        "research":"explicit operator opt-in only; native actions are detected after occurrence, not prevented",
-        "limits":["hard CLI/model context bounds unsupported","verified actionless CLI profile not established",
+        "direct_provider":"explicit route/grant/account/model/effort/schema; one bounded HTTPS Responses request; no tools, retry or fallback",
+        "limits":["hard remote model context bounds unsupported","strict live guarantees are not established",
             "exact model availability requires verified operator configuration; no implicit model substitution","logical retention only; no physical hard bound",
             "tokens, billing, hidden provider inputs, remote retention and remote stop remain unverified",
             "selection repair is explicitly enabled only by a finite need-intake suballowance; whole-entry reductions and bounded exact reads only",

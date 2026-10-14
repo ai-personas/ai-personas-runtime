@@ -18,25 +18,41 @@ fn cli(root: &Path, args: &[&str]) -> Output {
         .output()
         .unwrap()
 }
-fn provider(root: &Path) -> ResearchSettings {
+fn provider(_root: &Path) -> ResearchSettings {
+    use ai_personas::provider::{
+        AccessMode, CapabilityEvidence, CredentialReference, Limits, SecretReference,
+    };
+    let reference = |name: &str| SecretReference { env: name.into() };
     ResearchSettings {
-        executable: root.join("no-provider"),
-        executable_sha256: "0".repeat(64),
-        cli_version: "0.160.0".into(),
-        temporary_directory: root.into(),
-        catalog_evidence_sha256: "1".repeat(64),
-        verified_model: "fixture-model".into(),
-        verified_efforts: BTreeSet::from(["medium".into()]),
+        mode: AccessMode::PlatformApiKey,
         model: "fixture-model".into(),
         effort: "medium".into(),
-        timeout_ms: 1000,
-        max_stdout_bytes: 65_536,
-        max_stderr_bytes: 4096,
-        max_response_bytes: 32_768,
-        max_executable_bytes: 1024,
-        max_control_bytes: 65_536,
-        supported_disable_features: BTreeSet::new(),
-        disabled_features: BTreeSet::new(),
+        credentials: CredentialReference::ApiKey {
+            key_env: reference("UNREAD_LAUNCH_FIXTURE_KEY"),
+            account_env: reference("UNREAD_LAUNCH_FIXTURE_ACCOUNT"),
+        },
+        evidence: CapabilityEvidence {
+            mode: AccessMode::PlatformApiKey,
+            model: "fixture-model".into(),
+            efforts: BTreeSet::from(["medium".into()]),
+            account_env: reference("UNREAD_LAUNCH_FIXTURE_EVIDENCE_ACCOUNT"),
+            account_sha256: "3".repeat(64),
+            transport_profile: "platform_responses_v2".into(),
+            catalog_evidence_sha256: "1".repeat(64),
+            structured_output_evidence_sha256: Some("2".repeat(64)),
+        },
+        limits: Limits {
+            timeout_ms: 1000,
+            max_prompt_bytes: 192 * 1024,
+            max_schema_bytes: 262_144,
+            max_schema_nodes: 65_536,
+            max_schema_depth: 64,
+            max_request_bytes: 2 * 1024 * 1024,
+            max_response_bytes: 32_768,
+            max_stream_bytes: 128 * 1024,
+            max_event_bytes: 96 * 1024,
+            max_events: 1024,
+        },
     }
 }
 #[test]
@@ -64,7 +80,7 @@ fn first_use_setup_and_stored_result_are_json_and_inference_free() {
             "--destination",
             "fixture",
             "--share-cohort",
-            "--allow-nonconformant-research",
+            "--allow-direct-provider",
         ],
     );
     assert!(

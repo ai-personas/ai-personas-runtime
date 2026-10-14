@@ -2,6 +2,7 @@ use super::*;
 use std::os::unix::fs::{symlink, PermissionsExt};
 
 fn settings(root: &Path, steps: usize) -> Setup {
+    let reference = |name: &str| provider::SecretReference { env: name.into() };
     Setup {
         cohort: 2,
         owner: 1,
@@ -14,23 +15,35 @@ fn settings(root: &Path, steps: usize) -> Setup {
         max_total_steps: 32,
         max_works: 4,
         provider: ResearchSettings {
-            executable: root.join("not-a-provider"),
-            executable_sha256: "0".repeat(64),
-            cli_version: provider::SUPPORTED_CLI_VERSION.into(),
-            temporary_directory: root.into(),
-            catalog_evidence_sha256: "1".repeat(64),
-            verified_model: "fixture-model".into(),
-            verified_efforts: BTreeSet::from(["medium".into()]),
+            mode: provider::AccessMode::PlatformApiKey,
             model: "fixture-model".into(),
             effort: "medium".into(),
-            timeout_ms: 1000,
-            max_stdout_bytes: 65_536,
-            max_stderr_bytes: 4096,
-            max_response_bytes: 32_768,
-            max_executable_bytes: 1024,
-            max_control_bytes: 65_536,
-            supported_disable_features: BTreeSet::new(),
-            disabled_features: BTreeSet::new(),
+            credentials: provider::CredentialReference::ApiKey {
+                key_env: reference("UNREAD_LAUNCH_FIXTURE_KEY"),
+                account_env: reference("UNREAD_LAUNCH_FIXTURE_ACCOUNT"),
+            },
+            evidence: provider::CapabilityEvidence {
+                mode: provider::AccessMode::PlatformApiKey,
+                model: "fixture-model".into(),
+                efforts: BTreeSet::from(["medium".into()]),
+                account_env: reference("UNREAD_LAUNCH_FIXTURE_EVIDENCE_ACCOUNT"),
+                account_sha256: "3".repeat(64),
+                transport_profile: "platform_responses_v2".into(),
+                catalog_evidence_sha256: "1".repeat(64),
+                structured_output_evidence_sha256: Some("2".repeat(64)),
+            },
+            limits: provider::Limits {
+                timeout_ms: 1000,
+                max_prompt_bytes: 192 * 1024,
+                max_schema_bytes: 262_144,
+                max_schema_nodes: 65_536,
+                max_schema_depth: 64,
+                max_request_bytes: 2 * 1024 * 1024,
+                max_response_bytes: 32_768,
+                max_stream_bytes: 128 * 1024,
+                max_event_bytes: 96 * 1024,
+                max_events: 1024,
+            },
         },
     }
 }
@@ -298,18 +311,195 @@ fn setup_requires_opt_in_exact_model_and_private_paths() {
     assert!(private_tree(&root.path().join("../escape")).is_err());
 }
 #[test]
-fn setup_retains_provider_pins_and_creates_no_character() {
-    let (_root, mut app) = fixture(8);
+fn setup_retains_provider_metadata_and_creates_no_character() {
+    let (root, mut app) = fixture(8);
+    let expected = serde_json::to_value(settings(root.path(), 8)).unwrap();
     let (_, saved) = load(&mut app).unwrap();
-    assert_eq!(saved.setup.provider.executable_sha256, "0".repeat(64));
-    assert_eq!(saved.setup.provider.catalog_evidence_sha256, "1".repeat(64));
-    assert_eq!(saved.setup.provider.model, "fixture-model");
-    assert!(!saved.setup.provider.executable.exists());
+    assert_eq!(serde_json::to_value(&saved.setup).unwrap(), expected);
+    assert_eq!(
+        serde_json::to_value(saved.setup.execution_provider().unwrap()).unwrap(),
+        expected["provider"]
+    );
     let state = app.snapshot().unwrap();
     assert_eq!(state.personas.len(), 2);
     assert!(state.personas.values().all(|p| p.character.is_none()));
     assert!(state.board.works().is_empty());
     assert_eq!(saved.steps, 0);
+}
+
+fn legacy_provider(root: &Path) -> Value {
+    json!({
+        "executable": root.join("missing-legacy-cli"),
+        "executable_sha256": "0".repeat(64),
+        "cli_version": "synthetic-legacy-cli",
+        "temporary_directory": root.join("missing-legacy-temporary-directory"),
+        "catalog_evidence_sha256": "1".repeat(64),
+        "verified_model": "fixture-model",
+        "verified_efforts": ["medium"],
+        "model": "fixture-model",
+        "effort": "medium",
+        "timeout_ms": 1000,
+        "max_stdout_bytes": 65_536,
+        "max_stderr_bytes": 4096,
+        "max_response_bytes": 32_768,
+        "max_executable_bytes": 1024,
+        "max_control_bytes": 65_536,
+        "supported_disable_features": [],
+        "disabled_features": []
+    })
+}
+
+fn launch_storage_snapshot(app: &mut Runtime) -> Value {
+    let (head, _) = app.load().unwrap();
+    let (launch, _) = load(app).unwrap();
+    let (scheduler, _) = app.load_scheduler().unwrap();
+    json!({
+        "head": {"revision": head.revision, "body": head.body},
+        "launch": {"revision": launch.revision, "body": launch.body},
+        "scheduler": scheduler.map(|old| json!({
+            "revision": old.revision, "body": old.body
+        }))
+    })
+}
+
+fn assert_provider_migration<T>(outcome: Result<T>) {
+    match outcome {
+        Err(error) => assert_eq!(error.to_string(), invalid(PROVIDER_MIGRATION).to_string()),
+        Ok(_) => panic!("incompatible saved provider was accepted for execution"),
+    }
+}
+
+#[test]
+fn saved_provider_parsing_rejects_legacy_keys_and_redacts_invalid_values() {
+    let root = tempfile::tempdir().unwrap();
+    let metadata = serde_json::to_value(settings(root.path(), 8)).unwrap();
+    let mut saved: SavedSetup = serde_json::from_value(metadata.clone()).unwrap();
+    let provider = saved.provider.clone();
+    // Parsing needs neither a runtime nor provider construction or credential resolution.
+    assert_eq!(
+        serde_json::to_value(saved.execution_provider().unwrap()).unwrap(),
+        provider
+    );
+    for key in ["executable", "cli_version", "temporary_directory"] {
+        for value in [Value::Null, json!("synthetic-private-provider-value")] {
+            saved.provider = provider.clone();
+            saved
+                .provider
+                .as_object_mut()
+                .unwrap()
+                .insert(key.into(), value);
+            assert_provider_migration(saved.execution_provider());
+        }
+    }
+    for value in [
+        Value::Null,
+        json!("synthetic-private-provider-value"),
+        json!({"unexpected": "synthetic-private-provider-value"}),
+    ] {
+        saved.provider = value;
+        assert_provider_migration(saved.execution_provider());
+    }
+    let mut unknown = metadata;
+    unknown["unexpected"] = json!(true);
+    assert!(serde_json::from_value::<SavedSetup>(unknown).is_err());
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn legacy_metadata_and_results_remain_read_only_without_provider_resolution() {
+    let (root, mut app) = fixture(5);
+    let work = start_with_acceptance(&mut app, "Exact fixture result.", true).unwrap();
+    run_with(&mut app, &work, &mut CompleteWriting::default())
+        .await
+        .unwrap();
+    let expected_view = output_value(&mut app, &work);
+    assert_eq!(
+        expected_view["local_deliveries"].as_array().unwrap().len(),
+        1
+    );
+    assert_eq!(
+        expected_view["human_decision_pointers"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
+    // Install synthetic historical metadata without executing its provider.
+    let (old, mut saved) = load(&mut app).unwrap();
+    assert!(saved.steps > 0);
+    let legacy = legacy_provider(root.path());
+    let mut expected_metadata = old.body.clone();
+    expected_metadata["setup"]["provider"] = legacy.clone();
+    expected_metadata["format"] = json!(1);
+    expected_metadata
+        .as_object_mut()
+        .unwrap()
+        .remove("direct_provider_opt_in");
+    expected_metadata["research_opt_in"] = json!(true);
+    saved.format = 1;
+    saved.direct_provider_opt_in = None;
+    saved.research_opt_in = Some(true);
+    saved.setup.provider = legacy;
+    save(&mut app, Some(&old), &saved).unwrap();
+    let before = launch_storage_snapshot(&mut app);
+    drop(app);
+
+    let mut app = open(&root.path().join("state"), Some("requester")).unwrap();
+    let (stored, saved) = load(&mut app).unwrap();
+    assert_eq!(stored.body, expected_metadata);
+    assert_eq!(serde_json::to_value(&saved).unwrap(), expected_metadata);
+    assert_eq!(output_value(&mut app, &work), expected_view);
+    assert_eq!(launch_storage_snapshot(&mut app), before);
+    assert!(!root.path().join("missing-legacy-cli").exists());
+    assert!(!root
+        .path()
+        .join("missing-legacy-temporary-directory")
+        .exists());
+
+    let mut unknown = expected_metadata.clone();
+    unknown["unexpected"] = json!(true);
+    assert!(serde_json::from_value::<Saved>(unknown).is_err());
+    let mut unknown = expected_metadata;
+    unknown["setup"]["unexpected"] = json!(true);
+    assert!(serde_json::from_value::<Saved>(unknown).is_err());
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn legacy_start_run_and_continue_reject_before_mutation_or_provider_resolution() {
+    let (root, mut app) = fixture(8);
+    let work = start(&mut app, "Existing synthetic work.").unwrap();
+    let mut driver = Script::new();
+    // Leave the initial character awaiting handover to detect early runtime writes.
+    let (request, saved) = reserve(&mut app, &work, "persona-0001").unwrap();
+    let report = driver
+        .step(&mut app, request, &saved, unix_now().unwrap())
+        .await
+        .unwrap();
+    assert_eq!(report.status, AdoptionStatus::CharacterOnly);
+    driver.calls.clear();
+
+    let (old, mut saved) = load(&mut app).unwrap();
+    saved.setup.provider = legacy_provider(root.path());
+    saved.format = 1;
+    saved.direct_provider_opt_in = None;
+    saved.research_opt_in = Some(true);
+    save(&mut app, Some(&old), &saved).unwrap();
+    let before = launch_storage_snapshot(&mut app);
+
+    assert_provider_migration(ensure_cohort(&mut app, &saved));
+    assert_provider_migration(start(&mut app, "Must not create another work."));
+    assert_provider_migration(start_with_acceptance(
+        &mut app,
+        "Must not create another accepted work.",
+        true,
+    ));
+    assert_provider_migration(reserve(&mut app, &work, "persona-0001"));
+    assert_provider_migration(run_with(&mut app, &work, &mut driver).await);
+    assert_provider_migration(run_with_options(&mut app, &work, &mut driver, true).await);
+    assert_provider_migration(run(&mut app, &work).await);
+    assert_provider_migration(continue_run(&mut app, &work).await);
+    assert!(driver.calls.is_empty());
+    assert_eq!(launch_storage_snapshot(&mut app), before);
 }
 
 fn command(id: &str, action: WorkAction, dependencies: &[&str]) -> p::Operation {

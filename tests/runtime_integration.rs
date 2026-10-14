@@ -68,6 +68,9 @@ mod stakeholder_cases;
 #[path = "maintenance/cases.rs"]
 mod maintenance_cases;
 
+#[path = "direct_provider/cases.rs"]
+mod direct_provider_cases;
+
 const NOW: i64 = 1_800_000_000;
 fn set(values: &[&str]) -> BTreeSet<String> {
     values.iter().map(|s| (*s).into()).collect()
@@ -2226,9 +2229,9 @@ fn no_change_and_closed_are_explicit_judgments_not_completion() {
 
 #[test]
 fn raw_fixture_ingress_cannot_fill_prepared_or_live_transport_slots() {
-    for profile in [Profile::Synthetic, Profile::NonconformantResearch] {
+    for profile in [Profile::Synthetic, Profile::Direct] {
         let mut configuration = config();
-        configuration.allow_nonconformant_research = true;
+        configuration.allow_direct_provider = true;
         let mut primary = seed("a");
         primary.model_confirmed = true;
         let mut f = Fixture::configured(true, configuration, primary, need());
@@ -4651,74 +4654,12 @@ fn carrier_is_closed_unique_scalar_valid_and_preserves_inner_authored_bytes() {
 }
 
 #[cfg(target_os = "linux")]
-fn shell_quote(text: &str) -> String {
-    format!("'{}'", text.replace('\'', "'\\''"))
-}
-
-#[cfg(target_os = "linux")]
-fn transport_fixture(
-    f: &Fixture,
-    response: &str,
-    native_action: bool,
-) -> (ResearchSettings, std::path::PathBuf) {
-    let root = f._temp.path();
-    let executable = root.join("fixture-cli");
-    let working = root.join("fixture-work");
-    std::fs::create_dir(&working).unwrap();
-    let temporary = root.join("provider-temporary");
-    std::fs::create_dir(&temporary).unwrap();
-    std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(0o700)).unwrap();
-    let prompt = root.join("captured-prompt");
-    let schema = root.join("captured-schema");
-    let marker = root.join("fixture-entered");
-    let mut records = vec![
-        json!({"type":"thread.started"}),
-        json!({"type":"item.completed","item":{"id":"notice","type":"error","message":"Optional disabled capability notice"}}),
-        json!({"type":"turn.started"}),
-    ];
-    if native_action {
-        records.push(json!({"type":"item.started","item":{"type":"command_execution","command":"PRIVATE DISCARDED FIXTURE PAYLOAD"}}));
-    } else {
-        records.push(json!({"type":"item.completed","item":{"type":"agent_message","phase":"final_answer","text":response}}));
-        records.push(json!({"type":"turn.completed"}));
-    }
-    let arguments = records
-        .iter()
-        .map(|v| shell_quote(&serde_json::to_string(v).unwrap()))
-        .collect::<Vec<_>>()
-        .join(" ");
-    let script = format!("#!/bin/sh\nprevious=''\nfor arg in \"$@\"; do\n if [ \"$previous\" = '--output-schema' ]; then /bin/cat \"$arg\" > {}; fi\n previous=\"$arg\"\ndone\n/bin/cat > {}\n: > {}\n/bin/printf '%s\\n' {}\n",
-        shell_quote(schema.to_str().unwrap()), shell_quote(prompt.to_str().unwrap()), shell_quote(marker.to_str().unwrap()), arguments);
-    std::fs::write(&executable, script.as_bytes()).unwrap();
-    std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
-    (
-        ResearchSettings {
-            executable,
-            executable_sha256: s::sha256_bytes(script.as_bytes()),
-            cli_version: "0.160.0".into(),
-            temporary_directory: temporary,
-            catalog_evidence_sha256: s::sha256_bytes(b"synthetic catalog fixture only"),
-            verified_model: "fixture-unavailable-model".into(),
-            verified_efforts: set(&["medium"]),
-            model: "fixture-unavailable-model".into(),
-            effort: "medium".into(),
-            timeout_ms: 5000,
-            max_stdout_bytes: 128 * 1024,
-            max_stderr_bytes: 4096,
-            max_response_bytes: 32 * 1024,
-            max_executable_bytes: 1024 * 1024,
-            max_control_bytes: 64 * 1024,
-            supported_disable_features: BTreeSet::new(),
-            disabled_features: BTreeSet::new(),
-        },
-        working,
-    )
-}
+use direct_provider_cases::{transport_fixture, Behavior as TransportBehavior};
 
 #[cfg(target_os = "linux")]
 fn live_fixture() -> Fixture {
     let mut c = config();
-    c.allow_nonconformant_research = true;
+    c.allow_direct_provider = true;
     let mut primary = seed("a");
     primary.model_confirmed = true;
     let mut f = Fixture::configured(true, c, primary, need());
@@ -4740,9 +4681,12 @@ async fn actual_application_transport_uses_carrier_and_retains_terminal_failures
         "wrong-carrier",
         "duplicate-outer",
         "malformed-outer",
-        "malformed-outer-changed-executable",
-        "malformed-outer-cleanup",
+        "complete-stream-failure",
+        "bounded-stream-failure",
         "native",
+        "native-result",
+        "action",
+        "action-result",
     ] {
         let mut f = live_fixture();
         let previous = f.app.invocation("accept").unwrap();
@@ -4756,7 +4700,10 @@ async fn actual_application_transport_uses_carrier_and_retains_terminal_failures
         if mode == "wrong-epoch" {
             d.epoch += 1;
         }
-        if mode == "held-interface" {
+        if matches!(
+            mode,
+            "held-interface" | "complete-stream-failure" | "bounded-stream-failure"
+        ) {
             d.operations.push(write(
                 "held-write",
                 p::Scope::Assets {},
@@ -4774,13 +4721,15 @@ async fn actual_application_transport_uses_carrier_and_retains_terminal_failures
                 subject: "Unaccepted transport proposal".into(),
                 text: "PRIVATE TRANSPORT OPERATION \"\\λ".into(),
             });
-            d.operations.push(p::Operation::Effect {
-                id: "held-interface".into(),
-                capability_id: "unavailable.fixture".into(),
-                binding_revision: "fixture-binding".into(),
-                inputs: Value::Null,
-                depends_on: vec![],
-            });
+            if mode == "held-interface" {
+                d.operations.push(p::Operation::Effect {
+                    id: "held-interface".into(),
+                    capability_id: "unavailable.fixture".into(),
+                    binding_revision: "fixture-binding".into(),
+                    inputs: Value::Null,
+                    depends_on: vec![],
+                });
+            }
         }
         let inner = format!(" \n{}\n", serde_json::to_string(&d).unwrap());
         let outer = match mode {
@@ -4794,48 +4743,38 @@ async fn actual_application_transport_uses_carrier_and_retains_terminal_failures
             .unwrap(),
             "wrong-carrier" => "{\"response\":\"{}\"}".into(),
             "duplicate-outer" => "{\"decision_json\":\"{}\",\"decision_json\":\"{}\"}".into(),
-            "malformed-outer"
-            | "malformed-outer-changed-executable"
-            | "malformed-outer-cleanup" => "{invalid final carrier".into(),
+            "malformed-outer" => "{invalid final carrier".into(),
             _ => serde_json::to_string(&json!({"decision_json":inner})).unwrap(),
         };
-        let (mut settings, working) = transport_fixture(&f, &outer, mode == "native");
-        let temporary_directory = settings.temporary_directory.clone();
-        if matches!(
-            mode,
-            "malformed-outer-changed-executable" | "malformed-outer-cleanup"
-        ) {
-            let script = std::fs::read_to_string(&settings.executable).unwrap();
-            let alteration = if mode == "malformed-outer-changed-executable" {
-                concat!(r#"/bin/printf '\n# altered after launch\n' >> "$0""#, "\n").to_owned()
-            } else {
-                format!(
-                    "/bin/chmod 500 {}\n",
-                    shell_quote(temporary_directory.to_str().unwrap())
-                )
-            };
-            let changed = script.replacen("#!/bin/sh\n", &format!("#!/bin/sh\n{alteration}"), 1);
-            std::fs::write(&settings.executable, &changed).unwrap();
-            settings.executable_sha256 = s::sha256_bytes(changed.as_bytes());
-        }
+        let behavior = match mode {
+            "native" => TransportBehavior::Forbidden("function_call"),
+            "native-result" => TransportBehavior::Forbidden("function_call_output"),
+            "action" => TransportBehavior::Forbidden("computer_call"),
+            "action-result" => TransportBehavior::Forbidden("computer_call_output"),
+            "complete-stream-failure" => TransportBehavior::FailAfterComplete,
+            "bounded-stream-failure" => TransportBehavior::BoundedStream,
+            _ => TransportBehavior::Valid,
+        };
+        let (provider, transport) = transport_fixture(&f, &outer, behavior);
         let before = persisted_state(&f.app);
+        let attempts_before = f.app.ledger().unwrap().ordinary.consumed.attempts;
+        let request = PrepareRequest {
+            id: "transport-call".into(),
+            persona: "a".into(),
+            work: "work".into(),
+            profile: Profile::Direct,
+            mode: Mode::Ordinary,
+        };
         let result = f
             .app
-            .step(
-                PrepareRequest {
-                    id: "transport-call".into(),
-                    persona: "a".into(),
-                    work: "work".into(),
-                    profile: Profile::NonconformantResearch,
-                    mode: Mode::Ordinary,
-                },
-                settings,
-                working,
+            .step_with_provider(
+                request.clone(),
+                &provider,
+                ai_personas::provider::Cancellation::default(),
                 NOW,
             )
             .await;
-        std::fs::set_permissions(&temporary_directory, std::fs::Permissions::from_mode(0o700))
-            .unwrap();
+        assert_eq!(transport.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert!(
             f._temp.path().join("fixture-entered").exists(),
             "fixture body must actually run"
@@ -4846,22 +4785,36 @@ async fn actual_application_transport_uses_carrier_and_retains_terminal_failures
         assert_eq!(captured_schema, provider_schema());
         let prompt = std::fs::read_to_string(f._temp.path().join("captured-prompt")).unwrap();
         assert!(prompt.contains(&serde_json::to_string(&p::decision_schema()).unwrap()));
+        let transport_failed = matches!(
+            mode,
+            "native"
+                | "native-result"
+                | "action"
+                | "action-result"
+                | "complete-stream-failure"
+                | "bounded-stream-failure"
+        );
         if mode == "correct" {
-            assert_eq!(result.unwrap().status, AdoptionStatus::Adopted);
+            let report = result.unwrap();
+            assert_eq!(report.status, AdoptionStatus::Adopted);
+            assert!(!report.synthetic);
             let adopted = f.app.adopted("transport-call").unwrap();
             assert_eq!(adopted.authored_json.as_deref(), Some(inner.as_str()));
             assert_eq!(adopted.response_hash, s::sha256_bytes(inner.as_bytes()));
-        } else if matches!(
-            mode,
-            "native"
-                | "duplicate-outer"
-                | "malformed-outer"
-                | "malformed-outer-changed-executable"
-                | "malformed-outer-cleanup"
-        ) {
+        } else if transport_failed {
             assert!(matches!(result, Err(RuntimeError::Provider(_))));
         } else {
-            assert_eq!(result.unwrap().status, AdoptionStatus::Held);
+            let report = result.unwrap();
+            assert_eq!(report.status, AdoptionStatus::Held);
+            assert!(!report.synthetic);
+            assert!(report.applied.is_empty());
+            if matches!(mode, "wrong-id" | "wrong-epoch" | "held-interface") {
+                assert!(report.reason.as_deref().unwrap().contains(match mode {
+                    "wrong-id" => "response invocation identity mismatch",
+                    "wrong-epoch" => "response epoch mismatch",
+                    _ => "capability",
+                }));
+            }
         }
         let root = f.app.state_root().to_owned();
         drop(f.app);
@@ -4870,44 +4823,54 @@ async fn actual_application_transport_uses_carrier_and_retains_terminal_failures
         assert!(!serde_json::to_string(&terminal)
             .unwrap()
             .contains("PRIVATE DISCARDED FIXTURE PAYLOAD"));
-        if matches!(
-            mode,
-            "native"
-                | "duplicate-outer"
-                | "malformed-outer"
-                | "malformed-outer-changed-executable"
-                | "malformed-outer-cleanup"
-        ) {
-            if matches!(
-                mode,
-                "native" | "malformed-outer-changed-executable" | "malformed-outer-cleanup"
-            ) {
-                assert!(terminal.body.get("response_body").is_none());
-            } else {
-                let retained = &terminal.body["response_body"];
-                assert_eq!(retained["text"].as_str(), Some(outer.as_str()));
-                assert_eq!(retained["bytes"], outer.len());
-                assert_eq!(retained["sha256"], s::sha256_bytes(outer.as_bytes()));
-                assert_eq!(retained["eligibility"], "rejected_final_carrier");
-                assert!(terminal.body["receipt"]["attempt_receipt"]
-                    .get("rejected_final_response")
-                    .is_none());
-            }
-            assert_eq!(terminal.body["receipt"]["kind"], "provider_attempt_failed");
+        if transport_failed {
+            assert!(terminal.body.get("response_body").is_none());
+            assert!(!serde_json::to_string(&terminal)
+                .unwrap()
+                .contains("PRIVATE TRANSPORT OPERATION"));
+            let receipt = &terminal.body["receipt"];
+            assert_eq!(receipt["kind"], "provider_attempt_failed");
+            assert_eq!(receipt["dispatch_may_have_begun"], true);
+            assert_eq!(receipt["remote_outcome"], "unknown");
+            assert_eq!(receipt["replay_authorized"], false);
             assert_eq!(
-                terminal.body["receipt"]["attempt_receipt"]["process"]["launched"],
-                true
+                receipt["failure"],
+                match mode {
+                    "complete-stream-failure" => "network",
+                    "bounded-stream-failure" => "limit",
+                    _ => "remote_failure",
+                }
             );
-            if mode == "native" {
-                assert_eq!(
-                    terminal.body["receipt"]["attempt_receipt"]["stream"]["native_action_observed"],
-                    true
-                );
-                assert!(terminal.body["receipt"]["failure"]
-                    .as_str()
-                    .unwrap()
-                    .contains("NativeActionObserved"));
+            let attempt = &receipt["attempt_receipt"];
+            assert_eq!(attempt["dispatch_may_have_begun"], true);
+            assert_eq!(attempt["http_status"], 200);
+            assert_eq!(attempt["stream_eof"], false);
+            assert_eq!(
+                attempt["response_completed"],
+                mode == "complete-stream-failure"
+            );
+            assert_eq!(attempt["remote_stop_confirmed"], false);
+            assert_eq!(attempt["remote_effects_and_charges_may_remain"], true);
+            assert!(attempt["stream_bytes_observed"].as_u64().unwrap() > 0);
+            if mode == "bounded-stream-failure" {
+                assert_eq!(attempt["stream_bytes_observed"], 128 * 1024);
             }
+            let invocation = f.app.invocation("transport-call").unwrap();
+            assert_eq!(invocation.state, s::InvocationState::Failed);
+            assert!(invocation.response_hash.is_none());
+            let admitted: Prepared = serde_json::from_value(invocation.request.unwrap()).unwrap();
+            assert_eq!(attempt["audit"], admitted.provider_preparation.unwrap());
+            let after = persisted_state(&f.app);
+            for field in [
+                "messages",
+                "sources",
+                "board",
+                "observations",
+                "semantic_warnings",
+            ] {
+                assert_eq!(before[field], after[field]);
+            }
+            assert!(f.app.adopted("transport-call").is_err());
             assert!(f.app.resume("operator", "a", "work").is_err());
             assert!(f
                 .app
@@ -4918,6 +4881,17 @@ async fn actual_application_transport_uses_carrier_and_retains_terminal_failures
                 )
                 .is_err());
         } else {
+            assert_eq!(terminal.body["receipt"]["kind"], "provider_complete");
+            assert_eq!(terminal.body["receipt"]["synthetic"], false);
+            assert_eq!(
+                terminal.body["receipt"]["attempt"]["response_completed"],
+                true
+            );
+            assert_eq!(terminal.body["receipt"]["attempt"]["stream_eof"], true);
+            assert_eq!(
+                terminal.body["receipt"]["usage"]["actual_cost_microusd"],
+                Value::Null
+            );
             assert_eq!(
                 terminal.body["receipt"]["transport_sha256"],
                 s::sha256_bytes(outer.as_bytes())
@@ -4926,7 +4900,7 @@ async fn actual_application_transport_uses_carrier_and_retains_terminal_failures
                 "malformed-inner" => "{\"version\":1}".to_owned(),
                 "empty-inner" => String::new(),
                 "escaped-malformed-inner" => "\0\"\\λ".repeat(128),
-                "wrong-carrier" => outer.clone(),
+                "wrong-carrier" | "duplicate-outer" | "malformed-outer" => outer.clone(),
                 _ => inner.clone(),
             };
             let retained = &terminal.body["response_body"];
@@ -4941,7 +4915,10 @@ async fn actual_application_transport_uses_carrier_and_retains_terminal_failures
             );
             assert_eq!(
                 retained["kind"],
-                if mode == "wrong-carrier" {
+                if matches!(
+                    mode,
+                    "wrong-carrier" | "duplicate-outer" | "malformed-outer"
+                ) {
                     "provider_body"
                 } else {
                     "decision_json"
@@ -4987,7 +4964,32 @@ async fn actual_application_transport_uses_carrier_and_retains_terminal_failures
                 );
             }
         }
+        let serialized = serde_json::to_string(&terminal).unwrap();
+        assert!(!serialized.contains("synthetic-key"));
+        assert!(!serialized.contains("synthetic-account"));
         assert!(f.app.dispatch_synthetic("transport-call", NOW).is_err());
+        assert_eq!(
+            f.app.ledger().unwrap().ordinary.consumed.attempts,
+            attempts_before + 1
+        );
+        let usage: s::ReservationRecord =
+            adoption_accounting_record(&root, "reservation", "v:transport-call");
+        assert_eq!(usage.state, s::ReservationState::Uncertain);
+        assert!(usage.measured.is_none());
+        let ledger = f.app.ledger().unwrap();
+        assert!(f
+            .app
+            .step_with_provider(
+                request,
+                &provider,
+                ai_personas::provider::Cancellation::default(),
+                NOW,
+            )
+            .await
+            .is_err());
+        assert_only_navigation_charged(ledger, f.app.ledger().unwrap());
+        assert_eq!(transport.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(f.app.terminal_evidence("transport-call").unwrap(), terminal);
         assert!(f.app.ledger().unwrap().ordinary.uncertain.output_bytes > 0);
     }
 }
@@ -4999,38 +5001,36 @@ async fn stale_caller_time_cannot_authorize_a_live_dispatch() {
     let mut timed = restricted_policy();
     timed.expires_at_unix = Some(trusted - 1);
     let mut c = config();
-    c.allow_nonconformant_research = true;
+    c.allow_direct_provider = true;
     c.policies.active_policies.push(timed.clone());
     let mut primary = seed("a");
     primary.model_confirmed = true;
     let mut original = need();
     original.policy_id = timed.id.clone();
     let f = Fixture::configured(true, c, primary, original);
-    let (settings, working) = transport_fixture(&f, "{\"decision_json\":\"{}\"}", false);
+    let (provider, transport) =
+        transport_fixture(&f, "{\"decision_json\":\"{}\"}", TransportBehavior::Valid);
     let mut f = f;
+    // Runtime rechecks exposure against unix_now(), independently of both the
+    // stale admission argument and the injected provider credential clock.
     let result = f
         .app
-        .step(
+        .step_with_provider(
             PrepareRequest {
                 id: "expired-at-dispatch".into(),
                 persona: "a".into(),
                 work: "work".into(),
-                profile: Profile::NonconformantResearch,
+                profile: Profile::Direct,
                 mode: Mode::Ordinary,
             },
-            settings,
-            working,
+            &provider,
+            ai_personas::provider::Cancellation::default(),
             trusted - 10,
         )
         .await;
     let error = result.unwrap_err();
     assert!(!f._temp.path().join("fixture-entered").exists());
-    assert_eq!(
-        std::fs::read_dir(f._temp.path().join("provider-temporary"))
-            .unwrap()
-            .count(),
-        0
-    );
+    assert_eq!(transport.calls.load(std::sync::atomic::Ordering::SeqCst), 0);
     let inv = f.app.invocation("expired-at-dispatch").unwrap();
     assert_eq!(inv.state, s::InvocationState::Failed);
     assert_eq!(inv.response_hash, None);
@@ -5085,7 +5085,7 @@ async fn stale_caller_time_cannot_authorize_a_live_dispatch() {
                 id: "fresh-after-prelaunch-rejection".into(),
                 persona: "a".into(),
                 work: "work".into(),
-                profile: Profile::NonconformantResearch,
+                profile: Profile::Direct,
                 mode: Mode::Ordinary,
             },
             trusted
@@ -6068,28 +6068,21 @@ impl Drop for FixtureGate {
 fn gated_transport_fixture(
     f: &Fixture,
     response: &str,
-) -> (ResearchSettings, std::path::PathBuf, FixtureGate) {
-    let (mut settings, working) = transport_fixture(f, response, false);
+) -> (direct_provider_cases::OwnerCall, FixtureGate) {
     let release = f._temp.path().join("release-fixture");
-    let launches = f._temp.path().join("fixture-launches");
-    let script = std::fs::read_to_string(&settings.executable).unwrap();
-    let needle = "/bin/printf '%s\\n' ";
-    assert_eq!(script.matches(needle).count(), 1);
-    let gate = format!(
-        "echo launch >> {}\nwaits=0\nwhile [ ! -f {} ]; do\n waits=$((waits + 1))\n [ \"$waits\" -lt 600 ] || exit 70\n /bin/sleep 0.1\ndone\n",
-        shell_quote(launches.to_str().unwrap()),
-        shell_quote(release.to_str().unwrap()),
-    );
-    let script = script.replace(needle, &format!("{gate}{needle}"));
-    std::fs::write(&settings.executable, script.as_bytes()).unwrap();
-    settings.executable_sha256 = s::sha256_bytes(script.as_bytes());
-    settings.timeout_ms = 60_000;
-    (settings, working, FixtureGate(release))
+    let call = direct_provider_cases::OwnerCall {
+        root: f.app.state_root().to_owned(),
+        id: "owned-call".into(),
+        response: response.into(),
+        result: f._temp.path().join("owner-result.json"),
+        release: release.clone(),
+    };
+    (call, FixtureGate(release))
 }
 
 #[cfg(target_os = "linux")]
 #[tokio::test(flavor = "current_thread")]
-async fn cli_owned_step_allows_status_fences_mutation_and_recovers_owner_death() {
+async fn injected_owner_step_allows_cli_status_fences_mutation_and_recovers_owner_death() {
     for disposition in ["adopt", "mutate", "kill"] {
         let mut f = live_fixture();
         let root = f.app.state_root().to_owned();
@@ -6099,33 +6092,12 @@ async fn cli_owned_step_allows_status_fences_mutation_and_recovers_owner_death()
         expected.epoch = f.app.epoch().unwrap() + 1;
         let inner = serde_json::to_string(&decision(&expected, true)).unwrap();
         let carrier = serde_json::to_string(&json!({"decision_json":inner})).unwrap();
-        let (settings, working, gate) = gated_transport_fixture(&f, &carrier);
-        let settings_path = fixture_json(f._temp.path(), "research.json", &settings);
+        let (owner, gate) = gated_transport_fixture(&f, &carrier);
         let response_path = f._temp.path().join("response.json");
         std::fs::write(&response_path, inner.as_bytes()).unwrap();
-        let args = [
-            "step",
-            "--persona",
-            "a",
-            "--work",
-            "work",
-            "--invocation",
-            "owned-call",
-            "--profile",
-            "nonconformant-research",
-            "--provider-config",
-            settings_path.to_str().unwrap(),
-            "--working-directory",
-            working.to_str().unwrap(),
-        ];
         let attempts = f.app.ledger().unwrap().ordinary.consumed.attempts;
-        let mut command = cli_command(&root);
-        let mut child = command
-            .args(args)
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-            .unwrap();
+        let work_attempts = f.app.snapshot().unwrap().work_meta["work"].attempts_left;
+        let mut child = direct_provider_cases::spawn_owner(&owner).await;
         let launches = f._temp.path().join("fixture-launches");
         tokio::time::timeout(std::time::Duration::from_secs(10), async {
             loop {
@@ -6169,9 +6141,10 @@ async fn cli_owned_step_allows_status_fences_mutation_and_recovers_owner_death()
         .success());
         assert!(f.app.terminal_evidence("owned-call").is_err());
         assert_eq!(f.app.invocation("owned-call").unwrap().response_hash, None);
-        let mut contender = args;
-        contender[6] = "contending-call";
-        let busy = cli_output(&root, &contender).await;
+        let mut contender = owner.clone();
+        contender.id = "contending-call".into();
+        contender.result = f._temp.path().join("contender-result.json");
+        let busy = direct_provider_cases::owner_output(&contender).await;
         assert!(!busy.status.success());
         assert!(String::from_utf8_lossy(&busy.stderr).contains("execution owner"));
         assert_eq!(f.app.epoch().unwrap(), epoch);
@@ -6183,8 +6156,11 @@ async fn cli_owned_step_allows_status_fences_mutation_and_recovers_owner_death()
         if disposition == "kill" {
             child.kill().await.unwrap();
             child.wait().await.unwrap();
-            // The provider fixture is still gated. It must not inherit the
-            // runtime lock and prevent recovery after the actual owner dies.
+            // The release gate is still closed. Killing the actual process
+            // holding Runtime's owner must release the OS lock and leave the
+            // dispatched attempt uncertain, without inventing a completion.
+            assert!(!owner.release.exists());
+            assert!(!owner.result.exists());
             cli_success(cli_output(&root, &["status"]).await);
             let recovered = f.app.invocation("owned-call").unwrap();
             assert_eq!(recovered.state, s::InvocationState::Uncertain);
@@ -6192,8 +6168,14 @@ async fn cli_owned_step_allows_status_fences_mutation_and_recovers_owner_death()
             assert!(f.app.terminal_evidence("owned-call").is_err());
             cli_success(cli_output(&root, &["status"]).await);
             assert_eq!(f.app.invocation("owned-call").unwrap(), recovered);
-            assert!(!cli_output(&root, &args).await.status.success());
-            assert!(!cli_output(&root, &contender).await.status.success());
+            assert!(!direct_provider_cases::owner_output(&owner)
+                .await
+                .status
+                .success());
+            assert!(!direct_provider_cases::owner_output(&contender)
+                .await
+                .status
+                .success());
             assert!(!cli_output(
                 &root,
                 &[
@@ -6222,7 +6204,8 @@ async fn cli_owned_step_allows_status_fences_mutation_and_recovers_owner_death()
                     .await
                     .expect("released fixture must reach terminal disposition")
                     .unwrap();
-            let report = cli_success(output);
+            let report = direct_provider_cases::owner_result(&owner, output);
+            assert_eq!(report["synthetic"], false);
             if disposition == "mutate" {
                 assert_eq!(report["status"], "held");
                 assert!(report["reason"].as_str().unwrap().contains("epoch"));
@@ -6249,6 +6232,18 @@ async fn cli_owned_step_allows_status_fences_mutation_and_recovers_owner_death()
         );
         assert!(f.app.ledger().unwrap().ordinary.uncertain.output_bytes > 0);
         assert_eq!(std::fs::read_to_string(&launches).unwrap(), "launch\n");
+        assert_eq!(
+            f.app.snapshot().unwrap().work_meta["work"].attempts_left,
+            work_attempts - 1
+        );
+        let usage: s::ReservationRecord =
+            adoption_accounting_record(&root, "reservation", "v:owned-call");
+        assert_eq!(usage.state, s::ReservationState::Uncertain);
+        assert!(usage.measured.is_none());
+        assert_eq!(
+            f.app.ledger().unwrap().ordinary.reserved,
+            s::Resources::default()
+        );
         let metadata = std::fs::metadata(root.join("execution.lock")).unwrap();
         assert_eq!(metadata.len(), 0);
         assert_eq!(metadata.permissions().mode() & 0o077, 0);

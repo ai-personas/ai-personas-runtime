@@ -1,8 +1,8 @@
 use ai_personas::{
     launch, protocol,
     runtime::{
-        self, Config, Mode, NeedInput, PersonaImport, PrepareRequest, Profile, ResearchSettings,
-        Runtime, Seed,
+        self, Config, DirectProviderSettings, Mode, NeedInput, PersonaImport, PrepareRequest,
+        Profile, Runtime, Seed,
     },
 };
 use clap::{Parser, Subcommand, ValueEnum};
@@ -29,6 +29,7 @@ enum ProfileArg {
     Synthetic,
     Strict,
     NonconformantResearch,
+    Direct,
 }
 impl From<ProfileArg> for Profile {
     fn from(value: ProfileArg) -> Self {
@@ -36,6 +37,7 @@ impl From<ProfileArg> for Profile {
             ProfileArg::Synthetic => Self::Synthetic,
             ProfileArg::Strict => Self::Strict,
             ProfileArg::NonconformantResearch => Self::NonconformantResearch,
+            ProfileArg::Direct => Self::Direct,
         }
     }
 }
@@ -68,7 +70,7 @@ enum Command {
         #[arg(long)]
         share_cohort: bool,
         #[arg(long)]
-        allow_nonconformant_research: bool,
+        allow_direct_provider: bool,
     },
     /// Run a bounded foreground session using the saved continuing cohort.
     Run {
@@ -192,7 +194,7 @@ enum Command {
         recipient: String,
         work: String,
     },
-    /// Executes at most one explicit nonconformant research invocation. No retries.
+    /// Executes at most one explicitly configured direct HTTPS invocation. No retries.
     Step {
         #[arg(long)]
         persona: String,
@@ -387,7 +389,7 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             max_total_steps,
             max_works,
             share_cohort,
-            allow_nonconformant_research,
+            allow_direct_provider,
         } => {
             let root = launch::state_root(cli.state_root.as_deref())?;
             let operator = cli
@@ -407,7 +409,7 @@ async fn run(cli: Cli) -> runtime::Result<()> {
                 max_total_steps: *max_total_steps,
                 max_works: *max_works,
             };
-            launch::setup(&root, operator, settings, *allow_nonconformant_research)?;
+            launch::setup(&root, operator, settings, *allow_direct_provider)?;
             return emit(&serde_json::json!({"setup_saved":true,"inference_performed":false}));
         }
         Command::Run {
@@ -634,11 +636,12 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             selection_repair,
         } => {
             let profile: Profile = profile.into();
-            // Fail closed before reading provider configuration or launching under strict requirements.
-            if profile != Profile::NonconformantResearch {
-                return Err(runtime::RuntimeError::NotReady("live step requires explicit nonconformant-research; strict execution is unavailable".into()));
+            // Reject removed execution profiles before reading provider settings.
+            if profile != Profile::Direct {
+                return Err(runtime::RuntimeError::NotReady("live step requires --profile direct; legacy CLI dispatch was removed and strict remote guarantees remain unavailable".into()));
             }
-            let settings: ResearchSettings = runtime::read_json_file(&provider_config, 262_144)?;
+            let settings: DirectProviderSettings =
+                runtime::read_json_file(&provider_config, 262_144)?;
             emit(
                 &app.step(
                     PrepareRequest {

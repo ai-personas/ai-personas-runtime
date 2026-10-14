@@ -235,28 +235,29 @@ fn failed_write_has_no_receipt_and_unknown_recovery_withholds_untracked_cause() 
 #[cfg(target_os = "linux")]
 #[tokio::test(flavor = "current_thread")]
 async fn pure_schema_failure_recovery_retains_prepared_exposure_and_sanitized_cause() {
-    // This uses only the existing local transport fixture executable; no model
-    // service, external provider request or network access is involved.
+    // This uses an injected transport with complete synthetic SSE; credentials,
+    // source and clock are injected, and no network access is involved.
     let mut f = live_fixture();
     let raw = r#"{"version":1,"DO_NOT_EXPOSE_QUOTED_PRIVATE_SCHEMA_NAME":true}"#;
     let outer = serde_json::to_string(&json!({"decision_json":raw})).unwrap();
-    let (settings, working) = transport_fixture(&f, &outer, false);
+    let (provider, transport) = transport_fixture(&f, &outer, TransportBehavior::Valid);
     let report = f
         .app
-        .step(
+        .step_with_provider(
             PrepareRequest {
                 id: "schema-only-failure".into(),
                 persona: "a".into(),
                 work: "work".into(),
-                profile: Profile::NonconformantResearch,
+                profile: Profile::Direct,
                 mode: Mode::Ordinary,
             },
-            settings,
-            working,
+            &provider,
+            ai_personas::provider::Cancellation::default(),
             NOW,
         )
         .await
         .unwrap();
+    assert_eq!(transport.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     assert_eq!(report.status, AdoptionStatus::Held);
     assert!(report.reason.is_some());
     let invocation = f.app.invocation("schema-only-failure").unwrap();

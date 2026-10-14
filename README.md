@@ -16,22 +16,17 @@ cargo clippy --locked --all-targets -- -D warnings
 ./target/release/ai-personas doctor
 ```
 
-The declared minimum Rust version is 1.85. Development checks currently use Rust 1.95.0. The ignored subprocess fixture in the provider tests is invoked by other tests; it is not a live model test. Cargo tests use local fixtures and do not establish provider behavior or scenario outcomes.
+The declared minimum Rust version is 1.88, required by the locked HTTPS dependencies. Development checks use Rust 1.95.0. Cargo tests use offline fixtures and do not establish live provider access, persona behavior or scenario outcomes.
 
 ## Foreground cohort workflow
 
-After one explicit research-profile setup, a need can be submitted with one
-command. First import an existing verified `ResearchSettings` JSON file. It must
-name the exact installed CLI pin, confirmed model and effort, and finite transport
-bounds; setup does not discover availability, refresh pins, change authentication,
-or establish strict execution.
-
+After one explicit direct-provider setup, a need can be submitted with one command. Prepare a verified [`DirectSettings`](src/provider.rs) JSON file with one selected access mode, explicit credential references, fixed account and route evidence, the exact model and effort, and finite transport limits. See [direct provider configuration](docs/direct-provider.md). Setup validates configuration without resolving credentials or making model requests.
 ```sh
 ai-personas --operator local-operator setup \
   --provider-config /absolute/private/verified-provider.json \
   --working-directory /absolute/operator-approved/checkout \
-  --destination codex-cli \
-  --share-cohort --allow-nonconformant-research
+  --destination approved-model-destination \
+  --share-cohort --allow-direct-provider
 
 ai-personas run 'Describe the result you need'
 ai-personas run --resume work-00000001
@@ -40,10 +35,7 @@ ai-personas result work-00000001 --json
 
 State defaults to `$XDG_STATE_HOME/ai-personas`, or
 `$HOME/.local/state/ai-personas`. `--state-root` selects another private directory
-outside repositories. The saved provider working directory must already exist
-and be separate from state; existing Codex trust and preflight checks still
-apply. Research transport can detect native actions only after occurrence, so
-this opt-in is not an actionless or strict deployment claim.
+outside repositories. The saved working directory must already exist and remain separate from private state. It is retained as compatibility metadata; the direct transport neither reads it nor sends it to the model. Strict remote context, token and cost guarantees remain unestablished.
 
 Setup defaults to three continuing personas. `--cohort` accepts 2..8; `--owner`
 chooses the persona offered ownership of the requested result and the designated
@@ -244,11 +236,13 @@ prove nothing. Required human acceptance cannot be manufactured from local
 delivery or model judgment.
 
 
-## Codex CLI research transport
+## Direct model transport
 
-The provider invokes the installed Codex CLI through its supported command interface and existing authentication. It does not read or repurpose OAuth credential storage. The executable identity, requested model and effort, and transport bounds must be configured explicitly. An unresolved model name is not substituted.
+Personas sends one bounded HTTPS Responses request for each admitted step. Its own runtime assembles context and retains tools, memory, decisions, collaboration, validation and adoption. There is no runtime Codex CLI, app-server, coding-agent loop or fallback.
 
-A live `step` launches at most one invocation, requires explicit research opt-in, and never retries automatically. Strict live execution remains unavailable: the current integration does not establish an actionless CLI environment or a hard bound on hidden provider context. The research profile records this limitation. Requested model identity, provider-reported identity, observed usage, and unknown billing remain separate.
+Traditional ChatGPT OAuth, SIWC token-sharing OAuth and Platform API keys are distinct access modes. Each requires its own authorized credentials and exact route/account/model/effort/schema evidence. OAuth failure never switches to API-key billing. The runtime does not discover, extract or refresh credentials.
+
+A direct step retains native admission, exact prompt/schema binding, durable dispatch and terminal-before-adoption ordering. It never retries uncertain requests automatically. Requested model and effort, provider-reported values, verified served identity, observed usage and unknown charges remain separate. Offline tests establish local contracts only. See [transport limits and migration](docs/direct-provider.md).
 
 ## Explicit maintenance dispositions
 

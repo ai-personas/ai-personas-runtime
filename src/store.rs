@@ -260,12 +260,12 @@ impl Limits {
     /// A rounded-up sixteenth is protected from new ordinary allocations.
     /// Derived shares preserve existing Rust literals and serialized limits.
     pub fn protected_closeout_identity_records(&self) -> u64 {
-        self.max_identity_records / 16 + u64::from(self.max_identity_records % 16 != 0)
+        self.max_identity_records.div_ceil(16)
     }
 
     /// Counts reserved lifecycle slots, whether or not receipts already use them.
     pub fn protected_closeout_history_events(&self) -> u64 {
-        self.max_history_events / 16 + u64::from(self.max_history_events % 16 != 0)
+        self.max_history_events.div_ceil(16)
     }
 
     fn validate(&self) -> Result<()> {
