@@ -25,11 +25,48 @@ mod combined_cases;
 #[path = "collaboration/cases.rs"]
 mod collaboration_cases;
 
+// Body bundles are host projections, while selection-repair receipts retain
+// file-layer references. Check the explicit format instead of accepting either
+// representation indiscriminately.
+fn rendered_body_reference(bundle: &Value, value: &Value) -> f::Reference {
+    if bundle.get("reference_format").is_none() {
+        return serde_json::from_value(value.clone()).unwrap();
+    }
+    assert_eq!(bundle["reference_format"], "decision_exact_ref");
+    let reference: p::ExactRef = serde_json::from_value(value.clone()).unwrap();
+    assert!(reference.lifetime.is_none());
+    let representation = match reference.representation.as_str() {
+        "utf8" => f::Representation::Utf8,
+        other => f::Representation::JsonString {
+            pointer: other.strip_prefix("json_string:").unwrap().into(),
+        },
+    };
+    f::Reference {
+        source: reference.source,
+        revision: reference.revision,
+        representation,
+        start: reference.start.map(|v| usize::try_from(v).unwrap()),
+        end: reference.end.map(|v| usize::try_from(v).unwrap()),
+    }
+}
+
+#[path = "actionable_refs/cases.rs"]
+mod actionable_refs_cases;
+
 #[path = "observability/cases.rs"]
 mod observability_cases;
 
 #[path = "work_inspection/cases.rs"]
 mod work_inspection_cases;
+
+#[path = "closure_readiness/cases.rs"]
+mod closure_readiness_cases;
+
+#[path = "stakeholder/cases.rs"]
+mod stakeholder_cases;
+
+#[path = "maintenance/cases.rs"]
+mod maintenance_cases;
 
 const NOW: i64 = 1_800_000_000;
 fn set(values: &[&str]) -> BTreeSet<String> {
@@ -5711,15 +5748,15 @@ fn selection_repair_accounts_for_event_bodies_ranges_and_withholding() {
             assert!(prepared
                 .supplied_observations
                 .contains(event_id.as_ref().unwrap()));
-            for entries in [
-                event["payload"]["result"]["entries"].as_array().unwrap(),
-                event["current_required_qualifications"][0]["entries"]
-                    .as_array()
-                    .unwrap(),
+            for bundle in [
+                &event["payload"]["result"],
+                &event["current_required_qualifications"][0],
             ] {
+                let entries = bundle["entries"].as_array().unwrap();
                 for (exact, text) in [(&event_reference, event_text), (&required, required_text)] {
                     assert!(entries.iter().any(|entry| {
-                        entry["reference"] == json!(exact) && entry["text"] == text
+                        rendered_body_reference(bundle, &entry["reference"]) == *exact
+                            && entry["text"] == text
                     }));
                 }
             }
@@ -7669,7 +7706,18 @@ fn model_evidence_fixture_with_peer(
     outside_review: bool,
     peer: bool,
 ) -> (Fixture, Prepared, ArtifactKey) {
+    model_evidence_fixture_with_stakeholder(selection, outside_review, peer, false)
+}
+fn model_evidence_fixture_with_stakeholder(
+    selection: &str,
+    outside_review: bool,
+    peer: bool,
+    stakeholder: bool,
+) -> (Fixture, Prepared, ArtifactKey) {
     let mut original = need();
+    if stakeholder {
+        original.stakeholders.insert("human".into());
+    }
     original.request =
         "Write a brief comparison of two ordinary planning options, stating unknown costs.".into();
     original.outcomes.get_mut("result").unwrap().criterion =
@@ -7876,6 +7924,18 @@ fn ordinary_model_evidence_can_complete_an_exact_synthetic_writing_task_without_
         .to_owned();
     assert_eq!(release_receipt["payload"]["metadata_only"], true);
     assert_eq!(
+        supplied["closure_readiness"]["records"][0]["release"],
+        exposed_release
+    );
+    assert_eq!(
+        supplied["closure_readiness"]["records"][0]["unestablished_deliveries"],
+        json!(["human"])
+    );
+    assert_eq!(
+        supplied["closure_readiness"]["records"][0]["permitted_prerequisites_observed"],
+        false
+    );
+    assert_eq!(
         release_receipt["payload"]["record"],
         serde_json::to_value(&work.releases[&w::RecordId(exposed_release.clone())]).unwrap()
     );
@@ -7915,6 +7975,18 @@ fn ordinary_model_evidence_can_complete_an_exact_synthetic_writing_task_without_
     assert_eq!(receipt["release"], exposed_release);
     assert_eq!(receipt["recipient"], "human");
     assert!(receipt["receipt"]["id"].as_str().is_some());
+    assert_eq!(
+        supplied["closure_readiness"]["records"][0]["release"],
+        exposed_release
+    );
+    assert_eq!(
+        supplied["closure_readiness"]["records"][0]["permitted_prerequisites_observed"],
+        true
+    );
+    assert_eq!(
+        supplied["closure_readiness"]["completion_established"],
+        false
+    );
     let mut response = decision(&prepared, true);
     response.operations.push(effect(
         "close-note",
@@ -7940,6 +8012,69 @@ fn ordinary_model_evidence_can_complete_an_exact_synthetic_writing_task_without_
             .len(),
         1
     );
+}
+
+#[test]
+fn closure_readiness_exposes_missing_stakeholder_without_substituting_model_judgment() {
+    let (mut f, prepared, key) =
+        model_evidence_fixture_with_stakeholder("full", false, false, true);
+    assert!(interface_control(&prepared)
+        .get("closure_readiness")
+        .is_none());
+    let mut response = decision(&prepared, true);
+    response.operations.push(model_evidence_operation(&key));
+    response.operations.extend(model_judgment_and_shared(&key));
+    response.operations.push(effect(
+        "release-note",
+        WorkAction::Release {
+            id: "model-note-release".into(),
+            shared: "model-note-shared".into(),
+        },
+        &[],
+    ));
+    response.operations.push(effect(
+        "deliver-note",
+        WorkAction::DeliverRelease {
+            release: "model-note-release".into(),
+            recipients: set(&["human"]),
+        },
+        &[],
+    ));
+    assert_eq!(f.run(&prepared, &response).status, AdoptionStatus::Adopted);
+    let prepared = f.prepare("inspect-closure-blocker");
+    let supplied = interface_control(&prepared);
+    let records = supplied["closure_readiness"]["records"].as_array().unwrap();
+    assert_eq!(
+        records.len(),
+        1,
+        "duplicate release/delivery receipts coalesce"
+    );
+    assert_eq!(records[0]["release"], "model-note-release");
+    assert_eq!(records[0]["release_current"], "unestablished");
+    assert_eq!(records[0]["unestablished_deliveries"], json!([]));
+    assert_eq!(
+        records[0]["unestablished_stakeholder_acceptance"],
+        json!(["human"])
+    );
+    assert_eq!(records[0]["permitted_prerequisites_observed"], false);
+    assert!(prepared
+        .prompt
+        .contains("latest positive acceptance of that exact release"));
+    let before = f.app.snapshot().unwrap();
+    let mut response = decision(&prepared, true);
+    response.operations.push(effect(
+        "close-note",
+        WorkAction::CloseGoal {
+            release: "model-note-release".into(),
+        },
+        &[],
+    ));
+    response.continuation = p::Continuation::Stop {
+        reason: "Synthetic attempted closure without required human acceptance.".into(),
+    };
+    let result = f.run(&prepared, &response);
+    assert_eq!(result.status, AdoptionStatus::Held);
+    assert_eq!(f.app.snapshot().unwrap().board, before.board);
 }
 
 #[test]
@@ -8471,9 +8606,13 @@ fn qualified_read_context_bound_case(root_repetitions: usize, expect_fit: bool) 
             .iter()
             .find(|e| e["reference"]["source"] == source.source)
             .unwrap();
+        let copied: p::ExactRef = serde_json::from_value(entry["reference"].clone()).unwrap();
+        assert_eq!(copied.source, source.source);
+        assert_eq!(copied.revision, source.revision);
+        assert_eq!(copied.representation, "utf8");
         assert_eq!(
-            entry["reference"],
-            json!(source.reference(f::Representation::Utf8))
+            (copied.start, copied.end, copied.lifetime),
+            (None, None, None)
         );
         assert_eq!(entry["text"], std::str::from_utf8(&source.bytes).unwrap());
         assert_eq!(entry["policy"], json!(source.policy));
@@ -9244,3 +9383,6 @@ fn aggregate_selection_admission_does_not_count_expired_next_call_roots() {
     assert!(fresh.prompt.contains("EXACT_AGGREGATE_CAVEAT"));
     assert!(!fresh.prompt.contains("EXACT_EXPIRING_ASSET"));
 }
+
+#[path = "selection_expiry/cases.rs"]
+mod selection_expiry_cases;

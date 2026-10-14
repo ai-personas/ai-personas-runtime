@@ -218,7 +218,10 @@ fn control_and_context(prepared: &Prepared) -> Result<(Value, Value)> {
 fn collect_entries(value: &Value, result: &mut BTreeSet<f::Reference>) -> Result<()> {
     if let Some(entries) = value.get("entries").and_then(Value::as_array) {
         for entry in entries {
-            result.insert(serde_json::from_value(entry["reference"].clone())?);
+            result.insert(observability::context_reference(
+                value,
+                &entry["reference"],
+            )?);
         }
     }
     Ok(())
@@ -251,10 +254,18 @@ pub(super) fn supplied_bundle_proof(
     prepared: &Prepared,
     expected: &[f::ContextEntry],
 ) -> Result<Value> {
-    fn append(value: &Value, entries: &mut Vec<Value>) {
+    fn append(value: &Value, entries: &mut Vec<Value>) -> Result<()> {
         if let Some(values) = value.get("entries").and_then(Value::as_array) {
-            entries.extend(values.iter().cloned());
+            for entry in values {
+                let mut normalized = entry.clone();
+                normalized["reference"] = serde_json::to_value(observability::context_reference(
+                    value,
+                    &entry["reference"],
+                )?)?;
+                entries.push(normalized);
+            }
         }
+        Ok(())
     }
     fn without_roles(mut entry: Value) -> Value {
         // A subject may also be selected as another root's qualification. That
@@ -266,18 +277,18 @@ pub(super) fn supplied_bundle_proof(
     }
     let (control, context) = control_and_context(prepared)?;
     let mut actual = Vec::new();
-    append(&context, &mut actual);
+    append(&context, &mut actual)?;
     if let Some(observations) = control["actual_observations"].as_array() {
         for observation in observations {
             if matches!(
                 observation["kind"].as_str(),
                 Some("qualified_read" | "selection_repair_read" | "local_dependency_event")
             ) {
-                append(&observation["payload"]["result"], &mut actual);
+                append(&observation["payload"]["result"], &mut actual)?;
             }
             if let Some(bundles) = observation["current_required_qualifications"].as_array() {
                 for bundle in bundles {
-                    append(bundle, &mut actual);
+                    append(bundle, &mut actual)?;
                 }
             }
         }

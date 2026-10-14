@@ -4,6 +4,8 @@ A Rust application for personas whose primary language model directs their work,
 
 The current executable supports an explicitly controlled local workflow. Full design conformance and unattended production operation are not yet established. `ai-personas doctor` reports the current limits.
 
+[Illustrated quickstart](docs/QUICKSTART.md): setup, one-command work, and how to read the result.
+
 ## Build and check
 
 ```sh
@@ -15,6 +17,99 @@ cargo clippy --locked --all-targets -- -D warnings
 ```
 
 The declared minimum Rust version is 1.85. Development checks currently use Rust 1.95.0. The ignored subprocess fixture in the provider tests is invoked by other tests; it is not a live model test. Cargo tests use local fixtures and do not establish provider behavior or scenario outcomes.
+
+## Foreground cohort workflow
+
+After one explicit research-profile setup, a need can be submitted with one
+command. First import an existing verified `ResearchSettings` JSON file. It must
+name the exact installed CLI pin, confirmed model and effort, and finite transport
+bounds; setup does not discover availability, refresh pins, change authentication,
+or establish strict execution.
+
+```sh
+ai-personas --operator local-operator setup \
+  --provider-config /absolute/private/verified-provider.json \
+  --working-directory /absolute/operator-approved/checkout \
+  --destination codex-cli \
+  --share-cohort --allow-nonconformant-research
+
+ai-personas run 'Describe the result you need'
+ai-personas run --resume work-00000001
+ai-personas result work-00000001 --json
+```
+
+State defaults to `$XDG_STATE_HOME/ai-personas`, or
+`$HOME/.local/state/ai-personas`. `--state-root` selects another private directory
+outside repositories. The saved provider working directory must already exist
+and be separate from state; existing Codex trust and preflight checks still
+apply. Research transport can detect native actions only after occurrence, so
+this opt-in is not an actionless or strict deployment claim.
+
+Setup defaults to three continuing personas. `--cohort` accepts 2..8; `--owner`
+chooses the persona offered ownership of the requested result and the designated
+decision, while the others receive nonexclusive contribution offers. Acceptance,
+character, contributions, evidence, release and completion remain persona-authored.
+The generic creation material asserts no prior character or experience. The same
+cohort is reused on later needs; it does not guarantee participation or quality.
+
+The foreground driver considers at most 128 participant entries and attempts at
+most 12 steps per command by default, within 32 attempts per work, 256 attempted
+foreground steps across all saved work IDs, and 32 work IDs. Setup flags can
+lower or change these finite bounds. Existing Store and runtime limits remain
+controlling. Resume never replenishes them. There is no daemon, polling loop,
+model substitution, automatic failed-response retry or between-task exploration.
+The one initial character-adoption fence receives one explicit recorded host
+handover; later character changes, stops, pauses, unresolved transport and failures
+keep their existing control requirements. A future wait returns to the shell.
+
+Output contains accepted replies and complete currently permitted local delivery
+bundles. `--json` emits one structured result on stdout; progress and stopping
+diagnostics use stderr. `result` performs no inference. A delivered artifact can
+remain unfinished until a fresh persona decision closes the work. A permitted
+completed phase is reported as `completed-as-recorded`; it records the accepted
+closure at that time, while `completion_supported: null` leaves current global
+support unestablished. The result view does not probe hidden evidence or consent
+to recompute that predicate. `closure_evidence` contains only currently permitted
+partial facts. `recorded_phase` reports the permitted work lifecycle record. `focus_release`
+is selected among permitted delivered releases by immutable creation revision,
+with exact release ID breaking same-transaction ties; an old redelivery cannot
+move focus backwards. `status_delivery` identifies its exact permitted receipt.
+This does not assert global release freshness. Status and foreground stop reasons
+are computed before output truncation.
+Local delivery and attributed model judgment do not establish
+independent quality.
+
+An ordinary new task does not require human acceptance by default.
+`run --require-acceptance 'Your need'` explicitly adds the setup requester as a
+required stakeholder. A delivered result whose permitted evidence does not establish acceptance is
+reported as `delivered-acceptance-unestablished`: acceptance may be absent or
+inaccessible. The foreground command stops at that boundary. Explicit
+`run --resume WORK` permits one fresh eligible consideration past it, without
+resuming a stopped persona, recovering a failed call, accepting for a human, or
+changing the mandate. Record a genuine explicit human decision with
+the separate bounded ingress:
+
+```sh
+ai-personas --state-root /absolute/private/state --operator local-operator \
+  stakeholder-decision exact-human-decision.json
+```
+
+The JSON result supplies `human_decision_pointers` for currently permitted exact
+local deliveries that require this requester. These historical pointers do not
+assert current release freshness or supply current global authority/version.
+They are not complete authorized requests. For an explicit human decision, use
+the trusted operator `status` command (with `--state-root` and `--operator`) to
+inspect the exact current work version and mandate authority, then supply those
+as `binding`, alongside the pointer's release/delivery fields, a unique `id`, an
+explicit `accepts` decision, and the actual human `statement`. The ingress checks
+that current binding and all release/delivery permissions before recording it.
+
+The input uses `HumanStakeholderDecisionRequest`: exact current work authority,
+unique decision ID, exact release and its canonical JSON SHA-256, exact retained
+delivery ID/receipt, `accepts`, and a nonblank human `statement`. The file is
+limited to 16 KiB and the statement to 4096 UTF-8 bytes. The trusted local operator
+asserts the human attribution; this is not independent identity authentication.
+The command neither manufactures consent nor resumes or completes work.
 
 ## Local operation
 
@@ -125,11 +220,43 @@ Pending offers expose current conflicting exclusive outcome/review-role ownershi
 
 Work responsibility, artifact readiness, review findings, current release, delivery, stakeholder acceptance, and collective completion are distinct records. A local completion claim is an attributed judgment until the required work transitions are satisfied. SQLite retains exact revisions, adoption history, uncertain transport outcomes, and resource charges across restarts.
 
+Release identifiers use the same contract at creation, exact-release inspection and human acceptance: 1..256 UTF-8 bytes, with no whitespace or control characters. The bound counts bytes, not characters. Existing valid identifiers above 128 bytes remain usable after reload; these operations do not rewrite retained history. Other operator, work and human-decision identifiers retain their own documented bounds.
+
+Plain result output labels each source-policy audience and each accepted-binding audience as recorded limits. These lists are not a current permission decision or permission to forward: source, binding, qualification and other applicable restrictions remain required.
+
+The lower-level `WorkBoard::closure_readiness(work, release)` API diagnoses
+structural closure prerequisites without caller-specific access checks; never
+expose its raw result to a model or restricted user. The permission-checked
+`Runtime::closure_readiness_evidence(actor, work, release, now)` instead returns
+a partial view for one exact known release. Ordinary `CONTROL.closure_readiness`
+uses the same checks for at most 128 identities already supplied in permitted
+release, delivery, human-decision or release-inspection observations.
+
+Each consulted delivery and human decision requires its own exact retained
+receipt exposure. `unestablished_deliveries` and
+`unestablished_stakeholder_acceptance` mean absent **or inaccessible**; they
+never prove absence. `permitted_prerequisites_observed` covers only permitted
+delivery and latest-permitted decision evidence. It grants no closure authority:
+a hidden newer rejection can still block closure. Release freshness remains
+explicitly unestablished in this projection; the unchanged completion guard
+checks current support and globally latest consent. Omitted or truncated entries
+prove nothing. Required human acceptance cannot be manufactured from local
+delivery or model judgment.
+
+
 ## Codex CLI research transport
 
 The provider invokes the installed Codex CLI through its supported command interface and existing authentication. It does not read or repurpose OAuth credential storage. The executable identity, requested model and effort, and transport bounds must be configured explicitly. An unresolved model name is not substituted.
 
 A live `step` launches at most one invocation, requires explicit research opt-in, and never retries automatically. Strict live execution remains unavailable: the current integration does not establish an actionless CLI environment or a hard bound on hidden provider context. The research profile records this limitation. Requested model identity, provider-reported identity, observed usage, and unknown billing remain separate.
+
+## Explicit maintenance dispositions
+
+Adopted blocked/deferred outcomes retain their exact original bytes and exposure. `CONTROL.protected_maintenance` supplies permitted owner/work-bound identities and current revisions. An ordinary `MaintenanceDispose` operation records the original primary's explicit `addressed`, `dismissed`, `unresolved`, or `expired` disposition, reason and exact supplied observation IDs (or `[]`). It must appear in the matching maintenance `change.operation_ids`. Current identity, revision, scope, supplied context and permissions are rechecked; stale, other-owner, withheld or invented evidence fails the whole response. Expired requires an elapsed recorded deadline or an actually accepted goal-closing response. Transfer is unsupported; no recipient acceptance is inferred.
+
+Original records are immutable. Dispositions append exact work authority, persona, invocation, operation, owner epoch, time and inherited exposure; the latest permitted receipt is supplied without claiming verified repair or warning resolution. New writes, `no_change`, stopping and work ending do not resolve a concern. Host ending and accepted goal closure record the mechanical boundary “remaining maintenance unresolved at work end,” without inventing persona judgment or requiring another reflection call. An unrelated unresolved concern does not add a task-completion gate.
+
+Per persona/work, newly accepted maintenance is limited to 128 original records, 256 disposition receipts, and 262144 serialized bytes including exposure, intersected with existing request, context, State and Store limits. Bounds reject the entire candidate; they do not remove protected history or create funding/wakes. Legacy records remain identifiable without retrospective receipts; missing legacy exposure prevents display and disposition, and a misaligned legacy exposure history cannot accept appended deferrals. Restricted selection repair and a changed-character unit cannot adopt dispositions. Semantic warnings retain their separate lifecycle.
 
 ## Explicit semantic warnings
 

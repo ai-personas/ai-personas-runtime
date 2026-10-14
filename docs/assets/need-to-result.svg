@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1530" viewBox="0 0 720 1530" role="img" aria-labelledby="title description">
+  <title id="title">From a need to a local result</title>
+  <desc id="description">A conceptual sequence in three illustrated scenes. A person asks for a fictional game-night guide with date and guest count left open. Three separate persona workspaces each have teal voice-fragment books, gold supporting-asset books and a small selection of pages beside a laptop. Bounded discovery and exact permitted selections do not load every shelf. Contributions can inform a shared handoff deposited in a local inbox. A bookmark preserves paused work. Participation, quality, completion and human acceptance are not guaranteed or inferred from delivery.</desc>
+  <defs>
+    <style>
+      text { font-family: "Liberation Sans", Arial, sans-serif; fill: #243b3c; }
+      .heading { font-size: 30px; font-weight: 700; }
+      .body { font-size: 25px; }
+      .small { font-size: 23px; }
+      .label { font-size: 24px; font-weight: 700; }
+      .line { stroke: #334f50; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+      .quiet { stroke: #667d7a; stroke-width: 2; stroke-linecap: round; }
+      .path { fill: none; stroke: #698b86; stroke-width: 3; stroke-linecap: round; stroke-dasharray: 5 9; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M1 1 L9 5 L1 9" fill="none" stroke="#698b86" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <g id="page">
+      <path d="M0 0 H53 L68 15 V86 H0 Z" fill="#fffdf7" class="line"/>
+      <path d="M53 0 V15 H68" fill="#e5e8dc" class="quiet"/>
+      <path d="M13 29 H51 M13 42 H54 M13 55 H44 M13 68 H49" fill="none" class="quiet"/>
+    </g>
+    <g id="fragment-book">
+      <rect x="0" y="0" width="24" height="59" rx="3" fill="#298078" class="line"/>
+      <path d="M6 9 H18 M6 16 H18 M6 48 H18" stroke="#f0f8ea" stroke-width="2"/>
+    </g>
+    <g id="asset-book">
+      <rect x="0" y="0" width="24" height="54" rx="3" fill="#cf9c3c" class="line"/>
+      <path d="M6 10 H18 M6 17 H18 M6 43 H18" stroke="#fff4cb" stroke-width="2"/>
+    </g>
+    <g id="workspace">
+      <!-- Each persona has a separate shelf and a few selected pages. -->
+      <path d="M-76 -102 H76" class="line"/>
+      <use href="#fragment-book" x="-65" y="-164"/>
+      <use href="#fragment-book" x="-36" y="-164"/>
+      <use href="#asset-book" x="10" y="-159"/>
+      <use href="#asset-book" x="39" y="-159"/>
+      <path d="M-24 -93 C-58 -75 -63 -43 -55 -9" class="path" marker-end="url(#arrow)"/>
+      <circle cx="0" cy="-45" r="22" fill="#ecc39f" class="line"/>
+      <path d="M-20 -50 Q0 -79 21 -50" fill="#334f50"/>
+      <path d="M-35 18 Q-33 -15 0 -15 Q33 -15 35 18 V58 H-35 Z" fill="currentColor" class="line"/>
+      <path d="M-21 53 L-29 97 M21 53 L29 97" class="line"/>
+      <path d="M-91 42 H91 M-70 43 L-75 111 M70 43 L75 111" class="line"/>
+      <rect x="-38" y="0" width="76" height="43" rx="4" fill="#e3eee8" class="line"/>
+      <path d="M-22 13 H22 M-22 23 H13" class="quiet"/>
+      <path d="M-42 43 H42" class="line"/>
+      <g transform="translate(52,8) rotate(8) scale(.39)"><use href="#page"/></g>
+      <circle cx="-61" cy="21" r="10" fill="#fffdf7" class="line"/>
+      <path d="M-68 29 L-79 39" class="line"/>
+    </g>
+  </defs>
+
+  <rect width="720" height="1530" fill="#faf6eb"/>
+  <path d="M0 436 Q355 402 720 440 V963 Q360 1005 0 966 Z" fill="#eaf0e6"/>
+  <path d="M28 1485 H692" stroke="#c9d2c6" stroke-width="2"/>
+
+  <!-- Scene one: a human request, with intentional unknowns. -->
+  <circle cx="45" cy="48" r="21" fill="#2b736d"/>
+  <text x="45" y="56" text-anchor="middle" font-size="24" font-weight="700" style="fill:#fffdf7">1</text>
+  <text x="82" y="59" class="heading">Bring a need, with its limits</text>
+  <text x="38" y="100" class="body">One command after explicit setup.</text>
+  <ellipse cx="207" cy="368" rx="158" ry="18" fill="#e7dfcb"/>
+  <path d="M151 287 H204 V338 M158 338 H223" fill="none" stroke="#7b8578" stroke-width="12" stroke-linecap="round"/>
+  <circle cx="160" cy="188" r="30" fill="#ecc39f" class="line"/>
+  <path d="M132 188 Q121 146 158 149 Q188 147 190 180 L175 171 Q152 179 132 188" fill="#3f5152"/>
+  <path d="M145 219 Q121 226 122 272 L125 292 H186 L189 250 L223 265" fill="#c7745f" class="line"/>
+  <path d="M150 291 L179 320 L176 361 M177 291 L208 316 L214 361" fill="none" stroke="#3f5152" stroke-width="14" stroke-linecap="round"/>
+  <path d="M174 361 H191 M212 361 H231" class="line"/>
+  <path d="M191 274 H350 M208 274 V361 M329 274 V361" class="line"/>
+  <path d="M236 223 H294 L304 271 H246 Z" fill="#d9e9e2" class="line"/>
+  <path d="M231 273 H310" class="line"/>
+  <path d="M193 243 L234 258" fill="none" stroke="#ecc39f" stroke-width="12" stroke-linecap="round"/>
+  <path d="M333 151 Q333 139 345 139 H658 Q672 139 672 153 V290 Q672 304 658 304 H372 L337 330 L345 304 Q333 304 333 290 Z" fill="#fffdf7" class="line"/>
+  <text x="354" y="179" class="label">A game-night guide</text>
+  <text x="354" y="222" class="body">Date: still open</text>
+  <text x="354" y="263" class="body">Guest count: open</text>
+  <path d="M544 331 Q544 371 424 387" class="path" marker-end="url(#arrow)"/>
+  <text x="359" y="420" class="small">The need is recorded.</text>
+
+  <!-- Scene two: three distinct desks, never a single blended persona. -->
+  <circle cx="45" cy="482" r="21" fill="#2b736d"/>
+  <text x="45" y="490" text-anchor="middle" font-size="24" font-weight="700" style="fill:#fffdf7">2</text>
+  <text x="82" y="493" class="heading">Each persona chooses its context</text>
+  <text x="38" y="534" class="body">A bounded search; a few permitted pages.</text>
+  <rect x="39" y="564" width="17" height="24" rx="3" fill="#298078"/>
+  <text x="66" y="585" class="small">Voice fragments</text>
+  <rect x="344" y="564" width="17" height="24" rx="3" fill="#cf9c3c"/>
+  <text x="371" y="585" class="small">Supporting assets</text>
+  <use href="#workspace" transform="translate(132,774)" color="#2b867c"/>
+  <use href="#workspace" transform="translate(360,774)" color="#cd9b41"/>
+  <use href="#workspace" transform="translate(588,774)" color="#c97766"/>
+  <text x="132" y="912" text-anchor="middle" class="label">Persona 1</text>
+  <text x="360" y="912" text-anchor="middle" class="label">Persona 2</text>
+  <text x="588" y="912" text-anchor="middle" class="label">Persona 3</text>
+  <text x="360" y="953" text-anchor="middle" class="small">Assets: tools · skills · knowledge · data · history</text>
+
+  <!-- Scene three: a tangible shared handoff and a separate saved place. -->
+  <circle cx="45" cy="1013" r="21" fill="#2b736d"/>
+  <text x="45" y="1021" text-anchor="middle" font-size="24" font-weight="700" style="fill:#fffdf7">3</text>
+  <text x="82" y="1024" class="heading">Hand off, or keep a saved place</text>
+  <text x="38" y="1065" class="body">Contributions can inform a shared result.</text>
+  <ellipse cx="213" cy="1305" rx="170" ry="22" fill="#e7dfcb"/>
+  <g transform="translate(92,1110) rotate(-9 34 43)"><use href="#page"/><path d="M13 10 H40" stroke="#298078" stroke-width="6"/></g>
+  <g transform="translate(184,1123) rotate(7 34 43)"><use href="#page"/><path d="M13 10 H40" stroke="#cf9c3c" stroke-width="6"/></g>
+  <g transform="translate(137,1171)"><use href="#page"/><path d="M13 10 H40" stroke="#c97766" stroke-width="6"/></g>
+  <path d="M47 1247 H245 L269 1284 H72 Z" fill="#cbded0" class="line"/>
+  <path d="M72 1284 H269 V1316 H72 Z" fill="#e0eadd" class="line"/>
+  <text x="77" y="1352" class="label">Shared handoff</text>
+  <path d="M260 1219 C291 1181 303 1173 341 1173" class="path" marker-end="url(#arrow)"/>
+  <g transform="translate(362,1125) scale(1.1)"><use href="#page"/></g>
+  <path d="M332 1212 H459 L480 1248 H310 Z" fill="#cf9c3c" class="line"/>
+  <path d="M310 1248 H365 L377 1262 H411 L423 1248 H480 V1296 H310 Z" fill="#f3d48c" class="line"/>
+  <text x="395" y="1352" text-anchor="middle" class="label">Local inbox</text>
+  <path d="M549 1135 Q607 1120 667 1135 V1284 Q608 1269 549 1284 Z" fill="#fffdf7" class="line"/>
+  <path d="M557 1145 Q608 1133 659 1145 M558 1176 H650 M558 1191 H650 M558 1220 H650 M558 1235 H640" fill="none" class="quiet"/>
+  <path d="M604 1129 H627 V1204 L615 1194 L604 1204 Z" fill="#c97766" class="line"/>
+  <text x="607" y="1320" text-anchor="middle" class="label">Pause</text>
+  <text x="607" y="1352" text-anchor="middle" class="small">and resume</text>
+  <text x="38" y="1410" class="body">Local delivery does not establish completion,</text>
+  <text x="38" y="1447" class="body">human acceptance, or independent quality.</text>
+  <text x="360" y="1513" text-anchor="middle" class="small">Conceptual scene · outcomes are not guaranteed</text>
+</svg>

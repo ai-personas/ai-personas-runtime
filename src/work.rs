@@ -423,6 +423,17 @@ pub struct StakeholderDecision {
     pub receipt: ExactRef,
     pub by: RuntimeAttribution,
 }
+/// Read-only prerequisites for one exact release, not a grant to close work.
+/// Callers must separately check current work phase, decision rights and access.
+/// Missing acceptance includes an absent or latest negative stakeholder decision.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClosureReadiness {
+    pub release: RecordId,
+    pub release_current: bool,
+    pub missing_deliveries: BTreeSet<String>,
+    pub missing_stakeholder_acceptance: BTreeSet<String>,
+    pub ready: bool,
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Work {
     pub need: Need,
@@ -620,6 +631,9 @@ pub enum RuntimeOperation {
         reason: String,
     },
     Resume,
+    ResumeParticipant {
+        persona: PersonaId,
+    },
     End {
         kind: EndingKind,
         reason: String,
@@ -972,6 +986,24 @@ impl WorkBoard {
                         }
                     }
                 }
+                RuntimeOperation::ResumeParticipant { persona } => {
+                    if !matches!(w.phase, Phase::Open | Phase::Paused { .. }) {
+                        return Err(WorkError::Stopped);
+                    }
+                    let participant = w
+                        .participants
+                        .get_mut(&persona)
+                        .ok_or(WorkError::Missing("participant"))?;
+                    if participant.acceptance.is_some()
+                        && matches!(
+                            participant.continuation,
+                            Some(Continuation::Paused { .. } | Continuation::Wait { .. })
+                        )
+                    {
+                        participant.wake = Some(Wake::ExplicitResume);
+                    }
+                    w.phase = Phase::Open;
+                }
                 RuntimeOperation::End { kind, reason } => {
                     if !matches!(w.phase, Phase::Open | Phase::Paused { .. }) {
                         return Err(WorkError::Stopped);
@@ -1125,6 +1157,46 @@ impl WorkBoard {
         self.work(work)
             .ok()
             .is_some_and(|w| release_current(w, release))
+    }
+    /// Diagnose the existing closure guard without recording evidence or consent.
+    /// This lower-level API does not perform a caller-specific exposure check.
+    pub fn closure_readiness(&self, work: &WorkId, release: &RecordId) -> Result<ClosureReadiness> {
+        let w = self.work(work)?;
+        let release_current = release_current(w, release);
+        let missing_deliveries: BTreeSet<_> = w
+            .mandate()
+            .delivery_to
+            .iter()
+            .filter(|recipient| {
+                !w.deliveries
+                    .iter()
+                    .any(|d| &d.release == release && &d.recipient == *recipient)
+            })
+            .cloned()
+            .collect();
+        let missing_stakeholder_acceptance: BTreeSet<_> = w
+            .mandate()
+            .stakeholders
+            .iter()
+            .filter(|stakeholder| {
+                !w.stakeholder_decisions
+                    .iter()
+                    .rev()
+                    .find(|d| &d.release == release && &d.stakeholder == *stakeholder)
+                    .is_some_and(|d| d.accepts)
+            })
+            .cloned()
+            .collect();
+        let ready = release_current
+            && missing_deliveries.is_empty()
+            && missing_stakeholder_acceptance.is_empty();
+        Ok(ClosureReadiness {
+            release: release.clone(),
+            release_current,
+            missing_deliveries,
+            missing_stakeholder_acceptance,
+            ready,
+        })
     }
     pub fn completion_supported(&self, work: &WorkId) -> bool {
         self.work(work).ok().is_some_and(|w| match &w.phase {
@@ -1890,7 +1962,10 @@ fn apply_command(
                 }
                 Command::Release { id, shared } => {
                     decision_right(w, &by.persona)?;
-                    require(text(&id.0), "release identity")?;
+                    require(
+                        crate::protocol::check_id(&id.0, "release").is_ok(),
+                        "release identity",
+                    )?;
                     if w.releases.contains_key(&id) {
                         return Err(WorkError::Conflict);
                     }
@@ -2503,6 +2578,89 @@ mod tests {
         .unwrap();
         assert!(b.completion_supported(&"w".into()));
     }
+    #[test]
+    fn closure_readiness_tracks_exact_release_latest_acceptance_and_staleness() {
+        let mut b = active(None, true);
+        let c = artifact(&mut b);
+        judge(&mut b, &c, "a", "yes", true);
+        release(&mut b, &c).unwrap();
+        let inspect = |b: &WorkBoard| b.closure_readiness(&"w".into(), &"release".into()).unwrap();
+        let saved = b.clone();
+        let status = inspect(&b);
+        assert_eq!(b, saved, "readiness is a read-only diagnostic");
+        assert!(status.release_current);
+        assert_eq!(status.missing_deliveries, set(["h".into()]));
+        assert_eq!(status.missing_stakeholder_acceptance, set(["h".into()]));
+        assert!(!status.ready);
+        deliver(&mut b);
+        assert!(inspect(&b).missing_deliveries.is_empty());
+        assert!(!inspect(&b).ready, "delivery cannot manufacture consent");
+
+        reply(
+            &mut b,
+            "a",
+            vec![Command::Release {
+                id: "another-release".into(),
+                shared: "shared".into(),
+            }],
+            ready(),
+        )
+        .unwrap();
+        host(
+            &mut b,
+            RuntimeRight::StakeholderAcceptance,
+            RuntimeOperation::Stakeholder {
+                release: "another-release".into(),
+                accepts: true,
+                receipt: r("other-release-acceptance"),
+            },
+        )
+        .unwrap();
+        assert!(
+            !inspect(&b).ready,
+            "another release's consent cannot transfer"
+        );
+        for (accepts, expected) in [(true, true), (false, false), (true, true)] {
+            host(
+                &mut b,
+                RuntimeRight::StakeholderAcceptance,
+                RuntimeOperation::Stakeholder {
+                    release: "release".into(),
+                    accepts,
+                    receipt: r(if accepts { "accepted" } else { "rejected" }),
+                },
+            )
+            .unwrap();
+            let status = inspect(&b);
+            assert_eq!(status.ready, expected);
+            assert_eq!(
+                status.ready,
+                closure_ready(b.work(&"w".into()).unwrap(), &"release".into())
+            );
+            assert_eq!(status.missing_stakeholder_acceptance.is_empty(), expected);
+        }
+        // An accepted exact-release decision cannot keep a now-stale release ready.
+        host(
+            &mut b,
+            RuntimeRight::Observation,
+            RuntimeOperation::EvidenceUnavailable {
+                id: "e".into(),
+                reason: "The required supporting observation became unavailable.".into(),
+            },
+        )
+        .unwrap();
+        assert!(!inspect(&b).release_current);
+        assert!(!inspect(&b).ready);
+        assert!(
+            !b.closure_readiness(&"w".into(), &"absent".into())
+                .unwrap()
+                .ready
+        );
+        assert!(b
+            .closure_readiness(&"missing".into(), &"release".into())
+            .is_err());
+    }
+
     #[test]
     fn changed_artifact_stales_assessment_without_changing_history() {
         let mut b = active(Some(Independence::DistinctExecution), false);

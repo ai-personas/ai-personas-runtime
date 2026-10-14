@@ -60,7 +60,7 @@ pub(super) fn execute(
 ) -> Result<bool> {
     let actor = &prepared.request.persona;
     let work = &prepared.request.work;
-    let observation = composite_id("observation", &[&prepared.request.id, "discovery", id]);
+    let observation = observation_id(&prepared.request.id, "discovery", id);
     let next_handle = format!("discovery:{}", digest(&(&prepared.request.id, id))?);
     let retained = cursor.map(|handle| {
         let retained = state.personas[actor].focus[work]

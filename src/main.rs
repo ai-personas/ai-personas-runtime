@@ -1,5 +1,5 @@
 use ai_personas::{
-    protocol,
+    launch, protocol,
     runtime::{
         self, Config, Mode, NeedInput, PersonaImport, PrepareRequest, Profile, ResearchSettings,
         Runtime, Seed,
@@ -41,6 +41,57 @@ impl From<ProfileArg> for Profile {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Import verified provider settings and authorize a continuing local cohort. No inference.
+    Setup {
+        #[arg(long)]
+        provider_config: PathBuf,
+        /// Existing operator-approved provider cwd, separate from private state.
+        #[arg(long)]
+        working_directory: PathBuf,
+        /// Exact processing destination named in the new local sharing policy.
+        #[arg(long)]
+        destination: String,
+        #[arg(long, default_value_t = 3)]
+        cohort: usize,
+        #[arg(long, default_value_t = 1)]
+        owner: usize,
+        #[arg(long, default_value_t = 12)]
+        max_steps: usize,
+        #[arg(long, default_value_t = 128)]
+        max_considerations: usize,
+        #[arg(long, default_value_t = 32)]
+        max_work_attempts: u64,
+        #[arg(long, default_value_t = 256)]
+        max_total_steps: u64,
+        #[arg(long, default_value_t = 32)]
+        max_works: u64,
+        #[arg(long)]
+        share_cohort: bool,
+        #[arg(long)]
+        allow_nonconformant_research: bool,
+    },
+    /// Run a bounded foreground session using the saved continuing cohort.
+    Run {
+        #[arg(required_unless_present = "resume", conflicts_with = "resume")]
+        need: Option<String>,
+        #[arg(long)]
+        resume: Option<String>,
+        /// Require this setup's requester to explicitly accept the exact delivered release.
+        #[arg(long, conflicts_with = "resume")]
+        require_acceptance: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    Result {
+        work: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Record an explicit human acceptance or rejection of one exact retained local delivery.
+    /// Requires --state-root and --operator; does not resume or complete work.
+    StakeholderDecision {
+        file: PathBuf,
+    },
     Schema,
     ValidateResponse {
         file: PathBuf,
@@ -163,6 +214,151 @@ fn emit(value: &impl Serialize) -> runtime::Result<()> {
     println!("{}", serde_json::to_string_pretty(value)?);
     Ok(())
 }
+fn human_status(status: &str) -> &str {
+    match status {
+        "completed-as-recorded" => "Completion was recorded; current support has not been re-established.",
+        "delivered-acceptance-unestablished" => "A local result is available; the permitted evidence does not establish required human acceptance.",
+        "delivered-unfinished" => "A local result is available; work remains unfinished.",
+        "paused" => "Work is paused.",
+        "ended-unfinished" => "Work ended without completion.",
+        "withheld" => "This result is unavailable under current permissions.",
+        "intake-incomplete" => "The request has not completed intake.",
+        _ => "Work remains unfinished.",
+    }
+}
+fn readable_result(value: &launch::Output) -> runtime::Result<String> {
+    let mut lines = vec![
+        format!("Work {}", value.work_id),
+        human_status(&value.status).into(),
+    ];
+    for (index, delivery) in value.local_deliveries.iter().enumerate() {
+        lines.push(String::new());
+        let label = if index == 0 && delivery["release"].as_str() == value.focus_release.as_deref()
+        {
+            "Result discussed above (permitted local delivery; human acceptance is separate):"
+        } else {
+            "Other retained local result (human acceptance is separate):"
+        };
+        lines.push(label.into());
+        if let Some(artifacts) = delivery["artifacts"].as_array() {
+            for artifact in artifacts {
+                let bundle: serde_json::Value = serde_json::from_str(
+                    artifact["qualified_bundle_json"].as_str().ok_or_else(|| {
+                        runtime::RuntimeError::Invalid("retained qualified bundle missing".into())
+                    })?,
+                )?;
+                if let Some(entries) = bundle["entries"].as_array() {
+                    for entry in entries {
+                        let path = entry["path"].as_str().unwrap_or("Retained artifact");
+                        let required_for = entry["roles"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter(|role| role["role"] == "qualification")
+                            .filter_map(|role| {
+                                entries
+                                    .iter()
+                                    .find(|candidate| candidate["reference"] == role["required_by"])
+                            })
+                            .filter_map(|root| root["path"].as_str())
+                            .collect::<Vec<_>>();
+                        let label = if required_for.is_empty() {
+                            format!("Result: {path}")
+                        } else {
+                            format!(
+                                "Required qualification for {}: {path}",
+                                required_for.join(", ")
+                            )
+                        };
+                        lines.push(label);
+                        let attribution = bundle["source_attribution"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .find(|record| record["reference"] == entry["reference"]);
+                        let author = attribution
+                            .and_then(|record| record["recorded_author"].as_str())
+                            .or_else(|| entry["author"].as_str())
+                            .unwrap_or("unavailable attribution");
+                        let status =
+                            attribution.and_then(|record| record["author_status"].as_str());
+                        lines.push(match status {
+                            Some(status) => format!("Attributed to {author} ({status})."),
+                            None => {
+                                format!("Attributed to {author}; origin details are unavailable.")
+                            }
+                        });
+                        for (label, policy) in std::iter::once(("source-policy", &entry["policy"]))
+                            .chain(
+                                entry["binding_restrictions"]
+                                    .as_array()
+                                    .into_iter()
+                                    .flatten()
+                                    .map(|restriction| {
+                                        ("accepted-binding", &restriction["binding"]["policy"])
+                                    }),
+                            )
+                        {
+                            if let Some(audience) = policy["audience"].as_array() {
+                                let audience = audience
+                                    .iter()
+                                    .filter_map(|item| item.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                lines.push(format!(
+                                    "Recorded {label} audience: {}.",
+                                    if audience.is_empty() {
+                                        "(none)"
+                                    } else {
+                                        &audience
+                                    }
+                                ));
+                            }
+                        }
+                        lines.push("Recorded audiences are policy limits, not current permission to share; all source, binding and qualification restrictions still apply.".into());
+                        lines.push(entry["text"].as_str().unwrap_or("").into());
+                        lines.push(String::new());
+                    }
+                }
+            }
+        }
+    }
+    for message in &value.messages {
+        lines.push(format!("{} says:", message.sender));
+        lines.push(message.text.clone());
+        lines.push(String::new());
+    }
+    if !value.human_decision_pointers.is_empty() {
+        lines.push("A separate explicit human decision can be recorded with stakeholder-decision. Historical delivery pointers are available with result --json; current authority requires explicit operator inspection.".into());
+    }
+    if value.truncated {
+        lines.push("Some retained content was omitted by the display limit.".into());
+    }
+    if let Some(reason) = &value.stop {
+        let explanation = match reason.as_str() {
+            "recorded_completion" => "The recorded completion ends this foreground session.",
+            "acceptance_boundary" => "This session stops here. Any human decision must be recorded explicitly.",
+            "paused" | "ended" | "unavailable" | "intake_incomplete" => "No foreground step was taken at this boundary.",
+            "step_limit" | "consideration_bound" | "idle_or_consideration_bound" => "This foreground session reached its bound or has no eligible participant. Use run --resume with the work ID to continue eligible work.",
+            "character_fence" => "An accepted character change requires its next authorized handover.",
+            "held" | "held_or_unresolved_invocation" | "invalid_response" => "The latest response was not adopted. Inspect it before explicitly deciding what to do next.",
+            "provider_preflight_or_transport_failed" => "The provider could not complete this attempt. Inspect its retained status before recovery.",
+            "selection_overflow" => "Selected context exceeded the available space and requires repair.",
+            "store_or_resource_limit" => "The saved state or remaining resources do not permit another step.",
+            _ => "The next step is blocked or unresolved and needs explicit inspection.",
+        };
+        lines.push(explanation.into());
+    }
+    Ok(lines.join("\n"))
+}
+fn emit_result(value: &launch::Output, json: bool) -> runtime::Result<()> {
+    if json {
+        return emit(value);
+    }
+    println!("{}", readable_result(value)?);
+    Ok(())
+}
+
 fn argument(name: &str) -> runtime::RuntimeError {
     runtime::RuntimeError::Invalid(format!("{name} is required for this command"))
 }
@@ -179,6 +375,69 @@ async fn main() {
 }
 async fn run(cli: Cli) -> runtime::Result<()> {
     match &cli.command {
+        Command::Setup {
+            provider_config,
+            working_directory,
+            destination,
+            cohort,
+            owner,
+            max_steps,
+            max_considerations,
+            max_work_attempts,
+            max_total_steps,
+            max_works,
+            share_cohort,
+            allow_nonconformant_research,
+        } => {
+            let root = launch::state_root(cli.state_root.as_deref())?;
+            let operator = cli
+                .operator
+                .as_deref()
+                .ok_or_else(|| argument("--operator"))?;
+            let settings = launch::Setup {
+                cohort: *cohort,
+                owner: *owner,
+                destination: destination.clone(),
+                provider: runtime::read_json_file(provider_config, 262_144)?,
+                working_directory: working_directory.clone(),
+                share_cohort: *share_cohort,
+                max_steps: *max_steps,
+                max_considerations: *max_considerations,
+                max_work_attempts: *max_work_attempts,
+                max_total_steps: *max_total_steps,
+                max_works: *max_works,
+            };
+            launch::setup(&root, operator, settings, *allow_nonconformant_research)?;
+            return emit(&serde_json::json!({"setup_saved":true,"inference_performed":false}));
+        }
+        Command::Run {
+            need,
+            resume,
+            require_acceptance,
+            json,
+        } => {
+            let root = launch::state_root(cli.state_root.as_deref())?;
+            let mut app = launch::open(&root, cli.operator.as_deref())?;
+            let work = match (need, resume) {
+                (Some(need), None) => {
+                    launch::start_with_acceptance(&mut app, need, *require_acceptance)?
+                }
+                (None, Some(work)) => work.clone(),
+                _ => return Err(argument("exactly one need or --resume")),
+            };
+            eprintln!("Work {work}");
+            let result = if resume.is_some() {
+                launch::continue_run(&mut app, &work).await?
+            } else {
+                launch::run(&mut app, &work).await?
+            };
+            return emit_result(&result, *json);
+        }
+        Command::Result { work, json } => {
+            let root = launch::state_root(cli.state_root.as_deref())?;
+            let mut app = launch::open(&root, cli.operator.as_deref())?;
+            return emit_result(&launch::result(&mut app, work)?, *json);
+        }
         Command::Schema => {
             return emit(&serde_json::json!({"decision":protocol::decision_schema(),
             "provider_transport":runtime::provider_schema(),"adopt_response_input":"complete raw Decision JSON",
@@ -273,6 +532,11 @@ async fn run(cli: Cli) -> runtime::Result<()> {
     let mut app = Runtime::open(root)?;
     let now = runtime::unix_now()?;
     match cli.command {
+        Command::StakeholderDecision { file } => {
+            let request: runtime::HumanStakeholderDecisionRequest =
+                runtime::read_json_file(&file, 16_384)?;
+            emit(&app.record_stakeholder_decision(operator, request, now)?)
+        }
         Command::AddPersonaSeed { file } => {
             let seed: Seed = runtime::read_json_file(&file, 262_144)?;
             app.add_persona_seed(operator, seed)?;
@@ -396,6 +660,9 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             )
         }
         Command::Schema
+        | Command::Setup { .. }
+        | Command::Run { .. }
+        | Command::Result { .. }
         | Command::TerminalEvidence { .. }
         | Command::AcknowledgeCompleteRejection { .. }
         | Command::Pause { .. }
@@ -405,5 +672,50 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         | Command::DispatchSynthetic { .. }
         | Command::ProviderReadiness
         | Command::Doctor => unreachable!(),
+    }
+}
+
+#[cfg(test)]
+mod presentation_tests {
+    use super::*;
+    #[test]
+    fn review_v3_readable_result_keeps_qualifications_attribution_and_recorded_audience_limits() {
+        let reference = serde_json::json!({"source":"internal-source","revision":"internal-revision","representation":{"kind":"utf8"}});
+        let qualification = serde_json::json!({"source":"internal-qualification","revision":"internal-qualification-revision","representation":{"kind":"utf8"}});
+        let bundle = serde_json::json!({"entries":[
+            {"reference":reference,"path":"result.txt","text":"Complete result text.","author":"persona-0001","policy":{"audience":["excluded-recipient","requester"]},"binding_restrictions":[{"source_role":"accepted_binding","binding":{"policy":{"audience":["requester"]}}}],"roles":[{"role":"root"}]},
+            {"reference":qualification,"path":"limitations.txt","text":"Use only after the stated approval; this is not engineering assurance.","author":"persona-0002","policy":{"audience":["requester"]},"roles":[{"role":"qualification","required_by":reference}]}
+        ],"source_attribution":[{"reference":reference,"recorded_author":"persona-0001","author_status":"accepted persona authorship"}]});
+        let output = launch::Output {
+            work_id: "work-00000001".into(),
+            status: "delivered-unfinished".into(),
+            recorded_phase: Some("open".into()),
+            focus_release: Some("release".into()),
+            completion_supported: Some(false),
+            status_delivery: Some("internal-delivery".into()),
+            last_attempt: Some(serde_json::json!({"id":"internal-invocation","state":"Adopted"})),
+            messages: vec![],
+            local_deliveries: vec![
+                serde_json::json!({"release":"release","artifacts":[{"qualified_bundle_json":serde_json::to_string(&bundle).unwrap()}]}),
+            ],
+            human_decision_pointers: vec![],
+            closure_evidence: vec![],
+            truncated: false,
+            stop: None,
+        };
+        let text = readable_result(&output).unwrap();
+        assert!(text.contains("Result discussed above"));
+        assert!(text.contains("Complete result text."));
+        assert!(text.contains("Required qualification for result.txt: limitations.txt"));
+        assert!(
+            text.contains("Use only after the stated approval; this is not engineering assurance.")
+        );
+        assert!(text.contains("persona-0001 (accepted persona authorship)"));
+        assert!(text.contains("Recorded source-policy audience: excluded-recipient, requester."));
+        assert!(text.contains("Recorded accepted-binding audience: requester."));
+        assert!(!text.contains("Permitted audience:"));
+        assert!(text.contains("work-00000001"));
+        assert!(!text.contains("internal-"));
+        assert!(!text.contains("delivered-unfinished"));
     }
 }

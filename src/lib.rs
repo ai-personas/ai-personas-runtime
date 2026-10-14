@@ -8,3 +8,4 @@ pub mod store;
 pub mod work;
 
 pub mod runtime;
+pub use runtime::launch;

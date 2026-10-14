@@ -1412,12 +1412,38 @@ fn terminal_failure_budget_boundary_preserves_lower_view_adoption() {
         })
         .collect::<Vec<_>>();
     assert_eq!(observations.len(), 2);
+    // Receipt digests are serialized integer arrays: their byte length can
+    // change when the admitted prompt changes. Keep the same tight grant and
+    // paired higher-view rejection, but check exact measured debit rather than
+    // assuming this result fills every byte of that grant.
+    let actual_bytes = observations
+        .iter()
+        .map(|o| serde_json::to_vec(&o.payload).unwrap().len())
+        .sum::<usize>();
+    assert_eq!(prepared.navigation.result_bytes, 1835);
+    assert!(actual_bytes <= prepared.navigation.result_bytes);
+    let accounting = state
+        .observations
+        .values()
+        .find(|o| {
+            o.kind == "host_accounting"
+                && o.invocation.as_deref() == Some("terminal-failure-lower-view")
+        })
+        .unwrap();
     assert_eq!(
-        observations
-            .iter()
-            .map(|o| serde_json::to_vec(&o.payload).unwrap().len())
-            .sum::<usize>(),
-        1835
+        accounting.payload["actual_navigation"]["result_bytes"],
+        actual_bytes
+    );
+    let page = observations
+        .iter()
+        .find(|o| o.payload["status"] == "page")
+        .unwrap();
+    assert_eq!(page.payload["coverage_complete"], true);
+    assert_eq!(page.payload["records"][0]["status"], "record");
+    assert_eq!(page.payload["records"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        page.payload["records"][0]["record"]["release"],
+        "public-release"
     );
     assert!(observations
         .iter()

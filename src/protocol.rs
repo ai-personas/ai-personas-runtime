@@ -98,9 +98,8 @@ pub enum Maintenance {
     NoChange {
         reason: String,
     },
-    /// Lists every file mutation and warning transition in this scope exactly
-    /// once; character_adopt also belongs to fragment maintenance. No non-maintenance operation may
-    /// appear here. A change must list at least one existing operation id.
+    /// Nonempty exact-once IDs of this scope's file mutations, warnings and maintenance
+    /// dispositions; character_adopt belongs to fragments. Excludes other operations.
     Change {
         reason: String,
         operation_ids: Vec<String>,
@@ -116,6 +115,16 @@ pub enum Maintenance {
         reason: String,
         consequence: String,
     },
+}
+
+// Attributed maintenance bookkeeping, not verified repair or warning resolution.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MaintenanceDisposition {
+    Addressed,
+    Dismissed,
+    Unresolved,
+    Expired,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -260,6 +269,17 @@ pub enum Operation {
         reason: String,
         depends_on: Vec<String>,
     },
+    // Dispose only of your exact supplied maintenance record; immutable history remains.
+    MaintenanceDispose {
+        id: String,
+        scope: Scope,
+        maintenance_id: String,
+        maintenance_revision: String,
+        disposition: MaintenanceDisposition,
+        reason: String,
+        // Exact observation IDs actually supplied to this invocation, or [].
+        evidence: Vec<String>,
+    },
     FileWrite {
         id: String,
         scope: Scope,
@@ -359,6 +379,7 @@ impl Operation {
         match self {
             Self::WarningAdopt { id, .. }
             | Self::WarningResolve { id, .. }
+            | Self::MaintenanceDispose { id, .. }
             | Self::FileWrite { id, .. }
             | Self::FileRetire { id, .. }
             | Self::CharacterAdopt { id, .. }
@@ -381,7 +402,8 @@ impl Operation {
             Self::FileWrite { scope, .. }
             | Self::FileRetire { scope, .. }
             | Self::WarningAdopt { scope, .. }
-            | Self::WarningResolve { scope, .. } => Some(*scope),
+            | Self::WarningResolve { scope, .. }
+            | Self::MaintenanceDispose { scope, .. } => Some(*scope),
             Self::CharacterAdopt { .. } => Some(Scope::Fragments {}),
             _ => None,
         }
@@ -452,8 +474,46 @@ pub fn parse_decision(bytes: &[u8], max_bytes: usize) -> Result<Decision, Protoc
             line: error.line(),
             column: error.column(),
         })?;
+    // Serde also accepts positional sequences for derived named structs. Compare
+    // the original containers with their typed wire shape, so those sequences
+    // cannot bypass the advertised object-only boundaries. Preflight bounds both
+    // traversals and rejects duplicate keys before either tree is constructed.
+    let received: Value = serde_json::from_slice(bytes).map_err(|error| ProtocolError::Shape {
+        line: error.line(),
+        column: error.column(),
+    })?;
+    let typed = serde_json::to_value(&decision)
+        .expect("a deserialized Decision contains only JSON-serializable fields");
+    if !same_container_shapes(&received, &typed) {
+        return Err(ProtocolError::Invalid {
+            path: "response".into(),
+            rule: "typed records require JSON objects, not positional arrays",
+        });
+    }
     validate_decision(&decision)?;
     Ok(decision)
+}
+
+fn same_container_shapes(received: &Value, typed: &Value) -> bool {
+    match (received, typed) {
+        (Value::Object(received), Value::Object(typed)) => received.iter().all(|(key, value)| {
+            typed
+                .get(key)
+                .is_some_and(|field| same_container_shapes(value, field))
+        }),
+        (Value::Array(received), Value::Array(typed)) => {
+            received.len() == typed.len()
+                && received
+                    .iter()
+                    .zip(typed)
+                    .all(|(value, field)| same_container_shapes(value, field))
+        }
+        (_, Value::Object(_) | Value::Array(_)) => false,
+        _ => true,
+    }
+    // Effect.inputs is an opaque Value: serialization retains every original
+    // container there, including nested arrays and object-like field names.
+    // Missing optional typed fields remain legal; only received fields recurse.
 }
 
 /// Generate the closed wire-shape schema. Cross-field dependencies, decoded-key
@@ -786,6 +846,74 @@ fn check_ids(values: &[String], minimum: usize, path: &str) -> Result<(), Protoc
     let mut seen = BTreeSet::new();
     for (index, value) in values.iter().enumerate() {
         check_id(value, &format!("{path}[{index}]"))?;
+        if !seen.insert(value.as_str()) {
+            return Err(invalid(path, "duplicate identifier"));
+        }
+    }
+    Ok(())
+}
+
+// Compatibility is confined to exact retained observation identities in
+// MaintenanceDispose.evidence. Do not relax general identifiers or admit aliases.
+// The runtime still checks exact supplied membership, attribution and current
+// exposure; recognizing this spelling establishes no evidence authority.
+fn legacy_components<'a>(value: &'a str, prefix: &str, limits: &[usize]) -> Option<Vec<&'a str>> {
+    let mut rest = value.strip_prefix(prefix)?;
+    let mut parts = Vec::with_capacity(limits.len());
+    for maximum in limits {
+        let (length, tail) = rest.strip_prefix(':')?.split_once(':')?;
+        if length.is_empty()
+            || length.len() > 3
+            || length.starts_with('0')
+            || !length.bytes().all(|b| b.is_ascii_digit())
+        {
+            return None;
+        }
+        let length = length.parse::<usize>().ok()?;
+        if length > *maximum {
+            return None;
+        }
+        let part = tail.get(..length)?;
+        if part.is_empty() || part.chars().any(|c| c.is_whitespace() || c.is_control()) {
+            return None;
+        }
+        parts.push(part);
+        rest = &tail[length..];
+    }
+    rest.is_empty().then_some(parts)
+}
+
+fn legacy_observation_id(value: &str) -> bool {
+    if legacy_components(value, "11:observation", &[MAX_ID_BYTES; 3]).is_some() {
+        return true;
+    }
+    // Local messages are also exact recipient observations. Their second part
+    // is the canonical operation or reply tuple, never a free-form alias.
+    let Some(parts) = legacy_components(
+        value,
+        "7:message",
+        &[MAX_ID_BYTES, MAX_ID_BYTES + 16, MAX_ID_BYTES],
+    ) else {
+        return false;
+    };
+    if legacy_components(parts[1], "9:operation", &[MAX_ID_BYTES]).is_some() {
+        return true;
+    }
+    legacy_components(parts[1], "5:reply", &[3]).is_some_and(|reply| {
+        reply[0]
+            .parse::<usize>()
+            .is_ok_and(|index| index < MAX_COLLECTION_ITEMS && index.to_string() == reply[0])
+    })
+}
+
+fn check_maintenance_evidence(values: &[String], path: &str) -> Result<(), ProtocolError> {
+    check_count(values.len(), 0, MAX_COLLECTION_ITEMS, path)?;
+    let mut seen = BTreeSet::new();
+    for (index, value) in values.iter().enumerate() {
+        let item_path = format!("{path}[{index}]");
+        if !legacy_observation_id(value) {
+            check_id(value, &item_path)?;
+        }
         if !seen.insert(value.as_str()) {
             return Err(invalid(path, "duplicate identifier"));
         }
@@ -1129,6 +1257,21 @@ fn check_operation(
             check_text(reason, MAX_REASON_BYTES, &format!("{path}.reason"))?;
             check_ids(depends_on, 0, &format!("{path}.depends_on"))
         }
+        Operation::MaintenanceDispose {
+            maintenance_id,
+            maintenance_revision,
+            reason,
+            evidence,
+            ..
+        } => {
+            check_id(maintenance_id, &format!("{path}.maintenance_id"))?;
+            check_accepted_revision(
+                maintenance_revision,
+                &format!("{path}.maintenance_revision"),
+            )?;
+            check_text(reason, MAX_REASON_BYTES, &format!("{path}.reason"))?;
+            check_maintenance_evidence(evidence, &format!("{path}.evidence"))
+        }
         Operation::FileWrite {
             source,
             path: target,
@@ -1254,11 +1397,14 @@ fn check_operation(
             match &request.surface {
                 SearchSurface::Text {
                     representation: Representation::JsonString { pointer },
-                } if pointer.len() > MAX_STRING_BYTES => {
-                    return Err(invalid(
-                        &format!("{path}.request.surface"),
-                        "oversized JSON pointer",
-                    ))
+                } => {
+                    // Discovery candidates must copy unchanged into a Decision
+                    // ExactRef. JSON permits keys that this strict wire profile
+                    // cannot represent; reject them before producing any hits.
+                    check_id(
+                        &format!("json_string:{pointer}"),
+                        &format!("{path}.request.surface.representation"),
+                    )?;
                 }
                 SearchSurface::Text {
                     representation: Representation::Unsupported { .. },
@@ -1787,6 +1933,65 @@ mod tests {
                 decision.next_assets,
                 SelectionIntent::Clear { .. }
             ));
+        }
+    }
+
+    #[test]
+    fn positional_decision_struct_is_rejected() {
+        let object = base();
+        assert!(parse(&object).is_ok());
+        let fields = [
+            "version",
+            "invocation_id",
+            "epoch",
+            "work",
+            "fragment_maintenance",
+            "asset_maintenance",
+            "next_fragments",
+            "next_assets",
+            "continuation",
+            "reply",
+            "operations",
+        ];
+        let positional = Value::Array(fields.iter().map(|field| object[*field].clone()).collect());
+        assert!(parse(&positional).is_err(), "positional Decision accepted");
+    }
+
+    #[test]
+    fn positional_exact_reference_structs_are_rejected() {
+        let positional = json!(["source-1", "revision-1", "utf8", null, null, null]);
+        let mut read = base();
+        read["operations"] = json!([{"kind":"read", "id":"read-1", "reference":reference()}]);
+        assert!(parse(&read).is_ok());
+        read["operations"][0]["reference"] = positional.clone();
+        assert!(parse(&read).is_err(), "positional Read reference accepted");
+
+        let mut selected = base();
+        selected["next_assets"] =
+            json!({"kind":"replace", "reason":"Use the exact asset.", "references":[reference()]});
+        assert!(parse(&selected).is_ok());
+        selected["next_assets"]["references"][0] = positional;
+        assert!(
+            parse(&selected).is_err(),
+            "positional selected reference accepted"
+        );
+    }
+
+    #[test]
+    fn opaque_effect_inputs_preserve_arbitrary_arrays() {
+        let inputs = json!([
+            ["source-1", "revision-1", "utf8", null, null, null],
+            {"reference":[1, [true, null], {"work": ["ongoing", "opaque", []]}]},
+            [], {"operations": [[], ["not-a-typed-operation"]]}
+        ]);
+        let mut value = base();
+        value["operations"] = json!([effect(inputs.clone())]);
+        let decision = parse(&value).unwrap();
+        match &decision.operations[0] {
+            Operation::Effect {
+                inputs: accepted, ..
+            } => assert_eq!(accepted, &inputs),
+            _ => panic!("effect disappeared"),
         }
     }
 
@@ -2404,5 +2609,91 @@ mod tests {
             json!({"kind":"change", "reason":"Proposal test.", "operation_ids":["write-f"]});
         value["operations"] = json!([w, f]);
         assert!(parse(&value).is_err());
+    }
+
+    #[test]
+    fn legacy_observation_evidence_has_a_narrow_canonical_compatibility_profile() {
+        let long = format!(
+            "11:observation:128:{}:19:accepted_file_write:128:{}",
+            "i".repeat(128),
+            "w".repeat(128)
+        );
+        assert!(check_id(&long, "id").is_err());
+        assert!(check_maintenance_evidence(std::slice::from_ref(&long), "evidence").is_ok());
+        assert!(check_maintenance_evidence(&[long.clone(), long.clone()], "evidence").is_err());
+        assert!(check_ids(std::slice::from_ref(&long), 0, "ordinary evidence").is_err());
+        for invalid in [
+            "x".repeat(long.len()),
+            long.replace("11:observation", "11:OBSERVATION"),
+            long.replacen(":128:", ":0128:", 1),
+            format!("{long}:1:x"),
+            long.replacen(":128:", ":127:", 1),
+            long.replacen(":128:", ":+128:", 1),
+            long.replacen(&"i".repeat(128), &format!("{} ", "i".repeat(127)), 1),
+            format!(
+                "11:observation:257:{}:19:accepted_file_write:128:{}",
+                "i".repeat(257),
+                "w".repeat(128)
+            ),
+        ] {
+            assert!(check_maintenance_evidence(&[invalid], "evidence").is_err());
+        }
+        // Length prefixes count UTF-8 bytes, and cannot split a code point.
+        let unicode = format!(
+            "11:observation:128:{}:19:accepted_file_write:128:{}",
+            "λ".repeat(64),
+            "w".repeat(128)
+        );
+        assert!(check_maintenance_evidence(std::slice::from_ref(&unicode), "evidence").is_ok());
+        assert!(!legacy_observation_id(
+            &unicode.replacen(":128:", ":127:", 1)
+        ));
+    }
+
+    #[test]
+    fn legacy_message_evidence_only_accepts_canonical_message_producer_tuples() {
+        let invocation = "i".repeat(128);
+        let make = |suffix: &str| {
+            format!(
+                "7:message:128:{invocation}:{}:{suffix}:128:{}",
+                suffix.len(),
+                "r".repeat(128)
+            )
+        };
+        for bytes in [128, 256] {
+            let suffix = format!("9:operation:{bytes}:{}", "m".repeat(bytes));
+            let message = make(&suffix);
+            assert!(legacy_observation_id(&message));
+            assert!(check_maintenance_evidence(std::slice::from_ref(&message), "evidence").is_ok());
+            assert!(check_ids(std::slice::from_ref(&message), 0, "ordinary evidence").is_err());
+            assert!(
+                check_maintenance_evidence(&[message.clone(), message.clone()], "evidence")
+                    .is_err()
+            );
+            for invalid in [
+                message.replace("7:message", "7:MESSAGE"),
+                format!("{message}:1:x"),
+                message.replacen(":128:", ":0128:", 1),
+            ] {
+                assert!(check_maintenance_evidence(&[invalid], "evidence").is_err());
+            }
+        }
+        for suffix in ["5:reply:1:0", "5:reply:3:255"] {
+            assert!(legacy_observation_id(&make(suffix)));
+        }
+        for suffix in [
+            "free-form",
+            "9:OPERATION:1:m",
+            "9:operation:01:m",
+            "9:operation:1: ",
+            "5:reply:2:00",
+            "5:reply:3:256",
+            "5:reply:1:x",
+        ] {
+            assert!(
+                check_maintenance_evidence(&[make(suffix)], "evidence").is_err(),
+                "{suffix}"
+            );
+        }
     }
 }

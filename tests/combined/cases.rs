@@ -465,24 +465,27 @@ fn d_context(prepared: &Prepared) -> DResult<Value> {
     .map_err(d_error)
 }
 fn d_entries(prepared: &Prepared) -> DResult<Vec<Value>> {
+    fn append(bundle: &Value, result: &mut Vec<Value>) {
+        if let Some(entries) = bundle["entries"].as_array() {
+            for entry in entries {
+                let mut entry = entry.clone();
+                entry["reference"] = json!(rendered_body_reference(bundle, &entry["reference"]));
+                result.push(entry);
+            }
+        }
+    }
     let mut result = Vec::new();
     let context = d_context(prepared)?;
-    if let Some(entries) = context["entries"].as_array() {
-        result.extend(entries.iter().cloned());
-    }
+    append(&context, &mut result);
     let control = d_control(prepared)?;
     for observation in control["actual_observations"]
         .as_array()
         .ok_or("observations missing")?
     {
-        if let Some(entries) = observation["payload"]["result"]["entries"].as_array() {
-            result.extend(entries.iter().cloned());
-        }
+        append(&observation["payload"]["result"], &mut result);
         if let Some(bundles) = observation["current_required_qualifications"].as_array() {
             for bundle in bundles {
-                if let Some(entries) = bundle["entries"].as_array() {
-                    result.extend(entries.iter().cloned());
-                }
+                append(bundle, &mut result);
             }
         }
     }
@@ -936,7 +939,10 @@ impl DTrace {
                     {
                         d_require(
                             entries.iter().any(|entry| {
-                                entry["reference"] == original["reference"]
+                                json!(rendered_body_reference(
+                                    &payload["result"],
+                                    &entry["reference"]
+                                )) == original["reference"]
                                     && entry["text"] == original["text"]
                                     && entry["policy"] == original["policy"]
                             }),
@@ -949,6 +955,44 @@ impl DTrace {
                                 .as_array()
                                 .is_some_and(Vec::is_empty),
                         "Read supplied duplicate qualified body encodings",
+                    )?;
+                } else if retained.kind == "discovery" {
+                    let mut actual = observation["payload"].clone();
+                    let mut expected = retained.payload.clone();
+                    d_require(
+                        actual["page"].is_string() == expected["page"].is_string(),
+                        "discovery page envelope changed",
+                    )?;
+                    for payload in [&mut actual, &mut expected] {
+                        if let Some(encoded) = payload["page"].as_str() {
+                            payload["page"] = serde_json::from_str(encoded).map_err(d_error)?;
+                        }
+                    }
+                    if let Some(hits) = actual["page"]["hits"].as_array() {
+                        d_require(
+                            actual["page"]["reference_format"] == "decision_exact_ref",
+                            "discovery reference format missing",
+                        )?;
+                        let references: Vec<_> = hits
+                            .iter()
+                            .map(|hit| rendered_body_reference(&actual["page"], &hit["reference"]))
+                            .collect();
+                        for (hit, reference) in actual["page"]["hits"]
+                            .as_array_mut()
+                            .unwrap()
+                            .iter_mut()
+                            .zip(references)
+                        {
+                            hit["reference"] = json!(reference);
+                        }
+                        actual["page"]
+                            .as_object_mut()
+                            .unwrap()
+                            .remove("reference_format");
+                    }
+                    d_require(
+                        actual == expected,
+                        "projected discovery changed identities, cursors, coverage or metadata",
                     )?;
                 } else if retained.kind != "host_accounting" {
                     d_require(

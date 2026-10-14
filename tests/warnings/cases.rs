@@ -1804,10 +1804,11 @@ fn pending_read_supplies_new_warning_qualification_once_with_original_receipt() 
         assert_eq!(
             entries
                 .iter()
-                .filter(
-                    |e| e["reference"] == json!(source.reference(f::Representation::Utf8))
-                        && e["text"] == std::str::from_utf8(&source.bytes).unwrap()
-                )
+                .filter(|e| rendered_body_reference(
+                    &observation["payload"]["result"],
+                    &e["reference"]
+                ) == source.reference(f::Representation::Utf8)
+                    && e["text"] == std::str::from_utf8(&source.bytes).unwrap())
                 .count(),
             1
         );
@@ -2043,7 +2044,7 @@ fn assert_released_read_body(
         .contains(&x.qualification.reference(f::Representation::Utf8)));
     entries
         .iter()
-        .map(|e| serde_json::from_value(e["reference"].clone()).unwrap())
+        .map(|e| rendered_body_reference(&observation["payload"]["result"], &e["reference"]))
         .collect()
 }
 
@@ -2097,7 +2098,7 @@ fn released_pending_read_repair_receipts_only_claim_current_bodies() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(|e| serde_json::from_value::<f::Reference>(e["reference"].clone()).unwrap()),
+                .map(|e| rendered_body_reference(&warning_context(&prepared), &e["reference"])),
         );
         assert_eq!(
             mandatory, expected,

@@ -618,7 +618,7 @@ impl<'a> Permissions<'a> {
 
 /// Only an exact retained accepted receipt can supply a delivery's originating
 /// restrictions. Core/release permissions cannot reconstruct an omitted origin.
-fn delivery_exposure<'a>(
+pub(super) fn delivery_exposure<'a>(
     state: &'a State,
     work: &str,
     delivery: &w::Delivery,
@@ -631,12 +631,18 @@ fn delivery_exposure<'a>(
     if local.get("actor")?.as_str()? != actor.0 || local.get("work")?.as_str()? != work {
         return None;
     }
-    let id = composite_id(
+    let current = observation_id(invocation, "accepted_local_delivery", &delivery.id.0);
+    // Existing accepted delivery receipts retain their exact stored identity.
+    // A new bounded ID must not make a legacy long receipt lose its lineage.
+    let legacy = composite_id(
         "observation",
         &[invocation, "accepted_local_delivery", &delivery.id.0],
     );
-    let observation = state.observations.get(&id)?;
-    if observation.id != id
+    let (id, observation) = state
+        .observations
+        .get_key_value(&current)
+        .or_else(|| state.observations.get_key_value(&legacy))?;
+    if observation.id != *id
         || observation.kind != "accepted_local_delivery"
         || observation.actor != actor.0
         || observation.work != work
@@ -887,10 +893,7 @@ pub(super) fn apply(
     )?;
     // The core can have acquired new restrictions through this same response's
     // accepted commands; retain them even when the page is empty or unavailable.
-    let observation_id = composite_id(
-        "observation",
-        &[&prepared.request.id, "work_inspection", id],
-    );
+    let observation_id = observation_id(&prepared.request.id, "work_inspection", id);
     let observation = state.observations.get_mut(&observation_id).unwrap();
     extend_exposure(observation.exposure.as_mut().unwrap(), context_exposure);
     extend_exposure(observation.exposure.as_mut().unwrap(), &inspected_exposure);
@@ -1644,13 +1647,14 @@ mod permission_tests {
     #[test]
     fn inspect_work_delivery_requires_exact_origin_and_retains_its_exposure() {
         let (mut state, prepared, _) = fixture();
+        let invocation = "i".repeat(128);
         let by = w::RuntimeAttribution {
             principal: w::Origin::Persona(w::PersonaId("b".into())),
             authority: w::ExactRef::new("synthetic-authority", 1, b"authority"),
             version: attribution().version,
         };
         let delivery = w::Delivery {
-            id: w::RecordId("private-delivery".into()),
+            id: w::RecordId("d".repeat(128)),
             release: w::RecordId("public-release".into()),
             recipient: "human".into(),
             receipt: w::ExactRef::new("local-receipt", 1, b"receipt"),
@@ -1674,11 +1678,16 @@ mod permission_tests {
         board["works"]["work"]["deliveries"] = json!([delivery]);
         state.board = serde_json::from_value(board).unwrap();
         state.local_deliveries.insert(delivery.id.0.clone(), json!({
-            "actor":"b", "work":"work", "invocation":"delivery-only", "release":"public-release", "recipient":"human"
+            "actor":"b", "work":"work", "invocation":invocation, "release":"public-release", "recipient":"human"
         }));
         let id = composite_id(
             "observation",
-            &["delivery-only", "accepted_local_delivery", &delivery.id.0],
+            &[&invocation, "accepted_local_delivery", &delivery.id.0],
+        );
+        assert!(id.len() > p::MAX_ID_BYTES);
+        assert_ne!(
+            id,
+            observation_id(&invocation, "accepted_local_delivery", &delivery.id.0)
         );
         let restriction = scoped_policy(
             "delivery-input",
@@ -1694,7 +1703,7 @@ mod permission_tests {
             id: id.clone(),
             actor: "b".into(),
             work: "work".into(),
-            invocation: Some("delivery-only".into()),
+            invocation: Some(invocation.clone()),
             kind: "accepted_local_delivery".into(),
             at_unix: NOW,
             payload: json!({"record":delivery}),
