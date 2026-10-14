@@ -94,6 +94,16 @@ enum Command {
     StakeholderDecision {
         file: PathBuf,
     },
+    /// Inspect provider migration bindings. Requires --state-root and --operator.
+    /// Opens Runtime normally, including possible ordinary orphan recovery; no network or credential resolution.
+    ProviderMigrationSnapshot,
+    /// Explicitly preview or apply a provider migration without inference or credential resolution.
+    /// Requires --state-root and --operator matching the request. Normal Runtime opening may recover ordinary orphans, even during preview.
+    MigrateProvider {
+        file: PathBuf,
+        #[arg(long)]
+        preview: bool,
+    },
     Schema,
     ValidateResponse {
         file: PathBuf,
@@ -482,6 +492,18 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         let mut app = Runtime::create(root, config, operator)?;
         return emit(&app.status()?);
     }
+    // Reject malformed requests and attribution mismatches before opening state.
+    let migration_request = if let Command::MigrateProvider { file, .. } = &cli.command {
+        let request: launch::ProviderMigrationRequest = runtime::read_json_file(file, 262_144)?;
+        if request.operator != operator {
+            return Err(runtime::RuntimeError::Invalid(
+                "migration request operator must match --operator".into(),
+            ));
+        }
+        Some(request)
+    } else {
+        None
+    };
     // Untrusted response structure is checked before opening or reading managed state.
     let response_bytes = if let Command::AdoptResponse { file, .. }
     | Command::SyntheticSubmit { file, .. } = &cli.command
@@ -534,6 +556,17 @@ async fn run(cli: Cli) -> runtime::Result<()> {
     let mut app = Runtime::open(root)?;
     let now = runtime::unix_now()?;
     match cli.command {
+        Command::ProviderMigrationSnapshot => emit(&launch::migration_snapshot(&mut app)?),
+        Command::MigrateProvider { preview, .. } => {
+            let request = migration_request
+                .as_ref()
+                .expect("migration request checked before opening state");
+            if preview {
+                emit(&launch::preview_provider_migration(&mut app, request, now)?)
+            } else {
+                emit(&launch::migrate_provider(&mut app, request, now)?)
+            }
+        }
         Command::StakeholderDecision { file } => {
             let request: runtime::HumanStakeholderDecisionRequest =
                 runtime::read_json_file(&file, 16_384)?;

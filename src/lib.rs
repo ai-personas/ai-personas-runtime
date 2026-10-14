@@ -1,5 +1,6 @@
 #![recursion_limit = "256"]
 //! AI Personas Rust implementation. See deployment limitations before use.
+pub mod auth;
 pub mod files;
 pub mod mock_effects;
 pub mod protocol;

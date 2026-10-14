@@ -4627,7 +4627,24 @@ impl Runtime {
                 "step requires the explicit direct profile".into(),
             ));
         }
-        let _execution_owner = self.store.acquire_execution_owner()?;
+        let execution_owner = self.store.acquire_execution_owner()?;
+        let result = self
+            .step_with_owned_provider(request, provider, cancellation, &execution_owner, now)
+            .await;
+        drop(execution_owner);
+        result
+    }
+
+    /// Crate callers must acquire this guard from this Runtime's Store and
+    /// retain it through transport, terminal persistence and adoption.
+    pub(crate) async fn step_with_owned_provider(
+        &mut self,
+        request: PrepareRequest,
+        provider: &dyn provider::ModelProvider,
+        cancellation: provider::Cancellation,
+        _execution_owner: &s::ExecutionOwner,
+        now: i64,
+    ) -> Result<AdoptionReport> {
         let (_, state) = self.load()?;
         let persona = state
             .personas

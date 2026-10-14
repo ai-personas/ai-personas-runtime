@@ -6,6 +6,8 @@ The current executable supports an explicitly controlled local workflow. Full de
 
 [Illustrated quickstart](docs/QUICKSTART.md): setup, one-command work, and how to read the result.
 
+[Account activation and provider migration](docs/activation.md) covers the separate SIWC helper and preserving an existing cohort when provider bindings change. Its user-facing runtime handoff remains unavailable.
+
 ## Build and check
 
 ```sh

@@ -3,6 +3,17 @@ use super::*;
 #[path = "launch/results.rs"]
 mod results;
 pub use results::Output;
+#[cfg(unix)]
+#[path = "launch/native.rs"]
+mod native;
+#[cfg(unix)]
+pub use native::{native_run, NativeInput};
+#[path = "launch/migration.rs"]
+mod migration;
+pub use migration::{
+    migrate_provider, migration_snapshot, preview_provider_migration, MigrationSnapshot,
+    PersonaBinding, ProviderMigrationOutcome, ProviderMigrationReceipt, ProviderMigrationRequest,
+};
 #[cfg(all(test, unix))]
 #[path = "launch/tests.rs"]
 mod tests;
@@ -415,6 +426,9 @@ fn reserve(app: &mut Runtime, work: &str, persona: &str) -> Result<(PrepareReque
     ))
 }
 trait Driver {
+    fn before_step(&mut self, _app: &mut Runtime) -> Result<()> {
+        Ok(())
+    }
     async fn step(
         &mut self,
         app: &mut Runtime,
@@ -483,6 +497,7 @@ async fn run_with_options<D: Driver>(
         }
         explicit_continue = false;
         let attempt = async {
+            driver.before_step(app)?;
             if !handover(app, work)? {
                 return Ok("character_fence");
             }
@@ -491,6 +506,7 @@ async fn run_with_options<D: Driver>(
             let Some(persona) = selected else {
                 return Ok("idle_or_consideration_bound");
             };
+            driver.before_step(app)?;
             let (request, current) = reserve(app, work, &persona)?;
             let report = driver.step(app, request, &current, unix_now()?).await?;
             if report.status == AdoptionStatus::Held {
