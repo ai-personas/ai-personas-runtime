@@ -303,7 +303,7 @@ fn select(app: &mut Runtime, work: &str, limit: usize, now: i64) -> Result<Pick>
     let mut selected = None;
     cursor.last.clear();
     for (wid, actor) in page {
-        let opportunity = state.board.opportunity_for(&wid, &actor, time);
+        let opportunity = runtime_opportunity(&state, &wid, &actor, time);
         let mut entry = scheduler_entry(&state, wid.clone(), actor.clone(), opportunity, now)?;
         if wid.0 == work {
             let permit = continuation_permit(&state, &actor.0, work);

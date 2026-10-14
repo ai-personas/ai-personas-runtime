@@ -7589,6 +7589,233 @@ fn preserved_own_asset_does_not_supply_peer_body_until_explicit_read() {
             .is_some_and(|entries| entries.iter().any(|e| e["text"] == "PEER_SELECTION_BODY"))));
 }
 
+// These hand-authored synthetic choices exercise optional collaboration affordances.
+// a and b make temporary task contributions, not permanent author/reviewer roles.
+// No model runs here: exact prompt supply proves neither attention nor review quality,
+// and this possible sequence is not a requirement that every task include peer review.
+const PEER_ARTIFACT_FULL_BODY: &str = "# Observatory display label\nThe bronze model is illustrative.\nFULL_BODY_ONLY_SENTINEL: measurements remain provisional.\n";
+const PEER_ARTIFACT_SUMMARY: &str = "Draft ready: observatory-display-label at proposal-op:save-display-label. Summary: the bronze model is illustrative.";
+
+fn peer_artifact_prepare(fixture: &mut Fixture, id: &str) -> Prepared {
+    fixture
+        .app
+        .prepare(
+            PrepareRequest {
+                id: id.into(),
+                persona: "b".into(),
+                work: "work".into(),
+                profile: Profile::Synthetic,
+                mode: Mode::Ordinary,
+            },
+            NOW,
+        )
+        .unwrap()
+}
+
+fn peer_artifact_catalog_fixture() -> (Fixture, Prepared, p::ExactRef) {
+    let mut original = interface_peer_need(false);
+    original.request = "Prepare an invented observatory display label; participants may choose how to contribute to this task.".into();
+    original.outcomes.get_mut("result").unwrap().criterion =
+        "Retain an exact display label and state the limits of any attributed judgment.".into();
+    let mut fixture = Fixture::configured(true, config(), seed("a"), original);
+    initialize_interface_peer(&mut fixture);
+    fixture.accept();
+    let authored = fixture.prepare("write-temporary-contribution");
+    let mut response = decision(&authored, true);
+    response.asset_maintenance = p::Maintenance::Change {
+        reason: "Retain this temporary task contribution as an asset.".into(),
+        operation_ids: vec!["save-display-label".into()],
+    };
+    response.operations = vec![
+        write(
+            "save-display-label",
+            p::Scope::Assets {},
+            "observatory-display-label",
+            PEER_ARTIFACT_FULL_BODY,
+            None,
+        ),
+        p::Operation::WorkCommand {
+            id: "register-display-label".into(),
+            inputs: serde_json::to_value(WorkAction::PutArtifact {
+                artifact: "display-label-draft".into(),
+                base: None,
+                subject: proposed("observatory-display-label", "save-display-label"),
+            })
+            .unwrap(),
+            depends_on: vec!["save-display-label".into()],
+        },
+        p::Operation::Communicate {
+            id: "share-condensed-label".into(),
+            recipient: "b".into(),
+            subject: "Optional contribution to the display label".into(),
+            text: PEER_ARTIFACT_SUMMARY.into(),
+        },
+    ];
+    let report = fixture.run(&authored, &response);
+    assert_eq!(report.status, AdoptionStatus::Adopted, "{report:?}");
+
+    let prepared = peer_artifact_prepare(&mut fixture, "peer-observe-catalog");
+    let control = interface_control(&prepared);
+    let catalog = control["work_artifacts"].as_array().unwrap();
+    assert_eq!(catalog.len(), 1);
+    assert_eq!(catalog[0]["artifact"]["id"], "display-label-draft");
+    assert_eq!(catalog[0]["artifact"]["revision"], 1);
+    assert_eq!(
+        catalog[0]["artifact"]["digest"],
+        s::sha256_bytes(PEER_ARTIFACT_FULL_BODY.as_bytes())
+    );
+    assert_eq!(catalog[0]["metadata_only"], true);
+    let exact: p::ExactRef = serde_json::from_value(catalog[0]["source"].clone()).unwrap();
+    assert_eq!(exact.source, "observatory-display-label");
+    assert!(!exact.revision.starts_with("proposal-"));
+    assert_eq!(exact.representation, "utf8");
+    assert_eq!((exact.start, exact.end), (None, None));
+    let message = control["actual_observations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["kind"] == "received_local_persona_message")
+        .unwrap();
+    assert_eq!(message["payload"]["sender"], "a");
+    assert_eq!(message["payload"]["text"], PEER_ARTIFACT_SUMMARY);
+    assert_eq!(message["payload"]["local_deposit_only"], true);
+    assert!(!prepared.prompt.contains("FULL_BODY_ONLY_SENTINEL"));
+    assert!(!prepared.sources.iter().any(|r| r.source == exact.source));
+    assert!(prepared.bundle_roots.as_ref().unwrap().assets.is_empty());
+    (fixture, prepared, exact)
+}
+
+fn peer_artifact_optional_response(prepared: &Prepared) -> p::Decision {
+    let control = interface_control(prepared);
+    let offer = &control["own_pending_offers"][0];
+    let mut response = decision(prepared, true);
+    response.operations.push(p::Operation::Responsibility {
+        id: offer["id"].as_str().unwrap().into(),
+        work_id: control["work_id"].as_str().unwrap().into(),
+        terms_revision: offer["terms_revision"].as_str().unwrap().into(),
+        disposition: "accept".into(),
+        reason: "For this synthetic branch I choose the offered nonexclusive contribution.".into(),
+    });
+    response
+}
+
+fn assert_peer_artifact_exact_body(entry: &Value, exact: &p::ExactRef) {
+    let supplied: p::ExactRef = serde_json::from_value(entry["reference"].clone()).unwrap();
+    assert_eq!(supplied.source, exact.source);
+    assert_eq!(supplied.revision, exact.revision);
+    assert_eq!(supplied.representation, exact.representation);
+    assert_eq!((supplied.start, supplied.end), (None, None));
+    assert_eq!(
+        entry["text"].as_str().unwrap().as_bytes(),
+        PEER_ARTIFACT_FULL_BODY.as_bytes()
+    );
+}
+
+#[test]
+fn peer_artifact_affordance_explicit_read_supplies_full_body_on_fresh_request() {
+    let (mut fixture, prepared, exact) = peer_artifact_catalog_fixture();
+    let mut response = peer_artifact_optional_response(&prepared);
+    response.operations.push(p::Operation::Read {
+        id: "choose-exact-label-read".into(),
+        reference: exact.clone(),
+    });
+    let report = fixture.run(&prepared, &response);
+    assert_eq!(report.status, AdoptionStatus::Adopted, "{report:?}");
+    let fresh = peer_artifact_prepare(&mut fixture, "peer-observe-exact-read");
+    let control = interface_control(&fresh);
+    let observation = control["actual_observations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["kind"] == "qualified_read")
+        .unwrap();
+    let entry = observation["payload"]["result"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["reference"]["source"] == exact.source)
+        .unwrap();
+    assert_peer_artifact_exact_body(entry, &exact);
+    assert!(fresh.prompt.contains("FULL_BODY_ONLY_SENTINEL"));
+    assert!(fresh
+        .sources
+        .iter()
+        .any(|r| r.source == exact.source && r.revision == exact.revision));
+    assert!(fresh.bundle_roots.as_ref().unwrap().assets.is_empty());
+    assert!(fixture.app.snapshot().unwrap().work_meta["work"]
+        .model_evidence
+        .is_empty());
+}
+
+#[test]
+fn peer_artifact_affordance_explicit_selection_supplies_full_body_on_fresh_request() {
+    let (mut fixture, prepared, exact) = peer_artifact_catalog_fixture();
+    let mut response = peer_artifact_optional_response(&prepared);
+    response.next_assets = p::SelectionIntent::Replace {
+        reason: "For this synthetic branch I choose the exact catalog source for my next request."
+            .into(),
+        references: vec![exact.clone()],
+    };
+    let report = fixture.run(&prepared, &response);
+    assert_eq!(report.status, AdoptionStatus::Adopted, "{report:?}");
+    let fresh = peer_artifact_prepare(&mut fixture, "peer-observe-exact-selection");
+    let bundle: Value =
+        serde_json::from_str(fresh.prompt.split_once("\nQUALIFIED_CONTEXT\n").unwrap().1).unwrap();
+    let entry = bundle["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["reference"]["source"] == exact.source)
+        .unwrap();
+    assert_peer_artifact_exact_body(entry, &exact);
+    let selected = &fresh.bundle_roots.as_ref().unwrap().assets;
+    assert_eq!(selected.len(), 1);
+    assert_eq!(selected[0].source, exact.source);
+    assert_eq!(selected[0].revision, exact.revision);
+    assert!(fixture.app.snapshot().unwrap().work_meta["work"]
+        .model_evidence
+        .is_empty());
+}
+
+#[test]
+fn peer_artifact_affordance_prior_message_alias_is_not_a_cross_request_binding() {
+    let (mut fixture, prepared, mut exact) = peer_artifact_catalog_fixture();
+    exact.revision = "proposal-op:save-display-label".into();
+    let mut response = peer_artifact_optional_response(&prepared);
+    response.operations.extend([
+        p::Operation::Read {
+            id: "try-prior-message-alias".into(),
+            reference: exact,
+        },
+        p::Operation::Communicate {
+            id: "must-not-deposit-after-invalid-alias".into(),
+            recipient: "a".into(),
+            subject: "This invalid branch must adopt nothing".into(),
+            text: "No body-supply or review claim may be deposited from this invalid response."
+                .into(),
+        },
+    ]);
+    fixture
+        .app
+        .dispatch_synthetic(&prepared.request.id, NOW)
+        .unwrap();
+    let before = persisted_state(&fixture.app);
+    // This malformed alias is rejected before adoption, not returned as Held.
+    let error = fixture
+        .app
+        .adopt_response(
+            &prepared.request.id,
+            &serde_json::to_vec(&response).unwrap(),
+            NOW,
+        )
+        .unwrap_err();
+    assert!(matches!(&error, RuntimeError::Protocol(_)), "{error:?}");
+    assert!(error
+        .to_string()
+        .contains("derived reference has no exact file proposal in this response"));
+    assert_eq!(persisted_state(&fixture.app), before);
+}
+
 #[test]
 fn imported_source_identifiers_follow_decision_reference_rules() {
     let mut f = Fixture::new(true);
@@ -7965,6 +8192,11 @@ fn ordinary_model_evidence_can_complete_an_exact_synthetic_writing_task_without_
     assert_eq!(bytes, MODEL_NOTE.as_bytes());
     let prepared = f.prepare("close-model-note");
     let supplied = interface_control(&prepared);
+    assert_eq!(supplied["mandate"]["stakeholders"], json!([]));
+    assert_eq!(
+        supplied["closure_readiness"]["records"][0]["release_current"], "unestablished",
+        "partial freshness is not a prohibition on a checked closure proposal"
+    );
     let receipt = &supplied["actual_observations"]
         .as_array()
         .unwrap()
@@ -8059,7 +8291,7 @@ fn closure_readiness_exposes_missing_stakeholder_without_substituting_model_judg
     assert_eq!(records[0]["permitted_prerequisites_observed"], false);
     assert!(prepared
         .prompt
-        .contains("latest positive acceptance of that exact release"));
+        .contains("latest positive exact-release consent"));
     let before = f.app.snapshot().unwrap();
     let mut response = decision(&prepared, true);
     response.operations.push(effect(
@@ -9386,3 +9618,460 @@ fn aggregate_selection_admission_does_not_count_expired_next_call_roots() {
 
 #[path = "selection_expiry/cases.rs"]
 mod selection_expiry_cases;
+
+#[test]
+fn formal_evidence_contract_is_supplied_in_prompt_and_action_schema() {
+    let (_f, prepared, _key) = model_evidence_fixture("full", false);
+    assert!(prepared
+        .prompt
+        .contains("judge.claims.<outcome>.evidence and assess.evidence"));
+    assert!(prepared.prompt.contains("response.work.evidence"));
+    let schema = &interface_control(&prepared)["work_capability"]["inputs_schema"];
+    let claim = schema["$defs"]["ClaimInput"]["properties"]["evidence"]["description"]
+        .as_str()
+        .unwrap();
+    assert!(claim.contains("formal work EvidenceRecord.id"));
+    assert!(
+        claim.contains("observation") && claim.contains("met=false") && claim.contains("met=true")
+    );
+    let assess = schema["oneOf"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["properties"]["kind"]["const"] == "assess")
+        .unwrap();
+    let description = assess["properties"]["evidence"]["description"]
+        .as_str()
+        .unwrap();
+    assert!(description.contains("formal work EvidenceRecord.id"));
+    assert!(description.contains("passes=false") && description.contains("observation"));
+}
+
+#[test]
+fn formal_evidence_namespace_rejects_supplied_message_ids_without_promoting_or_filtering() {
+    for mixed_namespace in [false, true] {
+        let (mut f, prepared, key) = model_evidence_fixture("full", false);
+        let mut messages = decision(&prepared, true);
+        // Real local deposits to the same persona isolate the identifier namespace
+        // without requiring another persona's initialization or fabricated state.
+        for id in ["context-one", "context-two"] {
+            messages.operations.push(p::Operation::Communicate {
+                id: id.into(),
+                recipient: "a".into(),
+                subject: "Attributed critique".into(),
+                text: "Consider the tradeoff and preserve the stated unknowns.".into(),
+            });
+        }
+        assert_eq!(f.run(&prepared, &messages).status, AdoptionStatus::Adopted);
+        let prepared = f.prepare("judge-with-supplied-message-context");
+        let observations = interface_control(&prepared)["actual_observations"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let ids = observations
+            .iter()
+            .filter(|o| o["kind"] == "received_local_persona_message")
+            .map(|o| o["id"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(ids.len(), 2);
+        let mut response = decision(&prepared, true);
+        response.work = p::WorkDisposition::Ongoing {
+            reason: "The supplied messages inform this attributed account; formal judgment examines the actual note.".into(),
+            evidence: ids.clone(),
+        };
+        response.operations.push(model_evidence_operation(&key));
+        let mut judgment = model_judgment_and_shared(&key);
+        if mixed_namespace {
+            let p::Operation::Effect { inputs, .. } = &mut judgment[0] else {
+                panic!("expected judgment effect")
+            };
+            inputs["claims"]["result"]["evidence"]
+                .as_array_mut()
+                .unwrap()
+                .extend(ids.iter().map(|id| json!(id)));
+        }
+        response.operations.extend(judgment);
+        let before = f.app.snapshot().unwrap().board;
+        f.app.dispatch_synthetic(&prepared.request.id, NOW).unwrap();
+        let result = f.app.adopt_response(
+            &prepared.request.id,
+            &serde_json::to_vec(&response).unwrap(),
+            NOW,
+        );
+        if mixed_namespace {
+            let report = result.unwrap();
+            assert_eq!(report.status, AdoptionStatus::Held);
+            let error = report.reason.unwrap();
+            eprintln!("mixed supplied messages/formal evidence rejected: {error}");
+            assert!(error.contains("claim evidence identities"));
+            assert_eq!(
+                f.app.snapshot().unwrap().board,
+                before,
+                "no partial formal evidence or judgment adoption"
+            );
+        } else {
+            assert_eq!(result.unwrap().status, AdoptionStatus::Adopted);
+            let state = f.app.snapshot().unwrap();
+            let work = state.board.work(&"work".into()).unwrap();
+            assert_eq!(work.evidence.len(), 1);
+            assert_eq!(
+                work.judgments[0].input.claims[&"result".into()].evidence,
+                BTreeSet::from([w::RecordId("model-note-evidence".into())])
+            );
+            assert!(ids
+                .iter()
+                .all(|id| !work.evidence.contains_key(&w::RecordId(id.clone()))));
+        }
+    }
+}
+
+const CITATION_DIAGNOSTIC: &str =
+    "supplied observation reference not supplied as formal work evidence";
+
+fn citation_diagnostic_fixture(
+    secret: &str,
+) -> (Fixture, Prepared, ArtifactKey, String, f::Policy) {
+    let mut configuration = config();
+    let mut optional_policy = policy();
+    optional_policy.id = "citation-context-policy".into();
+    let mut hidden_policy = policy();
+    hidden_policy.id = "hidden-citation-policy".into();
+    hidden_policy.readers = set(&["b"]);
+    configuration
+        .policies
+        .active_policies
+        .extend([optional_policy.clone(), hidden_policy.clone()]);
+    let mut f = Fixture::with_config(true, configuration);
+    f.accept();
+    let mut hidden_work = need();
+    hidden_work.id = "hidden-citation-work".into();
+    hidden_work.request = secret.into();
+    hidden_work.decision_rule = w::DecisionRule::Designated(w::PersonaId("b".into()));
+    hidden_work.invitations[0].to = "b".into();
+    f.app.add_need("operator", hidden_work).unwrap();
+    let mut context = record(
+        "citation-context",
+        f::Scope::Assets,
+        "AUTHORIZED_CITATION_CONTEXT",
+    );
+    context.policy = optional_policy.clone();
+    context = context.seal().unwrap();
+    let mut hidden = record("hidden-citation-source", f::Scope::Assets, secret);
+    hidden.policy = hidden_policy;
+    hidden = hidden.seal().unwrap();
+    f.app
+        .import_files("operator", "a", vec![context.clone()], false, NOW)
+        .unwrap();
+    f.app
+        .import_files("operator", "b", vec![hidden], false, NOW)
+        .unwrap();
+    let prepared = f.prepare("citation-author");
+    let mut response = decision(&prepared, true);
+    response.asset_maintenance = p::Maintenance::Change {
+        reason: "Retain the exact synthetic comparison.".into(),
+        operation_ids: vec!["save-note".into()],
+    };
+    response.operations = vec![
+        write(
+            "save-note",
+            p::Scope::Assets {},
+            "model-note",
+            MODEL_NOTE,
+            None,
+        ),
+        effect(
+            "register-note",
+            WorkAction::PutArtifact {
+                artifact: "model-artifact".into(),
+                base: None,
+                subject: proposed("model-note", "save-note"),
+            },
+            &["save-note"],
+        ),
+    ];
+    response.next_assets = p::SelectionIntent::Replace {
+        reason: "Supply the exact artifact and optional context.".into(),
+        references: vec![proposed("model-note", "save-note"), reference(&context)],
+    };
+    assert_eq!(f.run(&prepared, &response).status, AdoptionStatus::Adopted);
+    let prepared = f.prepare("citation-message");
+    let key = serde_json::from_value(control(&prepared)["work_artifacts"][0]["artifact"].clone())
+        .unwrap();
+    let mut response = decision(&prepared, true);
+    response.operations.push(p::Operation::Communicate {
+        id: "ordinary-citation-context".into(),
+        recipient: "a".into(),
+        subject: "Ordinary context".into(),
+        text: "This message is an observation, not formal proof.".into(),
+    });
+    assert_eq!(f.run(&prepared, &response).status, AdoptionStatus::Adopted);
+    let prepared = f.prepare("citation-input");
+    assert!(prepared.prompt.contains("AUTHORIZED_CITATION_CONTEXT"));
+    assert!(!prepared.prompt.contains(secret));
+    let message = control(&prepared)["actual_observations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["kind"] == "received_local_persona_message")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    (f, prepared, key, message, optional_policy)
+}
+
+fn citation_diagnostic_response(
+    prepared: &Prepared,
+    key: &ArtifactKey,
+    evidence: &str,
+    assess: bool,
+) -> p::Decision {
+    let mut response = decision(prepared, true);
+    response.operations.push(if assess {
+        effect(
+            "citation-assess",
+            WorkAction::Assess {
+                id: "citation-assessment".into(),
+                artifact: key.clone(),
+                outcome: "result".into(),
+                role: "outside".into(),
+                evidence: set(&[evidence]),
+                passes: false,
+                explanation: "This deliberately exercises a supplied citation mismatch.".into(),
+                limitations: vec!["Synthetic fixture only.".into()],
+            },
+            &[],
+        )
+    } else {
+        effect(
+            "citation-judge",
+            WorkAction::Judge {
+                id: "citation-judgment".into(),
+                artifacts: BTreeMap::from([("result".into(), key.clone())]),
+                sufficient: false,
+                claims: BTreeMap::from([(
+                    "result".into(),
+                    ClaimInput {
+                        met: false,
+                        explanation: "This deliberately exercises a supplied citation mismatch."
+                            .into(),
+                        evidence: set(&[evidence]),
+                    },
+                )]),
+                explanation: "Synthetic namespace control.".into(),
+            },
+            &[],
+        )
+    });
+    response
+}
+
+#[test]
+fn citation_diagnostic_known_scope_survives_restart_and_is_actually_supplied() {
+    let mut reasons = BTreeSet::new();
+    for (secret, assess) in [
+        ("HIDDEN_BOARD_VARIANT_ALPHA", false),
+        ("HIDDEN_BOARD_VARIANT_BETA", false),
+        ("HIDDEN_BOARD_VARIANT_ALPHA", true),
+        ("HIDDEN_BOARD_VARIANT_BETA", true),
+    ] {
+        let (mut f, prepared, key, message, _) = citation_diagnostic_fixture(secret);
+        let before = persisted_state(&f.app);
+        let report = f.run(
+            &prepared,
+            &citation_diagnostic_response(&prepared, &key, &message, assess),
+        );
+        assert_eq!(report.status, AdoptionStatus::Held);
+        let reason = report.reason.unwrap();
+        assert!(reason.contains(CITATION_DIAGNOSTIC), "{reason}");
+        reasons.insert(reason);
+        assert_eq!(
+            persisted_state(&f.app),
+            before,
+            "no staged response effect commits"
+        );
+        let failed = f.app.invocation(&prepared.request.id).unwrap();
+        let terminal = f.app.terminal_evidence(&prepared.request.id).unwrap();
+        let context = failed.runtime_failure_context.as_ref().unwrap();
+        assert_eq!(context["kind"], "known");
+        assert_eq!(
+            context["terminal_sha256"],
+            terminal.exact_ref().unwrap().sha256
+        );
+        assert_eq!(context["exposure"], json!(prepared.exposure));
+        let root = f.app.state_root().to_owned();
+        drop(f.app);
+        f.app = Runtime::open(&root).unwrap();
+        let attempts = f.app.ledger().unwrap().ordinary.consumed.attempts;
+        f.app.resume("operator", "a", "work").unwrap();
+        assert_eq!(f.app.ledger().unwrap().ordinary.consumed.attempts, attempts);
+        let resumed = f.app.snapshot().unwrap();
+        let diagnostic = resumed
+            .observations
+            .values()
+            .find(|o| o.kind == "terminal_recovery")
+            .unwrap();
+        let next = f.prepare("citation-diagnostic-supplied");
+        assert!(next.supplied_observations.contains(&diagnostic.id));
+        assert!(next.prompt.contains(CITATION_DIAGNOSTIC));
+        assert!(!next.prompt.contains(secret));
+        assert_eq!(diagnostic.payload["replay_authorized"], false);
+        assert!(diagnostic.payload["terminal"]["response_body"]
+            .get("text")
+            .is_none());
+        assert_eq!(
+            f.run(&next, &decision(&next, true)).status,
+            AdoptionStatus::Adopted
+        );
+        assert!(!f.app.snapshot().unwrap().personas["a"].focus["work"]
+            .pending_observations
+            .contains(&diagnostic.id));
+        assert_eq!(f.app.invocation(&prepared.request.id).unwrap(), failed);
+        assert_eq!(
+            f.app.terminal_evidence(&prepared.request.id).unwrap(),
+            terminal
+        );
+    }
+    assert_eq!(
+        reasons.len(),
+        1,
+        "fixed reason does not encode hidden values or action details"
+    );
+}
+
+#[test]
+fn citation_diagnostic_rechecks_retired_and_revoked_exposure() {
+    for restriction in ["retired", "revoked"] {
+        let (mut f, prepared, key, message, optional_policy) =
+            citation_diagnostic_fixture("HIDDEN_RECHECK_VALUE");
+        assert_eq!(
+            f.run(
+                &prepared,
+                &citation_diagnostic_response(&prepared, &key, &message, false)
+            )
+            .status,
+            AdoptionStatus::Held
+        );
+        assert_eq!(
+            f.app
+                .invocation(&prepared.request.id)
+                .unwrap()
+                .runtime_failure_context
+                .unwrap()["kind"],
+            "known"
+        );
+        f.app.resume("operator", "a", "work").unwrap();
+        let diagnostic = f
+            .app
+            .snapshot()
+            .unwrap()
+            .observations
+            .values()
+            .find(|o| o.kind == "terminal_recovery")
+            .unwrap()
+            .clone();
+        if restriction == "retired" {
+            f.app
+                .withdraw_source("operator", "citation-context", "Synthetic retirement.")
+                .unwrap();
+        } else {
+            f.app
+                .revoke_policy(
+                    "operator",
+                    optional_policy.identity(),
+                    "Synthetic revocation.",
+                )
+                .unwrap();
+        }
+        let next = f.prepare("citation-diagnostic-restricted");
+        assert!(
+            !next.supplied_observations.contains(&diagnostic.id),
+            "{restriction}"
+        );
+        assert!(!next.prompt.contains(CITATION_DIAGNOSTIC), "{restriction}");
+        assert!(
+            !next.prompt.contains("AUTHORIZED_CITATION_CONTEXT"),
+            "{restriction}"
+        );
+        assert!(control(&next)["actual_observations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|o| o["status"] == "withheld_unavailable"));
+        let state = f.app.snapshot().unwrap();
+        assert_eq!(json!(state.observations[&diagnostic.id]), json!(diagnostic));
+        assert!(state.personas["a"].focus["work"]
+            .pending_observations
+            .contains(&diagnostic.id));
+    }
+}
+
+#[test]
+fn citation_diagnostic_does_not_reclassify_unsupplied_or_arbitrary_board_failures() {
+    let (mut f, prepared, key, _, _) = citation_diagnostic_fixture("HIDDEN_UNRELATED_VALUE");
+    let report = f.run(
+        &prepared,
+        &citation_diagnostic_response(&prepared, &key, "authored-but-never-supplied-record", false),
+    );
+    assert_eq!(report.status, AdoptionStatus::Held);
+    assert!(!report.reason.unwrap().contains(CITATION_DIAGNOSTIC));
+    assert_eq!(
+        f.app
+            .invocation(&prepared.request.id)
+            .unwrap()
+            .runtime_failure_context,
+        Some(json!({"kind":"unknown"}))
+    );
+    f.app.resume("operator", "a", "work").unwrap();
+    let diagnostic = f
+        .app
+        .snapshot()
+        .unwrap()
+        .observations
+        .values()
+        .find(|o| o.kind == "terminal_recovery")
+        .unwrap()
+        .clone();
+    assert!(diagnostic.exposure.is_none());
+    let next = f.prepare("citation-unknown-diagnostic");
+    assert!(!next.supplied_observations.contains(&diagnostic.id));
+    assert!(!next.prompt.contains("claim evidence identities"));
+}
+
+#[test]
+fn citation_diagnostic_allows_earlier_same_response_formal_id_without_promoting_observations() {
+    for earlier in [true, false] {
+        let (mut f, prepared, key, message, _) =
+            citation_diagnostic_fixture("HIDDEN_FORMAL_CONTROL");
+        let mut response = citation_diagnostic_response(&prepared, &key, &message, false);
+        let mut formal = model_evidence_operation(&key);
+        if let p::Operation::Effect { inputs, .. } = &mut formal {
+            inputs["id"] = json!(message);
+        }
+        if earlier {
+            response.operations.insert(0, formal);
+        } else {
+            response.operations.push(formal);
+        }
+        let report = f.run(&prepared, &response);
+        assert_eq!(
+            report.status,
+            if earlier {
+                AdoptionStatus::Adopted
+            } else {
+                AdoptionStatus::Held
+            },
+            "{:?}",
+            report.reason
+        );
+        let state = f.app.snapshot().unwrap();
+        let work = state.board.work(&"work".into()).unwrap();
+        assert_eq!(work.evidence.contains_key(&w::RecordId(message)), earlier);
+        if !earlier {
+            assert!(report.reason.unwrap().contains(CITATION_DIAGNOSTIC));
+        }
+    }
+}
+
+#[path = "work_interface/cases.rs"]
+mod work_interface_cases;

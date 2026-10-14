@@ -365,6 +365,11 @@ pub enum Operation {
         subject: ExactRef,
         audience: Vec<String>,
     },
+    WorkCommand {
+        id: String,
+        inputs: Value,
+        depends_on: Vec<String>,
+    },
     Effect {
         id: String,
         capability_id: String,
@@ -391,7 +396,8 @@ impl Operation {
             | Self::Responsibility { id, .. }
             | Self::Assess { id, .. }
             | Self::Deliver { id, .. }
-            | Self::Effect { id, .. } => id,
+            | Self::Effect { id, .. }
+            | Self::WorkCommand { id, .. } => id,
         }
     }
 
@@ -1474,6 +1480,18 @@ fn check_operation(
             check_reference(subject, &format!("{path}.subject"))?;
             check_ids(audience, 1, &format!("{path}.audience"))
         }
+        Operation::WorkCommand {
+            inputs, depends_on, ..
+        } => {
+            if !inputs.is_object() {
+                return Err(invalid(
+                    &format!("{path}.inputs"),
+                    "work command inputs require an object",
+                ));
+            }
+            check_ids(depends_on, 0, &format!("{path}.depends_on"))?;
+            check_inputs(inputs, 3, input_nodes, &format!("{path}.inputs"))
+        }
         Operation::Effect {
             capability_id,
             binding_revision,
@@ -1740,6 +1758,7 @@ pub fn validate_decision(
             }
         }
         if let Operation::Effect { depends_on, .. }
+        | Operation::WorkCommand { depends_on, .. }
         | Operation::WarningAdopt { depends_on, .. }
         | Operation::WarningResolve { depends_on, .. } = operation
         {

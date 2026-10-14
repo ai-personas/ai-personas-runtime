@@ -676,6 +676,10 @@ impl Runtime {
             !meta.local_dependencies.contains_key(&request.id),
             "dependency identity already belongs to an exact file",
         )?;
+        require(
+            !meta.message_waits.contains_key(&request.id),
+            "dependency identity already belongs to a message wait",
+        )?;
         check_local_dependency_capacity(&state, &request.binding.work)?;
         let basis = basis(&state, &request.basis)?.clone();
         require(

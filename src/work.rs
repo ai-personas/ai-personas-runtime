@@ -70,6 +70,11 @@ impl ExactRef {
         !self.id.trim().is_empty() && self.revision > 0
     }
 }
+/// Trusted runtime identity for a real wait intention, not a future message.
+/// Receipt and audience checks remain with normal authenticated event handling.
+pub(crate) struct MessageWaitRegistration {
+    pub dependency: ExactRef,
+}
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ArtifactRef {
     pub id: ArtifactId,
@@ -881,6 +886,15 @@ impl WorkBoard {
         ctx: &DecisionContext,
         response: DecisionResponse,
     ) -> Result<()> {
+        self.apply_response_with_message_wait(ctx, response, None)
+    }
+    /// Atomically bind an optional voluntary-message wait to the actual response.
+    pub(crate) fn apply_response_with_message_wait(
+        &mut self,
+        ctx: &DecisionContext,
+        response: DecisionResponse,
+        registration: Option<MessageWaitRegistration>,
+    ) -> Result<()> {
         let personas = self.personas.clone();
         self.transaction(&ctx.work, ctx.version, |w| {
             open(w)?;
@@ -900,6 +914,38 @@ impl WorkBoard {
                 }),
                 "actual observed event bindings",
             )?;
+            if let Some(registration) = registration {
+                accepted(w, &ctx.persona)?;
+                require(registration.dependency.valid(), "message wait dependency")?;
+                require(
+                    matches!(&response.continuation,
+                        Continuation::Wait { dependency, .. }
+                            if dependency == &registration.dependency),
+                    "matching message wait",
+                )?;
+                require(
+                    !response
+                        .commands
+                        .iter()
+                        .any(|command| matches!(command, Command::Decline { .. })),
+                    "message wait without decline",
+                )?;
+                if w.dependencies
+                    .iter()
+                    .any(|d| d.key.dependency.id == registration.dependency.id)
+                {
+                    return Err(WorkError::Conflict);
+                }
+                w.dependencies.push(Dependency {
+                    key: EventKey {
+                        dependency: registration.dependency,
+                        epoch: w.version.epoch,
+                    },
+                    accountability: Accountability::Gap(
+                        "Message arrival is voluntary; no sender responsibility is imposed".into(),
+                    ),
+                });
+            }
             let by = Attribution {
                 persona: ctx.persona.clone(),
                 invocation: ctx.invocation.clone(),
@@ -2106,6 +2152,389 @@ fn eligibility(w: &Work, persona: &PersonaId, now: u64) -> Option<OpportunityCau
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn message_wait_key(b: &WorkBoard) -> EventKey {
+        EventKey {
+            dependency: r("synthetic-message-wait-intention"),
+            epoch: b.work(&"w".into()).unwrap().version.epoch,
+        }
+    }
+    fn message_wait_registration(key: &EventKey) -> Option<MessageWaitRegistration> {
+        Some(MessageWaitRegistration {
+            dependency: key.dependency.clone(),
+        })
+    }
+    #[test]
+    fn message_wait_is_atomic_and_consumed_only_by_permitted_event() {
+        let mut b = active(None, false);
+        let key = message_wait_key(&b);
+        let ctx = context(&b, "a");
+        b.apply_response_with_message_wait(
+            &ctx,
+            DecisionResponse {
+                commands: vec![],
+                continuation: wait_for(&key),
+            },
+            message_wait_registration(&key),
+        )
+        .unwrap();
+        let w = b.work(&"w".into()).unwrap();
+        assert_eq!(
+            w.version,
+            Version {
+                revision: ctx.version.revision + 1,
+                epoch: ctx.version.epoch,
+            }
+        );
+        assert_eq!(w.dependencies.len(), 1);
+        assert_eq!(w.dependencies[0].key, key);
+        assert!(matches!(
+            &w.dependencies[0].accountability,
+            Accountability::Gap(reason) if reason.contains("voluntary")
+        ));
+        assert!(w.events.is_empty());
+        assert!(w.applied_invocations.contains(&ctx.invocation));
+        let p = &w.participants[&PersonaId::from("a")];
+        assert_eq!(p.continuation, Some(wait_for(&key)));
+        assert!(p.wake.is_none() && p.observed_events.is_empty());
+        assert_eq!(eligibility(w, &"a".into(), 10), None);
+        assert_eq!(
+            eligibility(w, &"a".into(), 30),
+            Some(OpportunityCause::Deadline)
+        );
+        reply(&mut b, "b", vec![], wait_for(&key)).unwrap();
+        let event = Event {
+            key: key.clone(),
+            observation: r("synthetic-message-receipt"),
+        };
+        host(
+            &mut b,
+            RuntimeRight::Observation,
+            RuntimeOperation::EventFor {
+                event: event.clone(),
+                participants: set(["a".into()]),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            eligibility(b.work(&"w".into()).unwrap(), &"a".into(), 10),
+            Some(OpportunityCause::Event(key.clone()))
+        );
+        assert_eq!(
+            eligibility(b.work(&"w".into()).unwrap(), &"b".into(), 10),
+            None
+        );
+        let mut observed = context(&b, "a");
+        observed.observed.insert(key.clone());
+        b.apply_response(
+            &observed,
+            DecisionResponse {
+                commands: vec![],
+                continuation: wait_for(&key),
+            },
+        )
+        .unwrap();
+        let saved = b.clone();
+        host(
+            &mut b,
+            RuntimeRight::Observation,
+            RuntimeOperation::EventFor {
+                event,
+                participants: set(["a".into()]),
+            },
+        )
+        .unwrap();
+        assert_eq!(b, saved);
+        assert_eq!(
+            eligibility(b.work(&"w".into()).unwrap(), &"a".into(), 10),
+            None
+        );
+    }
+    #[test]
+    fn message_wait_rejections_roll_back_registration_and_response() {
+        let mut b = active(None, false);
+        let key = message_wait_key(&b);
+        let ctx = context(&b, "a");
+        let finding = Command::Finding {
+            id: "synthetic-wait-finding".into(),
+            artifact: None,
+            text: "Synthetic accepted-response prefix".into(),
+            evidence: BTreeSet::new(),
+        };
+        let saved = b.clone();
+        for (commands, deadline) in [
+            (vec![finding.clone()], ctx.now),
+            (vec![finding.clone(), finding], 30),
+        ] {
+            assert!(b
+                .apply_response_with_message_wait(
+                    &ctx,
+                    DecisionResponse {
+                        commands,
+                        continuation: Continuation::Wait {
+                            dependency: key.dependency.clone(),
+                            deadline,
+                            purpose: "Synthetic voluntary wait intention".into(),
+                        },
+                    },
+                    message_wait_registration(&key),
+                )
+                .is_err());
+            assert_eq!(b, saved);
+        }
+        b.apply_response(
+            &ctx,
+            DecisionResponse {
+                commands: vec![],
+                continuation: ready(),
+            },
+        )
+        .unwrap();
+        let saved = b.clone();
+        let version = b.work(&"w".into()).unwrap().version;
+        let mut wrong_epoch = context(&b, "a");
+        wrong_epoch.version.epoch += 1;
+        let mut replay = context(&b, "a");
+        replay.invocation = ctx.invocation.clone();
+        for (rejected, error) in [
+            (
+                &ctx,
+                WorkError::StaleRevision {
+                    expected: ctx.version.revision,
+                    actual: version.revision,
+                },
+            ),
+            (
+                &wrong_epoch,
+                WorkError::StaleEpoch {
+                    expected: wrong_epoch.version.epoch,
+                    actual: version.epoch,
+                },
+            ),
+            (&replay, WorkError::Replay),
+        ] {
+            assert_eq!(
+                b.apply_response_with_message_wait(
+                    rejected,
+                    DecisionResponse {
+                        commands: vec![],
+                        continuation: wait_for(&key),
+                    },
+                    message_wait_registration(&key),
+                ),
+                Err(error)
+            );
+            assert_eq!(b, saved);
+        }
+    }
+    #[test]
+    fn message_wait_requires_preexisting_acceptance_and_compatible_response() {
+        let mut b = active(None, false);
+        invite(&mut b, "synthetic-extra-offer", "a", terms(false, false));
+        let key = message_wait_key(&b);
+        let mut mismatched = key.clone();
+        mismatched.dependency.digest[0] ^= 1;
+        let saved = b.clone();
+        for (commands, continuation) in [
+            (vec![], ready()),
+            (
+                vec![],
+                Continuation::Paused {
+                    reason: "Synthetic explicit pause".into(),
+                },
+            ),
+            (vec![], ended()),
+            (vec![], wait_for(&mismatched)),
+            (
+                vec![Command::Decline {
+                    offer: "synthetic-extra-offer".into(),
+                    reason: "Synthetic declined offer".into(),
+                }],
+                wait_for(&key),
+            ),
+        ] {
+            assert!(b
+                .apply_response_with_message_wait(
+                    &context(&b, "a"),
+                    DecisionResponse {
+                        commands,
+                        continuation,
+                    },
+                    message_wait_registration(&key),
+                )
+                .is_err());
+            assert_eq!(b, saved);
+        }
+        let mut b = board(None, false);
+        invite(
+            &mut b,
+            "synthetic-unaccepted-offer",
+            "c",
+            terms(false, false),
+        );
+        let key = message_wait_key(&b);
+        let saved = b.clone();
+        assert_eq!(
+            b.apply_response_with_message_wait(
+                &context(&b, "c"),
+                DecisionResponse {
+                    commands: vec![Command::Accept {
+                        offer: "synthetic-unaccepted-offer".into(),
+                        exact_terms: terms(false, false),
+                    }],
+                    continuation: wait_for(&key),
+                },
+                message_wait_registration(&key),
+            ),
+            Err(WorkError::NotAccepted)
+        );
+        assert_eq!(b, saved);
+    }
+    #[test]
+    fn message_wait_collision_check_preserves_runtime_revision_and_epoch_reuse() {
+        let mut b = board(None, false);
+        let mut key = message_wait_key(&b);
+        host(
+            &mut b,
+            RuntimeRight::Observation,
+            RuntimeOperation::RegisterDependency(Dependency {
+                key: key.clone(),
+                accountability: Accountability::Gap("Synthetic historical dependency".into()),
+            }),
+        )
+        .unwrap();
+        let mut mandate = b.work(&"w".into()).unwrap().mandate().clone();
+        mandate.revision += 1;
+        host(
+            &mut b,
+            RuntimeRight::Governance,
+            RuntimeOperation::ReviseUnacceptedMandate(mandate),
+        )
+        .unwrap();
+        let mut current_terms = terms(true, false);
+        current_terms.mandate_revision = b.work(&"w".into()).unwrap().current_mandate;
+        invite(
+            &mut b,
+            "synthetic-current-offer",
+            "a",
+            current_terms.clone(),
+        );
+        accept(&mut b, "synthetic-current-offer", "a", current_terms);
+        key.epoch = b.work(&"w".into()).unwrap().version.epoch;
+        let mut revised = key.clone();
+        revised.dependency.revision += 1;
+        let saved = b.clone();
+        for rejected in [&key, &revised] {
+            assert_eq!(
+                b.apply_response_with_message_wait(
+                    &context(&b, "a"),
+                    DecisionResponse {
+                        commands: vec![],
+                        continuation: wait_for(rejected),
+                    },
+                    message_wait_registration(rejected),
+                ),
+                Err(WorkError::Conflict)
+            );
+            assert_eq!(b, saved);
+        }
+        for allowed in [key, revised] {
+            host(
+                &mut b,
+                RuntimeRight::Observation,
+                RuntimeOperation::RegisterDependency(Dependency {
+                    key: allowed,
+                    accountability: Accountability::Gap(
+                        "Synthetic reusable host dependency".into(),
+                    ),
+                }),
+            )
+            .unwrap();
+        }
+        assert_eq!(b.work(&"w".into()).unwrap().dependencies.len(), 3);
+    }
+    #[test]
+    fn message_wait_events_preserve_explicit_pauses_and_endings() {
+        for mode in 0..3 {
+            let mut b = active(None, false);
+            let key = message_wait_key(&b);
+            b.apply_response_with_message_wait(
+                &context(&b, "a"),
+                DecisionResponse {
+                    commands: vec![],
+                    continuation: wait_for(&key),
+                },
+                message_wait_registration(&key),
+            )
+            .unwrap();
+            match mode {
+                0 => reply(
+                    &mut b,
+                    "a",
+                    vec![],
+                    Continuation::Paused {
+                        reason: "Synthetic participant pause".into(),
+                    },
+                )
+                .unwrap(),
+                1 => host(
+                    &mut b,
+                    RuntimeRight::Governance,
+                    RuntimeOperation::Pause {
+                        reason: "Synthetic work pause".into(),
+                    },
+                )
+                .unwrap(),
+                _ => host(
+                    &mut b,
+                    RuntimeRight::Governance,
+                    RuntimeOperation::End {
+                        kind: EndingKind::Canceled,
+                        reason: "Synthetic explicit cancellation".into(),
+                    },
+                )
+                .unwrap(),
+            }
+            host(
+                &mut b,
+                RuntimeRight::Observation,
+                RuntimeOperation::EventFor {
+                    event: Event {
+                        key,
+                        observation: r("synthetic-arrival-after-stop"),
+                    },
+                    participants: set(["a".into()]),
+                },
+            )
+            .unwrap();
+            assert_eq!(
+                eligibility(b.work(&"w".into()).unwrap(), &"a".into(), 100),
+                None
+            );
+            assert!(b
+                .participant(&"w".into(), &"a".into())
+                .unwrap()
+                .wake
+                .is_none());
+            let saved = b.clone();
+            let resumed = host(
+                &mut b,
+                RuntimeRight::Governance,
+                RuntimeOperation::ResumeParticipant {
+                    persona: "a".into(),
+                },
+            );
+            if mode == 2 {
+                assert_eq!(resumed, Err(WorkError::Stopped));
+                assert_eq!(b, saved);
+            } else {
+                resumed.unwrap();
+                assert_eq!(
+                    eligibility(b.work(&"w".into()).unwrap(), &"a".into(), 100),
+                    Some(OpportunityCause::ExplicitResume)
+                );
+            }
+        }
+    }
     fn set<T: Ord>(items: impl IntoIterator<Item = T>) -> BTreeSet<T> {
         items.into_iter().collect()
     }
