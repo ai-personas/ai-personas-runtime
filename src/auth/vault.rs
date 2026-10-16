@@ -27,6 +27,8 @@ const HOST_FILE: &CStr = c".personas-host-id";
 const LOCK_SUFFIX: &str = ".lock";
 const REGISTRATION_SUFFIX: &str = ".registration";
 const REFRESH_SUFFIX: &str = ".refresh";
+const ONBOARDING_SUFFIX: &str = ".onboarding";
+pub(super) const MAX_ONBOARDING_BYTES: usize = 2 * 1024 * 1024;
 const MAX_REGISTRATION: usize = 2048;
 const TEMP_PREFIX: &str = ".personas-tmp-";
 const READ_FLAGS: libc::c_int =
@@ -77,6 +79,19 @@ impl Vault {
     /// Explicit absolute app-owned file path only. This function does not create
     /// directories, inspect environment variables, or discover existing accounts.
     pub fn open(path: &Path) -> Result<Self, AuthError> {
+        Self::open_checked(path, false)
+    }
+
+    // Onboarding has no runtime root yet. Use the same descriptor-anchored
+    // protection as the vault, additionally excluding repositories at every level.
+    pub(super) fn open_for_onboarding(path: &Path) -> Result<Self, AuthError> {
+        if path.starts_with(env!("CARGO_MANIFEST_DIR")) {
+            return Err(AuthError::Vault);
+        }
+        Self::open_checked(path, true)
+    }
+
+    fn open_checked(path: &Path, outside_repository: bool) -> Result<Self, AuthError> {
         if !path.is_absolute()
             || path.as_os_str().as_bytes().len() > 4096
             || path.as_os_str().as_bytes().last() == Some(&b'/')
@@ -96,6 +111,7 @@ impl Vault {
             || name.ends_with(LOCK_SUFFIX)
             || name.ends_with(REGISTRATION_SUFFIX)
             || name.ends_with(REFRESH_SUFFIX)
+            || name.ends_with(ONBOARDING_SUFFIX)
             || name.starts_with(TEMP_PREFIX)
             || !name
                 .bytes()
@@ -104,7 +120,8 @@ impl Vault {
             return Err(AuthError::Vault);
         }
         let name = CString::new(name).map_err(|_| AuthError::Vault)?;
-        let directory = open_parent(path.parent().ok_or(AuthError::Vault)?)?;
+        let directory =
+            open_parent_checked(path.parent().ok_or(AuthError::Vault)?, outside_repository)?;
         drop(open_optional(&directory, &name)?);
         Ok(Self { directory, name })
     }
@@ -153,6 +170,28 @@ impl Vault {
 }
 
 impl LockedVault {
+    // Only the sealed onboarding backend uses this secret-free, bounded sidecar.
+    // The account lock is retained through its read, claim, HTTP, and final save.
+    pub(super) fn read_onboarding(&self) -> Result<Option<Vec<u8>>, AuthError> {
+        let name = self.onboarding_name()?;
+        open_optional(&self.directory, &name)?
+            .map(|file| read_bounded(file, MAX_ONBOARDING_BYTES))
+            .transpose()
+    }
+
+    pub(super) fn write_onboarding(&self, bytes: &[u8]) -> Result<(), AuthError> {
+        let name = self.onboarding_name()?;
+        // Do not overwrite an unprotected file, symlink, or multiply linked file.
+        drop(open_optional(&self.directory, &name)?);
+        Staged::bounded(&self.directory, bytes, MAX_ONBOARDING_BYTES)?.replace(&name)
+    }
+
+    fn onboarding_name(&self) -> Result<CString, AuthError> {
+        let mut name = self.name.as_bytes().to_vec();
+        name.extend_from_slice(ONBOARDING_SUFFIX.as_bytes());
+        CString::new(name).map_err(|_| AuthError::Vault)
+    }
+
     fn record_source(&self) -> Result<RecordSource, AuthError> {
         Ok(RecordSource {
             directory: self.directory.try_clone().map_err(|_| AuthError::Vault)?,
@@ -563,7 +602,7 @@ fn open_at(
     Ok(unsafe { File::from_raw_fd(fd) })
 }
 
-fn open_parent(parent: &Path) -> Result<File, AuthError> {
+fn open_parent_checked(parent: &Path, outside_repository: bool) -> Result<File, AuthError> {
     // SAFETY: the literal is NUL terminated; open returns a new descriptor.
     let fd = unsafe {
         libc::open(
@@ -577,6 +616,9 @@ fn open_parent(parent: &Path) -> Result<File, AuthError> {
     // SAFETY: fd is fresh and ownership is transferred exactly once.
     let mut directory = unsafe { File::from_raw_fd(fd) };
     check_directory(&directory, false)?;
+    if outside_repository {
+        reject_repository(&directory)?;
+    }
     for component in parent.components() {
         match component {
             Component::RootDir => {}
@@ -590,6 +632,9 @@ fn open_parent(parent: &Path) -> Result<File, AuthError> {
                 )
                 .map_err(|_| AuthError::Vault)?;
                 check_directory(&next, false)?;
+                if outside_repository {
+                    reject_repository(&next)?;
+                }
                 directory = next;
             }
             _ => return Err(AuthError::Vault),
@@ -597,6 +642,25 @@ fn open_parent(parent: &Path) -> Result<File, AuthError> {
     }
     check_directory(&directory, true)?;
     Ok(directory)
+}
+
+fn reject_repository(directory: &File) -> Result<(), AuthError> {
+    for name in [c".git", c".hg", c".svn"] {
+        let mut metadata = std::mem::MaybeUninit::<libc::stat>::uninit();
+        // SAFETY: valid descriptor, NUL-terminated literal, writable stat buffer.
+        let result = unsafe {
+            libc::fstatat(
+                directory.as_raw_fd(),
+                name.as_ptr(),
+                metadata.as_mut_ptr(),
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        };
+        if result == 0 || io::Error::last_os_error().kind() != io::ErrorKind::NotFound {
+            return Err(AuthError::Vault);
+        }
+    }
+    Ok(())
 }
 
 fn check_directory(directory: &File, immediate: bool) -> Result<(), AuthError> {
@@ -697,7 +761,11 @@ struct Staged<'a> {
 
 impl<'a> Staged<'a> {
     fn new(directory: &'a File, bytes: &[u8]) -> Result<Self, AuthError> {
-        if bytes.len() > MAX_BODY {
+        Self::bounded(directory, bytes, MAX_BODY)
+    }
+
+    fn bounded(directory: &'a File, bytes: &[u8], maximum: usize) -> Result<Self, AuthError> {
+        if bytes.len() > maximum {
             return Err(AuthError::Vault);
         }
         for _ in 0..16 {

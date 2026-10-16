@@ -2,6 +2,9 @@
 use super::*;
 #[path = "launch/results.rs"]
 mod results;
+/// Operator-only Stage 1 launcher protocol; not a persona tool.
+#[path = "launch/session.rs"]
+pub mod session;
 pub use results::Output;
 #[cfg(unix)]
 #[path = "launch/native.rs"]
@@ -44,6 +47,9 @@ pub use work_resource_grant::{
     WorkResourceGrantFence, WorkResourceGrantOutcome, WorkResourceGrantReceipt,
     WorkResourceGrantRequest, WorkResourceIncrease,
 };
+
+#[path = "launch/bootstrap.rs"]
+pub mod bootstrap;
 
 const ID: &str = "runtime-launch-v1";
 const POLICY: &str = "launch-local";
@@ -222,7 +228,7 @@ fn ensure_cohort(app: &mut Runtime, saved: &Saved) -> Result<()> {
     }
     Ok(())
 }
-pub fn setup(root: &Path, operator: &str, settings: Setup, opt_in: bool) -> Result<Runtime> {
+fn setup_parts(operator: &str, settings: Setup, opt_in: bool) -> Result<(Config, Saved)> {
     identity(operator)?;
     require(
         opt_in && settings.share_cohort,
@@ -278,12 +284,6 @@ pub fn setup(root: &Path, operator: &str, settings: Setup, opt_in: bool) -> Resu
     require(working.is_dir(), "working directory must exist")?;
     let settings: SavedSetup = serde_json::from_value(serde_json::to_value(settings)?)?;
     settings.execution_provider()?;
-    let root = private_tree(root)?;
-    require(
-        !working.starts_with(&root) && !root.starts_with(&working),
-        "provider working directory and private state must be separate",
-    )?;
-    let mut app = Runtime::create(&root, config, operator)?;
     let saved = Saved {
         format: 2,
         operator: operator.into(),
@@ -294,6 +294,17 @@ pub fn setup(root: &Path, operator: &str, settings: Setup, opt_in: bool) -> Resu
         works: BTreeMap::new(),
         steps: 0,
     };
+    Ok((config, saved))
+}
+
+pub fn setup(root: &Path, operator: &str, settings: Setup, opt_in: bool) -> Result<Runtime> {
+    let (config, saved) = setup_parts(operator, settings, opt_in)?;
+    let root = private_tree(root)?;
+    require(
+        !saved.working_directory.starts_with(&root) && !root.starts_with(&saved.working_directory),
+        "provider working directory and private state must be separate",
+    )?;
+    let mut app = Runtime::create(&root, config, operator)?;
     save(&mut app, None, &saved)?;
     ensure_cohort(&mut app, &saved)?;
     Ok(app)
@@ -403,8 +414,26 @@ fn start_with_acceptance_owned(
     require_acceptance: bool,
     _owner: &s::ExecutionOwner,
 ) -> Result<String> {
+    start_owned_keyed(app, request, require_acceptance, _owner, None)
+}
+
+fn start_owned_keyed(
+    app: &mut Runtime,
+    request: &str,
+    require_acceptance: bool,
+    _owner: &s::ExecutionOwner,
+    key: Option<&session::NeedRequest>,
+) -> Result<String> {
     text(request, 32_768)?;
     let (old, mut saved) = load(app)?;
+    if let Some(key) = key {
+        require(
+            key.operator == saved.operator
+                && key.need == request
+                && key.require_acceptance == require_acceptance,
+            "keyed intake request binding changed",
+        )?;
+    }
     let (runtime_head, state) = app.load()?;
     admission_extension::authorize(&state, &saved, &saved.operator)?;
     admission_extension::validate_saved(&state, &saved)?;
@@ -479,24 +508,35 @@ fn start_with_acceptance_owned(
             "inference_performed": false
         }),
     };
+    let keyed = key
+        .map(|key| session::keyed_receipt(key, &id, &receipt))
+        .transpose()?;
+    let mut changes = vec![
+        s::Change {
+            expected_revision: Some(runtime_head.revision),
+            object: runtime,
+            depends_on: Vec::new(),
+        },
+        s::Change {
+            expected_revision: Some(old.revision),
+            object: launch,
+            depends_on: Vec::new(),
+        },
+        s::Change {
+            expected_revision: None,
+            object: receipt,
+            depends_on: vec![target_runtime, target_launch],
+        },
+    ];
+    if let Some(object) = keyed {
+        changes.push(s::Change {
+            expected_revision: None,
+            object,
+            depends_on: Vec::new(),
+        });
+    }
     app.store
-        .compare_and_swap_batch_requiring_terminal_invocations(vec![
-            s::Change {
-                expected_revision: Some(runtime_head.revision),
-                object: runtime,
-                depends_on: Vec::new(),
-            },
-            s::Change {
-                expected_revision: Some(old.revision),
-                object: launch,
-                depends_on: Vec::new(),
-            },
-            s::Change {
-                expected_revision: None,
-                object: receipt,
-                depends_on: vec![target_runtime, target_launch],
-            },
-        ])?;
+        .compare_and_swap_batch_requiring_terminal_invocations(changes)?;
     Ok(id)
 }
 type Pick = (usize, Option<String>);

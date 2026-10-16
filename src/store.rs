@@ -1129,16 +1129,39 @@ impl TrustedHost<'_> {
         object: StoredObject,
         operator: &str,
     ) -> Result<BatchReceipt> {
+        self.initialize_runtime_state_with_changes(object, operator, Vec::new())
+    }
+
+    // Runtime-owned fresh bootstrap only. The existing initialization and control
+    // allocation transaction also commits exact launch metadata and its receipt.
+    pub(crate) fn initialize_runtime_state_with_changes(
+        &mut self,
+        object: StoredObject,
+        operator: &str,
+        mut changes: Vec<Change>,
+    ) -> Result<BatchReceipt> {
         self.store.transaction(|work| {
             work.admission()?;
             if object.id != RUNTIME_CONTROL_STATE_ID || object.kind != "runtime-state" {
                 return Err(StoreError::Invalid("runtime control subject".into()));
             }
-            let changes = vec![Change {
+            if !changes.is_empty() {
+                let occupied: bool =
+                    work.db
+                        .query_row("SELECT EXISTS(SELECT 1 FROM store_cells)", [], |row| {
+                            row.get(0)
+                        })?;
+                if occupied {
+                    return Err(StoreError::Invalid(
+                        "fresh bootstrap requires an empty Store".into(),
+                    ));
+                }
+            }
+            changes.push(Change {
                 expected_revision: None,
                 object: object.clone(),
                 depends_on: Vec::new(),
-            }];
+            });
             work.validate_changes(&changes)?;
             work.provision_runtime_control(&object, operator)?;
             work.bump_epoch()?;
@@ -1972,6 +1995,13 @@ impl Store {
         })?;
         self.recover_dispatched()?;
         Ok(owner)
+    }
+
+    /// Runtime launcher boundary: exclude an owner without recovering orphan
+    /// dispatches. A retained/unobserved session must never become a replay.
+    /// This guard grants no dispatch; all normal admission checks still apply.
+    pub(crate) fn try_execution_owner_without_recovery(&self) -> Result<Option<ExecutionOwner>> {
+        ExecutionOwner::try_acquire(&self.path)
     }
 
     fn transaction<T>(&mut self, operation: impl FnOnce(&mut Work<'_>) -> Result<T>) -> Result<T> {

@@ -7,3 +7,6 @@ operator.token*
 .env*
 /state/
 /audit/
+
+__pycache__/
+*.py[cod]

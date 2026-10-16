@@ -1,5 +1,7 @@
 # One-command foreground launch
 
+With **no arguments**, `./personas` now opens [integrated first-run and returning-work interaction](interactive-launch.md). The manual setup and thin-wrapper behavior below describe **explicit argument-based commands**, not the no-argument journey.
+
 From the checkout, `./personas` asks for one need, then replaces itself with the
 selected installed executable. `./personas "Your exact need"` skips the prompt.
 This is a convenience entry point, not an interactive agent, daemon, new runtime,

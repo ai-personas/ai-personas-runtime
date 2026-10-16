@@ -2211,6 +2211,27 @@ impl CloseoutRuntime {
         self.runtime.ledger()
     }
 }
+// Shared constructor; bootstrap inserts the same ordinary creation seeds before
+// the initial state, control plan and launch metadata commit atomically.
+fn initial_state(config: Config, operator: &str) -> State {
+    State {
+        format: 1,
+        config,
+        personas: BTreeMap::new(),
+        sources: BTreeMap::new(),
+        accepted_bindings: Vec::new(),
+        semantic_warnings: BTreeMap::new(),
+        board: w::WorkBoard::default(),
+        work_meta: BTreeMap::new(),
+        observations: BTreeMap::new(),
+        messages: BTreeMap::new(),
+        local_deliveries: BTreeMap::new(),
+        interpretations: BTreeMap::new(),
+        local_evidence: LocalEvidenceBridge::default(),
+        intake_episodes: BTreeMap::new(),
+        operator_events: vec![json!({"kind":"initialization","operator":operator})],
+    }
+}
 impl Runtime {
     pub fn create(root: &Path, config: Config, operator: &str) -> Result<Self> {
         identity(operator)?;
@@ -2220,23 +2241,7 @@ impl Runtime {
         if store.read(STATE_ID)?.is_some() {
             return Err(invalid("state already initialized"));
         }
-        let state = State {
-            format: 1,
-            config,
-            personas: BTreeMap::new(),
-            sources: BTreeMap::new(),
-            accepted_bindings: Vec::new(),
-            semantic_warnings: BTreeMap::new(),
-            board: w::WorkBoard::default(),
-            work_meta: BTreeMap::new(),
-            observations: BTreeMap::new(),
-            messages: BTreeMap::new(),
-            local_deliveries: BTreeMap::new(),
-            interpretations: BTreeMap::new(),
-            local_evidence: LocalEvidenceBridge::default(),
-            intake_episodes: BTreeMap::new(),
-            operator_events: vec![json!({"kind":"initialization","operator":operator})],
-        };
+        let state = initial_state(config, operator);
         store.trusted_host().initialize_runtime_state(
             s::StoredObject {
                 id: STATE_ID.into(),
@@ -2255,6 +2260,26 @@ impl Runtime {
     pub fn open(root: &Path) -> Result<Self> {
         Self::open_in_class(root, s::BudgetClass::Ordinary)
     }
+    /// Private launcher connection path. Existing protected state only; unlike
+    /// ordinary open, neither this open nor its validation recovers an owner.
+    /// Reads still spend the existing Ordinary Store navigation allowance.
+    pub(crate) fn open_for_launch_inspection(root: &Path) -> Result<Self> {
+        let root = secure_state_root(root, false)?;
+        require(
+            root.join("state.sqlite3").is_file(),
+            "state database is missing",
+        )?;
+        let mut app = Self {
+            store: s::Store::open_for_inspection(&root.join("state.sqlite3"), storage_limits())?,
+            root,
+            synthetic_owner: None,
+        };
+        let (_, state) = app.load()?;
+        state.config.validate()?;
+        require(state.format == 1, "unsupported runtime state version")?;
+        Ok(app)
+    }
+
     /// Select only after the trusted host authorizes terminal inspection,
     /// complete-response rejection, pause, or ending. This cannot initialize a
     /// missing database or grant ordinary work access to protected capacity.

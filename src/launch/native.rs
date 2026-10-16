@@ -241,3 +241,34 @@ impl Driver for NativeDriver<'_> {
         .await
     }
 }
+
+// Stage 1 uses the same fixed native driver under an already consumed session
+// claim. It must not reacquire ownership, perform orphan recovery or intake.
+pub(super) async fn run_session_owned(
+    app: &mut Runtime,
+    operator: &str,
+    work: &str,
+    vault: &Path,
+    owner: &s::ExecutionOwner,
+) -> Result<(Output, Option<session::BoundaryError>)> {
+    let (_, saved) = load(app)?;
+    let (settings, config) = validate_saved(app, &saved, operator)?;
+    require(saved.works.contains_key(work), "unknown launch work")?;
+    let source = Arc::new(VaultCredentialSource::open(vault, &settings).map_err(rejected)?);
+    let provider = provider::DirectProvider::new(
+        settings,
+        source.clone(),
+        Arc::new(provider::ReqwestTransport::new()?),
+        Arc::new(provider::SystemClock),
+    )?;
+    let mut driver = NativeDriver {
+        owner,
+        source,
+        provider,
+        launch: binding(&saved)?,
+        config,
+        intake_selection: None,
+    };
+    driver.before_step(app)?;
+    session::drive(app, work, &mut driver).await
+}

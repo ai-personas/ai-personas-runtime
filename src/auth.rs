@@ -35,6 +35,8 @@ mod vault;
 pub use vault::{LockedVault, Vault};
 #[cfg(unix)]
 pub(crate) mod native;
+#[cfg(unix)]
+pub mod onboarding;
 
 /// Fixed production issuer; JWKS provisioning is a trusted injection boundary.
 pub const ISSUER: &str = "https://auth.openai.com";

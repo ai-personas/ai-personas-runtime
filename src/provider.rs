@@ -4,6 +4,8 @@
 //! Neither is an interface for accepting model-authored transport receipts.
 //! There is no credential discovery, refresh, subprocess, retry, or fallback.
 
+#[cfg(unix)]
+pub(crate) mod onboarding;
 mod sse;
 
 use futures_util::future::BoxFuture;

@@ -250,7 +250,9 @@ class LauncherSmoke(unittest.TestCase):
         master, slave = pty.openpty()
         try:
             proc = subprocess.Popen(
-                self.command(), stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                # No arguments now enter the integrated dialogue. This fixture
+                # retains coverage of the explicit-option legacy prompt path.
+                self.command("--operator", "fixture-human"), stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 cwd=self.cwd, env=self.env, text=True,
             )
             try:
@@ -271,7 +273,7 @@ class LauncherSmoke(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("What would you like", result.stderr)
         self.assertEqual(len(self.records()), 1)
-        self.assertEqual(self.records()[0]["args"], ["run", "--", "a need with \\ and spaces"])
+        self.assertEqual(self.records()[0]["args"], ["--operator=fixture-human", "run", "--", "a need with \\ and spaces"])
 
     def test_terminal_eof_does_not_start_work(self):
         self.fake()
