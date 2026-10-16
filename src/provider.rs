@@ -526,6 +526,39 @@ pub struct RequestAudit {
     pub configuration_sha256: String,
     pub transport_profile: String,
 }
+/// Redacted fixed-shape stream failure metadata. Values are static rule/event
+/// labels or numeric positions, never payload excerpts, errors, reasoning or credentials.
+#[derive(Clone, Debug, Serialize)]
+pub struct StreamDiagnostic {
+    pub stage: &'static str,
+    pub event_index: Option<u64>,
+    pub event_type: Option<&'static str>,
+    pub event_type_sha256: Option<String>,
+    pub rule: &'static str,
+    pub field: Option<&'static str>,
+}
+/// An observed provider response identifier, retained only in the protected host
+/// receipt. Observation does not establish protocol binding, completion or retrieval authority.
+/// Requests still use store:false; no remote retrieval or automatic retry is added.
+#[derive(Clone, Serialize)]
+#[serde(transparent)]
+pub struct RetainedResponseId(String);
+impl RetainedResponseId {
+    fn from_wire(value: &str) -> Option<Self> {
+        (value.starts_with("resp_")
+            && value.len() > 5
+            && value.len() <= 128
+            && value
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'))
+        .then(|| Self(value.into()))
+    }
+}
+impl fmt::Debug for RetainedResponseId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("RetainedResponseId([REDACTED])")
+    }
+}
 #[derive(Clone, Debug, Serialize)]
 pub struct AttemptReceipt {
     pub audit: RequestAudit,
@@ -539,6 +572,12 @@ pub struct AttemptReceipt {
     pub stream_eof: bool,
     pub event_count: u64,
     pub response_completed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream_diagnostic: Option<StreamDiagnostic>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_id: Option<RetainedResponseId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_id_sha256: Option<String>,
     /// Last explicit provider report, not independently verified served identity.
     /// An omitted/null snapshot supplies no new report.
     pub reported_effort: Option<String>,
@@ -561,6 +600,9 @@ impl AttemptReceipt {
             stream_eof: false,
             event_count: 0,
             response_completed: false,
+            stream_diagnostic: None,
+            response_id: None,
+            response_id_sha256: None,
             reported_effort: None,
             previous_reported_effort: None,
             usage: Usage::default(),
@@ -612,7 +654,9 @@ impl ProviderOutput {
                 .attempt
                 .reported_effort
                 .as_deref()
-                .is_some_and(|effort| !identifier(effort) || effort != intent.effort.as_str())
+                .is_some_and(|effort| {
+                    reported_effort_label(effort).is_none() || effort != intent.effort.as_str()
+                })
             || self.attempt.previous_reported_effort.is_some()
             || self.response.len() > intent.max_response_bytes
             || !self.attempt.response_completed
@@ -623,10 +667,12 @@ impl ProviderOutput {
             // binding check. The failure belongs to the expected admission.
             let mut receipt = self.attempt;
             receipt.audit = audit.clone();
-            receipt.reported_effort = receipt.reported_effort.filter(|value| identifier(value));
+            receipt.reported_effort = receipt
+                .reported_effort
+                .filter(|value| reported_effort_label(value).is_some());
             receipt.previous_reported_effort = receipt
                 .previous_reported_effort
-                .filter(|value| identifier(value));
+                .filter(|value| reported_effort_label(value).is_some());
             receipt.dispatch_may_have_begun = true;
             receipt.remote_effects_and_charges_may_remain = true;
             return Err(attempt_error(Failure::Binding, receipt));
@@ -1184,13 +1230,13 @@ impl DirectCall {
                             .saturating_sub(collector.observed);
                         // Exact exhaustion also rejects: EOF has not been observed.
                         if remaining == 0 {
-                            return Err(Failure::Limit);
+                            return Err(collector.transport_limit(false));
                         }
                         let maximum = remaining.min(8192);
                         match body.read(maximum).await? {
                             Some(bytes) => {
                                 if bytes.len() > maximum {
-                                    return Err(Failure::Limit);
+                                    return Err(collector.transport_limit(true));
                                 }
                                 collector.push(&bytes)?;
                             }
@@ -1216,6 +1262,9 @@ impl DirectCall {
             receipt.stream_bytes_observed = collector.observed as u64;
             receipt.event_count = collector.events as u64;
             receipt.response_completed = collector.completed;
+            receipt.stream_diagnostic = collector.diagnostic.clone();
+            receipt.response_id = collector.retained_response_id();
+            receipt.response_id_sha256 = collector.response_id_sha256();
             receipt.reported_effort = collector.reported_effort.clone();
             receipt.previous_reported_effort = collector.previous_reported_effort.clone();
             receipt.usage = collector.usage.clone();
@@ -1272,6 +1321,20 @@ fn secret_valid(secret: &Secret, maximum: usize) -> bool {
 }
 fn identifier(s: &str) -> bool {
     !s.is_empty() && s.len() <= 128 && !s.chars().any(|c| c.is_control() || c.is_whitespace())
+}
+// Closed public Responses effort vocabulary. Unknown provider values must not
+// be echoed into serialized or Debug receipts, even if they resemble identifiers.
+fn reported_effort_label(value: &str) -> Option<&'static str> {
+    match value {
+        "none" => Some("none"),
+        "minimal" => Some("minimal"),
+        "low" => Some("low"),
+        "medium" => Some("medium"),
+        "high" => Some("high"),
+        "xhigh" => Some("xhigh"),
+        "max" => Some("max"),
+        _ => None,
+    }
 }
 fn digest_string(s: &str) -> bool {
     s.len() == 64
