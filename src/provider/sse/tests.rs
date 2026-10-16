@@ -363,6 +363,8 @@ fn remote_terminal_status_and_usage_are_checked() {
             c.push(&frame(
                 json!({"type":format!("response.{status}"), "response":{
             "id":"resp_synthetic","model":"fixture-model","status":status,
+            "error":{"type":"server_error","code":"server_error",
+                "message":"synthetic_remote_error_secret"},
             "usage":{"input_tokens":3,"output_tokens":4,"total_tokens":7}}})
             )),
             Err(Failure::RemoteFailure)
@@ -376,6 +378,14 @@ fn remote_terminal_status_and_usage_are_checked() {
             },
         );
         assert_eq!(c.usage.total_tokens, Some(7));
+        let d = c.diagnostic.as_ref().unwrap();
+        let label = (status == "failed").then_some("server_error");
+        assert_eq!(d.remote_error_type, label);
+        assert_eq!(d.remote_error_code, label);
+        assert!(!serde_json::to_string(d)
+            .unwrap()
+            .contains("synthetic_remote_error_secret"));
+        assert!(!format!("{d:?}").contains("synthetic_remote_error_secret"));
     }
 }
 
@@ -830,4 +840,152 @@ fn collector_limit_rules_distinguish_event_and_response_bounds() {
     let mut c = started();
     assert_eq!(c.transport_limit(true), Failure::Limit);
     assert_rule(&c, "transport_chunk_exceeds_requested_bound");
+}
+
+#[tokio::test]
+async fn remote_error_receipts_keep_only_allowlisted_labels() {
+    let marker = "synthetic_remote_error_secret";
+    for kind in ["error", "response.error"] {
+        for nested in [false, true] {
+            let mut event = json!({"type":kind,"code":"rate_limit_exceeded",
+                "message":marker,"param":marker});
+            if nested {
+                event["error"] = json!({"type":"server_error","code":"server_error",
+                    "message":marker,"param":marker,"payload":marker,
+                    "reasoning":marker,"credentials":marker});
+            }
+            let mut first = created();
+            first["response"]["reasoning"] = json!({"effort":"high"});
+            let mut bytes = frame(first);
+            bytes.extend(frame(event));
+            let p::ProviderError::Attempt { failure, receipt } =
+                dispatch(bytes, false).await.unwrap_err()
+            else {
+                panic!("missing failed attempt receipt")
+            };
+            assert_eq!(failure, Failure::RemoteFailure);
+            let d = receipt.stream_diagnostic.as_ref().unwrap();
+            assert_eq!(d.event_type, Some(kind));
+            assert_eq!(d.event_index, Some(2));
+            assert_eq!(d.rule, "remote_or_unsupported_output");
+            assert_eq!(d.remote_error_type, nested.then_some("server_error"));
+            assert_eq!(
+                d.remote_error_code,
+                Some(if nested {
+                    "server_error"
+                } else {
+                    "rate_limit_exceeded"
+                })
+            );
+            assert_eq!(receipt.http_status, Some(200));
+            assert!(!receipt.response_completed && !receipt.stream_eof);
+            assert!(receipt.remote_effects_and_charges_may_remain);
+            assert!(!receipt.remote_stop_confirmed);
+            assert_eq!(receipt.usage, Usage::default());
+            assert_eq!(receipt.reported_effort.as_deref(), Some("high"));
+            assert!(receipt.previous_reported_effort.is_none());
+            assert_eq!(
+                serde_json::to_value(&receipt.response_id).unwrap(),
+                "resp_synthetic"
+            );
+            let serialized = serde_json::to_string(&receipt).unwrap();
+            let debug = format!("{receipt:?}");
+            for secret in [marker, "synthetic-test-key", "synthetic input"] {
+                assert!(!serialized.contains(secret));
+                assert!(!debug.contains(secret));
+            }
+            assert!(serialized.len() < 8192);
+        }
+    }
+}
+
+#[test]
+fn remote_error_labels_are_bounded_and_sticky() {
+    let marker = "synthetic_remote_error_secret";
+    for (value, expected) in [
+        (Some(json!(marker.repeat(80))), Some("unrecognized")),
+        (
+            Some(json!("server_error\nsynthetic_remote_error_secret")),
+            Some("unrecognized"),
+        ),
+        (Some(json!({"message":marker})), Some("non_string")),
+        (Some(json!([marker])), Some("non_string")),
+        (Some(json!(17)), Some("non_string")),
+        (Some(Value::Null), None),
+        (None, None),
+    ] {
+        let mut error = json!({});
+        if let Some(value) = value {
+            error["type"] = value.clone();
+            error["code"] = value;
+        }
+        let mut c = started();
+        assert_eq!(
+            c.push(&frame(json!({"type":"error","error":error}))),
+            Err(Failure::RemoteFailure)
+        );
+        let d = c.diagnostic.as_ref().unwrap();
+        assert_eq!(d.event_type, Some("error"));
+        assert_eq!(d.remote_error_type, expected);
+        assert_eq!(d.remote_error_code, expected);
+        let original = serde_json::to_string(d).unwrap();
+        assert!(original.len() < 512);
+        assert!(!original.contains(marker));
+        assert!(!format!("{d:?}").contains(marker));
+        assert!(!c.completed);
+        assert_eq!(c.usage, Usage::default());
+        assert_eq!(
+            c.push(&frame(completed(vec![message("m1", None, "late")]))),
+            Err(Failure::RemoteFailure)
+        );
+        assert_eq!(c.finish(), Err(Failure::RemoteFailure));
+        assert_eq!(
+            serde_json::to_string(c.diagnostic.as_ref().unwrap()).unwrap(),
+            original
+        );
+    }
+}
+
+#[test]
+fn remote_error_metadata_preserves_validation_and_unknown_usage() {
+    let error = json!({"type":"server_error","code":"server_error"});
+    let mut c = Collector::new("fixture-model", &limits());
+    assert_eq!(
+        c.push(&frame(json!({"type":"error","error":error}))),
+        Err(Failure::Protocol)
+    );
+    assert_rule(&c, "event_before_created");
+    assert!(c.diagnostic.as_ref().unwrap().remote_error_type.is_none());
+    assert!(c.diagnostic.as_ref().unwrap().remote_error_code.is_none());
+
+    for (usage, failure, rule, label) in [
+        (
+            Value::Null,
+            Failure::RemoteFailure,
+            "provider_failed",
+            Some("server_error"),
+        ),
+        (
+            json!({"input_tokens":-1}),
+            Failure::Protocol,
+            "usage_counter_invalid",
+            None,
+        ),
+    ] {
+        let mut c = started();
+        assert_eq!(
+            c.push(&frame(json!({"type":"response.failed","response":{
+                "id":"resp_synthetic","model":"fixture-model","status":"failed",
+                "error":error,"usage":usage}}))),
+            Err(failure)
+        );
+        assert_rule(&c, rule);
+        let d = c.diagnostic.as_ref().unwrap();
+        assert_eq!(d.event_type, Some("response.failed"));
+        assert_eq!(d.remote_error_type, label);
+        assert_eq!(d.remote_error_code, label);
+        assert!(!c.completed);
+        assert_eq!(c.usage, Usage::default());
+        assert_eq!(c.finish(), Err(failure));
+    }
 }

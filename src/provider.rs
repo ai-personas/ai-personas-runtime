@@ -526,14 +526,19 @@ pub struct RequestAudit {
     pub configuration_sha256: String,
     pub transport_profile: String,
 }
-/// Redacted fixed-shape stream failure metadata. Values are static rule/event
-/// labels or numeric positions, never payload excerpts, errors, reasoning or credentials.
+/// Redacted fixed-shape stream failure metadata. Values are static labels,
+/// numeric positions or bounded digests, never free-form provider text.
 #[derive(Clone, Debug, Serialize)]
 pub struct StreamDiagnostic {
     pub stage: &'static str,
     pub event_index: Option<u64>,
     pub event_type: Option<&'static str>,
     pub event_type_sha256: Option<String>,
+    /// Sanitized nested error type; distinct from the SSE event's type.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_error_type: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_error_code: Option<&'static str>,
     pub rule: &'static str,
     pub field: Option<&'static str>,
 }

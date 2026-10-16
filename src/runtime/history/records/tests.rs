@@ -6,6 +6,199 @@ const ACTOR: &str = "persona-0001";
 const FIRST: &str = "work-00000001";
 const SECOND: &str = "work-00000002";
 
+#[test]
+fn retrieved_consequence_to_authored_fragment_selection_survives_reopen() {
+    let (directory, mut app) = fixture();
+    let produce = prepare(&mut app, "fragment-produce", FIRST, 100);
+    submit(
+        &mut app,
+        &produce,
+        vec![json!({"kind":"history_query","id":"probe",
+            "mode":{"kind":"literal","needle":"synthetic-fragment-absent-message"},
+            "limit":1,"cursor":null})],
+        "Produce a synthetic consequence",
+        101,
+    );
+    let old_id = observation_id("fragment-produce", "history_query", "probe");
+    let consume = prepare(&mut app, "fragment-consume", FIRST, 102);
+    assert!(consume.supplied_observations.contains(&old_id));
+    assert_eq!(
+        supplied(&consume, "history_query", "probe")["payload"]["status"],
+        "no_match"
+    );
+    submit(
+        &mut app,
+        &consume,
+        vec![],
+        "Consume the original consequence",
+        103,
+    );
+    let (_, before) = app.load().unwrap();
+    assert!(!before.personas[ACTOR].focus[FIRST]
+        .pending_observations
+        .contains(&old_id));
+
+    assert_eq!(
+        launch::start(&mut app, "Second synthetic history request").unwrap(),
+        SECOND
+    );
+    let search = prepare(&mut app, "fragment-search", SECOND, 104);
+    assert!(!search.supplied_observations.contains(&old_id));
+    submit(
+        &mut app,
+        &search,
+        vec![query("observation", "find-consequence", &old_id)],
+        "Find the consumed consequence",
+        105,
+    );
+    let read = prepare(&mut app, "fragment-read", SECOND, 106);
+    let found = supplied(&read, "history_records_query", "find-consequence");
+    assert_eq!(found["payload"]["status"], "complete");
+    let hits = found["payload"]["records"].as_array().unwrap();
+    assert_eq!(hits.len(), 1);
+    let reference = hits[0]["reference"].clone();
+    submit(
+        &mut app,
+        &read,
+        vec![json!({"kind":"history_record_read","id":"read-consequence",
+            "reference":reference})],
+        "Read the exact historical consequence",
+        107,
+    );
+    let revise = prepare(&mut app, "fragment-revise", SECOND, 108);
+    let receipt_id = observation_id("fragment-read", "history_record_read", "read-consequence");
+    assert!(revise.supplied_observations.contains(&receipt_id));
+    assert!(!revise.supplied_observations.contains(&old_id));
+    let projected = supplied(&revise, "history_record_read", "read-consequence");
+    assert_eq!(projected["payload"]["status"], "read");
+    let historical = &projected["payload"]["record"];
+    assert_eq!(historical["reference"], reference);
+    assert_eq!(historical["historical_only"], true);
+    assert_eq!(historical["operative_evidence_or_event"], false);
+    let consequence = &historical["historical_record"];
+    assert_eq!(consequence["id"], old_id);
+    assert_eq!(consequence["work"], FIRST);
+    assert_eq!(consequence["actor"], ACTOR);
+    assert_eq!(consequence["invocation"], "fragment-produce");
+    assert_eq!(consequence["payload"]["status"], "no_match");
+    assert!(projected["current_required_qualifications"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+
+    // Explicitly authored fixture content; this tests wiring, not learning.
+    let source = "history-fixture-guidance";
+    let text =
+        format!("Synthetic guidance: {old_id} is historical context, not operative evidence.");
+    let mut authored = decision(
+        &revise,
+        vec![
+            json!({"kind":"file_write","id":"save-guidance","scope":{"kind":"fragments"},
+            "source":source,"path":"fragments/persona-0001/history-guidance.txt",
+            "base_revision":null,"text":text,"qualifications":[],
+            "policy_id":before.config.policies.active_policies[0].id}),
+        ],
+        "Exercise explicit optional fragment authorship from supplied history",
+    );
+    authored["fragment_maintenance"] = json!({"kind":"change",
+        "reason":"Author the synthetic guidance fixture","operation_ids":["save-guidance"]});
+    authored["next_fragments"] = json!({"kind":"replace",
+        "reason":"Select this exact synthetic proposal for SECOND work",
+        "references":[{"source":source,"revision":"proposal-op:save-guidance",
+            "representation":"utf8","start":null,"end":null,"lifetime":"work"}]});
+    let raw = serde_json::to_vec(&authored).unwrap();
+    let report = app.submit_synthetic(&revise.request.id, &raw, 109).unwrap();
+    assert_eq!(report.status, AdoptionStatus::Adopted, "{report:?}");
+    let (_, accepted) = app.load().unwrap();
+    let stored = &accepted.sources[source];
+    assert_eq!(stored.revisions.len(), 1);
+    let record = &stored.revisions[0].record;
+    assert_eq!(stored.head, record.revision);
+    assert_eq!(record.bytes.as_slice(), text.as_bytes());
+    let exact = record.reference(f::Representation::Utf8);
+    let selection = &accepted.personas[ACTOR].focus[SECOND].fragments;
+    assert_eq!(selection.as_ref().unwrap().len(), 1);
+    let selection = serde_json::to_value(selection).unwrap();
+    drop(app);
+
+    let mut app = Runtime::open(&directory.path().join("state")).unwrap();
+    let (_, reopened) = app.load().unwrap();
+    assert_eq!(
+        serde_json::to_value(&reopened.personas[ACTOR].focus[SECOND].fragments).unwrap(),
+        selection
+    );
+    assert_eq!(
+        serde_json::to_value(&reopened.personas[ACTOR].character).unwrap(),
+        serde_json::to_value(&before.personas[ACTOR].character).unwrap()
+    );
+    assert_eq!(
+        serde_json::to_value(&reopened.observations[&old_id]).unwrap(),
+        serde_json::to_value(&before.observations[&old_id]).unwrap()
+    );
+    assert!(!reopened.personas[ACTOR].focus[SECOND]
+        .pending_observations
+        .contains(&old_id));
+    let next = prepare(&mut app, "fragment-next", SECOND, 110);
+    assert!(!next.supplied_observations.contains(&old_id));
+    assert!(!next.supplied_observations.contains(&receipt_id));
+    let supplied_guidance: Vec<_> = next
+        .sources
+        .iter()
+        .filter(|reference| reference.source == source)
+        .cloned()
+        .collect();
+    assert_eq!(supplied_guidance, vec![exact.clone()]);
+    let qualified = next.prompt.split("\nQUALIFIED_CONTEXT\n").nth(1).unwrap();
+    let qualified: serde_json::Value = serde_json::from_str(qualified).unwrap();
+    assert_eq!(qualified["reference_format"], "decision_exact_ref");
+    let rendered_guidance: Vec<_> = qualified["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|entry| entry["reference"]["source"] == source)
+        .map(|entry| {
+            (
+                crate::runtime::observability::context_reference(&qualified, &entry["reference"])
+                    .unwrap(),
+                entry["text"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(rendered_guidance, vec![(exact, text.as_str())]);
+
+    let mut unchanged = decision(&next, vec![], "Retain the exact accepted guidance");
+    unchanged["fragment_maintenance"] = json!({"kind":"no_change",
+        "reason":"The supplied exact guidance needs no further synthetic revision"});
+    unchanged["next_fragments"] = json!({"kind":"preserve",
+        "reason":"Keep the accepted work-local selection"});
+    let report = app
+        .submit_synthetic(
+            &next.request.id,
+            &serde_json::to_vec(&unchanged).unwrap(),
+            111,
+        )
+        .unwrap();
+    assert_eq!(report.status, AdoptionStatus::Adopted, "{report:?}");
+
+    let first = prepare(&mut app, "fragment-first-again", FIRST, 112);
+    assert!(!first
+        .sources
+        .iter()
+        .any(|reference| reference.source == source));
+    assert!(!first.supplied_observations.contains(&old_id));
+    let (_, after) = app.load().unwrap();
+    assert!(after.personas[ACTOR].focus[FIRST]
+        .fragments
+        .as_ref()
+        .is_none_or(Vec::is_empty));
+    assert_eq!(
+        serde_json::to_value(&after.personas[ACTOR].focus[SECOND].fragments).unwrap(),
+        selection
+    );
+    assert_eq!(after.sources[source].head, record.revision);
+    assert_eq!(after.sources[source].revisions.len(), 1);
+}
+
 pub(super) fn fixture() -> (tempfile::TempDir, Runtime) {
     let directory = tempfile::tempdir().unwrap();
     let working = directory.path().join("working");

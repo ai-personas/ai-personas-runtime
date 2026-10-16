@@ -150,6 +150,8 @@ pub(super) struct Collector {
     event_index: Option<u64>,
     event_type: Option<&'static str>,
     event_type_sha256: Option<String>,
+    remote_error_type: Option<&'static str>,
+    remote_error_code: Option<&'static str>,
     pub diagnostic: Option<StreamDiagnostic>,
     pub observed: usize,
     pub events: usize,
@@ -181,6 +183,8 @@ impl Collector {
             event_index: Some(1),
             event_type: None,
             event_type_sha256: None,
+            remote_error_type: None,
+            remote_error_code: None,
             diagnostic: None,
             observed: 0,
             events: 0,
@@ -209,6 +213,8 @@ impl Collector {
             event_index: self.event_index,
             event_type: self.event_type,
             event_type_sha256: self.event_type_sha256.clone(),
+            remote_error_type: self.remote_error_type,
+            remote_error_code: self.remote_error_code,
             rule: failure.rule,
             field: failure.field,
         });
@@ -218,6 +224,23 @@ impl Collector {
         self.event_type = Some(safe_event_type(name));
         self.event_type_sha256 =
             (self.event_type == Some("unrecognized")).then(|| super::digest(name.as_bytes()));
+    }
+    // Called only immediately before a sticky remote failure.
+    fn observe_remote_error(&mut self, error_type: Option<&Value>, code: Option<&Value>) {
+        self.remote_error_type = safe_remote_error_label(
+            error_type,
+            &["server_error", "invalid_request_error", "rate_limit_error"],
+        );
+        self.remote_error_code = safe_remote_error_label(
+            code,
+            &[
+                "server_error",
+                "rate_limit_exceeded",
+                "insufficient_quota",
+                "context_length_exceeded",
+                "model_not_found",
+            ],
+        );
     }
     pub fn transport_limit(&mut self, oversized_chunk: bool) -> Failure {
         if let Some(failure) = self.failure {
@@ -538,6 +561,11 @@ impl Collector {
                     return Err(protocol("remote_terminal_status_mismatch"));
                 }
                 self.usage = usage(response.get("usage"))?;
+                if kind == "response.failed" {
+                    if let Some(error) = response.get("error") {
+                        self.observe_remote_error(error.get("type"), error.get("code"));
+                    }
+                }
                 return Err(StreamFailure {
                     failure: Failure::RemoteFailure,
                     rule: if kind == "response.failed" {
@@ -548,7 +576,16 @@ impl Collector {
                     field: None,
                 });
             }
-            "error" | "response.error" | "response.refusal.delta" | "response.refusal.done" => {
+            "error" | "response.error" => {
+                // A nested error object takes precedence over flat error fields.
+                let error = event.get("error").filter(|value| value.is_object());
+                self.observe_remote_error(
+                    error.and_then(|value| value.get("type")),
+                    error.unwrap_or(&event).get("code"),
+                );
+                return Err(Failure::RemoteFailure.into());
+            }
+            "response.refusal.delta" | "response.refusal.done" => {
                 return Err(Failure::RemoteFailure.into());
             }
             "response.output_item.added" | "response.output_item.done" => {
@@ -938,6 +975,23 @@ fn usage(value: Option<&Value>) -> Result<Usage> {
         }
     }
     Ok(result)
+}
+
+fn safe_remote_error_label(
+    value: Option<&Value>,
+    allowlist: &[&'static str],
+) -> Option<&'static str> {
+    match value {
+        None | Some(Value::Null) => None,
+        Some(Value::String(value)) => Some(
+            allowlist
+                .iter()
+                .copied()
+                .find(|label| *label == value.as_str())
+                .unwrap_or("unrecognized"),
+        ),
+        Some(_) => Some("non_string"),
+    }
 }
 
 fn safe_event_type(name: &str) -> &'static str {
