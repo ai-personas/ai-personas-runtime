@@ -4,6 +4,7 @@
 //! selection, authority, truth, attention, consent or character transition.
 use super::work_inspection::{bounded, Permissions, PROJECTION_BYTES, PROJECTION_REVISIONS};
 use super::*;
+pub(super) mod records;
 
 const MAX_CURSORS: usize = 128;
 // Per focus, including duplicate memberships in separate handles. The byte
@@ -99,6 +100,8 @@ pub(crate) struct Cursor {
     // Legacy handles have no reconstructible membership and require restart.
     #[serde(default)]
     members: Option<Membership>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    records: Option<Vec<p::HistoryRecordReference>>,
     next_index: usize,
     emitted_before: bool,
     omitted_before: bool,
@@ -111,7 +114,19 @@ fn retention_fits<'a>(entries: impl IntoIterator<Item = (&'a String, &'a Cursor)
         if cursors.len() >= MAX_CURSORS {
             return false;
         }
-        members = members.saturating_add(cursor.members.as_ref().map_or(0, |m| m.0.len()));
+        if cursor.members.is_some() && cursor.records.is_some() {
+            return false;
+        }
+        if cursor.records.as_ref().is_some_and(|records| {
+            records
+                .iter()
+                .any(|r| p::check_history_reference(r, "history.cursor").is_err())
+        }) {
+            return false;
+        }
+        members = members
+            .saturating_add(cursor.members.as_ref().map_or(0, |m| m.0.len()))
+            .saturating_add(cursor.records.as_ref().map_or(0, Vec::len));
         if members > MAX_CURSOR_MEMBERS || cursors.insert(handle, cursor).is_some() {
             return false;
         }
@@ -135,6 +150,10 @@ pub(super) fn retain_for_response(focus: &mut Focus, prepared: &Prepared, decisi
         .iter()
         .filter_map(|operation| match operation {
             p::Operation::HistoryQuery {
+                cursor: Some(handle),
+                ..
+            }
+            | p::Operation::HistoryRecordsQuery {
                 cursor: Some(handle),
                 ..
             } => Some(handle.as_str()),
@@ -308,7 +327,12 @@ fn fresh_cursor(
     source.id == cursor.observation
         && source.actor == prepared.request.persona
         && source.work == prepared.request.work
-        && source.kind == "history_query"
+        && source.kind
+            == if cursor.records.is_some() {
+                "history_records_query"
+            } else {
+                "history_query"
+            }
         && (source.payload["next_cursor"].as_str() == Some(token)
             || source.payload["retry_cursor"].as_str() == Some(token))
         && source
@@ -584,6 +608,7 @@ fn query(
         query,
         view: snapshot,
         members: Some(members),
+        records: None,
         next_index: 0,
         emitted_before: false,
         omitted_before: false,

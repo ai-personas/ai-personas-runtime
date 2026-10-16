@@ -252,6 +252,30 @@ pub enum WorkCollection {
     Deliveries,
 }
 
+/// Distinct immutable record namespaces; an observation is never a message or Decision.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryRecordKind {
+    Observation,
+    AdoptedDecision,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum HistoryRecordReference {
+    Observation {
+        observation_id: String,
+        sha256: String,
+    },
+    AdoptedDecision {
+        invocation_id: String,
+        archive_id: String,
+        revision: u64,
+        sha256: String,
+        response_sha256: String,
+    },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Operation {
@@ -334,6 +358,19 @@ pub enum Operation {
         id: String,
         message_id: String,
         sha256: String,
+    },
+    /// Selective retained observations or adopted authored Decisions across works.
+    HistoryRecordsQuery {
+        id: String,
+        record_kind: HistoryRecordKind,
+        mode: crate::files::SearchMode,
+        limit: usize,
+        cursor: Option<String>,
+    },
+    /// Exact typed identity from a permitted query; later fresh supply rechecks access.
+    HistoryRecordRead {
+        id: String,
+        reference: HistoryRecordReference,
     },
     /// One bounded page from this invocation's work. Copy returned cursors exactly;
     /// results become available only through a fresh request's protected observations.
@@ -425,6 +462,8 @@ impl Operation {
             | Self::InspectWork { id, .. }
             | Self::HistoryQuery { id, .. }
             | Self::HistoryRead { id, .. }
+            | Self::HistoryRecordsQuery { id, .. }
+            | Self::HistoryRecordRead { id, .. }
             | Self::Communicate { id, .. }
             | Self::Responsibility { id, .. }
             | Self::Assess { id, .. }
@@ -937,6 +976,60 @@ pub(crate) fn check_history_message_id(value: &str, path: &str) -> Result<(), Pr
     }
 }
 
+pub(crate) fn check_history_observation_id(value: &str, path: &str) -> Result<(), ProtocolError> {
+    if legacy_observation_id(value)
+        || legacy_components(value, "11:local-event", &[MAX_ID_BYTES; 3]).is_some()
+    {
+        Ok(())
+    } else {
+        check_id(value, path)
+    }
+}
+
+pub(crate) fn check_history_reference(
+    reference: &HistoryRecordReference,
+    path: &str,
+) -> Result<(), ProtocolError> {
+    let hash = |value: &str| -> Result<(), ProtocolError> {
+        if value.len() == 64
+            && value
+                .bytes()
+                .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        {
+            Ok(())
+        } else {
+            Err(invalid(
+                path,
+                "history digest requires 64 lowercase hexadecimal digits",
+            ))
+        }
+    };
+    match reference {
+        HistoryRecordReference::Observation {
+            observation_id,
+            sha256,
+        } => {
+            check_history_observation_id(observation_id, path)?;
+            hash(sha256)
+        }
+        HistoryRecordReference::AdoptedDecision {
+            invocation_id,
+            archive_id,
+            revision,
+            sha256,
+            response_sha256,
+        } => {
+            check_id(invocation_id, path)?;
+            check_id(archive_id, path)?;
+            if *revision != 1 {
+                return Err(invalid(path, "adoption archive revision must be one"));
+            }
+            hash(sha256)?;
+            hash(response_sha256)
+        }
+    }
+}
+
 fn legacy_message_id(value: &str) -> bool {
     // Local messages are also exact recipient observations. Their second part
     // is the canonical operation or reply tuple, never a free-form alias.
@@ -1393,6 +1486,12 @@ fn check_operation(
             limit,
             cursor,
             ..
+        }
+        | Operation::HistoryRecordsQuery {
+            mode,
+            limit,
+            cursor,
+            ..
         } => {
             if !(1..=128).contains(limit) {
                 return Err(invalid(
@@ -1426,6 +1525,7 @@ fn check_operation(
             }
             Ok(())
         }
+        Operation::HistoryRecordRead { reference, .. } => check_history_reference(reference, &path),
         Operation::HistoryRead {
             message_id, sha256, ..
         } => {

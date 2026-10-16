@@ -78,6 +78,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use thiserror::Error;
 
+mod archive_history;
+
 const SCHEMA_VERSION: u32 = 1;
 const META_CAPACITY: u64 = 16 * 1024;
 const CONTROL_HEADROOM: u64 = 16 * 1024;

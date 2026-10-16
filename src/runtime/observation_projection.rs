@@ -1,0 +1,93 @@
+//! The same current-permission and qualification projection serves pending and
+//! selectively retrieved observations. Retained payloads remain immutable.
+use super::*;
+
+pub(super) fn project(
+    state: &State,
+    observation: &Observation,
+    a: &f::Admission,
+    observation_corpus: &f::Corpus,
+) -> Result<(Value, Exposure, Vec<f::Reference>)> {
+    let mut inherited = observation
+        .exposure
+        .clone()
+        .ok_or_else(|| held("observation lineage unknown"))?;
+    inherited
+        .sources
+        .extend(observation.sources.iter().cloned());
+    inherited
+        .sources
+        .extend(observation.qualified_roots.iter().cloned());
+    require(
+        exposure_permitted(state, &inherited, a),
+        "observation lineage unavailable",
+    )?;
+    let mut qualifications = Vec::new();
+    let mut exact = Vec::new();
+    for root in &observation.qualified_roots {
+        let bundle = f::assemble(
+            observation_corpus,
+            std::slice::from_ref(root),
+            &[],
+            &[],
+            a,
+            state.config.context_bytes,
+            0,
+            0,
+        )?;
+        let references = bundle
+            .entries
+            .iter()
+            .map(|e| e.reference.clone())
+            .collect::<Vec<_>>();
+        qualifications.push(serde_json::from_str(&attributed_context(
+            state,
+            &bundle.rendered_context,
+            &references,
+        )?)?);
+        exact.extend(references);
+    }
+    if matches!(
+        observation.kind.as_str(),
+        "qualified_read" | "selection_repair_read" | "local_dependency_event"
+    ) && observation
+        .payload
+        .get("result")
+        .is_some_and(Value::is_object)
+    {
+        require(
+            qualifications.len() == 1,
+            "successful read requires one complete rechecked bundle",
+        )?;
+    }
+    inherited.sources.extend(exact.iter().cloned());
+    let mut payload = if observation.kind == "host_accounting" {
+        json!({"reserved_allowance":observation.payload["reserved_allowance"],
+            "allowance_refunded":false,"provider_usage":"unknown",
+            "actual_navigation":"retained for operator accounting; not supplied to inference"})
+    } else {
+        observation.payload.clone()
+    };
+    if matches!(
+        observation.kind.as_str(),
+        "qualified_read" | "selection_repair_read" | "local_dependency_event"
+    ) {
+        if let Some(result) = payload.get("result").and_then(Value::as_object) {
+            // Keep the original receipt separate from the freshly rechecked
+            // body. The retained observation remains immutable; its two body
+            // encodings and this recheck must not triple the inference cost.
+            let mut receipt = result.clone();
+            receipt.remove("entries");
+            receipt.remove("rendered_context");
+            payload["read_receipt"] = Value::Object(receipt);
+            payload["result"] = qualifications.remove(0);
+        }
+    }
+    if observation.kind == "discovery" {
+        observability::actionable_discovery(&mut payload)?;
+    }
+    let value = json!({"id":observation.id,"actor":observation.actor,"work":observation.work,
+        "invocation":observation.invocation,"kind":observation.kind,"at_unix":observation.at_unix,
+        "payload":payload,"current_required_qualifications":qualifications});
+    Ok((value, expanded_exposure(state, &inherited)?, exact))
+}
