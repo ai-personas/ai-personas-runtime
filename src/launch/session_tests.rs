@@ -7,6 +7,23 @@ use std::sync::{
     Arc,
 };
 
+#[test]
+fn byte_bound_diagnostics_keep_launcher_capacity_classification() {
+    for error in [
+        s::StoreError::TooLarge,
+        s::StoreError::SerializationByteBound {
+            serialized_bytes_at_least: 129,
+            limit_bytes: 128,
+        },
+        s::StoreError::RuntimeControlCapacity {
+            projected_bytes: 129,
+            limit_bytes: 128,
+        },
+    ] {
+        assert_eq!(BoundaryError::from(error), BoundaryError::Capacity);
+    }
+}
+
 const OP: &str = "fixture-human";
 fn value<T: Serialize>(v: &T) -> Value {
     serde_json::to_value(v).unwrap()

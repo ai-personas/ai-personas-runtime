@@ -67,6 +67,8 @@ fn error_code(error: &RuntimeError) -> BoundaryError {
             s::StoreError::Frozen
             | s::StoreError::Quota { .. }
             | s::StoreError::TooLarge
+            | s::StoreError::SerializationByteBound { .. }
+            | s::StoreError::RuntimeControlCapacity { .. }
             | s::StoreError::IdentityLimit
             | s::StoreError::HistoryLimit,
         ) => E::Capacity,

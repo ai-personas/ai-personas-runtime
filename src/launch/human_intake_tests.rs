@@ -789,26 +789,70 @@ fn human_intake_control_capacity_admits_without_double_counting_pause_participan
 }
 
 #[test]
-fn human_intake_control_capacity_still_denies_real_deficit_without_mutation() {
-    let (_directory, mut app, req) = padded_intake_fixture(-1);
-    let before = heads(&mut app);
-    let planned = plan(&mut app, &req, digest(&req).unwrap(), 100).unwrap();
-    let projected = control_projection(&planned.changes[0].object);
-    let maximum = storage_limits().max_record_bytes - 32 * 1024;
-    assert_eq!(projected, maximum + 1);
-    let ledger_before = app.store.ledger().unwrap();
-    let error = preview_human_intake(&mut app, &req, 100).unwrap_err();
-    assert!(error.to_string().contains("declared byte bound"));
-    assert_eq!(heads(&mut app), before);
-    let after = app.store.ledger().unwrap();
-    assert_eq!(after.closeout, ledger_before.closeout);
-    assert_eq!(after.ordinary.reserved, ledger_before.ordinary.reserved);
-    assert_eq!(after.ordinary.uncertain, ledger_before.ordinary.uncertain);
-    assert_eq!(
-        after.ordinary.consumed.retained_bytes,
-        ledger_before.ordinary.consumed.retained_bytes
-    );
-    assert!(app.store.read(&receipt_id(&req.id)).unwrap().is_none());
+fn human_intake_control_capacity_boundary_diagnostics_and_rollback() {
+    for margin in [1, 0, -1] {
+        let (_directory, mut app, req) = padded_intake_fixture(margin);
+        let before = heads(&mut app);
+        let epoch_before = app.store.epoch().unwrap();
+        let planned = plan(&mut app, &req, digest(&req).unwrap(), 100).unwrap();
+        let projected = control_projection(&planned.changes[0].object);
+        let maximum = storage_limits().max_record_bytes - 32 * 1024;
+        assert_eq!(projected as i64, maximum as i64 - margin);
+        // This must exercise projection, not a raw body/record serialization bound.
+        for change in &planned.changes {
+            assert!(
+                serde_json::to_vec(&change.object.body).unwrap().len() as u64
+                    <= storage_limits().max_body_bytes
+            );
+            assert!(
+                serde_json::to_vec(&change.object).unwrap().len() as u64
+                    <= storage_limits().max_record_bytes
+            );
+        }
+        assert!(
+            serde_json::to_vec(&planned.changes[0].object)
+                .unwrap()
+                .len() as u64
+                <= maximum
+        );
+        let ledger_before = app.store.ledger().unwrap();
+        let result = preview_human_intake(&mut app, &req, 100);
+        if margin >= 0 {
+            result.unwrap();
+        } else {
+            // Preview and apply must both reject the same synthetic candidate.
+            for error in [
+                result.unwrap_err(),
+                admit_human_need(&mut app, &req, 100).unwrap_err(),
+            ] {
+                assert!(matches!(
+                    &error,
+                    RuntimeError::Store(s::StoreError::RuntimeControlCapacity {
+                        projected_bytes,
+                        limit_bytes,
+                    }) if *projected_bytes == projected && *limit_bytes == maximum
+                ));
+                assert_eq!(
+                    error.to_string(),
+                    format!(
+                        "runtime-control projection exceeds its declared byte bound: projected_bytes={projected}, limit_bytes={maximum}"
+                    )
+                );
+            }
+        }
+        assert_eq!(app.store.epoch().unwrap(), epoch_before);
+        assert_eq!(heads(&mut app), before);
+        assert!(app.store.read(&receipt_id(&req.id)).unwrap().is_none());
+        // Only separately committed ordinary reads may change the ledger.
+        // Pending control slots, revisions and receipt allocations must roll back.
+        let mut after = app.store.ledger().unwrap();
+        assert!(
+            after.ordinary.consumed.navigation_bytes
+                >= ledger_before.ordinary.consumed.navigation_bytes
+        );
+        after.ordinary.consumed.navigation_bytes = ledger_before.ordinary.consumed.navigation_bytes;
+        assert_eq!(after, ledger_before);
+    }
 }
 
 #[test]

@@ -128,6 +128,22 @@ pub enum StoreError {
     Frozen,
     #[error("record or response exceeds its declared byte bound")]
     TooLarge,
+    /// The encoder stopped at the first rejected chunk, not at the end of JSON.
+    #[error(
+        "canonical JSON exceeds its declared byte bound: serialized_bytes_at_least={serialized_bytes_at_least}, limit_bytes={limit_bytes}"
+    )]
+    SerializationByteBound {
+        serialized_bytes_at_least: u64,
+        limit_bytes: u64,
+    },
+    /// Exact conservative projection, including all still-required controls.
+    #[error(
+        "runtime-control projection exceeds its declared byte bound: projected_bytes={projected_bytes}, limit_bytes={limit_bytes}"
+    )]
+    RuntimeControlCapacity {
+        projected_bytes: u64,
+        limit_bytes: u64,
+    },
     #[error("reserved event-history capacity exhausted")]
     HistoryLimit,
     #[error("permanent identity capacity exhausted")]
@@ -3934,7 +3950,10 @@ impl<'a> Work<'a> {
             }
         }
         if possible > plan.max_object_bytes {
-            return Err(StoreError::TooLarge);
+            return Err(StoreError::RuntimeControlCapacity {
+                projected_bytes: possible,
+                limit_bytes: plan.max_object_bytes,
+            });
         }
         Ok(())
     }
@@ -4303,7 +4322,10 @@ impl<'a> Work<'a> {
                 .cell("invocation", id)?
                 .ok_or_else(|| StoreError::Missing(id.into()))?
                 .capacity;
-            if matches!(encode(&record, capacity), Err(StoreError::TooLarge)) {
+            if matches!(
+                encode(&record, capacity),
+                Err(StoreError::TooLarge | StoreError::SerializationByteBound { .. })
+            ) {
                 record.runtime_failure_context = Some(serde_json::json!({"kind":"unknown"}));
             }
         }
@@ -4517,13 +4539,15 @@ fn encode<T: Serialize>(value: &T, limit: u64) -> Result<Vec<u8>> {
     struct BoundedWriter {
         bytes: Vec<u8>,
         limit: u64,
-        exceeded: bool,
+        lower_bound: Option<u64>,
     }
     impl std::io::Write for BoundedWriter {
         fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
             let next = (self.bytes.len() as u64).checked_add(bytes.len() as u64);
             if next.is_none() || next.unwrap_or(u64::MAX) > self.limit {
-                self.exceeded = true;
+                // Count only the accepted prefix plus this rejected chunk.
+                // Do not serialize further, allocate beyond the bound, or retain data.
+                self.lower_bound = Some(next.unwrap_or(u64::MAX));
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     "JSON byte limit",
@@ -4539,11 +4563,14 @@ fn encode<T: Serialize>(value: &T, limit: u64) -> Result<Vec<u8>> {
     let mut writer = BoundedWriter {
         bytes: Vec::new(),
         limit,
-        exceeded: false,
+        lower_bound: None,
     };
     let result = serde_json::to_writer(&mut writer, &canonical);
-    if writer.exceeded {
-        return Err(StoreError::TooLarge);
+    if let Some(serialized_bytes_at_least) = writer.lower_bound {
+        return Err(StoreError::SerializationByteBound {
+            serialized_bytes_at_least,
+            limit_bytes: limit,
+        });
     }
     result?;
     Ok(writer.bytes)
@@ -4623,4 +4650,49 @@ fn check_database_files(_path: &Path) -> Result<()> {
     Err(StoreError::Unsupported(
         "secure database permissions on this platform",
     ))
+}
+
+#[cfg(test)]
+mod byte_bound_tests {
+    use super::*;
+
+    #[test]
+    fn serialization_byte_bound_preserves_boundaries_and_reports_no_payload() {
+        let object = StoredObject {
+            id: "fixture-private-id".into(),
+            revision: 1,
+            kind: "fixture-private-kind".into(),
+            body: serde_json::json!({"fixture-private-key":"\0\"\\é".repeat(16)}),
+        };
+        let canonical = encode(&object, u64::MAX).unwrap();
+        let size = canonical.len() as u64;
+        for limit in [1, size - 1, size, size + 1] {
+            if limit >= size {
+                assert_eq!(encode(&object, limit).unwrap(), canonical);
+                continue;
+            }
+            let error = encode(&object, limit).unwrap_err();
+            let StoreError::SerializationByteBound {
+                serialized_bytes_at_least,
+                limit_bytes,
+            } = &error
+            else {
+                panic!("unexpected synthetic error: {error:?}");
+            };
+            assert_eq!(*limit_bytes, limit);
+            assert!(*serialized_bytes_at_least > limit);
+            assert!(*serialized_bytes_at_least <= size);
+            if limit == 1 {
+                // An early abort must not mislabel its prefix as the full size.
+                assert!(*serialized_bytes_at_least < size);
+            }
+            assert_eq!(
+                error.to_string(),
+                format!(
+                    "canonical JSON exceeds its declared byte bound: serialized_bytes_at_least={serialized_bytes_at_least}, limit_bytes={limit}"
+                )
+            );
+            assert!(!format!("{error:?} {error}").contains("fixture-private"));
+        }
+    }
 }
