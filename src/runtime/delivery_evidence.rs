@@ -41,6 +41,12 @@ pub(super) fn validate(
         .releases
         .get(&receipt.release)
         .ok_or_else(|| held("delivery release unavailable"))?;
+    if let Some(exact) = &release.arrangement {
+        extend_exposure(
+            &mut exposure,
+            &arrangements::retained_arrangement_origin(state, work_id, exact, a)?,
+        );
+    }
     let packages = body["artifacts"]
         .as_array()
         .ok_or_else(|| held("delivery package absent"))?;
@@ -185,7 +191,7 @@ pub(super) fn completion_supported(state: &State, id: &w::WorkId, now: i64) -> b
     let Ok(work) = state.board.work(id) else {
         return false;
     };
-    let w::Phase::Completed { release, by } = &work.phase else {
+    let Some((release, by)) = work.latest_completion() else {
         return false;
     };
     let Some(persona) = state.personas.get(&by.persona.0) else {

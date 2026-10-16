@@ -39,12 +39,17 @@ State defaults to `$XDG_STATE_HOME/ai-personas`, or
 `$HOME/.local/state/ai-personas`. `--state-root` selects another private directory
 outside repositories. The saved working directory must already exist and remain separate from private state. It is retained as compatibility metadata; the direct transport neither reads it nor sends it to the model. Strict remote context, token and cost guarantees remain unestablished.
 
-Setup defaults to three continuing personas. `--cohort` accepts 2..8; `--owner`
-chooses the persona offered ownership of the requested result and the designated
-decision, while the others receive nonexclusive contribution offers. Acceptance,
-character, contributions, evidence, release and completion remain persona-authored.
-The generic creation material asserts no prior character or experience. The same
-cohort is reused on later needs; it does not guarantee participation or quality.
+Setup defaults to three continuing personas. `--cohort` accepts 2..8. New needs
+give every persona the same neutral, voluntary invitation to consider or
+contribute, without assigned ownership or review roles. Within the existing
+mandate, a retained requester-issued formation delegation allows personas to
+propose responsibilities and result decision arrangements. Changes require exact
+assent from affected participants; changing the result rule requires every current
+accepted contributor's assent. Result decision rights do not grant authority to
+amend the delegation. New participants explicitly accept the current arrangement,
+and gaps remain visible pending adoption. Saved `--owner` is legacy compatibility metadata and assigns no roles on
+new needs. Existing mandates are preserved. The generic creation material asserts
+no prior character or experience. The same cohort is reused on later needs.
 
 The foreground driver considers at most 128 participant entries and attempts at
 most 12 steps per command by default, within 32 attempts per work, 256 attempted
@@ -53,19 +58,26 @@ lower or change these finite bounds. Existing Store and runtime limits remain
 controlling. Resume never replenishes them. There is no daemon, polling loop,
 model substitution, automatic failed-response retry or between-task exploration.
 The one initial character-adoption fence receives one explicit recorded host
-handover; later character changes, stops, pauses, unresolved transport and failures
-keep their existing control requirements. A future wait returns to the shell.
+handover. Later character changes preserve an earlier accepted ordinary
+continuation as a route to a fresh decision under the new character. The changing
+response's new continuation and other ordinary operations remain fenced. Stops,
+pauses, unresolved transport and failures keep their existing control requirements.
+A future wait returns to the shell and retains its existing eligibility conditions.
 
 Output contains accepted replies and complete currently permitted local delivery
 bundles. `--json` emits one structured result on stdout; progress and stopping
 diagnostics use stderr. `result` performs no inference. A delivered artifact can
-remain unfinished until a fresh persona decision closes the work. A permitted
-completed phase is reported as `completed-as-recorded`; it records the accepted
-closure at that time, while `completion_supported: null` leaves current global
-support unestablished. The result view does not probe hidden evidence or consent
+remain without a completion judgment until a fresh persona decision records one.
+`recorded_completion` is the latest permitted historical completion of an exact
+release; `completed-as-recorded` describes that accepted judgment, independently
+of the work phase. `completion_supported: null` leaves current global support
+unestablished. The result view does not probe hidden evidence or consent
 to recompute that predicate. `closure_evidence` contains only currently permitted
-partial facts. `recorded_phase` reports the permitted work lifecycle record. `focus_release`
-is selected among permitted delivered releases by immutable creation revision,
+partial facts. `recorded_phase` and `last_attempt` remain unset because this result
+view has no separate disclosure basis for current global state; use explicit
+operator status to inspect it. Each displayed record is checked under its actual
+author and recipient scope. `focus_release` is selected among permitted delivered
+releases by immutable creation revision,
 with exact release ID breaking same-transaction ties; an old redelivery cannot
 move focus backwards. `status_delivery` identifies its exact permitted receipt.
 This does not assert global release freshness. Status and foreground stop reasons
@@ -73,14 +85,20 @@ are computed before output truncation.
 Local delivery and attributed model judgment do not establish
 independent quality.
 
+New completion records retain their own disclosure lineage at acceptance, bound
+to the exact release and authoring decision. Missing historical lineage remains
+unavailable; later work evidence or resumption cannot establish it retroactively.
+Current permissions still govern whether retained completion metadata is shown.
+
 An ordinary new task does not require human acceptance by default.
 `run --require-acceptance 'Your need'` explicitly adds the setup requester as a
 required stakeholder. A delivered result whose permitted evidence does not establish acceptance is
 reported as `delivered-acceptance-unestablished`: acceptance may be absent or
-inaccessible. The foreground command stops at that boundary. Explicit
-`run --resume WORK` permits one fresh eligible consideration past it, without
-resuming a stopped persona, recovering a failed call, accepting for a human, or
-changing the mandate. Record a genuine explicit human decision with
+inaccessible. This status does not suppress independent authorized improvement
+through existing eligible continuations. Missing required consent still prevents
+the affected completion claim. `run --resume WORK` continues a bounded foreground
+session through those routes without resuming a stopped persona, recovering a
+failed call, accepting for a human, or changing the mandate. Record a genuine explicit human decision with
 the separate bounded ingress:
 
 ```sh
@@ -141,13 +159,13 @@ Trusted inspection can recover legacy receipt-only observations and generic prel
 
 A final runtime prelaunch authorization rejection retains the exact request binding, bounded failure text, and actual preparation-cancellation outcome before rejecting the Prepared invocation. It is recorded as not launched. Explicit resume can then clear the lease within the existing allowance; it does not renew expired authorization, refund the admitted attempt, or authorize replay.
 
-`resume` permits a fresh admission within existing allowances. It does not reset funding or replay a previous call. `pause`, `closeout`, and local stopping are distinct from completing the shared goal. Local inbox deposits establish delivery into the application, not attention or human acceptance.
+`resume --persona PERSONA --work WORK` explicitly permits reconsideration by that persona within existing allowances. It does not wake stopped peers or lift a work-wide pause. `resume-work WORK` separately lifts an explicit work-wide pause; it changes no persona permissions and recovers no invocation. Existing eligible continuations are rechecked, and individually stopped personas still need targeted resumption. Neither command resets funding or replays a previous call. Legacy terminal completion stays dormant until targeted authorized resumption preserves its exact history; other ended participants remain dormant. `pause`, `closeout`, and local stopping are distinct from completing the shared goal. Local inbox deposits establish delivery into the application, not attention or human acceptance.
 
 The CLI explicitly selects protected control access for `terminal-evidence`, `acknowledge-complete-rejection`, `pause`, and `closeout`. Library hosts select `Runtime::open_for_closeout`, which returns a restricted `CloseoutRuntime` handle. Necessary control and evidence reads spend finite Closeout navigation. New runtime state establishes a control plan; admitting each work atomically prepays one pause slot and one canceled/unfinished ending slot from the existing controlling Closeout account. Each slot charges the complete `max_record_bytes` allocation, keys, envelope, one history slot, permanent identity and a second copy for peak rewrites. Snapshot payloads are limited to `max_record_bytes - 32768`; the remainder holds the exact control request and receipt. This reserves existing resources and grants no execution, funding or subscription.
 
 Protected pause and ending now work during full admission freeze when their prepaid slots and necessary read capacity remain available. The trusted commit binds the exact current object, revision and epoch and derives only the named work's host-authored pause or ending delta. Its immutable snapshot, control identity, receipt, head transition and epoch commit together. Failed transactions leave the slot unused. Explicit request replay returns its unchanged historical receipt without allocation or restoring old heads. A repeated CLI pause uses the retained request only while that exact attributed pause is still current for its work, even if another work changed the global head; a real resume makes the same reason a fresh control identity bound to the current work version. Necessary reads remain metered. Canceled and unfinished endings never claim completion. Original requests, obligations, restrictions, observations, unknown effects, remaining allowances and unrelated work remain intact. Exact control snapshots remain readable historical evidence. The ordinary head retains its original allocation and class; filling changes no ordinary resource counter.
 
-Every ordinary runtime-state write, including preparation and adoption, checks the entire serialized snapshot plus conservative space for all still-required controls before committing optional growth. This includes scheduler/event or other extension fields. Each possible control reserves growth for every participant, bounded JSON-escaped reasons and attribution, event history, focus flags and counter widths; history is never silently removed to fit. Slots are finite and never reset, refunded or reused. An explicit authorized `resume` while unfrozen can append one new pause slot from remaining existing Closeout capacity when the current pause slot is spent. Its allocation, ordinary resume snapshot, reopening and any stale local decision abandonment commit atomically; failure leaves the paused state, lease, receipts and usage holds intact, apart from already metered inspection reads. The new slot has its own permanent identity, history slot, bounded payload, key and peak-copy charge under all existing aggregate and class limits. Successors use monotonic snapshot-revision keys without an additional cursor or index allocation. An unused pause slot needs no new allocation, and the original ending slot remains separate. Other works retain their own independently prepaid slots. Ordinary pauses use ordinary journals and remain subject to ordinary admission. Arbitrary frozen CAS, new work, resume, adoption, semantic edits and new allocations remain prohibited.
+Every ordinary runtime-state write, including preparation and adoption, checks the entire serialized snapshot plus conservative space for all still-required controls before committing optional growth. This includes scheduler/event or other extension fields. Each possible control reserves growth for every participant, bounded JSON-escaped reasons and attribution, event history, focus flags and counter widths; history is never silently removed to fit. Slots are finite and never reset, refunded or reused. An explicit authorized `resume-work` while unfrozen can append one new pause slot from remaining existing Closeout capacity when the current pause slot is spent. Its allocation, ordinary resume snapshot, reopening and any stale local decision abandonment commit atomically; failure leaves the paused state, lease, receipts and usage holds intact, apart from already metered inspection reads. The new slot has its own permanent identity, history slot, bounded payload, key and peak-copy charge under all existing aggregate and class limits. Successors use monotonic snapshot-revision keys without an additional cursor or index allocation. An unused pause slot needs no new allocation, and the original ending slot remains separate. Other works retain their own independently prepaid slots. Ordinary pauses use ordinary journals and remain subject to ordinary admission. Arbitrary frozen CAS, new work, resume, adoption, semantic edits and new allocations remain prohibited.
 
 Legacy states without a control plan refuse protected pause/ending honestly. A trusted library host may explicitly call `Runtime::provision_closeout` while unfrozen; the complete allocation must fit existing retained-byte, identity and history ceilings, commits atomically, and resets no work funding. Opening a legacy state never provisions it automatically. Exhausted protected navigation, missing slots, oversized snapshots and underlying storage failures remain real limits. Logical prepayment does not claim a physical SQLite/filesystem hard bound.
 
@@ -164,7 +182,7 @@ ai-personas --state-root /absolute/private/state --operator local-operator deliv
 
 `scheduler-prepare` considers at most 128 entries and attempts at most one fresh ordinary synthetic preparation. It never dispatches or constructs a provider. Its result separates queued consideration, blocked consideration, and an actual `Prepared` invocation with reserved capacity. The successful consideration cursor, runtime ownership lease, work debit, invocation reservation and terminal evidence capacity commit in the existing atomic admission transaction. Failed preparation is inspectable and does not create an inference retry loop. Cursor journals and inspection use existing finite ordinary Store capacity; failure to persist is a reported scheduling limitation.
 
-The persisted cursor advances over all participation identities, including future, paused, unaccepted and otherwise ineligible entries, and survives restart. Event, deadline and reconsideration eligibility comes from `WorkBoard`; eligible adopted ordinary continuation can use its original remaining allowance without a manual per-persona resume. Explicit local stops, character fences, restricted repair stops, pause, cancellation, expiry, source restrictions and exhausted capacity remain barriers. Missing historical scheduler/continuation state grants no new permission. No acceptance, allowance renewal or funding-pool switch is inferred.
+The persisted cursor advances over all participation identities, including future, paused, unaccepted and otherwise ineligible entries, and survives restart. Event, deadline and reconsideration eligibility comes from `WorkBoard`; eligible adopted ordinary continuation can use its original remaining allowance without a manual per-persona resume. Explicit local stops, restricted repair stops, pause, cancellation, expiry, source restrictions and exhausted capacity remain barriers. A character fence suppresses the changing response's ordinary operations and new continuation; an earlier accepted ordinary continuation may still admit a fresh decision under the new character. Missing historical scheduler/continuation state grants no new permission. No acceptance, allowance renewal or funding-pool switch is inferred.
 
 Progress assumes repeated explicit calls with positive bounds, successful persistence, a finite retained queue without endless insertion ahead of a participant, persistent eligibility and sufficient remaining ordinary capacity. Because scheduler writes advance the global semantic epoch, any active runtime invocation lease blocks scheduler mutation until completion or explicit recovery. Its current lease remains inspectable; polling cannot silently invalidate or recover it. Fair consideration does not promise dispatch, semantic progress or completion. There is no unattended scheduler service.
 
@@ -206,9 +224,23 @@ The closed `Discover` operation exposes one caller-requested lexical page. Its `
 Continuation handles are host-retained, persona/work-bound, restart-safe, and available only from a currently supplied permitted observation. At most 128 handles are retained per persona/work; successful continuation consumes its old handle. Successful ordinary adoption also releases handles whose observations it consumed without continuing; handles explicitly requested in that response remain available until its navigation finishes. Cleanup is transactional and does not consume pending, held, character-fenced, or selection-repair observations. Every page rechecks current permissions and the permitted query view. Clock movement alone preserves a cursor, while changed query, identity, audience, permission, expiry, accepted bindings, or visible revisions invalidate it. An unavailable text projection returns unavailable coverage and an explicit continuation past that revision when another revision remains; later pages cannot claim complete or no-match coverage for the skipped projection. A path listing is a separate explicit alternative. `continuation_available: false` with incomplete coverage means no retained continuation is available. Wrapper/result bytes and all calls share the existing navigation allowances. Legacy `Search` keeps its original wire shape, body-search behavior, 128-hit runtime cap, and no retained cursor.
 
 
+`HistoryQuery` (`history_query`) explicitly retrieves bounded metadata for retained messages across works where the current actor is sender or recipient. Use `mode: {"kind":"listing"}`, `{"kind":"literal","needle":"..."}`, or `{"kind":"regex","pattern":"...","dialect":{"kind":"rust_regex1"}}`, `limit: 1..128`, and `cursor: null` initially. Listing follows exact message-ID lexical order. Literal and regex matching examine compact serde_json UTF-8 of `["history-message-text-v1", id, sender, recipient, work, invocation, subject, text, local_deposit_only]`, including JSON escaping. Literal matching is case-sensitive; regex uses Rust regex 1 Unicode and inline-flag semantics, bounded compilation, and no cross-message matching. Patterns are at most 4096 UTF-8 bytes and also obey the configured corpus limits.
+
+Results contain exact `message_id`, `sha256`, and attributed metadata, without message bodies or inaccessible-item counts. The digest is SHA-256 of compact serde_json UTF-8 of `["history-message-record-v1", id, sender, recipient, work, invocation, subject, text, lineage, local_deposit_only, exposure]`. Original array order and typed field serialization are preserved. `HistoryRead` (`history_read`, with `id`, `message_id`, and `sha256`) rechecks membership, original exposure, current permissions and integrity, then queues the original sender/recipient/work/invocation/subject/text as a fresh protected observation. Missing original exposure remains unavailable. Absent, denied and wrong-digest reads share one unavailable result. No message becomes a FileRevision, and existing history is neither rewritten nor backfilled.
+
+History uses the common bounded matcher, permission projection and shared navigation allowance. Each operation reserves the existing constant 32 MiB/8193-unit projection before traversal, bounds the State envelope, and charges permitted scans, inspections, matches and complete rendered results additionally. Response, context and Store limits still apply. Operation execution and subsequent communication/reply deposits retain their existing order.
+
+A new query captures all currently eligible messages in exact message-ID lexical order, subject to the membership bounds below. Its private cursor retains only exact message IDs and digests, with no message bodies. Continuation and retry validate every retained member, including off-page members, and search only that original membership. Later messages, including communication or authored replies deposited after the query in the same response, do not join or stale the traversal. A newly started query includes the then-current eligible messages. Changed, missing or no-longer-permitted members, or changes to the original view's permission manifest, invalidate the traversal. Handles remain bound to the actor, current work, query, destination, audience and a freshly supplied permitted source observation. Copy its `next_cursor` or `retry_cursor` with identical mode; there are no caller offsets or automatic pages. Clock movement alone preserves a handle while permissions remain valid. Missing handles and failed cursor permission checks return the same empty `stale_cursor` result with restart required. Legacy handles without retained membership also require restart.
+
+Each actor/current-work focus retains at most 128 history handles, 4096 aggregate membership entries and 262144 bytes of compact serialized handle-map metadata. Both entry and byte totals include every duplicate membership in next, retry and other retained handles, plus all handle metadata in the byte total. Membership decoding bounds each array's entries and serialized bytes within the existing State/Store input bounds. Cleanup discards any remaining over-limit handle map; each replacement rechecks the complete aggregate limits. Successful continuation atomically replaces its consumed handle, and unrequested handles belonging to consumed observations are released transactionally. Next handles take retention priority over retry handles. If complete membership cannot fit, the query returns empty incomplete coverage with `cursor_retention_unavailable:true`; no partial membership becomes a traversal. If a needed next or retry handle cannot fit alongside retained handles, that handle is null, the same flag is true, and coverage remains incomplete. With neither handle available, restart is required. These results expose no inaccessible-item counts.
+
+Oversized entries are explicit omissions with continuation past them and a retry handle when capacity permits; omission remains incomplete throughout that continuation chain. `end_reached`, complete coverage and `no_match` refer only to the retained traversal, not messages added later or inaccessible history. `no_match` requires complete traversal coverage without omissions. History has supporting-asset purpose, establishes no authority, consent, attention, truth or characteristic learning, and never selects context automatically.
+
 Immutable file bytes and independently accepted qualifications are stored separately, including cyclic qualification bundles. Each new exact revision retains its actual operator import event or accepted persona invocation and operation. Later persona revisions of imported sources are attributed to that invocation; the original import attribution remains retained. Historical records without revision metadata use source import provenance only for the original imported revision and otherwise report unavailable origin. Context and qualified delivery render these exact-revision attributions. Required accompaniment is supplied coherently. A selected bundle is not silently truncated to fit. An optional selection that becomes too large after mandatory material grows can use a declared, finite selection-repair allowance. Repair only permits existing-entry reductions and bounded exact reads, then stops or pauses for fresh admission.
 
 Each complete response accounts for work, fragment maintenance, asset maintenance, future selections, continuation, and reply. Whole-response validation precedes adoption. Character changes receive disposition first and suppress the other fresh operations from that response. Ordinary model-directed file revision and organization can support maturation; elapsed time alone does not establish improvement.
+
+During ordinary work, actually supplied criticism and consequences may suggest useful changes in habitual attention, judgment, response to disagreement, standards or coordination. `no_change` is legitimate; no lesson, separate reflection invocation, scoring or schedule is required. Optional character/behavior prompt refinement uses ordinary fragment `FileWrite` plus explicit per-work `next_fragments replace`, without an OCEAN/VAD change. Revising current mandatory own voice requires `CharacterAdopt` and its existing fresh-decision fence even when those profile descriptions remain unchanged. Historical messages support that judgment but are never character fragments by themselves.
 
 Pending offers expose current conflicting exclusive outcome/review-role ownership without changing their terms or promising acceptance. Intake, invitation and handoff offer identifiers must satisfy the same bounded identifier syntax used to answer them. An accepted participant who declines another offer and chooses Stop retains the existing responsibility and pauses local continuation. Work command inputs follow the published closed schema: optional fields may be absent or null, set members must be unique but need not be sorted, and unknown fields are rejected. Current work-artifact metadata includes permitted exact source mappings and distinguishes artifact ownership from file ownership. Metadata does not supply a body, select future context, or grant mutation authority; the persona must explicitly obtain the qualified body when needed.
 
@@ -230,10 +262,11 @@ Each consulted delivery and human decision requires its own exact retained
 receipt exposure. `unestablished_deliveries` and
 `unestablished_stakeholder_acceptance` mean absent **or inaccessible**; they
 never prove absence. `permitted_prerequisites_observed` covers only permitted
-delivery and latest-permitted decision evidence. It grants no closure authority:
-a hidden newer rejection can still block closure. Release freshness remains
-explicitly unestablished in this projection; the unchanged completion guard
-checks current support and globally latest consent. Omitted or truncated entries
+delivery and latest-permitted decision evidence. `released_artifacts` maps
+outcome IDs to exact recorded `ArtifactKey` values after artifact permission
+checks; it supplies no bodies or currentness claim. `projection_claims`
+separates these facts from persona judgments and atomic adoption validations.
+A hidden newer rejection can still block closure. Omitted or truncated entries
 prove nothing. Required human acceptance cannot be manufactured from local
 delivery or model judgment.
 
@@ -248,9 +281,9 @@ A direct step retains native admission, exact prompt/schema binding, durable dis
 
 ## Explicit maintenance dispositions
 
-Adopted blocked/deferred outcomes retain their exact original bytes and exposure. `CONTROL.protected_maintenance` supplies permitted owner/work-bound identities and current revisions. An ordinary `MaintenanceDispose` operation records the original primary's explicit `addressed`, `dismissed`, `unresolved`, or `expired` disposition, reason and exact supplied observation IDs (or `[]`). It must appear in the matching maintenance `change.operation_ids`. Current identity, revision, scope, supplied context and permissions are rechecked; stale, other-owner, withheld or invented evidence fails the whole response. Expired requires an elapsed recorded deadline or an actually accepted goal-closing response. Transfer is unsupported; no recipient acceptance is inferred.
+Adopted blocked/deferred outcomes retain their exact original bytes and exposure. `CONTROL.protected_maintenance` supplies permitted owner/work-bound identities and current revisions. An ordinary `MaintenanceDispose` operation records the original primary's explicit `addressed`, `dismissed`, `unresolved`, or `expired` disposition, reason and exact supplied observation IDs (or `[]`). It must appear in the matching maintenance `change.operation_ids`. Current identity, revision, scope, supplied context and permissions are rechecked; stale, other-owner, withheld or invented evidence fails the whole response. Expired requires an elapsed recorded deadline. A completion judgment does not itself expire maintenance. Transfer is unsupported; no recipient acceptance is inferred.
 
-Original records are immutable. Dispositions append exact work authority, persona, invocation, operation, owner epoch, time and inherited exposure; the latest permitted receipt is supplied without claiming verified repair or warning resolution. New writes, `no_change`, stopping and work ending do not resolve a concern. Host ending and accepted goal closure record the mechanical boundary “remaining maintenance unresolved at work end,” without inventing persona judgment or requiring another reflection call. An unrelated unresolved concern does not add a task-completion gate.
+Original records are immutable. Dispositions append exact work authority, persona, invocation, operation, owner epoch, time and inherited exposure; the latest permitted receipt is supplied without claiming verified repair or warning resolution. New writes, `no_change`, stopping and work ending do not resolve a concern. Host ending records the mechanical boundary “remaining maintenance unresolved at work end,” without inventing persona judgment or requiring another reflection call. An unrelated unresolved concern does not add a task-completion gate.
 
 Per persona/work, newly accepted maintenance is limited to 128 original records, 256 disposition receipts, and 262144 serialized bytes including exposure, intersected with existing request, context, State and Store limits. Bounds reject the entire candidate; they do not remove protected history or create funding/wakes. Legacy records remain identifiable without retrospective receipts; missing legacy exposure prevents display and disposition, and a misaligned legacy exposure history cannot accept appended deferrals. Restricted selection repair and a changed-character unit cannot adopt dispositions. Semantic warnings retain their separate lifecycle.
 
@@ -300,9 +333,83 @@ fresh-call boundary; subsequent work gates still revalidate current state. The
 receipts supply no artifact body, human attention, stakeholder acceptance or
 semantic assurance, and they do not expose a complete work-history inventory.
 
-Ordinary accepted file writes produce an actor-visible `accepted_file_write` observation binding the operation id to its exact source revision and accepted head. The receipt is adopted atomically with the file and is metadata only. Character-only adoption retains its existing fence. `CONTROL.file_mutation_metadata` reports recorded owner, protection, scope, and a separately permitted current head for at most 256 sources already explicitly supplied, selected, read, discovered, or catalogued. It is not a corpus inventory. A historical reference remains historical; no receipt or metadata selects, refreshes, supplies a new body, or grants mutation authority. An unavailable current head is not inferred from an older permitted revision.
+Successful ordinary adoption, including a no-operation response, retains at most
+128 host-private exact release anchors before consuming supplied observations.
+Each anchor binds its actor/work, immutable source observation hash, actual
+supplied observation hash, supplying invocation and prepared prompt hash. Only
+observations present in both that invocation's actual CONTROL observations and
+its supplied-observation list qualify. Newly supplied identities take
+deterministic precedence, unique by release. Later rendering rechecks ownership,
+source identity/hash, observation kind and release binding, lineage and current
+permissions, then regenerates receipts through the existing closure projection.
+Unavailable anchors are omitted without identifiers or counts and do not hold
+unrelated context. Permitted records beyond the projection limit set truncation;
+normal context accounting and source restrictions remain in force. Anchors cache
+no readiness, authority or bodies and are not a persona tool. Retention neither
+scans historical invocations nor discovers releases from board inventory. Legacy
+saves default to empty anchors; observations consumed before this collection
+existed are not recovered automatically.
 
-`CONTROL.selection_state` includes permitted exact authored references, their `last_admission`, whether they are active in this admission, and whether preserve retains them for the next admission. It preserves the difference between uninitialized and explicitly empty choices. Inaccessible entries are omitted without identities or counts. `next_call` still expires after its next admitted request even if that response fails, and preserve does not renew it. `CONTROL.navigation_current_admission` reports the exact prepaid allocation separately from the remaining work pool.
+To recover one legacy consumed observation, explicitly run
+`ai-personas --state-root <private-state-root> --operator <operator> recover-closure-anchor <request.json>`.
+The unique-key JSON file is limited to 16384 bytes and contains exactly
+`expected_runtime` (`id`, positive `revision`, lowercase 64-character `sha256`),
+`actor`, `work`, `invocation`, `observation`, and `release`. The reference must
+name the exact current runtime object. Identities and reference syntax are
+validated before opening state. The operator must match both the persona's
+creator and the work's intake operator. An existing actor/work focus and open
+or paused work are required, with no active invocation anywhere in the runtime.
+
+Recovery checks the exact adopted invocation's original prompt hash and CONTROL
+observation against the retained complete observation, then rechecks current
+source identity, lineage, permissions and the exact release receipt projection.
+Capture, retained-anchor verification and recovery preserve immutable original
+observation payloads and supply proofs; changing the fresh closure record schema
+does not invalidate historical anchors or their recovery.
+It restores only the requested release's host anchor at the front, preserving
+other unique release anchors in order up to 128. An identical anchor returns
+unchanged after all checks; the expected runtime reference must still match.
+A change appends an operator event binding the request, anchor provenance,
+before reference and time, and saves through ordinary CAS and size accounting.
+The JSON receipt contains `before_runtime`, `after_runtime`, `restored_anchor`,
+`changed`, and false `inference_performed`, `funding_granted`, `resumed`, and
+`closure_performed` flags. No readiness or authority is cached. No historical
+invocations are searched and no release inventory or general grant is added.
+Fresh receipt supply and all ordinary fulfillment, current-release and latest
+stakeholder-consent gates remain unchanged.
+
+Normal Runtime opening and execution-owner acquisition retain their existing
+orphan recovery behavior, including marking orphan dispatched invocations
+uncertain. Recovery then rejects any active runtime invocation; this grants no
+transport replay, response adoption or implicit resume. Ordinary Store reads
+and writes remain metered. Work phase, allowances, continuation permits,
+provider configuration and the saved plan remain unchanged.
+
+`CONTROL.closure_readiness` and its records carry `projection_claims` for
+partial exact-release evidence, fulfillment and authority judgments left to the
+persona, and validations required at adoption. Freshly supplied validated
+receipts satisfy `require_supplied` without a duplicate deliveries inventory;
+an anchor alone does not. The persona may propose `CloseGoal`, identify remaining
+work or voluntarily yield. Accepted `CloseGoal` appends exact historical completion
+without ending work, overwriting peer choices, or changing the work lifecycle epoch.
+The author independently chooses continuation, wait, pause, or stop; ordinary
+revision checks still fence stale requests. Newly recorded completion must remain
+supported in the final staged response. Changed command-schema bindings reject
+old admitted semantics in both operation encodings. Historical completion grants
+no wake, allowance, consent, or claim about a later candidate. Empty stakeholders
+require and prove no human consent.
+
+`CONTROL.command_resource_accounting.close_goal.navigation_charge` is `none`:
+zero invocation navigation alone does not prevent proposing this command.
+Response validation and bounds, current authorization and responsibility,
+current release support, exact permitted supplied receipts and required
+stakeholders' globally latest positive exact-release consent still apply.
+Other operations retain their charges; no authority or resources are granted
+and no allowance is refilled.
+
+Ordinary accepted file writes produce an actor-visible `accepted_file_write` observation binding the operation id to its exact source revision and accepted head. The receipt is adopted atomically with the file and is metadata only. Character-only adoption fences ordinary operations and the new continuation from that response while preserving a previously accepted ordinary route to a fresh decision. `CONTROL.file_mutation_metadata` reports recorded owner, protection, scope, and a separately permitted current head for at most 256 sources already explicitly supplied, selected, read, discovered, or catalogued. It is not a corpus inventory. A historical reference remains historical; no receipt or metadata selects, refreshes, supplies a new body, or grants mutation authority. An unavailable current head is not inferred from an older permitted revision.
+
+`CONTROL.selection_state` includes permitted exact authored references, their `last_admission`, whether they are active in this admission, and whether preserve retains them for the next admission. It preserves the difference between uninitialized and explicitly empty choices. Inaccessible entries are omitted without identities or counts. `next_call` still expires after its next admitted request even if that response fails, and preserve does not renew it. `CONTROL.navigation_current_admission` reports the exact prepaid allocation separately from the remaining work pool. Another admission is unnecessary merely to obtain navigation already available in the current request. An empty future pool does not refill automatically, and another admission creates no funding. When a necessary step cannot fit, or the persona voluntarily yields, it should name the remaining duty, actual blocker or voluntary choice, exact release when known, and concrete continuation requirement.
 
 Explicit failed-response recovery supplies the same persona with the terminal-bound adoption error, bounded to 180 UTF-8 bytes, only when its retained failure exposure is currently permitted. Planning retains restrictions outside the rolled-back candidate state, including the rendered context, earlier navigation and a failing inspection's consulted permitted view. Pure pre-planning syntax and immutable protocol errors retain their request exposure. The trusted rejection transaction stores an exact terminal-bound manifest within 4096 bytes and existing prepaid capacity; overflow, missing legacy provenance, malformed manifests and untracked ordinary/navigation/render failures are explicitly unknown and withheld from inference. A successful bounded inspection failure can therefore remain useful while permitted, but ordinary failure diagnostics without complete provenance may be unavailable. Quoted response-origin tokens in parser diagnostics are redacted; raw response bodies remain private. Recovery grants no replay, automatic retry, new funding, artifact-body supply or substantive adoption.
 
@@ -322,4 +429,4 @@ A response returns a bounded page and an optional `next_cursor`. Continuing requ
 
 Coverage is explicitly limited to the remaining permitted view from `start_position`, never inaccessible records or a claim of global absence. An oversized record is an explicit `record_exceeds_scan_bound` or `record_exceeds_result_bound` entry with a `retry_cursor`; the page advances so later records remain reachable. The record is never truncated. Retrying requires a sufficient remaining admitted budget. `coverage_complete` remains false for any omitted record on the page.
 
-Inspection shares the invocation's existing navigation call, metadata-inspection, scan, match and result allowances with file reads/searches, intersects available context and Store body bounds, and uses the already prepaid per-work/Store allocation. Before collection or lineage traversal, each page reserves one fixed permission projection of 32 MiB scan units and 8193 revision-inspection units, then charges only permitted metadata and returned record serialization incrementally. The default 64 MiB/16384 per-call allowance supports this reservation. The projection supports configured corpus envelopes of at most 4096 revisions; a larger configuration or smaller remaining reservation returns generic unavailable coverage without traversal. An iterative two-mode graph preserves ordinary source applicability and warning-receipt confidentiality, caches shared lineage and evidence, and conservatively withholds individual closures exceeding existing exposure reference or manifest bounds. File-body bytes do not enter permission decisions. These are finite metadata scan/accounting units, not a claim that CPU instruction count equals byte count. A collection whose metadata does not fit returns honest `budget_exhausted` coverage; there is no unbounded fallback. Permitted-metadata exhaustion after the fixed reservation consumes the remaining scan allowance and returns a bounded budget_exhausted status, retaining all consulted restrictions and no partial snapshot or coverage claim. Context headroom uses the existing render after consumed observations and selection reductions, less already charged navigation results; a cleared optional selection or consumed page therefore frees room for inspection. Even a status must fit the remaining result/context budget or adoption is held atomically. Store retention and whole-request fit checks still apply.
+Inspection shares the invocation's existing navigation call, metadata-inspection, scan, match and result allowances with file reads/searches, intersects available context and Store body bounds, and uses the already prepaid per-work/Store allocation. Before collection or lineage traversal, each page reserves one fixed permission projection of 32 MiB scan units and 8193 revision-inspection units, then charges only permitted metadata and returned record serialization incrementally. The default 64 MiB/16384 per-call allowance supports one such reservation; two pages require at least 16386 revision-inspection units before incremental costs, so available call count alone does not establish that they fit. Preparation deducts every reserved navigation dimension. Adoption records measured usage separately from the reservation with `allowance_refunded=false`; lower measured usage does not refund the prepaid allocation. The projection supports configured corpus envelopes of at most 4096 revisions; a larger configuration or smaller remaining reservation returns generic unavailable coverage without traversal. An iterative two-mode graph preserves ordinary source applicability and warning-receipt confidentiality, caches shared lineage and evidence, and conservatively withholds individual closures exceeding existing exposure reference or manifest bounds. File-body bytes do not enter permission decisions. These are finite metadata scan/accounting units, not a claim that CPU instruction count equals byte count. A collection whose metadata does not fit returns honest `budget_exhausted` coverage; there is no unbounded fallback. Permitted-metadata exhaustion after the fixed reservation consumes the remaining scan allowance and returns a bounded budget_exhausted status, retaining all consulted restrictions and no partial snapshot or coverage claim. Context headroom uses the existing render after consumed observations and selection reductions, less already charged navigation results; a cleared optional selection or consumed page therefore frees room for inspection. Even a status must fit the remaining result/context budget or adoption is held atomically. Store retention and whole-request fit checks still apply.

@@ -39,6 +39,8 @@ impl Item {
 pub(super) struct Collector {
     model: String,
     limits: Limits,
+    allow_thin_completed: bool,
+    thin_lifecycle: bool,
     line: Vec<u8>,
     data: Vec<u8>,
     event_name: Option<String>,
@@ -62,6 +64,8 @@ impl Collector {
         Self {
             model: model.into(),
             limits: limits.clone(),
+            allow_thin_completed: false,
+            thin_lifecycle: true,
             line: Vec::new(),
             data: Vec::new(),
             event_name: None,
@@ -80,6 +84,10 @@ impl Collector {
             previous_reported_effort: None,
             usage: Usage::default(),
         }
+    }
+    pub fn with_mode(mut self, mode: super::AccessMode) -> Self {
+        self.allow_thin_completed = mode == super::AccessMode::SiwcOAuth;
+        self
     }
     pub fn push(&mut self, bytes: &[u8]) -> Result<()> {
         if let Some(failure) = self.failure {
@@ -184,7 +192,12 @@ impl Collector {
             if self.last_sequence.is_some_and(|old| sequence <= old) {
                 return Err(Failure::Protocol);
             }
+            self.thin_lifecycle &= self
+                .last_sequence
+                .map_or(sequence == 0, |old| old.checked_add(1) == Some(sequence));
             self.last_sequence = Some(sequence);
+        } else {
+            self.thin_lifecycle = false;
         }
         if let Some(model) = event.get("model") {
             if model.as_str() != Some(self.model.as_str()) {
@@ -250,6 +263,11 @@ impl Collector {
                 let output = array(response, "output")?;
                 if output.len() > self.limits.max_events {
                     return Err(Failure::Limit);
+                }
+                if output.is_empty() && self.allow_thin_completed {
+                    self.response = Some(self.thin_completion_text()?);
+                    self.completed = true;
+                    return Ok(());
                 }
                 let mut ids = BTreeSet::new();
                 let mut candidate = None;
@@ -402,6 +420,9 @@ impl Collector {
             | "response.reasoning_summary_text.done"
             | "response.reasoning_text.delta"
             | "response.reasoning_text.done" => {
+                // Detailed reasoning subevents are not reconciled here. They
+                // still require a full terminal snapshot, never thin recovery.
+                self.thin_lifecycle = false;
                 let item = self.track(
                     index(&event, "output_index")?,
                     wire_id(&event, "item_id")?,
@@ -416,6 +437,26 @@ impl Collector {
             _ => return Err(Failure::Protocol),
         }
         Ok(())
+    }
+    fn thin_completion_text(&self) -> Result<String> {
+        if !self.thin_lifecycle {
+            return Err(Failure::Protocol);
+        }
+        let mut candidate = None;
+        for (expected, (index, item)) in self.items.iter().enumerate() {
+            if *index != expected || !item.added || !item.done {
+                return Err(Failure::Protocol);
+            }
+            if item.kind == Kind::Message {
+                if candidate.is_some() || !item.part_added || !item.text_done || !item.part_done {
+                    return Err(Failure::Protocol);
+                }
+                // Each complete carrier was checked against prior carriers and
+                // any deltas. Never promote deltas or an item.done alone.
+                candidate = Some(item.final_text.as_deref().ok_or(Failure::Protocol)?);
+            }
+        }
+        candidate.map(str::to_owned).ok_or(Failure::Protocol)
     }
     fn observe_effort(&mut self, response: &Value) -> Result<()> {
         let Some(reasoning) = response.get("reasoning").filter(|value| !value.is_null()) else {
@@ -450,6 +491,9 @@ impl Collector {
                 && (item.id == id || (kind == Kind::Message && item.kind == Kind::Message))
         }) {
             return Err(Failure::Protocol);
+        }
+        if !self.items.contains_key(&index) && index != self.items.len() {
+            self.thin_lifecycle = false;
         }
         let item = self.items.entry(index).or_insert_with(|| Item {
             id: id.into(),

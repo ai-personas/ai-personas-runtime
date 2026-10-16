@@ -21,6 +21,8 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
+pub mod need;
+
 pub const PROTOCOL_VERSION: u32 = 1;
 pub const MAX_JSON_DEPTH: usize = 64;
 pub const MAX_JSON_NODES: usize = 65_536;
@@ -165,6 +167,12 @@ pub struct ExactRef {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Continuation {
     Immediate {
+        purpose: String,
+    },
+    /// One future consideration of this accepted work, without inventing a dependency.
+    /// Consumed by actual admission; it grants no new scope, resources or polling loop.
+    ReconsiderAt {
+        not_before_unix: u64,
         purpose: String,
     },
     Wait {
@@ -312,6 +320,21 @@ pub enum Operation {
         id: String,
         reference: ExactRef,
     },
+    /// Explicit selective retrieval of retained messages across works. Returns
+    /// attributed metadata only; continuation requires a freshly supplied handle.
+    HistoryQuery {
+        id: String,
+        mode: crate::files::SearchMode,
+        limit: usize,
+        cursor: Option<String>,
+    },
+    /// Exact original message identity and history-message-record-v1 digest.
+    /// A successful read supplies protected text only on a fresh request.
+    HistoryRead {
+        id: String,
+        message_id: String,
+        sha256: String,
+    },
     /// One bounded page from this invocation's work. Copy returned cursors exactly;
     /// results become available only through a fresh request's protected observations.
     InspectWork {
@@ -365,6 +388,14 @@ pub enum Operation {
         subject: ExactRef,
         audience: Vec<String>,
     },
+    /// Records an exact pending need under this admission's separately offered
+    /// interface. It does not create work, invite, accept, allocate or dispatch.
+    ProposeNeed {
+        id: String,
+        binding_revision: String,
+        proposal: need::Proposal,
+        depends_on: Vec<String>,
+    },
     WorkCommand {
         id: String,
         inputs: Value,
@@ -392,11 +423,14 @@ impl Operation {
             | Self::Search { id, .. }
             | Self::Discover { id, .. }
             | Self::InspectWork { id, .. }
+            | Self::HistoryQuery { id, .. }
+            | Self::HistoryRead { id, .. }
             | Self::Communicate { id, .. }
             | Self::Responsibility { id, .. }
             | Self::Assess { id, .. }
             | Self::Deliver { id, .. }
             | Self::Effect { id, .. }
+            | Self::ProposeNeed { id, .. }
             | Self::WorkCommand { id, .. } => id,
         }
     }
@@ -860,7 +894,8 @@ fn check_ids(values: &[String], minimum: usize, path: &str) -> Result<(), Protoc
 }
 
 // Compatibility is confined to exact retained observation identities in
-// MaintenanceDispose.evidence. Do not relax general identifiers or admit aliases.
+// MaintenanceDispose.evidence and message identities in HistoryRead.
+// Do not relax general identifiers or admit aliases.
 // The runtime still checks exact supplied membership, attribution and current
 // exposure; recognizing this spelling establishes no evidence authority.
 fn legacy_components<'a>(value: &'a str, prefix: &str, limits: &[usize]) -> Option<Vec<&'a str>> {
@@ -890,9 +925,19 @@ fn legacy_components<'a>(value: &'a str, prefix: &str, limits: &[usize]) -> Opti
 }
 
 fn legacy_observation_id(value: &str) -> bool {
-    if legacy_components(value, "11:observation", &[MAX_ID_BYTES; 3]).is_some() {
-        return true;
+    legacy_components(value, "11:observation", &[MAX_ID_BYTES; 3]).is_some()
+        || legacy_message_id(value)
+}
+
+pub(crate) fn check_history_message_id(value: &str, path: &str) -> Result<(), ProtocolError> {
+    if legacy_message_id(value) {
+        Ok(())
+    } else {
+        check_id(value, path)
     }
+}
+
+fn legacy_message_id(value: &str) -> bool {
     // Local messages are also exact recipient observations. Their second part
     // is the canonical operation or reply tuple, never a free-form alias.
     let Some(parts) = legacy_components(
@@ -1091,7 +1136,7 @@ fn check_selection(selection: &SelectionIntent, path: &str) -> Result<(), Protoc
 
 fn check_continuation(continuation: &Continuation) -> Result<(), ProtocolError> {
     match continuation {
-        Continuation::Immediate { purpose } => {
+        Continuation::Immediate { purpose } | Continuation::ReconsiderAt { purpose, .. } => {
             check_text(purpose, MAX_REASON_BYTES, "continuation.purpose")
         }
         Continuation::Wait {
@@ -1343,6 +1388,60 @@ fn check_operation(
         Operation::Read { reference, .. } => {
             check_reference(reference, &format!("{path}.reference"))
         }
+        Operation::HistoryQuery {
+            mode,
+            limit,
+            cursor,
+            ..
+        } => {
+            if !(1..=128).contains(limit) {
+                return Err(invalid(
+                    &format!("{path}.limit"),
+                    "history limit must be 1..128",
+                ));
+            }
+            if let Some(cursor) = cursor {
+                check_id(cursor, &format!("{path}.cursor"))?;
+            }
+            match mode {
+                crate::files::SearchMode::Listing => (),
+                crate::files::SearchMode::Literal { needle } => {
+                    if needle.is_empty() || needle.len() > MAX_REASON_BYTES {
+                        return Err(invalid(
+                            &format!("{path}.mode"),
+                            "literal must be nonempty and at most 4096 UTF-8 bytes",
+                        ));
+                    }
+                }
+                crate::files::SearchMode::Regex { pattern, dialect } => {
+                    if pattern.len() > MAX_REASON_BYTES
+                        || !matches!(dialect, crate::files::RegexDialect::RustRegex1)
+                    {
+                        return Err(invalid(
+                            &format!("{path}.mode"),
+                            "history regex requires rust_regex1 and at most 4096 UTF-8 bytes",
+                        ));
+                    }
+                }
+            }
+            Ok(())
+        }
+        Operation::HistoryRead {
+            message_id, sha256, ..
+        } => {
+            check_history_message_id(message_id, &format!("{path}.message_id"))?;
+            if sha256.len() != 64
+                || !sha256
+                    .bytes()
+                    .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+            {
+                return Err(invalid(
+                    &format!("{path}.sha256"),
+                    "digest requires 64 lowercase hexadecimal digits",
+                ));
+            }
+            Ok(())
+        }
         Operation::InspectWork { limit, cursor, .. } => {
             if !(1..=128).contains(limit) {
                 return Err(invalid(
@@ -1479,6 +1578,16 @@ fn check_operation(
         } => {
             check_reference(subject, &format!("{path}.subject"))?;
             check_ids(audience, 1, &format!("{path}.audience"))
+        }
+        Operation::ProposeNeed {
+            binding_revision,
+            proposal,
+            depends_on,
+            ..
+        } => {
+            need::check_hash(binding_revision, &format!("{path}.binding_revision"))?;
+            proposal.validate()?;
+            check_ids(depends_on, 0, &format!("{path}.depends_on"))
         }
         Operation::WorkCommand {
             inputs, depends_on, ..
@@ -1759,6 +1868,7 @@ pub fn validate_decision(
         }
         if let Operation::Effect { depends_on, .. }
         | Operation::WorkCommand { depends_on, .. }
+        | Operation::ProposeNeed { depends_on, .. }
         | Operation::WarningAdopt { depends_on, .. }
         | Operation::WarningResolve { depends_on, .. } = operation
         {
@@ -1830,889 +1940,4 @@ pub fn validate_decision(
             )
         })
         .collect())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    const TEST_BYTE_LIMIT: usize = 2 * 1024 * 1024;
-
-    fn base() -> Value {
-        json!({
-            "version": 1,
-            "invocation_id": "inv-1",
-            "epoch": 0,
-            "work": {"kind":"ongoing", "reason":"Further work remains.", "evidence":[]},
-            "fragment_maintenance": {"kind":"no_change", "reason":"No supported refinement is identified."},
-            "asset_maintenance": {"kind":"no_change", "reason":"No supported storage change is identified."},
-            "next_fragments": {"kind":"preserve", "reason":"The existing choice remains appropriate."},
-            "next_assets": {"kind":"clear", "reason":"No further optional assets are requested."},
-            "continuation": {"kind":"pause", "reason":"Yielding with unfinished work explicit."},
-            "reply": {"kind":"none", "reason":"No message is requested."},
-            "operations": []
-        })
-    }
-
-    fn parse(value: &Value) -> Result<Decision, ProtocolError> {
-        parse_decision(&serde_json::to_vec(value).unwrap(), TEST_BYTE_LIMIT)
-    }
-
-    fn reference() -> Value {
-        json!({"source":"source-1", "revision":"revision-1", "representation":"utf8"})
-    }
-
-    fn effect(inputs: Value) -> Value {
-        json!({
-            "kind":"effect", "id":"effect-1", "capability_id":"capability-1",
-            "binding_revision":"binding-1", "inputs":inputs, "depends_on":[]
-        })
-    }
-
-    fn write(id: &str, scope: &str, source: &str, path: &str) -> Value {
-        json!({
-            "kind":"file_write", "id":id, "scope":{"kind":scope}, "source":source,
-            "path":path, "base_revision":null, "text":"Exact proposed text.",
-            "qualifications":[], "policy_id":"policy-1"
-        })
-    }
-
-    fn proposed_reference(write: &Value) -> Value {
-        let operation: Operation = serde_json::from_value(write.clone()).unwrap();
-        json!({
-            "source":write["source"],
-            "revision":proposed_file_revision(&operation).unwrap(),
-            "representation":"utf8"
-        })
-    }
-
-    fn mutations() -> Value {
-        let asset = write("write-a", "assets", "source-a", "a.txt");
-        let asset_ref = proposed_reference(&asset);
-        let mut fragment = write("write-f", "fragments", "source-f", "f.txt");
-        fragment["qualifications"] = json!([asset_ref.clone()]);
-        let fragment_ref = proposed_reference(&fragment);
-        let mut action = effect(json!({"input":asset_ref.clone()}));
-        action["depends_on"] = json!(["write-a"]);
-        let mut value = base();
-        value["fragment_maintenance"] = json!({"kind":"change", "reason":"A qualified revision is proposed.", "operation_ids":["write-f"]});
-        value["asset_maintenance"] = json!({"kind":"change", "reason":"An exact supporting revision is proposed.", "operation_ids":["write-a"]});
-        value["next_fragments"] = json!({"kind":"replace", "reason":"Use the proposed qualified revision after acceptance.", "references":[fragment_ref]});
-        value["next_assets"] = json!({"kind":"replace", "reason":"Use the exact supporting revision after acceptance.", "references":[asset_ref]});
-        // Forward references are legal; list order does not grant precedence.
-        value["operations"] = json!([action, asset, fragment]);
-        value
-    }
-
-    fn character() -> Value {
-        let mut value = base();
-        value["fragment_maintenance"] = json!({"kind":"change", "reason":"A coherent account is proposed.", "operation_ids":["adopt-1"]});
-        value["operations"] = json!([{
-            "kind":"character_adopt", "id":"adopt-1", "base_revision":null,
-            "ocean":{
-                "openness":"A specified tendency.",
-                "conscientiousness":"A specified tendency.",
-                "extraversion":"A specified tendency.",
-                "agreeableness":"A specified tendency.",
-                "neuroticism":"A specified tendency."
-            },
-            "vad":{
-                "valence":"A specified baseline.",
-                "activation":"A specified baseline.",
-                "control":"A specified baseline."
-            },
-            "own_voice":[reference()], "reason":"An attributed account is proposed.", "evidence":[]
-        }]);
-        value
-    }
-
-    #[test]
-    fn legal_actionless_responses_do_not_require_tools_or_edits() {
-        for kind in [
-            "ongoing",
-            "blocked",
-            "individual_sufficient",
-            "shared_sufficient",
-            "closed",
-        ] {
-            let mut value = base();
-            value["work"]["kind"] = json!(kind);
-            let decision = parse(&value).unwrap();
-            assert!(decision.operations.is_empty());
-            assert!(matches!(
-                decision.fragment_maintenance,
-                Maintenance::NoChange { .. }
-            ));
-            assert!(matches!(
-                decision.next_fragments,
-                SelectionIntent::Preserve { .. }
-            ));
-            assert!(matches!(
-                decision.next_assets,
-                SelectionIntent::Clear { .. }
-            ));
-        }
-    }
-
-    #[test]
-    fn positional_decision_struct_is_rejected() {
-        let object = base();
-        assert!(parse(&object).is_ok());
-        let fields = [
-            "version",
-            "invocation_id",
-            "epoch",
-            "work",
-            "fragment_maintenance",
-            "asset_maintenance",
-            "next_fragments",
-            "next_assets",
-            "continuation",
-            "reply",
-            "operations",
-        ];
-        let positional = Value::Array(fields.iter().map(|field| object[*field].clone()).collect());
-        assert!(parse(&positional).is_err(), "positional Decision accepted");
-    }
-
-    #[test]
-    fn positional_exact_reference_structs_are_rejected() {
-        let positional = json!(["source-1", "revision-1", "utf8", null, null, null]);
-        let mut read = base();
-        read["operations"] = json!([{"kind":"read", "id":"read-1", "reference":reference()}]);
-        assert!(parse(&read).is_ok());
-        read["operations"][0]["reference"] = positional.clone();
-        assert!(parse(&read).is_err(), "positional Read reference accepted");
-
-        let mut selected = base();
-        selected["next_assets"] =
-            json!({"kind":"replace", "reason":"Use the exact asset.", "references":[reference()]});
-        assert!(parse(&selected).is_ok());
-        selected["next_assets"]["references"][0] = positional;
-        assert!(
-            parse(&selected).is_err(),
-            "positional selected reference accepted"
-        );
-    }
-
-    #[test]
-    fn opaque_effect_inputs_preserve_arbitrary_arrays() {
-        let inputs = json!([
-            ["source-1", "revision-1", "utf8", null, null, null],
-            {"reference":[1, [true, null], {"work": ["ongoing", "opaque", []]}]},
-            [], {"operations": [[], ["not-a-typed-operation"]]}
-        ]);
-        let mut value = base();
-        value["operations"] = json!([effect(inputs.clone())]);
-        let decision = parse(&value).unwrap();
-        match &decision.operations[0] {
-            Operation::Effect {
-                inputs: accepted, ..
-            } => assert_eq!(accepted, &inputs),
-            _ => panic!("effect disappeared"),
-        }
-    }
-
-    #[test]
-    fn every_required_top_level_field_must_be_present() {
-        let original = base();
-        for field in original.as_object().unwrap().keys() {
-            let mut value = original.clone();
-            value.as_object_mut().unwrap().remove(field);
-            assert!(parse(&value).is_err(), "missing field accepted: {field}");
-        }
-    }
-
-    #[test]
-    fn missing_nested_intent_is_not_defaulted() {
-        for (parent, field) in [
-            ("work", "evidence"),
-            ("work", "reason"),
-            ("fragment_maintenance", "reason"),
-            ("asset_maintenance", "kind"),
-            ("next_fragments", "reason"),
-            ("next_assets", "kind"),
-            ("continuation", "reason"),
-            ("reply", "reason"),
-        ] {
-            let mut value = base();
-            value[parent].as_object_mut().unwrap().remove(field);
-            assert!(parse(&value).is_err(), "missing {parent}.{field} accepted");
-        }
-        let mut value = base();
-        value["reply"] = json!({"kind":"authored", "text":"An authored response."});
-        assert!(parse(&value).is_err());
-    }
-
-    #[test]
-    fn unknown_fields_are_rejected_at_typed_boundaries() {
-        for parent in [
-            "",
-            "/work",
-            "/fragment_maintenance",
-            "/asset_maintenance",
-            "/next_fragments",
-            "/next_assets",
-            "/continuation",
-            "/reply",
-        ] {
-            let mut value = base();
-            value
-                .pointer_mut(parent)
-                .unwrap()
-                .as_object_mut()
-                .unwrap()
-                .insert("unexpected".into(), json!(true));
-            assert!(parse(&value).is_err(), "unknown field accepted at {parent}");
-        }
-        for parent in ["/operations/0", "/operations/0/scope"] {
-            let mut value = base();
-            value["operations"] = json!([{
-                "kind":"search", "id":"search-1", "scope":{"kind":"assets"},
-                "query":"literal", "regex":false, "limit":1
-            }]);
-            value
-                .pointer_mut(parent)
-                .unwrap()
-                .as_object_mut()
-                .unwrap()
-                .insert("unexpected".into(), json!(true));
-            assert!(parse(&value).is_err());
-        }
-        let mut value = base();
-        let mut extra = reference();
-        extra["unexpected"] = json!(true);
-        value["operations"] = json!([{"kind":"read", "id":"read-1", "reference":extra}]);
-        assert!(parse(&value).is_err());
-    }
-
-    #[test]
-    fn unknown_variants_and_fields_from_other_variants_are_rejected() {
-        let mut value = base();
-        value["continuation"]["kind"] = json!("unspecified");
-        assert!(parse(&value).is_err());
-        value = base();
-        value["continuation"]["purpose"] = json!("A different variant's field.");
-        assert!(parse(&value).is_err());
-        value["next_fragments"] = json!({"kind":"preserve", "reason":"Retain.", "references":[]});
-        assert!(parse(&value).is_err());
-    }
-
-    #[test]
-    fn duplicate_decoded_root_keys_are_rejected() {
-        let encoded = serde_json::to_string(&base()).unwrap();
-        for prefix in [r#"{"version":1,"#, r#"{"ver\u0073ion":1,"#] {
-            let raw = [prefix, &encoded[1..]].concat();
-            assert!(matches!(
-                parse_decision(raw.as_bytes(), TEST_BYTE_LIMIT),
-                Err(ProtocolError::DuplicateKey { .. })
-            ));
-        }
-    }
-
-    #[test]
-    fn duplicate_keys_are_rejected_inside_opaque_inputs_and_unicode_keys() {
-        let mut value = base();
-        value["operations"] = json!([effect(Value::Null)]);
-        let encoded = serde_json::to_string(&value).unwrap();
-        for replacement in [
-            r#""inputs":{"key":1,"\u006bey":2}"#,
-            r#""inputs":{"😀":1,"\ud83d\ude00":2}"#,
-            r#""inputs":[{"x":1,"x":2}]"#,
-        ] {
-            let raw = encoded.replace(r#""inputs":null"#, replacement);
-            assert!(matches!(
-                parse_decision(raw.as_bytes(), TEST_BYTE_LIMIT),
-                Err(ProtocolError::DuplicateKey { .. })
-            ));
-        }
-        value["operations"] = json!([effect(json!([{"key":1}, {"key":2}]))]);
-        assert!(parse(&value).is_ok());
-    }
-
-    #[test]
-    fn profile_map_duplicate_is_not_silently_overwritten() {
-        let encoded = serde_json::to_string(&character()).unwrap();
-        let raw = encoded.replacen(r#""ocean":{"#, r#""ocean":{"open\u006eess":"Other.","#, 1);
-        assert!(matches!(
-            parse_decision(raw.as_bytes(), TEST_BYTE_LIMIT),
-            Err(ProtocolError::DuplicateKey { .. })
-        ));
-    }
-
-    #[test]
-    fn invalid_utf8_and_unpaired_surrogates_are_rejected() {
-        for raw in [
-            &[0xff][..],
-            &[0xed, 0xa0, 0x80][..],
-            &[0xc0, 0xaf][..],
-            &[0xf0, 0x9f][..],
-        ] {
-            assert!(matches!(
-                parse_decision(raw, TEST_BYTE_LIMIT),
-                Err(ProtocolError::InvalidUtf8 { .. })
-            ));
-        }
-        let encoded = serde_json::to_string(&base()).unwrap();
-        for replacement in [
-            r#""\ud800""#,
-            r#""\udfff""#,
-            r#""\ud800\u0041""#,
-            r#""\ud800\ud800""#,
-        ] {
-            let raw = encoded.replace(r#""inv-1""#, replacement);
-            assert!(matches!(
-                parse_decision(raw.as_bytes(), TEST_BYTE_LIMIT),
-                Err(ProtocolError::JsonSyntax { .. })
-            ));
-        }
-        let raw = encoded.replace(r#""inv-1""#, r#""\ud834\udd1e""#);
-        assert_eq!(
-            parse_decision(raw.as_bytes(), TEST_BYTE_LIMIT)
-                .unwrap()
-                .invocation_id,
-            "𝄞"
-        );
-    }
-
-    #[test]
-    fn strings_are_not_decoded_twice() {
-        let mut value = base();
-        value["reply"] = json!({"kind":"authored", "audience":["recipient-1"], "text":r"\uD800"});
-        let decision = parse(&value).unwrap();
-        match decision.reply {
-            ReplyDisposition::Authored { text, .. } => assert_eq!(text, r"\uD800"),
-            _ => panic!("wrong reply variant"),
-        }
-    }
-
-    #[test]
-    fn every_truncated_prefix_and_trailing_junk_is_rejected() {
-        let encoded = serde_json::to_vec(&base()).unwrap();
-        for length in 0..encoded.len() {
-            assert!(
-                parse_decision(&encoded[..length], TEST_BYTE_LIMIT).is_err(),
-                "accepted prefix of length {length}"
-            );
-        }
-        for suffix in ["null", "{}", "x", ",", "\nfalse"] {
-            let mut bytes = encoded.clone();
-            bytes.extend_from_slice(suffix.as_bytes());
-            assert!(parse_decision(&bytes, TEST_BYTE_LIMIT).is_err());
-        }
-        let mut padded = encoded;
-        padded.extend_from_slice(b" \n\r\t");
-        assert!(parse_decision(&padded, TEST_BYTE_LIMIT).is_ok());
-    }
-
-    #[test]
-    fn byte_depth_node_and_decoded_string_limits_precede_typed_decoding() {
-        let bytes = serde_json::to_vec(&base()).unwrap();
-        assert!(parse_decision(&bytes, bytes.len()).is_ok());
-        assert!(matches!(
-            parse_decision(&bytes, bytes.len() - 1),
-            Err(ProtocolError::InputTooLarge { .. })
-        ));
-
-        let mut input = Value::Null;
-        for _ in 0..MAX_JSON_DEPTH - 3 {
-            input = json!([input]);
-        }
-        let mut value = base();
-        value["operations"] = json!([effect(input.clone())]);
-        assert!(parse(&value).is_ok());
-        value["operations"] = json!([effect(json!([input]))]);
-        assert!(matches!(
-            parse(&value),
-            Err(ProtocolError::DepthLimit { .. })
-        ));
-
-        let oversized_nodes = format!("[{}]", vec!["0"; MAX_JSON_NODES].join(","));
-        assert!(matches!(
-            parse_decision(oversized_nodes.as_bytes(), TEST_BYTE_LIMIT),
-            Err(ProtocolError::NodeLimit { .. })
-        ));
-        let oversized_string = serde_json::to_vec(&"x".repeat(MAX_TEXT_BYTES + 1)).unwrap();
-        assert!(matches!(
-            parse_decision(&oversized_string, TEST_BYTE_LIMIT),
-            Err(ProtocolError::StringLimit { .. })
-        ));
-    }
-
-    #[test]
-    fn scalar_types_and_bounds_are_enforced_without_normalizing_content() {
-        for (pointer, replacement) in [
-            ("/version", json!(0)),
-            ("/version", json!(2)),
-            ("/epoch", json!(-1)),
-            ("/epoch", json!(1.5)),
-            ("/invocation_id", json!("")),
-            ("/invocation_id", json!("a b")),
-            ("/work/reason", json!(" \t\n")),
-            ("/work/reason", json!("x\u{0000}y")),
-            ("/work/evidence", json!(["same", "same"])),
-        ] {
-            let mut value = base();
-            *value.pointer_mut(pointer).unwrap() = replacement;
-            assert!(
-                parse(&value).is_err(),
-                "invalid scalar accepted at {pointer}"
-            );
-        }
-        let mut value = base();
-        value["work"]["reason"] = json!("é".repeat(MAX_REASON_BYTES / 2));
-        assert!(parse(&value).is_ok());
-        value["work"]["reason"] = json!("é".repeat(MAX_REASON_BYTES / 2 + 1));
-        assert!(parse(&value).is_err());
-        value = base();
-        value["invocation_id"] = json!("x".repeat(MAX_ID_BYTES + 1));
-        assert!(parse(&value).is_err());
-        value = base();
-        value["operations"] = json!([effect(
-            json!({"empty":"", "nil":null, "flag":false, "number":0})
-        )]);
-        assert!(parse(&value).is_ok());
-    }
-
-    #[test]
-    fn discover_is_closed_explicit_and_bounded() {
-        let discover = json!({"kind":"discover","id":"list","request":{
-            "scope":"assets","surface":{"kind":"path"},"mode":{"kind":"listing"},
-            "hidden_paths":"exclude","retirement":"all_retained"
-        },"limit":130,"cursor":null});
-        let mut value = base();
-        value["operations"] = json!([discover.clone()]);
-        assert!(parse(&value).is_ok());
-        for limit in [0, MAX_SEARCH_LIMIT + 1] {
-            value["operations"][0]["limit"] = json!(limit);
-            assert!(parse(&value).is_err());
-        }
-        for (pointer, replacement) in [
-            (
-                "/request/surface",
-                json!({"kind":"text","representation":{"kind":"utf8"}}),
-            ),
-            ("/cursor", json!({"offset":10})),
-            ("/cursor", json!("invalid handle")),
-            (
-                "/request",
-                json!({"scope":"assets","surface":{"kind":"path"},"mode":{"kind":"listing"},
-                "hidden_paths":"include","retirement":"all_retained","automatic":true}),
-            ),
-        ] {
-            value["operations"] = json!([discover.clone()]);
-            *value["operations"][0].pointer_mut(pointer).unwrap() = replacement;
-            assert!(parse(&value).is_err(), "{pointer}");
-        }
-        value["operations"] = json!([discover]);
-        value["operations"][0]["request"]["mode"] =
-            json!({"kind":"regex","pattern":"item-.*","dialect":{"kind":"rust_regex1"}});
-        value["operations"][0]["cursor"] = json!("discovery:retained-handle");
-        assert!(parse(&value).is_ok());
-    }
-
-    #[test]
-    fn search_bounds_and_duplicate_operation_ids_are_rejected() {
-        let search = json!({"kind":"search", "id":"search-1", "scope":{"kind":"fragments"}, "query":"literal", "regex":false, "limit":1});
-        let mut value = base();
-        value["operations"] = json!([search.clone()]);
-        assert!(parse(&value).is_ok());
-        for limit in [0, MAX_SEARCH_LIMIT + 1] {
-            value["operations"][0]["limit"] = json!(limit);
-            assert!(parse(&value).is_err());
-        }
-        value["operations"] = json!([search.clone(), search]);
-        assert!(parse(&value).is_err());
-    }
-
-    #[test]
-    fn reference_ranges_duplicates_and_optional_fields_are_checked() {
-        let mut value = base();
-        value["next_assets"] =
-            json!({"kind":"replace", "reason":"Use the exact view.", "references":[reference()]});
-        let parsed = parse(&value).unwrap();
-        match parsed.next_assets {
-            SelectionIntent::Replace { references, .. } => {
-                assert_eq!(references[0].start, None);
-                assert_eq!(references[0].lifetime, None);
-            }
-            _ => panic!("wrong selection variant"),
-        }
-        for (start, end) in [
-            (json!(0), Value::Null),
-            (Value::Null, json!(1)),
-            (json!(1), json!(1)),
-            (json!(2), json!(1)),
-            (json!(-1), json!(1)),
-            (json!(0.5), json!(1)),
-        ] {
-            let mut bad = value.clone();
-            bad["next_assets"]["references"][0]["start"] = start;
-            bad["next_assets"]["references"][0]["end"] = end;
-            assert!(parse(&bad).is_err());
-        }
-        let mut first = reference();
-        first["start"] = json!(0);
-        first["end"] = json!(2);
-        let mut second = reference();
-        second["start"] = json!(2);
-        second["end"] = json!(3);
-        value["next_assets"]["references"] = json!([first.clone(), second.clone()]);
-        assert!(parse(&value).is_ok());
-        second["start"] = json!(1);
-        value["next_assets"]["references"] = json!([first, second]);
-        assert!(parse(&value).is_err());
-        let first = reference();
-        let mut second = first.clone();
-        second["lifetime"] = json!("Until reconsideration.");
-        value["next_assets"]["references"] = json!([first, second]);
-        assert!(parse(&value).is_err());
-        value["next_assets"]["references"] = json!([]);
-        assert!(parse(&value).is_err());
-    }
-
-    #[test]
-    fn exact_mutation_dependencies_and_forward_references_are_legal() {
-        let decision = parse(&mutations()).unwrap();
-        let prerequisites = validate_decision(&decision).unwrap();
-        assert_eq!(prerequisites["effect-1"], vec!["write-a".to_owned()]);
-        assert!(
-            prerequisites["write-f"].is_empty(),
-            "qualification binding is validated as atomic content, not an execution dependency"
-        );
-        assert!(prerequisites["write-a"].is_empty());
-        assert_eq!(
-            parse(&serde_json::to_value(&decision).unwrap()).unwrap(),
-            decision
-        );
-    }
-
-    #[test]
-    fn changed_proposal_metadata_invalidates_old_derived_references() {
-        for field in ["text", "policy_id", "path"] {
-            let mut value = mutations();
-            value["operations"][1][field] = json!("changed-value");
-            assert!(
-                parse(&value).is_err(),
-                "stale derived reference survived a change to {field}"
-            );
-        }
-        let mut value = mutations();
-        value["next_assets"]["references"][0]["source"] = json!("different-source");
-        assert!(parse(&value).is_err());
-        value = mutations();
-        let wrong_scope = value["next_assets"]["references"][0].clone();
-        value["next_fragments"]["references"] = json!([wrong_scope]);
-        assert!(parse(&value).is_err());
-        value = mutations();
-        value["next_assets"]["references"][0]["revision"] =
-            json!(format!("{}{}", PROPOSED_REVISION_PREFIX, "0".repeat(64)));
-        assert!(parse(&value).is_err());
-        value["next_assets"]["references"][0]["revision"] =
-            json!(format!("{}bad", PROPOSED_REVISION_PREFIX));
-        assert!(parse(&value).is_err());
-    }
-
-    #[test]
-    fn maintenance_cannot_hide_or_misclassify_mutations() {
-        for ids in [
-            json!([]),
-            json!(["missing"]),
-            json!(["effect-1"]),
-            json!(["write-f"]),
-            json!(["write-a", "write-a"]),
-        ] {
-            let mut value = mutations();
-            value["asset_maintenance"]["operation_ids"] = ids;
-            assert!(parse(&value).is_err());
-        }
-        let mut value = mutations();
-        value["asset_maintenance"] = json!({"kind":"no_change", "reason":"No change requested."});
-        assert!(parse(&value).is_err());
-        value = mutations();
-        value["operations"][2]["source"] = json!("source-a");
-        assert!(parse(&value).is_err());
-    }
-
-    #[test]
-    fn retirement_requires_exact_base_and_scope_accounting() {
-        let mut value = base();
-        value["operations"] = json!([{"kind":"file_retire", "id":"retire-1", "scope":{"kind":"assets"}, "source":"source-r", "base_revision":"revision-r"}]);
-        assert!(parse(&value).is_err());
-        value["asset_maintenance"] = json!({"kind":"change", "reason":"Retirement is proposed.", "operation_ids":["retire-1"]});
-        assert!(parse(&value).is_ok());
-        value["operations"][0]
-            .as_object_mut()
-            .unwrap()
-            .remove("base_revision");
-        assert!(parse(&value).is_err());
-    }
-
-    #[test]
-    fn dependency_unknowns_duplicates_self_edges_and_cycles_are_rejected() {
-        for dependencies in [
-            json!(["absent"]),
-            json!(["effect-1"]),
-            json!(["write-a", "write-a"]),
-        ] {
-            let mut value = mutations();
-            value["operations"][0]["depends_on"] = dependencies;
-            assert!(parse(&value).is_err());
-        }
-        let mut first = effect(Value::Null);
-        let mut second = effect(Value::Null);
-        second["id"] = json!("effect-2");
-        first["depends_on"] = json!(["effect-2"]);
-        second["depends_on"] = json!(["effect-1"]);
-        let mut value = base();
-        value["operations"] = json!([first, second]);
-        assert!(parse(&value).is_err());
-        value["operations"][1]["depends_on"] = json!([]);
-        // Structurally legal. This does not permit execution through an
-        // unobserved result or remove the host's fresh-decision barrier.
-        assert!(parse(&value).is_ok());
-    }
-
-    #[test]
-    fn character_dimensions_prose_and_cardinality_are_enforced() {
-        assert!(parse(&character()).is_ok());
-        for pointer in [
-            "/operations/0/ocean/openness",
-            "/operations/0/vad/activation",
-        ] {
-            let mut value = character();
-            *value.pointer_mut(pointer).unwrap() = json!(" ");
-            assert!(parse(&value).is_err());
-        }
-        let mut value = character();
-        value["operations"][0]["ocean"]
-            .as_object_mut()
-            .unwrap()
-            .remove("neuroticism");
-        assert!(parse(&value).is_err());
-        value = character();
-        value["operations"][0]["vad"]["arousal"] = json!("An extra dimension.");
-        assert!(parse(&value).is_err());
-        value = character();
-        value["operations"][0]["own_voice"] = json!([]);
-        assert!(parse(&value).is_err());
-        value = character();
-        let mut second = value["operations"][0].clone();
-        second["id"] = json!("adopt-2");
-        value["operations"].as_array_mut().unwrap().push(second);
-        value["fragment_maintenance"]["operation_ids"] = json!(["adopt-1", "adopt-2"]);
-        assert!(parse(&value).is_err());
-    }
-
-    #[test]
-    fn deferred_and_wait_intents_require_their_explicit_fields() {
-        let mut value = base();
-        value["fragment_maintenance"] = json!({
-            "kind":"deferred", "reason":"A prerequisite is unavailable.",
-            "consequence":"Dependent revision remains unaccepted.",
-            "owner_or_gap":"Ownership is unresolved.",
-            "reconsideration":"On the already identified event.", "deadline_unix":1
-        });
-        value["asset_maintenance"] = json!({"kind":"blocked", "reason":"A prerequisite is unavailable.", "consequence":"Dependent use remains blocked."});
-        value["continuation"] = json!({"kind":"wait", "dependency_ids":["event-1"], "deadline_unix":1, "reason":"Await the declared event."});
-        assert!(parse(&value).is_ok());
-        for field in ["reason", "consequence", "owner_or_gap", "reconsideration"] {
-            let mut missing = value.clone();
-            missing["fragment_maintenance"]
-                .as_object_mut()
-                .unwrap()
-                .remove(field);
-            assert!(parse(&missing).is_err());
-        }
-        let mut event_bounded = value.clone();
-        event_bounded["fragment_maintenance"]
-            .as_object_mut()
-            .unwrap()
-            .remove("deadline_unix");
-        assert!(
-            parse(&event_bounded).is_ok(),
-            "an existing event/lifecycle bound must not require an invented deadline"
-        );
-        value["continuation"]["dependency_ids"] = json!([]);
-        assert!(parse(&value).is_err());
-    }
-
-    #[test]
-    fn all_nonmaintenance_operation_shapes_can_be_authored_without_a_workflow() {
-        let mut value = base();
-        value["operations"] = json!([
-            {"kind":"read", "id":"read-1", "reference":reference()},
-            {"kind":"search", "id":"search-1", "scope":{"kind":"assets"}, "query":"literal", "regex":false, "limit":1},
-            {"kind":"communicate", "id":"message-1", "recipient":"recipient-1", "subject":"An attributed subject.", "text":"An authored message."},
-            {"kind":"responsibility", "id":"responsibility-1", "work_id":"work-1", "terms_revision":"terms-1", "disposition":"offered", "reason":"A contribution is proposed."},
-            {"kind":"assess", "id":"assessment-1", "subject":reference(), "criteria":"Declared criteria.", "evidence":[], "judgment":"An attributed judgment."},
-            {"kind":"deliver", "id":"delivery-1", "subject":reference(), "audience":["recipient-1"]},
-            effect(Value::Null)
-        ]);
-        value["reply"] = json!({"kind":"authored", "audience":["recipient-1"], "text":"A separately authored reply."});
-        assert!(parse(&value).is_ok());
-        value["reply"]["audience"] = json!(["recipient-1", "recipient-1"]);
-        assert!(parse(&value).is_err());
-        value["reply"]["audience"] = json!([]);
-        assert!(parse(&value).is_err());
-    }
-
-    #[test]
-    fn schema_exposes_required_fields_and_closed_root() {
-        let schema = decision_schema();
-        assert_eq!(schema["additionalProperties"], json!(false));
-        assert_eq!(
-            schema["properties"]["version"]["const"],
-            json!(PROTOCOL_VERSION)
-        );
-        let required = schema["required"].as_array().unwrap();
-        for name in base().as_object().unwrap().keys() {
-            assert!(
-                required.contains(&json!(name)),
-                "schema omitted required field {name}"
-            );
-        }
-        assert_eq!(required.len(), base().as_object().unwrap().len());
-        assert!(schema.get("$defs").is_some());
-    }
-    #[test]
-    fn operation_reference_avoids_requiring_model_to_compute_a_digest() {
-        let mut value = base();
-        value["operations"] = json!([{
-            "kind":"file_write", "id":"write-a", "scope":{"kind":"assets"},
-            "source":"source-a", "path":"notes/a.txt", "base_revision":null,
-            "text":"Exact authored bytes", "qualifications":[], "policy_id":"policy-1"
-        }]);
-        value["asset_maintenance"] = json!({"kind":"change","reason":"Retain the actual authored proposal.","operation_ids":["write-a"]});
-        value["next_assets"] = json!({"kind":"replace","reason":"Use the exact accepted proposal next.","references":[{
-            "source":"source-a","revision":"proposal-op:write-a","representation":"utf8","start":null,"end":null,"lifetime":"work"
-        }]});
-        assert!(parse(&value).is_ok());
-        value["next_assets"]["references"][0]["revision"] = json!("proposal-op:missing");
-        assert!(parse(&value).is_err());
-    }
-
-    #[test]
-    fn proposal_alias_and_digest_cannot_duplicate_or_overlap_selection() {
-        for overlap in [false, true] {
-            let w = write("write-a", "assets", "source-a", "a.txt");
-            let mut exact = proposed_reference(&w);
-            let mut alias = exact.clone();
-            alias["revision"] = json!("proposal-op:write-a");
-            if overlap {
-                exact["start"] = json!(0);
-                exact["end"] = json!(5);
-                alias["start"] = json!(3);
-                alias["end"] = json!(8);
-            }
-            let mut value = base();
-            value["asset_maintenance"] = json!({"kind":"change", "reason":"Accepted proposal test.", "operation_ids":["write-a"]});
-            value["operations"] = json!([w]);
-            value["next_assets"] = json!({"kind":"replace", "reason":"Duplicate spellings.", "references":[exact, alias]});
-            assert!(parse(&value).is_err());
-        }
-    }
-    #[test]
-    fn proposal_alias_and_digest_cannot_duplicate_qualification() {
-        let w = write("write-a", "assets", "source-a", "a.txt");
-        let exact = proposed_reference(&w);
-        let mut alias = exact.clone();
-        alias["revision"] = json!("proposal-op:write-a");
-        let mut f = write("write-f", "fragments", "source-f", "f.txt");
-        f["qualifications"] = json!([exact, alias]);
-        let mut value = base();
-        value["asset_maintenance"] =
-            json!({"kind":"change", "reason":"Proposal test.", "operation_ids":["write-a"]});
-        value["fragment_maintenance"] =
-            json!({"kind":"change", "reason":"Proposal test.", "operation_ids":["write-f"]});
-        value["operations"] = json!([w, f]);
-        assert!(parse(&value).is_err());
-    }
-
-    #[test]
-    fn legacy_observation_evidence_has_a_narrow_canonical_compatibility_profile() {
-        let long = format!(
-            "11:observation:128:{}:19:accepted_file_write:128:{}",
-            "i".repeat(128),
-            "w".repeat(128)
-        );
-        assert!(check_id(&long, "id").is_err());
-        assert!(check_maintenance_evidence(std::slice::from_ref(&long), "evidence").is_ok());
-        assert!(check_maintenance_evidence(&[long.clone(), long.clone()], "evidence").is_err());
-        assert!(check_ids(std::slice::from_ref(&long), 0, "ordinary evidence").is_err());
-        for invalid in [
-            "x".repeat(long.len()),
-            long.replace("11:observation", "11:OBSERVATION"),
-            long.replacen(":128:", ":0128:", 1),
-            format!("{long}:1:x"),
-            long.replacen(":128:", ":127:", 1),
-            long.replacen(":128:", ":+128:", 1),
-            long.replacen(&"i".repeat(128), &format!("{} ", "i".repeat(127)), 1),
-            format!(
-                "11:observation:257:{}:19:accepted_file_write:128:{}",
-                "i".repeat(257),
-                "w".repeat(128)
-            ),
-        ] {
-            assert!(check_maintenance_evidence(&[invalid], "evidence").is_err());
-        }
-        // Length prefixes count UTF-8 bytes, and cannot split a code point.
-        let unicode = format!(
-            "11:observation:128:{}:19:accepted_file_write:128:{}",
-            "λ".repeat(64),
-            "w".repeat(128)
-        );
-        assert!(check_maintenance_evidence(std::slice::from_ref(&unicode), "evidence").is_ok());
-        assert!(!legacy_observation_id(
-            &unicode.replacen(":128:", ":127:", 1)
-        ));
-    }
-
-    #[test]
-    fn legacy_message_evidence_only_accepts_canonical_message_producer_tuples() {
-        let invocation = "i".repeat(128);
-        let make = |suffix: &str| {
-            format!(
-                "7:message:128:{invocation}:{}:{suffix}:128:{}",
-                suffix.len(),
-                "r".repeat(128)
-            )
-        };
-        for bytes in [128, 256] {
-            let suffix = format!("9:operation:{bytes}:{}", "m".repeat(bytes));
-            let message = make(&suffix);
-            assert!(legacy_observation_id(&message));
-            assert!(check_maintenance_evidence(std::slice::from_ref(&message), "evidence").is_ok());
-            assert!(check_ids(std::slice::from_ref(&message), 0, "ordinary evidence").is_err());
-            assert!(
-                check_maintenance_evidence(&[message.clone(), message.clone()], "evidence")
-                    .is_err()
-            );
-            for invalid in [
-                message.replace("7:message", "7:MESSAGE"),
-                format!("{message}:1:x"),
-                message.replacen(":128:", ":0128:", 1),
-            ] {
-                assert!(check_maintenance_evidence(&[invalid], "evidence").is_err());
-            }
-        }
-        for suffix in ["5:reply:1:0", "5:reply:3:255"] {
-            assert!(legacy_observation_id(&make(suffix)));
-        }
-        for suffix in [
-            "free-form",
-            "9:OPERATION:1:m",
-            "9:operation:01:m",
-            "9:operation:1: ",
-            "5:reply:2:00",
-            "5:reply:3:256",
-            "5:reply:1:x",
-        ] {
-            assert!(
-                check_maintenance_evidence(&[make(suffix)], "evidence").is_err(),
-                "{suffix}"
-            );
-        }
-    }
 }

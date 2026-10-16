@@ -1,0 +1,860 @@
+//! Purpose-specific message adapter to bounded selective retrieval.
+//! Messages remain immutable messages, never synthetic file revisions.
+//! Shared matching, permission projection and navigation accounting grant no
+//! selection, authority, truth, attention, consent or character transition.
+use super::work_inspection::{bounded, Permissions, PROJECTION_BYTES, PROJECTION_REVISIONS};
+use super::*;
+
+const MAX_CURSORS: usize = 128;
+// Per focus, including duplicate memberships in separate handles. The byte
+// cap covers the complete serialized handle map, not just member identities.
+const MAX_CURSOR_BYTES: usize = 262_144;
+const MAX_CURSOR_MEMBERS: usize = 4096;
+// Covers the observation envelope, controls, two handles and one omission,
+// including the bounded canonical legacy message identity. Results are also
+// checked exactly before emission and by the final transactional render.
+const CONTROL_BYTES: usize = 4096;
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(transparent)]
+struct Membership(Vec<(String, String)>);
+
+impl Membership {
+    // serialized_bytes starts at two for the array brackets. Never retain a
+    // partial membership as a usable traversal or allocate an unbounded list.
+    fn push(&mut self, member: (String, String), serialized_bytes: &mut usize) -> bool {
+        if self.0.len() >= MAX_CURSOR_MEMBERS
+            || p::check_history_message_id(&member.0, "history.message_id").is_err()
+            || member.1.len() != 64
+            || !member
+                .1
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+            || self
+                .0
+                .last()
+                .is_some_and(|last| last.0.as_str() >= member.0.as_str())
+        {
+            return false;
+        }
+        let Some(encoded) = bounded(&member, MAX_CURSOR_BYTES) else {
+            return false;
+        };
+        let total = (*serialized_bytes)
+            .saturating_add(encoded.len())
+            .saturating_add(usize::from(!self.0.is_empty()));
+        if total > MAX_CURSOR_BYTES {
+            return false;
+        }
+        self.0.push(member);
+        *serialized_bytes = total;
+        true
+    }
+}
+
+impl<'de> Deserialize<'de> for Membership {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct Visitor;
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = Membership;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("bounded ordered history message identities and digests")
+            }
+
+            fn visit_seq<A>(self, mut sequence: A) -> std::result::Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                let mut members = Membership(Vec::new());
+                let mut bytes = 2;
+                // Do not reserve from an untrusted size hint. Individual tuple
+                // decoding also remains inside the existing State/Store input
+                // bounds; retained entries and serialized bytes are capped here.
+                while let Some(member) = sequence.next_element::<(String, String)>()? {
+                    if !members.push(member, &mut bytes) {
+                        return Err(serde::de::Error::custom(
+                            "history cursor membership exceeds bounds or has invalid identities",
+                        ));
+                    }
+                }
+                Ok(members)
+            }
+        }
+        deserializer.deserialize_seq(Visitor)
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Cursor {
+    observation: String,
+    actor: String,
+    work: String,
+    query: String,
+    view: String,
+    // Legacy handles have no reconstructible membership and require restart.
+    #[serde(default)]
+    members: Option<Membership>,
+    next_index: usize,
+    emitted_before: bool,
+    omitted_before: bool,
+}
+
+fn retention_fits<'a>(entries: impl IntoIterator<Item = (&'a String, &'a Cursor)>) -> bool {
+    let mut cursors = BTreeMap::new();
+    let mut members = 0_usize;
+    for (handle, cursor) in entries {
+        if cursors.len() >= MAX_CURSORS {
+            return false;
+        }
+        members = members.saturating_add(cursor.members.as_ref().map_or(0, |m| m.0.len()));
+        if members > MAX_CURSOR_MEMBERS || cursors.insert(handle, cursor).is_some() {
+            return false;
+        }
+    }
+    // References serialize exactly like the owned map. Each handle's complete
+    // membership is counted separately, even when next and retry share a view.
+    bounded(&cursors, MAX_CURSOR_BYTES).is_some()
+}
+
+fn bound_retention(focus: &mut Focus) {
+    if !retention_fits(focus.history_cursors.iter()) {
+        // These are disposable handles, never message history. An oversized
+        // retained map becomes unavailable rather than partially reconstructed.
+        focus.history_cursors.clear();
+    }
+}
+
+pub(super) fn retain_for_response(focus: &mut Focus, prepared: &Prepared, decision: &p::Decision) {
+    let requested: BTreeSet<&str> = decision
+        .operations
+        .iter()
+        .filter_map(|operation| match operation {
+            p::Operation::HistoryQuery {
+                cursor: Some(handle),
+                ..
+            } => Some(handle.as_str()),
+            _ => None,
+        })
+        .collect();
+    focus.history_cursors.retain(|handle, cursor| {
+        focus.pending_observations.contains(&cursor.observation)
+            || (requested.contains(handle.as_str())
+                && prepared.supplied_observations.contains(&cursor.observation))
+    });
+    bound_retention(focus);
+}
+
+pub(super) fn retain_pending(focus: &mut Focus) {
+    focus
+        .history_cursors
+        .retain(|_, cursor| focus.pending_observations.contains(&cursor.observation));
+    bound_retention(focus);
+}
+
+struct Output {
+    payload: Value,
+    cursors: Vec<(String, Cursor)>,
+    consumed: Option<String>,
+}
+impl Output {
+    fn status(status: &str) -> Self {
+        Self {
+            payload: json!({
+                "profile":"message-history-v1", "status":status,
+                "records":[], "record":null, "omitted":null,
+                "next_cursor":null, "retry_cursor":null,
+                "continuation_available":false, "restart_required":false,
+                "cursor_retention_unavailable":false,
+                "coverage_complete":false, "end_reached":false,
+                "permitted_view_only":true, "body_supplied":false,
+                "selection_changed":false, "authority_granted":false,
+                "semantic_truth_verified":false,
+                "recipient_attention_or_consent_established":false,
+                "characteristic_learning_established":false
+            }),
+            cursors: Vec::new(),
+            consumed: None,
+        }
+    }
+    fn stale() -> Self {
+        let mut output = Self::status("stale_cursor");
+        output.payload["restart_required"] = json!(true);
+        output
+    }
+    fn retention_unavailable() -> Self {
+        let mut output = Self::status("incomplete");
+        output.mark_retention_unavailable();
+        output
+    }
+    fn mark_retention_unavailable(&mut self) {
+        self.payload["cursor_retention_unavailable"] = json!(true);
+        self.payload["coverage_complete"] = json!(false);
+        self.payload["restart_required"] =
+            json!(self.payload["next_cursor"].is_null() && self.payload["retry_cursor"].is_null());
+    }
+}
+
+#[derive(Serialize)]
+struct MessageView<'a> {
+    message_id: &'a str,
+    sha256: &'a str,
+    sender: &'a str,
+    recipient: &'a str,
+    work: &'a str,
+    invocation: &'a str,
+    subject: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text: Option<&'a str>,
+    local_deposit_only: bool,
+}
+fn message_view<'a>(message: &'a Message, sha256: &'a str, body: bool) -> MessageView<'a> {
+    MessageView {
+        message_id: &message.id,
+        sha256,
+        sender: &message.sender,
+        recipient: &message.recipient,
+        work: &message.work,
+        invocation: &message.invocation,
+        subject: &message.subject,
+        text: body.then_some(message.text.as_str()),
+        local_deposit_only: message.local_deposit_only,
+    }
+}
+
+// Versioned ordered tuples, compact serde_json UTF-8 without whitespace.
+// Search deliberately excludes private permission manifests. The integrity
+// digest includes every original Message field, including its exact exposure.
+fn original_bytes(message: &Message) -> Option<Vec<u8>> {
+    bounded(
+        &(
+            "history-message-record-v1",
+            &message.id,
+            &message.sender,
+            &message.recipient,
+            &message.work,
+            &message.invocation,
+            &message.subject,
+            &message.text,
+            &message.lineage,
+            message.local_deposit_only,
+            &message.exposure,
+        ),
+        INPUT_LIMIT,
+    )
+}
+fn search_bytes(message: &Message, maximum: usize) -> Option<Vec<u8>> {
+    bounded(
+        &(
+            "history-message-text-v1",
+            &message.id,
+            &message.sender,
+            &message.recipient,
+            &message.work,
+            &message.invocation,
+            &message.subject,
+            &message.text,
+            message.local_deposit_only,
+        ),
+        maximum,
+    )
+}
+
+fn message_exposure(
+    permissions: &Permissions<'_>,
+    actor: &str,
+    key: &str,
+    message: &Message,
+) -> Option<Exposure> {
+    if key != message.id
+        || (actor != message.sender && actor != message.recipient)
+        || p::check_history_message_id(&message.id, "history.message_id").is_err()
+    {
+        return None;
+    }
+    // An absent original manifest is never reconstructed from the work or
+    // current request. Explicit original lineage remains an additional gate.
+    let mut exposure = message.exposure.as_ref()?.clone();
+    extend_exposure(
+        &mut exposure,
+        &Exposure {
+            sources: message.lineage.clone(),
+            policies: Vec::new(),
+        },
+    );
+    permissions.exposure(&exposure)
+}
+
+fn fresh_cursor(
+    state: &State,
+    prepared: &Prepared,
+    permissions: &Permissions<'_>,
+    token: &str,
+    cursor: &Cursor,
+) -> bool {
+    if cursor.actor != prepared.request.persona
+        || cursor.work != prepared.request.work
+        || !prepared.supplied_observations.contains(&cursor.observation)
+    {
+        return false;
+    }
+    let Some(source) = state.observations.get(&cursor.observation) else {
+        return false;
+    };
+    source.id == cursor.observation
+        && source.actor == prepared.request.persona
+        && source.work == prepared.request.work
+        && source.kind == "history_query"
+        && (source.payload["next_cursor"].as_str() == Some(token)
+            || source.payload["retry_cursor"].as_str() == Some(token))
+        && source
+            .exposure
+            .as_ref()
+            .is_some_and(|e| permissions.exposure(e).is_some())
+}
+
+fn queue_cursor(
+    output: &mut Output,
+    retained: &BTreeMap<String, Cursor>,
+    template: &Cursor,
+    tag: &str,
+    position: usize,
+    emitted: bool,
+    omitted: bool,
+) -> Result<Option<String>> {
+    let handle = format!(
+        "history:{}",
+        digest(&("history-cursor-v1", &template.observation, tag,))?
+    );
+    let mut cursor = template.clone();
+    cursor.next_index = position;
+    cursor.emitted_before = emitted;
+    cursor.omitted_before = omitted;
+    let consumed = output.consumed.as_ref();
+    if !retention_fits(
+        retained
+            .iter()
+            .filter(|(handle, _)| consumed != Some(*handle))
+            .chain(
+                output
+                    .cursors
+                    .iter()
+                    .map(|(handle, cursor)| (handle, cursor)),
+            )
+            .chain(std::iter::once((&handle, &cursor))),
+    ) {
+        return Ok(None);
+    }
+    output.cursors.push((handle.clone(), cursor));
+    Ok(Some(handle))
+}
+
+fn omission(message: &Message, sha256: &str, reason: &str) -> Value {
+    json!({"message_id":message.id,"sha256":sha256,"reason":reason})
+}
+
+#[allow(clippy::too_many_arguments)]
+fn query(
+    state: &State,
+    prepared: &Prepared,
+    id: &str,
+    mode: &f::SearchMode,
+    limit: usize,
+    token: Option<&str>,
+    permissions: &Permissions<'_>,
+    navigation: &mut f::NavigationBudget,
+    result_limit: usize,
+    consulted: &mut Exposure,
+) -> Result<Output> {
+    let Ok(matcher) = f::compile_search_mode(mode, &state.config.corpus) else {
+        return Ok(Output::status("invalid_query"));
+    };
+    let query = digest(&("history-query-v1", mode))?;
+    let actor = &prepared.request.persona;
+    let work = &prepared.request.work;
+    let persona = &state.personas[actor];
+    let focus = &persona.focus[work];
+    if !retention_fits(focus.history_cursors.iter()) {
+        return Ok(if token.is_some() {
+            Output::stale()
+        } else {
+            Output::retention_unavailable()
+        });
+    }
+    // Resolve and authorize the protected handle before any message lookup.
+    // Missing handles and failed permission gates return the same empty status.
+    let previous = match token {
+        None => None,
+        Some(token) => {
+            let Some(cursor) = focus.history_cursors.get(token) else {
+                return Ok(Output::stale());
+            };
+            if !fresh_cursor(state, prepared, permissions, token, cursor)
+                || cursor.query != query
+                || cursor
+                    .members
+                    .as_ref()
+                    .is_none_or(|members| cursor.next_index > members.0.len())
+            {
+                return Ok(Output::stale());
+            }
+            Some(cursor)
+        }
+    };
+    let projection_unavailable = || {
+        if previous.is_some() {
+            Output::stale()
+        } else {
+            Output::status("exhausted")
+        }
+    };
+    let mut members = Membership(Vec::new());
+    let mut records = Vec::new();
+    let mut view_exposure = Exposure::default();
+    // The fixed projection reservation and bounded State envelope precede both
+    // paths. Continuation validates every original member, including off-page
+    // members, and never enumerates additions to the mailbox.
+    if let Some(cursor) = previous {
+        let source = &state.observations[&cursor.observation];
+        extend_exposure(consulted, source.exposure.as_ref().unwrap());
+        members = cursor.members.as_ref().unwrap().clone();
+        for (message_id, expected) in &members.0 {
+            let Some(message) = state.messages.get(message_id) else {
+                return Ok(Output::stale());
+            };
+            let Some(exposure) = message_exposure(permissions, actor, message_id, message) else {
+                return Ok(Output::stale());
+            };
+            extend_exposure(consulted, &exposure);
+            extend_exposure(&mut view_exposure, &exposure);
+            let Some(bytes) = original_bytes(message) else {
+                return Ok(Output::stale());
+            };
+            if s::sha256_bytes(&bytes) != *expected {
+                return Ok(Output::stale());
+            }
+            records.push(message);
+        }
+    } else {
+        let mut member_bytes = 2;
+        for (key, message) in &state.messages {
+            let Some(exposure) = message_exposure(permissions, actor, key, message) else {
+                continue;
+            };
+            extend_exposure(consulted, &exposure);
+            extend_exposure(&mut view_exposure, &exposure);
+            let Some(bytes) = original_bytes(message) else {
+                return Ok(projection_unavailable());
+            };
+            if !members.push(
+                (message.id.clone(), s::sha256_bytes(&bytes)),
+                &mut member_bytes,
+            ) {
+                // No partial inventory, cursor or completeness claim escapes.
+                return Ok(Output::retention_unavailable());
+            }
+            records.push(message);
+        }
+    }
+    let Some(manifest) = permissions.manifest(&view_exposure) else {
+        return Ok(projection_unavailable());
+    };
+    let Some(bytes) = bounded(
+        &(
+            "history-permitted-view-v1",
+            actor,
+            work,
+            &persona.seed.destination,
+            &persona.seed.audience,
+            &query,
+            &members,
+            &view_exposure,
+            &manifest,
+        ),
+        INPUT_LIMIT,
+    ) else {
+        return Ok(projection_unavailable());
+    };
+    let snapshot = s::sha256_bytes(&bytes);
+    let (mut position, mut emitted, mut omitted_before) = match previous {
+        None => (0, false, false),
+        Some(cursor) => {
+            if cursor.view != snapshot {
+                return Ok(Output::stale());
+            }
+            (
+                cursor.next_index,
+                cursor.emitted_before,
+                cursor.omitted_before,
+            )
+        }
+    };
+    let mut output = Output::status("incomplete");
+    output.consumed = token.map(str::to_owned);
+    let mut hits = Vec::new();
+    let mut retry = None;
+    let mut exhausted = false;
+    let item_limit = result_limit.saturating_sub(CONTROL_BYTES);
+    while position < records.len() && hits.len() < limit {
+        let message = records[position];
+        let sha256 = &members.0[position].1;
+        let remaining = navigation.remaining();
+        if remaining.scanned_bytes == 0 || remaining.inspected_revisions == 0 {
+            exhausted = true;
+            break;
+        }
+        let scan_max = remaining.scanned_bytes.min(INPUT_LIMIT);
+        let encoded = if matches!(mode, f::SearchMode::Listing) {
+            bounded(&message_view(message, sha256, false), scan_max)
+        } else {
+            search_bytes(message, scan_max)
+        };
+        require(
+            navigation.charge(f::NavigationUsage {
+                scanned_bytes: encoded.as_ref().map_or(scan_max, Vec::len),
+                inspected_revisions: 1,
+                ..Default::default()
+            }),
+            "history scan accounting mismatch",
+        )?;
+        let Some(encoded) = encoded else {
+            retry = Some((position, emitted, omitted_before));
+            output.payload["omitted"] = omission(message, sha256, "entry_exceeds_scan_bound");
+            omitted_before = true;
+            position += 1;
+            break;
+        };
+        let text = std::str::from_utf8(&encoded).expect("serde_json emits UTF-8");
+        if matcher.first_match(text).is_none() {
+            position += 1;
+            continue;
+        }
+        if !navigation.charge(f::NavigationUsage {
+            matches: 1,
+            ..Default::default()
+        }) {
+            exhausted = true;
+            break;
+        }
+        let candidate = bounded(&message_view(message, sha256, false), item_limit)
+            .map(|bytes| serde_json::from_slice::<Value>(&bytes))
+            .transpose()?;
+        if let Some(candidate) = candidate {
+            hits.push(candidate);
+            if bounded(&hits, item_limit).is_some() {
+                emitted = true;
+                position += 1;
+                continue;
+            }
+            hits.pop();
+        }
+        if hits.is_empty() {
+            retry = Some((position, emitted, omitted_before));
+            output.payload["omitted"] = omission(message, sha256, "entry_exceeds_result_bound");
+            omitted_before = true;
+            position += 1;
+        }
+        // A full page leaves the entry for continuation. An individually
+        // oversized entry advances explicitly, with a separate retry handle.
+        break;
+    }
+    let end = position == records.len();
+    output.payload["records"] = json!(hits);
+    output.payload["end_reached"] = json!(end);
+    output.payload["coverage_complete"] = json!(end && !omitted_before);
+    output.payload["status"] = json!(if exhausted {
+        "exhausted"
+    } else if end && !omitted_before {
+        if emitted {
+            "complete"
+        } else {
+            "no_match"
+        }
+    } else {
+        "incomplete"
+    });
+    let template = Cursor {
+        observation: observation_id(&prepared.request.id, "history_query", id),
+        actor: actor.clone(),
+        work: work.clone(),
+        query,
+        view: snapshot,
+        members: Some(members),
+        next_index: 0,
+        emitted_before: false,
+        omitted_before: false,
+    };
+    let mut retention_unavailable = false;
+    if !end {
+        match queue_cursor(
+            &mut output,
+            &focus.history_cursors,
+            &template,
+            "next",
+            position,
+            emitted,
+            omitted_before,
+        )? {
+            Some(handle) => {
+                output.payload["next_cursor"] = json!(handle);
+                output.payload["continuation_available"] = json!(true);
+            }
+            None => retention_unavailable = true,
+        }
+    }
+    if let Some((position, emitted, omitted)) = retry {
+        match queue_cursor(
+            &mut output,
+            &focus.history_cursors,
+            &template,
+            "retry",
+            position,
+            emitted,
+            omitted,
+        )? {
+            Some(handle) => output.payload["retry_cursor"] = json!(handle),
+            None => retention_unavailable = true,
+        }
+    }
+    if retention_unavailable {
+        output.mark_retention_unavailable();
+    }
+    Ok(output)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn read(
+    state: &State,
+    prepared: &Prepared,
+    message_id: &str,
+    expected: &str,
+    permissions: &Permissions<'_>,
+    navigation: &mut f::NavigationBudget,
+    result_limit: usize,
+    consulted: &mut Exposure,
+) -> Result<Output> {
+    let unavailable = || Output::status("unavailable");
+    let Some(message) = state.messages.get(message_id) else {
+        return Ok(unavailable());
+    };
+    let Some(exposure) =
+        message_exposure(permissions, &prepared.request.persona, message_id, message)
+    else {
+        return Ok(unavailable());
+    };
+    let Some(bytes) = original_bytes(message) else {
+        return Ok(unavailable());
+    };
+    if s::sha256_bytes(&bytes) != expected {
+        return Ok(unavailable());
+    }
+    // Absent, denied, unknown-lineage and wrong-digest reads above have the
+    // same result and fixed reservation. Variable work concerns permitted exact
+    // records only, so subsequent shared-budget behavior reveals no hidden count.
+    extend_exposure(consulted, &exposure);
+    if !navigation.charge(f::NavigationUsage {
+        scanned_bytes: bytes.len(),
+        inspected_revisions: 1,
+        matches: 1,
+        ..Default::default()
+    }) {
+        return Ok(Output::status("exhausted"));
+    }
+    let Some(bytes) = bounded(
+        &message_view(message, expected, true),
+        result_limit.saturating_sub(CONTROL_BYTES),
+    ) else {
+        let mut output = Output::status("incomplete");
+        output.payload["omitted"] = omission(message, expected, "entry_exceeds_result_bound");
+        return Ok(output);
+    };
+    let mut output = Output::status("read");
+    output.payload["record"] = serde_json::from_slice(&bytes)?;
+    output.payload["body_supplied"] = json!(true);
+    Ok(output)
+}
+
+fn projected(prepared: &Prepared, id: &str, kind: &str, payload: &Value, now: i64) -> Value {
+    json!({
+        "id":observation_id(&prepared.request.id, kind, id),
+        "actor":prepared.request.persona,"work":prepared.request.work,
+        "invocation":prepared.request.id,"kind":kind,"at_unix":now,
+        "payload":payload,"current_required_qualifications":[]
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn apply(
+    state: &mut State,
+    prepared: &Prepared,
+    operation: &p::Operation,
+    navigation: &mut f::NavigationBudget,
+    context_base_bytes: usize,
+    context_exposure: &Exposure,
+    planning_exposure: &mut PlanningExposure,
+    now: i64,
+) -> Result<bool> {
+    let kind = match operation {
+        p::Operation::HistoryQuery { .. } => "history_query",
+        p::Operation::HistoryRead { .. } => "history_read",
+        _ => return Err(held("history operation required")),
+    };
+    let id = operation.id();
+    let result_limit = navigation
+        .remaining()
+        .result_bytes
+        .min(state.config.response_bytes)
+        .min(
+            state
+                .config
+                .context_bytes
+                .saturating_sub(context_base_bytes)
+                .saturating_sub(navigation.used().result_bytes)
+                .saturating_sub(PROMPT_MARGIN),
+        )
+        .min(storage_limits().max_body_bytes as usize);
+    let mut output = Output::status("exhausted");
+    let mut consulted = context_exposure.clone();
+    // Even the generic fallback must fit. No permission or mailbox traversal
+    // occurs when it cannot be retained and supplied within the existing bounds.
+    if bounded(
+        &projected(prepared, id, kind, &output.payload, now),
+        result_limit,
+    )
+    .is_none()
+    {
+        let _ = navigation.begin_call();
+        return Ok(false);
+    }
+    if navigation.begin_call().is_ok()
+        && result_limit > CONTROL_BYTES
+        && state.config.corpus.max_revisions <= PROJECTION_REVISIONS
+        && navigation.charge(f::NavigationUsage {
+            scanned_bytes: PROJECTION_BYTES,
+            inspected_revisions: PROJECTION_REVISIONS * 2 + 1,
+            ..Default::default()
+        })
+        // This envelope bounds the entire host walk, including membership,
+        // permission metadata, identity hashing and inaccessible entries. The
+        // reservation is constant; no private inventory size is reported.
+        && bounded(state, INPUT_LIMIT).is_some()
+    {
+        let a = admission(&state.personas[&prepared.request.persona], now);
+        if let Ok(permissions) = Permissions::new(state, &a) {
+            output = match operation {
+                p::Operation::HistoryQuery {
+                    mode,
+                    limit,
+                    cursor,
+                    ..
+                } => query(
+                    state,
+                    prepared,
+                    id,
+                    mode,
+                    *limit,
+                    cursor.as_deref(),
+                    &permissions,
+                    navigation,
+                    result_limit,
+                    &mut consulted,
+                )?,
+                p::Operation::HistoryRead {
+                    message_id, sha256, ..
+                } => read(
+                    state,
+                    prepared,
+                    message_id,
+                    sha256,
+                    &permissions,
+                    navigation,
+                    result_limit,
+                    &mut consulted,
+                )?,
+                _ => unreachable!(),
+            };
+        }
+    }
+    planning_exposure.include(&consulted);
+    require(
+        navigation.charge_serialized_result(
+            &projected(prepared, id, kind, &output.payload, now),
+            result_limit,
+        ),
+        "history result/status exceeds remaining navigation or context bound",
+    )?;
+    add_observation(
+        state,
+        prepared,
+        id,
+        kind,
+        output.payload,
+        Vec::new(),
+        Vec::new(),
+        now,
+    )?;
+    let observation = observation_id(&prepared.request.id, kind, id);
+    // Preserve original message restrictions as well as context-dependent caps.
+    // These are provenance only, never supplied file bodies or selections.
+    extend_exposure(
+        state
+            .observations
+            .get_mut(&observation)
+            .unwrap()
+            .exposure
+            .as_mut()
+            .unwrap(),
+        &consulted,
+    );
+    let cursors = &mut state
+        .personas
+        .get_mut(&prepared.request.persona)
+        .unwrap()
+        .focus
+        .get_mut(&prepared.request.work)
+        .unwrap()
+        .history_cursors;
+    if output.consumed.is_some() || !output.cursors.is_empty() {
+        require(
+            retention_fits(cursors.iter()),
+            "history cursor retention bound",
+        )?;
+        let consumed = output.consumed.as_ref();
+        require(
+            retention_fits(
+                cursors
+                    .iter()
+                    .filter(|(handle, _)| consumed != Some(*handle))
+                    .chain(
+                        output
+                            .cursors
+                            .iter()
+                            .map(|(handle, cursor)| (handle, cursor)),
+                    ),
+            ),
+            "history cursor replacement bound or identity conflict",
+        )?;
+        // Validate the complete replacement before changing the protected map.
+        // Both new handles count in full; only the exact consumed handle is
+        // excluded. Errors leave that handle intact in the original map.
+        let mut replacement = cursors.clone();
+        if let Some(consumed) = output.consumed {
+            require(
+                replacement.remove(&consumed).is_some(),
+                "history cursor replacement lost consumed handle",
+            )?;
+        }
+        for (handle, cursor) in output.cursors {
+            require(
+                replacement.insert(handle, cursor).is_none(),
+                "history cursor identity conflict",
+            )?;
+        }
+        *cursors = replacement;
+    }
+    Ok(true)
+}

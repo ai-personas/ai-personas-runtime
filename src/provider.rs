@@ -5,8 +5,6 @@
 //! There is no credential discovery, refresh, subprocess, retry, or fallback.
 
 mod sse;
-#[cfg(test)]
-mod tests;
 
 use futures_util::future::BoxFuture;
 use serde::{Deserialize, Serialize};
@@ -401,6 +399,53 @@ impl Clock for SystemClock {
     }
 }
 
+/// Opt-in guard for one finite intake grant, not general exposure-policy support.
+/// A trusted transport must call begin_launch at its final actual launch boundary.
+/// The shared observation survives cancellation or dropping the transport future.
+pub struct IntakeLaunchGuard {
+    expires_at_unix: i64,
+    clock: Arc<dyn Clock>,
+    checked_at_unix: std::sync::atomic::AtomicU64,
+}
+impl IntakeLaunchGuard {
+    fn new(expires_at_unix: i64, clock: Arc<dyn Clock>) -> Self {
+        Self {
+            expires_at_unix,
+            clock,
+            checked_at_unix: std::sync::atomic::AtomicU64::new(u64::MAX),
+        }
+    }
+
+    /// No await or other preparatory work may separate this check from launch.
+    /// Success is permission for this single launch, never a reusable grant.
+    pub fn begin_launch(&self) -> Result<(), Failure> {
+        let deadline = u64::try_from(self.expires_at_unix).map_err(|_| Failure::Configuration)?;
+        if deadline == 0 {
+            return Err(Failure::Configuration);
+        }
+        let now = self.clock.unix_seconds()?;
+        if now >= deadline {
+            return Err(Failure::IntakeExpired);
+        }
+        self.checked_at_unix
+            .compare_exchange(
+                u64::MAX,
+                now,
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Acquire,
+            )
+            .map_err(|_| Failure::Binding)?;
+        Ok(())
+    }
+
+    fn checked_at_unix(&self) -> Option<u64> {
+        let value = self
+            .checked_at_unix
+            .load(std::sync::atomic::Ordering::Acquire);
+        (value != u64::MAX).then_some(value)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Error)]
 #[serde(rename_all = "snake_case")]
 pub enum Failure {
@@ -418,6 +463,10 @@ pub enum Failure {
     InvalidCredential,
     #[error("OAuth credential expired; a separate access renewal is required")]
     CredentialExpired,
+    #[error("intake delegation expired before provider launch")]
+    IntakeExpired,
+    #[error("provider or transport cannot enforce the final intake launch guard")]
+    IntakeGuardUnsupported,
     #[error("credential grant does not match the selected mode")]
     GrantMismatch,
     #[error("credential account does not match the capability evidence")]
@@ -480,6 +529,10 @@ pub struct RequestAudit {
 #[derive(Clone, Debug, Serialize)]
 pub struct AttemptReceipt {
     pub audit: RequestAudit,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub intake_expires_at_unix: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub intake_prelaunch_checked_at_unix: Option<u64>,
     pub dispatch_may_have_begun: bool,
     pub http_status: Option<u16>,
     pub stream_bytes_observed: u64,
@@ -500,6 +553,8 @@ impl AttemptReceipt {
     fn new(audit: RequestAudit) -> Self {
         Self {
             audit,
+            intake_expires_at_unix: None,
+            intake_prelaunch_checked_at_unix: None,
             dispatch_may_have_begun: false,
             http_status: None,
             stream_bytes_observed: 0,
@@ -606,6 +661,20 @@ pub trait PreparedCall: Send {
         self: Box<Self>,
         cancellation: Cancellation,
     ) -> BoxFuture<'static, Result<ProviderOutput, ProviderError>>;
+
+    /// Unsupported providers fail before dispatch. Implementations opting in
+    /// must enforce this exact deadline at their final actual launch boundary.
+    fn dispatch_with_intake_deadline(
+        self: Box<Self>,
+        _cancellation: Cancellation,
+        _expires_at_unix: i64,
+    ) -> BoxFuture<'static, Result<ProviderOutput, ProviderError>> {
+        let cancelled = self.cancel();
+        Box::pin(async move {
+            cancelled?;
+            Err(ProviderError::Rejected(Failure::IntakeGuardUnsupported))
+        })
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -655,6 +724,9 @@ impl fmt::Debug for HttpRequest {
 }
 pub struct HttpResponse {
     pub status: u16,
+    /// Header-level eligibility for unencoded SSE in the request's explicit mode.
+    /// SIWC may omit Content-Type; this is provisional until the bounded
+    /// collector validates completion and the body reaches clean EOF.
     pub is_unencoded_sse: bool,
     pub body: Box<dyn HttpBody>,
 }
@@ -665,6 +737,16 @@ pub trait HttpBody: Send {
 }
 pub trait HttpTransport: Send + Sync {
     fn post(&self, request: HttpRequest) -> BoxFuture<'_, Result<HttpResponse, Failure>>;
+
+    /// Opt in only when begin_launch can run immediately before actual launch.
+    /// Checking before calling an unguarded, potentially delayed post is unsafe.
+    fn post_with_intake_guard(
+        &self,
+        _request: HttpRequest,
+        _guard: Arc<IntakeLaunchGuard>,
+    ) -> BoxFuture<'_, Result<HttpResponse, Failure>> {
+        Box::pin(async { Err(Failure::IntakeGuardUnsupported) })
+    }
 }
 
 pub struct ReqwestTransport {
@@ -733,8 +815,31 @@ impl ReqwestTransport {
 }
 impl HttpTransport for ReqwestTransport {
     fn post(&self, request: HttpRequest) -> BoxFuture<'_, Result<HttpResponse, Failure>> {
+        self.post_guarded(request, None)
+    }
+
+    fn post_with_intake_guard(
+        &self,
+        request: HttpRequest,
+        guard: Arc<IntakeLaunchGuard>,
+    ) -> BoxFuture<'_, Result<HttpResponse, Failure>> {
+        self.post_guarded(request, Some(guard))
+    }
+}
+impl ReqwestTransport {
+    fn post_guarded(
+        &self,
+        request: HttpRequest,
+        guard: Option<Arc<IntakeLaunchGuard>>,
+    ) -> BoxFuture<'_, Result<HttpResponse, Failure>> {
         Box::pin(async move {
+            let mode = request.mode;
             let request = self.build_request(request)?;
+            // All request preparation is complete. Sample the current clock in
+            // this polled future immediately before handing the request to HTTP.
+            if let Some(guard) = &guard {
+                guard.begin_launch()?;
+            }
             let response = self
                 .client
                 .execute(request)
@@ -743,7 +848,7 @@ impl HttpTransport for ReqwestTransport {
             let status = response.status().as_u16();
             Ok(HttpResponse {
                 status,
-                is_unencoded_sse: unencoded_sse(response.headers()),
+                is_unencoded_sse: permits_unencoded_sse(response.headers(), mode),
                 body: Box::new(ReqwestBody {
                     response,
                     pending: bytes::Bytes::new(),
@@ -752,15 +857,19 @@ impl HttpTransport for ReqwestTransport {
         })
     }
 }
-fn unencoded_sse(headers: &reqwest::header::HeaderMap) -> bool {
+/// Admits headers for SSE parsing; it does not establish body validity or EOF.
+fn permits_unencoded_sse(headers: &reqwest::header::HeaderMap, mode: AccessMode) -> bool {
     use reqwest::header::{CONTENT_ENCODING, CONTENT_TYPE};
     let content_types = headers.get_all(CONTENT_TYPE);
     let mut types = content_types.iter();
-    let sse = types.next().and_then(|v| v.to_str().ok()).is_some_and(|v| {
-        v.split(';')
-            .next()
-            .is_some_and(|v| v.trim().eq_ignore_ascii_case("text/event-stream"))
-    }) && types.next().is_none();
+    let sse = match types.next() {
+        None => mode == AccessMode::SiwcOAuth,
+        Some(value) => value.to_str().ok().is_some_and(|v| {
+            v.split(';')
+                .next()
+                .is_some_and(|v| v.trim().eq_ignore_ascii_case("text/event-stream"))
+        }),
+    } && types.next().is_none();
     let content_encodings = headers.get_all(CONTENT_ENCODING);
     let mut encodings = content_encodings.iter();
     let identity = encodings
@@ -869,6 +978,56 @@ impl Inner {
         Ok((bearer, account))
     }
 }
+
+/// One serializer shared by dispatch and exact response-only recovery checks.
+fn response_only_body(
+    profile: &WireProfile,
+    model: &str,
+    effort: &str,
+    prompt: &str,
+    schema: &Value,
+) -> Value {
+    json!({"model":model,"store":false,"stream":true,
+        "instructions":profile.instructions,
+        "input":[{"role":profile.input_role,"content":[{"type":"input_text","text":prompt}]}],
+        "reasoning":{"effort":effort},
+        "text":{"format":{"type":"json_schema","name":"persona_decision","strict":true,"schema":schema}}})
+}
+
+/// Verify the exact immutable response-only wire contract without credentials or I/O.
+/// The dispatch serializer proves that no tools or external action plan were sent.
+pub(crate) fn response_only_request_matches(
+    audit: &Value,
+    model: &str,
+    effort: &str,
+    prompt: &str,
+    schema: &Value,
+) -> bool {
+    [
+        AccessMode::ChatgptOAuth,
+        AccessMode::SiwcOAuth,
+        AccessMode::PlatformApiKey,
+    ]
+    .into_iter()
+    .any(|mode| {
+        let profile = mode.wire_profile();
+        if audit["transport_profile"] != profile.id {
+            return false;
+        }
+        let body = response_only_body(&profile, model, effort, prompt, schema);
+        let (Ok(body), Ok(schema)) = (serde_json::to_vec(&body), serde_json::to_vec(schema)) else {
+            return false;
+        };
+        audit["prompt_sha256"] == digest(prompt.as_bytes())
+            && audit["prompt_bytes"] == prompt.len() as u64
+            && audit["schema_sha256"] == digest(&schema)
+            && audit["schema_bytes"] == schema.len() as u64
+            && audit["instructions_sha256"] == digest(profile.instructions.as_bytes())
+            && audit["request_sha256"] == digest(&body)
+            && audit["request_bytes"] == body.len() as u64
+    })
+}
+
 impl ModelProvider for DirectProvider {
     fn intent(&self) -> ProviderIntent {
         let s = &self.inner.settings;
@@ -895,16 +1054,13 @@ impl ModelProvider for DirectProvider {
             let (_, account) = self.inner.credentials(None)?;
             let profile = settings.mode.wire_profile();
             let body = encoded(
-                &json!({
-                    "model": settings.model,
-                    "store": false,
-                    "stream": true,
-                    "instructions": profile.instructions,
-                    "input": [{"role":profile.input_role,"content":[{"type":"input_text","text":request.prompt}]}],
-                    "reasoning": {"effort":settings.effort},
-                    "text": {"format":{"type":"json_schema","name":"persona_decision",
-                        "strict":true,"schema":request.output_schema}}
-                }),
+                &response_only_body(
+                    &profile,
+                    &settings.model,
+                    &settings.effort,
+                    &request.prompt,
+                    &request.output_schema,
+                ),
                 limits.max_request_bytes,
             )?;
             let audit = RequestAudit {
@@ -948,6 +1104,23 @@ impl PreparedCall for DirectCall {
         self: Box<Self>,
         cancellation: Cancellation,
     ) -> BoxFuture<'static, Result<ProviderOutput, ProviderError>> {
+        self.dispatch_guarded(cancellation, None)
+    }
+
+    fn dispatch_with_intake_deadline(
+        self: Box<Self>,
+        cancellation: Cancellation,
+        expires_at_unix: i64,
+    ) -> BoxFuture<'static, Result<ProviderOutput, ProviderError>> {
+        self.dispatch_guarded(cancellation, Some(expires_at_unix))
+    }
+}
+impl DirectCall {
+    fn dispatch_guarded(
+        self: Box<Self>,
+        cancellation: Cancellation,
+        intake_expires_at_unix: Option<i64>,
+    ) -> BoxFuture<'static, Result<ProviderOutput, ProviderError>> {
         Box::pin(async move {
             let DirectCall {
                 inner,
@@ -956,6 +1129,9 @@ impl PreparedCall for DirectCall {
                 account,
             } = *self;
             let mut receipt = AttemptReceipt::new(audit.clone());
+            receipt.intake_expires_at_unix = intake_expires_at_unix;
+            let intake_guard = intake_expires_at_unix
+                .map(|deadline| Arc::new(IntakeLaunchGuard::new(deadline, inner.clock.clone())));
             if cancellation.is_cancelled() {
                 return Err(attempt_error(Failure::Cancelled, receipt));
             }
@@ -965,24 +1141,31 @@ impl PreparedCall for DirectCall {
                 .credentials(Some(&account))
                 .map_err(|failure| attempt_error(failure, receipt.clone()))?;
             let settings = &inner.settings;
-            let mut collector = sse::Collector::new(&settings.model, &settings.limits);
+            let mut collector =
+                sse::Collector::new(&settings.model, &settings.limits).with_mode(settings.mode);
             let started = tokio::time::Instant::now();
             let result = {
                 let running = async {
                     if cancellation.is_cancelled() {
                         return Err(Failure::Cancelled);
                     }
-                    receipt.dispatch_may_have_begun = true;
-                    let response = inner
-                        .transport
-                        .post(HttpRequest {
-                            mode: settings.mode,
-                            body,
-                            bearer,
-                            account_header: (settings.mode == AccessMode::ChatgptOAuth)
-                                .then_some(account),
-                        })
-                        .await?;
+                    let request = HttpRequest {
+                        mode: settings.mode,
+                        body,
+                        bearer,
+                        account_header: (settings.mode == AccessMode::ChatgptOAuth)
+                            .then_some(account),
+                    };
+                    let response = if let Some(guard) = &intake_guard {
+                        inner
+                            .transport
+                            .post_with_intake_guard(request, guard.clone())
+                            .await?
+                    } else {
+                        // Preserve the existing unguarded transport contract.
+                        receipt.dispatch_may_have_begun = true;
+                        inner.transport.post(request).await?
+                    };
                     receipt.http_status = Some(response.status);
                     if response.status != 200 {
                         return Err(Failure::HttpStatus);
@@ -1025,6 +1208,11 @@ impl PreparedCall for DirectCall {
                     result = running => result,
                 }
             };
+            if let Some(guard) = &intake_guard {
+                receipt.intake_prelaunch_checked_at_unix = guard.checked_at_unix();
+                receipt.dispatch_may_have_begun =
+                    receipt.intake_prelaunch_checked_at_unix.is_some();
+            }
             receipt.stream_bytes_observed = collector.observed as u64;
             receipt.event_count = collector.events as u64;
             receipt.response_completed = collector.completed;

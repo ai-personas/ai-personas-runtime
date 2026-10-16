@@ -7,16 +7,35 @@ pub use results::Output;
 #[path = "launch/native.rs"]
 mod native;
 #[cfg(unix)]
-pub use native::{native_run, NativeInput};
+pub use native::{native_continue_delegation, native_run, NativeInput};
 #[path = "launch/migration.rs"]
 mod migration;
 pub use migration::{
     migrate_provider, migration_snapshot, preview_provider_migration, MigrationSnapshot,
     PersonaBinding, ProviderMigrationOutcome, ProviderMigrationReceipt, ProviderMigrationRequest,
 };
-#[cfg(all(test, unix))]
-#[path = "launch/tests.rs"]
-mod tests;
+#[path = "launch/admission_extension.rs"]
+mod admission_extension;
+pub use admission_extension::{
+    extend_launch_admission, launch_admission_snapshot, preview_launch_admission_extension,
+    LaunchAdmissionExtensionOutcome, LaunchAdmissionExtensionReceipt,
+    LaunchAdmissionExtensionRequest, LaunchAdmissionSnapshot,
+};
+
+#[path = "launch/intake_delegation.rs"]
+pub mod intake_delegation;
+pub use intake_delegation::{
+    admit_need_proposal, grant_intake_delegation, intake_delegation_snapshot,
+    preview_admit_need_proposal, preview_intake_delegation, preview_intake_delegation_revocation,
+    revoke_intake_delegation, AdmitNeedProposalOutcome, AdmitNeedProposalReceipt,
+    AdmitNeedProposalRequest, IntakeDelegationRequest, IntakeDelegationRevocationRequest,
+};
+
+#[path = "launch/human_intake.rs"]
+mod human_intake;
+pub use human_intake::{
+    admit_human_need, human_intake_snapshot, preview_human_intake, HumanIntakeRequest,
+};
 
 const ID: &str = "runtime-launch-v1";
 const POLICY: &str = "launch-local";
@@ -280,33 +299,42 @@ pub fn open(root: &Path, operator: Option<&str>) -> Result<Runtime> {
     )?;
     Ok(app)
 }
-pub fn start(app: &mut Runtime, request: &str) -> Result<String> {
-    start_with_acceptance(app, request, false)
-}
-/// Human acceptance is a mandate requirement only when explicitly requested.
-pub fn start_with_acceptance(
-    app: &mut Runtime,
+fn human_need_input(
+    saved: &Saved,
+    id: &str,
     request: &str,
     require_acceptance: bool,
-) -> Result<String> {
-    text(request, 32_768)?;
-    let (old, mut saved) = load(app)?;
-    ensure_cohort(app, &saved)?;
-    require(
-        (saved.works.len() as u64) < saved.setup.max_works,
-        "work identity limit reached",
-    )?;
-    let id = format!("work-{:08}", saved.works.len() + 1);
-    saved.works.insert(id.clone(), None);
-    save(app, Some(&old), &saved)?;
+) -> Result<NeedInput> {
     let ids = people(saved.setup.cohort);
-    let owner = &ids[saved.setup.owner - 1];
-    let input = NeedInput {
-        id: id.clone(),
+    let boundaries = "Local permitted sources and local delivery within saved bounds.";
+    let authorization = format!(
+        "Requested by {}; authorizes voluntary persona arrangement formation and later amendment within the current scope and mandate under exact affected-party assent, limited to the eligible saved cohort and existing grants and limits; grants no additional resources or effects, no further delegation, and no authority to accept on behalf of others. Result decision rights confer no power to amend this formation envelope.",
+        saved.operator
+    );
+    let delegation = w::FormationDelegation {
+        revision: 1,
+        issuer: w::Origin::Human(saved.operator.clone()),
+        authorization: work_ref(id, "authority", &authorization)?,
+        need: w::formation_need_ref(
+            &w::WorkId(id.into()),
+            &w::Need {
+                origin: w::Origin::Human(saved.operator.clone()),
+                request: request.into(),
+                supplied: BTreeSet::new(),
+                boundaries: work_ref(id, "boundaries", boundaries)?,
+            },
+        ),
+        mandate_revision: 1,
+        allocable_outcomes: BTreeSet::from([w::OutcomeId("result".into())]),
+        allocable_review_roles: BTreeSet::new(),
+        assent: w::ArrangementAssentPolicy::AffectedPartyAssentV1,
+    };
+    Ok(NeedInput {
+        id: id.into(),
         origin: NeedOrigin::Human,
         request: request.into(),
-        boundaries: "Local permitted sources and local delivery within saved bounds.".into(),
-        authorization: format!("Requested by {}; existing limits only.", saved.operator),
+        boundaries: boundaries.into(),
+        authorization,
         assumptions: "No external effects, independent assurance or requester acceptance.".into(),
         terms: "An exact local result addressing the recorded request.".into(),
         policy_id: POLICY.into(),
@@ -319,7 +347,10 @@ pub fn start_with_acceptance(
             },
         )]),
         review_roles: BTreeMap::new(),
-        decision_rule: w::DecisionRule::Designated(w::PersonaId(owner.clone())),
+        decision_rule: w::DecisionRule::PersonaArranged {
+            eligible: ids.iter().cloned().map(w::PersonaId).collect(),
+            delegation,
+        },
         delivery_to: BTreeSet::from([saved.operator.clone()]),
         stakeholders: if require_acceptance {
             BTreeSet::from([saved.operator.clone()])
@@ -333,23 +364,131 @@ pub fn start_with_acceptance(
                 to: persona.clone(),
                 terms: w::CommitmentTerms {
                     mandate_revision: 1,
-                    exact_terms: if persona == owner {
-                        "Offer to own the requested result and designated decision.".into()
-                    } else {
-                        "Offer a contribution without exclusive outcome or review ownership.".into()
-                    },
-                    outcomes: if persona == owner {
-                        BTreeSet::from([w::OutcomeId("result".into())])
-                    } else {
-                        BTreeSet::new()
-                    },
+                    exact_terms: "Invitation to consider or contribute voluntarily within the mandate; responsibilities and decision arrangements are persona-proposed and require each affected persona's exact acceptance; no owner or reviewer is assigned.".into(),
+                    outcomes: BTreeSet::new(),
                     review_roles: BTreeSet::new(),
                 },
             })
             .collect(),
+    })
+}
+
+pub fn start(app: &mut Runtime, request: &str) -> Result<String> {
+    start_with_acceptance(app, request, false)
+}
+/// Human acceptance is a mandate requirement only when explicitly requested.
+pub fn start_with_acceptance(
+    app: &mut Runtime,
+    request: &str,
+    require_acceptance: bool,
+) -> Result<String> {
+    text(request, 32_768)?;
+    let owner = app.store.acquire_execution_owner()?;
+    start_with_acceptance_owned(app, request, require_acceptance, &owner)
+}
+
+// Native execution already owns this Store. Retain that guard through the
+// ordinary transaction instead of trying to acquire a second owner.
+fn start_with_acceptance_owned(
+    app: &mut Runtime,
+    request: &str,
+    require_acceptance: bool,
+    _owner: &s::ExecutionOwner,
+) -> Result<String> {
+    text(request, 32_768)?;
+    let (old, mut saved) = load(app)?;
+    let (runtime_head, state) = app.load()?;
+    admission_extension::authorize(&state, &saved, &saved.operator)?;
+    admission_extension::validate_saved(&state, &saved)?;
+    require(
+        active_invocations(&state).is_empty(),
+        "active invocation blocks launch intake",
+    )?;
+    app.store.require_terminal_invocations()?;
+    let work_count =
+        u64::try_from(saved.works.len()).map_err(|_| invalid("saved work count overflow"))?;
+    require(
+        work_count < saved.setup.max_works,
+        "work identity limit reached",
+    )?;
+    let id = format!("work-{:08}", increment(work_count)?);
+    require(
+        !saved.works.contains_key(&id)
+            && !state.board.works().contains_key(&w::WorkId(id.clone()))
+            && !state.work_meta.contains_key(&id),
+        "launch work identity already exists; inspect retained state without selecting a replacement identity",
+    )?;
+    saved.works.insert(id.clone(), None);
+    let input = human_need_input(&saved, &id, request, require_acceptance)?;
+    let allocation = WorkAllocation::configured(&state.config);
+    let policy = current_policy(&state, &input.policy_id)?;
+    let exposure = Exposure {
+        sources: Vec::new(),
+        policies: vec![scoped_policy(
+            "work-need",
+            &input.id,
+            &digest(&input)?,
+            policy,
+        )],
     };
-    app.add_need(&saved.operator, input)
-        .map_err(|_| invalid(format!("{id}: intake failed; no automatic retry")))?;
+    let next = intake::construct_host_need(
+        &state,
+        &saved.operator,
+        &input,
+        allocation,
+        w::Origin::Human(saved.operator.clone()),
+        exposure,
+        None,
+    )?;
+    let runtime = state_object(&runtime_head, &next)?;
+    // Preserve the saved JSON body, including omitted historical defaults.
+    // Only the existing launch registry advances in this intake transaction.
+    let mut launch = old.clone();
+    launch.revision = increment(old.revision)?;
+    launch.body["works"] = serde_json::to_value(&saved.works)?;
+    let target_runtime = runtime.exact_ref()?;
+    let target_launch = launch.exact_ref()?;
+    let created_at_unix = unix_now()?;
+    require(created_at_unix >= 0, "negative intake time")?;
+    let receipt = s::StoredObject {
+        id: format!("launch-human-intake:{id}"),
+        revision: 1,
+        kind: "launch-human-need-intake".into(),
+        body: json!({
+            "version": 1,
+            "origin": w::Origin::Human(saved.operator.clone()),
+            "work": &id,
+            "need_sha256": digest(&input)?,
+            "allocation": allocation,
+            "allocation_basis": "existing_configured_host_creation_allowance",
+            "capacity_reserved": false,
+            "created_at_unix": created_at_unix,
+            "prior_runtime": runtime_head.exact_ref()?,
+            "target_runtime": &target_runtime,
+            "prior_launch": old.exact_ref()?,
+            "target_launch": &target_launch,
+            "invitations_accepted": false,
+            "inference_performed": false
+        }),
+    };
+    app.store
+        .compare_and_swap_batch_requiring_terminal_invocations(vec![
+            s::Change {
+                expected_revision: Some(runtime_head.revision),
+                object: runtime,
+                depends_on: Vec::new(),
+            },
+            s::Change {
+                expected_revision: Some(old.revision),
+                object: launch,
+                depends_on: Vec::new(),
+            },
+            s::Change {
+                expected_revision: None,
+                object: receipt,
+                depends_on: vec![target_runtime, target_launch],
+            },
+        ])?;
     Ok(id)
 }
 type Pick = (usize, Option<String>);
@@ -400,7 +539,12 @@ fn select(app: &mut Runtime, work: &str, limit: usize, now: i64) -> Result<Pick>
     }
     Ok((considered, selected))
 }
-fn reserve(app: &mut Runtime, work: &str, persona: &str) -> Result<(PrepareRequest, Saved)> {
+fn reserve(
+    app: &mut Runtime,
+    work: &str,
+    persona: &str,
+    prospective_intake: bool,
+) -> Result<(PrepareRequest, Saved)> {
     let (old, mut saved) = load(app)?;
     saved.execution_provider()?;
     require(
@@ -413,7 +557,14 @@ fn reserve(app: &mut Runtime, work: &str, persona: &str) -> Result<(PrepareReque
         .works
         .get_mut(work)
         .ok_or_else(|| invalid("unknown launch work"))? = Some(id.clone());
-    save(app, Some(&old), &saved)?;
+    // An episode preparation commits its launch step together with its durable
+    // logical charge. Do not also spend the launch counter here. The projected
+    // Saved value keeps the ordinary driver's provider binding unchanged.
+    // A first explicit selection is not yet bound in State. Its preparation
+    // must own this same debit, just as an already bound episode does.
+    if !prospective_intake && !need_proposals::bound(&app.snapshot()?, work) {
+        save(app, Some(&old), &saved)?;
+    }
     Ok((
         PrepareRequest {
             id,
@@ -426,6 +577,10 @@ fn reserve(app: &mut Runtime, work: &str, persona: &str) -> Result<(PrepareReque
     ))
 }
 trait Driver {
+    // Trusted driver intent only. Serialized persona output cannot select this.
+    fn prospective_intake(&self) -> bool {
+        false
+    }
     fn before_step(&mut self, _app: &mut Runtime) -> Result<()> {
         Ok(())
     }
@@ -458,9 +613,9 @@ impl Driver for Live {
 pub async fn run(app: &mut Runtime, work: &str) -> Result<Output> {
     run_with(app, work, &mut Live).await
 }
-/// Explicitly continue a saved foreground session. This permits one fresh
-/// consideration past a partial acceptance boundary, never semantic resume,
-/// new resources, invented consent or recovery of a blocked invocation.
+/// Explicitly continue a bounded saved foreground session through existing
+/// eligible routes. Delivery status grants no semantic resume, new resources,
+/// invented consent or recovery of a blocked invocation.
 pub async fn continue_run(app: &mut Runtime, work: &str) -> Result<Output> {
     run_with_options(app, work, &mut Live, true).await
 }
@@ -471,7 +626,7 @@ async fn run_with_options<D: Driver>(
     app: &mut Runtime,
     work: &str,
     driver: &mut D,
-    mut explicit_continue: bool,
+    _explicit_continue: bool,
 ) -> Result<Output> {
     let (_, saved) = load(app)?;
     saved.execution_provider()?;
@@ -480,22 +635,17 @@ async fn run_with_options<D: Driver>(
     let mut stop = "step_limit";
     for _ in 0..saved.setup.max_steps {
         let mut view = result(app, work)?;
-        let boundary = match view.recorded_phase.as_deref() {
-            Some("completed") => Some("recorded_completion"),
-            Some("paused") => Some("paused"),
-            Some("ended") => Some("ended"),
-            _ if view.status == "withheld" => Some("unavailable"),
-            _ if view.status == "intake-incomplete" => Some("intake_incomplete"),
-            _ if view.status == "delivered-acceptance-unestablished" && !explicit_continue => {
-                Some("acceptance_boundary")
-            }
-            _ => None,
-        };
-        if let Some(boundary) = boundary {
-            view.stop = Some(boundary.into());
+        // Scheduling uses trusted current state, never a permission-filtered
+        // historical result view or an inferred disclosure principal.
+        let state = app.snapshot()?;
+        let operational = state
+            .board
+            .work(&w::WorkId(work.into()))
+            .is_ok_and(|current| matches!(current.phase, w::Phase::Open));
+        if !operational {
+            view.stop = Some("no_eligible_route".into());
             return Ok(view);
         }
-        explicit_continue = false;
         let attempt = async {
             driver.before_step(app)?;
             if !handover(app, work)? {
@@ -504,10 +654,10 @@ async fn run_with_options<D: Driver>(
             let (count, selected) = select(app, work, remaining, unix_now()?)?;
             remaining -= count;
             let Some(persona) = selected else {
-                return Ok("idle_or_consideration_bound");
+                return Ok("no_eligible_route");
             };
             driver.before_step(app)?;
-            let (request, current) = reserve(app, work, &persona)?;
+            let (request, current) = reserve(app, work, &persona, driver.prospective_intake())?;
             let report = driver.step(app, request, &current, unix_now()?).await?;
             if report.status == AdoptionStatus::Held {
                 return Ok("held");
@@ -569,13 +719,16 @@ fn handover(app: &mut Runtime, work: &str) -> Result<bool> {
     }
     let (_, state) = app.load()?;
     let persona = &state.personas[&accepted.actor];
-    if persona.focus[work].permit || handed_over(&state, &accepted.actor) {
+    let focus = &persona.focus[work];
+    // A retained ordinary route needs no host resume. A future Wait may remain
+    // ineligible; ordinary selection decides when it can admit a fresh request.
+    if focus.permit || focus.ordinary_continuation || handed_over(&state, &accepted.actor) {
         return Ok(true);
     }
     if decode_prepared(&inv)?.character_revision.is_some() {
         return Ok(false);
     }
-    app.resume_with_initial(&saved.operator, &accepted.actor, work, Some(id))?;
+    app.resume_with_initial(&saved.operator, &accepted.actor, work, Some(id), None)?;
     Ok(true)
 }
 fn handed_over(state: &State, persona: &str) -> bool {

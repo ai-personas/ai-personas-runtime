@@ -19,6 +19,8 @@ pub struct Output {
     pub recorded_phase: Option<String>,
     pub focus_release: Option<String>,
     pub completion_supported: Option<bool>,
+    /// Latest permitted historical completion; no current support assertion.
+    pub recorded_completion: Option<Value>,
     /// Exact permitted receipt for the focus release; not global freshness.
     pub status_delivery: Option<String>,
     pub last_attempt: Option<Value>,
@@ -68,7 +70,7 @@ fn delivery(
     body: &Value,
     recipient: &str,
     now: i64,
-) -> Result<()> {
+) -> Result<f::Admission> {
     let work = state.board.work(&w::WorkId(work_id.into()))?;
     let receipt = work
         .deliveries
@@ -99,7 +101,7 @@ fn delivery(
         "recipient unavailable",
     )?;
     delivery_evidence::validate(state, work_id, receipt, &a)?;
-    Ok(())
+    Ok(a)
 }
 pub(super) fn project(app: &mut Runtime, work_id: &str, saved: &Saved) -> Result<Output> {
     let messages = app.inbox(&saved.operator, work_id)?;
@@ -111,6 +113,7 @@ pub(super) fn project(app: &mut Runtime, work_id: &str, saved: &Saved) -> Result
         recorded_phase: None,
         focus_release: None,
         completion_supported: None,
+        recorded_completion: None,
         status_delivery: None,
         last_attempt: None,
         messages: Vec::new(),
@@ -123,51 +126,20 @@ pub(super) fn project(app: &mut Runtime, work_id: &str, saved: &Saved) -> Result
     let Ok(work) = state.board.work(&w::WorkId(work_id.into())) else {
         return Ok(result);
     };
-    let owner = people(saved.setup.cohort)[saved.setup.owner - 1].clone();
-    let mut a = admission(
-        state
-            .personas
-            .get(&owner)
-            .ok_or_else(|| held("owner absent"))?,
+    // The result interface has historical per-record disclosure authority, not
+    // an independently retained basis for current global phase/attempt status.
+    // Explicit trusted operator status remains a separate interface.
+    result.status = "current-state-unestablished".into();
+    let completion = closure_readiness::recorded_completion_for_recipient(
+        &state,
+        work_id,
+        &saved.operator,
         now,
-    );
-    a.audience = BTreeSet::from([saved.operator.clone()]);
-    if !exposure_permitted(&state, &work_exposure(&state, work_id)?, &a) {
-        result.status = "withheld".into();
-        return Ok(result);
+    )?;
+    if !completion.is_null() {
+        result.recorded_completion = Some(completion);
+        result.status = "completed-as-recorded".into();
     }
-    if let Some(id) = saved.works.get(work_id).and_then(Option::as_deref) {
-        result.last_attempt = Some(match app.invocation(id) {
-            Ok(invocation) => json!({"id": id, "state": invocation.state}),
-            Err(RuntimeError::Store(s::StoreError::Missing(_))) => {
-                json!({"id": id, "state": "not_admitted"})
-            }
-            Err(error) => return Err(error),
-        });
-    }
-    // Work phase is a permitted historical record. Re-evaluating its global
-    // predicate could disclose inaccessible newer evidence, consent or findings.
-    result.completion_supported = if matches!(work.phase, w::Phase::Completed { .. }) {
-        None
-    } else {
-        Some(false)
-    };
-    result.recorded_phase = Some(
-        match &work.phase {
-            w::Phase::Completed { .. } => "completed",
-            w::Phase::Paused { .. } => "paused",
-            w::Phase::Ended { .. } => "ended",
-            w::Phase::Open => "open",
-        }
-        .into(),
-    );
-    result.status = match &work.phase {
-        w::Phase::Completed { .. } => "completed-as-recorded",
-        w::Phase::Paused { .. } => "paused",
-        w::Phase::Ended { .. } => "ended-unfinished",
-        _ => "unfinished",
-    }
-    .into();
     let mut permitted_deliveries: Vec<_> = work
         .deliveries
         .iter()
@@ -176,15 +148,15 @@ pub(super) fn project(app: &mut Runtime, work_id: &str, saved: &Saved) -> Result
             work.releases.get(&receipt.release)?;
             let body = state.local_deliveries.get(&receipt.id.0)?;
             delivery(&state, work_id, &receipt.id.0, body, &saved.operator, now)
-                .is_ok()
-                .then_some((receipt, body))
+                .ok()
+                .map(|a| (receipt, body, a))
         })
         .collect();
     // Order only permitted delivered releases by immutable creation revision;
     // a later redelivery of an old release cannot move result focus backwards.
     // Multiple releases from the same transaction use exact release ID as a
     // deterministic tie-break, not a semantic freshness judgment.
-    permitted_deliveries.sort_by_key(|(receipt, _)| {
+    permitted_deliveries.sort_by_key(|(receipt, _, _)| {
         let version = work.releases[&receipt.release].by.version;
         (
             std::cmp::Reverse(version.revision),
@@ -195,31 +167,34 @@ pub(super) fn project(app: &mut Runtime, work_id: &str, saved: &Saved) -> Result
     let mut left = 1024 * 1024 - 4096;
     // Choose status before any presentation truncation. This is the latest
     // permitted release creation, not an assertion of global release freshness.
-    if let Some((receipt, _)) = permitted_deliveries.first() {
+    if let Some((receipt, _, a)) = permitted_deliveries.first() {
         result.status_delivery = Some(receipt.id.0.clone());
         result.focus_release = Some(receipt.release.0.clone());
         let evidence = closure_readiness::record(
             &state,
             work_id,
             &receipt.release.0,
-            &a,
+            a,
             &mut Exposure::default(),
         )
         .ok();
-        if matches!(work.phase, w::Phase::Open) {
-            let acceptance_unestablished = !work.mandate().stakeholders.is_empty()
-                && evidence.as_ref().is_none_or(|record| {
-                    record["unestablished_stakeholder_acceptance"]
-                        .as_array()
-                        .is_none_or(|items| !items.is_empty())
-                });
-            result.status = if acceptance_unestablished {
-                "delivered-acceptance-unestablished"
-            } else {
-                "delivered-unfinished"
-            }
-            .into();
+        let acceptance_unestablished = evidence.as_ref().is_some_and(|record| {
+            record["unestablished_stakeholder_acceptance"]
+                .as_array()
+                .is_some_and(|items| !items.is_empty())
+        });
+        let recorded_for_focus = result
+            .recorded_completion
+            .as_ref()
+            .is_some_and(|record| record["release"] == receipt.release.0);
+        result.status = if recorded_for_focus {
+            "completed-as-recorded"
+        } else if acceptance_unestablished {
+            "delivered-acceptance-unestablished"
+        } else {
+            "delivered-current-state-unestablished"
         }
+        .into();
         if let Some(evidence) = evidence {
             let size = serde_json::to_vec(&evidence)?.len();
             if size <= left {
@@ -248,7 +223,7 @@ pub(super) fn project(app: &mut Runtime, work_id: &str, saved: &Saved) -> Result
             }
         }
     }
-    for (receipt, body) in permitted_deliveries {
+    for (receipt, body, _) in permitted_deliveries {
         let size = serde_json::to_vec(body)?.len();
         if result.local_deliveries.len() == 128 || size > left {
             result.truncated = true;

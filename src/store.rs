@@ -87,6 +87,8 @@ const INTENT_EVENTS: u64 = 6;
 const RESERVATION_EVENTS: u64 = 4;
 const MAX_DETAIL_BYTES: usize = 256;
 const MAX_RUNTIME_FAILURE_CONTEXT_BYTES: u64 = 4096;
+const RUNTIME_PLANNING_STARTED: &str =
+    "Runtime planning envelope claimed once; completion not established";
 const MAX_JSON_DEPTH: usize = 64;
 pub(crate) const RUNTIME_CONTROL_STATE_ID: &str = "runtime-state-v1";
 const RUNTIME_CONTROL_HEADROOM: u64 = 32 * 1024;
@@ -363,6 +365,14 @@ pub struct Change {
     pub object: StoredObject,
     /// Exact current prerequisites, evaluated against the complete proposed batch.
     pub depends_on: Vec<ObjectRef>,
+}
+
+/// Private trusted-runtime proof rechecked inside child admission's transaction.
+pub(crate) struct NeedAdmissionGuard {
+    pub(crate) invocation: InvocationRecord,
+    pub(crate) decision: DecisionRecord,
+    pub(crate) checked_at_unix: i64,
+    pub(crate) expires_at_unix: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -825,6 +835,209 @@ pub struct TrustedHost<'a> {
 }
 
 impl TrustedHost<'_> {
+    /// Claim the already funded planning envelope exactly once. This changes
+    /// neither semantic epoch nor reservation. The receipt proves only that
+    /// planning may have started; it never proves planning or adoption succeeded.
+    pub(crate) fn begin_runtime_planning(
+        &mut self,
+        id: &str,
+        prepare_hash: &str,
+        response_hash: &str,
+        terminal: &ObjectRef,
+    ) -> Result<bool> {
+        self.store.transaction(|work| {
+            work.admission()?;
+            work.id(id)?;
+            hash_valid(prepare_hash)?;
+            hash_valid(response_hash)?;
+            let mut record: InvocationRecord = work.required("invocation", id)?;
+            live_invocation(&record)?;
+            if record.id != id
+                || record.state != InvocationState::Responded
+                || record.prepare_hash != prepare_hash
+                || record.response_hash.as_deref() != Some(response_hash)
+            {
+                return Err(StoreError::Conflict(id.into()));
+            }
+            work.epoch(record.prepared_epoch)?;
+            if terminal.id != format!("terminal:{}", sha256_bytes(id.as_bytes()))
+                || terminal.revision != 1
+            {
+                return Err(StoreError::Conflict(terminal.id.clone()));
+            }
+            let slot: TerminalEvidenceSlot = work.required("terminal_evidence", &terminal.id)?;
+            if slot.subject != EntityId::Invocation(id.into())
+                || slot
+                    .object
+                    .as_ref()
+                    .map(StoredObject::exact_ref)
+                    .transpose()?
+                    .as_ref()
+                    != Some(terminal)
+            {
+                return Err(StoreError::Conflict(terminal.id.clone()));
+            }
+            // An older unadopted request cannot establish that its planning
+            // envelope was unused before this gate existed.
+            if record
+                .request
+                .as_ref()
+                .and_then(|request| request["planning_once"].as_bool())
+                != Some(true)
+                || record
+                    .history
+                    .iter()
+                    .any(|receipt| receipt.detail.as_deref() == Some(RUNTIME_PLANNING_STARTED))
+            {
+                return Ok(false);
+            }
+            let receipt = work.event(
+                EntityId::Invocation(id.into()),
+                ReceiptStatus::Responded,
+                Some(RUNTIME_PLANNING_STARTED.into()),
+                Some(terminal.clone()),
+            )?;
+            append(&mut record.history, receipt, INVOCATION_EVENTS)?;
+            work.update("invocation", id, &record)?;
+            Ok(true)
+        })
+    }
+
+    /// Retire only an exact episode lease after explicit operator recovery.
+    /// No board transition, route grant, allowance, hold or policy is changed.
+    /// Uncertain or dispatched transports cannot use this retirement path.
+    pub(crate) fn retire_runtime_episode_lease(
+        &mut self,
+        expected: &ObjectRef,
+        invocation: &InvocationRecord,
+        operator: &str,
+    ) -> Result<BatchReceipt> {
+        self.store.transaction(|work| {
+            work.admission()?;
+            work.id(operator)?;
+            let current: StoredObject = work.required("object", RUNTIME_CONTROL_STATE_ID)?;
+            let record: InvocationRecord = work.required("invocation", &invocation.id)?;
+            if current.exact_ref()? != *expected || record != *invocation {
+                return Err(StoreError::Conflict(invocation.id.clone()));
+            }
+            live_invocation(&record)?;
+            let request = record
+                .request
+                .as_ref()
+                .ok_or_else(|| StoreError::HistoryUnavailable(record.id.clone()))?;
+            let actor = request["request"]["persona"]
+                .as_str()
+                .ok_or_else(|| StoreError::Invalid("episode retirement actor absent".into()))?;
+            let work_id = request["request"]["work"]
+                .as_str()
+                .ok_or_else(|| StoreError::Invalid("episode retirement work absent".into()))?;
+            let grant_id = request["intake_episode"]["id"]
+                .as_str()
+                .ok_or_else(|| StoreError::Invalid("episode retirement binding absent".into()))?;
+            let episode = &current.body["intake_episodes"][grant_id];
+            if current.id != RUNTIME_CONTROL_STATE_ID
+                || current.kind != "runtime-state"
+                || request["request"]["id"] != record.id
+                || current.body["personas"][actor]["active_invocation"] != record.id
+                || episode["grant_sha256"] != request["intake_episode"]["sha256"]
+                || !(episode["work"] == work_id || episode["child"]["binding"]["work"] == work_id)
+                || work.cell("decision", &record.id)?.is_some()
+            {
+                return Err(StoreError::Invalid(
+                    "episode retirement binding changed".into(),
+                ));
+            }
+            match record.state {
+                InvocationState::Prepared => {
+                    if record.response_hash.is_some() || record.reconciliation.is_some() {
+                        return Err(StoreError::InvalidState(record.id.clone()));
+                    }
+                }
+                InvocationState::Responded | InvocationState::Failed => {
+                    let terminal_id = format!("terminal:{}", sha256_bytes(record.id.as_bytes()));
+                    let slot: TerminalEvidenceSlot =
+                        work.required("terminal_evidence", &terminal_id)?;
+                    let terminal = slot
+                        .object
+                        .as_ref()
+                        .ok_or_else(|| StoreError::Missing(terminal_id.clone()))?;
+                    if slot.subject != EntityId::Invocation(record.id.clone())
+                        || terminal.id != terminal_id
+                        || terminal.revision != 1
+                        || terminal.kind != "runtime-terminal-transport"
+                        || terminal.body["invocation_id"] != record.id
+                        || terminal.body["prepared_epoch"] != record.prepared_epoch
+                        || terminal.body["prompt_sha256"] != request["prompt_sha256"]
+                    {
+                        return Err(StoreError::Conflict(terminal_id));
+                    }
+                    let receipt = &terminal.body["receipt"];
+                    let hash = receipt["inner_sha256"]
+                        .as_str()
+                        .or_else(|| receipt["transport_sha256"].as_str());
+                    let complete = matches!(
+                        receipt["kind"].as_str(),
+                        Some("provider_complete" | "synthetic_complete")
+                    ) && record
+                        .response_hash
+                        .as_deref()
+                        .is_some_and(|response| Some(response) == hash);
+                    let prelaunch = record.state == InvocationState::Failed
+                        && record.response_hash.is_none()
+                        && receipt["kind"] == "provider_prelaunch_rejection"
+                        && receipt["dispatch_may_have_begun"].as_bool() != Some(true)
+                        && receipt["attempt_receipt"]["dispatch_may_have_begun"].as_bool()
+                            != Some(true);
+                    if !complete && !prelaunch {
+                        return Err(StoreError::ReconciliationRequired);
+                    }
+                }
+                _ => return Err(StoreError::ReconciliationRequired),
+            }
+            let mut object = current.clone();
+            object.revision = object
+                .revision
+                .checked_add(1)
+                .ok_or(StoreError::Overflow("episode retirement revision"))?;
+            object.body["personas"][actor]["active_invocation"] = Value::Null;
+            object.body["operator_events"]
+                .as_array_mut()
+                .ok_or_else(|| StoreError::Invalid("operator history absent".into()))?
+                .push(serde_json::json!({
+                    "kind":"unavailable_episode_lease_retired",
+                    "operator":operator,"persona":actor,"work":work_id,
+                    "invocation":record.id,"prepare_hash":record.prepare_hash,
+                    "episode":request["intake_episode"],"state_before":record.state,
+                    "fresh_admission_permitted":false,"budget_reset":false,
+                    "continuation_changed":false,"remote_outcome_reconciled":false
+                }));
+            let changes = vec![Change {
+                expected_revision: Some(current.revision),
+                object,
+                depends_on: Vec::new(),
+            }];
+            work.validate_changes(&changes)?;
+            if matches!(
+                record.state,
+                InvocationState::Prepared | InvocationState::Responded
+            ) {
+                work.reject_invocation(
+                    &record.id,
+                    "Operator retired an unavailable episode lease; no fresh admission granted",
+                    Some(serde_json::json!({"kind":"unknown"})),
+                )?;
+            }
+            // Preserve existing uncertainty and measurements; never refund.
+            work.mark_usage_unknown_if_open(&record.reservation)?;
+            work.bump_epoch()?;
+            let objects = work.apply_changes(&changes, BudgetClass::Ordinary)?;
+            Ok(BatchReceipt {
+                epoch: work.meta.epoch,
+                objects,
+            })
+        })
+    }
+
     /// Retain bounded failure provenance atomically with local rejection. The
     /// opaque context is not an authority token or a replacement terminal body.
     /// Oversized context becomes explicitly unknown; reserved capacity never grows.
@@ -952,6 +1165,63 @@ impl TrustedHost<'_> {
         })
     }
 
+    /// Trusted runtime only: retire a failed local lease without reconciling the
+    /// provider or touching its retained invocation, terminal or usage reservation.
+    pub(crate) fn commit_failed_attempt_acknowledgment(
+        &mut self,
+        expected: &ObjectRef,
+        object: StoredObject,
+        invocation: &InvocationRecord,
+        reservation: &ReservationRecord,
+        terminal: &ObjectRef,
+        acknowledgment: StoredObject,
+    ) -> Result<BatchReceipt> {
+        self.store.transaction(|work| {
+            work.admission()?;
+            work.require_terminal_invocations()?;
+            let current: StoredObject = work.required("object", RUNTIME_CONTROL_STATE_ID)?;
+            let retained: InvocationRecord = work.required("invocation", &invocation.id)?;
+            let held: ReservationRecord = work.required("reservation", &invocation.reservation.key())?;
+            if current.exact_ref()? != *expected || retained != *invocation || held != *reservation
+                || held.state == ReservationState::Reserved || retained.state != InvocationState::Failed
+                || retained.response_hash.is_some() || retained.reconciliation.is_some()
+                || retained.expired_at_epoch.is_some()
+            { return Err(StoreError::Conflict(invocation.id.clone())); }
+            let slot: TerminalEvidenceSlot = work.required("terminal_evidence", &terminal.id)?;
+            if slot.subject != EntityId::Invocation(invocation.id.clone())
+                || slot.object.as_ref().map(StoredObject::exact_ref).transpose()?.as_ref() != Some(terminal)
+                || retained.history.last().and_then(|receipt| receipt.evidence.as_ref()) != Some(terminal)
+            { return Err(StoreError::Conflict(terminal.id.clone())); }
+            // Any admitted/attempted action disqualifies this exception, including
+            // completed, failed and canceled actions. Decisions are not enough:
+            // independently inspect every invocation-attributed intent record.
+            let has_intent: bool = work.db.query_row(
+                "SELECT EXISTS(SELECT 1 FROM store_cells WHERE ns='intent' AND json_extract(data,'$.invocation_id')=?1)",
+                [&invocation.id], |row| row.get(0))?;
+            let archive = format!("adoption:{}", sha256_bytes(invocation.id.as_bytes()));
+            if work.cell("decision", &invocation.id)?.is_some() || work.cell("object", &archive)?.is_some() || has_intent {
+                return Err(StoreError::Invalid("failed attempt has a saved decision or action history".into()));
+            }
+            let actor = acknowledgment.body["persona"].as_str().ok_or_else(|| StoreError::Invalid("acknowledgment actor".into()))?;
+            let exact = acknowledgment.exact_ref()?;
+            if object.id != RUNTIME_CONTROL_STATE_ID || object.kind != "runtime-state"
+                || current.body["personas"][actor]["active_invocation"] != invocation.id
+                || !current.body["personas"][actor]["failed_attempt_hold"].is_null()
+                || !object.body["personas"][actor]["active_invocation"].is_null()
+                || object.body["personas"][actor]["failed_attempt_hold"]["acknowledgment"] != serde_json::to_value(&exact)?
+                || acknowledgment.body["invocation"] != invocation.id
+                || acknowledgment.body["terminal"] != serde_json::to_value(terminal)?
+                || acknowledgment.kind != "runtime-failed-attempt-acknowledgment" || acknowledgment.revision != 1
+            { return Err(StoreError::Invalid("failed-attempt acknowledgment transition".into())); }
+            let changes = vec![Change { expected_revision: Some(current.revision), object, depends_on: vec![] },
+                Change { expected_revision: None, object: acknowledgment, depends_on: vec![] }];
+            work.validate_changes(&changes)?;
+            work.bump_epoch()?;
+            let objects = work.apply_changes(&changes, BudgetClass::Ordinary)?;
+            Ok(BatchReceipt { epoch: work.meta.epoch, objects })
+        })
+    }
+
     /// Trusted runtime's explicit resume only. A spent pause is preserved and a
     /// distinct successor is allocated from existing Closeout capacity. Reopening,
     /// ordinary journaling, and any stale local decision abandonment commit as one
@@ -987,12 +1257,45 @@ impl TrustedHost<'_> {
                 .into_iter()
                 .find(|requirement| requirement.work == work_id)
                 .ok_or_else(|| StoreError::Missing(work_id.into()))?;
-            if !previous.ending || !next.pause {
+            let legacy_completion = match serde_json::from_value::<crate::work::Phase>(
+                current.body["board"]["works"][work_id]["phase"].clone(),
+            )? {
+                crate::work::Phase::Completed { release, by } => {
+                    Some(crate::work::Completion { release, by })
+                }
+                _ => None,
+            };
+            if (!previous.ending && legacy_completion.is_none()) || !next.pause {
                 return Err(StoreError::InvalidState(
-                    "runtime resume requires open or paused work".into(),
+                    "runtime resume requires open, paused, or retained legacy completion".into(),
                 ));
             }
-            if let Some(plan) = work.runtime_control_plan()? {
+            if let Some(completion) = &legacy_completion {
+                let previous_work: crate::work::Work =
+                    serde_json::from_value(current.body["board"]["works"][work_id].clone())?;
+                let resumed_work: crate::work::Work =
+                    serde_json::from_value(object.body["board"]["works"][work_id].clone())?;
+                let mut retained = previous_work.completions;
+                if !retained.contains(completion) {
+                    retained.push(completion.clone());
+                }
+                if resumed_work.completions != retained
+                    || resumed_work.version.epoch != previous_work.version.epoch
+                    || previous_work.version.revision.checked_add(1)
+                        != Some(resumed_work.version.revision)
+                {
+                    return Err(StoreError::InvalidState(
+                        "legacy completion resume must retain exact history and epoch".into(),
+                    ));
+                }
+            }
+            let plan = work.runtime_control_plan()?;
+            if legacy_completion.is_some() && plan.is_none() {
+                return Err(StoreError::Unsupported(
+                    "legacy completion resume requires provisioned runtime control",
+                ));
+            }
+            if let Some(plan) = plan {
                 let key = work.current_runtime_control_key(work_id, false)?;
                 let slot = work.runtime_control_slot(&key, work_id, false, &plan)?;
                 if slot.commit.is_some() {
@@ -1053,8 +1356,10 @@ impl TrustedHost<'_> {
                 }
             }
             work.bump_epoch()?;
-            // Includes the complete snapshot growth guard and the ordinary
-            // immutable revision allocation; either can roll everything back.
+            // The existing control guard requires both available pause/ending
+            // slots and full future snapshot headroom for the now-open work.
+            // Spent slots and all counters remain retained; any capacity failure
+            // rolls back reopening, new pause allocation, and recovery together.
             let objects = work.apply_changes(&changes, BudgetClass::Ordinary)?;
             Ok(BatchReceipt {
                 epoch: work.meta.epoch,
@@ -1815,6 +2120,85 @@ impl Store {
         self.compare_and_swap_batch_in_class(changes, BudgetClass::Ordinary)
     }
 
+    /// Ordinary admission extension batch with its lifecycle guard in the same
+    /// immediate transaction. An unlinked concurrent prepare cannot slip between
+    /// inspection and CAS, even when it changes neither object heads nor epoch.
+    pub fn compare_and_swap_batch_requiring_terminal_invocations(
+        &mut self,
+        changes: Vec<Change>,
+    ) -> Result<BatchReceipt> {
+        self.transaction(|work| {
+            work.admission()?;
+            work.require_terminal_invocations()?;
+            let candidates = work.validate_changes(&changes)?;
+            for change in &changes {
+                work.dependencies(&change.depends_on, &candidates)?;
+            }
+            if !changes.is_empty() {
+                work.bump_epoch()?;
+            }
+            let objects = work.apply_changes(&changes, BudgetClass::Ordinary)?;
+            Ok(BatchReceipt {
+                epoch: work.meta.epoch,
+                objects,
+            })
+        })
+    }
+
+    /// Trusted runtime delegation preview. Run the same ordinary batch checks
+    /// as commit, including control headroom and transaction-time root checks.
+    /// No pending allocation is flushed and the transaction is rolled back.
+    /// Earlier ordinary reads and execution-owner recovery are independent.
+    pub(crate) fn preview_intake_delegation_batch(
+        &mut self,
+        changes: Vec<Change>,
+        minimum_available: Resources,
+    ) -> Result<BatchReceipt> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut work = Work::load(&tx, &self.limits)?;
+        let result = work.intake_delegation_batch(&changes, minimum_available)?;
+        drop(work);
+        tx.rollback()?;
+        Ok(result)
+    }
+
+    /// Ordinary guarded metadata commit. The remaining-capacity check is not
+    /// a reservation: future invocations still reserve their actual resources.
+    pub(crate) fn commit_intake_delegation_batch(
+        &mut self,
+        changes: Vec<Change>,
+        minimum_available: Resources,
+    ) -> Result<BatchReceipt> {
+        self.transaction(|work| work.intake_delegation_batch(&changes, minimum_available))
+    }
+
+    pub(crate) fn preview_need_admission_batch(
+        &mut self,
+        changes: Vec<Change>,
+        minimum_available: Resources,
+        guard: &NeedAdmissionGuard,
+    ) -> Result<BatchReceipt> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut work = Work::load(&tx, &self.limits)?;
+        let result = work.need_admission_batch(&changes, minimum_available, guard)?;
+        drop(work);
+        tx.rollback()?;
+        Ok(result)
+    }
+
+    pub(crate) fn commit_need_admission_batch(
+        &mut self,
+        changes: Vec<Change>,
+        minimum_available: Resources,
+        guard: &NeedAdmissionGuard,
+    ) -> Result<BatchReceipt> {
+        self.transaction(|work| work.need_admission_batch(&changes, minimum_available, guard))
+    }
+
     /// Closeout-class calls require prior host authorization; JSON cannot grant it.
     pub fn compare_and_swap_batch_in_class(
         &mut self,
@@ -1985,6 +2369,23 @@ impl Store {
 
     pub fn invocation(&mut self, id: &str) -> Result<InvocationRecord> {
         self.invocation_in_class(id, BudgetClass::Ordinary)
+    }
+
+    pub(crate) fn retained_decision(&mut self, id: &str) -> Result<DecisionRecord> {
+        self.transaction(|work| {
+            work.id(id)?;
+            let record: DecisionRecord = work.required("decision", id)?;
+            work.returned(&record, work.limits.max_read_bytes, BudgetClass::Ordinary)?;
+            Ok(record)
+        })
+    }
+
+    /// Operator admission guard over every retained invocation identity.
+    /// The existing permanent-identity bound limits enumeration; ordinary
+    /// navigation is charged. No lifecycle or resource reservation is changed.
+    /// Terminal records remain acceptable after payload history expires.
+    pub fn require_terminal_invocations(&mut self) -> Result<()> {
+        self.transaction(|work| work.require_terminal_invocations())
     }
 
     fn invocation_in_class(&mut self, id: &str, class: BudgetClass) -> Result<InvocationRecord> {
@@ -2993,6 +3394,91 @@ impl<'a> Work<'a> {
         if meta != self.original_meta {
             self.db
                 .execute("UPDATE store_meta SET data=?1 WHERE singleton=1", [meta])?;
+        }
+        Ok(())
+    }
+
+    fn need_admission_batch(
+        &mut self,
+        changes: &[Change],
+        minimum_available: Resources,
+        guard: &NeedAdmissionGuard,
+    ) -> Result<BatchReceipt> {
+        self.admission()?;
+        let invocation: InvocationRecord = self.required("invocation", &guard.invocation.id)?;
+        let decision: DecisionRecord = self.required("decision", &guard.invocation.id)?;
+        self.returned(
+            &invocation,
+            self.limits.max_read_bytes,
+            BudgetClass::Ordinary,
+        )?;
+        self.returned(&decision, self.limits.max_read_bytes, BudgetClass::Ordinary)?;
+        live_invocation(&invocation)?;
+        if invocation != guard.invocation
+            || decision != guard.decision
+            || invocation.state != InvocationState::Adopted
+            || invocation.response_hash.as_deref() != Some(decision.response_hash.as_str())
+        {
+            return Err(StoreError::Conflict(guard.invocation.id.clone()));
+        }
+        let result = self.intake_delegation_batch(changes, minimum_available)?;
+        // Check the real host clock after all candidate allocations and guards,
+        // while the IMMEDIATE transaction still excludes concurrent writers.
+        let now =
+            crate::runtime::unix_now().map_err(|error| StoreError::Invalid(error.to_string()))?;
+        if guard.checked_at_unix < 0 || now < guard.checked_at_unix || now >= guard.expires_at_unix
+        {
+            return Err(StoreError::Invalid(
+                "need admission time or expiry changed".into(),
+            ));
+        }
+        Ok(result)
+    }
+
+    fn intake_delegation_batch(
+        &mut self,
+        changes: &[Change],
+        minimum_available: Resources,
+    ) -> Result<BatchReceipt> {
+        self.admission()?;
+        self.require_terminal_invocations()?;
+        let candidates = self.validate_changes(changes)?;
+        for change in changes {
+            self.dependencies(&change.depends_on, &candidates)?;
+        }
+        if !changes.is_empty() {
+            self.bump_epoch()?;
+        }
+        let objects = self.apply_changes(changes, BudgetClass::Ordinary)?;
+        // Project only onto a copy. Nothing is reserved or debited for future
+        // work. Include this batch's actual metadata allocations and all
+        // existing reserved/uncertain exposure in ordinary and aggregate checks.
+        let mut projected = self.meta.clone();
+        projected.ordinary.reserved = projected.ordinary.reserved.checked_add(minimum_available)?;
+        for dimension in RESOURCES {
+            projected.check_dimension(dimension, BudgetClass::Ordinary)?;
+        }
+        Ok(BatchReceipt {
+            epoch: self.meta.epoch,
+            objects,
+        })
+    }
+
+    fn require_terminal_invocations(&mut self) -> Result<()> {
+        for id in self.keys("invocation")? {
+            let record: InvocationRecord = self.required("invocation", &id)?;
+            self.returned(&record, self.limits.max_read_bytes, BudgetClass::Ordinary)?;
+            if record.id != id {
+                return Err(StoreError::Corrupt("invocation identity mismatch".into()));
+            }
+            if !matches!(
+                record.state,
+                InvocationState::Adopted | InvocationState::Failed
+            ) {
+                return Err(StoreError::InvalidState(
+                    "unresolved invocation blocks admission extension".into(),
+                ));
+            }
         }
         Ok(())
     }
@@ -4096,2661 +4582,4 @@ fn check_database_files(_path: &Path) -> Result<()> {
     Err(StoreError::Unsupported(
         "secure database permissions on this platform",
     ))
-}
-
-#[cfg(all(test, unix))]
-mod tests {
-    use super::*;
-    use serde_json::json;
-    use std::sync::{Arc, Barrier};
-    use tempfile::TempDir;
-
-    fn private_tempdir() -> TempDir {
-        use std::os::unix::fs::PermissionsExt;
-        let directory = tempfile::tempdir().unwrap();
-        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-        directory
-    }
-
-    fn limits() -> Limits {
-        Limits {
-            total: Resources {
-                attempts: 100,
-                input_bytes: 1_000_000,
-                output_bytes: 1_000_000,
-                navigation_bytes: 10_000_000,
-                retained_bytes: 64 * 1024 * 1024,
-            },
-            protected_closeout: Resources {
-                attempts: 2,
-                input_bytes: 100,
-                output_bytes: 100,
-                navigation_bytes: 1024,
-                retained_bytes: 256 * 1024,
-            },
-            max_body_bytes: 16 * 1024,
-            max_record_bytes: 64 * 1024,
-            max_read_bytes: 64 * 1024,
-            max_page_bytes: 256 * 1024,
-            max_page_items: 32,
-            max_batch_items: 32,
-            max_id_bytes: 128,
-            max_identity_records: 1000,
-            max_history_events: 4000,
-            busy_timeout_ms: 5000,
-        }
-    }
-
-    fn database() -> (TempDir, PathBuf, Store) {
-        let directory = private_tempdir();
-        let path = directory.path().join("state.sqlite");
-        let store = Store::open(&path, limits()).unwrap();
-        (directory, path, store)
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn execution_owner_drop_releases_lock_while_pre_exec_child_retains_fd() {
-        // The child only uses async-signal-safe syscalls. The parent owns all
-        // assertions and Store operations; EOF releases the child on unwind.
-        struct ChildHolder {
-            pid: libc::pid_t,
-            gate: libc::c_int,
-        }
-        impl ChildHolder {
-            fn release_and_reap(&mut self) -> std::io::Result<i32> {
-                if self.gate >= 0 {
-                    // shutdown affects inherited copies too; a concurrent fork
-                    // must not prolong this test's EOF release signal.
-                    unsafe { libc::shutdown(self.gate, libc::SHUT_WR) };
-                    unsafe { libc::close(self.gate) };
-                    self.gate = -1;
-                }
-                if self.pid <= 0 {
-                    return Ok(0);
-                }
-                loop {
-                    let mut status = 0;
-                    let result = unsafe { libc::waitpid(self.pid, &mut status, 0) };
-                    if result == self.pid {
-                        self.pid = 0;
-                        return Ok(status);
-                    }
-                    let error = std::io::Error::last_os_error();
-                    if error.kind() != std::io::ErrorKind::Interrupted {
-                        return Err(error);
-                    }
-                }
-            }
-        }
-        impl Drop for ChildHolder {
-            fn drop(&mut self) {
-                let _ = self.release_and_reap();
-            }
-        }
-        let (_directory, path, mut store) = database();
-        let owner = store.acquire_execution_owner().unwrap();
-        let mut gate = [-1; 2];
-        assert_eq!(
-            unsafe {
-                libc::socketpair(
-                    libc::AF_UNIX,
-                    libc::SOCK_STREAM | libc::SOCK_CLOEXEC,
-                    0,
-                    gate.as_mut_ptr(),
-                )
-            },
-            0
-        );
-        let pid = unsafe { libc::fork() };
-        if pid == 0 {
-            unsafe {
-                libc::close(gate[1]);
-                libc::alarm(10);
-                let mut byte = 0u8;
-                loop {
-                    let result = libc::read(gate[0], (&mut byte as *mut u8).cast(), 1);
-                    if result == 0 {
-                        libc::_exit(0); // Only the parent's gate closure succeeds.
-                    }
-                    if result < 0 && *libc::__errno_location() == libc::EINTR {
-                        continue;
-                    }
-                    libc::_exit(1);
-                }
-            }
-        }
-        if pid < 0 {
-            unsafe {
-                libc::close(gate[0]);
-                libc::close(gate[1]);
-            }
-            panic!("fork failed: {}", std::io::Error::last_os_error());
-        }
-        unsafe { libc::close(gate[0]) };
-        let mut child = ChildHolder { pid, gate: gate[1] };
-        assert!(ExecutionOwner::try_acquire(&path).unwrap().is_none());
-        drop(owner);
-        let replacement = store.acquire_execution_owner().unwrap();
-        assert!(ExecutionOwner::try_acquire(&path).unwrap().is_none());
-        let status = child.release_and_reap().unwrap();
-        assert!(libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0);
-        // A watchdog expiry or interrupted/error read cannot falsely pass by
-        // closing the inherited descriptor before the parent's guard drop.
-        // Closing the old inherited descriptor cannot release the new owner's
-        // independent open file description.
-        assert!(ExecutionOwner::try_acquire(&path).unwrap().is_none());
-        drop(replacement);
-        assert!(ExecutionOwner::try_acquire(&path).unwrap().is_some());
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn execution_owner_from_another_pid_closes_without_unlocking_shared_description() {
-        use std::os::fd::{AsRawFd, FromRawFd};
-        let (_directory, path, mut store) = database();
-        let mut owner = store.acquire_execution_owner().unwrap();
-        let duplicate = unsafe { libc::dup(owner._file.as_raw_fd()) };
-        assert!(duplicate >= 0);
-        let inherited_description = unsafe { fs::File::from_raw_fd(duplicate) };
-        // Model the PID distinction without running Rust destructors in a
-        // forked multithreaded test harness.
-        owner.acquiring_pid = owner.acquiring_pid.wrapping_add(1);
-        drop(owner);
-        assert!(ExecutionOwner::try_acquire(&path).unwrap().is_none());
-        // This synthetic foreign-PID guard deliberately skipped owner release.
-        // Other tests may fork this duplicate too, so explicitly release it for
-        // cleanup rather than assuming our close is the last descriptor.
-        assert_eq!(
-            unsafe { libc::flock(inherited_description.as_raw_fd(), libc::LOCK_UN) },
-            0
-        );
-        drop(inherited_description);
-        assert!(ExecutionOwner::try_acquire(&path).unwrap().is_some());
-    }
-
-    fn object(id: &str, revision: u64, value: i64) -> StoredObject {
-        StoredObject {
-            id: id.into(),
-            revision,
-            kind: "record".into(),
-            body: json!({"value": value}),
-        }
-    }
-
-    fn spec(store: &Store, id: &str) -> InvocationSpec {
-        InvocationSpec {
-            id: id.into(),
-            expected_epoch: store.epoch().unwrap(),
-            request: json!({"input": [1, 2]}),
-            reservation: Resources {
-                attempts: 1,
-                input_bytes: 1024,
-                output_bytes: 1024,
-                ..Resources::default()
-            },
-            class: BudgetClass::Ordinary,
-        }
-    }
-
-    fn responded(store: &mut Store, id: &str) -> (InvocationSpec, String) {
-        let specification = spec(store, id);
-        store.prepare_invocation(specification.clone()).unwrap();
-        store.dispatch_invocation(id).unwrap();
-        let hash = sha256_bytes(b"complete response");
-        store.record_response(id, &hash).unwrap();
-        (specification, hash)
-    }
-
-    fn empty_decision(specification: &InvocationSpec, hash: &str) -> Decision {
-        Decision {
-            expected_epoch: specification.expected_epoch,
-            invocation_id: specification.id.clone(),
-            response_hash: hash.into(),
-            changes: Vec::new(),
-            intents: Vec::new(),
-        }
-    }
-
-    type AdmissionCell = (String, String, Vec<u8>, i64, i64, i64);
-
-    // Include sequence numbers, allocations, journals, and raw cell contents.
-    // Test inspection must not itself spend navigation and obscure rollback.
-    fn admission_snapshot(store: &Store) -> (Meta, Vec<AdmissionCell>) {
-        let mut statement = store
-            .connection
-            .prepare("SELECT ns,k,data,capacity,lane,slots FROM store_cells ORDER BY ns,k")
-            .unwrap();
-        let rows = statement
-            .query_map([], |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                    row.get(5)?,
-                ))
-            })
-            .unwrap();
-        let cells = rows
-            .collect::<std::result::Result<Vec<AdmissionCell>, _>>()
-            .unwrap();
-        (load_meta(&store.connection).unwrap(), cells)
-    }
-
-    fn atomic_admission_args(
-        store: &mut Store,
-        class: BudgetClass,
-    ) -> (
-        u64,
-        Vec<Change>,
-        InvocationSpec,
-        Vec<TerminalEvidenceReservation>,
-    ) {
-        store
-            .compare_and_swap(
-                None,
-                StoredObject {
-                    id: "admission-state".into(),
-                    revision: 1,
-                    kind: "runtime-state".into(),
-                    body: json!({"work_attempts_left":3,"repair_attempts_left":2,
-                "active_invocation":null,"owner_epoch":4,"admission_serial":7,"permit":true}),
-                },
-            )
-            .unwrap();
-        let start = store.epoch().unwrap();
-        let next = StoredObject {
-            id: "admission-state".into(),
-            revision: 2,
-            kind: "runtime-state".into(),
-            body: json!({"work_attempts_left":2,"repair_attempts_left":1,
-                "active_invocation":"atomic","owner_epoch":5,"admission_serial":8,"permit":false}),
-        };
-        let marker = object("admission-marker", 1, 42);
-        let next_ref = next.exact_ref().unwrap();
-        let marker_ref = marker.exact_ref().unwrap();
-        let changes = vec![
-            Change {
-                expected_revision: Some(1),
-                object: next,
-                depends_on: vec![marker_ref],
-            },
-            Change {
-                expected_revision: None,
-                object: marker,
-                depends_on: vec![next_ref],
-            },
-        ];
-        let specification = InvocationSpec {
-            id: "atomic".into(),
-            expected_epoch: start + 1,
-            request: json!({"epoch":start + 1,"owner_epoch":5,"payload":"complete prepared request"}),
-            reservation: Resources {
-                attempts: 1,
-                input_bytes: 1024,
-                output_bytes: 1024,
-                ..Resources::default()
-            },
-            class,
-        };
-        let slots = vec![
-            TerminalEvidenceReservation {
-                id: "atomic-response".into(),
-                max_object_bytes: 4096,
-                class,
-            },
-            TerminalEvidenceReservation {
-                id: "atomic-failure".into(),
-                max_object_bytes: 4096,
-                class,
-            },
-        ];
-        (start, changes, specification, slots)
-    }
-
-    #[test]
-    fn atomic_admission_commits_exact_state_and_binds_every_replay_argument_across_reopen() {
-        for class in [BudgetClass::Ordinary, BudgetClass::Closeout] {
-            let (_directory, path, mut store) = database();
-            let (start, changes, specification, slots) = atomic_admission_args(&mut store, class);
-            let before = load_meta(&store.connection).unwrap();
-            let admitted = store
-                .prepare_invocation_with_changes(
-                    start,
-                    changes.clone(),
-                    specification.clone(),
-                    slots.clone(),
-                )
-                .unwrap();
-            assert_eq!(
-                admitted.0,
-                BatchReceipt {
-                    epoch: start + 1,
-                    objects: changes
-                        .iter()
-                        .map(|change| change.object.exact_ref().unwrap())
-                        .collect(),
-                }
-            );
-            assert_eq!(store.epoch().unwrap(), start + 1);
-            assert_eq!(admitted.1.prepared_epoch, start + 1);
-            assert_eq!(admitted.1.request.as_ref(), Some(&specification.request));
-            assert_eq!(admitted.1.state, InvocationState::Prepared);
-            assert!(admitted.1.atomic_admission_hash.is_some());
-            assert_eq!(admitted.1.history.len(), 1);
-            assert_eq!(admitted.1.history[0].epoch, start + 1);
-            store
-                .transaction(|work| {
-                    for change in &changes {
-                        assert_eq!(
-                            work.required::<StoredObject>("object", &change.object.id)?,
-                            change.object
-                        );
-                        assert_eq!(
-                            work.required::<StoredObject>(
-                                "revision",
-                                &revision_key(&change.object.id, change.object.revision)
-                            )?,
-                            change.object
-                        );
-                    }
-                    let reservation: ReservationRecord =
-                        work.required("reservation", &admitted.1.reservation.key())?;
-                    assert_eq!(reservation.amount, specification.reservation);
-                    assert_eq!(reservation.class, class);
-                    assert_eq!(reservation.history[0].epoch, start + 1);
-                    for slot in &slots {
-                        let cell = work.cell("terminal_evidence", &slot.id)?.unwrap();
-                        let reserved: TerminalEvidenceSlot = serde_json::from_slice(&cell.data)?;
-                        assert_eq!(
-                            reserved.subject,
-                            EntityId::Invocation(specification.id.clone())
-                        );
-                        assert_eq!(reserved.max_object_bytes, slot.max_object_bytes);
-                        assert!(reserved.object.is_none());
-                        assert_eq!(cell.class, slot.class);
-                        assert_eq!(cell.capacity, slot.max_object_bytes + CONTROL_HEADROOM);
-                    }
-                    Ok(())
-                })
-                .unwrap();
-            let after = load_meta(&store.connection).unwrap();
-            assert_eq!(
-                after.account(class).consumed.attempts,
-                before.account(class).consumed.attempts + 1
-            );
-            assert_eq!(
-                after.account(class).reserved,
-                before
-                    .account(class)
-                    .reserved
-                    .checked_add(specification.reservation.without_attempts())
-                    .unwrap()
-            );
-            assert_eq!(after.identities, before.identities + 7);
-            assert_eq!(
-                after.history_slots,
-                before.history_slots + INVOCATION_EVENTS + RESERVATION_EVENTS
-            );
-            let unchanged = admission_snapshot(&store);
-            assert_eq!(
-                store
-                    .prepare_invocation_with_changes(
-                        start,
-                        changes.clone(),
-                        specification.clone(),
-                        slots.clone(),
-                    )
-                    .unwrap(),
-                admitted
-            );
-            assert!(matches!(
-                store.prepare_invocation(specification.clone()),
-                Err(StoreError::Conflict(_))
-            ));
-            assert_eq!(admission_snapshot(&store), unchanged);
-            let other_class = if class == BudgetClass::Ordinary {
-                BudgetClass::Closeout
-            } else {
-                BudgetClass::Ordinary
-            };
-            for variant in 0..15 {
-                let mut changed_start = start;
-                let mut changed_changes = changes.clone();
-                let mut changed_spec = specification.clone();
-                let mut changed_slots = slots.clone();
-                match variant {
-                    0 => changed_start += 1,
-                    1 => changed_changes[0].object.body["work_attempts_left"] = json!(0),
-                    2 => changed_changes[0].expected_revision = Some(0),
-                    3 => changed_changes[0].depends_on.clear(),
-                    4 => changed_changes.reverse(),
-                    5 => changed_spec.request["payload"] = json!("changed"),
-                    6 => changed_spec.reservation.output_bytes += 1,
-                    7 => changed_spec.expected_epoch += 1,
-                    8 => changed_spec.class = other_class,
-                    9 => changed_slots[0].max_object_bytes += 1,
-                    10 => changed_slots[0].class = other_class,
-                    11 => changed_slots[0].id.push_str("-changed"),
-                    12 => changed_slots.reverse(),
-                    13 => {
-                        changed_slots.pop();
-                    }
-                    14 => {
-                        changed_changes.pop();
-                    }
-                    _ => unreachable!(),
-                }
-                assert!(
-                    matches!(
-                        store.prepare_invocation_with_changes(
-                            changed_start,
-                            changed_changes,
-                            changed_spec,
-                            changed_slots,
-                        ),
-                        Err(StoreError::Conflict(_))
-                    ),
-                    "variant {variant}"
-                );
-                assert_eq!(admission_snapshot(&store), unchanged);
-            }
-            // Replay must retain the original receipt without restoring an old lease.
-            let mut later = changes[0].object.clone();
-            later.revision = 3;
-            later.body["active_invocation"] = Value::Null;
-            store.compare_and_swap(Some(2), later).unwrap();
-            let durable = admission_snapshot(&store);
-            drop(store);
-            let mut store = Store::open(&path, limits()).unwrap();
-            assert_eq!(admission_snapshot(&store), durable);
-            assert_eq!(
-                store
-                    .prepare_invocation_with_changes(start, changes, specification, slots,)
-                    .unwrap(),
-                admitted
-            );
-            assert_eq!(admission_snapshot(&store), durable);
-        }
-    }
-
-    #[test]
-    fn atomic_admission_validation_failures_leave_every_cell_and_counter_unchanged() {
-        let (_directory, path, mut store) = database();
-        let (start, changes, specification, slots) =
-            atomic_admission_args(&mut store, BudgetClass::Ordinary);
-        let before = admission_snapshot(&store);
-        for variant in 0..10 {
-            let mut changed_start = start;
-            let mut changed_changes = changes.clone();
-            let mut changed_spec = specification.clone();
-            let mut changed_slots = slots.clone();
-            match variant {
-                0 => changed_start -= 1,
-                1 => changed_spec.expected_epoch = start,
-                2 => changed_changes[0].expected_revision = Some(0),
-                3 => changed_changes[0].depends_on[0].sha256 = sha256_bytes(b"wrong dependency"),
-                4 => {
-                    changed_slots[1].max_object_bytes =
-                        store.limits.max_record_bytes - CONTROL_HEADROOM + 1
-                }
-                5 => changed_slots[1].id = changes[1].object.id.clone(),
-                6 => changed_slots[1] = slots[0].clone(),
-                7 => changed_slots = vec![slots[0].clone(); store.limits.max_batch_items as usize],
-                8 => changed_spec.reservation.attempts = 0,
-                9 => changed_spec.reservation.input_bytes = 0,
-                _ => unreachable!(),
-            }
-            let error = store
-                .prepare_invocation_with_changes(
-                    changed_start,
-                    changed_changes,
-                    changed_spec,
-                    changed_slots,
-                )
-                .unwrap_err();
-            match variant {
-                0 | 1 => assert!(matches!(error, StoreError::StaleEpoch { .. })),
-                2 | 3 => assert!(matches!(error, StoreError::RevisionConflict(_))),
-                4 => assert!(matches!(error, StoreError::TooLarge)),
-                5 | 6 => assert!(matches!(error, StoreError::Conflict(_))),
-                7..=9 => assert!(matches!(error, StoreError::Invalid(_))),
-                _ => unreachable!(),
-            }
-            assert_eq!(admission_snapshot(&store), before, "variant {variant}");
-        }
-        drop(store);
-        let store = Store::open(&path, limits()).unwrap();
-        assert_eq!(admission_snapshot(&store), before);
-    }
-
-    #[test]
-    fn atomic_admission_attempt_and_output_exhaustion_roll_back_in_both_classes() {
-        for class in [BudgetClass::Ordinary, BudgetClass::Closeout] {
-            for dimension in [Resource::Attempts, Resource::OutputBytes] {
-                let (_directory, path, mut store) = database();
-                let (start, changes, specification, slots) =
-                    atomic_admission_args(&mut store, class);
-                let ceiling = store.limits.total.get(dimension)
-                    - if class == BudgetClass::Ordinary {
-                        store.limits.protected_closeout.get(dimension)
-                    } else {
-                        0
-                    };
-                let mut amount = Resources::default();
-                amount.set(dimension, ceiling);
-                let blocker = store.reserve("exhausted", amount, class).unwrap();
-                if dimension == Resource::OutputBytes {
-                    store.settle(&blocker.id, Usage::Unknown).unwrap();
-                }
-                let before = admission_snapshot(&store);
-                assert!(
-                    matches!(store.prepare_invocation_with_changes(start, changes, specification, slots),
-                    Err(StoreError::Quota { dimension: failed, class: failed_class })
-                        if failed == dimension && failed_class == class)
-                );
-                assert_eq!(admission_snapshot(&store), before);
-                drop(store);
-                let store = Store::open(&path, limits()).unwrap();
-                assert_eq!(admission_snapshot(&store), before);
-            }
-        }
-    }
-
-    #[test]
-    fn atomic_admission_preserves_identity_and_history_class_and_root_limits() {
-        for class in [BudgetClass::Ordinary, BudgetClass::Closeout] {
-            for identity_is_binding in [true, false] {
-                let directory = private_tempdir();
-                let path = directory.path().join("state.sqlite");
-                let mut ceiling = limits();
-                if identity_is_binding {
-                    // Enough for the state, invocation, and first terminal slot.
-                    ceiling.max_identity_records =
-                        if class == BudgetClass::Ordinary { 9 } else { 8 };
-                } else {
-                    ceiling.max_history_events = if class == BudgetClass::Ordinary {
-                        12
-                    } else {
-                        11
-                    };
-                }
-                let mut store = Store::open(&path, ceiling.clone()).unwrap();
-                let (start, changes, specification, slots) =
-                    atomic_admission_args(&mut store, class);
-                let before = admission_snapshot(&store);
-                let error = store
-                    .prepare_invocation_with_changes(start, changes, specification, slots)
-                    .unwrap_err();
-                assert!(matches!(
-                    (error, identity_is_binding),
-                    (StoreError::IdentityLimit, true) | (StoreError::HistoryLimit, false)
-                ));
-                assert_eq!(admission_snapshot(&store), before);
-                drop(store);
-                let store = Store::open(&path, ceiling).unwrap();
-                assert_eq!(admission_snapshot(&store), before);
-            }
-        }
-    }
-
-    #[test]
-    fn atomic_admission_terminal_retention_shortfall_rolls_back_the_whole_unit() {
-        // Determine this fixture's actual allocation, then leave it one byte short.
-        let (_probe_directory, _probe_path, mut probe) = database();
-        let (start, changes, specification, slots) =
-            atomic_admission_args(&mut probe, BudgetClass::Ordinary);
-        probe
-            .prepare_invocation_with_changes(start, changes, specification, slots)
-            .unwrap();
-        let required = probe
-            .ledger()
-            .unwrap()
-            .ordinary
-            .exposure()
-            .unwrap()
-            .retained_bytes;
-        let directory = private_tempdir();
-        let path = directory.path().join("state.sqlite");
-        let mut ceiling = limits();
-        ceiling.total.retained_bytes = required + ceiling.protected_closeout.retained_bytes - 1;
-        let mut store = Store::open(&path, ceiling.clone()).unwrap();
-        let (start, changes, specification, slots) =
-            atomic_admission_args(&mut store, BudgetClass::Ordinary);
-        let before = admission_snapshot(&store);
-        assert!(matches!(
-            store.prepare_invocation_with_changes(
-                start,
-                changes.clone(),
-                specification.clone(),
-                slots.clone(),
-            ),
-            Err(StoreError::Quota {
-                dimension: Resource::RetainedBytes,
-                class: BudgetClass::Ordinary
-            })
-        ));
-        assert_eq!(admission_snapshot(&store), before);
-        drop(store);
-        let mut store = Store::open(&path, ceiling).unwrap();
-        assert_eq!(admission_snapshot(&store), before);
-        // The same complete admission fits with only the final slot omitted.
-        let mut fewer_slots = slots;
-        fewer_slots.pop();
-        store
-            .prepare_invocation_with_changes(start, changes, specification, fewer_slots)
-            .unwrap();
-        assert_eq!(store.ledger().unwrap().ordinary.consumed.attempts, 1);
-    }
-
-    #[test]
-    fn direct_records_without_atomic_metadata_never_gain_atomic_replay_authority() {
-        let (_directory, path, mut store) = database();
-        let change = Change {
-            expected_revision: None,
-            object: object("legacy-state", 1, 1),
-            depends_on: vec![],
-        };
-        store.compare_and_swap_batch(vec![change.clone()]).unwrap();
-        let specification = spec(&store, "direct");
-        let prepared = store.prepare_invocation(specification.clone()).unwrap();
-        assert!(prepared.atomic_admission_hash.is_none());
-        let bytes: Vec<u8> = store
-            .connection
-            .query_row(
-                "SELECT data FROM store_cells WHERE ns='invocation' AND k='direct'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        let legacy: Value = serde_json::from_slice(&bytes).unwrap();
-        assert!(legacy.get("atomic_admission_hash").is_none());
-        assert_eq!(
-            serde_json::from_value::<InvocationRecord>(legacy).unwrap(),
-            prepared
-        );
-        drop(store);
-        let mut store = Store::open(&path, limits()).unwrap();
-        let before = admission_snapshot(&store);
-        assert_eq!(
-            store.prepare_invocation(specification.clone()).unwrap(),
-            prepared
-        );
-        assert!(matches!(
-            store.prepare_invocation_with_changes(0, vec![change], specification, vec![],),
-            Err(StoreError::Conflict(_))
-        ));
-        assert_eq!(admission_snapshot(&store), before);
-    }
-
-    #[test]
-    fn atomic_empty_batch_advances_once_and_replay_never_authorizes_redispatch() {
-        let (_directory, path, mut store) = database();
-        let mut specification = spec(&store, "empty");
-        specification.expected_epoch = 1;
-        let (batch, prepared) = store
-            .prepare_invocation_with_changes(0, vec![], specification.clone(), vec![])
-            .unwrap();
-        assert_eq!(
-            batch,
-            BatchReceipt {
-                epoch: 1,
-                objects: vec![]
-            }
-        );
-        assert_eq!(prepared.prepared_epoch, 1);
-        assert_eq!(store.epoch().unwrap(), 1);
-        store.dispatch_invocation("empty").unwrap();
-        let before = admission_snapshot(&store);
-        let replay = store
-            .prepare_invocation_with_changes(0, vec![], specification.clone(), vec![])
-            .unwrap();
-        assert_eq!(replay.0, batch);
-        assert_eq!(replay.1.state, InvocationState::Dispatched);
-        assert!(matches!(
-            store.dispatch_invocation("empty"),
-            Err(StoreError::AlreadyDispatched)
-        ));
-        assert_eq!(admission_snapshot(&store), before);
-        drop(store);
-        let mut store = Store::open(&path, limits()).unwrap();
-        assert_eq!(store.epoch().unwrap(), 2);
-        let before = admission_snapshot(&store);
-        let replay = store
-            .prepare_invocation_with_changes(0, vec![], specification, vec![])
-            .unwrap();
-        assert_eq!(replay.0, batch);
-        assert_eq!(replay.1.state, InvocationState::Uncertain);
-        assert_eq!(store.ledger().unwrap().ordinary.consumed.attempts, 1);
-        assert!(matches!(
-            store.dispatch_invocation("empty"),
-            Err(StoreError::ReconciliationRequired)
-        ));
-        assert_eq!(admission_snapshot(&store), before);
-    }
-
-    #[test]
-    fn atomic_slots_keep_authentication_and_prepaid_freeze_behavior() {
-        let (_directory, _path, mut store) = database();
-        let (start, changes, specification, slots) =
-            atomic_admission_args(&mut store, BudgetClass::Ordinary);
-        store
-            .prepare_invocation_with_changes(
-                start,
-                changes.clone(),
-                specification.clone(),
-                slots.clone(),
-            )
-            .unwrap();
-        let trip = store
-            .reserve(
-                "trip",
-                Resources {
-                    output_bytes: 1,
-                    ..Resources::default()
-                },
-                BudgetClass::Ordinary,
-            )
-            .unwrap();
-        store.dispatch_invocation("atomic").unwrap();
-        assert!(matches!(
-            store.settle(
-                &trip.id,
-                Usage::Measured(Resources {
-                    output_bytes: 2,
-                    ..Resources::default()
-                })
-            ),
-            Err(StoreError::Overrun(_))
-        ));
-        let before = admission_snapshot(&store);
-        let evidence = object(&slots[0].id, 1, 1);
-        assert!(matches!(
-            store
-                .trusted_host()
-                .record_terminal_evidence(evidence.clone(), |_, _| {
-                    Err(StoreError::Invalid("authentication rejected".into()))
-                }),
-            Err(StoreError::Invalid(_))
-        ));
-        assert_eq!(admission_snapshot(&store), before);
-        let mut blocked = specification.clone();
-        blocked.id = "blocked".into();
-        blocked.class = BudgetClass::Closeout;
-        let frozen_epoch = store.epoch().unwrap();
-        blocked.expected_epoch = frozen_epoch + 1;
-        assert!(matches!(
-            store.prepare_invocation_with_changes(frozen_epoch, vec![], blocked, vec![],),
-            Err(StoreError::Frozen)
-        ));
-        assert_eq!(admission_snapshot(&store), before);
-        let ledger = store.ledger().unwrap();
-        let reference = store
-            .trusted_host()
-            .record_terminal_evidence(evidence.clone(), |subject, value| {
-                assert_eq!(subject, &EntityId::Invocation("atomic".into()));
-                assert_eq!(value, &evidence);
-                Ok(())
-            })
-            .unwrap();
-        assert_eq!(reference, evidence.exact_ref().unwrap());
-        assert_eq!(store.ledger().unwrap(), ledger);
-        // Filling the prepaid observation changes neither accounting nor epoch.
-        assert_eq!(store.epoch().unwrap(), frozen_epoch);
-        let filled = admission_snapshot(&store);
-        assert!(matches!(
-            store
-                .trusted_host()
-                .record_terminal_evidence(evidence, |_, _| {
-                    Err(StoreError::Invalid("replay must also authenticate".into()))
-                }),
-            Err(StoreError::Invalid(_))
-        ));
-        let replay = store
-            .prepare_invocation_with_changes(start, changes, specification, slots)
-            .unwrap();
-        assert_eq!(replay.0.epoch, start + 1);
-        assert_eq!(replay.1.state, InvocationState::Dispatched);
-        assert_eq!(admission_snapshot(&store), filled);
-    }
-
-    #[test]
-    fn complete_transport_validation_and_late_write_failure_roll_back_every_cell() {
-        let (_directory, _path, mut store) = database();
-        let prepared = store
-            .prepare_invocation(spec(&store, "completion"))
-            .unwrap();
-        store.prepare_invocation(spec(&store, "foreign")).unwrap();
-        let evidence = object("completion-terminal", 1, 1);
-        let capacity = encode(&evidence, u64::MAX).unwrap().len() as u64;
-        store
-            .trusted_host()
-            .reserve_terminal_evidence(
-                &EntityId::Invocation("completion".into()),
-                &evidence.id,
-                capacity,
-                BudgetClass::Ordinary,
-            )
-            .unwrap();
-        store
-            .trusted_host()
-            .reserve_terminal_evidence(
-                &EntityId::Invocation("foreign".into()),
-                "foreign-terminal",
-                4096,
-                BudgetClass::Ordinary,
-            )
-            .unwrap();
-        let hash = sha256_bytes(b"complete transport");
-        let before = admission_snapshot(&store);
-        assert!(matches!(
-            store.trusted_host().complete_invocation_transport(
-                "completion",
-                &prepared.prepare_hash,
-                &hash,
-                evidence.clone(),
-                |_, _| panic!("prepared ingress reached authentication"),
-            ),
-            Err(StoreError::InvalidState(_))
-        ));
-        assert_eq!(admission_snapshot(&store), before);
-        store.dispatch_invocation("completion").unwrap();
-        let before = admission_snapshot(&store);
-        assert!(matches!(
-            store.trusted_host().complete_invocation_transport(
-                "completion",
-                &sha256_bytes(b"different admission"),
-                &hash,
-                evidence.clone(),
-                |_, _| panic!("wrong admission reached authentication"),
-            ),
-            Err(StoreError::Conflict(_))
-        ));
-        assert_eq!(admission_snapshot(&store), before);
-        assert!(matches!(
-            store.trusted_host().complete_invocation_transport(
-                "completion",
-                &prepared.prepare_hash,
-                &hash,
-                object("foreign-terminal", 1, 1),
-                |_, _| panic!("wrong subject reached authentication"),
-            ),
-            Err(StoreError::Conflict(_))
-        ));
-        assert_eq!(admission_snapshot(&store), before);
-        let mut oversized = evidence.clone();
-        oversized.body = json!({"value":"oversized".repeat(100)});
-        assert!(matches!(
-            store.trusted_host().complete_invocation_transport(
-                "completion",
-                &prepared.prepare_hash,
-                &hash,
-                oversized,
-                |_, _| panic!("oversized evidence reached authentication"),
-            ),
-            Err(StoreError::TooLarge)
-        ));
-        assert_eq!(admission_snapshot(&store), before);
-        for failure in [
-            StoreError::Invalid("host authentication rejected".into()),
-            StoreError::Quota {
-                dimension: Resource::NavigationBytes,
-                class: BudgetClass::Closeout,
-            },
-        ] {
-            assert!(store
-                .trusted_host()
-                .complete_invocation_transport(
-                    "completion",
-                    &prepared.prepare_hash,
-                    &hash,
-                    evidence.clone(),
-                    |bound, observed| {
-                        assert_eq!(bound.request, prepared.request);
-                        assert_eq!(observed, &evidence);
-                        Err(failure)
-                    },
-                )
-                .is_err());
-            assert_eq!(admission_snapshot(&store), before);
-        }
-        // Work flushes invocation before terminal_evidence. Abort the later write
-        // after verifying that the response update occurred inside this transaction.
-        store
-            .connection
-            .execute_batch(
-                "CREATE TRIGGER abort_transport_fill BEFORE UPDATE ON store_cells
-             WHEN NEW.ns='terminal_evidence' AND NEW.k='completion-terminal'
-             BEGIN
-                 SELECT CASE WHEN NOT EXISTS (
-                     SELECT 1 FROM store_cells WHERE ns='invocation' AND k='completion'
-                       AND json_extract(data,'$.state')='Responded'
-                       AND json_extract(data,'$.history[#-1].evidence.id')='completion-terminal'
-                 ) THEN RAISE(ABORT,'response update missing') END;
-                 SELECT RAISE(ABORT,'injected completion failure');
-             END;",
-            )
-            .unwrap();
-        let error = store
-            .trusted_host()
-            .complete_invocation_transport(
-                "completion",
-                &prepared.prepare_hash,
-                &hash,
-                evidence.clone(),
-                |_, _| Ok(()),
-            )
-            .unwrap_err();
-        assert!(error.to_string().contains("injected completion failure"));
-        assert_eq!(admission_snapshot(&store), before);
-        store
-            .connection
-            .execute_batch("DROP TRIGGER abort_transport_fill")
-            .unwrap();
-        let ledger = store.ledger().unwrap();
-        let epoch = store.epoch().unwrap();
-        let receipt = store
-            .trusted_host()
-            .complete_invocation_transport(
-                "completion",
-                &prepared.prepare_hash,
-                &hash,
-                evidence.clone(),
-                |_, _| Ok(()),
-            )
-            .unwrap();
-        assert_eq!(receipt.evidence, Some(evidence.exact_ref().unwrap()));
-        assert_eq!(receipt.status, ReceiptStatus::Responded);
-        assert_eq!(store.ledger().unwrap(), ledger);
-        assert_eq!(store.epoch().unwrap(), epoch);
-    }
-
-    #[test]
-    fn complete_transport_replay_preserves_original_receipt_after_closeout_and_reopen() {
-        for disposition in ["responded", "adopted", "failed", "frozen"] {
-            let (_directory, path, mut store) = database();
-            let specification = spec(&store, "completion");
-            let prepared = store.prepare_invocation(specification.clone()).unwrap();
-            let evidence = object("completion-terminal", 1, 1);
-            store
-                .trusted_host()
-                .reserve_terminal_evidence(
-                    &EntityId::Invocation("completion".into()),
-                    &evidence.id,
-                    4096,
-                    BudgetClass::Ordinary,
-                )
-                .unwrap();
-            store.dispatch_invocation("completion").unwrap();
-            if disposition == "frozen" {
-                let trip = store
-                    .reserve(
-                        "trip",
-                        Resources {
-                            output_bytes: 1,
-                            ..Resources::default()
-                        },
-                        BudgetClass::Ordinary,
-                    )
-                    .unwrap();
-                assert!(matches!(
-                    store.settle(
-                        &trip.id,
-                        Usage::Measured(Resources {
-                            output_bytes: 2,
-                            ..Resources::default()
-                        })
-                    ),
-                    Err(StoreError::Overrun(_))
-                ));
-            }
-            let hash = sha256_bytes(b"complete transport");
-            let epoch = store.epoch().unwrap();
-            let ledger = store.ledger().unwrap();
-            let receipt = store
-                .trusted_host()
-                .complete_invocation_transport(
-                    "completion",
-                    &prepared.prepare_hash,
-                    &hash,
-                    evidence.clone(),
-                    |_, _| Ok(()),
-                )
-                .unwrap();
-            assert_eq!(store.epoch().unwrap(), epoch);
-            assert_eq!(store.ledger().unwrap(), ledger);
-            match disposition {
-                "adopted" => {
-                    store
-                        .commit_decision(empty_decision(&specification, &hash))
-                        .unwrap();
-                }
-                "failed" => {
-                    store
-                        .reject_invocation("completion", "Local decision rejected")
-                        .unwrap();
-                }
-                _ => (),
-            }
-            let before = admission_snapshot(&store);
-            drop(store);
-            let mut store = Store::open(&path, limits()).unwrap();
-            assert_eq!(admission_snapshot(&store), before);
-            let mut authenticated = false;
-            assert_eq!(
-                store
-                    .trusted_host()
-                    .complete_invocation_transport(
-                        "completion",
-                        &prepared.prepare_hash,
-                        &hash,
-                        evidence.clone(),
-                        |bound, value| {
-                            authenticated = true;
-                            assert_eq!(bound.prepare_hash, prepared.prepare_hash);
-                            assert_eq!(value, &evidence);
-                            Ok(())
-                        },
-                    )
-                    .unwrap(),
-                receipt
-            );
-            assert!(authenticated);
-            assert_eq!(admission_snapshot(&store), before);
-            assert!(store
-                .trusted_host()
-                .complete_invocation_transport(
-                    "completion",
-                    &prepared.prepare_hash,
-                    &hash,
-                    evidence.clone(),
-                    |_, _| Err(StoreError::Invalid("replay authentication rejected".into())),
-                )
-                .is_err());
-            assert_eq!(admission_snapshot(&store), before);
-            assert!(matches!(
-                store.trusted_host().complete_invocation_transport(
-                    "completion",
-                    &prepared.prepare_hash,
-                    &sha256_bytes(b"other response"),
-                    evidence.clone(),
-                    |_, _| panic!("conflicting digest reached authentication"),
-                ),
-                Err(StoreError::Conflict(_))
-            ));
-            assert_eq!(admission_snapshot(&store), before);
-        }
-    }
-
-    #[test]
-    fn complete_transport_does_not_fill_or_rewrite_a_legacy_response_receipt() {
-        for already_filled in [false, true] {
-            let (_directory, _path, mut store) = database();
-            let prepared = store.prepare_invocation(spec(&store, "legacy")).unwrap();
-            let evidence = object("legacy-terminal", 1, 1);
-            store
-                .trusted_host()
-                .reserve_terminal_evidence(
-                    &EntityId::Invocation("legacy".into()),
-                    &evidence.id,
-                    4096,
-                    BudgetClass::Ordinary,
-                )
-                .unwrap();
-            store.dispatch_invocation("legacy").unwrap();
-            if already_filled {
-                store
-                    .trusted_host()
-                    .record_terminal_evidence(evidence.clone(), |_, _| Ok(()))
-                    .unwrap();
-            }
-            let hash = sha256_bytes(b"legacy response");
-            let original = store.record_response("legacy", &hash).unwrap();
-            assert!(original.evidence.is_none());
-            let before = admission_snapshot(&store);
-            for candidate in [hash.clone(), sha256_bytes(b"conflicting response")] {
-                assert!(matches!(
-                    store.trusted_host().complete_invocation_transport(
-                        "legacy",
-                        &prepared.prepare_hash,
-                        &candidate,
-                        evidence.clone(),
-                        |_, _| panic!("legacy receipt cannot acquire new evidence"),
-                    ),
-                    Err(StoreError::Conflict(_))
-                ));
-                assert_eq!(admission_snapshot(&store), before);
-            }
-            assert_eq!(store.record_response("legacy", &hash).unwrap(), original);
-            assert_eq!(admission_snapshot(&store), before);
-        }
-    }
-
-    #[test]
-    fn frozen_recovered_effect_uses_only_prepaid_authenticated_evidence() {
-        let (_directory, path, mut store) = database();
-        let (specification, hash) = responded(&mut store, "call");
-        let mut decision = empty_decision(&specification, &hash);
-        decision.intents.push(Intent {
-            id: "effect".into(),
-            body: json!({}),
-            depends_on: vec![],
-            reservation: Resources {
-                output_bytes: 10,
-                ..Resources::default()
-            },
-            class: BudgetClass::Ordinary,
-        });
-        store.commit_decision(decision).unwrap();
-        let subject = EntityId::Intent("effect".into());
-        let evidence = object("terminal", 1, 1);
-        let capacity = encode(&evidence, u64::MAX).unwrap().len() as u64;
-        store
-            .trusted_host()
-            .reserve_terminal_evidence(&subject, &evidence.id, capacity, BudgetClass::Ordinary)
-            .unwrap();
-        let reserved = store.ledger().unwrap();
-        store
-            .trusted_host()
-            .reserve_terminal_evidence(&subject, &evidence.id, capacity, BudgetClass::Ordinary)
-            .unwrap();
-        assert_eq!(store.ledger().unwrap(), reserved);
-        let trip = store
-            .reserve(
-                "trip",
-                Resources {
-                    output_bytes: 1,
-                    ..Resources::default()
-                },
-                BudgetClass::Ordinary,
-            )
-            .unwrap();
-        store
-            .dispatch_intent("effect", store.epoch().unwrap())
-            .unwrap();
-        drop(store);
-        let mut store = Store::open(&path, limits()).unwrap();
-        let uncertain = store.intent("effect").unwrap();
-        assert_eq!(uncertain.state, IntentState::Uncertain);
-        let uncertain_receipt = uncertain.history.last().unwrap().sequence;
-        assert!(matches!(
-            store.settle(
-                &trip.id,
-                Usage::Measured(Resources {
-                    output_bytes: 2,
-                    ..Resources::default()
-                })
-            ),
-            Err(StoreError::Overrun(_))
-        ));
-        let before = store.ledger().unwrap();
-        let epoch = store.epoch().unwrap();
-        assert_eq!(before.ordinary.uncertain.output_bytes, 10);
-        assert!(matches!(
-            store.trusted_host().reserve_terminal_evidence(
-                &subject,
-                "new-slot",
-                capacity,
-                BudgetClass::Closeout
-            ),
-            Err(StoreError::Frozen)
-        ));
-        for class in [BudgetClass::Ordinary, BudgetClass::Closeout] {
-            assert!(matches!(
-                store.compare_and_swap_batch_in_class(
-                    vec![Change {
-                        expected_revision: None,
-                        object: object("new-object", 1, 1),
-                        depends_on: vec![],
-                    }],
-                    class
-                ),
-                Err(StoreError::Frozen)
-            ));
-        }
-        assert!(matches!(
-            store
-                .trusted_host()
-                .record_terminal_evidence(object("unreserved", 1, 1), |_, _| Ok(())),
-            Err(StoreError::Missing(_))
-        ));
-        let mut too_large = evidence.clone();
-        too_large.body = json!({"value": "larger than the prepaid integer"});
-        assert!(matches!(
-            store
-                .trusted_host()
-                .record_terminal_evidence(too_large, |_, _| panic!(
-                    "out-of-bound evidence reached authentication"
-                )),
-            Err(StoreError::TooLarge)
-        ));
-        assert!(matches!(
-            store
-                .trusted_host()
-                .record_terminal_evidence(evidence.clone(), |_, _| Err(StoreError::Invalid(
-                    "authentication rejected".into()
-                ))),
-            Err(StoreError::Invalid(_))
-        ));
-        assert_eq!(store.ledger().unwrap(), before);
-        assert_eq!(store.epoch().unwrap(), epoch);
-        let reference = store
-            .trusted_host()
-            .record_terminal_evidence(evidence.clone(), |owner, value| {
-                assert_eq!(owner, &subject);
-                assert_eq!(value, &evidence);
-                Ok(())
-            })
-            .unwrap();
-        assert_eq!(store.ledger().unwrap(), before);
-        assert_eq!(store.epoch().unwrap(), epoch);
-        assert_eq!(
-            store
-                .trusted_host()
-                .record_terminal_evidence(evidence.clone(), |_, _| Ok(()))
-                .unwrap(),
-            reference
-        );
-        assert_eq!(store.epoch().unwrap(), epoch);
-        assert!(matches!(
-            store
-                .trusted_host()
-                .record_terminal_evidence(object("terminal", 1, 2), |_, _| Ok(())),
-            Err(StoreError::Conflict(_))
-        ));
-        assert!(store
-            .connection
-            .execute(
-                "UPDATE store_cells SET data=data WHERE ns='terminal_evidence'",
-                [],
-            )
-            .is_err());
-        assert!(matches!(
-            store.complete_intent(
-                "effect",
-                ObservedIntentOutcome::Succeeded,
-                reference.clone()
-            ),
-            Err(StoreError::ReconciliationRequired)
-        ));
-        let observation = ReconciliationObservation {
-            id: "observed".into(),
-            subject,
-            uncertain_receipt,
-            evidence: reference.clone(),
-            outcome: ReconciledOutcome::IntentSucceeded,
-        };
-        let receipt = store.reconcile(observation.clone()).unwrap();
-        assert_eq!(store.reconcile(observation).unwrap(), receipt);
-        assert_eq!(store.ledger().unwrap().ordinary.uncertain.output_bytes, 10);
-        store
-            .settle(
-                &uncertain.reservation,
-                Usage::Measured(Resources {
-                    output_bytes: 4,
-                    ..Resources::default()
-                }),
-            )
-            .unwrap();
-        assert_eq!(store.ledger().unwrap().ordinary.uncertain.output_bytes, 0);
-        assert!(store.ledger().unwrap().frozen);
-        drop(store);
-        let mut store = Store::open(&path, limits()).unwrap();
-        assert_eq!(
-            store.trusted_host().read_exact(&reference).unwrap(),
-            evidence
-        );
-        assert_eq!(
-            store.intent("effect").unwrap().state,
-            IntentState::Succeeded
-        );
-    }
-
-    #[test]
-    fn terminal_observations_preserve_original_decisions_and_concurrent_epoch_fences() {
-        for mutation in ["none", "before-fill", "after-fill"] {
-            let (_directory, path, mut store) = database();
-            // This low-level fixture dispatches without a host execution guard,
-            // so open its peer before creating an unowned dispatched record.
-            let mut concurrent = Store::open(&path, limits()).unwrap();
-            let specification = spec(&store, "observed-call");
-            store.prepare_invocation(specification.clone()).unwrap();
-            let subject = EntityId::Invocation(specification.id.clone());
-            let evidence = StoredObject {
-                id: "observed-terminal".into(),
-                revision: 1,
-                kind: "runtime-terminal-transport".into(),
-                body: json!({"receipt":"actual local fixture observation"}),
-            };
-            store
-                .trusted_host()
-                .reserve_terminal_evidence(&subject, &evidence.id, 4096, BudgetClass::Ordinary)
-                .unwrap();
-            store.dispatch_invocation(&specification.id).unwrap();
-            // Even the same kind/body in an ordinary semantic object must fence
-            // adoption. Only the prepaid terminal namespace is observation-only.
-            let semantic = StoredObject {
-                id: "ordinary-terminal-shaped-object".into(),
-                ..evidence.clone()
-            };
-            if mutation == "before-fill" {
-                concurrent.compare_and_swap(None, semantic.clone()).unwrap();
-            }
-            let before = load_meta(&store.connection).unwrap();
-            let reference = store
-                .trusted_host()
-                .record_terminal_evidence(evidence.clone(), |owner, value| {
-                    assert_eq!(owner, &subject);
-                    assert_eq!(value, &evidence);
-                    Ok(())
-                })
-                .unwrap();
-            assert_eq!(load_meta(&store.connection).unwrap(), before);
-            let filled = admission_snapshot(&store);
-            assert_eq!(
-                store
-                    .trusted_host()
-                    .record_terminal_evidence(evidence.clone(), |_, _| Ok(()))
-                    .unwrap(),
-                reference
-            );
-            let mut conflicting = evidence.clone();
-            conflicting.body["receipt"] = json!("different observation");
-            assert!(matches!(
-                store
-                    .trusted_host()
-                    .record_terminal_evidence(conflicting, |_, _| {
-                        panic!("conflicting evidence reached authentication")
-                    }),
-                Err(StoreError::Conflict(_))
-            ));
-            assert_eq!(admission_snapshot(&store), filled);
-            let hash = sha256_bytes(b"exact complete response");
-            store.record_response(&specification.id, &hash).unwrap();
-            if mutation == "after-fill" {
-                concurrent.compare_and_swap(None, semantic).unwrap();
-            }
-            let durable = admission_snapshot(&store);
-            drop(concurrent);
-            drop(store);
-            let mut store = Store::open(&path, limits()).unwrap();
-            assert_eq!(admission_snapshot(&store), durable);
-            assert_eq!(
-                store
-                    .trusted_host()
-                    .record_terminal_evidence(evidence.clone(), |owner, value| {
-                        assert_eq!(owner, &subject);
-                        assert_eq!(value, &evidence);
-                        Ok(())
-                    })
-                    .unwrap(),
-                reference
-            );
-            let mut conflicting = evidence;
-            conflicting.body["receipt"] = json!("conflict after restart");
-            assert!(matches!(
-                store
-                    .trusted_host()
-                    .record_terminal_evidence(conflicting, |_, _| Ok(())),
-                Err(StoreError::Conflict(_))
-            ));
-            assert_eq!(admission_snapshot(&store), durable);
-            let original = empty_decision(&specification, &hash);
-            if mutation == "none" {
-                let accepted = store.commit_decision(original.clone()).unwrap();
-                assert_eq!(accepted.previous_epoch, specification.expected_epoch);
-                assert_eq!(accepted.accepted_epoch, specification.expected_epoch + 1);
-                assert_eq!(store.commit_decision(original).unwrap(), accepted);
-            } else {
-                let actual_epoch = store.epoch().unwrap();
-                assert_eq!(actual_epoch, specification.expected_epoch + 1);
-                assert!(matches!(
-                    store.commit_decision(original.clone()),
-                    Err(StoreError::StaleEpoch { expected, actual })
-                        if expected == specification.expected_epoch && actual == actual_epoch
-                ));
-                let mut rebased = original;
-                rebased.expected_epoch = actual_epoch;
-                assert!(matches!(
-                    store.commit_decision(rebased),
-                    Err(StoreError::StaleEpoch { .. })
-                ));
-                assert_eq!(admission_snapshot(&store), durable);
-            }
-        }
-    }
-
-    #[test]
-    fn trusted_slot_inspection_binds_subject_and_preserves_navigation_holds() {
-        let (_directory, _path, mut store) = database();
-        store
-            .prepare_invocation(spec(&store, "inspect-call"))
-            .unwrap();
-        let subject = EntityId::Invocation("inspect-call".into());
-        let evidence = object("inspect-terminal", 1, 1);
-        store
-            .trusted_host()
-            .reserve_terminal_evidence(&subject, &evidence.id, 4096, BudgetClass::Ordinary)
-            .unwrap();
-        let epoch = store.epoch().unwrap();
-        assert_eq!(
-            store
-                .trusted_host()
-                .read_terminal_evidence(&subject, &evidence.id)
-                .unwrap(),
-            None
-        );
-        let empty_bytes = encode(&Option::<StoredObject>::None, u64::MAX)
-            .unwrap()
-            .len() as u64;
-        assert_eq!(
-            store.ledger().unwrap().closeout.consumed.navigation_bytes,
-            empty_bytes
-        );
-        let before = admission_snapshot(&store);
-        assert!(matches!(
-            store
-                .trusted_host()
-                .read_terminal_evidence(&EntityId::Intent("inspect-call".into()), &evidence.id),
-            Err(StoreError::Conflict(_))
-        ));
-        assert!(matches!(
-            store
-                .trusted_host()
-                .read_terminal_evidence(&subject, "unreserved"),
-            Err(StoreError::Missing(_))
-        ));
-        assert_eq!(admission_snapshot(&store), before);
-        store
-            .trusted_host()
-            .record_terminal_evidence(evidence.clone(), |owner, _| {
-                assert_eq!(owner, &subject);
-                Ok(())
-            })
-            .unwrap();
-        let remaining = store.limits.total.navigation_bytes - empty_bytes;
-        let hold = store
-            .reserve(
-                "inspection-navigation",
-                Resources {
-                    navigation_bytes: remaining,
-                    ..Resources::default()
-                },
-                BudgetClass::Closeout,
-            )
-            .unwrap();
-        for unknown in [false, true] {
-            if unknown {
-                store.settle(&hold.id, Usage::Unknown).unwrap();
-            }
-            let before = admission_snapshot(&store);
-            assert!(matches!(
-                store
-                    .trusted_host()
-                    .read_terminal_evidence(&subject, &evidence.id),
-                Err(StoreError::Quota {
-                    dimension: Resource::NavigationBytes,
-                    class: BudgetClass::Closeout
-                })
-            ));
-            assert_eq!(admission_snapshot(&store), before);
-        }
-        store
-            .settle(&hold.id, Usage::Measured(Resources::default()))
-            .unwrap();
-        let returned = store
-            .trusted_host()
-            .read_terminal_evidence(&subject, &evidence.id)
-            .unwrap();
-        assert_eq!(returned, Some(evidence));
-        assert_eq!(
-            store.ledger().unwrap().closeout.consumed.navigation_bytes,
-            empty_bytes + encode(&returned, u64::MAX).unwrap().len() as u64
-        );
-        assert_eq!(store.epoch().unwrap(), epoch);
-    }
-
-    #[test]
-    fn reconciliation_replay_keeps_its_receipt_after_local_rejection_and_restart() {
-        let directory = private_tempdir();
-        let path = directory.path().join("state.sqlite");
-        let mut store = Store::open(&path, limits()).unwrap();
-        store.prepare_invocation(spec(&store, "call")).unwrap();
-        let subject = EntityId::Invocation("call".into());
-        store
-            .trusted_host()
-            .reserve_terminal_evidence(&subject, "response-evidence", 4096, BudgetClass::Ordinary)
-            .unwrap();
-        store.dispatch_invocation("call").unwrap();
-        let uncertainty = store
-            .mark_invocation_uncertain("call", "connection lost")
-            .unwrap();
-        let evidence = store
-            .trusted_host()
-            .record_terminal_evidence(object("response-evidence", 1, 1), |_, _| Ok(()))
-            .unwrap();
-        let observation = ReconciliationObservation {
-            id: "reconciled-response".into(),
-            subject,
-            uncertain_receipt: uncertainty.sequence,
-            evidence,
-            outcome: ReconciledOutcome::InvocationResponded {
-                response_hash: sha256_bytes(b"response"),
-            },
-        };
-        let reconciled = store.reconcile(observation.clone()).unwrap();
-        let rejected = store
-            .reject_invocation("call", "whole response invalid")
-            .unwrap();
-        assert_ne!(reconciled.sequence, rejected.sequence);
-        assert_eq!(store.reconcile(observation.clone()).unwrap(), reconciled);
-        drop(store);
-        let mut store = Store::open(&path, limits()).unwrap();
-        assert_eq!(store.reconcile(observation).unwrap(), reconciled);
-        assert_eq!(
-            store.invocation("call").unwrap().state,
-            InvocationState::Failed
-        );
-    }
-
-    #[test]
-    fn frozen_invocations_accept_reserved_failure_evidence_with_or_without_uncertainty() {
-        for make_uncertain in [false, true] {
-            let (_directory, _path, mut store) = database();
-            let prepared = store.prepare_invocation(spec(&store, "call")).unwrap();
-            let subject = EntityId::Invocation("call".into());
-            store
-                .trusted_host()
-                .reserve_terminal_evidence(
-                    &subject,
-                    "failure-evidence",
-                    4096,
-                    BudgetClass::Ordinary,
-                )
-                .unwrap();
-            let trip = store
-                .reserve(
-                    "trip",
-                    Resources {
-                        output_bytes: 1,
-                        ..Resources::default()
-                    },
-                    BudgetClass::Ordinary,
-                )
-                .unwrap();
-            store.dispatch_invocation("call").unwrap();
-            assert!(matches!(
-                store.trusted_host().reserve_terminal_evidence(
-                    &subject,
-                    "too-late",
-                    4096,
-                    BudgetClass::Ordinary
-                ),
-                Err(StoreError::InvalidState(_))
-            ));
-            let uncertain = if make_uncertain {
-                Some(
-                    store
-                        .mark_invocation_uncertain("call", "terminal observation missing")
-                        .unwrap(),
-                )
-            } else {
-                None
-            };
-            assert!(matches!(
-                store.settle(
-                    &trip.id,
-                    Usage::Measured(Resources {
-                        output_bytes: 2,
-                        ..Resources::default()
-                    })
-                ),
-                Err(StoreError::Overrun(_))
-            ));
-            let before = store.ledger().unwrap();
-            let reference = store
-                .trusted_host()
-                .record_terminal_evidence(object("failure-evidence", 1, 1), |owner, _| {
-                    assert_eq!(owner, &subject);
-                    Ok(())
-                })
-                .unwrap();
-            assert_eq!(store.ledger().unwrap(), before);
-            if let Some(receipt) = uncertain {
-                store
-                    .reconcile(ReconciliationObservation {
-                        id: "failure-observation".into(),
-                        subject,
-                        uncertain_receipt: receipt.sequence,
-                        evidence: reference,
-                        outcome: ReconciledOutcome::InvocationFailed,
-                    })
-                    .unwrap();
-                assert_eq!(
-                    store.ledger().unwrap().ordinary.uncertain.output_bytes,
-                    1024
-                );
-            } else {
-                store.record_invocation_failure("call", reference).unwrap();
-                assert_eq!(store.ledger().unwrap().ordinary.reserved.output_bytes, 1024);
-            }
-            assert_eq!(
-                store.invocation("call").unwrap().state,
-                InvocationState::Failed
-            );
-            assert_ne!(
-                store.reservation(&prepared.reservation).unwrap().state,
-                ReservationState::Settled
-            );
-        }
-    }
-
-    #[test]
-    fn evidence_admission_is_atomic_and_its_identity_cannot_be_claimed_by_objects() {
-        let directory = private_tempdir();
-        let mut ceiling = limits();
-        ceiling.max_identity_records = 3;
-        let mut store = Store::open(&directory.path().join("state.sqlite"), ceiling).unwrap();
-        store.prepare_invocation(spec(&store, "call")).unwrap();
-        let subject = EntityId::Invocation("call".into());
-        let before = store.ledger().unwrap();
-        assert!(matches!(
-            store.trusted_host().reserve_terminal_evidence(
-                &subject,
-                "evidence",
-                4096,
-                BudgetClass::Ordinary
-            ),
-            Err(StoreError::IdentityLimit)
-        ));
-        assert_eq!(store.ledger().unwrap(), before);
-        assert!(matches!(
-            store
-                .trusted_host()
-                .record_terminal_evidence(object("evidence", 1, 1), |_, _| Ok(())),
-            Err(StoreError::Missing(_))
-        ));
-        assert_eq!(store.ledger().unwrap(), before);
-        store
-            .trusted_host()
-            .reserve_terminal_evidence(&subject, "evidence", 4096, BudgetClass::Closeout)
-            .unwrap();
-        let admitted = store.ledger().unwrap();
-        assert_eq!(admitted.permanent_records, 3);
-        assert!(matches!(
-            store.compare_and_swap(None, object("evidence", 1, 1)),
-            Err(StoreError::Conflict(_))
-        ));
-        assert!(matches!(
-            store.trusted_host().reserve_terminal_evidence(
-                &subject,
-                "evidence",
-                4097,
-                BudgetClass::Closeout
-            ),
-            Err(StoreError::Conflict(_))
-        ));
-        assert!(matches!(
-            store.trusted_host().reserve_terminal_evidence(
-                &subject,
-                "extra",
-                4096,
-                BudgetClass::Closeout
-            ),
-            Err(StoreError::IdentityLimit)
-        ));
-        assert_eq!(store.ledger().unwrap(), admitted);
-    }
-
-    #[test]
-    fn ordinary_identity_and_history_exhaustion_preserve_closeout_and_root_ceilings() {
-        for identity_is_binding in [true, false] {
-            let directory = private_tempdir();
-            let path = directory.path().join("state.sqlite");
-            let mut ceiling = limits();
-            if identity_is_binding {
-                ceiling.max_identity_records = 64;
-            } else {
-                ceiling.max_history_events = 256;
-            }
-            let mut store = Store::open(&path, ceiling.clone()).unwrap();
-            for index in 0..60 {
-                store
-                    .reserve(
-                        &format!("ordinary-{index}"),
-                        Resources::default(),
-                        BudgetClass::Ordinary,
-                    )
-                    .unwrap();
-            }
-            let before = store.ledger().unwrap();
-            let error = store
-                .reserve("excess", Resources::default(), BudgetClass::Ordinary)
-                .unwrap_err();
-            assert!(matches!(
-                (&error, identity_is_binding),
-                (StoreError::IdentityLimit, true) | (StoreError::HistoryLimit, false)
-            ));
-            assert_eq!(store.ledger().unwrap(), before);
-            drop(store);
-            let mut store = Store::open(&path, ceiling.clone()).unwrap();
-            assert!(store
-                .reserve("excess", Resources::default(), BudgetClass::Ordinary)
-                .is_err());
-            assert_eq!(store.ledger().unwrap(), before);
-            let mut specification = spec(&store, "finish");
-            specification.class = BudgetClass::Closeout;
-            store.prepare_invocation(specification).unwrap();
-            store
-                .trusted_host()
-                .reserve_terminal_evidence(
-                    &EntityId::Invocation("finish".into()),
-                    "finish-evidence",
-                    4096,
-                    BudgetClass::Closeout,
-                )
-                .unwrap();
-            store
-                .reserve("last", Resources::default(), BudgetClass::Closeout)
-                .unwrap();
-            let full = store.ledger().unwrap();
-            if identity_is_binding {
-                assert_eq!(full.permanent_records, ceiling.max_identity_records);
-            } else {
-                assert_eq!(full.allocated_history_events, ceiling.max_history_events);
-            }
-            let error = store
-                .reserve("root-excess", Resources::default(), BudgetClass::Closeout)
-                .unwrap_err();
-            assert!(matches!(
-                (&error, identity_is_binding),
-                (StoreError::IdentityLimit, true) | (StoreError::HistoryLimit, false)
-            ));
-            assert_eq!(store.ledger().unwrap(), full);
-        }
-    }
-
-    #[test]
-    fn every_closeout_read_is_metered_and_respects_aggregate_unknown_holds() {
-        fn size<T: Serialize>(value: &T) -> u64 {
-            encode(value, u64::MAX).unwrap().len() as u64
-        }
-        let directory = private_tempdir();
-        let mut ceiling = limits();
-        ceiling.total.navigation_bytes = 100_000;
-        ceiling.protected_closeout.navigation_bytes = 99_999;
-        let mut store =
-            Store::open(&directory.path().join("state.sqlite"), ceiling.clone()).unwrap();
-        let value = object("readable", 1, 1);
-        let reference = value.exact_ref().unwrap();
-        store.compare_and_swap(None, value.clone()).unwrap();
-        let (specification, hash) = responded(&mut store, "call");
-        let mut decision = empty_decision(&specification, &hash);
-        decision.intents.push(Intent {
-            id: "effect".into(),
-            body: json!({}),
-            depends_on: vec![],
-            reservation: Resources::default(),
-            class: BudgetClass::Ordinary,
-        });
-        store.commit_decision(decision).unwrap();
-        let reservation = store
-            .reserve(
-                "read-reservation",
-                Resources::default(),
-                BudgetClass::Ordinary,
-            )
-            .unwrap();
-        let trip = store
-            .reserve(
-                "trip",
-                Resources {
-                    output_bytes: 1,
-                    ..Resources::default()
-                },
-                BudgetClass::Ordinary,
-            )
-            .unwrap();
-        assert!(matches!(
-            store.settle(
-                &trip.id,
-                Usage::Measured(Resources {
-                    output_bytes: 2,
-                    ..Resources::default()
-                })
-            ),
-            Err(StoreError::Overrun(_))
-        ));
-        let subject = EntityId::Invocation("call".into());
-        let before = store.ledger().unwrap();
-        assert!(matches!(
-            store.read("readable"),
-            Err(StoreError::Quota {
-                dimension: Resource::NavigationBytes,
-                class: BudgetClass::Ordinary
-            })
-        ));
-        assert!(matches!(
-            store.read_exact(&reference),
-            Err(StoreError::Quota {
-                dimension: Resource::NavigationBytes,
-                class: BudgetClass::Ordinary
-            })
-        ));
-        assert!(matches!(
-            store.list("record", None, 32),
-            Err(StoreError::Quota {
-                dimension: Resource::NavigationBytes,
-                class: BudgetClass::Ordinary
-            })
-        ));
-        assert!(matches!(
-            store.invocation("call"),
-            Err(StoreError::Quota {
-                dimension: Resource::NavigationBytes,
-                class: BudgetClass::Ordinary
-            })
-        ));
-        assert!(matches!(
-            store.intent("effect"),
-            Err(StoreError::Quota {
-                dimension: Resource::NavigationBytes,
-                class: BudgetClass::Ordinary
-            })
-        ));
-        assert!(matches!(
-            store.reservation(&reservation.id),
-            Err(StoreError::Quota {
-                dimension: Resource::NavigationBytes,
-                class: BudgetClass::Ordinary
-            })
-        ));
-        assert!(matches!(
-            store.history(&subject, 0, 32),
-            Err(StoreError::Quota {
-                dimension: Resource::NavigationBytes,
-                class: BudgetClass::Ordinary
-            })
-        ));
-        assert_eq!(store.ledger().unwrap(), before);
-        let mut returned_bytes = 0;
-        {
-            let mut host = store.trusted_host();
-            let read = host.read("readable").unwrap();
-            assert_eq!(read, Some(value.clone()));
-            returned_bytes += size(&read);
-            let missing = host.read("missing").unwrap();
-            assert_eq!(missing, None);
-            returned_bytes += size(&missing);
-            let exact = host.read_exact(&reference).unwrap();
-            assert_eq!(exact, value);
-            returned_bytes += size(&exact);
-            let list = host.list("record", None, 32).unwrap();
-            assert_eq!(list.items.len(), 1);
-            returned_bytes += size(&list);
-            let invocation = host.invocation("call").unwrap();
-            assert_eq!(invocation.state, InvocationState::Adopted);
-            returned_bytes += size(&invocation);
-            let intent = host.intent("effect").unwrap();
-            assert_eq!(intent.state, IntentState::Admitted);
-            returned_bytes += size(&intent);
-            let read_reservation = host.reservation(&reservation.id).unwrap();
-            assert_eq!(read_reservation, reservation);
-            returned_bytes += size(&read_reservation);
-            let history = host.history(&subject, 0, 32).unwrap();
-            assert!(history.complete);
-            returned_bytes += size(&history);
-        }
-        let after = store.ledger().unwrap();
-        assert_eq!(after.ordinary.consumed.navigation_bytes, 0);
-        assert_eq!(after.closeout.consumed.navigation_bytes, returned_bytes);
-        assert_eq!(after.permanent_records, before.permanent_records);
-        assert_eq!(
-            after.allocated_history_events,
-            before.allocated_history_events
-        );
-        // A second, unfrozen store exercises root holds: freeze intentionally
-        // prohibits creating even a closeout reservation in the first store.
-        let path = directory.path().join("holds.sqlite");
-        let mut held_store = Store::open(&path, ceiling.clone()).unwrap();
-        held_store
-            .compare_and_swap(None, object("readable", 1, 1))
-            .unwrap();
-        let held = held_store
-            .reserve(
-                "navigation",
-                Resources {
-                    navigation_bytes: ceiling.total.navigation_bytes,
-                    ..Resources::default()
-                },
-                BudgetClass::Closeout,
-            )
-            .unwrap();
-        let held_before = held_store.ledger().unwrap();
-        assert!(matches!(
-            held_store.trusted_host().read_exact(&reference),
-            Err(StoreError::Quota {
-                dimension: Resource::NavigationBytes,
-                class: BudgetClass::Closeout
-            })
-        ));
-        assert_eq!(held_store.ledger().unwrap(), held_before);
-        held_store.settle(&held.id, Usage::Unknown).unwrap();
-        let unknown = held_store.ledger().unwrap();
-        assert!(matches!(
-            held_store.trusted_host().read_exact(&reference),
-            Err(StoreError::Quota {
-                dimension: Resource::NavigationBytes,
-                class: BudgetClass::Closeout
-            })
-        ));
-        assert_eq!(held_store.ledger().unwrap(), unknown);
-        held_store
-            .settle(&held.id, Usage::Measured(Resources::default()))
-            .unwrap();
-        let read = held_store.trusted_host().read_exact(&reference).unwrap();
-        assert_eq!(
-            held_store
-                .ledger()
-                .unwrap()
-                .closeout
-                .consumed
-                .navigation_bytes,
-            size(&read)
-        );
-    }
-
-    #[test]
-    fn object_history_is_exact_and_a_failed_batch_rolls_back() {
-        let (_directory, _path, mut store) = database();
-        let first = object("a", 1, 1);
-        let exact = first.exact_ref().unwrap();
-        store.compare_and_swap(None, first.clone()).unwrap();
-        let before = store.epoch().unwrap();
-        let result = store.compare_and_swap_batch(vec![
-            Change {
-                expected_revision: Some(1),
-                object: object("a", 2, 2),
-                depends_on: vec![],
-            },
-            Change {
-                expected_revision: Some(4),
-                object: object("b", 5, 5),
-                depends_on: vec![],
-            },
-        ]);
-        assert!(matches!(result, Err(StoreError::RevisionConflict(_))));
-        assert_eq!(store.epoch().unwrap(), before);
-        assert_eq!(store.read("a").unwrap(), Some(first.clone()));
-        assert!(store.read("b").unwrap().is_none());
-        store.compare_and_swap(Some(1), object("a", 2, 9)).unwrap();
-        assert_eq!(store.read_exact(&exact).unwrap(), first);
-        assert_eq!(store.read("a").unwrap().unwrap().body, json!({"value": 9}));
-        let mut forged = exact;
-        forged.sha256 = sha256_bytes(b"different");
-        assert!(matches!(
-            store.read_exact(&forged),
-            Err(StoreError::Conflict(_))
-        ));
-    }
-
-    #[test]
-    fn stale_epoch_cannot_be_rebased_by_the_caller() {
-        let (_directory, _path, mut store) = database();
-        let (specification, hash) = responded(&mut store, "call");
-        store.compare_and_swap(None, object("new", 1, 7)).unwrap();
-        let mut decision = empty_decision(&specification, &hash);
-        assert!(matches!(
-            store.commit_decision(decision.clone()),
-            Err(StoreError::StaleEpoch { .. })
-        ));
-        decision.expected_epoch = store.epoch().unwrap();
-        assert!(matches!(
-            store.commit_decision(decision),
-            Err(StoreError::StaleEpoch { .. })
-        ));
-        assert_eq!(
-            store.invocation("call").unwrap().state,
-            InvocationState::Responded
-        );
-    }
-
-    #[test]
-    fn dependent_changes_and_intent_admit_atomically_and_duplicates_are_exact() {
-        let (_directory, _path, mut store) = database();
-        let (specification, hash) = responded(&mut store, "call");
-        let a = object("a", 1, 3);
-        let b = object("b", 1, 4);
-        let a_ref = a.exact_ref().unwrap();
-        let b_ref = b.exact_ref().unwrap();
-        let mut decision = empty_decision(&specification, &hash);
-        decision.changes = vec![
-            Change {
-                expected_revision: None,
-                object: a,
-                depends_on: vec![b_ref.clone()],
-            },
-            Change {
-                expected_revision: None,
-                object: b,
-                depends_on: vec![a_ref.clone()],
-            },
-        ];
-        decision.intents = vec![Intent {
-            id: "effect".into(),
-            body: json!({"argument": 5}),
-            depends_on: vec![a_ref, b_ref],
-            reservation: Resources {
-                output_bytes: 50,
-                ..Resources::default()
-            },
-            class: BudgetClass::Ordinary,
-        }];
-        let mut invalid = decision.clone();
-        invalid.intents[0].depends_on[0].revision = 2;
-        let before = store.ledger().unwrap();
-        assert!(matches!(
-            store.commit_decision(invalid),
-            Err(StoreError::RevisionConflict(_))
-        ));
-        assert_eq!(store.ledger().unwrap(), before);
-        assert!(store.read("a").unwrap().is_none());
-        assert!(matches!(
-            store.intent("effect"),
-            Err(StoreError::Missing(_))
-        ));
-        let receipt = store.commit_decision(decision.clone()).unwrap();
-        assert_eq!(store.intent("effect").unwrap().state, IntentState::Admitted);
-        store.compare_and_swap(None, object("later", 1, 1)).unwrap();
-        assert_eq!(store.commit_decision(decision.clone()).unwrap(), receipt);
-        decision.intents[0].body = json!({"argument": 6});
-        assert!(matches!(
-            store.commit_decision(decision),
-            Err(StoreError::Conflict(_))
-        ));
-    }
-
-    #[test]
-    fn two_connections_cannot_spend_the_same_final_attempt() {
-        let directory = private_tempdir();
-        let path = directory.path().join("state.sqlite");
-        let mut ceiling = limits();
-        ceiling.total.attempts = 1;
-        ceiling.protected_closeout.attempts = 0;
-        let first = Store::open(&path, ceiling.clone()).unwrap();
-        let second = Store::open(&path, ceiling).unwrap();
-        let barrier = Arc::new(Barrier::new(2));
-        let handles: Vec<_> = [first, second]
-            .into_iter()
-            .enumerate()
-            .map(|(index, mut store)| {
-                let barrier = barrier.clone();
-                std::thread::spawn(move || {
-                    barrier.wait();
-                    match store.reserve(
-                        &format!("r{index}"),
-                        Resources {
-                            attempts: 1,
-                            ..Resources::default()
-                        },
-                        BudgetClass::Ordinary,
-                    ) {
-                        Ok(_) => true,
-                        Err(StoreError::Quota {
-                            dimension: Resource::Attempts,
-                            ..
-                        }) => false,
-                        Err(error) => panic!("unexpected reservation outcome: {error}"),
-                    }
-                })
-            })
-            .collect();
-        let successes = handles
-            .into_iter()
-            .map(|handle| usize::from(handle.join().unwrap()))
-            .sum::<usize>();
-        assert_eq!(successes, 1);
-    }
-
-    #[test]
-    fn interrupted_dispatch_reopens_uncertain_and_keeps_exposure() {
-        let (_directory, path, mut store) = database();
-        let specification = spec(&store, "interrupted");
-        let prepared = store.prepare_invocation(specification).unwrap();
-        store.dispatch_invocation("interrupted").unwrap();
-        drop(store);
-        let mut reopened = Store::open(&path, limits()).unwrap();
-        assert_eq!(
-            reopened.invocation("interrupted").unwrap().state,
-            InvocationState::Uncertain
-        );
-        assert_eq!(
-            reopened.reservation(&prepared.reservation).unwrap().state,
-            ReservationState::Uncertain
-        );
-        let ledger = reopened.ledger().unwrap();
-        assert_eq!(ledger.ordinary.uncertain.output_bytes, 1024);
-        assert_eq!(ledger.ordinary.consumed.attempts, 1);
-        assert!(matches!(
-            reopened.dispatch_invocation("interrupted"),
-            Err(StoreError::ReconciliationRequired)
-        ));
-        assert!(matches!(
-            reopened.record_response("interrupted", &sha256_bytes(b"late")),
-            Err(StoreError::ReconciliationRequired)
-        ));
-        drop(reopened);
-        let mut reopened = Store::open(&path, limits()).unwrap();
-        assert_eq!(reopened.invocation("interrupted").unwrap().history.len(), 3);
-    }
-
-    #[test]
-    fn unknown_usage_never_releases_capacity_and_measurement_does() {
-        let (_directory, _path, mut store) = database();
-        let amount = Resources {
-            attempts: 1,
-            input_bytes: 100,
-            output_bytes: 200,
-            ..Resources::default()
-        };
-        let reservation = store
-            .reserve("unknown", amount, BudgetClass::Ordinary)
-            .unwrap();
-        store.settle(&reservation.id, Usage::Unknown).unwrap();
-        let before = store.ledger().unwrap();
-        assert_eq!(before.ordinary.uncertain.input_bytes, 100);
-        assert_eq!(before.ordinary.uncertain.output_bytes, 200);
-        store.settle(&reservation.id, Usage::Unknown).unwrap();
-        assert_eq!(store.ledger().unwrap(), before);
-        let measured = Resources {
-            attempts: 1,
-            input_bytes: 70,
-            output_bytes: 80,
-            ..Resources::default()
-        };
-        store
-            .settle(&reservation.id, Usage::Measured(measured))
-            .unwrap();
-        let after = store.ledger().unwrap();
-        assert_eq!(after.ordinary.uncertain.output_bytes, 0);
-        assert_eq!(after.ordinary.consumed.output_bytes, 80);
-        assert_eq!(after.ordinary.consumed.attempts, 1);
-        assert!(matches!(
-            store.settle(&reservation.id, Usage::Measured(Resources::default())),
-            Err(StoreError::Conflict(_))
-        ));
-    }
-
-    #[test]
-    fn closeout_capacity_is_protected_from_ordinary_reservations() {
-        let directory = private_tempdir();
-        let mut ceiling = limits();
-        ceiling.total.attempts = 2;
-        ceiling.protected_closeout.attempts = 1;
-        let mut store = Store::open(&directory.path().join("state.sqlite"), ceiling).unwrap();
-        let one = Resources {
-            attempts: 1,
-            ..Resources::default()
-        };
-        store
-            .reserve("ordinary", one, BudgetClass::Ordinary)
-            .unwrap();
-        assert!(matches!(
-            store.reserve("excess", one, BudgetClass::Ordinary),
-            Err(StoreError::Quota { .. })
-        ));
-        store.reserve("finish", one, BudgetClass::Closeout).unwrap();
-        let report = store.ledger().unwrap();
-        assert_eq!(report.ordinary.consumed.attempts, 1);
-        assert_eq!(report.closeout.consumed.attempts, 1);
-    }
-
-    #[test]
-    fn overrun_commits_full_measurement_and_freezes_across_restart() {
-        let directory = private_tempdir();
-        let path = directory.path().join("state.sqlite");
-        let mut ceiling = limits();
-        ceiling.total.output_bytes = 5;
-        ceiling.protected_closeout.output_bytes = 0;
-        let mut store = Store::open(&path, ceiling.clone()).unwrap();
-        let record = store
-            .reserve(
-                "bounded",
-                Resources {
-                    output_bytes: 5,
-                    ..Resources::default()
-                },
-                BudgetClass::Ordinary,
-            )
-            .unwrap();
-        let actual = Resources {
-            output_bytes: 7,
-            ..Resources::default()
-        };
-        assert!(matches!(
-            store.settle(&record.id, Usage::Measured(actual)),
-            Err(StoreError::Overrun(_))
-        ));
-        drop(store);
-        let mut store = Store::open(&path, ceiling).unwrap();
-        let report = store.ledger().unwrap();
-        assert!(report.frozen);
-        assert!(!report.conservation_established);
-        assert_eq!(report.ordinary.consumed.output_bytes, 7);
-        assert_eq!(
-            store.reservation(&record.id).unwrap().measured,
-            Some(actual)
-        );
-        assert!(matches!(
-            store.reserve("new", Resources::default(), BudgetClass::Ordinary),
-            Err(StoreError::Frozen)
-        ));
-    }
-
-    #[test]
-    fn uncertain_effect_requires_exact_typed_reconciliation() {
-        let (_directory, _path, mut store) = database();
-        let evidence = object("evidence", 1, 1);
-        let reference = evidence.exact_ref().unwrap();
-        store.compare_and_swap(None, evidence).unwrap();
-        let (specification, hash) = responded(&mut store, "call");
-        let mut decision = empty_decision(&specification, &hash);
-        decision.intents.push(Intent {
-            id: "effect".into(),
-            body: json!({"input": 3}),
-            depends_on: vec![reference.clone()],
-            reservation: Resources {
-                output_bytes: 10,
-                ..Resources::default()
-            },
-            class: BudgetClass::Ordinary,
-        });
-        store.commit_decision(decision).unwrap();
-        let epoch = store.epoch().unwrap();
-        store.dispatch_intent("effect", epoch).unwrap();
-        let uncertain = store
-            .mark_intent_uncertain("effect", "No terminal receipt observed")
-            .unwrap();
-        assert!(matches!(
-            store.complete_intent(
-                "effect",
-                ObservedIntentOutcome::Succeeded,
-                reference.clone()
-            ),
-            Err(StoreError::ReconciliationRequired)
-        ));
-        let mut observation = ReconciliationObservation {
-            id: "observation".into(),
-            subject: EntityId::Intent("effect".into()),
-            uncertain_receipt: uncertain.sequence + 1,
-            evidence: reference,
-            outcome: ReconciledOutcome::IntentSucceeded,
-        };
-        assert!(matches!(
-            store.reconcile(observation.clone()),
-            Err(StoreError::Conflict(_))
-        ));
-        observation.uncertain_receipt = uncertain.sequence;
-        let receipt = store.reconcile(observation.clone()).unwrap();
-        assert_eq!(store.reconcile(observation.clone()).unwrap(), receipt);
-        assert_eq!(
-            store.intent("effect").unwrap().state,
-            IntentState::Succeeded
-        );
-        assert_eq!(store.ledger().unwrap().ordinary.uncertain.output_bytes, 10);
-        observation.outcome = ReconciledOutcome::IntentFailed;
-        assert!(matches!(
-            store.reconcile(observation),
-            Err(StoreError::Conflict(_))
-        ));
-    }
-
-    #[test]
-    fn history_expiry_preserves_anti_replay_and_refuses_uncertain_usage() {
-        let (_directory, path, mut store) = database();
-        let (specification, hash) = responded(&mut store, "old");
-        let decision = empty_decision(&specification, &hash);
-        let adopted = store.commit_decision(decision.clone()).unwrap();
-        let reservation = store.invocation("old").unwrap().reservation;
-        store.settle(&reservation, Usage::Unknown).unwrap();
-        assert!(matches!(
-            store.garbage_collect_invocation("old"),
-            Err(StoreError::InvalidState(_))
-        ));
-        store
-            .settle(
-                &reservation,
-                Usage::Measured(Resources {
-                    attempts: 1,
-                    input_bytes: 100,
-                    output_bytes: 100,
-                    ..Resources::default()
-                }),
-            )
-            .unwrap();
-        let identities = store.ledger().unwrap().permanent_records;
-        let collected = store.garbage_collect_invocation("old").unwrap();
-        assert!(collected.logical_allocation_reclaimed > 0);
-        assert!(!collected.physical_reclamation_guaranteed);
-        assert_eq!(store.ledger().unwrap().permanent_records, identities);
-        drop(store);
-        let mut reopened = Store::open(&path, limits()).unwrap();
-        assert!(matches!(
-            reopened.prepare_invocation(specification.clone()),
-            Err(StoreError::HistoryUnavailable(_))
-        ));
-        assert!(matches!(
-            reopened.dispatch_invocation("old"),
-            Err(StoreError::HistoryUnavailable(_))
-        ));
-        assert_eq!(reopened.commit_decision(decision).unwrap(), adopted);
-        let mut changed = specification;
-        changed.request = json!({"input": "changed"});
-        assert!(matches!(
-            reopened.prepare_invocation(changed),
-            Err(StoreError::Conflict(_))
-        ));
-    }
-
-    #[test]
-    fn quota_failure_rolls_back_allocations_and_keeps_journal_immutable() {
-        let (_directory, _path, mut store) = database();
-        store
-            .compare_and_swap(None, object("protected", 1, 1))
-            .unwrap();
-        let before = store.ledger().unwrap();
-        let error = store.transaction(|work| {
-            work.apply_changes(
-                &[Change {
-                    expected_revision: None,
-                    object: object("tentative", 1, 1),
-                    depends_on: vec![],
-                }],
-                BudgetClass::Ordinary,
-            )?;
-            work.reserve(
-                ReservationId::standalone("impossible"),
-                Resources {
-                    attempts: 1000,
-                    ..Resources::default()
-                },
-                BudgetClass::Ordinary,
-            )?;
-            Ok(())
-        });
-        assert!(matches!(error, Err(StoreError::Quota { .. })));
-        assert_eq!(store.ledger().unwrap(), before);
-        assert!(store.read("tentative").unwrap().is_none());
-        let result = store
-            .connection
-            .execute("UPDATE store_cells SET data=data WHERE ns='revision'", []);
-        assert!(result.is_err());
-        assert!(store
-            .connection
-            .execute("DELETE FROM store_cells WHERE ns='object'", [])
-            .is_err());
-    }
-
-    #[test]
-    fn overflow_is_checked_and_physical_limits_are_reported_honestly() {
-        assert!(matches!(
-            Resources {
-                attempts: u64::MAX,
-                ..Resources::default()
-            }
-            .checked_add(Resources {
-                attempts: 1,
-                ..Resources::default()
-            }),
-            Err(StoreError::Overflow(_))
-        ));
-        let directory = private_tempdir();
-        let mut ceiling = limits();
-        ceiling.total.output_bytes = u64::MAX;
-        ceiling.protected_closeout.output_bytes = 0;
-        let mut store = Store::open(&directory.path().join("state.sqlite"), ceiling).unwrap();
-        store
-            .reserve(
-                "all",
-                Resources {
-                    output_bytes: u64::MAX,
-                    ..Resources::default()
-                },
-                BudgetClass::Ordinary,
-            )
-            .unwrap();
-        let before = store.ledger().unwrap();
-        assert!(matches!(
-            store.reserve(
-                "overflow",
-                Resources {
-                    output_bytes: 1,
-                    ..Resources::default()
-                },
-                BudgetClass::Ordinary
-            ),
-            Err(StoreError::Overflow(_))
-        ));
-        assert_eq!(store.ledger().unwrap(), before);
-        let footprint = store.footprint().unwrap();
-        assert!(footprint.observed_file_bytes > 0);
-        assert_eq!(
-            footprint.observed_file_bytes,
-            footprint.database_bytes
-                + footprint.wal_bytes
-                + footprint.shm_bytes
-                + footprint.rollback_journal_bytes
-        );
-        assert!(!footprint.physical_hard_bound_supported);
-        let support = store.bound_support();
-        assert!(
-            !support.token_hard_bound
-                && !support.dollar_hard_bound
-                && !support.complete_external_managed_footprint
-        );
-    }
-
-    #[test]
-    fn listing_and_history_are_bounded_and_completion_is_explicit() {
-        let (_directory, _path, mut store) = database();
-        store
-            .compare_and_swap_batch(vec![
-                Change {
-                    expected_revision: None,
-                    object: object("a", 1, 1),
-                    depends_on: vec![],
-                },
-                Change {
-                    expected_revision: None,
-                    object: object("b", 1, 2),
-                    depends_on: vec![],
-                },
-            ])
-            .unwrap();
-        let first = store.list("record", None, 1).unwrap();
-        assert!(!first.complete);
-        assert_eq!(first.continuation.as_deref(), Some("a"));
-        let second = store
-            .list("record", first.continuation.as_deref(), 1)
-            .unwrap();
-        assert!(second.complete);
-        assert_eq!(second.items[0].id, "b");
-        assert!(second.continuation.is_none());
-        assert!(matches!(
-            store.list("record", None, 0),
-            Err(StoreError::Invalid(_))
-        ));
-        let (specification, _hash) = responded(&mut store, "history");
-        let page = store
-            .history(&EntityId::Invocation(specification.id), 0, 1)
-            .unwrap();
-        assert!(!page.complete);
-        assert_eq!(page.items[0].status, ReceiptStatus::Prepared);
-        assert!(store.ledger().unwrap().ordinary.consumed.navigation_bytes > 0);
-    }
-
-    #[test]
-    fn reopening_cannot_reset_limits_and_insecure_files_are_rejected() {
-        use std::os::unix::fs::PermissionsExt;
-        let (_directory, path, store) = database();
-        drop(store);
-        let mut changed = limits();
-        changed.total.attempts += 1;
-        assert!(matches!(
-            Store::open(&path, changed),
-            Err(StoreError::LimitsMismatch)
-        ));
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
-        assert!(matches!(
-            Store::open(&path, limits()),
-            Err(StoreError::InsecurePath(_))
-        ));
-    }
-
-    #[test]
-    fn runtime_failure_context_is_atomic_bounded_and_retained_on_restart() {
-        let (_directory, path, mut store) = database();
-        responded(&mut store, "known");
-        let context = json!({"kind":"known", "terminal_sha256":sha256_bytes(b"terminal"),
-            "exposure":{"sources":[],"policies":[{"id":"private"}]}});
-        let before = store.ledger().unwrap();
-        let capacity = store
-            .transaction(|work| Ok(work.cell("invocation", "known")?.unwrap().capacity))
-            .unwrap();
-        store
-            .trusted_host()
-            .reject_runtime_invocation("known", "bounded cause", context.clone())
-            .unwrap();
-        assert_eq!(store.ledger().unwrap(), before);
-        let after_capacity = store
-            .transaction(|work| Ok(work.cell("invocation", "known")?.unwrap().capacity))
-            .unwrap();
-        assert_eq!(after_capacity, capacity);
-        let record = store.invocation("known").unwrap();
-        assert_eq!(record.state, InvocationState::Failed);
-        assert_eq!(record.runtime_failure_context, Some(context.clone()));
-        assert_eq!(
-            record.history.last().unwrap().detail.as_deref(),
-            Some("bounded cause")
-        );
-        let before = admission_snapshot(&store);
-        assert!(store
-            .trusted_host()
-            .reject_runtime_invocation("known", "replace", serde_json::json!({"kind":"unknown"}))
-            .is_err());
-        assert_eq!(admission_snapshot(&store), before);
-        drop(store);
-        let mut store = Store::open(&path, limits()).unwrap();
-        assert_eq!(
-            store.invocation("known").unwrap().runtime_failure_context,
-            Some(context)
-        );
-        responded(&mut store, "oversize");
-        store
-            .trusted_host()
-            .reject_runtime_invocation(
-                "oversize",
-                "bounded cause",
-                json!({"kind":"known","exposure":"P".repeat(4096)}),
-            )
-            .unwrap();
-        assert_eq!(
-            store
-                .invocation("oversize")
-                .unwrap()
-                .runtime_failure_context,
-            Some(serde_json::json!({"kind":"unknown"}))
-        );
-        store.prepare_invocation(spec(&store, "generic")).unwrap();
-        store
-            .reject_invocation("generic", "generic rejection")
-            .unwrap();
-        let legacy = store.invocation("generic").unwrap();
-        assert!(legacy.runtime_failure_context.is_none());
-        let encoded = serde_json::to_value(&legacy).unwrap();
-        assert!(encoded.get("runtime_failure_context").is_none());
-        assert!(serde_json::from_value::<InvocationRecord>(encoded)
-            .unwrap()
-            .runtime_failure_context
-            .is_none());
-    }
-
-    #[test]
-    fn runtime_failure_context_rejection_preserves_lifecycle_and_atomicity() {
-        let (_directory, _path, mut store) = database();
-        store.prepare_invocation(spec(&store, "uncertain")).unwrap();
-        store.dispatch_invocation("uncertain").unwrap();
-        store
-            .mark_invocation_uncertain("uncertain", "lost connection")
-            .unwrap();
-        let before = admission_snapshot(&store);
-        assert!(matches!(
-            store.trusted_host().reject_runtime_invocation(
-                "uncertain",
-                "reject",
-                serde_json::json!({"kind":"unknown"})
-            ),
-            Err(StoreError::ReconciliationRequired)
-        ));
-        assert_eq!(admission_snapshot(&store), before);
-        responded(&mut store, "invalid-detail");
-        let before = admission_snapshot(&store);
-        assert!(store
-            .trusted_host()
-            .reject_runtime_invocation("invalid-detail", "", serde_json::json!({"kind":"unknown"}))
-            .is_err());
-        assert_eq!(admission_snapshot(&store), before);
-    }
-
-    #[test]
-    fn runtime_failure_context_uses_unknown_or_rolls_back_when_reserved_cell_is_tight() {
-        for (id, room, succeeds) in [("fallback", 1024, true), ("rollback", 0, false)] {
-            let (_directory, _path, mut store) = database();
-            responded(&mut store, id);
-            // Synthetic retained-capacity fixture: shrink only this cell and
-            // reconcile its prepaid retention charge. No production path expands it.
-            store
-                .transaction(|work| {
-                    let mut cell = work.cell("invocation", id)?.unwrap();
-                    let old_charge = cell.charge("invocation", id)?;
-                    cell.capacity = cell.data.len() as u64 + room;
-                    let new_charge = cell.charge("invocation", id)?;
-                    let account = work.meta.account_mut(cell.class);
-                    account.consumed.retained_bytes -= old_charge - new_charge;
-                    work.pending.insert(("invocation".into(), id.into()), cell);
-                    Ok(())
-                })
-                .unwrap();
-            let before = admission_snapshot(&store);
-            let ledger = store.ledger().unwrap();
-            let result = store.trusted_host().reject_runtime_invocation(
-                id,
-                "bounded cause",
-                json!({"kind":"known","exposure":"P".repeat(3000)}),
-            );
-            if succeeds {
-                result.unwrap();
-                assert_eq!(store.ledger().unwrap(), ledger);
-                let record = store.invocation(id).unwrap();
-                assert_eq!(record.state, InvocationState::Failed);
-                assert_eq!(
-                    record.runtime_failure_context,
-                    Some(json!({"kind":"unknown"}))
-                );
-            } else {
-                assert!(matches!(result, Err(StoreError::TooLarge)));
-                assert_eq!(
-                    admission_snapshot(&store),
-                    before,
-                    "Failed state, receipt and provenance must roll back together"
-                );
-                assert_eq!(
-                    store.invocation(id).unwrap().state,
-                    InvocationState::Responded
-                );
-            }
-        }
-    }
 }

@@ -54,7 +54,7 @@ const MIGRATION_NOTICE: &str = "A separate explicit ai-personas migrate-provider
 #[command(
     name = "personas-auth",
     about = "Explicit host-side Personas SIWC sign-in, refresh, and status",
-    after_help = "Use an explicit absolute external --vault path. No credential discovery occurs. Open the authorization URL in a browser on the same host as this helper. Authentication establishes a grant, not model capability; no inference is performed by sign-in, refresh, or status. Capability digests are structural checks, not proof of actual capability. Native-run requires --authorize, an explicit absolute --state-root, --operator, and exactly one --need or --work. It performs only the fixed in-process execution-owner-bound exact saved-configuration handoff. Exec is unavailable; --allow-handoff cannot enable it. After refresh, use a separate explicit ai-personas migrate-provider when saved expiry, model, or account bindings differ. Native-run adds no grant, refresh, probe, migration, fallback or general resume."
+    after_help = "Use an explicit absolute external --vault path. No credential discovery occurs. Open the authorization URL in a browser on the same host as this helper. Authentication establishes a grant, not model capability; no inference is performed by sign-in, refresh, or status. Capability digests are structural checks, not proof of actual capability. Native-run requires --authorize, an explicit absolute --state-root, --operator, and exactly one --need, --work, or --delegation. Optional --intake-delegation selects an exact grant only with --work and creates no opportunity. It performs only the fixed in-process execution-owner-bound exact saved-configuration handoff. Exec is unavailable; --allow-handoff cannot enable it. After refresh, use a separate explicit ai-personas migrate-provider when saved expiry, model, or account bindings differ. Native-run adds no grant, refresh, probe, migration, fallback or general resume."
 )]
 pub(crate) struct Cli {
     /// Selected external credential file; absolute, protected, and without symlinks.
@@ -89,10 +89,16 @@ enum Command {
         state_root: PathBuf,
         #[arg(long)]
         operator: String,
-        #[arg(long, required_unless_present = "work", conflicts_with = "work")]
+        #[arg(long, required_unless_present_any = ["work", "delegation"], conflicts_with_all = ["work", "delegation"])]
         need: Option<String>,
-        #[arg(long, required_unless_present = "need")]
+        #[arg(long, required_unless_present_any = ["need", "delegation"], conflicts_with_all = ["need", "delegation"])]
         work: Option<String>,
+        #[arg(long, required_unless_present_any = ["need", "work"], conflicts_with_all = ["need", "work"])]
+        delegation: Option<String>,
+        /// Exact bounded grant reference for proposal authoring on --work.
+        /// Retains the selected vault lock and direct in-process transport.
+        #[arg(long, requires = "work", conflicts_with_all = ["need", "delegation"])]
+        intake_delegation: Option<PathBuf>,
     },
     /// Unavailable: generic execution-owner-bound exact saved-configuration child handoff.
     Exec {
@@ -192,6 +198,8 @@ pub(crate) async fn run(cli: Cli) -> Result<i32> {
             operator,
             need,
             work,
+            delegation,
+            intake_delegation,
         } => {
             if !authorize {
                 return Err(AuthError::Denied);
@@ -199,9 +207,31 @@ pub(crate) async fn run(cli: Cli) -> Result<i32> {
             if !absolute_path(&state_root) {
                 return Err(AuthError::State);
             }
-            let input = match (need.as_deref(), work.as_deref()) {
-                (Some(need), None) => ai_personas::launch::NativeInput::Need(need),
-                (None, Some(work)) => ai_personas::launch::NativeInput::Work(work),
+            // Parse and validate before opening the selected vault or Runtime.
+            let selection = intake_delegation
+                .as_ref()
+                .map(|file| {
+                    let reference: ai_personas::protocol::need::GrantReference =
+                        ai_personas::runtime::read_json_file(file, 4096)
+                            .map_err(|_| AuthError::Protocol)?;
+                    reference.validate().map_err(|_| AuthError::Protocol)?;
+                    Ok::<_, AuthError>(reference)
+                })
+                .transpose()?;
+            let input = match (
+                need.as_deref(),
+                work.as_deref(),
+                delegation.as_deref(),
+                selection.as_ref(),
+            ) {
+                (Some(need), None, None, None) => ai_personas::launch::NativeInput::Need(need),
+                (None, Some(work), None, None) => ai_personas::launch::NativeInput::Work(work),
+                (None, Some(work), None, Some(selection)) => {
+                    ai_personas::launch::NativeInput::WorkWithIntake { work, selection }
+                }
+                (None, None, Some(grant), None) => {
+                    ai_personas::launch::NativeInput::Delegation(grant)
+                }
                 _ => return Err(AuthError::State),
             };
             let vault = cli.vault.ok_or(AuthError::Vault)?;

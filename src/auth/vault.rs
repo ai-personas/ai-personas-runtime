@@ -401,19 +401,6 @@ impl LockedVault {
         Ok(())
     }
 
-    #[cfg(test)]
-    pub(super) fn fail_before_commit(&self, record: &CredentialRecord) -> Result<(), AuthError> {
-        self.save_with_hook(record, None, |_| Err(AuthError::Vault))
-    }
-
-    #[cfg(test)]
-    pub(super) fn fail_after_commit(&self, record: &CredentialRecord) -> Result<(), AuthError> {
-        self.save_with_hook(record, None, |phase| match phase {
-            CommitPhase::BeforeReplace => Ok(()),
-            CommitPhase::AfterReplace => Err(AuthError::CommitUncertain),
-        })
-    }
-
     /// Explicit refresh only. The account lock stays held through network I/O,
     /// signature and binding validation, and atomic replacement. No retry or
     /// fallback is performed. A remote rotation cannot be rolled back locally.
@@ -484,28 +471,6 @@ impl LockedVault {
         )?;
         self.save_with_hook(&replacement, Some(fence), hook)?;
         Ok(replacement)
-    }
-
-    #[cfg(test)]
-    pub(super) async fn fail_refresh_commit(
-        &mut self,
-        transport: &dyn TokenTransport,
-        verifier: &IdTokenVerifier,
-        clock: &dyn Clock,
-        after_replace: bool,
-    ) -> Result<CredentialRecord, AuthError> {
-        self.refresh_with_hook(transport, verifier, clock, |phase| {
-            if after_replace == matches!(phase, CommitPhase::AfterReplace) {
-                Err(if after_replace {
-                    AuthError::CommitUncertain
-                } else {
-                    AuthError::Vault
-                })
-            } else {
-                Ok(())
-            }
-        })
-        .await
     }
 }
 

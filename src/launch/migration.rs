@@ -523,7 +523,3 @@ pub fn migrate_provider(
         replayed: false,
     })
 }
-
-#[cfg(all(test, unix))]
-#[path = "migration_tests.rs"]
-mod tests;

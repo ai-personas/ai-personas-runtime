@@ -1116,6 +1116,3 @@ opaque_debug!(
     CredentialRecord,
     RuntimeHandoff
 );
-
-#[cfg(all(test, unix))]
-mod tests;

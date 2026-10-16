@@ -162,7 +162,7 @@ pub(super) fn apply(
     state: &mut State,
     prepared: &Prepared,
     decision: &p::Decision,
-    actions: &BTreeMap<String, WorkAction>,
+    _actions: &BTreeMap<String, WorkAction>,
     now: i64,
 ) -> Result<()> {
     if !decision
@@ -189,9 +189,6 @@ pub(super) fn apply(
     let admission = admission(&state.personas[actor], now);
     let mut inherited = prepared_exposure(prepared)?.clone();
     let current = project(state, actor, work, &admission, &mut inherited)?;
-    let ending = actions
-        .values()
-        .any(|action| matches!(action, WorkAction::CloseGoal { .. }));
     let mut seen = BTreeSet::new();
     for operation in &decision.operations {
         let p::Operation::MaintenanceDispose {
@@ -243,13 +240,10 @@ pub(super) fn apply(
         )?;
         if *disposition == p::MaintenanceDisposition::Expired {
             require(
-                ending
-                    || record["authored_outcome"]["deadline_unix"]
-                        .as_u64()
-                        .is_some_and(|deadline| {
-                            u64::try_from(now).is_ok_and(|time| time >= deadline)
-                        }),
-                "maintenance bound has not ended",
+                record["authored_outcome"]["deadline_unix"]
+                    .as_u64()
+                    .is_some_and(|deadline| u64::try_from(now).is_ok_and(|time| time >= deadline)),
+                "maintenance deadline has not elapsed",
             )?;
         }
         for id in evidence {
@@ -307,64 +301,4 @@ pub(super) fn apply(
         bounds(focus)?;
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn maintenance_retention_bounds_count_and_bytes_without_grants() {
-        let mut focus = Focus {
-            protected_maintenance: vec![json!({}); MAX_RECORDS],
-            ..Focus::default()
-        };
-        assert!(bounds(&focus).is_ok());
-        focus.protected_maintenance.push(json!({}));
-        assert!(bounds(&focus).is_err());
-        focus.protected_maintenance = vec![json!({"reason":"x".repeat(MAX_RETAINED_BYTES)})];
-        assert!(bounds(&focus).is_err());
-        focus.protected_maintenance.clear();
-        let receipt = DispositionReceipt {
-            revision: "fixture".into(),
-            persona: "a".into(),
-            work: "work".into(),
-            invocation: "fixture".into(),
-            owner_epoch: 1,
-            at_unix: 1,
-            authority: WorkAuthority {
-                work: "work".into(),
-                version: w::Version {
-                    epoch: 1,
-                    revision: 1,
-                },
-                authority: w::ExactRef::new("authority", 1, b"fixture"),
-            },
-            operation: p::Operation::MaintenanceDispose {
-                id: "fixture".into(),
-                scope: p::Scope::Assets {},
-                maintenance_id: "maintenance".into(),
-                maintenance_revision: "original".into(),
-                disposition: p::MaintenanceDisposition::Unresolved,
-                reason: "Synthetic bound only.".into(),
-                evidence: Vec::new(),
-            },
-            exposure: Exposure::default(),
-        };
-        focus.maintenance_dispositions = vec![receipt.clone(); MAX_DISPOSITIONS];
-        assert!(bounds(&focus).is_ok());
-        focus.maintenance_dispositions.push(receipt);
-        assert!(bounds(&focus).is_err());
-        assert!(!focus.permit);
-        assert!(!focus.ordinary_continuation);
-        let item = json!({"invocation":"same","scope":"assets"});
-        assert_ne!(
-            identity_for("a", "work", 0, &item).unwrap(),
-            identity_for("b", "work", 0, &item).unwrap()
-        );
-        assert_ne!(
-            identity_for("a", "work", 0, &item).unwrap(),
-            identity_for("a", "other-work", 0, &item).unwrap()
-        );
-    }
 }

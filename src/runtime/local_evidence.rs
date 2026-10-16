@@ -166,6 +166,9 @@ fn validate_basis(
         )?;
     }
     let actor = &spec.mock_request.actor;
+    if let Some(reason) = need_proposals::actor_reason(state, &spec.binding.work, actor) {
+        return Err(held(reason));
+    }
     require(
         spec.mock_request.work == spec.binding.work
             && current
@@ -204,6 +207,8 @@ fn pending_visible(
     now: i64,
 ) -> bool {
     dependency.registration.request.participants.contains(actor)
+        && need_proposals::actor_reason(state, &dependency.registration.request.binding.work, actor)
+            .is_none()
         && state.personas.get(actor).is_some_and(|persona| {
             pending_exposure(state, dependency).is_ok_and(|exposure| {
                 exposure_permitted(state, &exposure, &admission(persona, now))
@@ -215,22 +220,23 @@ impl Runtime {
     /// Allocate from the existing work navigation account and root Store account
     /// together. The conservative projection includes bounded proof records and
     /// corpus validation. It is never refunded or reused after a failed attempt.
-    fn reserve_bridge_navigation(
+    pub(super) fn reserve_bridge_navigation(
         &mut self,
         old: &s::StoredObject,
         state: &mut State,
         work: &str,
         operation_hash: &str,
     ) -> Result<(s::StoredObject, f::NavigationLimits, u64)> {
+        let now = unix_now()?;
+        need_proposals::check_work(self, state, work, now)?;
         let requested = state.config.navigation_per_call;
-        let limits = allocate_navigation(
-            &mut state
-                .work_meta
-                .get_mut(work)
-                .ok_or_else(|| held("bridge work account absent"))?
-                .navigation_left,
+        let limits = need_proposals::take_navigation(
+            state,
+            work,
+            format!("local-evidence:{}:{}", old.revision, operation_hash),
             requested,
-        );
+            now,
+        )?;
         let scan = (storage_limits().max_record_bytes as usize)
             .checked_mul(8)
             .and_then(|n| n.checked_add(state.config.corpus.max_total_record_bytes))

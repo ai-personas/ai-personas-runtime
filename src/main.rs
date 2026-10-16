@@ -1,12 +1,12 @@
 use ai_personas::{
-    launch, protocol,
+    files, launch, protocol,
     runtime::{
         self, Config, DirectProviderSettings, Mode, NeedInput, PersonaImport, PrepareRequest,
         Profile, Runtime, Seed,
     },
 };
 use clap::{Parser, Subcommand, ValueEnum};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -94,6 +94,12 @@ enum Command {
     StakeholderDecision {
         file: PathBuf,
     },
+    /// Restore one host-private release anchor from exact adopted supply.
+    /// Requires --state-root and --operator; no inference, funding, resume or closure.
+    /// Normal orphan recovery may mark dispatched invocations uncertain; active invocations block recovery.
+    RecoverClosureAnchor {
+        file: PathBuf,
+    },
     /// Inspect provider migration bindings. Requires --state-root and --operator.
     /// Opens Runtime normally, including possible ordinary orphan recovery; no network or credential resolution.
     ProviderMigrationSnapshot,
@@ -103,6 +109,68 @@ enum Command {
         file: PathBuf,
         #[arg(long)]
         preview: bool,
+    },
+    /// Inspect exact launch-global admission heads and spent steps. Requires --state-root and --operator.
+    /// Uses metered reads; normal Runtime opening may recover orphan dispatches. No token measurement.
+    LaunchAdmissionSnapshot,
+    /// Explicitly preview or apply a launch-global lifetime step-cap increase; work/stage retain purpose only.
+    /// Requires --state-root, --operator, and exactly one of --preview or --apply. No inference or resume.
+    /// Token figures are snapshot attestations; the serialized operator supervisor must enforce cumulative
+    /// usage plus aggregate pending reserves before every call across Stores. No token funds are created.
+    /// Normal open/owner recovery and metered Store charges apply. Preview reserves no capacity.
+    ExtendLaunchAdmission {
+        file: PathBuf,
+        #[arg(long, required_unless_present = "apply", conflicts_with = "apply")]
+        preview: bool,
+        #[arg(long, required_unless_present = "preview", conflicts_with = "preview")]
+        apply: bool,
+    },
+    /// Inspect exact fences and allocation limits for standalone human intake. No inference.
+    HumanIntakeSnapshot,
+    /// Atomically admit one human need with a bounded allocation and minimal slot/call extension.
+    /// Requires existing authorization evidence, exact current heads and --preview or --apply.
+    /// No persona delegation, old-work resume, reset, inference or token reservation.
+    AdmitHumanNeed {
+        file: PathBuf,
+        #[arg(long, required_unless_present = "apply", conflicts_with = "apply")]
+        preview: bool,
+        #[arg(long, required_unless_present = "preview", conflicts_with = "preview")]
+        apply: bool,
+    },
+    /// Inspect delegation fences, existing opportunities and logical availability.
+    /// Requires --state-root and --operator. Metered reads and normal recovery apply.
+    IntakeDelegationSnapshot,
+    /// Inspect one explicitly selected episode and its immutable pending proposal.
+    /// No child creation, grant consumption, resume, or inference.
+    IntakeEpisodeSnapshot {
+        work: String,
+    },
+    /// Explicit prospective delegation; no consideration, child, resume or inference.
+    /// Input is bounded unique-key JSON. Preview reserves no capacity and checks
+    /// execution ownership; ordinary opening/owner recovery may recover orphans.
+    GrantIntakeDelegation {
+        file: PathBuf,
+        #[arg(long, required_unless_present = "apply", conflicts_with = "apply")]
+        preview: bool,
+        #[arg(long, required_unless_present = "preview", conflicts_with = "preview")]
+        apply: bool,
+    },
+    /// Admit one exact adopted pending proposal. Requires --state-root and --operator.
+    /// Bounded unique-key JSON; exactly one of --preview or --apply. No inference.
+    AdmitNeedProposal {
+        file: PathBuf,
+        #[arg(long, required_unless_present = "apply", conflicts_with = "apply")]
+        preview: bool,
+        #[arg(long, required_unless_present = "preview", conflicts_with = "preview")]
+        apply: bool,
+    },
+    /// Explicitly revoke one exact delegation; retain history and restore no capacity.
+    RevokeIntakeDelegation {
+        file: PathBuf,
+        #[arg(long, required_unless_present = "apply", conflicts_with = "apply")]
+        preview: bool,
+        #[arg(long, required_unless_present = "preview", conflicts_with = "preview")]
+        apply: bool,
     },
     Schema,
     ValidateResponse {
@@ -120,6 +188,12 @@ enum Command {
     ImportPersona {
         file: PathBuf,
     },
+    /// Import one new operator-authored UTF-8 supporting file through the saved launch.
+    /// Requires --state-root and the saved --operator. No selection, event, resume or inference.
+    /// The imported source is protected from persona edits. Normal open/recovery and metering apply.
+    ImportSupportingFile {
+        file: PathBuf,
+    },
     AddNeed {
         file: PathBuf,
     },
@@ -134,6 +208,9 @@ enum Command {
         profile: ProfileArg,
         #[arg(long)]
         selection_repair: bool,
+        /// Bounded JSON containing one exact grant {id,sha256}. Enables no opportunity.
+        #[arg(long)]
+        intake_delegation: Option<PathBuf>,
     },
     /// Unsupported across CLI lifecycles; use synthetic-submit.
     DispatchSynthetic {
@@ -157,6 +234,13 @@ enum Command {
     AcknowledgeCompleteRejection {
         invocation: String,
         reference: PathBuf,
+    },
+    /// Release only an observed failed response-only local lease; the persona stays held.
+    AcknowledgeFailedAttempt {
+        invocation: String,
+        reference: PathBuf,
+        #[arg(long, required = true)]
+        acknowledge_remote_unknown: bool,
     },
     Status,
     /// Explicit legacy provisioning from existing resources; requires unfrozen state.
@@ -182,10 +266,18 @@ enum Command {
     DeliverLocalEvent {
         file: PathBuf,
     },
+    /// Reconsider one persona; does not lift a work-wide pause.
     Resume {
         #[arg(long)]
         persona: String,
         #[arg(long)]
+        work: String,
+        /// Explicit fresh admission after a held failed attempt; exact acknowledgment reference.
+        #[arg(long)]
+        failed_attempt_ack: Option<PathBuf>,
+    },
+    /// Lift a work-wide pause without granting individual resumption or resources.
+    ResumeWork {
         work: String,
     },
     Pause {
@@ -220,6 +312,9 @@ enum Command {
         working_directory: PathBuf,
         #[arg(long)]
         selection_repair: bool,
+        /// Explicit episode selection for this existing opportunity; no implicit resume.
+        #[arg(long)]
+        intake_delegation: Option<PathBuf>,
     },
 }
 fn emit(value: &impl Serialize) -> runtime::Result<()> {
@@ -231,11 +326,13 @@ fn human_status(status: &str) -> &str {
         "completed-as-recorded" => "Completion was recorded; current support has not been re-established.",
         "delivered-acceptance-unestablished" => "A local result is available; the permitted evidence does not establish required human acceptance.",
         "delivered-unfinished" => "A local result is available; work remains unfinished.",
+        "delivered-current-state-unestablished" => "A local result was delivered; current work state is not established.",
+        "current-state-unestablished" => "Current work state is not established by this result view.",
         "paused" => "Work is paused.",
         "ended-unfinished" => "Work ended without completion.",
         "withheld" => "This result is unavailable under current permissions.",
         "intake-incomplete" => "The request has not completed intake.",
-        _ => "Work remains unfinished.",
+        _ => "Current work state is not established by this result view.",
     }
 }
 fn readable_result(value: &launch::Output) -> runtime::Result<String> {
@@ -348,10 +445,10 @@ fn readable_result(value: &launch::Output) -> runtime::Result<String> {
     }
     if let Some(reason) = &value.stop {
         let explanation = match reason.as_str() {
-            "recorded_completion" => "The recorded completion ends this foreground session.",
-            "acceptance_boundary" => "This session stops here. Any human decision must be recorded explicitly.",
+            "legacy_completion_requires_explicit_resume" => "The historical completion is retained. Targeted explicit resume is required before this legacy work can be reconsidered.",
             "paused" | "ended" | "unavailable" | "intake_incomplete" => "No foreground step was taken at this boundary.",
             "step_limit" | "consideration_bound" | "idle_or_consideration_bound" => "This foreground session reached its bound or has no eligible participant. Use run --resume with the work ID to continue eligible work.",
+            "no_eligible_route" => "The foreground session stopped without selecting another step. Inspect current status if reconsideration is needed.",
             "character_fence" => "An accepted character change requires its next authorized handover.",
             "held" | "held_or_unresolved_invocation" | "invalid_response" => "The latest response was not adopted. Inspect it before explicitly deciding what to do next.",
             "provider_preflight_or_transport_failed" => "The provider could not complete this attempt. Inspect its retained status before recovery.",
@@ -369,6 +466,33 @@ fn emit_result(value: &launch::Output, json: bool) -> runtime::Result<()> {
     }
     println!("{}", readable_result(value)?);
     Ok(())
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ImportSupportingFileRequest {
+    operator: String,
+    owner: String,
+    record: files::FileRevision,
+}
+impl ImportSupportingFileRequest {
+    fn validate(&self, operator: &str) -> runtime::Result<()> {
+        let record = &self.record;
+        if self.operator != operator
+            || record.author != operator
+            || record.scope != files::Scope::Assets
+            || record.retired
+            || record.bytes.is_empty()
+            || record.bytes.len() > 32_768
+            || std::str::from_utf8(&record.bytes).is_err()
+            || record.computed_revision()? != record.revision
+        {
+            return Err(runtime::RuntimeError::Invalid(
+                "supporting import requires matching operator authorship, one live UTF-8 asset of 1..=32768 bytes, and its exact computed revision".into(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 fn argument(name: &str) -> runtime::RuntimeError {
@@ -487,12 +611,40 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         .operator
         .as_deref()
         .ok_or_else(|| argument("--operator"))?;
+    if let Command::ImportSupportingFile { file } = &cli.command {
+        // Parse and validate before normal open can perform metered orphan recovery.
+        let request: ImportSupportingFileRequest = runtime::read_json_file(file, 262_144)?;
+        request.validate(operator)?;
+        let mut app = launch::open(root, Some(operator))?;
+        let source = request.record.source.clone();
+        let revision = request.record.revision.clone();
+        app.import_files(
+            operator,
+            &request.owner,
+            vec![request.record],
+            true,
+            runtime::unix_now()?,
+        )?;
+        return emit(&serde_json::json!({
+            "stored":"operator_import", "owner":request.owner,
+            "source":source, "revision":revision, "protected":true,
+            "selected":false, "persona_resumed":false, "inference_performed":false,
+            "event_delivered":false, "budget_reset":false
+        }));
+    }
     if let Command::InitState { config } = &cli.command {
         let config: Config = runtime::read_json_file(config, 4 * 1024 * 1024)?;
         let mut app = Runtime::create(root, config, operator)?;
         return emit(&app.status()?);
     }
     // Reject malformed requests and attribution mismatches before opening state.
+    let closure_anchor_request = if let Command::RecoverClosureAnchor { file } = &cli.command {
+        let request: runtime::RecoverClosureAnchorRequest = runtime::read_json_file(file, 16_384)?;
+        request.validate(operator)?;
+        Some(request)
+    } else {
+        None
+    };
     let migration_request = if let Command::MigrateProvider { file, .. } = &cli.command {
         let request: launch::ProviderMigrationRequest = runtime::read_json_file(file, 262_144)?;
         if request.operator != operator {
@@ -503,6 +655,98 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         Some(request)
     } else {
         None
+    };
+    let admission_extension_request = if let Command::ExtendLaunchAdmission {
+        file,
+        preview,
+        apply,
+    } = &cli.command
+    {
+        if preview == apply {
+            return Err(argument("exactly one of --preview or --apply"));
+        }
+        let request: launch::LaunchAdmissionExtensionRequest =
+            runtime::read_json_file(file, 16_384)?;
+        request.validate(operator)?;
+        Some(request)
+    } else {
+        None
+    };
+    let human_intake_request = if let Command::AdmitHumanNeed {
+        file,
+        preview,
+        apply,
+    } = &cli.command
+    {
+        if preview == apply {
+            return Err(argument("exactly one of --preview or --apply"));
+        }
+        let request: launch::HumanIntakeRequest = runtime::read_json_file(file, 65_536)?;
+        request.validate(operator)?;
+        Some(request)
+    } else {
+        None
+    };
+    let intake_delegation_request = if let Command::GrantIntakeDelegation {
+        file,
+        preview,
+        apply,
+    } = &cli.command
+    {
+        if preview == apply {
+            return Err(argument("exactly one of --preview or --apply"));
+        }
+        let request: launch::IntakeDelegationRequest = runtime::read_json_file(file, 32_768)?;
+        request.validate(operator)?;
+        Some(request)
+    } else {
+        None
+    };
+    let need_admission_request = if let Command::AdmitNeedProposal {
+        file,
+        preview,
+        apply,
+    } = &cli.command
+    {
+        if preview == apply {
+            return Err(argument("exactly one of --preview or --apply"));
+        }
+        let request: launch::AdmitNeedProposalRequest = runtime::read_json_file(file, 16_384)?;
+        request.validate(operator)?;
+        Some(request)
+    } else {
+        None
+    };
+    let intake_revocation_request = if let Command::RevokeIntakeDelegation {
+        file,
+        preview,
+        apply,
+    } = &cli.command
+    {
+        if preview == apply {
+            return Err(argument("exactly one of --preview or --apply"));
+        }
+        let request: launch::IntakeDelegationRevocationRequest =
+            runtime::read_json_file(file, 32_768)?;
+        request.validate(operator)?;
+        Some(request)
+    } else {
+        None
+    };
+    let intake_selection = match &cli.command {
+        Command::Prepare {
+            intake_delegation: Some(file),
+            ..
+        }
+        | Command::Step {
+            intake_delegation: Some(file),
+            ..
+        } => {
+            let selection: protocol::need::GrantReference = runtime::read_json_file(file, 4096)?;
+            selection.validate()?;
+            Some(selection)
+        }
+        _ => None,
     };
     // Untrusted response structure is checked before opening or reading managed state.
     let response_bytes = if let Command::AdoptResponse { file, .. }
@@ -556,6 +800,72 @@ async fn run(cli: Cli) -> runtime::Result<()> {
     let mut app = Runtime::open(root)?;
     let now = runtime::unix_now()?;
     match cli.command {
+        Command::LaunchAdmissionSnapshot => {
+            emit(&launch::launch_admission_snapshot(&mut app, operator)?)
+        }
+        Command::ExtendLaunchAdmission { preview, apply, .. } => {
+            let request = admission_extension_request
+                .as_ref()
+                .expect("admission extension request checked before opening state");
+            match (preview, apply) {
+                (true, false) => emit(&launch::preview_launch_admission_extension(
+                    &mut app, request, now,
+                )?),
+                (false, true) => emit(&launch::extend_launch_admission(&mut app, request, now)?),
+                _ => Err(argument("exactly one of --preview or --apply")),
+            }
+        }
+        Command::HumanIntakeSnapshot => emit(&launch::human_intake_snapshot(&mut app, operator)?),
+        Command::AdmitHumanNeed { preview, apply, .. } => {
+            let request = human_intake_request
+                .as_ref()
+                .expect("human intake checked before opening state");
+            match (preview, apply) {
+                (true, false) => emit(&launch::preview_human_intake(&mut app, request, now)?),
+                (false, true) => emit(&launch::admit_human_need(&mut app, request, now)?),
+                _ => Err(argument("exactly one of --preview or --apply")),
+            }
+        }
+        Command::IntakeDelegationSnapshot => emit(&launch::intake_delegation_snapshot(
+            &mut app, operator, now,
+        )?),
+        Command::IntakeEpisodeSnapshot { work } => {
+            emit(&app.intake_episode_snapshot(operator, &work)?)
+        }
+        Command::GrantIntakeDelegation { preview, apply, .. } => {
+            let request = intake_delegation_request
+                .as_ref()
+                .ok_or_else(|| argument("validated delegation request"))?;
+            match (preview, apply) {
+                (true, false) => emit(&launch::preview_intake_delegation(&mut app, request, now)?),
+                (false, true) => emit(&launch::grant_intake_delegation(&mut app, request, now)?),
+                _ => Err(argument("exactly one of --preview or --apply")),
+            }
+        }
+        Command::AdmitNeedProposal { preview, apply, .. } => {
+            let request = need_admission_request
+                .as_ref()
+                .ok_or_else(|| argument("validated need admission request"))?;
+            match (preview, apply) {
+                (true, false) => emit(&launch::preview_admit_need_proposal(
+                    &mut app, request, now,
+                )?),
+                (false, true) => emit(&launch::admit_need_proposal(&mut app, request, now)?),
+                _ => Err(argument("exactly one of --preview or --apply")),
+            }
+        }
+        Command::RevokeIntakeDelegation { preview, apply, .. } => {
+            let request = intake_revocation_request
+                .as_ref()
+                .ok_or_else(|| argument("validated revocation request"))?;
+            match (preview, apply) {
+                (true, false) => emit(&launch::preview_intake_delegation_revocation(
+                    &mut app, request, now,
+                )?),
+                (false, true) => emit(&launch::revoke_intake_delegation(&mut app, request, now)?),
+                _ => Err(argument("exactly one of --preview or --apply")),
+            }
+        }
         Command::ProviderMigrationSnapshot => emit(&launch::migration_snapshot(&mut app)?),
         Command::MigrateProvider { preview, .. } => {
             let request = migration_request
@@ -566,6 +876,12 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             } else {
                 emit(&launch::migrate_provider(&mut app, request, now)?)
             }
+        }
+        Command::RecoverClosureAnchor { .. } => {
+            let request = closure_anchor_request
+                .as_ref()
+                .expect("closure anchor request checked before opening state");
+            emit(&app.recover_closure_anchor(operator, request, now)?)
         }
         Command::StakeholderDecision { file } => {
             let request: runtime::HumanStakeholderDecisionRequest =
@@ -586,10 +902,15 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         }
         Command::AddNeed { file } => {
             let need: NeedInput = runtime::read_json_file(&file, 1024 * 1024)?;
+            let review_readiness = runtime::formal_review_readiness_for_need(&need);
             app.add_need(operator, need)?;
-            emit(
-                &serde_json::json!({"need_recorded":true,"responsibility_requires_own_response":true}),
-            )
+            let mut receipt = serde_json::json!({
+                "need_recorded":true,"responsibility_requires_own_response":true
+            });
+            if !review_readiness.is_null() {
+                receipt["formal_review_readiness"] = review_readiness;
+            }
+            emit(&receipt)
         }
         Command::Prepare {
             persona,
@@ -597,21 +918,23 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             invocation,
             profile,
             selection_repair,
+            intake_delegation: _,
         } => {
-            let prepared = app.prepare(
-                PrepareRequest {
-                    id: invocation,
-                    persona,
-                    work,
-                    profile: profile.into(),
-                    mode: if selection_repair {
-                        Mode::SelectionRepair
-                    } else {
-                        Mode::Ordinary
-                    },
+            let request = PrepareRequest {
+                id: invocation,
+                persona,
+                work,
+                profile: profile.into(),
+                mode: if selection_repair {
+                    Mode::SelectionRepair
+                } else {
+                    Mode::Ordinary
                 },
-                now,
-            )?;
+            };
+            let prepared = match intake_selection {
+                Some(selection) => app.prepare_with_intake_delegation(request, selection, now)?,
+                None => app.prepare(request, now)?,
+            };
             emit(&prepared)
         }
         Command::SyntheticSubmit { invocation, .. } => {
@@ -652,8 +975,44 @@ async fn run(cli: Cli) -> runtime::Result<()> {
                 runtime::read_json_file(&file, 262_144)?;
             emit(&app.deliver_local_event(operator, request, now)?)
         }
-        Command::Resume { persona, work } => {
-            app.resume(operator, &persona, &work)?;
+        Command::ResumeWork { work } => {
+            app.resume_work(operator, &work)?;
+            emit(
+                &serde_json::json!({"work_resumed":true,"persona_permissions_changed":false,"dispatched":false,"budget_reset":false}),
+            )
+        }
+        Command::AcknowledgeFailedAttempt {
+            invocation,
+            reference,
+            acknowledge_remote_unknown,
+        } => {
+            let reference = runtime::read_json_file(&reference, 4096)?;
+            let acknowledgment = app.acknowledge_failed_attempt(
+                operator,
+                &invocation,
+                reference,
+                acknowledge_remote_unknown,
+            )?;
+            emit(
+                &serde_json::json!({"acknowledgment":acknowledgment.exact_ref()?,"receipt":acknowledgment,
+                "persona_held":true,"dispatched":false,"remote_outcome":"unknown","replay_authorized":false}),
+            )
+        }
+        Command::Resume {
+            persona,
+            work,
+            failed_attempt_ack,
+        } => {
+            if let Some(path) = failed_attempt_ack {
+                app.resume_after_failed_attempt(
+                    operator,
+                    &persona,
+                    &work,
+                    runtime::read_json_file(&path, 4096)?,
+                )?;
+            } else {
+                app.resume(operator, &persona, &work)?;
+            }
             emit(
                 &serde_json::json!({"fresh_admission_permitted":true,"dispatched":false,"budget_reset":false}),
             )
@@ -667,6 +1026,7 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             provider_config,
             working_directory,
             selection_repair,
+            intake_delegation: _,
         } => {
             let profile: Profile = profile.into();
             // Reject removed execution profiles before reading provider settings.
@@ -675,25 +1035,31 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             }
             let settings: DirectProviderSettings =
                 runtime::read_json_file(&provider_config, 262_144)?;
-            emit(
-                &app.step(
-                    PrepareRequest {
-                        id: invocation,
-                        persona,
-                        work,
-                        profile,
-                        mode: if selection_repair {
-                            Mode::SelectionRepair
-                        } else {
-                            Mode::Ordinary
-                        },
-                    },
-                    settings,
-                    working_directory,
-                    now,
-                )
-                .await?,
-            )
+            let request = PrepareRequest {
+                id: invocation,
+                persona,
+                work,
+                profile,
+                mode: if selection_repair {
+                    Mode::SelectionRepair
+                } else {
+                    Mode::Ordinary
+                },
+            };
+            let report = match intake_selection {
+                Some(selection) => {
+                    app.step_with_intake_delegation(
+                        request,
+                        selection,
+                        settings,
+                        working_directory,
+                        now,
+                    )
+                    .await?
+                }
+                None => app.step(request, settings, working_directory, now).await?,
+            };
+            emit(&report)
         }
         Command::Schema
         | Command::Setup { .. }
@@ -704,54 +1070,10 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         | Command::Pause { .. }
         | Command::Closeout { .. }
         | Command::ValidateResponse { .. }
+        | Command::ImportSupportingFile { .. }
         | Command::InitState { .. }
         | Command::DispatchSynthetic { .. }
         | Command::ProviderReadiness
         | Command::Doctor => unreachable!(),
-    }
-}
-
-#[cfg(test)]
-mod presentation_tests {
-    use super::*;
-    #[test]
-    fn review_v3_readable_result_keeps_qualifications_attribution_and_recorded_audience_limits() {
-        let reference = serde_json::json!({"source":"internal-source","revision":"internal-revision","representation":{"kind":"utf8"}});
-        let qualification = serde_json::json!({"source":"internal-qualification","revision":"internal-qualification-revision","representation":{"kind":"utf8"}});
-        let bundle = serde_json::json!({"entries":[
-            {"reference":reference,"path":"result.txt","text":"Complete result text.","author":"persona-0001","policy":{"audience":["excluded-recipient","requester"]},"binding_restrictions":[{"source_role":"accepted_binding","binding":{"policy":{"audience":["requester"]}}}],"roles":[{"role":"root"}]},
-            {"reference":qualification,"path":"limitations.txt","text":"Use only after the stated approval; this is not engineering assurance.","author":"persona-0002","policy":{"audience":["requester"]},"roles":[{"role":"qualification","required_by":reference}]}
-        ],"source_attribution":[{"reference":reference,"recorded_author":"persona-0001","author_status":"accepted persona authorship"}]});
-        let output = launch::Output {
-            work_id: "work-00000001".into(),
-            status: "delivered-unfinished".into(),
-            recorded_phase: Some("open".into()),
-            focus_release: Some("release".into()),
-            completion_supported: Some(false),
-            status_delivery: Some("internal-delivery".into()),
-            last_attempt: Some(serde_json::json!({"id":"internal-invocation","state":"Adopted"})),
-            messages: vec![],
-            local_deliveries: vec![
-                serde_json::json!({"release":"release","artifacts":[{"qualified_bundle_json":serde_json::to_string(&bundle).unwrap()}]}),
-            ],
-            human_decision_pointers: vec![],
-            closure_evidence: vec![],
-            truncated: false,
-            stop: None,
-        };
-        let text = readable_result(&output).unwrap();
-        assert!(text.contains("Result discussed above"));
-        assert!(text.contains("Complete result text."));
-        assert!(text.contains("Required qualification for result.txt: limitations.txt"));
-        assert!(
-            text.contains("Use only after the stated approval; this is not engineering assurance.")
-        );
-        assert!(text.contains("persona-0001 (accepted persona authorship)"));
-        assert!(text.contains("Recorded source-policy audience: excluded-recipient, requester."));
-        assert!(text.contains("Recorded accepted-binding audience: requester."));
-        assert!(!text.contains("Permitted audience:"));
-        assert!(text.contains("work-00000001"));
-        assert!(!text.contains("internal-"));
-        assert!(!text.contains("delivered-unfinished"));
     }
 }

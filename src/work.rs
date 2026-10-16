@@ -24,14 +24,23 @@
 //!
 //! Deliberate limits: one active commitment per persona/work; exclusive outcome and
 //! reviewer-role ownership; whole-commitment handoffs; artifact-bearing mandates.
-//! Live mandate amendments after any acceptance are rejected. End the old mandate and
-//! explicitly authorize new work instead. Partial transfers, automatic retries, arbitrary
+//! Live mandate amendments after any acceptance are rejected. Exact voluntary duty
+//! changes use arrangement proposals within the immutable authorization envelope.
+//! Legacy governing rules remain fixed. Automatic retries, arbitrary
 //! imports, effect dispatch, and semantic correctness verification are unsupported.
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
+
+mod arrangements;
+pub use arrangements::{
+    formation_need_ref, Arrangement, ArrangementAssentPolicy, ArrangementConsent,
+    ArrangementDecisionRule, ArrangementDecline, ArrangementProposal, ArrangementTerms,
+    ArtifactTransfer, CommitmentChange, FormationDelegation, MAX_ARRANGEMENT_CHANGES,
+    MAX_ARRANGEMENT_HOLDERS, MAX_ARRANGEMENT_PROPOSALS,
+};
 
 macro_rules! id {
     ($($name:ident),+ $(,)?) => { $(
@@ -119,7 +128,15 @@ pub struct ReviewRole {
     pub independence: Independence,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+// Keep the bounded public value API; boxing a variant would change callers.
+#[allow(clippy::large_enum_variant)]
 pub enum DecisionRule {
+    /// Prospective authorization to choose a rule through exact persona consent.
+    /// The pool bounds arrangement actors and authority; it is no quorum or default leader.
+    PersonaArranged {
+        eligible: BTreeSet<PersonaId>,
+        delegation: FormationDelegation,
+    },
     Designated(PersonaId),
     Quorum {
         eligible: BTreeSet<PersonaId>,
@@ -173,6 +190,8 @@ pub struct Offer {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Acceptance {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arrangement: Option<ExactRef>,
     pub terms: CommitmentTerms,
     pub by: Attribution,
 }
@@ -184,6 +203,11 @@ pub enum Accountability {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Continuation {
     Immediate {
+        purpose: String,
+    },
+    /// A primary-authored future opportunity under this same live mandate.
+    ReconsiderAt {
+        not_before: u64,
         purpose: String,
     },
     Wait {
@@ -249,7 +273,8 @@ pub enum Phase {
         reason: String,
         by: RuntimeAttribution,
     },
-    /// Historical authorized closure; `completion_supported` checks present applicability.
+    /// Legacy serialized completion phase. New completion records do not end activity.
+    /// Explicit targeted resumption preserves this record before returning to Open.
     Completed {
         release: RecordId,
         by: Attribution,
@@ -374,6 +399,8 @@ pub struct JudgmentInput {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IndividualJudgment {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arrangement: Option<ExactRef>,
     pub input: JudgmentInput,
     pub by: Attribution,
     pub acceptance: RecordId,
@@ -397,6 +424,8 @@ pub struct BlockerDisposition {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SharedDecision {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arrangement: Option<ExactRef>,
     pub candidate: Candidate,
     pub by: Attribution,
     pub judgments: Vec<RecordId>,
@@ -405,12 +434,21 @@ pub struct SharedDecision {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Release {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arrangement: Option<ExactRef>,
     pub shared: RecordId,
     pub candidate: Candidate,
     pub authority: ExactRef,
     pub by: Attribution,
     /// Exact immutable prefix of Work::blocker_dispositions bound at release.
     pub blocker_dispositions: usize,
+}
+/// An authorized completion judgment for an exact release at its accepted decision.
+/// Later changes may remove current support without erasing this historical record.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Completion {
+    pub release: RecordId,
+    pub by: Attribution,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Delivery {
@@ -450,6 +488,12 @@ pub struct Work {
     pub participants: BTreeMap<PersonaId, Participant>,
     pub offers: BTreeMap<RecordId, Offer>,
     pub acceptances: BTreeMap<RecordId, Acceptance>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub arrangement_proposals: BTreeMap<RecordId, ArrangementProposal>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub arrangements: BTreeMap<RecordId, Arrangement>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_arrangement: Option<RecordId>,
     pub artifacts: BTreeMap<ArtifactId, Artifact>,
     pub evidence: BTreeMap<RecordId, EvidenceRecord>,
     pub unavailable_evidence: BTreeMap<RecordId, String>,
@@ -459,6 +503,8 @@ pub struct Work {
     pub blocker_dispositions: Vec<BlockerDisposition>,
     pub shared: BTreeMap<RecordId, SharedDecision>,
     pub releases: BTreeMap<RecordId, Release>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub completions: Vec<Completion>,
     pub deliveries: Vec<Delivery>,
     pub stakeholder_decisions: Vec<StakeholderDecision>,
     pub dependencies: Vec<Dependency>,
@@ -470,6 +516,17 @@ pub struct Work {
     pub applied_invocations: BTreeSet<InvocationId>,
 }
 impl Work {
+    /// Latest authored completion, including the unchanged legacy serialized form.
+    /// This is historical metadata, not an activity state or present support claim.
+    pub fn latest_completion(&self) -> Option<(&RecordId, &Attribution)> {
+        self.completions
+            .last()
+            .map(|completion| (&completion.release, &completion.by))
+            .or(match &self.phase {
+                Phase::Completed { release, by } => Some((release, by)),
+                _ => None,
+            })
+    }
     pub fn mandate(&self) -> &Mandate {
         &self.mandates[&self.current_mandate]
     }
@@ -581,6 +638,11 @@ pub enum Command {
         offer: RecordId,
         exact_terms: CommitmentTerms,
     },
+    AcceptArrangedOffer {
+        offer: RecordId,
+        exact_terms: CommitmentTerms,
+        arrangement: ExactRef,
+    },
     Decline {
         offer: RecordId,
         reason: String,
@@ -588,6 +650,20 @@ pub enum Command {
     OfferHandoff {
         id: RecordId,
         to: PersonaId,
+    },
+    ProposeArrangement {
+        id: RecordId,
+        terms: ArrangementTerms,
+        consent_own: bool,
+    },
+    AcceptArrangement {
+        proposal: RecordId,
+        exact: ExactRef,
+    },
+    DeclineArrangement {
+        proposal: RecordId,
+        exact: ExactRef,
+        reason: String,
     },
     PutArtifact {
         id: ArtifactId,
@@ -625,7 +701,13 @@ pub enum Command {
     },
 }
 /// These are authenticated external facts/decisions, not a persona response schema.
+// Keep the bounded public value API; boxing a variant would change callers.
+#[allow(clippy::large_enum_variant)]
 pub enum RuntimeOperation {
+    /// Host acknowledgment only; no responsibility, authority or lifecycle change.
+    AcknowledgeFailedAttempt {
+        persona: PersonaId,
+    },
     Invite {
         id: RecordId,
         to: PersonaId,
@@ -820,6 +902,7 @@ impl WorkBoard {
             return Err(WorkError::Conflict);
         }
         validate_mandate(&mandate, &self.personas)?;
+        arrangements::validate_delegation(&ctx.work, &need, &mandate, &ctx.principal)?;
         require(mandate.revision == 1, "initial mandate revision")?;
         let work = Work {
             need,
@@ -834,6 +917,9 @@ impl WorkBoard {
             participants: BTreeMap::new(),
             offers: BTreeMap::new(),
             acceptances: BTreeMap::new(),
+            arrangement_proposals: BTreeMap::new(),
+            arrangements: BTreeMap::new(),
+            current_arrangement: None,
             artifacts: BTreeMap::new(),
             evidence: BTreeMap::new(),
             unavailable_evidence: BTreeMap::new(),
@@ -843,6 +929,7 @@ impl WorkBoard {
             blocker_dispositions: Vec::new(),
             shared: BTreeMap::new(),
             releases: BTreeMap::new(),
+            completions: Vec::new(),
             deliveries: Vec::new(),
             stakeholder_decisions: Vec::new(),
             dependencies: Vec::new(),
@@ -956,9 +1043,18 @@ impl WorkBoard {
                 .unwrap()
                 .observed_events
                 .extend(ctx.observed.iter().cloned());
+            let prior_completions = w.completions.len();
             for command in response.commands {
                 open(w)?;
                 apply_command(w, &personas, ctx, &by, command)?;
+            }
+            // A new completion describes this atomic response as committed, not an
+            // intermediate state invalidated by a later command in that response.
+            if w.completions[prior_completions..]
+                .iter()
+                .any(|completion| !closure_ready(w, &completion.release))
+            {
+                return Err(WorkError::Unmet);
             }
             set_continuation(w, &ctx.persona, response.continuation, ctx.now)?;
             w.participants
@@ -991,6 +1087,9 @@ impl WorkBoard {
             }
             let by = ctx.attribution();
             match operation {
+                RuntimeOperation::AcknowledgeFailedAttempt { persona } => {
+                    require(w.participants.contains_key(&persona), "acknowledged participant")?;
+                }
                 RuntimeOperation::Invite { id, to, terms } => {
                     open(w)?;
                     offer(w, &personas, id, to, terms, None)?;
@@ -1003,6 +1102,7 @@ impl WorkBoard {
                         ));
                     }
                     validate_mandate(&m, &personas)?;
+                    arrangements::validate_delegation(&ctx.work, &w.need, &m, &ctx.principal)?;
                     require(
                         m.revision == increment(w.current_mandate)? && m.authority == ctx.authority,
                         "mandate successor",
@@ -1020,30 +1120,47 @@ impl WorkBoard {
                     if !matches!(w.phase, Phase::Open | Phase::Paused { .. }) {
                         return Err(WorkError::Stopped);
                     }
+                    // Lifting a work-wide pause restores only the activity
+                    // gate. Preserve each participant's intent and wake; a
+                    // future wait must not become an immediate reconsideration.
                     w.phase = Phase::Open;
-                    for p in w.participants.values_mut() {
-                        if p.acceptance.is_some()
-                            && matches!(
-                                p.continuation,
-                                Some(Continuation::Paused { .. } | Continuation::Wait { .. })
-                            )
-                        {
-                            p.wake = Some(Wake::ExplicitResume);
-                        }
-                    }
                 }
                 RuntimeOperation::ResumeParticipant { persona } => {
-                    if !matches!(w.phase, Phase::Open | Phase::Paused { .. }) {
-                        return Err(WorkError::Stopped);
+                    let legacy_completion = match &w.phase {
+                        Phase::Completed { release, by } => Some(Completion {
+                            release: release.clone(),
+                            by: by.clone(),
+                        }),
+                        Phase::Open => None,
+                        _ => return Err(WorkError::Stopped),
+                    };
+                    if let Some(completion) = &legacy_completion {
+                        // Legacy completion erased voluntary continuation. Only
+                        // an explicit, accepted target receives a fresh choice;
+                        // no peer continuation, epoch or allowance is restored.
+                        accepted(w, &persona)?;
+                        if !w.completions.contains(completion) {
+                            w.completions.push(completion.clone());
+                        }
                     }
+                    let target_accepted = w.acceptance(&persona).is_some();
                     let participant = w
                         .participants
                         .get_mut(&persona)
                         .ok_or(WorkError::Missing("participant"))?;
-                    if participant.acceptance.is_some()
+                    // A later explicit target may still be a dormant legacy peer
+                    // after the first target already normalized the work phase.
+                    if target_accepted
+                        && matches!(participant.continuation, Some(Continuation::Ended { .. }))
+                    {
+                        participant.continuation = Some(Continuation::Paused {
+                            reason: "Explicit target may choose whether to revisit retained responsibility".into(),
+                        });
+                    }
+                    if target_accepted
                         && matches!(
                             participant.continuation,
-                            Some(Continuation::Paused { .. } | Continuation::Wait { .. })
+                            Some(Continuation::Paused { .. } | Continuation::Wait { .. } | Continuation::ReconsiderAt { .. })
                         )
                     {
                         participant.wake = Some(Wake::ExplicitResume);
@@ -1245,9 +1362,9 @@ impl WorkBoard {
         })
     }
     pub fn completion_supported(&self, work: &WorkId) -> bool {
-        self.work(work).ok().is_some_and(|w| match &w.phase {
-            Phase::Completed { release, .. } => closure_ready(w, release),
-            _ => false,
+        self.work(work).ok().is_some_and(|w| {
+            w.latest_completion()
+                .is_some_and(|(release, _)| closure_ready(w, release))
         })
     }
     /// A bounded live page over ALL participation identities, including stopped,
@@ -1398,6 +1515,12 @@ fn validate_mandate(m: &Mandate, personas: &BTreeSet<PersonaId>) -> Result<()> {
         )?;
     }
     match &m.decision_rule {
+        DecisionRule::PersonaArranged { eligible, .. } => require(
+            !eligible.is_empty()
+                && eligible.len() <= MAX_ARRANGEMENT_HOLDERS
+                && eligible.is_subset(personas),
+            "explicit bounded arrangement actor and authority pool",
+        ),
         DecisionRule::Designated(p) => {
             require(personas.contains(p), "designated decision identity")
         }
@@ -1437,6 +1560,16 @@ fn offer(
     from: Option<(PersonaId, RecordId)>,
 ) -> Result<()> {
     require(text(&id.0) && personas.contains(&to), "offer identities")?;
+    arrangements::actor_in_pool(w, &to)?;
+    if let DecisionRule::PersonaArranged { delegation, .. } = &w.mandate().decision_rule {
+        require(
+            terms.outcomes.is_subset(&delegation.allocable_outcomes)
+                && terms
+                    .review_roles
+                    .is_subset(&delegation.allocable_review_roles),
+            "offered duties within requester delegation",
+        )?;
+    }
     if terms.mandate_revision != w.current_mandate {
         return Err(WorkError::Terms);
     }
@@ -1452,7 +1585,7 @@ fn offer(
                 .all(|r| w.mandate().review_roles.contains_key(r)),
         "commitment scope",
     )?;
-    if w.offers.contains_key(&id) {
+    if w.offers.contains_key(&id) || w.acceptances.contains_key(&id) {
         return Err(WorkError::Conflict);
     }
     w.participants.entry(to.clone()).or_default();
@@ -1502,7 +1635,12 @@ fn accept_offer(
     by: &Attribution,
     id: RecordId,
     terms: CommitmentTerms,
+    arrangement: Option<ExactRef>,
 ) -> Result<()> {
+    if arrangement != w.arrangement_ref() {
+        return Err(WorkError::Terms);
+    }
+    arrangements::actor_in_pool(w, &by.persona)?;
     let o = w
         .offers
         .get(&id)
@@ -1514,7 +1652,10 @@ fn accept_offer(
     if o.terms != terms || terms.mandate_revision != w.current_mandate {
         return Err(WorkError::Terms);
     }
-    if !matches!(o.status, OfferStatus::Pending) || w.acceptance(&by.persona).is_some() {
+    if !matches!(o.status, OfferStatus::Pending)
+        || w.acceptance(&by.persona).is_some()
+        || w.acceptances.contains_key(&id)
+    {
         return Err(WorkError::Conflict);
     }
     if let Some((sender, commitment)) = &o.from {
@@ -1523,6 +1664,7 @@ fn accept_offer(
             return Err(WorkError::Conflict);
         }
         check_handoff_accountability(w, sender)?;
+        arrangements::check_legacy_handoff(w, sender, &by.persona)?;
     }
     for p in w
         .participants
@@ -1551,6 +1693,7 @@ fn accept_offer(
     w.acceptances.insert(
         id.clone(),
         Acceptance {
+            arrangement,
             terms,
             by: by.clone(),
         },
@@ -1624,6 +1767,7 @@ fn assessment_status(w: &Work, a: &Assessment) -> AssessmentStatus {
 }
 fn vote_valid(w: &Work, j: &IndividualJudgment, c: &Candidate) -> bool {
     j.input.sufficient
+        && j.arrangement == w.arrangement_ref()
         && &j.input.candidate == c
         && w.acceptance(&j.by.persona)
             .is_some_and(|(id, _)| id == &j.acceptance)
@@ -1648,19 +1792,14 @@ fn rule_satisfied(w: &Work, supporters: &BTreeSet<RecordId>, c: &Candidate) -> b
         .filter(|j| supporters.contains(&j.input.id) && vote_valid(w, j, c))
         .map(|j| j.by.persona.clone())
         .collect();
-    match &w.mandate().decision_rule {
-        DecisionRule::Designated(p) => voters.contains(p),
-        DecisionRule::Quorum { eligible, minimum } => {
-            voters.intersection(eligible).count() >= *minimum
-        }
-    }
+    w.effective_decision_rule()
+        .is_some_and(|rule| rule.satisfied(&voters))
 }
 fn decision_right(w: &Work, p: &PersonaId) -> Result<()> {
     accepted(w, p)?;
-    let permitted = match &w.mandate().decision_rule {
-        DecisionRule::Designated(owner) => p == owner,
-        DecisionRule::Quorum { eligible, .. } => eligible.contains(p),
-    };
+    let permitted = w
+        .effective_decision_rule()
+        .is_some_and(|rule| rule.holders().contains(p));
     if permitted {
         Ok(())
     } else {
@@ -1704,12 +1843,14 @@ fn required_assessments(w: &Work, c: &Candidate) -> Result<BTreeSet<RecordId>> {
     Ok(result)
 }
 fn shared_current(w: &Work, s: &SharedDecision) -> bool {
-    required_assessments(w, &s.candidate).is_ok_and(|ids| ids == s.assessments)
+    s.arrangement == w.arrangement_ref()
+        && required_assessments(w, &s.candidate).is_ok_and(|ids| ids == s.assessments)
         && rule_satisfied(w, &s.supporters, &s.candidate)
 }
 fn release_current(w: &Work, id: &RecordId) -> bool {
     w.releases.get(id).is_some_and(|r| {
-        r.authority == w.mandate().authority
+        r.arrangement == w.arrangement_ref()
+            && r.authority == w.mandate().authority
             && r.blocker_dispositions == w.blocker_dispositions.len()
             && w.shared
                 .get(&r.shared)
@@ -1739,7 +1880,16 @@ fn apply_command(
     command: Command,
 ) -> Result<()> {
     match command {
-        Command::Accept { offer, exact_terms } => return accept_offer(w, by, offer, exact_terms),
+        Command::Accept { offer, exact_terms } => {
+            return accept_offer(w, by, offer, exact_terms, None)
+        }
+        Command::AcceptArrangedOffer {
+            offer,
+            exact_terms,
+            arrangement,
+        } => {
+            return accept_offer(w, by, offer, exact_terms, Some(arrangement));
+        }
         Command::Decline { offer, reason } => {
             require(text(&reason), "decline reason")?;
             let o = w
@@ -1766,8 +1916,26 @@ fn apply_command(
             let acceptance_id = acceptance_id.clone();
             let terms = acceptance.terms.clone();
             match other {
+                Command::ProposeArrangement {
+                    id,
+                    terms,
+                    consent_own,
+                } => {
+                    arrangements::propose(w, by, id, terms, consent_own)?;
+                }
+                Command::AcceptArrangement { proposal, exact } => {
+                    arrangements::consent(w, by, proposal, exact)?;
+                }
+                Command::DeclineArrangement {
+                    proposal,
+                    exact,
+                    reason,
+                } => {
+                    arrangements::decline(w, by, proposal, exact, reason)?;
+                }
                 Command::Invite { id, to, terms } => offer(w, personas, id, to, terms, None)?,
                 Command::OfferHandoff { id, to } => {
+                    arrangements::check_legacy_handoff(w, &by.persona, &to)?;
                     require(to != by.persona, "distinct handoff recipient")?;
                     offer(
                         w,
@@ -1968,6 +2136,7 @@ fn apply_command(
                         }
                     }
                     w.judgments.push(IndividualJudgment {
+                        arrangement: w.arrangement_ref(),
                         input,
                         by: by.clone(),
                         acceptance: acceptance_id,
@@ -1998,6 +2167,7 @@ fn apply_command(
                     w.shared.insert(
                         id,
                         SharedDecision {
+                            arrangement: w.arrangement_ref(),
                             candidate,
                             by: by.clone(),
                             judgments,
@@ -2023,6 +2193,7 @@ fn apply_command(
                         return Err(WorkError::Unmet);
                     }
                     let r = Release {
+                        arrangement: w.arrangement_ref(),
                         shared: shared.clone(),
                         candidate: s.candidate.clone(),
                         authority: w.mandate().authority.clone(),
@@ -2036,14 +2207,14 @@ fn apply_command(
                     if !closure_ready(w, &release) {
                         return Err(WorkError::Unmet);
                     }
-                    end_continuations(w, "Authorized accepted-goal closure");
-                    w.version.epoch = increment(w.version.epoch)?;
-                    w.phase = Phase::Completed {
+                    w.completions.push(Completion {
                         release,
                         by: by.clone(),
-                    };
+                    });
                 }
-                Command::Accept { .. } | Command::Decline { .. } => unreachable!(),
+                Command::Accept { .. }
+                | Command::AcceptArrangedOffer { .. }
+                | Command::Decline { .. } => unreachable!(),
             }
         }
     }
@@ -2060,7 +2231,7 @@ fn set_continuation(
     match &continuation {
         Continuation::Ended { reason } => {
             require(text(reason), "ending explanation")?;
-            if has_responsibility && !matches!(w.phase, Phase::Completed { .. }) {
+            if has_responsibility {
                 return Err(WorkError::Unauthorized);
             }
         }
@@ -2068,6 +2239,15 @@ fn set_continuation(
             return Err(WorkError::NotAccepted)
         }
         Continuation::Immediate { purpose } => require(text(purpose), "immediate purpose")?,
+        Continuation::ReconsiderAt {
+            not_before,
+            purpose,
+        } => {
+            require(
+                *not_before > now && *not_before <= i64::MAX as u64 && text(purpose),
+                "future bounded reconsideration and purpose",
+            )?;
+        }
         Continuation::Wait {
             dependency,
             deadline,
@@ -2127,6 +2307,11 @@ fn eligibility(w: &Work, persona: &PersonaId, now: u64) -> Option<OpportunityCau
     let p = &w.participants[persona];
     match p.continuation.as_ref()? {
         Continuation::Immediate { .. } => Some(OpportunityCause::Immediate),
+        Continuation::ReconsiderAt { not_before, .. } => match &p.wake {
+            Some(Wake::ExplicitResume) => Some(OpportunityCause::ExplicitResume),
+            _ if now >= *not_before => Some(OpportunityCause::Reconsideration),
+            _ => None,
+        },
         Continuation::Wait { deadline, .. } => match &p.wake {
             Some(Wake::Event(key))
                 if key.epoch == w.version.epoch
@@ -2146,1925 +2331,5 @@ fn eligibility(w: &Work, persona: &PersonaId, now: u64) -> Option<OpportunityCau
             Some(OpportunityCause::ExplicitResume)
         }
         _ => None,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    fn message_wait_key(b: &WorkBoard) -> EventKey {
-        EventKey {
-            dependency: r("synthetic-message-wait-intention"),
-            epoch: b.work(&"w".into()).unwrap().version.epoch,
-        }
-    }
-    fn message_wait_registration(key: &EventKey) -> Option<MessageWaitRegistration> {
-        Some(MessageWaitRegistration {
-            dependency: key.dependency.clone(),
-        })
-    }
-    #[test]
-    fn message_wait_is_atomic_and_consumed_only_by_permitted_event() {
-        let mut b = active(None, false);
-        let key = message_wait_key(&b);
-        let ctx = context(&b, "a");
-        b.apply_response_with_message_wait(
-            &ctx,
-            DecisionResponse {
-                commands: vec![],
-                continuation: wait_for(&key),
-            },
-            message_wait_registration(&key),
-        )
-        .unwrap();
-        let w = b.work(&"w".into()).unwrap();
-        assert_eq!(
-            w.version,
-            Version {
-                revision: ctx.version.revision + 1,
-                epoch: ctx.version.epoch,
-            }
-        );
-        assert_eq!(w.dependencies.len(), 1);
-        assert_eq!(w.dependencies[0].key, key);
-        assert!(matches!(
-            &w.dependencies[0].accountability,
-            Accountability::Gap(reason) if reason.contains("voluntary")
-        ));
-        assert!(w.events.is_empty());
-        assert!(w.applied_invocations.contains(&ctx.invocation));
-        let p = &w.participants[&PersonaId::from("a")];
-        assert_eq!(p.continuation, Some(wait_for(&key)));
-        assert!(p.wake.is_none() && p.observed_events.is_empty());
-        assert_eq!(eligibility(w, &"a".into(), 10), None);
-        assert_eq!(
-            eligibility(w, &"a".into(), 30),
-            Some(OpportunityCause::Deadline)
-        );
-        reply(&mut b, "b", vec![], wait_for(&key)).unwrap();
-        let event = Event {
-            key: key.clone(),
-            observation: r("synthetic-message-receipt"),
-        };
-        host(
-            &mut b,
-            RuntimeRight::Observation,
-            RuntimeOperation::EventFor {
-                event: event.clone(),
-                participants: set(["a".into()]),
-            },
-        )
-        .unwrap();
-        assert_eq!(
-            eligibility(b.work(&"w".into()).unwrap(), &"a".into(), 10),
-            Some(OpportunityCause::Event(key.clone()))
-        );
-        assert_eq!(
-            eligibility(b.work(&"w".into()).unwrap(), &"b".into(), 10),
-            None
-        );
-        let mut observed = context(&b, "a");
-        observed.observed.insert(key.clone());
-        b.apply_response(
-            &observed,
-            DecisionResponse {
-                commands: vec![],
-                continuation: wait_for(&key),
-            },
-        )
-        .unwrap();
-        let saved = b.clone();
-        host(
-            &mut b,
-            RuntimeRight::Observation,
-            RuntimeOperation::EventFor {
-                event,
-                participants: set(["a".into()]),
-            },
-        )
-        .unwrap();
-        assert_eq!(b, saved);
-        assert_eq!(
-            eligibility(b.work(&"w".into()).unwrap(), &"a".into(), 10),
-            None
-        );
-    }
-    #[test]
-    fn message_wait_rejections_roll_back_registration_and_response() {
-        let mut b = active(None, false);
-        let key = message_wait_key(&b);
-        let ctx = context(&b, "a");
-        let finding = Command::Finding {
-            id: "synthetic-wait-finding".into(),
-            artifact: None,
-            text: "Synthetic accepted-response prefix".into(),
-            evidence: BTreeSet::new(),
-        };
-        let saved = b.clone();
-        for (commands, deadline) in [
-            (vec![finding.clone()], ctx.now),
-            (vec![finding.clone(), finding], 30),
-        ] {
-            assert!(b
-                .apply_response_with_message_wait(
-                    &ctx,
-                    DecisionResponse {
-                        commands,
-                        continuation: Continuation::Wait {
-                            dependency: key.dependency.clone(),
-                            deadline,
-                            purpose: "Synthetic voluntary wait intention".into(),
-                        },
-                    },
-                    message_wait_registration(&key),
-                )
-                .is_err());
-            assert_eq!(b, saved);
-        }
-        b.apply_response(
-            &ctx,
-            DecisionResponse {
-                commands: vec![],
-                continuation: ready(),
-            },
-        )
-        .unwrap();
-        let saved = b.clone();
-        let version = b.work(&"w".into()).unwrap().version;
-        let mut wrong_epoch = context(&b, "a");
-        wrong_epoch.version.epoch += 1;
-        let mut replay = context(&b, "a");
-        replay.invocation = ctx.invocation.clone();
-        for (rejected, error) in [
-            (
-                &ctx,
-                WorkError::StaleRevision {
-                    expected: ctx.version.revision,
-                    actual: version.revision,
-                },
-            ),
-            (
-                &wrong_epoch,
-                WorkError::StaleEpoch {
-                    expected: wrong_epoch.version.epoch,
-                    actual: version.epoch,
-                },
-            ),
-            (&replay, WorkError::Replay),
-        ] {
-            assert_eq!(
-                b.apply_response_with_message_wait(
-                    rejected,
-                    DecisionResponse {
-                        commands: vec![],
-                        continuation: wait_for(&key),
-                    },
-                    message_wait_registration(&key),
-                ),
-                Err(error)
-            );
-            assert_eq!(b, saved);
-        }
-    }
-    #[test]
-    fn message_wait_requires_preexisting_acceptance_and_compatible_response() {
-        let mut b = active(None, false);
-        invite(&mut b, "synthetic-extra-offer", "a", terms(false, false));
-        let key = message_wait_key(&b);
-        let mut mismatched = key.clone();
-        mismatched.dependency.digest[0] ^= 1;
-        let saved = b.clone();
-        for (commands, continuation) in [
-            (vec![], ready()),
-            (
-                vec![],
-                Continuation::Paused {
-                    reason: "Synthetic explicit pause".into(),
-                },
-            ),
-            (vec![], ended()),
-            (vec![], wait_for(&mismatched)),
-            (
-                vec![Command::Decline {
-                    offer: "synthetic-extra-offer".into(),
-                    reason: "Synthetic declined offer".into(),
-                }],
-                wait_for(&key),
-            ),
-        ] {
-            assert!(b
-                .apply_response_with_message_wait(
-                    &context(&b, "a"),
-                    DecisionResponse {
-                        commands,
-                        continuation,
-                    },
-                    message_wait_registration(&key),
-                )
-                .is_err());
-            assert_eq!(b, saved);
-        }
-        let mut b = board(None, false);
-        invite(
-            &mut b,
-            "synthetic-unaccepted-offer",
-            "c",
-            terms(false, false),
-        );
-        let key = message_wait_key(&b);
-        let saved = b.clone();
-        assert_eq!(
-            b.apply_response_with_message_wait(
-                &context(&b, "c"),
-                DecisionResponse {
-                    commands: vec![Command::Accept {
-                        offer: "synthetic-unaccepted-offer".into(),
-                        exact_terms: terms(false, false),
-                    }],
-                    continuation: wait_for(&key),
-                },
-                message_wait_registration(&key),
-            ),
-            Err(WorkError::NotAccepted)
-        );
-        assert_eq!(b, saved);
-    }
-    #[test]
-    fn message_wait_collision_check_preserves_runtime_revision_and_epoch_reuse() {
-        let mut b = board(None, false);
-        let mut key = message_wait_key(&b);
-        host(
-            &mut b,
-            RuntimeRight::Observation,
-            RuntimeOperation::RegisterDependency(Dependency {
-                key: key.clone(),
-                accountability: Accountability::Gap("Synthetic historical dependency".into()),
-            }),
-        )
-        .unwrap();
-        let mut mandate = b.work(&"w".into()).unwrap().mandate().clone();
-        mandate.revision += 1;
-        host(
-            &mut b,
-            RuntimeRight::Governance,
-            RuntimeOperation::ReviseUnacceptedMandate(mandate),
-        )
-        .unwrap();
-        let mut current_terms = terms(true, false);
-        current_terms.mandate_revision = b.work(&"w".into()).unwrap().current_mandate;
-        invite(
-            &mut b,
-            "synthetic-current-offer",
-            "a",
-            current_terms.clone(),
-        );
-        accept(&mut b, "synthetic-current-offer", "a", current_terms);
-        key.epoch = b.work(&"w".into()).unwrap().version.epoch;
-        let mut revised = key.clone();
-        revised.dependency.revision += 1;
-        let saved = b.clone();
-        for rejected in [&key, &revised] {
-            assert_eq!(
-                b.apply_response_with_message_wait(
-                    &context(&b, "a"),
-                    DecisionResponse {
-                        commands: vec![],
-                        continuation: wait_for(rejected),
-                    },
-                    message_wait_registration(rejected),
-                ),
-                Err(WorkError::Conflict)
-            );
-            assert_eq!(b, saved);
-        }
-        for allowed in [key, revised] {
-            host(
-                &mut b,
-                RuntimeRight::Observation,
-                RuntimeOperation::RegisterDependency(Dependency {
-                    key: allowed,
-                    accountability: Accountability::Gap(
-                        "Synthetic reusable host dependency".into(),
-                    ),
-                }),
-            )
-            .unwrap();
-        }
-        assert_eq!(b.work(&"w".into()).unwrap().dependencies.len(), 3);
-    }
-    #[test]
-    fn message_wait_events_preserve_explicit_pauses_and_endings() {
-        for mode in 0..3 {
-            let mut b = active(None, false);
-            let key = message_wait_key(&b);
-            b.apply_response_with_message_wait(
-                &context(&b, "a"),
-                DecisionResponse {
-                    commands: vec![],
-                    continuation: wait_for(&key),
-                },
-                message_wait_registration(&key),
-            )
-            .unwrap();
-            match mode {
-                0 => reply(
-                    &mut b,
-                    "a",
-                    vec![],
-                    Continuation::Paused {
-                        reason: "Synthetic participant pause".into(),
-                    },
-                )
-                .unwrap(),
-                1 => host(
-                    &mut b,
-                    RuntimeRight::Governance,
-                    RuntimeOperation::Pause {
-                        reason: "Synthetic work pause".into(),
-                    },
-                )
-                .unwrap(),
-                _ => host(
-                    &mut b,
-                    RuntimeRight::Governance,
-                    RuntimeOperation::End {
-                        kind: EndingKind::Canceled,
-                        reason: "Synthetic explicit cancellation".into(),
-                    },
-                )
-                .unwrap(),
-            }
-            host(
-                &mut b,
-                RuntimeRight::Observation,
-                RuntimeOperation::EventFor {
-                    event: Event {
-                        key,
-                        observation: r("synthetic-arrival-after-stop"),
-                    },
-                    participants: set(["a".into()]),
-                },
-            )
-            .unwrap();
-            assert_eq!(
-                eligibility(b.work(&"w".into()).unwrap(), &"a".into(), 100),
-                None
-            );
-            assert!(b
-                .participant(&"w".into(), &"a".into())
-                .unwrap()
-                .wake
-                .is_none());
-            let saved = b.clone();
-            let resumed = host(
-                &mut b,
-                RuntimeRight::Governance,
-                RuntimeOperation::ResumeParticipant {
-                    persona: "a".into(),
-                },
-            );
-            if mode == 2 {
-                assert_eq!(resumed, Err(WorkError::Stopped));
-                assert_eq!(b, saved);
-            } else {
-                resumed.unwrap();
-                assert_eq!(
-                    eligibility(b.work(&"w".into()).unwrap(), &"a".into(), 100),
-                    Some(OpportunityCause::ExplicitResume)
-                );
-            }
-        }
-    }
-    fn set<T: Ord>(items: impl IntoIterator<Item = T>) -> BTreeSet<T> {
-        items.into_iter().collect()
-    }
-    fn r(s: &str) -> ExactRef {
-        ExactRef::new(s, 1, s.as_bytes())
-    }
-    fn ready() -> Continuation {
-        Continuation::Immediate {
-            purpose: "Continue accepted scope".into(),
-        }
-    }
-    fn ended() -> Continuation {
-        Continuation::Ended {
-            reason: "Explicit disposition".into(),
-        }
-    }
-    fn runtime(b: &WorkBoard, right: RuntimeRight) -> RuntimeContext {
-        let w = b.work(&"w".into()).unwrap();
-        RuntimeContext::from_runtime(
-            "w".into(),
-            w.version,
-            w.mandate().authority.clone(),
-            Origin::Human("h".into()),
-            right,
-        )
-    }
-    fn host(b: &mut WorkBoard, right: RuntimeRight, op: RuntimeOperation) -> Result<()> {
-        b.observe(&runtime(b, right), op)
-    }
-    fn context(b: &WorkBoard, p: &str) -> DecisionContext {
-        let w = b.work(&"w".into()).unwrap();
-        DecisionContext::from_runtime(
-            "w".into(),
-            p.into(),
-            InvocationId(format!("{p}-{}", w.version.revision)),
-            w.version,
-            w.mandate().authority.clone(),
-            10,
-            BTreeMap::new(),
-            BTreeSet::new(),
-        )
-    }
-    fn reply(
-        b: &mut WorkBoard,
-        p: &str,
-        commands: Vec<Command>,
-        continuation: Continuation,
-    ) -> Result<()> {
-        b.apply_response(
-            &context(b, p),
-            DecisionResponse {
-                commands,
-                continuation,
-            },
-        )
-    }
-    fn terms(outcomes: bool, review: bool) -> CommitmentTerms {
-        CommitmentTerms {
-            mandate_revision: 1,
-            exact_terms: "Exact offered responsibility".into(),
-            outcomes: if outcomes {
-                set(["o".into()])
-            } else {
-                BTreeSet::new()
-            },
-            review_roles: if review {
-                set(["r".into()])
-            } else {
-                BTreeSet::new()
-            },
-        }
-    }
-    fn invite(b: &mut WorkBoard, id: &str, p: &str, t: CommitmentTerms) {
-        host(
-            b,
-            RuntimeRight::Governance,
-            RuntimeOperation::Invite {
-                id: id.into(),
-                to: p.into(),
-                terms: t,
-            },
-        )
-        .unwrap();
-    }
-    fn accept(b: &mut WorkBoard, id: &str, p: &str, t: CommitmentTerms) {
-        reply(
-            b,
-            p,
-            vec![Command::Accept {
-                offer: id.into(),
-                exact_terms: t,
-            }],
-            ready(),
-        )
-        .unwrap();
-    }
-    fn board(review: Option<Independence>, stakeholders: bool) -> WorkBoard {
-        let mut b = WorkBoard::default();
-        for p in ["a", "b", "c"] {
-            b.register_persona(p.into()).unwrap();
-        }
-        let mandate = Mandate {
-            revision: 1,
-            terms: "Accepted scope".into(),
-            authority: r("authority"),
-            assumptions: r("assumptions"),
-            outcomes: BTreeMap::from([(
-                "o".into(),
-                RequiredOutcome {
-                    description: "Required result".into(),
-                    criterion: r("criterion"),
-                    required_reviews: if review.is_some() {
-                        set(["r".into()])
-                    } else {
-                        BTreeSet::new()
-                    },
-                },
-            )]),
-            review_roles: review
-                .map(|independence| {
-                    BTreeMap::from([(
-                        "r".into(),
-                        ReviewRole {
-                            terms: "Exact review scope".into(),
-                            funding: r("funding"),
-                            policy: r("policy"),
-                            independence,
-                        },
-                    )])
-                })
-                .unwrap_or_default(),
-            decision_rule: DecisionRule::Designated("a".into()),
-            delivery_to: set(["h".into()]),
-            stakeholders: if stakeholders {
-                set(["h".into()])
-            } else {
-                BTreeSet::new()
-            },
-        };
-        let ctx = RuntimeContext::from_runtime(
-            "w".into(),
-            Version {
-                revision: 0,
-                epoch: 0,
-            },
-            r("authority"),
-            Origin::Human("h".into()),
-            RuntimeRight::NewAuthorization,
-        );
-        b.create(
-            &ctx,
-            Need {
-                origin: Origin::Human("h".into()),
-                request: "Original exact need".into(),
-                supplied: BTreeSet::new(),
-                boundaries: r("bounds"),
-            },
-            mandate,
-        )
-        .unwrap();
-        b
-    }
-    fn active(review: Option<Independence>, stakeholders: bool) -> WorkBoard {
-        let mut b = board(review, stakeholders);
-        invite(&mut b, "oa", "a", terms(true, false));
-        accept(&mut b, "oa", "a", terms(true, false));
-        invite(&mut b, "ob", "b", terms(false, review.is_some()));
-        accept(&mut b, "ob", "b", terms(false, review.is_some()));
-        b
-    }
-    fn artifact(b: &mut WorkBoard) -> Candidate {
-        reply(
-            b,
-            "a",
-            vec![Command::PutArtifact {
-                id: "x".into(),
-                base: None,
-                bytes: b"v1".to_vec(),
-                inputs: BTreeSet::new(),
-                policy: r("policy"),
-            }],
-            ready(),
-        )
-        .unwrap();
-        let a = b.work(&"w".into()).unwrap().artifacts[&ArtifactId::from("x")].revisions[&1]
-            .reference
-            .clone();
-        host(
-            b,
-            RuntimeRight::Observation,
-            RuntimeOperation::Evidence(EvidenceRecord {
-                id: "e".into(),
-                exact: r("observation"),
-                source: SourceKind::RuntimeObservation,
-                availability: Availability::Available,
-                artifacts: set([a.clone()]),
-                criteria: set([r("criterion")]),
-            }),
-        )
-        .unwrap();
-        Candidate {
-            mandate_revision: 1,
-            artifacts: BTreeMap::from([("o".into(), a)]),
-        }
-    }
-    fn judge(b: &mut WorkBoard, c: &Candidate, p: &str, id: &str, sufficient: bool) {
-        reply(
-            b,
-            p,
-            vec![Command::Judge(JudgmentInput {
-                id: id.into(),
-                candidate: c.clone(),
-                sufficient,
-                claims: BTreeMap::from([(
-                    "o".into(),
-                    Claim {
-                        met: sufficient,
-                        explanation: "Scoped judgment of observed result".into(),
-                        evidence: set(["e".into()]),
-                    },
-                )]),
-                explanation: "Attributed sufficiency judgment".into(),
-            })],
-            ready(),
-        )
-        .unwrap();
-    }
-    fn assess(b: &mut WorkBoard, c: &Candidate, known: bool) {
-        let a = c.artifacts[&OutcomeId::from("o")].clone();
-        let mut ctx = context(b, "b");
-        if known {
-            ctx.separation.insert(
-                a.clone(),
-                Separation::Known {
-                    distinct_actor: true,
-                    distinct_execution: true,
-                    distinct_model: false,
-                    qualified_outside: false,
-                    conflicts: BTreeSet::new(),
-                    attestation: r("separation"),
-                },
-            );
-        }
-        b.apply_response(
-            &ctx,
-            DecisionResponse {
-                commands: vec![Command::Assess(AssessmentInput {
-                    id: "assessment".into(),
-                    artifact: a,
-                    criterion: r("criterion"),
-                    role: "r".into(),
-                    evidence: set(["e".into()]),
-                    passes: true,
-                    explanation: "Reasoned assessment under accepted criterion".into(),
-                    limitations: vec!["Limited to this exact subject".into()],
-                })],
-                continuation: ready(),
-            },
-        )
-        .unwrap();
-    }
-    fn release(b: &mut WorkBoard, c: &Candidate) -> Result<()> {
-        reply(
-            b,
-            "a",
-            vec![
-                Command::DecideShared {
-                    id: "shared".into(),
-                    candidate: c.clone(),
-                },
-                Command::Release {
-                    id: "release".into(),
-                    shared: "shared".into(),
-                },
-            ],
-            ready(),
-        )
-    }
-    fn deliver(b: &mut WorkBoard) {
-        host(
-            b,
-            RuntimeRight::Observation,
-            RuntimeOperation::Delivered {
-                id: "delivery".into(),
-                release: "release".into(),
-                recipient: "h".into(),
-                receipt: r("delivery"),
-            },
-        )
-        .unwrap();
-    }
-    #[test]
-    fn invitation_is_not_acceptance_and_decline_is_legitimate() {
-        let mut b = board(None, false);
-        invite(&mut b, "offer", "a", terms(true, false));
-        assert!(b
-            .work(&"w".into())
-            .unwrap()
-            .acceptance(&"a".into())
-            .is_none());
-        assert!(b.next_eligible(None, &BTreeSet::new(), 10).is_none());
-        reply(
-            &mut b,
-            "a",
-            vec![Command::Decline {
-                offer: "offer".into(),
-                reason: "Declined".into(),
-            }],
-            ended(),
-        )
-        .unwrap();
-        assert!(matches!(
-            b.work(&"w".into()).unwrap().ownership(&"o".into()),
-            Accountability::Gap(_)
-        ));
-    }
-    #[test]
-    fn forged_acceptance_and_stale_terms_are_rejected_without_mutation() {
-        let mut b = board(None, false);
-        invite(&mut b, "offer", "a", terms(true, false));
-        invite(&mut b, "other", "b", terms(false, false));
-        let saved = b.clone();
-        assert_eq!(
-            reply(
-                &mut b,
-                "b",
-                vec![Command::Accept {
-                    offer: "offer".into(),
-                    exact_terms: terms(true, false)
-                }],
-                ready()
-            ),
-            Err(WorkError::Unauthorized)
-        );
-        assert_eq!(b, saved);
-        let mut m = b.work(&"w".into()).unwrap().mandate().clone();
-        m.revision = 2;
-        m.terms = "Changed scope".into();
-        host(
-            &mut b,
-            RuntimeRight::Governance,
-            RuntimeOperation::ReviseUnacceptedMandate(m),
-        )
-        .unwrap();
-        let saved = b.clone();
-        assert_eq!(
-            reply(
-                &mut b,
-                "a",
-                vec![Command::Accept {
-                    offer: "offer".into(),
-                    exact_terms: terms(true, false)
-                }],
-                ready()
-            ),
-            Err(WorkError::Terms)
-        );
-        assert_eq!(b, saved);
-    }
-    #[test]
-    fn stale_revision_and_epoch_precede_mutation() {
-        let mut b = active(None, false);
-        let stale = context(&b, "a");
-        reply(&mut b, "b", vec![], ready()).unwrap();
-        let saved = b.clone();
-        assert!(matches!(
-            b.apply_response(
-                &stale,
-                DecisionResponse {
-                    commands: vec![],
-                    continuation: ready()
-                }
-            ),
-            Err(WorkError::StaleRevision { .. })
-        ));
-        assert_eq!(b, saved);
-        let mut wrong_epoch = context(&b, "a");
-        wrong_epoch.version.epoch += 1;
-        assert!(matches!(
-            b.apply_response(
-                &wrong_epoch,
-                DecisionResponse {
-                    commands: vec![],
-                    continuation: ready()
-                }
-            ),
-            Err(WorkError::StaleEpoch { .. })
-        ));
-        assert_eq!(b, saved);
-    }
-    #[test]
-    fn dissent_is_preserved_without_automatic_veto() {
-        let mut b = active(None, false);
-        let c = artifact(&mut b);
-        judge(&mut b, &c, "a", "yes", true);
-        judge(&mut b, &c, "b", "no", false);
-        reply(
-            &mut b,
-            "b",
-            vec![Command::Finding {
-                id: "issue".into(),
-                artifact: None,
-                text: "Unadopted concern".into(),
-                evidence: BTreeSet::new(),
-            }],
-            ready(),
-        )
-        .unwrap();
-        release(&mut b, &c).unwrap();
-        let w = b.work(&"w".into()).unwrap();
-        assert!(w.shared[&RecordId::from("shared")]
-            .judgments
-            .contains(&"no".into()));
-        assert!(w.findings.contains_key(&"issue".into()));
-        assert!(w.blocker_dispositions.is_empty());
-    }
-    #[test]
-    fn individual_sufficiency_is_not_shared_closure() {
-        let mut b = active(None, false);
-        let c = artifact(&mut b);
-        judge(&mut b, &c, "a", "yes", true);
-        assert!(b.work(&"w".into()).unwrap().shared.is_empty());
-        assert!(reply(
-            &mut b,
-            "a",
-            vec![Command::CloseGoal {
-                release: "absent".into()
-            }],
-            ended()
-        )
-        .is_err());
-        assert!(matches!(b.work(&"w".into()).unwrap().phase, Phase::Open));
-    }
-    #[test]
-    fn delivery_is_not_stakeholder_acceptance_and_positive_closure_works() {
-        let mut b = active(None, true);
-        let c = artifact(&mut b);
-        judge(&mut b, &c, "a", "yes", true);
-        release(&mut b, &c).unwrap();
-        deliver(&mut b);
-        assert_eq!(
-            reply(
-                &mut b,
-                "a",
-                vec![Command::CloseGoal {
-                    release: "release".into()
-                }],
-                ended()
-            ),
-            Err(WorkError::Unmet)
-        );
-        host(
-            &mut b,
-            RuntimeRight::StakeholderAcceptance,
-            RuntimeOperation::Stakeholder {
-                release: "release".into(),
-                accepts: true,
-                receipt: r("acceptance"),
-            },
-        )
-        .unwrap();
-        reply(
-            &mut b,
-            "a",
-            vec![Command::CloseGoal {
-                release: "release".into(),
-            }],
-            ended(),
-        )
-        .unwrap();
-        assert!(b.completion_supported(&"w".into()));
-    }
-    #[test]
-    fn closure_readiness_tracks_exact_release_latest_acceptance_and_staleness() {
-        let mut b = active(None, true);
-        let c = artifact(&mut b);
-        judge(&mut b, &c, "a", "yes", true);
-        release(&mut b, &c).unwrap();
-        let inspect = |b: &WorkBoard| b.closure_readiness(&"w".into(), &"release".into()).unwrap();
-        let saved = b.clone();
-        let status = inspect(&b);
-        assert_eq!(b, saved, "readiness is a read-only diagnostic");
-        assert!(status.release_current);
-        assert_eq!(status.missing_deliveries, set(["h".into()]));
-        assert_eq!(status.missing_stakeholder_acceptance, set(["h".into()]));
-        assert!(!status.ready);
-        deliver(&mut b);
-        assert!(inspect(&b).missing_deliveries.is_empty());
-        assert!(!inspect(&b).ready, "delivery cannot manufacture consent");
-
-        reply(
-            &mut b,
-            "a",
-            vec![Command::Release {
-                id: "another-release".into(),
-                shared: "shared".into(),
-            }],
-            ready(),
-        )
-        .unwrap();
-        host(
-            &mut b,
-            RuntimeRight::StakeholderAcceptance,
-            RuntimeOperation::Stakeholder {
-                release: "another-release".into(),
-                accepts: true,
-                receipt: r("other-release-acceptance"),
-            },
-        )
-        .unwrap();
-        assert!(
-            !inspect(&b).ready,
-            "another release's consent cannot transfer"
-        );
-        for (accepts, expected) in [(true, true), (false, false), (true, true)] {
-            host(
-                &mut b,
-                RuntimeRight::StakeholderAcceptance,
-                RuntimeOperation::Stakeholder {
-                    release: "release".into(),
-                    accepts,
-                    receipt: r(if accepts { "accepted" } else { "rejected" }),
-                },
-            )
-            .unwrap();
-            let status = inspect(&b);
-            assert_eq!(status.ready, expected);
-            assert_eq!(
-                status.ready,
-                closure_ready(b.work(&"w".into()).unwrap(), &"release".into())
-            );
-            assert_eq!(status.missing_stakeholder_acceptance.is_empty(), expected);
-        }
-        // An accepted exact-release decision cannot keep a now-stale release ready.
-        host(
-            &mut b,
-            RuntimeRight::Observation,
-            RuntimeOperation::EvidenceUnavailable {
-                id: "e".into(),
-                reason: "The required supporting observation became unavailable.".into(),
-            },
-        )
-        .unwrap();
-        assert!(!inspect(&b).release_current);
-        assert!(!inspect(&b).ready);
-        assert!(
-            !b.closure_readiness(&"w".into(), &"absent".into())
-                .unwrap()
-                .ready
-        );
-        assert!(b
-            .closure_readiness(&"missing".into(), &"release".into())
-            .is_err());
-    }
-
-    #[test]
-    fn changed_artifact_stales_assessment_without_changing_history() {
-        let mut b = active(Some(Independence::DistinctExecution), false);
-        let c = artifact(&mut b);
-        assess(&mut b, &c, true);
-        let old = b.work(&"w".into()).unwrap().assessments[0].clone();
-        judge(&mut b, &c, "a", "yes", true);
-        release(&mut b, &c).unwrap();
-        assert!(b.release_current(&"w".into(), &"release".into()));
-        reply(
-            &mut b,
-            "a",
-            vec![Command::PutArtifact {
-                id: "x".into(),
-                base: Some(c.artifacts[&OutcomeId::from("o")].clone()),
-                bytes: b"v2".to_vec(),
-                inputs: BTreeSet::new(),
-                policy: r("policy"),
-            }],
-            ready(),
-        )
-        .unwrap();
-        assert_eq!(
-            b.assessment_status(&"w".into(), &"assessment".into())
-                .unwrap(),
-            AssessmentStatus::Stale
-        );
-        assert_eq!(b.work(&"w".into()).unwrap().assessments[0], old);
-        assert!(!b.release_current(&"w".into(), &"release".into()));
-    }
-    #[test]
-    fn unknown_review_separation_is_not_independent() {
-        let mut b = active(Some(Independence::DistinctActor), false);
-        let c = artifact(&mut b);
-        assess(&mut b, &c, false);
-        judge(&mut b, &c, "a", "yes", true);
-        assert_eq!(
-            b.assessment_status(&"w".into(), &"assessment".into())
-                .unwrap(),
-            AssessmentStatus::NotQualified
-        );
-        assert_eq!(release(&mut b, &c), Err(WorkError::Unmet));
-    }
-    #[test]
-    fn missing_evidence_and_later_unavailability_cannot_pass() {
-        let mut b = active(Some(Independence::NotRequired), false);
-        let c = artifact(&mut b);
-        let a = c.artifacts[&OutcomeId::from("o")].clone();
-        let bad = AssessmentInput {
-            id: "bad".into(),
-            artifact: a,
-            criterion: r("criterion"),
-            role: "r".into(),
-            evidence: set(["invented".into()]),
-            passes: true,
-            explanation: "Commands succeeded".into(),
-            limitations: vec![],
-        };
-        let saved = b.clone();
-        assert_eq!(
-            reply(&mut b, "b", vec![Command::Assess(bad)], ready()),
-            Err(WorkError::Unmet)
-        );
-        assert_eq!(b, saved);
-        assess(&mut b, &c, false);
-        host(
-            &mut b,
-            RuntimeRight::Observation,
-            RuntimeOperation::EvidenceUnavailable {
-                id: "e".into(),
-                reason: "No longer available".into(),
-            },
-        )
-        .unwrap();
-        assert_eq!(
-            b.assessment_status(&"w".into(), &"assessment".into())
-                .unwrap(),
-            AssessmentStatus::Unverifiable
-        );
-    }
-    fn dependency(b: &mut WorkBoard) -> EventKey {
-        let key = EventKey {
-            dependency: r("dependency"),
-            epoch: b.work(&"w".into()).unwrap().version.epoch,
-        };
-        host(
-            b,
-            RuntimeRight::Observation,
-            RuntimeOperation::RegisterDependency(Dependency {
-                key: key.clone(),
-                accountability: Accountability::Owner("b".into()),
-            }),
-        )
-        .unwrap();
-        key
-    }
-    fn wait_for(key: &EventKey) -> Continuation {
-        Continuation::Wait {
-            dependency: key.dependency.clone(),
-            deadline: 30,
-            purpose: "Await the exact dependency".into(),
-        }
-    }
-    #[test]
-    fn wait_registration_has_no_lost_wake_on_either_side_and_replay_is_not_fresh() {
-        for before in [false, true] {
-            let mut b = active(None, false);
-            let key = dependency(&mut b);
-            let event = Event {
-                key: key.clone(),
-                observation: r("event"),
-            };
-            if before {
-                host(
-                    &mut b,
-                    RuntimeRight::Observation,
-                    RuntimeOperation::Event(event.clone()),
-                )
-                .unwrap();
-            }
-            reply(&mut b, "a", vec![], wait_for(&key)).unwrap();
-            if !before {
-                host(
-                    &mut b,
-                    RuntimeRight::Observation,
-                    RuntimeOperation::Event(event.clone()),
-                )
-                .unwrap();
-            }
-            let recovered = b.clone();
-            assert_eq!(
-                recovered
-                    .participant(&"w".into(), &"a".into())
-                    .unwrap()
-                    .continuation,
-                Some(wait_for(&key))
-            );
-            assert_eq!(
-                eligibility(recovered.work(&"w".into()).unwrap(), &"a".into(), 10),
-                Some(OpportunityCause::Event(key.clone()))
-            );
-            let mut ctx = context(&b, "a");
-            ctx.observed.insert(key.clone());
-            b.apply_response(
-                &ctx,
-                DecisionResponse {
-                    commands: vec![],
-                    continuation: wait_for(&key),
-                },
-            )
-            .unwrap();
-            host(
-                &mut b,
-                RuntimeRight::Observation,
-                RuntimeOperation::Event(event),
-            )
-            .unwrap();
-            assert_eq!(
-                eligibility(b.work(&"w".into()).unwrap(), &"a".into(), 10),
-                None
-            );
-        }
-    }
-    #[test]
-    fn event_between_inspection_and_registration_rejects_stale_batch() {
-        let mut b = active(None, false);
-        let key = dependency(&mut b);
-        let ctx = context(&b, "a");
-        host(
-            &mut b,
-            RuntimeRight::Observation,
-            RuntimeOperation::Event(Event {
-                key: key.clone(),
-                observation: r("event"),
-            }),
-        )
-        .unwrap();
-        let saved = b.clone();
-        assert!(matches!(
-            b.apply_response(
-                &ctx,
-                DecisionResponse {
-                    commands: vec![],
-                    continuation: wait_for(&key)
-                }
-            ),
-            Err(WorkError::StaleRevision { .. })
-        ));
-        assert_eq!(b, saved);
-        reply(&mut b, "a", vec![], wait_for(&key)).unwrap();
-        assert!(b
-            .participant(&"w".into(), &"a".into())
-            .unwrap()
-            .wake
-            .is_some());
-    }
-    #[test]
-    fn resource_block_and_everyone_paused_are_not_completion() {
-        let mut b = active(None, false);
-        reply(
-            &mut b,
-            "a",
-            vec![],
-            Continuation::Blocked {
-                reason: "Resources exhausted".into(),
-                accountability: Accountability::Gap("No accepted capacity owner".into()),
-                reconsider_at: 40,
-            },
-        )
-        .unwrap();
-        reply(
-            &mut b,
-            "b",
-            vec![],
-            Continuation::Paused {
-                reason: "Explicit pause".into(),
-            },
-        )
-        .unwrap();
-        assert!(b.next_eligible(None, &BTreeSet::new(), 10).is_none());
-        assert!(matches!(b.work(&"w".into()).unwrap().phase, Phase::Open));
-        assert_eq!(
-            reply(&mut b, "a", vec![], ended()),
-            Err(WorkError::Unauthorized)
-        );
-        host(
-            &mut b,
-            RuntimeRight::Governance,
-            RuntimeOperation::End {
-                kind: EndingKind::Unfinished,
-                reason: "Authorized unfinished ending".into(),
-            },
-        )
-        .unwrap();
-        assert!(!b.completion_supported(&"w".into()));
-    }
-    #[test]
-    fn canceled_work_is_not_revived_by_resume_or_late_events() {
-        let mut b = active(None, false);
-        let key = dependency(&mut b);
-        reply(&mut b, "a", vec![], wait_for(&key)).unwrap();
-        host(
-            &mut b,
-            RuntimeRight::Governance,
-            RuntimeOperation::End {
-                kind: EndingKind::Canceled,
-                reason: "Canceled by authority".into(),
-            },
-        )
-        .unwrap();
-        assert_eq!(
-            host(&mut b, RuntimeRight::Governance, RuntimeOperation::Resume),
-            Err(WorkError::Stopped)
-        );
-        host(
-            &mut b,
-            RuntimeRight::Observation,
-            RuntimeOperation::Event(Event {
-                key,
-                observation: r("late"),
-            }),
-        )
-        .unwrap();
-        assert!(b.next_eligible(None, &BTreeSet::new(), 100).is_none());
-        assert!(b
-            .participant(&"w".into(), &"a".into())
-            .unwrap()
-            .wake
-            .is_none());
-        let mut mandate = b.work(&"w".into()).unwrap().mandate().clone();
-        mandate.authority = r("new-authorization");
-        let ctx = RuntimeContext::from_runtime(
-            "new".into(),
-            Version {
-                revision: 0,
-                epoch: 0,
-            },
-            mandate.authority.clone(),
-            Origin::Human("h".into()),
-            RuntimeRight::NewAuthorization,
-        );
-        b.reauthorize(&ctx, &"w".into(), mandate).unwrap();
-        assert!(b.work(&"new".into()).unwrap().acceptances.is_empty());
-        assert!(matches!(
-            b.work(&"w".into()).unwrap().phase,
-            Phase::Ended { .. }
-        ));
-    }
-    #[test]
-    fn valid_handoff_race_has_one_winner_and_offer_keeps_sender_responsible() {
-        let mut b = board(None, false);
-        invite(&mut b, "oa", "a", terms(true, false));
-        accept(&mut b, "oa", "a", terms(true, false));
-        reply(
-            &mut b,
-            "a",
-            vec![
-                Command::OfferHandoff {
-                    id: "to-b".into(),
-                    to: "b".into(),
-                },
-                Command::OfferHandoff {
-                    id: "to-c".into(),
-                    to: "c".into(),
-                },
-            ],
-            ready(),
-        )
-        .unwrap();
-        assert_eq!(
-            b.work(&"w".into()).unwrap().ownership(&"o".into()),
-            Accountability::Owner("a".into())
-        );
-        let ctx_b = context(&b, "b");
-        let ctx_c = context(&b, "c");
-        b.apply_response(
-            &ctx_b,
-            DecisionResponse {
-                commands: vec![Command::Accept {
-                    offer: "to-b".into(),
-                    exact_terms: terms(true, false),
-                }],
-                continuation: ready(),
-            },
-        )
-        .unwrap();
-        let saved = b.clone();
-        assert!(matches!(
-            b.apply_response(
-                &ctx_c,
-                DecisionResponse {
-                    commands: vec![Command::Accept {
-                        offer: "to-c".into(),
-                        exact_terms: terms(true, false)
-                    }],
-                    continuation: ready()
-                }
-            ),
-            Err(WorkError::StaleRevision { .. })
-        ));
-        assert_eq!(b, saved);
-        assert!(reply(
-            &mut b,
-            "c",
-            vec![Command::Accept {
-                offer: "to-c".into(),
-                exact_terms: terms(true, false)
-            }],
-            ready()
-        )
-        .is_err());
-        assert_eq!(
-            b.work(&"w".into()).unwrap().ownership(&"o".into()),
-            Accountability::Owner("b".into())
-        );
-    }
-    #[test]
-    fn unchanged_qualified_result_survives_activity_and_round_robin_is_deterministic() {
-        let mut b = active(Some(Independence::DistinctExecution), false);
-        let c = artifact(&mut b);
-        assess(&mut b, &c, true);
-        judge(&mut b, &c, "a", "yes", true);
-        release(&mut b, &c).unwrap();
-        reply(&mut b, "b", vec![], ready()).unwrap();
-        assert!(b.release_current(&"w".into(), &"release".into()));
-        let first = b.next_eligible(None, &BTreeSet::new(), 10).unwrap();
-        let cursor = (first.work.clone(), first.persona.clone());
-        let second = b
-            .next_eligible(Some(&cursor), &BTreeSet::new(), 10)
-            .unwrap();
-        assert_ne!(first.persona, second.persona);
-        let wrapped = b
-            .next_eligible(Some(&(second.work, second.persona)), &BTreeSet::new(), 10)
-            .unwrap();
-        assert_eq!(wrapped.persona, first.persona);
-        deliver(&mut b);
-        reply(
-            &mut b,
-            "a",
-            vec![Command::CloseGoal {
-                release: "release".into(),
-            }],
-            ended(),
-        )
-        .unwrap();
-        assert!(b.completion_supported(&"w".into()));
-    }
-    #[test]
-    fn changed_blocker_history_never_revives_an_accepted_release() {
-        let mut b = active(None, true);
-        let c = artifact(&mut b);
-        judge(&mut b, &c, "a", "yes", true);
-        release(&mut b, &c).unwrap();
-        deliver(&mut b);
-        host(
-            &mut b,
-            RuntimeRight::StakeholderAcceptance,
-            RuntimeOperation::Stakeholder {
-                release: "release".into(),
-                accepts: true,
-                receipt: r("acceptance"),
-            },
-        )
-        .unwrap();
-        let original = b.work(&"w".into()).unwrap().clone();
-        assert!(closure_ready(&original, &"release".into()));
-        reply(
-            &mut b,
-            "b",
-            vec![Command::Finding {
-                id: "later-issue".into(),
-                artifact: None,
-                text: "A concern adopted after delivery and acceptance".into(),
-                evidence: BTreeSet::new(),
-            }],
-            ready(),
-        )
-        .unwrap();
-        for is_open in [true, false] {
-            host(
-                &mut b,
-                RuntimeRight::Governance,
-                RuntimeOperation::Blocker {
-                    finding: "later-issue".into(),
-                    open: is_open,
-                    accountability: Accountability::Owner("b".into()),
-                    rule: r("blocker-rule"),
-                    explanation: "Explicit governance disposition".into(),
-                },
-            )
-            .unwrap();
-            assert!(!b.release_current(&"w".into(), &"release".into()));
-            let saved = b.clone();
-            assert_eq!(
-                reply(
-                    &mut b,
-                    "a",
-                    vec![Command::CloseGoal {
-                        release: "release".into()
-                    }],
-                    ended()
-                ),
-                Err(WorkError::Unmet)
-            );
-            assert_eq!(b, saved);
-        }
-        reply(
-            &mut b,
-            "a",
-            vec![Command::Release {
-                id: "release-2".into(),
-                shared: "shared".into(),
-            }],
-            ready(),
-        )
-        .unwrap();
-        assert_eq!(
-            b.work(&"w".into()).unwrap().releases[&RecordId::from("release-2")]
-                .blocker_dispositions,
-            2
-        );
-        assert!(b.release_current(&"w".into(), &"release-2".into()));
-        assert!(!b.release_current(&"w".into(), &"release".into()));
-        let saved = b.clone();
-        assert_eq!(
-            reply(
-                &mut b,
-                "a",
-                vec![Command::CloseGoal {
-                    release: "release-2".into()
-                }],
-                ended()
-            ),
-            Err(WorkError::Unmet)
-        );
-        assert_eq!(b, saved);
-        host(
-            &mut b,
-            RuntimeRight::Observation,
-            RuntimeOperation::Delivered {
-                id: "delivery-2".into(),
-                release: "release-2".into(),
-                recipient: "h".into(),
-                receipt: r("delivery-2"),
-            },
-        )
-        .unwrap();
-        let saved = b.clone();
-        assert_eq!(
-            reply(
-                &mut b,
-                "a",
-                vec![Command::CloseGoal {
-                    release: "release-2".into()
-                }],
-                ended()
-            ),
-            Err(WorkError::Unmet)
-        );
-        assert_eq!(b, saved);
-        host(
-            &mut b,
-            RuntimeRight::StakeholderAcceptance,
-            RuntimeOperation::Stakeholder {
-                release: "release-2".into(),
-                accepts: true,
-                receipt: r("acceptance-2"),
-            },
-        )
-        .unwrap();
-        reply(
-            &mut b,
-            "a",
-            vec![Command::CloseGoal {
-                release: "release-2".into(),
-            }],
-            ended(),
-        )
-        .unwrap();
-        assert!(b.completion_supported(&"w".into()));
-        let w = b.work(&"w".into()).unwrap();
-        assert_eq!(
-            w.releases[&RecordId::from("release")],
-            original.releases[&RecordId::from("release")]
-        );
-        assert_eq!(w.deliveries[0], original.deliveries[0]);
-        assert_eq!(
-            w.stakeholder_decisions[0],
-            original.stakeholder_decisions[0]
-        );
-    }
-    #[test]
-    fn handoff_checks_dependencies_at_acceptance_even_after_event_arrival() {
-        let mut b = active(None, false);
-        artifact(&mut b);
-        reply(
-            &mut b,
-            "a",
-            vec![Command::OfferHandoff {
-                id: "to-c".into(),
-                to: "c".into(),
-            }],
-            ready(),
-        )
-        .unwrap();
-        let key = EventKey {
-            dependency: r("sender-dependency"),
-            epoch: b.work(&"w".into()).unwrap().version.epoch,
-        };
-        host(
-            &mut b,
-            RuntimeRight::Observation,
-            RuntimeOperation::RegisterDependency(Dependency {
-                key: key.clone(),
-                accountability: Accountability::Owner("a".into()),
-            }),
-        )
-        .unwrap();
-        reply(&mut b, "b", vec![], wait_for(&key)).unwrap();
-        for event_arrived in [false, true] {
-            if event_arrived {
-                host(
-                    &mut b,
-                    RuntimeRight::Observation,
-                    RuntimeOperation::Event(Event {
-                        key: key.clone(),
-                        observation: r("sender-event"),
-                    }),
-                )
-                .unwrap();
-            }
-            let saved = b.clone();
-            assert_eq!(
-                reply(
-                    &mut b,
-                    "c",
-                    vec![Command::Accept {
-                        offer: "to-c".into(),
-                        exact_terms: terms(true, false)
-                    }],
-                    ready()
-                ),
-                Err(WorkError::Unsupported(
-                    "handoff while a current dependency names the sender as owner"
-                ))
-            );
-            assert_eq!(b, saved);
-            assert_eq!(
-                b.work(&"w".into()).unwrap().ownership(&"o".into()),
-                Accountability::Owner("a".into())
-            );
-        }
-    }
-    #[test]
-    fn handoff_requires_live_blocker_disposition_and_preserves_human_history() {
-        for remains_open in [false, true] {
-            let mut b = active(None, false);
-            artifact(&mut b);
-            reply(
-                &mut b,
-                "a",
-                vec![
-                    Command::Finding {
-                        id: "issue".into(),
-                        artifact: None,
-                        text: "Accountable obligation".into(),
-                        evidence: BTreeSet::new(),
-                    },
-                    Command::OfferHandoff {
-                        id: "to-c".into(),
-                        to: "c".into(),
-                    },
-                ],
-                ready(),
-            )
-            .unwrap();
-            host(
-                &mut b,
-                RuntimeRight::Governance,
-                RuntimeOperation::Blocker {
-                    finding: "issue".into(),
-                    open: true,
-                    accountability: Accountability::Owner("a".into()),
-                    rule: r("blocker-rule"),
-                    explanation: "Human authority assigned this obligation".into(),
-                },
-            )
-            .unwrap();
-            let saved = b.clone();
-            assert_eq!(
-                reply(
-                    &mut b,
-                    "c",
-                    vec![Command::Accept {
-                        offer: "to-c".into(),
-                        exact_terms: terms(true, false)
-                    }],
-                    ready()
-                ),
-                Err(WorkError::Unsupported(
-                    "handoff while an open blocker names the sender as owner"
-                ))
-            );
-            assert_eq!(b, saved);
-            let accountability = if remains_open {
-                Accountability::Gap("Explicitly authorized unresolved ownership gap".into())
-            } else {
-                Accountability::Owner("a".into())
-            };
-            assert_eq!(
-                host(
-                    &mut b,
-                    RuntimeRight::Observation,
-                    RuntimeOperation::Blocker {
-                        finding: "issue".into(),
-                        open: remains_open,
-                        accountability: accountability.clone(),
-                        rule: r("disposition-rule"),
-                        explanation: "Explicit resolution or ownership gap".into()
-                    }
-                ),
-                Err(WorkError::Unauthorized)
-            );
-            assert_eq!(b, saved);
-            host(
-                &mut b,
-                RuntimeRight::Governance,
-                RuntimeOperation::Blocker {
-                    finding: "issue".into(),
-                    open: remains_open,
-                    accountability,
-                    rule: r("disposition-rule"),
-                    explanation: "Explicit resolution or ownership gap".into(),
-                },
-            )
-            .unwrap();
-            let historical = b.work(&"w".into()).unwrap().clone();
-            let ctx = context(&b, "c");
-            b.apply_response(
-                &ctx,
-                DecisionResponse {
-                    commands: vec![Command::Accept {
-                        offer: "to-c".into(),
-                        exact_terms: terms(true, false),
-                    }],
-                    continuation: ready(),
-                },
-            )
-            .unwrap();
-            let w = b.work(&"w".into()).unwrap();
-            assert!(w.acceptance(&"a".into()).is_none());
-            assert_eq!(
-                w.acceptance(&"c".into()).unwrap().0,
-                &RecordId::from("to-c")
-            );
-            assert_eq!(w.ownership(&"o".into()), Accountability::Owner("c".into()));
-            assert_eq!(
-                w.acceptances[&RecordId::from("to-c")].by,
-                Attribution {
-                    persona: "c".into(),
-                    invocation: ctx.invocation.clone(),
-                    version: ctx.version
-                }
-            );
-            assert_eq!(
-                w.offers[&RecordId::from("to-c")].status,
-                OfferStatus::Accepted(w.acceptances[&RecordId::from("to-c")].by.clone())
-            );
-            assert_eq!(
-                w.acceptances[&RecordId::from("oa")],
-                historical.acceptances[&RecordId::from("oa")]
-            );
-            assert_eq!(w.findings, historical.findings);
-            assert_eq!(w.blocker_dispositions, historical.blocker_dispositions);
-            assert_eq!(
-                w.artifacts[&ArtifactId::from("x")].owner,
-                PersonaId::from("c")
-            );
-            assert_eq!(
-                w.artifacts[&ArtifactId::from("x")].revisions,
-                historical.artifacts[&ArtifactId::from("x")].revisions
-            );
-        }
-    }
-    #[test]
-    fn handoff_refuses_another_participants_live_blocked_accountability() {
-        let mut b = active(None, false);
-        reply(
-            &mut b,
-            "a",
-            vec![Command::OfferHandoff {
-                id: "to-c".into(),
-                to: "c".into(),
-            }],
-            ready(),
-        )
-        .unwrap();
-        reply(
-            &mut b,
-            "b",
-            vec![],
-            Continuation::Blocked {
-                reason: "Awaiting the accountable owner".into(),
-                accountability: Accountability::Owner("a".into()),
-                reconsider_at: 40,
-            },
-        )
-        .unwrap();
-        let saved = b.clone();
-        assert_eq!(
-            reply(
-                &mut b,
-                "c",
-                vec![Command::Accept {
-                    offer: "to-c".into(),
-                    exact_terms: terms(true, false)
-                }],
-                ready()
-            ),
-            Err(WorkError::Unsupported(
-                "handoff while a blocked continuation names the sender as owner"
-            ))
-        );
-        assert_eq!(b, saved);
-        reply(
-            &mut b,
-            "b",
-            vec![],
-            Continuation::Blocked {
-                reason: "Explicitly reconsidered ownership".into(),
-                accountability: Accountability::Gap("No accepted owner for this obligation".into()),
-                reconsider_at: 40,
-            },
-        )
-        .unwrap();
-        let waiting = b.participant(&"w".into(), &"b".into()).unwrap().clone();
-        accept(&mut b, "to-c", "c", terms(true, false));
-        assert_eq!(b.participant(&"w".into(), &"b".into()), Some(&waiting));
-        assert_eq!(
-            b.work(&"w".into()).unwrap().ownership(&"o".into()),
-            Accountability::Owner("c".into())
-        );
-    }
-    #[test]
-    fn legacy_wait_binding_cannot_name_a_departed_owner() {
-        let mut b = active(None, false);
-        let key = dependency(&mut b);
-        // Recovery fixture: a legacy dependency still names an owner without acceptance.
-        let owner = b
-            .works
-            .get_mut(&WorkId::from("w"))
-            .unwrap()
-            .participants
-            .get_mut(&PersonaId::from("b"))
-            .unwrap();
-        owner.acceptance = None;
-        owner.continuation = Some(ended());
-        owner.wake = None;
-        let saved = b.clone();
-        assert_eq!(
-            reply(&mut b, "a", vec![], wait_for(&key)),
-            Err(WorkError::NotAccepted)
-        );
-        assert_eq!(b, saved);
-    }
-    #[test]
-    fn exact_event_redelivery_preserves_pending_decisions_and_consumed_wakes() {
-        let mut b = active(None, false);
-        let key = dependency(&mut b);
-        reply(&mut b, "a", vec![], wait_for(&key)).unwrap();
-        let event = Event {
-            key: key.clone(),
-            observation: r("event"),
-        };
-        let prior_version = b.work(&"w".into()).unwrap().version;
-        host(
-            &mut b,
-            RuntimeRight::Observation,
-            RuntimeOperation::Event(event.clone()),
-        )
-        .unwrap();
-        assert_eq!(
-            b.work(&"w".into()).unwrap().version,
-            Version {
-                revision: prior_version.revision + 1,
-                epoch: prior_version.epoch
-            }
-        );
-        let mut pending = context(&b, "a");
-        pending.observed.insert(key.clone());
-        let saved = b.clone();
-        for _ in 0..3 {
-            host(
-                &mut b,
-                RuntimeRight::Observation,
-                RuntimeOperation::Event(event.clone()),
-            )
-            .unwrap();
-            assert_eq!(b, saved);
-        }
-        b.apply_response(
-            &pending,
-            DecisionResponse {
-                commands: vec![],
-                continuation: wait_for(&key),
-            },
-        )
-        .unwrap();
-        let saved = b.clone();
-        host(
-            &mut b,
-            RuntimeRight::Observation,
-            RuntimeOperation::Event(event),
-        )
-        .unwrap();
-        assert_eq!(b, saved);
-        assert_eq!(
-            eligibility(b.work(&"w".into()).unwrap(), &"a".into(), 10),
-            None
-        );
-    }
-    #[test]
-    fn duplicate_events_still_require_current_authorized_context_and_exact_content() {
-        let mut b = active(None, false);
-        let key = dependency(&mut b);
-        let event = Event {
-            key: key.clone(),
-            observation: r("event"),
-        };
-        let stale = runtime(&b, RuntimeRight::Observation);
-        host(
-            &mut b,
-            RuntimeRight::Observation,
-            RuntimeOperation::Event(event.clone()),
-        )
-        .unwrap();
-        let saved = b.clone();
-        assert!(matches!(
-            b.observe(&stale, RuntimeOperation::Event(event.clone())),
-            Err(WorkError::StaleRevision { .. })
-        ));
-        assert_eq!(b, saved);
-        let mut wrong_epoch = runtime(&b, RuntimeRight::Observation);
-        wrong_epoch.version.epoch += 1;
-        assert!(matches!(
-            b.observe(&wrong_epoch, RuntimeOperation::Event(event.clone())),
-            Err(WorkError::StaleEpoch { .. })
-        ));
-        assert_eq!(b, saved);
-        assert_eq!(
-            host(
-                &mut b,
-                RuntimeRight::Governance,
-                RuntimeOperation::Event(event.clone())
-            ),
-            Err(WorkError::Unauthorized)
-        );
-        assert_eq!(b, saved);
-        let mut wrong_authority = runtime(&b, RuntimeRight::Observation);
-        wrong_authority.authority = r("other-authority");
-        assert_eq!(
-            b.observe(&wrong_authority, RuntimeOperation::Event(event)),
-            Err(WorkError::Unauthorized)
-        );
-        assert_eq!(b, saved);
-        assert_eq!(
-            host(
-                &mut b,
-                RuntimeRight::Observation,
-                RuntimeOperation::Event(Event {
-                    key,
-                    observation: r("different-event")
-                })
-            ),
-            Err(WorkError::Conflict)
-        );
-        assert_eq!(b, saved);
-    }
-    #[test]
-    fn duplicate_event_does_not_need_an_available_revision_number() {
-        let mut b = active(None, false);
-        let key = dependency(&mut b);
-        let event = Event {
-            key,
-            observation: r("event"),
-        };
-        host(
-            &mut b,
-            RuntimeRight::Observation,
-            RuntimeOperation::Event(event.clone()),
-        )
-        .unwrap();
-        b.works
-            .get_mut(&WorkId::from("w"))
-            .unwrap()
-            .version
-            .revision = u64::MAX;
-        let saved = b.clone();
-        host(
-            &mut b,
-            RuntimeRight::Observation,
-            RuntimeOperation::Event(event),
-        )
-        .unwrap();
-        assert_eq!(b, saved);
-        assert_eq!(
-            reply(&mut b, "b", vec![], ready()),
-            Err(WorkError::Invalid("counter overflow"))
-        );
-        assert_eq!(b, saved);
-    }
-    #[test]
-    fn invalid_tail_rolls_back_whole_response_and_serializable_state_is_explicit() {
-        fn serializable<T: Serialize + for<'de> Deserialize<'de>>() {}
-        serializable::<WorkBoard>();
-        let mut b = active(None, false);
-        let saved = b.clone();
-        assert!(reply(
-            &mut b,
-            "a",
-            vec![
-                Command::Finding {
-                    id: "f".into(),
-                    artifact: None,
-                    text: "Valid prefix".into(),
-                    evidence: BTreeSet::new()
-                },
-                Command::Release {
-                    id: "r".into(),
-                    shared: "missing".into()
-                }
-            ],
-            ready()
-        )
-        .is_err());
-        assert_eq!(b, saved);
     }
 }
