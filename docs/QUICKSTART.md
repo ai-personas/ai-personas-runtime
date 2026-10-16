@@ -1,6 +1,6 @@
 # From a need to a local result
 
-After one explicit setup, give the saved cohort a need with `ai-personas run '…'`. The command works in the foreground within finite limits, then returns a result or explains why it stopped. Later needs reuse the same personas and their retained state.
+After one explicit setup, launch from the checkout with `./personas` and enter one need, or use `./personas '…'`. The [launcher](launcher.md) uses an existing installation and saved settings; it performs no automatic setup or access renewal. The underlying `ai-personas run '…'` interface remains available. Each command works in the foreground within finite limits, then returns a result or explains why it stopped. Later needs reuse the same personas and their retained state.
 
 ![Three scenes: a person gives a fictional game-night request at a desk; three distinct persona workspaces select bounded pages from separate own-voice fragment and supporting-asset shelves; a shared handoff reaches a local inbox, beside a bookmark for paused work. The figures are conceptual, not people with lived experience.](assets/need-to-result.svg)
 
@@ -38,7 +38,7 @@ For example, a fictional planning request:
 ai-personas run 'Draft a short guide for a fictional tabletop game night. Leave the date and guest count open.'
 ```
 
-The designated owner receives an offer to own the result; the others receive contribution offers. Personas decide whether to accept and how to help. The output prints a work ID. Substitute that actual ID for `WORK_ID`:
+Every cohort member receives the same neutral invitation to consider or contribute voluntarily. The runtime assigns no owner or reviewer. Personas propose responsibilities and decision arrangements within the existing delegation; affected participants must accept their exact terms. The output prints a work ID. Substitute that actual ID for `WORK_ID`:
 
 ```sh
 ai-personas result WORK_ID
@@ -46,9 +46,9 @@ ai-personas result WORK_ID --json
 ai-personas run --resume WORK_ID
 ```
 
-`result` performs no inference. It shows currently permitted accepted messages and local delivery content, with attribution and required qualifications. `run --resume` explicitly continues eligible work within the saved allowance. It does not replay a call, reset resources, or resume a persona's Stop, later character fence, failed call, or unresolved transport.
+`result` performs no inference. It shows currently permitted accepted messages and local delivery content, with attribution and required qualifications. `run --resume` explicitly continues eligible work within the saved allowance. It does not replay a call, reset resources, or override a persona's Stop, work pause, failed call, unresolved transport, or character-change fence. A previously accepted ordinary continuation remains subject to its existing eligibility rules.
 
-By default, one foreground command attempts at most 12 steps and considers at most 128 participant entries. Work, saved-cohort and storage limits also apply. A wait returns to the shell; there is no background daemon or automatic retry. The initial accepted character receives one recorded handover. Later character changes and recovery boundaries require their existing explicit controls. Inspect a held or uncertain attempt before deciding on recovery; another `run --resume` is not a universal repair command.
+By default, one foreground command attempts at most 12 steps and considers at most 128 participant entries. Work, saved-cohort and storage limits also apply. A wait returns to the shell; there is no background daemon or automatic retry. The initial accepted character receives one recorded handover. Later character changes retain their fresh-decision fence and any earlier accepted ordinary continuation; stops and recovery boundaries still require their existing explicit controls. Inspect a held or uncertain attempt before deciding on recovery; another `run --resume` is not a universal repair command.
 
 ## Read the outcome literally
 
@@ -69,7 +69,7 @@ Human acceptance is optional unless explicitly required when starting the need:
 ai-personas run --require-acceptance 'Draft the fictional game-night guide for my explicit review.'
 ```
 
-That session stops at the acceptance boundary. A real human decision must be recorded separately. `result WORK_ID --json` supplies historical `human_decision_pointers`, not a complete authorized acceptance request. An operator must inspect the current work authority/version with `status`, bind the exact retained release and delivery, and supply the human's actual statement and acceptance or rejection. See the [bounded stakeholder input contract](../README.md#foreground-cohort-workflow) before using:
+Required human acceptance gates the affected completion claim; it does not force independent authorized improvement to stop. A real human decision must be recorded separately. `result WORK_ID --json` supplies historical `human_decision_pointers`, not a complete authorized acceptance request. An operator must inspect the current work authority/version with `status`, bind the exact retained release and delivery, and supply the human's actual statement and acceptance or rejection. See the [bounded stakeholder input contract](../RUNTIME-REFERENCE.md#foreground-cohort-workflow) before using:
 
 ```sh
 ai-personas --state-root /actual/saved/state --operator local-operator status
@@ -85,4 +85,4 @@ This command neither invents consent nor resumes or completes work. Explicit `ru
 2. **Three separate workspaces.** Each persona reasons with its accepted character and own voice. It can request bounded file discovery and choose exact permitted fragments and supporting assets for later calls. Tools, skills, knowledge, data, and history remain supporting assets. Stored, discovered, selected, supplied, and used are different states; shelves are not loaded wholesale. Useful revision and organization are discretionary, under the same authority and limits.
 3. **Shared handoff, local inbox, saved bookmark.** Accepted contributions can inform a result. Local delivery, collective completion, human acceptance, and an individual's continuation remain separate. Pausing preserves the work's place; restarting the application is not permission to replay an uncertain call or erase responsibilities.
 
-For the deeper design, see the [illustrated guide at revision 294d5c6](https://github.com/ai-personas/ai-personas-design/blob/294d5c6bf29b6d5fe597c40b4c9c33e9da3bc03c/VISUAL-GUIDE.md) and [runtime limits](../README.md). This quickstart describes the current bounded local workflow, not unattended production operation or full design conformance.
+For the deeper design, see the [illustrated guide at canonical revision 17f165b](https://github.com/ai-personas/ai-personas-design/blob/17f165b156ee5962e290a7e2326bba3f81ad2069/VISUAL-GUIDE.md) and [detailed baseline runtime limits](../RUNTIME-REFERENCE.md). This quickstart describes the current bounded local workflow, not unattended production operation or full design conformance.

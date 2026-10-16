@@ -1,0 +1,188 @@
+#!/bin/sh
+# Thin foreground launcher. The selected runtime owns all state and admission.
+# Do not source configuration, inspect credentials, probe providers, or retry.
+set -eu
+
+usage() {
+    printf '%s\n' 'Usage: ./personas [OPTIONS] "Your need"
+       ./personas [OPTIONS]                 # prompt once on a terminal
+       ./personas [OPTIONS] --resume WORK
+       ./personas [OPTIONS] --result WORK
+
+Use the existing installation and saved provider configuration. No automatic
+setup, sign-in, refresh, build, state reset, recovery, or model substitution.
+A run can use paid inference within the saved authorization and finite limits.
+
+Options (values are separate arguments):
+  --state-root PATH       Existing private state; otherwise runtime defaults
+  --operator ID           Existing operator attribution
+  --json                  Structured output (native SIWC always emits JSON)
+  --require-acceptance    Require human acceptance for a NEW ordinary run
+  --resume WORK          Continue only already eligible work; not a recovery
+  --result WORK          Read the ordinary result; no inference or vault use
+  --vault PATH           Explicit existing SIWC vault; never auto-discovered
+  --authorize            Required with --vault, for this one native run only
+  --                     Treat the next single argument as the exact need
+  -h, --help             Show this help without opening state or credentials
+
+Binary selection: an explicit absolute PERSONAS_BIN (or PERSONAS_AUTH_BIN for
+--vault), then the named binary on PATH, then this checkout/target/release.
+A bad explicit path fails; no fallback. Nothing is installed automatically.
+
+Missing setup or access? See docs/launcher.md and docs/direct-provider.md.
+Prepare real verified DirectSettings and separately authorize credential access,
+then explicitly run ai-personas --operator OP setup --provider-config FILE
+--working-directory DIR --destination DEST --share-cohort --allow-direct-provider.
+Keep state and secrets outside repositories. For existing SIWC accounts use
+--vault, --authorize, an absolute --state-root and --operator; see docs/activation.md.
+Sign-in alone does not create verified provider settings. No defaults or evidence
+are invented. Held, stopped or uncertain work needs its existing explicit controls.'
+}
+
+fail() {
+    printf 'personas: %s\nSee ./personas --help and docs/launcher.md.\n' "$1" >&2
+    exit "${2:-2}"
+}
+
+state_root=
+operator=
+vault=
+work=
+need=
+mode=need
+have_need=false
+json=false
+acceptance=false
+authorize=false
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -h|--help) usage; exit 0 ;;
+        --state-root|--operator|--vault|--resume|--result)
+            [ "$#" -ge 2 ] && [ -n "$2" ] || fail 'An option value is missing.'
+            case "$2" in -*) fail 'An option value looks like another option; use an explicit path or identifier.' ;; esac
+            case "$1" in
+                --state-root)
+                    [ -z "$state_root" ] || fail 'Duplicate --state-root.'
+                    state_root=$2 ;;
+                --operator)
+                    [ -z "$operator" ] || fail 'Duplicate --operator.'
+                    operator=$2 ;;
+                --vault)
+                    [ -z "$vault" ] || fail 'Duplicate --vault.'
+                    vault=$2 ;;
+                --resume|--result)
+                    [ "$mode" = need ] || fail 'Choose only one of --resume and --result.'
+                    mode=${1#--}
+                    work=$2 ;;
+            esac
+            shift 2 ;;
+        --json) json=true; shift ;;
+        --require-acceptance) acceptance=true; shift ;;
+        --authorize) authorize=true; shift ;;
+        --)
+            shift
+            [ "$#" -eq 1 ] && [ "$have_need" = false ] || fail 'Pass one quoted need after --.'
+            need=$1
+            have_need=true
+            shift ;;
+        -*) fail 'Unknown option. Use -- before a need starting with a dash.' ;;
+        *)
+            [ "$have_need" = false ] || fail 'Pass the entire need as one quoted argument.'
+            need=$1
+            have_need=true
+            shift ;;
+    esac
+done
+
+if [ "$mode" != need ]; then
+    [ "$have_need" = false ] || fail 'A need cannot accompany --resume or --result.'
+    [ "$acceptance" = false ] || fail '--require-acceptance applies only to a new need.'
+fi
+if [ -n "$vault" ]; then
+    [ "$mode" != result ] || fail 'Result inspection uses no vault; omit --vault and --authorize.'
+    [ "$authorize" = true ] || fail '--vault requires explicit --authorize for this one native run.'
+    [ "$acceptance" = false ] || fail 'Native SIWC does not expose --require-acceptance; no requirement was discarded.'
+    case "$vault" in /*) ;; *) fail 'Native SIWC requires an absolute --vault path.' ;; esac
+    case "$state_root" in /*) ;; *) fail 'Native SIWC requires an explicit absolute --state-root.' ;; esac
+    [ -n "$operator" ] || fail 'Native SIWC requires the existing --operator.'
+else
+    [ "$authorize" = false ] || fail '--authorize is only for an explicit --vault run.'
+fi
+
+# Resolve only executable locations. Never read a Store, vault, .env or settings.
+# A subshell finds the checkout without changing the runtime working directory.
+case "$0" in
+    */*) launcher_path=$0 ;;
+    *) launcher_path=$(command -v "$0") || fail 'Cannot locate this launcher.' ;;
+esac
+launcher_dir=${launcher_path%/*}
+case "$launcher_dir" in /*) ;; *) launcher_dir=./$launcher_dir ;; esac
+launcher_dir=$(CDPATH= cd -P "$launcher_dir" && pwd -P) || fail 'Cannot locate this checkout.'
+
+choose_binary() {
+    binary_name=$1
+    override=$2
+    override_set=$3
+    if [ "$override_set" = x ]; then
+        case "$override" in /*) ;; *) fail 'The explicit binary override must be an absolute executable path.' 126 ;; esac
+        [ -f "$override" ] && [ -x "$override" ] || fail 'The explicit binary override is not executable; no fallback attempted.' 126
+        binary=$override
+        return
+    fi
+    binary=$(command -v "$binary_name" 2>/dev/null) || binary=
+    if [ -n "$binary" ]; then
+        [ -f "$binary" ] && [ -x "$binary" ] || fail 'The PATH entry is not an executable file.' 126
+        # An empty/relative PATH entry must not be reinterpreted as an exec option.
+        case "$binary" in /*) ;; *) binary=./$binary ;; esac
+        return
+    fi
+    binary=$launcher_dir/target/release/$binary_name
+    [ -f "$binary" ] && [ -x "$binary" ] || fail 'No installed binary found. Add the approved installation to PATH, set its absolute override, or explicitly build with cargo build --locked --release.' 127
+}
+
+if [ -n "$vault" ]; then
+    choose_binary personas-auth "${PERSONAS_AUTH_BIN-}" "${PERSONAS_AUTH_BIN+x}"
+else
+    choose_binary ai-personas "${PERSONAS_BIN-}" "${PERSONAS_BIN+x}"
+fi
+
+if [ "$mode" = need ]; then
+    if [ "$have_need" = false ]; then
+        [ -t 0 ] || fail 'No need supplied. Pass one quoted argument; piped input is not consumed.'
+        printf 'What would you like Personas to work on? ' >&2
+        IFS= read -r need || fail 'Input ended; no run started.'
+    fi
+    case "$need" in *[![:space:]]*) ;; *) fail 'The need is empty; no run started.' ;; esac
+fi
+
+if [ -n "$vault" ]; then
+    set -- "--vault=$vault" native-run --authorize "--state-root=$state_root" "--operator=$operator"
+    if [ "$mode" = need ]; then
+        set -- "$@" "--need=$need"
+    else
+        set -- "$@" "--work=$work"
+    fi
+else
+    set --
+    [ -z "$state_root" ] || set -- "$@" "--state-root=$state_root"
+    [ -z "$operator" ] || set -- "$@" "--operator=$operator"
+    if [ "$mode" = result ]; then
+        set -- "$@" result
+        [ "$json" = false ] || set -- "$@" --json
+        set -- "$@" -- "$work"
+    else
+        set -- "$@" run
+        [ "$json" = false ] || set -- "$@" --json
+        [ "$acceptance" = false ] || set -- "$@" --require-acceptance
+        if [ "$mode" = resume ]; then
+            set -- "$@" "--resume=$work"
+        else
+            set -- "$@" -- "$need"
+        fi
+    fi
+fi
+
+# Replace the launcher: preserve runtime output, exit status and signal handling.
+# In particular, never retry a failure or reinterpret a held result as success.
+exec "$binary" "$@"
