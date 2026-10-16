@@ -1,15 +1,17 @@
 # AI Personas
 
-A local Rust runtime for continuing AI personas that work, collaborate, and maintain their own context within explicit permissions and resource limits.
+Explore distinct AI characters choosing how to collaborate on your tasks.
 
-From this checkout, launch:
+<img src="docs/assets/ai-personas-cartoon.png" alt="AI characters sharing ideas, choosing tools and bookmarking work." width="720">
+
+*Design illustration.*
+
+From this checkout:
 
 ```sh
 ./personas
 ```
 
-The terminal interaction saves your pending request privately, reuses an approved installation or offers a local build, and guides browser sign-in, exact model selection, capability verification, permissions, and starting work. You never need to prepare provider JSON or paste credentials. Returning launches show saved work and permitted results; continuing eligible work requires a fresh confirmation. Stops, pauses, uncertain calls, and exhausted budgets are not reset.
+Follow the sign-in and permission prompts. You need Unix, Python 3.9+, eligible Sign in with ChatGPT access, a same-host browser and network. Builds also need Rust/Cargo 1.88+ and a native compiler/linker. Account usage may be charged.
 
-You need Unix, Python 3.9+, a same-host browser, network access, and an eligible Sign in with ChatGPT account. Building additionally needs Rust/Cargo 1.88+ and a native compiler/linker. Nothing installs with administrator privileges. Verification and work may consume account usage; SIWC cannot enforce a hard remote token or dollar cap. You can decline and retain progress.
-
-[Launch details](docs/interactive-launch.md) · [Explicit CLI](docs/launcher.md) · [Account recovery](docs/activation.md) · [Runtime reference](RUNTIME-REFERENCE.md)
+[Launch help](docs/interactive-launch.md) · [Canonical design](https://github.com/ai-personas/ai-personas-design/tree/17f165b156ee5962e290a7e2326bba3f81ad2069) · [Developer details](RUNTIME-REFERENCE.md)
