@@ -430,6 +430,24 @@ impl Collector {
             }
         }
         match kind {
+            "response.metadata" => {
+                // The Codex Responses protocol emits auxiliary metadata between
+                // lifecycle events. It supplies no output, usage, or completion
+                // authority; only identity observations affect this collector.
+                for observation in [&event, event.get("response").unwrap_or(&Value::Null)] {
+                    if let Some(model) = observation.get("model") {
+                        if model.as_str() != Some(self.model.as_str()) {
+                            return Err(Failure::ReportedModelMismatch.into());
+                        }
+                    }
+                    check_metadata_headers(observation.get("headers"), &self.model)?;
+                }
+                if let Some(id) = event.get("response").and_then(|r| r.get("id")) {
+                    if id.as_str() != Some(response_id) {
+                        return Err(protocol("metadata_response_id_mismatch"));
+                    }
+                }
+            }
             "response.in_progress" => {
                 if self.progress_seen {
                     return Err(protocol("duplicate_in_progress"));
@@ -745,6 +763,34 @@ impl Collector {
         Ok(item)
     }
 }
+fn check_metadata_headers(headers: Option<&Value>, model: &str) -> Result<()> {
+    let Some(headers) = headers.filter(|v| !v.is_null()) else {
+        return Ok(());
+    };
+    let headers = headers
+        .as_object()
+        .ok_or(protocol("metadata_headers_invalid").at_field("headers"))?;
+    for (name, value) in headers {
+        if name.eq_ignore_ascii_case("openai-model") || name.eq_ignore_ascii_case("x-openai-model")
+        {
+            // Public Codex supports string or array-valued headers. Check every
+            // value rather than let a matching first value hide a conflict.
+            fn matches_model(value: &Value, model: &str) -> bool {
+                match value {
+                    Value::String(value) => value == model,
+                    Value::Array(values) => {
+                        !values.is_empty() && values.iter().all(|v| matches_model(v, model))
+                    }
+                    _ => false,
+                }
+            }
+            if !matches_model(value, model) {
+                return Err(Failure::ReportedModelMismatch.into());
+            }
+        }
+    }
+    Ok(())
+}
 fn string<'a>(value: &'a Value, key: &'static str) -> Result<&'a str> {
     value
         .get(key)
@@ -898,6 +944,7 @@ fn safe_event_type(name: &str) -> &'static str {
     match name {
         "response.created" => "response.created",
         "response.in_progress" => "response.in_progress",
+        "response.metadata" => "response.metadata",
         "response.completed" => "response.completed",
         "response.failed" => "response.failed",
         "response.incomplete" => "response.incomplete",

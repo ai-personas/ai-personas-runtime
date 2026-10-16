@@ -41,6 +41,171 @@ fn assert_rule(c: &Collector, rule: &str) {
     assert_eq!(c.diagnostic.as_ref().unwrap().rule, rule);
 }
 
+fn metadata() -> Value {
+    json!({"type":"response.metadata", "sequence_number":1, "response_id":"resp_synthetic",
+        "headers":{"OpenAI-Model":["fixture-model"],"x-codex-turn-state":"synthetic_private_marker"},
+        "metadata":{"openai_chatgpt_moderation_metadata":{"presentation":"inline"},
+            "openai_verification_recommendation":["synthetic_private_marker"]}})
+}
+
+#[tokio::test]
+async fn metadata_is_auxiliary_and_never_supplies_decision_or_usage() {
+    let mut auxiliary = metadata();
+    auxiliary["output"] = json!([message("ignored", None, "synthetic_private_marker")]);
+    auxiliary["usage"] = json!({"input_tokens":999,"output_tokens":999,"total_tokens":1998});
+    let mut bytes = frame(created());
+    bytes.extend(frame(auxiliary));
+    let p::ProviderError::Attempt { failure, receipt } =
+        dispatch(bytes.clone(), false).await.unwrap_err()
+    else {
+        panic!("missing failed attempt receipt")
+    };
+    assert_eq!(failure, Failure::Protocol);
+    assert!(!receipt.response_completed);
+    assert_eq!(
+        receipt.stream_diagnostic.unwrap().rule,
+        "eof_unfinished_or_uncompleted"
+    );
+
+    bytes.extend(frame(completed(vec![message("m1", None, "exact final")])));
+    let result = dispatch(bytes.clone(), false).await.unwrap();
+    assert_eq!(result.response, "exact final");
+    assert!(result.attempt.response_completed && result.attempt.stream_eof);
+    assert!(result.attempt.usage.input_tokens.is_none());
+    assert!(result.attempt.usage.output_tokens.is_none());
+    assert!(!serde_json::to_string(&result.attempt)
+        .unwrap()
+        .contains("synthetic_private_marker"));
+    assert!(!format!("{:?}", result.attempt).contains("synthetic_private_marker"));
+
+    let p::ProviderError::Attempt { failure, receipt } =
+        dispatch(bytes.clone(), true).await.unwrap_err()
+    else {
+        panic!("missing failed attempt receipt")
+    };
+    assert_eq!(failure, Failure::Network);
+    assert!(receipt.response_completed && !receipt.stream_eof);
+    bytes.extend(frame(metadata()));
+    let p::ProviderError::Attempt { failure, receipt } = dispatch(bytes, false).await.unwrap_err()
+    else {
+        panic!("missing failed attempt receipt")
+    };
+    assert_eq!(failure, Failure::Protocol);
+    assert_eq!(
+        receipt.stream_diagnostic.unwrap().rule,
+        "event_after_completion"
+    );
+}
+
+#[test]
+fn metadata_preserves_identity_ordering_and_unknown_event_rejection() {
+    let mut c = Collector::new("fixture-model", &limits());
+    assert_eq!(c.push(&frame(metadata())), Err(Failure::Protocol));
+    assert_rule(&c, "event_before_created");
+    for (key, value, failure, rule) in [
+        (
+            "response_id",
+            json!("resp_other"),
+            Failure::Protocol,
+            "event_response_id_mismatch",
+        ),
+        (
+            "sequence_number",
+            json!(0),
+            Failure::Protocol,
+            "sequence_not_increasing",
+        ),
+        (
+            "headers",
+            json!([]),
+            Failure::Protocol,
+            "metadata_headers_invalid",
+        ),
+        (
+            "model",
+            json!("wrong-model"),
+            Failure::ReportedModelMismatch,
+            "reported_model_mismatch",
+        ),
+        (
+            "response",
+            json!({"id":"resp_other"}),
+            Failure::Protocol,
+            "metadata_response_id_mismatch",
+        ),
+        (
+            "response",
+            json!({"model":"wrong-model"}),
+            Failure::ReportedModelMismatch,
+            "reported_model_mismatch",
+        ),
+        (
+            "response",
+            json!({"headers":{"x-openai-model":"wrong-model"}}),
+            Failure::ReportedModelMismatch,
+            "reported_model_mismatch",
+        ),
+        (
+            "type",
+            json!("response.metadata.synthetic_unknown"),
+            Failure::Protocol,
+            "unsupported_event_type",
+        ),
+    ] {
+        let mut c = started();
+        let mut event = metadata();
+        event[key] = value;
+        assert_eq!(c.push(&frame(event)), Err(failure));
+        assert_rule(&c, rule);
+        assert_eq!(c.finish(), Err(failure));
+    }
+    for value in [
+        json!("wrong-model"),
+        json!(["fixture-model", "wrong-model"]),
+        json!([]),
+        json!(null),
+        json!(42),
+    ] {
+        let mut c = started();
+        let mut event = metadata();
+        event["headers"]["X-OPENAI-MODEL"] = value;
+        assert_eq!(c.push(&frame(event)), Err(Failure::ReportedModelMismatch));
+        let d = c.diagnostic.as_ref().unwrap();
+        assert_eq!(d.event_type, Some("response.metadata"));
+        assert!(d.event_type_sha256.is_none());
+    }
+}
+
+#[test]
+fn metadata_remains_bounded_and_does_not_repair_a_thin_lifecycle() {
+    for sequence in [None, Some(1), Some(2)] {
+        let mut c = started().with_mode(p::AccessMode::SiwcOAuth);
+        let mut event = metadata();
+        if let Some(sequence) = sequence {
+            event["sequence_number"] = json!(sequence);
+        } else {
+            event.as_object_mut().unwrap().remove("sequence_number");
+        }
+        c.push(&frame(event)).unwrap();
+        let mut terminal = completed(vec![]);
+        terminal["sequence_number"] = json!(3);
+        assert_eq!(c.push(&frame(terminal)), Err(Failure::Protocol));
+        assert_rule(&c, "thin_lifecycle_not_complete");
+        assert!(!c.completed);
+    }
+    let mut bounds = limits();
+    bounds.max_events = 1;
+    let mut c = Collector::new("fixture-model", &bounds);
+    c.push(&frame(created())).unwrap();
+    assert_eq!(c.push(&frame(metadata())), Err(Failure::Limit));
+    assert_rule(&c, "event_count_limit");
+
+    let mut c = started();
+    let mut event = metadata();
+    event["metadata"] = json!({"payload":"x".repeat(limits().max_event_bytes)});
+    assert_eq!(c.push(&frame(event)), Err(Failure::Limit));
+}
+
 #[test]
 fn legacy_and_explicit_final_carriers_are_supported() {
     for mode in [
@@ -125,7 +290,8 @@ fn phase_and_delta_consistency_remain_required() {
 fn phased_thin_completion_needs_complete_item_lifecycles() {
     for omit_part_done in [false, true] {
         let mut c = started().with_mode(p::AccessMode::SiwcOAuth);
-        let mut sequence = 1;
+        c.push(&frame(metadata())).unwrap();
+        let mut sequence = 2;
         for (index, phase, text) in [(0, "commentary", "comment"), (1, "final_answer", "final")] {
             let id = format!("m{index}");
             let item = message(&id, Some(phase), text);
