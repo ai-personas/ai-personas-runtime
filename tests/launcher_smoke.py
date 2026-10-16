@@ -314,7 +314,7 @@ class LauncherSmoke(unittest.TestCase):
 
     def test_exec_preserves_process_identity_and_termination(self):
         self.fake()
-        self.env["FAKE_SIGNAL"] = str(signal.SIGTERM)
+        self.env["FAKE_SIGNAL"] = str(int(signal.SIGTERM))
         proc = subprocess.Popen(self.command("a need"), cwd=self.cwd, env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         proc.communicate(timeout=5)
         self.assertEqual(proc.returncode, -signal.SIGTERM)
