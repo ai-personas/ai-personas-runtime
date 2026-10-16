@@ -64,6 +64,25 @@ response's new continuation and other ordinary operations remain fenced. Stops,
 pauses, unresolved transport and failures keep their existing control requirements.
 A future wait returns to the shell and retains its existing eligibility conditions.
 
+An explicitly authorized operator can inspect `work-resource-grant-snapshot WORK`
+and use `grant-work-resources REQUEST.json --preview` or `--apply` to add ordinary
+attempts and navigation to an existing standalone Open work. The strict request
+binds exact runtime/launch heads, work version and remaining balances, records the
+authorization reference, and declares the minimal optional lifetime-cap increase.
+That cap remains launch-global; the work addition is not a reservation. Resulting
+balances must fit the existing configured per-work remaining-balance bounds;
+successive explicitly authorized grants can increase cumulative use. Targets with
+a retained nonzero repair allowance are refused because attempts also fund repair.
+Holds, continuation, original requests, identities and spent/uncertain resources
+are preserved. Episode-bound targets require separate authority and are refused.
+Snapshot and preview use metered reads and normal open/owner recovery may occur;
+use a private copied Store when the live Store must remain unchanged. Preview
+checks the prospective metadata transaction and conservative input/output/navigation
+headroom, but reserves nothing and does not guarantee later admission. Actual
+requests still require fresh permission, funding, context and continuation checks.
+Token figures remain operator snapshot attestations, enforced by the serialized
+supervisor across calls and Stores, rather than new token funds or measurements.
+
 Output contains accepted replies and complete currently permitted local delivery
 bundles. `--json` emits one structured result on stdout; progress and stopping
 diagnostics use stderr. `result` performs no inference. A delivered artifact can

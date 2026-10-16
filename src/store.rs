@@ -3550,6 +3550,15 @@ impl<'a> Work<'a> {
                 return Err(StoreError::Conflict(object.id.clone()));
             }
             let current: Option<StoredObject> = self.get("object", &object.id)?;
+            // Work resource grants are permanent idempotency evidence. Immutable
+            // revision journals alone do not prevent generic CAS from replacing
+            // a receipt's current head, so this receipt kind is create-only.
+            if current
+                .as_ref()
+                .is_some_and(|current| current.kind == "work-resource-grant")
+            {
+                return Err(StoreError::Conflict(object.id.clone()));
+            }
             let next = match (change.expected_revision, current.as_ref()) {
                 (None, None) => 1,
                 (Some(expected), Some(current)) if current.revision == expected => {

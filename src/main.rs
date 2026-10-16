@@ -127,6 +127,23 @@ enum Command {
     },
     /// Inspect exact fences and allocation limits for standalone human intake. No inference.
     HumanIntakeSnapshot,
+    /// Inspect exact fences and remaining allowances for one standalone Open work.
+    /// Metered reads and normal open recovery apply; no grant, resume or inference.
+    WorkResourceGrantSnapshot {
+        work: String,
+    },
+    /// Add explicit ordinary resources to one existing standalone Open work.
+    /// Targets with retained repair capacity require a separate supported grant.
+    /// Requires exact state/work fences and --preview or --apply. No repair grant,
+    /// holds cleared, resume, inference or Store-account reset. Preview uses metered
+    /// reads and may perform normal owner recovery; no future capacity is reserved.
+    GrantWorkResources {
+        file: PathBuf,
+        #[arg(long, required_unless_present = "apply", conflicts_with = "apply")]
+        preview: bool,
+        #[arg(long, required_unless_present = "preview", conflicts_with = "preview")]
+        apply: bool,
+    },
     /// Atomically admit one human need with a bounded allocation and minimal slot/call extension.
     /// Requires existing authorization evidence, exact current heads and --preview or --apply.
     /// No persona delegation, old-work resume, reset, inference or token reservation.
@@ -672,6 +689,21 @@ async fn run(cli: Cli) -> runtime::Result<()> {
     } else {
         None
     };
+    let work_resource_grant_request = if let Command::GrantWorkResources {
+        file,
+        preview,
+        apply,
+    } = &cli.command
+    {
+        if preview == apply {
+            return Err(argument("exactly one of --preview or --apply"));
+        }
+        let request: launch::WorkResourceGrantRequest = runtime::read_json_file(file, 16_384)?;
+        request.validate(operator)?;
+        Some(request)
+    } else {
+        None
+    };
     let human_intake_request = if let Command::AdmitHumanNeed {
         file,
         preview,
@@ -816,6 +848,21 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             }
         }
         Command::HumanIntakeSnapshot => emit(&launch::human_intake_snapshot(&mut app, operator)?),
+        Command::WorkResourceGrantSnapshot { work } => emit(&launch::work_resource_grant_snapshot(
+            &mut app, operator, &work,
+        )?),
+        Command::GrantWorkResources { preview, apply, .. } => {
+            let request = work_resource_grant_request
+                .as_ref()
+                .expect("work resource grant checked before opening state");
+            match (preview, apply) {
+                (true, false) => emit(&launch::preview_work_resource_grant(
+                    &mut app, request, now,
+                )?),
+                (false, true) => emit(&launch::grant_work_resources(&mut app, request, now)?),
+                _ => Err(argument("exactly one of --preview or --apply")),
+            }
+        }
         Command::AdmitHumanNeed { preview, apply, .. } => {
             let request = human_intake_request
                 .as_ref()

@@ -37,6 +37,14 @@ pub use human_intake::{
     admit_human_need, human_intake_snapshot, preview_human_intake, HumanIntakeRequest,
 };
 
+#[path = "launch/work_resource_grant.rs"]
+mod work_resource_grant;
+pub use work_resource_grant::{
+    grant_work_resources, preview_work_resource_grant, work_resource_grant_snapshot,
+    WorkResourceGrantFence, WorkResourceGrantOutcome, WorkResourceGrantReceipt,
+    WorkResourceGrantRequest, WorkResourceIncrease,
+};
+
 const ID: &str = "runtime-launch-v1";
 const POLICY: &str = "launch-local";
 #[derive(Clone, Debug, Serialize, Deserialize)]
