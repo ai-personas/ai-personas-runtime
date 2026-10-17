@@ -8,13 +8,36 @@ Explicit argument-based wrapper commands retain their earlier behavior; see
 
 ## First use
 
-The dialogue first asks permission to retain private progress, then asks for your
-need. It saves the exact request before the next prompt. The default location is
+The dialogue first selects a standard private progress location and asks permission
+before creating a new journal, then asks for your need. It saves the exact request
+before the next prompt. The default location is
 `$XDG_STATE_HOME/ai-personas-launcher` or `$HOME/.local/state/ai-personas-launcher`.
 An explicit absolute `PERSONAS_LAUNCHER_HOME` selects another location outside
-repositories. Directories must be owned/private, with no symlink path components;
-unsafe existing permissions are rejected, not repaired. A same-host browser is
+repositories. The launcher automatically checks the standard XDG state location and then the home state location. Existing progress is reused only when exactly one candidate validates; ambiguous or unsafe existing state blocks instead of relocating or resetting. A new journal requires explicit consent. Path traversal is descriptor-relative and rejects symlinks; the private leaf remains owned by the effective UID and inaccessible to group/other users. The active checkout itself is excluded, but unrelated repository markers in shared ancestors are not treated as proof that a private child belongs to that checkout. Same-UID processes and root remain trusted and can inspect or alter same-UID data; this is not a defense against hostile same-UID tools or synchronization software. A same-host browser is
 necessary for the secure loopback callback. No credentials are requested here.
+
+### Automatic persistent progress selection
+
+The no-argument launcher checks only the standard XDG state directory and the
+home `.local/state` directory, in that order. If exactly one valid journal exists,
+it reuses that location. If both exist, it blocks rather than guessing; set
+`PERSONAS_LAUNCHER_HOME` to the exact intended existing journal to disambiguate.
+If neither exists, it selects the first safe candidate and asks before creating a
+new private journal. It never silently moves, resets, or substitutes for an unsafe
+existing journal. It does not silently choose a temporary directory for durable
+progress.
+
+The active source checkout is excluded. Repository markers in unrelated ancestors
+are not treated alone as proof that a private child is inside the active checkout.
+Intermediate directories may be owned by mapped container UIDs only when they are
+not group/world-writable (except root-owned sticky directories); traversal uses
+opened directory descriptors and rejects symlinks. An ancestor owner can still
+change permissions or rename its directory, so that owner and the host/root remain
+trusted for availability and namespace integrity. The final state leaf is owned by
+the effective UID and mode 0700; files are regular, mode 0600 and single-linked.
+Same-UID processes can still inspect or alter same-UID data, and arbitrary sync or
+backup software may export it. Use standard local state directories, not a repo or
+synced folder. Unsupported or ambiguous state is blocked without resetting it.
 
 Select an existing directory containing the four current Rust helpers, or approve
 a build of this checkout with locked Cargo dependencies. Approved binaries are
@@ -23,9 +46,7 @@ silently replacing an installation. Cargo may download locked crates and execute
 build scripts, only after confirmation. The build uses one job, no incremental
 compilation and no debug symbols, storing artifacts under the private UI root.
 Cargo caches, native toolchains and physical disk are not hard-bounded by the UI.
-Missing Rust 1.88+, Cargo, compiler/linker, Python 3.9+ or host approval requires
-operator installation/approval; no sudo, arbitrary installer, privilege bypass,
-Codex CLI or coding-agent fallback is used.
+The shell launcher selects the first available Python 3.9+ from supported versioned names, then checks Linux memfd sealing and procfs descriptor support before starting the UI. If none qualifies, it prints an actionable host-prerequisite message; it does not install software or fall back to pathname execution. Missing Rust 1.88+, Cargo, compiler/linker or host approval requires operator installation/approval; no sudo, arbitrary installer, privilege bypass, Codex CLI or coding-agent fallback is used.
 
 Choose a fresh runtime or explicitly select an existing private one and its
 operator. Existing runtime access is an operator inspection grant, not a new
@@ -109,3 +130,13 @@ synthetic helpers and private temporary state. New Rust bootstrap tests are unde
 `launch::bootstrap::tests`. They use synthetic settings and no provider calls.
 Legacy wrapper smoke tests still cover explicit commands. No test establishes
 live account eligibility, capability, persona quality or complete design conformance.
+
+
+If the selected standard state location is rejected by the native vault helper,
+the dialogue stops with `native_vault_location_unsupported`; it does not prompt
+for arbitrary filesystem paths or switch to ephemeral credential storage. Native
+SIWC credential storage still requires the Rust vault's own ownership, locking,
+account-binding, expiry and refresh-uncertainty checks to pass. The launcher does
+not import Codex CLI credentials or use CLI/app-server inference. Root and hostile
+same-UID processes remain trusted; do not put persistent state in synchronized or
+repository directories.

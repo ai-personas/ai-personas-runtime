@@ -6,9 +6,19 @@ set -eu
 # Python is only the local terminal UI; no model or external agent authors work.
 if [ "$#" -eq 0 ]; then
     [ -t 0 ] && [ -t 1 ] || { printf '%s\n' 'Interactive ./personas needs a terminal; pass explicit arguments for noninteractive use.' >&2; exit 2; }
-    command -v python3 >/dev/null 2>&1 || { printf '%s\n' 'Python 3.9+ is required for the local dialogue. No installation was attempted.' >&2; exit 127; }
     dialogue_dir=$(CDPATH= cd -P "${0%/*}" && pwd -P) || exit 1
-    exec python3 -I -B "$dialogue_dir/scripts/personas_dialogue.py"
+    python=
+    for candidate in python3.14 python3.13 python3.12 python3.11 python3.10 python3.9 python3; do
+        command -v "$candidate" >/dev/null 2>&1 || continue
+        "$candidate" -I -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)' >/dev/null 2>&1 || continue
+        if [ "$(uname -s 2>/dev/null || :)" = Linux ]; then
+            "$candidate" -I -c 'import fcntl, os; names=("MFD_CLOEXEC","MFD_ALLOW_SEALING","O_CLOEXEC","O_NOFOLLOW","O_NONBLOCK","O_DIRECTORY"); seals=("F_ADD_SEALS","F_GET_SEALS","F_SEAL_SEAL","F_SEAL_SHRINK","F_SEAL_GROW","F_SEAL_WRITE"); ok=(callable(getattr(os,"memfd_create",None)) and callable(getattr(os,"fchmod",None)) and callable(getattr(fcntl,"fcntl",None)) and all(type(getattr(os,n,None)) is int for n in names) and all(type(getattr(fcntl,n,None)) is int for n in seals) and os.path.isdir("/proc/self/fd")); raise SystemExit(0 if ok else 1)' >/dev/null 2>&1 || continue
+        fi
+        python=$candidate
+        break
+    done
+    [ -n "$python" ] || { printf '%s\n' 'No compatible Python 3.9+ interpreter with required platform capabilities was found. Install/select a supported interpreter under host policy; no installation was attempted.' >&2; exit 127; }
+    exec "$python" -I -B "$dialogue_dir/scripts/personas_dialogue.py"
 fi
 
 usage() {

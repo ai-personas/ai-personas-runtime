@@ -80,11 +80,29 @@ def terminal_text(value):
     return "".join(c if c in "\n\t" or (c.isprintable() and c != "\x1b") else "�" for c in str(value))
 
 
-class PrivateDirectory:
-    """Descriptor-relative, owned private journal; never follow symlinks/repos.
+def inside_checkout(path):
+    """Reject state inside this checkout; normalize resolution failures to a safe refusal."""
+    try:
+        candidate = Path(path).resolve(strict=False)
+        checkout = Path(__file__).resolve().parents[1]
+        candidate.relative_to(checkout)
+        return True
+    except ValueError:
+        return False
+    except (OSError, RuntimeError):
+        # Symlink loops and platform-specific resolution failures must never
+        # escape the launcher's controlled error path or be treated as absence.
+        raise Blocked("unsafe_private_path") from None
 
-    The same OS user can tamper with these files. This is not an OS sandbox or
-    rollback protection. Missing/invalid progress is never silently reset.
+
+class PrivateDirectory:
+    """Descriptor-relative private journal, excluding the active checkout.
+
+    The private leaf is owned by the effective UID and inaccessible to group/other.
+    Same-UID processes and root remain trusted and can tamper with state; this is
+    not an OS sandbox or rollback protection. Missing/invalid progress is never
+    silently reset. Shared sticky ancestors may contain unrelated repository
+    markers; the active checkout path itself is rejected.
     """
     def __init__(self, path, create=False):
         self.path = Path(path)
@@ -94,11 +112,11 @@ class PrivateDirectory:
     def open_path(path, create=False, missing_ok=False):
         """Check all existing components; missing_ok is a read-only preflight."""
         require(path_text(str(path)), "unsafe_private_path")
+        require(not inside_checkout(path), "state_inside_repository")
         require(not (create and missing_ok), "invalid_private_path_check")
         fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
         try:
             for part in Path(path).parts[1:]:
-                PrivateDirectory.no_repository(fd)
                 try:
                     child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
                 except FileNotFoundError:
@@ -112,10 +130,13 @@ class PrivateDirectory:
                 os.close(fd)
                 fd = child
                 info = os.fstat(fd)
-                require(info.st_uid in (0, os.geteuid()), "unsafe_path_owner")
-                require(not (info.st_mode & 0o022) or
-                        (info.st_uid == 0 and info.st_mode & stat.S_ISVTX), "writable_path_ancestor")
-            PrivateDirectory.no_repository(fd)
+                # Descriptor-relative traversal anchors each opened directory. Foreign
+                # owners are allowed only for non-group/world-writable ancestors; they
+                # can still disrupt availability by renaming ancestors, so root/host
+                # and same-UID processes remain trusted. The private leaf is checked
+                # separately for effective-UID ownership and mode 0700.
+                root_sticky = info.st_uid == 0 and bool(info.st_mode & stat.S_ISVTX)
+                require(not (info.st_mode & 0o022) or root_sticky, "writable_path_ancestor")
             info = os.fstat(fd)
             require(info.st_uid == os.geteuid() and not info.st_mode & 0o077, "private_directory_permissions")
             return fd
@@ -355,7 +376,7 @@ def _linux_open_regular(path):
                        dir_fd=directory)
         info = os.fstat(leaf)
         require(stat.S_ISREG(info.st_mode) and info.st_uid in (0, os.geteuid())
-                and info.st_nlink == 1 and not info.st_mode & 0o022
+                and not info.st_mode & 0o022
                 and info.st_mode & 0o111 and info.st_size <= 128 * 1024 * 1024,
                 "unsafe_installation")
         result, leaf = (leaf, None)
@@ -403,8 +424,7 @@ def binary_digest(path):
         # Descriptor-relative traversal, not a pathname lstat preflight.
         fd, before = _linux_open_regular(str(p))
         try:
-            require(before.st_uid in (0, os.geteuid()) and before.st_nlink == 1,
-                    "unsafe_installation")
+            require(before.st_uid in (0, os.geteuid()), "unsafe_installation")
             digest = _digest_fd(fd)
             require(_stable_stat(before, os.fstat(fd)), "installation_changed_during_hash")
             return digest
@@ -465,8 +485,7 @@ class VerifiedExecutable:
         source_fd, before = _linux_open_regular(path)
         self.fd = None
         try:
-            require(before.st_uid in (0, os.geteuid()) and before.st_nlink == 1,
-                    "unsafe_installation")
+            require(before.st_uid in (0, os.geteuid()), "unsafe_installation")
             require(before.st_mode & 0o111 and not before.st_mode & 0o022, "unsafe_installation")
             # Only ELF executables are supported: no shebang/interpreter chain.
             magic = os.read(source_fd, 4)
@@ -741,17 +760,22 @@ class Dialogue:
 
     def account(self, expected=None):
         if self.p["vault"] is None:
-            default = str(self.j.directory.path / "personas-account.json")
-            path = self.ui.ask(f"Personas vault path [{default}]; existing Personas vaults only:").strip() or default
-            require(path_text(path), "unsafe_vault_path")
-            self.ui.consent("Use this selected Personas vault for account status and explicitly authorized native requests? "
-                            "No credential import, API billing fallback, or secret entry here")
+            # Keep the native credential vault adjacent to the private journal by
+            # default; Rust still validates the actual vault parent and account.
+            # This does not import CLI credentials or authorize inference.
+            path = str(self.j.directory.path / "personas-account.json")
+            self.ui.say(f"Native Personas credential vault location: {path}")
+            self.ui.consent("Use this private location for explicit native SIWC sign-in and credential refresh? "
+                            "The Rust auth helper validates ownership, permissions, account binding and expiry. "
+                            "No Codex credentials are imported and no inference is authorized by sign-in.")
             self.p["vault"] = path
             self.j.save()
         for _ in range(3):
             try:
                 status = self.h.call("personas-auth", ["--vault", self.p["vault"], "status"])
             except Blocked as error:
+                if error.code in ("protected_vault_unavailable", "vault_unavailable", "unsafe_vault_path", "native_vault_location_unsupported"):
+                    raise Blocked("native_vault_location_unsupported") from None
                 self.ui.say(f"Selected vault status unavailable ({error.code}). The secure auth helper controls path/access checks.")
                 status = {"grant_connected": False}
             if status.get("grant_connected") is True:
@@ -1091,45 +1115,48 @@ class Dialogue:
         self.ui.say("This foreground interaction reached its menu bound; progress remains saved.")
 
 
-def select_progress_directory(ui, default):
-    """Choose one exact journal, without discovery, relocation or reset fallback."""
-    ui.say(f"Suggested private progress directory: {default}")
-    ui.say("o: open saved progress (including an earlier alternate location); "
-           "n: create new private progress; q: leave. Nothing is moved or reset.")
-    choice = ui.ask("Private progress choice:").strip().lower()
-    if choice not in ("o", "n"):
-        raise Halt()
-    create = choice == "n"
-    for _ in range(3):
-        path = ui.ask(f"Exact private progress directory [{default}]:").strip() or default
+def progress_candidates():
+    """Return deterministic persistent candidates; never choose temporary storage implicitly."""
+    explicit = os.environ.get("PERSONAS_LAUNCHER_HOME")
+    if explicit is not None:
+        require(path_text(explicit), "invalid_explicit_private_path")
+        return [explicit]
+    candidates = []
+    xdg = os.environ.get("XDG_STATE_HOME")
+    home = os.environ.get("HOME")
+    if xdg and path_text(xdg):
+        candidates.append(str(Path(xdg) / "ai-personas-launcher"))
+    if home and path_text(home):
+        candidates.append(str(Path(home) / ".local" / "state" / "ai-personas-launcher"))
+    return list(dict.fromkeys(candidates))
+
+
+def select_progress_directory(ui, default=None):
+    """Automatically select standard persistent state without moving/resetting journals."""
+    candidates = progress_candidates()
+    require(candidates, "no_supported_persistent_state_location")
+    existing, safe_missing = [], []
+    for path in candidates:
         try:
-            fd = PrivateDirectory.open_path(path, missing_ok=create)
-        except (Blocked, OSError) as error:
-            # Only new-location preflight may reprompt. Once saved progress is
-            # selected, missing/unsafe paths and all journal errors stop the flow.
-            if not create:
-                raise
-            code = error.code if isinstance(error, Blocked) else "unsafe_private_path"
-            ui.say(f"Location rejected ({code}); nothing was created or repaired. "
-                   "Choose an exact external private directory, or interrupt to leave.")
-            continue
-        if fd is not None:
-            try:
-                if create:
-                    # Do not treat a damaged/missing journal with other retained
-                    # files as first use, nor adopt another journal as a new one.
-                    with os.scandir(fd) as entries:
-                        require(next(entries, None) is None, "existing_directory_do_not_reset")
-            finally:
+            fd = PrivateDirectory.open_path(path, missing_ok=True)
+            if fd is None:
+                safe_missing.append(path)
+            else:
                 os.close(fd)
-        if create:
-            ui.consent(f"Keep private pending requests, selections and operation keys in {path}? "
-                       "Journal <=2 MiB plus bounded helper evidence/configuration; no secrets in the journal. "
-                       "Runtime and optional build/cache space are separate. This grants no model access")
-        # Recheck on actual opening/creation. Journal also rechecks fresh versus
-        # existing under its lock. Neither failure returns to this path picker.
-        return PrivateDirectory(path, create=create), create
-    raise Halt()
+                existing.append(path)
+        except (Blocked, OSError):
+            # Inaccessible is not absent. Never fall through to HOME and thereby
+            # strand pending identities in an XDG journal we could not inspect.
+            raise Blocked("progress_location_unavailable") from None
+    require(len(existing) <= 1, "multiple_saved_progress_locations_choose_explicit_override")
+    if existing:
+        return PrivateDirectory(existing[0]), False
+    require(safe_missing, "no_supported_persistent_state_location")
+    path = safe_missing[0]
+    ui.say(f"Selected private persistent progress location: {path}")
+    ui.say("The journal stores pending requests and operation identities, not credentials.")
+    ui.consent("Create a new private progress journal here? This authorizes no sign-in or model call.")
+    return PrivateDirectory(path, create=True), True
 
 
 def main():
@@ -1142,10 +1169,7 @@ def main():
         return 2
     directory = journal = None
     try:
-        home = os.environ.get("HOME", "")
-        base = os.environ.get("XDG_STATE_HOME", str(Path(home) / ".local/state"))
-        path = os.environ.get("PERSONAS_LAUNCHER_HOME", str(Path(base) / "ai-personas-launcher"))
-        directory, create = select_progress_directory(ui, path)
+        directory, create = select_progress_directory(ui)
         journal = Journal(directory, create=create)
         checkout = Path(__file__).resolve().parents[1]
         helpers = Helpers(journal, checkout, ui)

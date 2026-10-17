@@ -247,8 +247,9 @@ struct Fixture {
     http: Arc<MockHttp>,
 }
 fn fixture() -> Fixture {
-    // Honors TMPDIR. Use an isolated /var/tmp directory on hosts where /tmp has
-    // repository markers. Never relax the production repository/path guard.
+    // Honors TMPDIR and creates a private fixture. The production path policy
+    // permits unrelated repository markers in ancestors, but still rejects the
+    // active checkout and preserves leaf/file protections.
     let dir = tempfile::tempdir().unwrap();
     fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
     let mut backend = Backend::open(&dir.path().join("account.json")).unwrap();

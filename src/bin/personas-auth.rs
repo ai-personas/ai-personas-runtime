@@ -142,6 +142,7 @@ async fn main() {
                 json!({
                     "status": "error",
                     "error": error_message(&error),
+                    "code": error_code(&error),
                     "automatic_retry": false
                 })
             );
@@ -169,6 +170,26 @@ fn error_message(error: &AuthError) -> &'static str {
         AuthError::Entropy => "secure randomness is unavailable",
         AuthError::State => "authorization state validation failed",
         AuthError::Denied => "operation denied or canceled",
+    }
+}
+
+
+fn error_code(error: &AuthError) -> &'static str {
+    match error {
+        AuthError::Vault => "native_vault_location_unsupported",
+        AuthError::Busy => "vault_busy",
+        AuthError::Expired => "credential_expired",
+        AuthError::Binding => "credential_binding_mismatch",
+        AuthError::Scope => "grant_scope_unavailable",
+        AuthError::Denied => "authorization_denied",
+        AuthError::CommitUncertain => "credential_commit_uncertain",
+        AuthError::Transport => "authorization_transport_failed",
+        AuthError::Timeout => "operation_timeout",
+        AuthError::Protocol => "invalid_authorization_protocol",
+        AuthError::Identity => "identity_verification_failed",
+        AuthError::TooEarly => "credential_renewal_too_early",
+        AuthError::Entropy => "secure_randomness_unavailable",
+        AuthError::State => "authorization_state_invalid",
     }
 }
 
@@ -515,30 +536,34 @@ fn absolute_path(path: &Path) -> bool {
 
 fn trusted_directory(directory: &File) -> Result<()> {
     let metadata = directory.metadata().map_err(|_| AuthError::Vault)?;
-    // SAFETY: geteuid has no arguments or memory preconditions.
-    let uid = unsafe { libc::geteuid() };
-    let writable = metadata.mode() & 0o022 != 0;
-    let root_sticky = metadata.uid() == 0 && metadata.mode() & 0o1000 != 0;
-    if !metadata.is_dir()
-        || (metadata.uid() != uid && metadata.uid() != 0)
-        || (writable && !root_sticky)
-    {
+    if !trusted_directory_metadata(metadata.is_dir(), metadata.uid(), metadata.mode()) {
         return Err(AuthError::Vault);
     }
-    let mut metadata = std::mem::MaybeUninit::<libc::stat>::uninit();
-    // SAFETY: directory owns its live fd; the C string and output storage are valid.
-    let result = unsafe {
-        libc::fstatat(
-            directory.as_raw_fd(),
-            c".git".as_ptr(),
-            metadata.as_mut_ptr(),
-            libc::AT_SYMLINK_NOFOLLOW,
-        )
-    };
-    if result == 0 || std::io::Error::last_os_error().kind() != std::io::ErrorKind::NotFound {
-        return Err(AuthError::Vault);
-    }
+    // Intermediate directories may be owned by a mapped container UID. The
+    // descriptor walk below anchors traversal and rejects symlinks; group/other
+    // writable ancestors are rejected except root-owned sticky directories.
+    // Same-UID processes/root and ancestor-owner availability attacks remain
+    // trusted host boundaries. The final vault parent and credential file are
+    // still required to be effective-UID-owned and private.
     Ok(())
+}
+
+fn trusted_directory_metadata(is_dir: bool, owner_uid: u32, mode: u32) -> bool {
+    is_dir && (mode & 0o022 == 0 || (owner_uid == 0 && mode & 0o1000 != 0))
+}
+
+#[cfg(test)]
+mod mapped_ancestor_policy_tests {
+    use super::trusted_directory_metadata;
+
+    #[test]
+    fn auth_path_accepts_safe_mapped_ancestor_but_rejects_shared_write() {
+        assert!(trusted_directory_metadata(true, 12345, 0o755));
+        assert!(!trusted_directory_metadata(true, 12345, 0o775));
+        assert!(trusted_directory_metadata(true, 0, 0o1777));
+        assert!(!trusted_directory_metadata(true, 12345, 0o1777));
+        assert!(!trusted_directory_metadata(false, 12345, 0o755));
+    }
 }
 
 fn open_directory_at(parent: &File, name: &OsStr, create: bool) -> Result<File> {

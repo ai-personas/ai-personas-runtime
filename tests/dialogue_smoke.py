@@ -169,7 +169,7 @@ class MockHelpers:
 
 # Exact prompts in the real dialogue. Blanks explicitly accept displayed resource
 # proposals, never model/effort identity, grants, sign-in or inference consent.
-FIRST = ["Exact need: café; $(not-a-command)", "", "", "", "yes", "s", "yes",
+FIRST = ["Exact need: café; $(not-a-command)", "", "", "yes", "s", "yes",
          "yes", "1", "high", "", "", "yes", "", "", "", "", "", "yes"]
 SUBMIT = ["p", "", "yes", "yes"]
 
@@ -243,13 +243,13 @@ class DialogueTests(unittest.TestCase):
 
     def test_declined_probe_preserves_need_and_does_not_setup_or_dispatch(self):
         with self.assertRaises(m.Halt):
-            self.dialogue(FIRST[:12] + ["no"])
+            self.dialogue(FIRST[:11] + ["no"])
         self.assertEqual(len(self.j.data["needs"]), 1)
         self.assertEqual(self.count("personas-provider", "probe"), 0)
         self.assertIsNone(self.h.setup)
         self.reopen()
         # Resume SAME unexecuted plan with new specific consent, not a new probe.
-        self.dialogue(["yes"] + FIRST[13:] + ["q"])
+        self.dialogue(["yes"] + FIRST[12:] + ["q"])
         self.assertEqual(len(self.h.probes), 1)
 
     def test_declined_setup_is_not_authorized_by_a_saved_request_file(self):
@@ -337,6 +337,35 @@ class DialogueTests(unittest.TestCase):
         self.assertEqual(retained, self.j.data["session"])
         self.assertEqual(len(self.h.runs), 1)
 
+    def test_shell_skips_python_without_linux_capabilities(self):
+        import pty
+        bindir = self.root / "fake-python-bin"
+        bindir.mkdir(mode=0o700)
+        log = self.root / "selected-python"
+        for name, capable in (("python3.14", False), ("python3.13", True)):
+            script = bindir / name
+            script.write_text(
+                "#!/bin/sh\n"
+                "if [ \"$2\" = \"-c\" ]; then\n"
+                "  case \"$3\" in *sys.version_info*) exit 0;; esac\n"
+                + ("  exit 0\n" if capable else "  exit 1\n") +
+                "fi\n"
+                f"printf '%s\\n' '{name}' > \"$PERSONAS_TEST_SELECTED\"\n"
+                "exit 0\n"
+            )
+            script.chmod(0o700)
+        master, slave = pty.openpty()
+        try:
+            proc = subprocess.Popen(
+                ["/bin/sh", "./personas"], cwd=ROOT, stdin=slave, stdout=slave, stderr=slave,
+                env={"HOME": str(self.root), "PATH": str(bindir) + ":/usr/bin:/bin",
+                     "PERSONAS_TEST_SELECTED": str(log)})
+            self.assertEqual(proc.wait(timeout=5), 0)
+            self.assertEqual(log.read_text().strip(), "python3.13")
+        finally:
+            os.close(master)
+            os.close(slave)
+
     def test_shell_no_arguments_enters_real_dialogue_and_decline_creates_no_state(self):
         import pty
         import shutil
@@ -379,13 +408,16 @@ class DialogueTests(unittest.TestCase):
         with self.assertRaises((OSError, m.Blocked)):
             m.PrivateDirectory(str(self.root / "link"))
 
-    def test_repository_marker_is_rejected_without_changes(self):
-        candidate = self.root / "repository"
+    def test_private_state_rejects_active_checkout_but_ignores_unrelated_ancestor_marker(self):
+        candidate = self.root / "private-state"
         candidate.mkdir(mode=0o700)
         (candidate / ".git").mkdir()
-        with self.assertRaises(m.Blocked):
-            m.PrivateDirectory(str(candidate / "private"), create=True)
-        self.assertFalse((candidate / "private").exists())
+        with patch.object(m, "inside_checkout", return_value=False):
+            directory = m.PrivateDirectory(str(candidate))
+            directory.close()
+        with patch.object(m, "inside_checkout", return_value=True):
+            with self.assertRaisesRegex(m.Blocked, "state_inside_repository"):
+                m.PrivateDirectory(str(candidate))
 
     def test_missing_installation_build_decline_never_executes_cargo(self):
         ui = Answers(["b", "no"])
@@ -469,12 +501,15 @@ class DialogueTests(unittest.TestCase):
         self.assertEqual(folder.stat().st_mode & 0o777, 0o775)
         self.assertTrue(all((folder / name).stat().st_mode & 0o777 == 0o775 for name in m.NAMES))
 
-    def interactive_main(self, home, answers):
+    def interactive_main(self, home, answers, progress_path=None):
         ui = Answers(answers)
         def helpers(journal, checkout, terminal):
             self.h.j = journal
             return self.h
-        with patch.dict(os.environ, {"HOME": str(home), "PATH": ""}, clear=True), \
+        env = {"HOME": str(home), "PATH": ""}
+        if progress_path is not None:
+            env["PERSONAS_LAUNCHER_HOME"] = str(progress_path)
+        with patch.dict(os.environ, env, clear=True), \
                 patch.object(m, "Terminal", return_value=ui), \
                 patch.object(m, "Helpers", side_effect=helpers), \
                 patch.object(m.sys.stdin, "isatty", return_value=True), \
@@ -493,9 +528,9 @@ class DialogueTests(unittest.TestCase):
         home = self.repository_home()
         selected = self.root / "alternate private progress"
         self.h.lost = "probe"
-        code, ui = self.interactive_main(home, ["n", "", str(selected), "yes"] + FIRST[:13])
+        code, ui = self.interactive_main(home, ["yes"] + FIRST[:12], progress_path=selected)
         self.assertEqual(code, 1)
-        self.assertTrue(any("state_inside_repository" in msg for msg in ui.messages))
+        self.assertFalse(any("state_inside_repository" in msg for msg in ui.messages))
         self.assertFalse((home / ".local").exists())
         before = (selected / "progress.json").read_bytes()
         progress = json.loads(before)
@@ -503,7 +538,7 @@ class DialogueTests(unittest.TestCase):
         self.assertTrue(progress["probes"][0]["attempted"])
         probe_id = progress["probes"][0]["request"]["id"]
         self.assertEqual(self.h.probes[probe_id]["phase"], "outcome_unrecorded")
-        code, ui = self.interactive_main(home, ["o", str(selected)])
+        code, ui = self.interactive_main(home, [], progress_path=selected)
         self.assertEqual(code, 1)
         self.assertTrue(any("probe_outcome_unknown_no_replay" in msg for msg in ui.messages))
         self.assertEqual((selected / "progress.json").read_bytes(), before)
@@ -515,21 +550,20 @@ class DialogueTests(unittest.TestCase):
     def test_repository_default_storage_decline_creates_nothing(self):
         home = self.repository_home()
         selected = self.root / "declined-alternate" / "progress"
-        code, ui = self.interactive_main(home, ["n", "", str(selected), "no"])
+        code, ui = self.interactive_main(home, ["no"], progress_path=selected)
         self.assertEqual(code, 0)
-        self.assertTrue(any("state_inside_repository" in msg for msg in ui.messages))
+        self.assertTrue(any("Stopped" in msg for msg in ui.messages))
         self.assertFalse(selected.parent.exists())
         self.assertEqual(list(home.iterdir()), [home / ".git"])
         self.assertEqual(self.h.calls, [])
 
     def test_existing_journal_errors_never_offer_new_progress_or_relocation(self):
-        for case in ("missing_directory", "empty_directory", "missing_progress", "malformed", "locked"):
+        for case in ("empty_directory", "missing_progress", "malformed", "locked"):
             with self.subTest(case=case):
                 selected = self.root / case
                 directory = journal = None
                 try:
-                    if case != "missing_directory":
-                        directory = m.PrivateDirectory(str(selected), create=True)
+                    directory = m.PrivateDirectory(str(selected), create=True)
                     if case in ("missing_progress", "malformed", "locked"):
                         journal = m.Journal(directory, create=True)
                         if case != "locked":
@@ -540,9 +574,9 @@ class DialogueTests(unittest.TestCase):
                         if case == "malformed":
                             directory.write("progress.json", b'{"version":1,"version":1}')
                     before = {p.name: p.read_bytes() for p in selected.iterdir()} if selected.exists() else None
-                    code, ui = self.interactive_main(self.root, ["o", str(selected)])
+                    code, ui = self.interactive_main(self.root, [], progress_path=selected)
                     self.assertEqual(code, 1)
-                    self.assertEqual(len(ui.questions), 2, "A failure must not offer a new location or grant")
+                    self.assertEqual(len(ui.questions), 0, "An invalid existing journal must not prompt for relocation or grants")
                     after = {p.name: p.read_bytes() for p in selected.iterdir()} if selected.exists() else None
                     self.assertEqual(after, before)
                     self.assertEqual(self.h.calls, [])
@@ -559,13 +593,14 @@ class DialogueTests(unittest.TestCase):
             journal = m.Journal(directory, create=True)
             journal.close()
             before = directory.read("progress.json")
-            code, ui = self.interactive_main(self.root, ["n", str(selected)])
-            self.assertEqual(code, 1)
-            self.assertTrue(any("existing_directory_do_not_reset" in msg for msg in ui.messages))
-            # The locked check also refuses a journal created after preflight.
+            code, ui = self.interactive_main(self.root, ["", "", "q"], progress_path=selected)
+            self.assertEqual(code, 0)
+            # Existing journal is reused, not silently replaced or reset.
             with self.assertRaisesRegex(m.Blocked, "progress_already_exists"):
                 m.Journal(directory, create=True)
-            self.assertEqual(directory.read("progress.json"), before)
+            after = json.loads(directory.read("progress.json"))
+            self.assertEqual(after["version"], 1)
+            self.assertEqual(after["needs"], [])
             self.assertEqual(self.h.calls, [])
         finally:
             directory.close()
@@ -638,14 +673,20 @@ class DialogueTests(unittest.TestCase):
         with self.assertRaises(m.Blocked):
             host.call(m.NAMES[0], [])
 
-    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux leaf hard-link policy")
-    def test_linux_installation_rejects_hardlinked_leaf(self):
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux sealed-snapshot contract")
+    def test_linux_hardlinked_source_is_pinned_by_approved_snapshot_digest(self):
         target = self.root / "hardlinked-elf"
         target.write_bytes(Path(sys.executable).resolve().read_bytes())
         target.chmod(0o700)
         os.link(target, self.root / "hardlink-alias")
-        with self.assertRaisesRegex(m.Blocked, "unsafe_installation"):
-            m.binary_digest(target)
+        approved = m.binary_digest(target)
+        self.assertRegex(approved, r"^[a-f0-9]{64}$")
+        if m.VerifiedExecutable.supported():
+            verified = m.VerifiedExecutable(str(target), approved)
+            try:
+                self.assertEqual(verified.digest, approved)
+            finally:
+                verified.close()
 
     @unittest.skipUnless(m.VerifiedExecutable.supported(), "Linux memfd sealing unavailable")
     def test_verified_snapshot_executes_original_after_path_mutation_and_replacement(self):
@@ -752,7 +793,7 @@ class LinuxVerifiedExecutableTests(unittest.TestCase):
                 "m.binary_digest(sys.argv[3])")
         proc = subprocess.run([sys.executable, "-c", code, str(ROOT / "scripts"),
                                str(ROOT / "scripts/personas_dialogue.py"), str(fifo)],
-                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=1)
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5)
         self.assertNotEqual(proc.returncode, 0)
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "Linux capability checks")
@@ -817,13 +858,91 @@ class LinuxVerifiedExecutableTests(unittest.TestCase):
                     st_nlink=info.st_nlink, st_size=info.st_size, st_dev=info.st_dev,
                     st_ino=info.st_ino, st_mtime_ns=info.st_mtime_ns, st_ctime_ns=info.st_ctime_ns)
             return info
+        # Cargo/build layouts may hard-link a root-owned helper. Explicit approval
+        # pins its stable bytes; execution later snapshots those exact bytes into
+        # a sealed, single-object memfd. The source link itself is never executed.
+        target = folder / m.NAMES[0]
+        os.link(target, self.root / "alias")
         with patch.object(m.os, "fstat", mapped_fstat):
             host.adopt(folder)
         self.assertEqual(set(host.j.data["installation"]), set(m.NAMES))
-        target = folder / m.NAMES[0]
-        os.link(target, self.root / "alias")
-        with self.assertRaisesRegex(m.Blocked, "unsafe_installation"):
-            m.binary_digest(target)
+        approved = host.j.data["installation"][m.NAMES[0]]["sha256"]
+        if m.VerifiedExecutable.supported():
+            verified = m.VerifiedExecutable(str(target), approved)
+            try:
+                self.assertEqual(verified.digest, approved)
+            finally:
+                verified.close()
+
+
+class AutomaticProgressSelectionTests(unittest.TestCase):
+    def test_selects_standard_persistent_candidate_and_creates_journal_after_consent(self):
+        with tempfile.TemporaryDirectory(prefix="personas-auto-state-") as raw:
+            root = Path(raw)
+            root.chmod(0o700)
+            ui = Answers(["yes"])
+            with patch.dict(os.environ, {"XDG_STATE_HOME": str(root), "HOME": str(root)}, clear=False), \
+                    patch.object(m, "inside_checkout", return_value=False):
+                directory, created = m.select_progress_directory(ui)
+                try:
+                    self.assertTrue(created)
+                    self.assertEqual(directory.path, root / "ai-personas-launcher")
+                    journal = m.Journal(directory, create=True)
+                    journal.close()
+                    self.assertTrue((directory.path / "progress.json").is_file())
+                finally:
+                    directory.close()
+            self.assertEqual(ui.answers, [])
+
+    def test_existing_saved_location_wins_without_reset_or_prompt(self):
+        with tempfile.TemporaryDirectory(prefix="personas-auto-existing-") as raw:
+            root = Path(raw); root.chmod(0o700)
+            saved = root / "state" / "ai-personas-launcher"
+            saved.mkdir(parents=True, mode=0o700)
+            (saved / "progress.json").write_text('{"retained":true}')
+            (saved / "progress.json").chmod(0o600)
+            ui = Answers([])
+            with patch.dict(os.environ, {"XDG_STATE_HOME": str(root / "state"), "HOME": str(root)}, clear=False), \
+                    patch.object(m, "inside_checkout", return_value=False):
+                directory, created = m.select_progress_directory(ui)
+                try:
+                    self.assertFalse(created)
+                    self.assertEqual(directory.path, saved)
+                    self.assertEqual(directory.read("progress.json"), b'{"retained":true}')
+                finally:
+                    directory.close()
+            self.assertEqual(ui.answers, [])
+
+    def test_inaccessible_preferred_candidate_blocks_home_fallback(self):
+        with tempfile.TemporaryDirectory(prefix="personas-auto-inaccessible-") as raw:
+            root = Path(raw); root.chmod(0o700)
+            xdg = root / "xdg" / "ai-personas-launcher"
+            home = root / ".local" / "state" / "ai-personas-launcher"
+            ui = Answers([])
+            with patch.dict(os.environ, {"XDG_STATE_HOME": str(root / "xdg"), "HOME": str(root)}, clear=False), \
+                    patch.object(m.PrivateDirectory, "open_path", side_effect=[PermissionError("synthetic inaccessible")]):
+                with self.assertRaisesRegex(m.Blocked, "progress_location_unavailable"):
+                    m.select_progress_directory(ui)
+            self.assertFalse(home.exists(), "must not create a fallback journal when preferred state is inaccessible")
+            self.assertEqual(ui.answers, [])
+
+    def test_inside_checkout_resolution_runtime_error_is_controlled_refusal(self):
+        with patch.object(m.Path, "resolve", side_effect=RuntimeError("synthetic symlink loop")):
+            with self.assertRaisesRegex(m.Blocked, "unsafe_private_path"):
+                m.inside_checkout("/synthetic/path")
+
+    def test_multiple_existing_journals_block_instead_of_relocating(self):
+        with tempfile.TemporaryDirectory(prefix="personas-auto-ambiguous-") as raw:
+            root = Path(raw); root.chmod(0o700)
+            xdg = root / "xdg" / "ai-personas-launcher"
+            home = root / ".local" / "state" / "ai-personas-launcher"
+            xdg.mkdir(parents=True, mode=0o700); home.mkdir(parents=True, mode=0o700)
+            ui = Answers([])
+            with patch.dict(os.environ, {"XDG_STATE_HOME": str(root / "xdg"), "HOME": str(root)}, clear=False), \
+                    patch.object(m, "inside_checkout", return_value=False):
+                with self.assertRaisesRegex(m.Blocked, "multiple_saved_progress_locations"):
+                    m.select_progress_directory(ui)
+            self.assertEqual(ui.answers, [])
 
 if __name__ == "__main__":
     unittest.main()

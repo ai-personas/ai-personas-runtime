@@ -79,19 +79,20 @@ impl Vault {
     /// Explicit absolute app-owned file path only. This function does not create
     /// directories, inspect environment variables, or discover existing accounts.
     pub fn open(path: &Path) -> Result<Self, AuthError> {
-        Self::open_checked(path, false)
+        Self::open_checked(path)
     }
 
-    // Onboarding has no runtime root yet. Use the same descriptor-anchored
-    // protection as the vault, additionally excluding repositories at every level.
+    // Onboarding excludes the active source checkout itself. Repository markers
+    // in unrelated ancestors (for example a platform workspace mount) are not
+    // treated as proof that this private leaf is exported by that repository.
     pub(super) fn open_for_onboarding(path: &Path) -> Result<Self, AuthError> {
         if path.starts_with(env!("CARGO_MANIFEST_DIR")) {
             return Err(AuthError::Vault);
         }
-        Self::open_checked(path, true)
+        Self::open_checked(path)
     }
 
-    fn open_checked(path: &Path, outside_repository: bool) -> Result<Self, AuthError> {
+    fn open_checked(path: &Path) -> Result<Self, AuthError> {
         if !path.is_absolute()
             || path.as_os_str().as_bytes().len() > 4096
             || path.as_os_str().as_bytes().last() == Some(&b'/')
@@ -121,7 +122,7 @@ impl Vault {
         }
         let name = CString::new(name).map_err(|_| AuthError::Vault)?;
         let directory =
-            open_parent_checked(path.parent().ok_or(AuthError::Vault)?, outside_repository)?;
+            open_parent_checked(path.parent().ok_or(AuthError::Vault)?)?;
         drop(open_optional(&directory, &name)?);
         Ok(Self { directory, name })
     }
@@ -602,7 +603,7 @@ fn open_at(
     Ok(unsafe { File::from_raw_fd(fd) })
 }
 
-fn open_parent_checked(parent: &Path, outside_repository: bool) -> Result<File, AuthError> {
+fn open_parent_checked(parent: &Path) -> Result<File, AuthError> {
     // SAFETY: the literal is NUL terminated; open returns a new descriptor.
     let fd = unsafe {
         libc::open(
@@ -616,9 +617,6 @@ fn open_parent_checked(parent: &Path, outside_repository: bool) -> Result<File, 
     // SAFETY: fd is fresh and ownership is transferred exactly once.
     let mut directory = unsafe { File::from_raw_fd(fd) };
     check_directory(&directory, false)?;
-    if outside_repository {
-        reject_repository(&directory)?;
-    }
     for component in parent.components() {
         match component {
             Component::RootDir => {}
@@ -632,9 +630,6 @@ fn open_parent_checked(parent: &Path, outside_repository: bool) -> Result<File, 
                 )
                 .map_err(|_| AuthError::Vault)?;
                 check_directory(&next, false)?;
-                if outside_repository {
-                    reject_repository(&next)?;
-                }
                 directory = next;
             }
             _ => return Err(AuthError::Vault),
@@ -642,25 +637,6 @@ fn open_parent_checked(parent: &Path, outside_repository: bool) -> Result<File, 
     }
     check_directory(&directory, true)?;
     Ok(directory)
-}
-
-fn reject_repository(directory: &File) -> Result<(), AuthError> {
-    for name in [c".git", c".hg", c".svn"] {
-        let mut metadata = std::mem::MaybeUninit::<libc::stat>::uninit();
-        // SAFETY: valid descriptor, NUL-terminated literal, writable stat buffer.
-        let result = unsafe {
-            libc::fstatat(
-                directory.as_raw_fd(),
-                name.as_ptr(),
-                metadata.as_mut_ptr(),
-                libc::AT_SYMLINK_NOFOLLOW,
-            )
-        };
-        if result == 0 || io::Error::last_os_error().kind() != io::ErrorKind::NotFound {
-            return Err(AuthError::Vault);
-        }
-    }
-    Ok(())
 }
 
 fn check_directory(directory: &File, immediate: bool) -> Result<(), AuthError> {
@@ -673,14 +649,32 @@ fn check_directory(directory: &File, immediate: bool) -> Result<(), AuthError> {
             return Err(AuthError::Vault);
         }
     } else {
-        let root_sticky = metadata.uid() == 0 && metadata.mode() & 0o1000 != 0;
-        if (metadata.uid() != 0 && metadata.uid() != effective_uid())
-            || (metadata.mode() & 0o022 != 0 && !root_sticky)
-        {
+        // Descriptor-relative traversal avoids pathname re-resolution. A mapped
+        // owner is allowed for ancestors only when group/other cannot write them;
+        // that owner can still disrupt availability by renaming/chmodding paths.
+        // The private leaf below remains strictly owned and mode 0700.
+        if !ancestor_directory_permitted(metadata.uid(), metadata.mode()) {
             return Err(AuthError::Vault);
         }
     }
     Ok(())
+}
+
+fn ancestor_directory_permitted(owner_uid: u32, mode: u32) -> bool {
+    mode & 0o022 == 0 || (owner_uid == 0 && mode & 0o1000 != 0)
+}
+
+#[cfg(test)]
+mod mapped_ancestor_policy_tests {
+    use super::ancestor_directory_permitted;
+
+    #[test]
+    fn mapped_owner_is_allowed_only_for_non_group_world_writable_ancestor() {
+        assert!(ancestor_directory_permitted(12345, 0o755));
+        assert!(!ancestor_directory_permitted(12345, 0o775));
+        assert!(ancestor_directory_permitted(0, 0o1777));
+        assert!(!ancestor_directory_permitted(12345, 0o1777));
+    }
 }
 
 fn check_file(file: &File) -> Result<Metadata, AuthError> {
