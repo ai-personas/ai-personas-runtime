@@ -56,7 +56,17 @@ but are not silently converted to SIWC or API billing.
 
 The selected Personas vault uses the existing auth helper's browser sign-in,
 registration, callback, account and refresh fences. Its authorization URL is
-shown directly by that helper; the UI never records URLs or tokens. Reusing a vault,
+shown directly by that helper; the UI never records URLs or tokens. The browser
+must be able to reach the runtime helper's loopback callback on the same host;
+opening the URL on another computer alone is insufficient. For remote VMs, read
+the official [SIWC sign-in guide](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)
+and [self-hosted VM guidance](https://developers.openai.com/siwc/token-sharing-open-source/self-hosted-vms).
+The documented same-application session-transfer route exists, but this release
+does not implement credential import/transfer. Do not copy Codex credentials or
+manually edit host IDs. If the supported callback and protected vault cannot be
+provided, stop without granting sign-in or inference.
+
+Reusing a vault,
 reading the live catalogue, retaining evidence, and performing a probe are separate
 confirmations. Choose a listed model and an exact unverified effort candidate.
 Discovery alone proves neither effort support nor strict output support.

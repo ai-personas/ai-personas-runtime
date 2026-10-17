@@ -790,6 +790,15 @@ class Dialogue:
                                     "reviewed provider migration are required; see docs/activation.md.")
                         raise Blocked("explicit_provider_migration_required")
                 return status
+            self.ui.say("Native SIWC sign-in requires the browser to reach the loopback callback on this same host. "
+                        "Opening the authorization URL on another computer alone will not complete this login.")
+            self.ui.say("For a remote VM, see the official SIWC sign-in and self-hosted VM guidance:")
+            self.ui.say("https://developers.openai.com/siwc/token-sharing-open-source/sign-in")
+            self.ui.say("https://developers.openai.com/siwc/token-sharing-open-source/self-hosted-vms")
+            self.ui.say("The documented same-application credential-session transfer route exists, but this launcher "
+                        "does not implement credential import or transfer. Do not copy Codex credentials or edit host IDs.")
+            self.ui.say("If this host cannot provide the supported callback and protected vault, choose q and stop; "
+                        "no sign-in, refresh, or inference is required to leave safely.")
             self.ui.say("Account access is absent, expired, or fenced. s: browser sign-in; r: explicit same-account refresh; q: leave")
             choice = self.ui.ask("Access action:").strip().lower()
             if choice not in ("s", "r"):

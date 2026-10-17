@@ -24,12 +24,15 @@ class Answers(m.Terminal):
         self.answers = list(answers)
         self.messages = []
         self.questions = []
+        self.events = []
 
     def say(self, text):
         self.messages.append(str(text))
+        self.events.append(("say", str(text)))
 
     def ask(self, text):
         self.questions.append(text)
+        self.events.append(("ask", text))
         if not self.answers:
             raise AssertionError("Unexpected prompt: " + text)
         answer = self.answers.pop(0)
@@ -240,6 +243,41 @@ class DialogueTests(unittest.TestCase):
         self.assertEqual(self.h.configuration_count, 1)
         self.assertEqual(self.count("personas-provider", "probe"), 1)
         self.assertIsNotNone(self.j.data["settings"])
+
+    def test_native_remote_signin_guidance_precedes_choice_without_auth_side_effect(self):
+        before_needs = copy.deepcopy(self.j.data["needs"])
+        need = {"id": "need-guidance", "text": "Keep this pending", "require_acceptance": False,
+                "shared": False, "work": None}
+        self.j.data["needs"].append(need)
+        self.j.save()
+        ui = Answers(["yes", "q"])
+        d = m.Dialogue(self.j, self.h, ui, ROOT)
+        with self.assertRaises(m.Halt):
+            d.account()
+        events = ui.events
+        access_index = next(i for i, (kind, text) in enumerate(events)
+                            if kind == "ask" and text == "Access action:")
+        guidance = (
+            "same host",
+            "https://developers.openai.com/siwc/token-sharing-open-source/sign-in",
+            "https://developers.openai.com/siwc/token-sharing-open-source/self-hosted-vms",
+            "does not implement credential import or transfer",
+        )
+        guidance_indices = []
+        for required in guidance:
+            index = next(i for i, (kind, text) in enumerate(events)
+                         if kind == "say" and required in text)
+            self.assertLess(index, access_index, f"{required!r} must precede Access action")
+            guidance_indices.append(index)
+        self.assertEqual(guidance_indices, sorted(guidance_indices))
+        self.assertFalse(any(kind == "ask" and "Authorize sign-in" in text
+                             for kind, text in events))
+        self.assertEqual(self.count("personas-auth", "sign-in"), 0)
+        self.assertEqual(self.count("personas-auth", "refresh"), 0)
+        self.assertEqual(self.count("personas-provider", "probe"), 0)
+        self.assertEqual(self.j.data["needs"], before_needs + [need])
+        self.reopen()
+        self.assertEqual(self.j.data["needs"], before_needs + [need])
 
     def test_declined_probe_preserves_need_and_does_not_setup_or_dispatch(self):
         with self.assertRaises(m.Halt):
