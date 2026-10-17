@@ -590,6 +590,10 @@ pub struct AttemptReceipt {
     pub reported_effort: Option<String>,
     /// The prior report if two snapshots contradict. Both values are bounded.
     pub previous_reported_effort: Option<String>,
+    /// Safe reported model label retained even when host binding rejects output.
+    /// This is provider-reported metadata, not proof of served-model identity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reported_model: Option<String>,
     pub usage: Usage,
     pub elapsed_ms: u64,
     pub remote_stop_confirmed: bool,
@@ -612,6 +616,7 @@ impl AttemptReceipt {
             response_id_sha256: None,
             reported_effort: None,
             previous_reported_effort: None,
+            reported_model: None,
             usage: Usage::default(),
             elapsed_ms: 0,
             remote_stop_confirmed: false,
@@ -674,6 +679,9 @@ impl ProviderOutput {
             // binding check. The failure belongs to the expected admission.
             let mut receipt = self.attempt;
             receipt.audit = audit.clone();
+            // Preserve only the same bounded safe identifier accepted for model
+            // configuration. Do not weaken the exact equality check above.
+            receipt.reported_model = self.reported_model.filter(|value| identifier(value));
             receipt.reported_effort = receipt
                 .reported_effort
                 .filter(|value| reported_effort_label(value).is_some());

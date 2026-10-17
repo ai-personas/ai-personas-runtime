@@ -743,6 +743,68 @@ async fn unrecognized_effort_is_never_echoed_in_attempt_or_binding_errors() {
     assert!(!serde_json::to_string(&receipt).unwrap().contains(marker));
 }
 
+async fn binding_receipt_with_reported_model(model: String) -> p::AttemptReceipt {
+    let mut bytes = frame(created());
+    bytes.extend(frame(completed(vec![message("m1", None, "final")])));
+    let mut output = dispatch(bytes, false).await.unwrap();
+    let audit = output.audit.clone();
+    output.reported_model = Some(model);
+    let intent = p::ProviderIntent {
+        model: "fixture-model".into(),
+        effort: "high".into(),
+        max_prompt_bytes: 4096,
+        max_request_bytes: 16384,
+        max_response_bytes: 4096,
+        max_stream_bytes: 2_000_000,
+    };
+    let error = output.bound_to(&audit, &intent).unwrap_err();
+    let p::ProviderError::Attempt { failure, receipt } = error else {
+        panic!("expected retained binding failure")
+    };
+    assert_eq!(failure, Failure::Binding);
+    *receipt
+}
+
+#[tokio::test]
+async fn binding_mismatch_retains_safe_reported_model_with_bounded_serialization() {
+    // identifier() deliberately allows printable punctuation. A 128-byte string
+    // of quotes is the worst-case JSON-escaping case for the accepted alphabet.
+    let reported = "\"".repeat(128);
+    let receipt = binding_receipt_with_reported_model(reported.clone()).await;
+    assert_eq!(receipt.reported_model.as_deref(), Some(reported.as_str()));
+    assert!(receipt.dispatch_may_have_begun);
+    assert!(receipt.remote_effects_and_charges_may_remain);
+
+    // The optional field adds exactly 276 bytes at worst in this struct position:
+    // 16-byte JSON key + colon + quotes + 256 escaped value bytes + separator.
+    // Runtime's existing 64 KiB terminal-object guard remains authoritative.
+    let mut without = receipt.clone();
+    without.reported_model = None;
+    let old_len = serde_json::to_vec(&without).unwrap().len();
+    let new_len = serde_json::to_vec(&receipt).unwrap().len();
+    assert_eq!(new_len - old_len, 276);
+    let json = serde_json::to_value(&receipt).unwrap();
+    assert_eq!(json["reported_model"].as_str(), Some(reported.as_str()));
+}
+
+#[tokio::test]
+async fn binding_mismatch_omits_unsafe_or_oversized_reported_model() {
+    let values = [
+        "synthetic marker with whitespace".to_owned(),
+        "synthetic\ncontrol-marker".to_owned(),
+        format!("unsafe-control-{}", '\u{0007}'),
+        "x".repeat(129),
+    ];
+    for reported in values {
+        let receipt = binding_receipt_with_reported_model(reported.clone()).await;
+        assert_eq!(receipt.reported_model, None, "value should be rejected");
+        assert!(!serde_json::to_string(&receipt).unwrap().contains(&reported));
+        assert!(!format!("{receipt:?}").contains(&reported));
+        assert!(receipt.dispatch_may_have_begun);
+        assert!(receipt.remote_effects_and_charges_may_remain);
+    }
+}
+
 #[test]
 fn early_response_observation_never_establishes_protocol_binding() {
     let mut event = created();
