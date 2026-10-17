@@ -314,9 +314,104 @@ class Terminal:
         raise Halt()
 
 
+def _linux_open_regular(path):
+    """Descriptor-anchor path traversal and return a validated regular leaf FD.
+
+    At approval time, reject intermediate directories currently writable by
+    unrelated principals, except root-owned sticky shared directories. This is
+    not an immutable-origin guarantee: a foreign owner may later change its
+    directory mode or rename descendants. The saved digest and sealed execution
+    snapshot enforce the approved main-ELF bytes at launch. Host/root and hostile
+    same-UID processes remain trusted; dynamic loader and shared libraries do too.
+    """
+    require(all(type(getattr(os, name, None)) is int for name in
+                ("O_DIRECTORY", "O_CLOEXEC", "O_NOFOLLOW", "O_NONBLOCK")),
+            "verified_exec_unavailable")
+    p = Path(path)
+    require(p.is_absolute() and all(part not in (".", "..") for part in p.parts),
+            "unsafe_installation_path")
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW
+    directory = None
+    leaf = None
+    try:
+        directory = os.open("/", flags)
+        for part in p.parts[1:-1]:
+            child = None
+            try:
+                child = os.open(part, flags, dir_fd=directory)
+                info = os.fstat(child)
+                root_sticky = info.st_uid == 0 and bool(info.st_mode & stat.S_ISVTX)
+                foreign_owner_can_rename = info.st_uid not in (0, os.geteuid()) and bool(info.st_mode & 0o200)
+                writable_by_group_or_other = bool(info.st_mode & 0o022) and not root_sticky
+                if not stat.S_ISDIR(info.st_mode) or foreign_owner_can_rename or writable_by_group_or_other:
+                    raise Blocked("unsafe_installation_path")
+                os.close(directory)
+                directory = child
+                child = None  # ownership transferred to directory
+            finally:
+                if child is not None:
+                    os.close(child)
+        leaf = os.open(p.name, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC | os.O_NOFOLLOW,
+                       dir_fd=directory)
+        info = os.fstat(leaf)
+        require(stat.S_ISREG(info.st_mode) and info.st_uid in (0, os.geteuid())
+                and info.st_nlink == 1 and not info.st_mode & 0o022
+                and info.st_mode & 0o111 and info.st_size <= 128 * 1024 * 1024,
+                "unsafe_installation")
+        result, leaf = (leaf, None)
+        return result, info
+    except OSError:
+        raise Blocked("unsafe_installation_path") from None
+    finally:
+        if leaf is not None:
+            os.close(leaf)
+        if directory is not None:
+            os.close(directory)
+
+def _digest_fd(fd, maximum=128 * 1024 * 1024):
+    h = hashlib.sha256()
+    total = 0
+    os.lseek(fd, 0, os.SEEK_SET)
+    while True:
+        part = os.read(fd, min(1024 * 1024, maximum - total + 1))
+        if not part:
+            break
+        total += len(part)
+        require(total <= maximum, "unsafe_installation")
+        h.update(part)
+    os.lseek(fd, 0, os.SEEK_SET)
+    return h.hexdigest()
+
+
+def _check_installation_ancestry(path):
+    # Compatibility name: Linux checks ancestry through open directory FDs in
+    # _linux_open_regular; pathname lstat loops are deliberately not trusted.
+    require(Path(path).is_absolute(), "invalid_installation")
+
+
+def _stable_stat(before, after):
+    return (before.st_dev, before.st_ino, before.st_mode, before.st_size,
+            before.st_mtime_ns, before.st_ctime_ns) == (
+            after.st_dev, after.st_ino, after.st_mode, after.st_size,
+            after.st_mtime_ns, after.st_ctime_ns)
+
+
 def binary_digest(path):
     p = Path(path)
     require(p.is_absolute(), "invalid_installation")
+    if sys.platform.startswith("linux"):
+        # Descriptor-relative traversal, not a pathname lstat preflight.
+        fd, before = _linux_open_regular(str(p))
+        try:
+            require(before.st_uid in (0, os.geteuid()) and before.st_nlink == 1,
+                    "unsafe_installation")
+            digest = _digest_fd(fd)
+            require(_stable_stat(before, os.fstat(fd)), "installation_changed_during_hash")
+            return digest
+        except OSError:
+            raise Blocked("unsafe_installation") from None
+        finally:
+            os.close(fd)
     for ancestor in (p, *p.parents):
         info = ancestor.lstat()
         require(not stat.S_ISLNK(info.st_mode) and info.st_uid in (0, os.geteuid()), "unsafe_installation_path")
@@ -335,6 +430,97 @@ def binary_digest(path):
                 break
             h.update(part)
     return h.hexdigest()
+
+
+class VerifiedExecutable:
+    """Linux-only immutable snapshot of a pinned ELF helper.
+
+    Pins the main ELF bytes only. The kernel loader and shared libraries remain
+    trusted host dependencies. Same-UID hostile processes and root are outside
+    this snapshot's threat boundary.
+    """
+    MAX_BYTES = 128 * 1024 * 1024
+
+    @staticmethod
+    def capabilities_available():
+        os_names = ("MFD_CLOEXEC", "MFD_ALLOW_SEALING", "O_CLOEXEC", "O_NOFOLLOW", "O_NONBLOCK", "O_DIRECTORY")
+        fcntl_names = ("F_ADD_SEALS", "F_GET_SEALS", "F_SEAL_SEAL", "F_SEAL_SHRINK", "F_SEAL_GROW", "F_SEAL_WRITE")
+        return (sys.platform.startswith("linux")
+                and callable(getattr(os, "memfd_create", None))
+                and callable(getattr(os, "fchmod", None))
+                and callable(getattr(fcntl, "fcntl", None))
+                and all(type(getattr(os, name, None)) is int for name in os_names)
+                and all(type(getattr(fcntl, name, None)) is int for name in fcntl_names)
+                and Path("/proc/self/fd").is_dir())
+
+    @staticmethod
+    def supported():
+        return VerifiedExecutable.capabilities_available()
+
+    def __init__(self, path, expected_digest):
+        require(sys.platform.startswith("linux"), "verified_exec_unsupported")
+        require(isinstance(expected_digest, str) and re.fullmatch(r"[a-f0-9]{64}", expected_digest),
+                "approved_binary_digest_required")
+        require(self.capabilities_available(), "verified_exec_unavailable")
+        source_fd, before = _linux_open_regular(path)
+        self.fd = None
+        try:
+            require(before.st_uid in (0, os.geteuid()) and before.st_nlink == 1,
+                    "unsafe_installation")
+            require(before.st_mode & 0o111 and not before.st_mode & 0o022, "unsafe_installation")
+            # Only ELF executables are supported: no shebang/interpreter chain.
+            magic = os.read(source_fd, 4)
+            require(magic == b"\x7fELF", "verified_exec_format_unsupported")
+            os.lseek(source_fd, 0, os.SEEK_SET)
+            self.fd = os.memfd_create("personas-helper", os.MFD_CLOEXEC | os.MFD_ALLOW_SEALING)
+            digest = hashlib.sha256()
+            total = 0
+            while True:
+                chunk = os.read(source_fd, 1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                require(total <= self.MAX_BYTES, "unsafe_installation")
+                digest.update(chunk)
+                view = memoryview(chunk)
+                while view:
+                    written = os.write(self.fd, view)
+                    require(written > 0, "verified_exec_unavailable")
+                    view = view[written:]
+            require(_stable_stat(before, os.fstat(source_fd)), "installation_changed_during_snapshot")
+            actual = digest.hexdigest()
+            require(actual == expected_digest, "approved_binary_changed")
+            require(total == before.st_size, "installation_changed_during_snapshot")
+            os.fchmod(self.fd, 0o500)
+            os.lseek(self.fd, 0, os.SEEK_SET)
+            seals = fcntl.F_SEAL_SEAL | fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_GROW | fcntl.F_SEAL_WRITE
+            fcntl.fcntl(self.fd, fcntl.F_ADD_SEALS, seals)
+            require(fcntl.fcntl(self.fd, getattr(fcntl, "F_GET_SEALS", -1)) & seals == seals,
+                    "verified_exec_unavailable")
+            self.path = f"/proc/self/fd/{self.fd}"
+            self.digest = actual
+        except Blocked:
+            if self.fd is not None:
+                os.close(self.fd)
+                self.fd = None
+            raise
+        except (OSError, AttributeError, TypeError, ValueError):
+            if self.fd is not None:
+                os.close(self.fd)
+                self.fd = None
+            raise Blocked("verified_exec_unavailable") from None
+        except BaseException:
+            if self.fd is not None:
+                os.close(self.fd)
+                self.fd = None
+            raise
+        finally:
+            os.close(source_fd)
+
+    def close(self):
+        if self.fd is not None:
+            os.close(self.fd)
+            self.fd = None
 
 
 class Helpers:
@@ -361,10 +547,14 @@ class Helpers:
 
     def adopt(self, folder):
         mapping = {}
+        selected_folder = Path(folder).resolve(strict=True)
         for name in NAMES:
-            path = (folder / name).resolve(strict=True)
+            # Resolve the chosen directory, not each executable leaf: O_NOFOLLOW
+            # must see and reject a symlink at the selected helper name.
+            path = selected_folder / name
             mapping[name] = {"path": str(path), "sha256": binary_digest(path)}
-        self.ui.consent(f"Use these four local helpers from {folder}? Their exact file hashes will be pinned")
+        digest_summary = "; ".join(f"{name}={item['sha256']}" for name, item in mapping.items())
+        self.ui.consent(f"Approve these exact helper bytes from {selected_folder}? SHA-256: {digest_summary}")
         self.j.data["installation"] = mapping
         self.j.save()
 
@@ -441,10 +631,26 @@ class Helpers:
 
     def call(self, name, args, timeout=30, auth_display=False):
         item = self.j.data["installation"][name]
-        require(binary_digest(item["path"]) == item["sha256"], "approved_binary_changed")
-        proc = subprocess.Popen([item["path"], *args], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                stderr=None if auth_display else subprocess.PIPE,
-                                cwd=self.checkout, env=self.environment(), start_new_session=True)
+        verified = None
+        executable = item["path"]
+        pass_fds = ()
+        if sys.platform.startswith("linux"):
+            verified = VerifiedExecutable(item["path"], item["sha256"])
+            executable = verified.path
+            pass_fds = (verified.fd,)
+        else:
+            require(binary_digest(item["path"]) == item["sha256"], "approved_binary_changed")
+        try:
+            proc = subprocess.Popen([executable, *args], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                    stderr=None if auth_display else subprocess.PIPE,
+                                    cwd=self.checkout, env=self.environment(), start_new_session=True,
+                                    pass_fds=pass_fds)
+        except BaseException:
+            if verified is not None:
+                verified.close()
+            raise
+        if verified is not None:
+            verified.close()
         out, err = bytearray(), bytearray()
         try:
             with selectors.DefaultSelector() as poll:

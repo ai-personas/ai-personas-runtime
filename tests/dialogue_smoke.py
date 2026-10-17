@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Narrow offline tests of the actual dialogue, not live auth/model experiments."""
 import copy
+import hashlib
 import importlib.util
 import json
 import os
+import sys
+import stat
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -172,7 +176,7 @@ SUBMIT = ["p", "", "yes", "yes"]
 
 class DialogueTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix="personas-ui-fixture-", dir="/var/tmp")
+        self.tmp = tempfile.TemporaryDirectory(prefix="personas-ui-fixture-")
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.directory = m.PrivateDirectory(str(self.root))
@@ -458,7 +462,7 @@ class DialogueTests(unittest.TestCase):
         ui = Answers(["p", str(folder)])
         with patch.object(m.Helpers, "candidates", return_value=[]), \
                 patch.object(m.subprocess, "Popen") as spawn:
-            with self.assertRaisesRegex(m.Blocked, "writable_installation_path"):
+            with self.assertRaisesRegex(m.Blocked, "unsafe_installation"):
                 m.Helpers(self.j, ROOT, ui).install()
             spawn.assert_not_called()
         self.assertIsNone(self.j.data["installation"])
@@ -567,22 +571,259 @@ class DialogueTests(unittest.TestCase):
             directory.close()
 
     def test_actual_helper_adapter_keeps_arguments_literal_and_redacts_stderr(self):
-        # Exercise the real subprocess adapter with a temporary fake helper.
+        # Use the current Python ELF as the helper on Linux; never execute a script
+        # through the verified memfd path. Non-Linux retains the script fixture.
         import sys
-        target = self.root / "helper"
-        target.write_text("#!" + sys.executable + "\nimport json,sys\nprint(json.dumps({'ok':True,'result':sys.argv[1:]}))\n")
-        target.chmod(0o700)
-        self.j.data["installation"] = {n: {"path": str(target), "sha256": m.binary_digest(target)} for n in m.NAMES}
-        self.j.save()
         host = m.Helpers(self.j, ROOT, Answers([]))
         need = "--anything; $(not-a-command) café"
-        self.assertEqual(host.call("personas-session", ["intake", "--", need]), ["intake", "--", need])
-        target.write_text("#!" + sys.executable + "\nimport sys\nprint('FIXTURE_SECRET_NOT_FOR_OUTPUT',file=sys.stderr)\nsys.exit(1)\n")
-        self.j.data["installation"]["personas-session"]["sha256"] = m.binary_digest(target)
-        with self.assertRaises(m.Blocked) as caught:
-            host.call("personas-session", [])
-        self.assertNotIn("FIXTURE_SECRET", str(caught.exception))
+        if sys.platform.startswith("linux"):
+            target = self.root / "helper-elf"
+            target.write_bytes(Path(sys.executable).resolve().read_bytes())
+            target.chmod(0o700)
+            digest = m.binary_digest(str(target))
+            self.j.data["installation"] = {n: {"path": str(target), "sha256": digest} for n in m.NAMES}
+            self.j.save()
+            code = "import json,sys; print(json.dumps({'ok':True,'result':sys.argv[1:]}))"
+            self.assertEqual(host.call("personas-session", ["-c", code, "intake", "--", need]),
+                             ["intake", "--", need])
+            bad = "import sys; print('FIXTURE_SECRET_NOT_FOR_OUTPUT',file=sys.stderr); sys.exit(1)"
+            with self.assertRaises(m.Blocked) as caught:
+                host.call("personas-session", ["-c", bad])
+            self.assertNotIn("FIXTURE_SECRET", str(caught.exception))
+        else:
+            target = self.root / "helper"
+            target.write_text("#!" + sys.executable + "\nimport json,sys\nprint(json.dumps({'ok':True,'result':sys.argv[1:]}))\n")
+            target.chmod(0o700)
+            self.j.data["installation"] = {n: {"path": str(target), "sha256": m.binary_digest(target)} for n in m.NAMES}
+            self.j.save()
+            self.assertEqual(host.call("personas-session", ["intake", "--", need]), ["intake", "--", need])
+            target.write_text("#!" + sys.executable + "\nimport sys\nprint('FIXTURE_SECRET_NOT_FOR_OUTPUT',file=sys.stderr)\nsys.exit(1)\n")
+            self.j.data["installation"]["personas-session"]["sha256"] = m.binary_digest(target)
+            with self.assertRaises(m.Blocked) as caught:
+                host.call("personas-session", [])
+            self.assertNotIn("FIXTURE_SECRET", str(caught.exception))
 
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux mapped-UID installation policy")
+    def test_linux_adoption_allows_mapped_ancestor_but_pins_owned_leaf(self):
+        from types import SimpleNamespace
+        folder = self.root / "mapped-root-install"
+        folder.mkdir(mode=0o700)
+        source = Path(sys.executable).resolve()
+        for name in m.NAMES:
+            target = folder / name
+            target.write_bytes(source.read_bytes())
+            target.chmod(0o700)
+        original_lstat = Path.lstat
+        foreign_uid = os.geteuid() + 12345
+        def mapped_lstat(path):
+            info = original_lstat(path)
+            if path == self.root:
+                return SimpleNamespace(st_mode=info.st_mode, st_uid=foreign_uid,
+                    st_nlink=info.st_nlink, st_size=info.st_size)
+            if path == self.root.parent:
+                return SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_uid=foreign_uid,
+                    st_nlink=info.st_nlink, st_size=info.st_size)
+            return info
+        host = m.Helpers(self.j, ROOT, Answers(["yes"]))
+        with patch.object(Path, "lstat", mapped_lstat):
+            host.adopt(folder)
+        for name in m.NAMES:
+            self.assertRegex(self.j.data["installation"][name]["sha256"], r"^[a-f0-9]{64}$")
+        # The stored digest remains mandatory at execution; changing the leaf refuses.
+        target = folder / m.NAMES[0]
+        target.write_bytes(b"changed")
+        approved = self.j.data["installation"][m.NAMES[0]]["sha256"]
+        self.assertNotEqual(m.binary_digest(target), approved)
+        with self.assertRaises(m.Blocked):
+            host.call(m.NAMES[0], [])
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux leaf hard-link policy")
+    def test_linux_installation_rejects_hardlinked_leaf(self):
+        target = self.root / "hardlinked-elf"
+        target.write_bytes(Path(sys.executable).resolve().read_bytes())
+        target.chmod(0o700)
+        os.link(target, self.root / "hardlink-alias")
+        with self.assertRaisesRegex(m.Blocked, "unsafe_installation"):
+            m.binary_digest(target)
+
+    @unittest.skipUnless(m.VerifiedExecutable.supported(), "Linux memfd sealing unavailable")
+    def test_verified_snapshot_executes_original_after_path_mutation_and_replacement(self):
+        source = Path(sys.executable).resolve()
+        target = self.root / "approved-elf"
+        target.write_bytes(source.read_bytes())
+        target.chmod(0o700)
+        expected = hashlib.sha256(target.read_bytes()).hexdigest()
+        verified = m.VerifiedExecutable(str(target), expected)
+        try:
+            # Mutate the original inode in place, then replace its pathname.
+            with target.open("r+b") as out:
+                out.seek(0)
+                out.write(b"NOT-AN-ELF")
+                out.flush()
+                os.fsync(out.fileno())
+            replacement = self.root / "replacement"
+            replacement.write_text("not the approved executable")
+            os.replace(replacement, target)
+            proc = subprocess.run([verified.path, "-c", "print('sealed-original')"],
+                                  pass_fds=(verified.fd,), stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE, timeout=5, check=False)
+            self.assertEqual(proc.returncode, 0, proc.stderr.decode("utf-8", "replace"))
+            self.assertEqual(proc.stdout, b"sealed-original\n")
+        finally:
+            verified.close()
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux memfd snapshot contract")
+    def test_verified_snapshot_missing_capability_fails_closed(self):
+        target = self.root / "capability-fixture-elf"
+        target.write_bytes(Path(sys.executable).resolve().read_bytes())
+        target.chmod(0o700)
+        if not m.VerifiedExecutable.supported():
+            with self.assertRaisesRegex(m.Blocked, "verified_exec_unavailable"):
+                m.VerifiedExecutable(str(target), "0" * 64)
+            return
+        with patch.object(m.fcntl, "fcntl", None):
+            with self.assertRaisesRegex(m.Blocked, "verified_exec_unavailable"):
+                m.VerifiedExecutable(str(target), "0" * 64)
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux memfd snapshot contract")
+    def test_verified_snapshot_rejects_wrong_digest_and_shebang(self):
+        with self.assertRaises(m.Blocked):
+            m.VerifiedExecutable(str(Path(sys.executable).resolve()), "0" * 64)
+        script = self.root / "helper-script"
+        script.write_text("#!/bin/sh\nexit 0\n")
+        script.chmod(0o700)
+        if m.VerifiedExecutable.supported():
+            with self.assertRaisesRegex(m.Blocked, "verified_exec_format_unsupported"):
+                m.VerifiedExecutable(str(script), hashlib.sha256(script.read_bytes()).hexdigest())
+        else:
+            with self.assertRaisesRegex(m.Blocked, "verified_exec_unavailable"):
+                m.VerifiedExecutable(str(script), hashlib.sha256(script.read_bytes()).hexdigest())
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux memfd snapshot contract")
+    def test_verified_snapshot_rejects_fifo_without_blocking(self):
+        fifo = self.root / "helper-fifo"
+        os.mkfifo(fifo, 0o600)
+        code = "import sys; from pathlib import Path; sys.path.insert(0,sys.argv[1]); import importlib.util; p=Path(sys.argv[2]); s=importlib.util.spec_from_file_location('pd',p); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); m.VerifiedExecutable(sys.argv[3], '0'*64)"
+        proc = subprocess.run([sys.executable, "-c", code, str(ROOT / "scripts"),
+                               str(ROOT / "scripts/personas_dialogue.py"), str(fifo)],
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=1, check=False)
+        self.assertNotEqual(proc.returncode, 0)
+
+
+
+class LinuxVerifiedExecutableTests(unittest.TestCase):
+    """Isolated executable tests; intentionally do not instantiate private vault/journal."""
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="verified-exec-")
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.root.chmod(0o700)
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux memfd snapshot contract")
+    def test_descriptor_snapshot_survives_inode_mutation_and_path_replacement(self):
+        if not m.VerifiedExecutable.supported():
+            self.skipTest("required memfd sealing/procfs capabilities unavailable")
+        source = Path(sys.executable).resolve()
+        target = self.root / "helper-elf"
+        target.write_bytes(source.read_bytes())
+        target.chmod(0o700)
+        expected = hashlib.sha256(target.read_bytes()).hexdigest()
+        verified = m.VerifiedExecutable(str(target), expected)
+        try:
+            with target.open("r+b") as out:
+                out.seek(0); out.write(b"MUTATED-ELF"); out.flush(); os.fsync(out.fileno())
+            replacement = self.root / "replacement"
+            replacement.write_text("not executable")
+            os.replace(replacement, target)
+            proc = subprocess.run([verified.path, "-c", "print('snapshot-ok')"], pass_fds=(verified.fd,),
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5)
+            self.assertEqual(proc.returncode, 0, proc.stderr.decode("utf-8", "replace"))
+            self.assertEqual(proc.stdout, b"snapshot-ok\n")
+        finally:
+            verified.close()
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux source policy")
+    def test_fifo_is_rejected_without_blocking(self):
+        fifo = self.root / "helper-fifo"; os.mkfifo(fifo, 0o600)
+        code = ("import sys; from pathlib import Path; sys.path.insert(0,sys.argv[1]); "
+                "import importlib.util; p=Path(sys.argv[2]); s=importlib.util.spec_from_file_location('pd',p); "
+                "m=importlib.util.module_from_spec(s); s.loader.exec_module(m); "
+                "m.binary_digest(sys.argv[3])")
+        proc = subprocess.run([sys.executable, "-c", code, str(ROOT / "scripts"),
+                               str(ROOT / "scripts/personas_dialogue.py"), str(fifo)],
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=1)
+        self.assertNotEqual(proc.returncode, 0)
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux capability checks")
+    def test_missing_fcntl_callable_is_controlled(self):
+        target = self.root / "helper-elf"
+        target.write_bytes(Path(sys.executable).resolve().read_bytes()); target.chmod(0o700)
+        with patch.object(m.fcntl, "fcntl", None):
+            with self.assertRaisesRegex(m.Blocked, "verified_exec_unavailable"):
+                m.VerifiedExecutable(str(target), hashlib.sha256(target.read_bytes()).hexdigest())
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux descriptor cleanup")
+    def test_child_directory_fstat_failure_closes_new_descriptor(self):
+        folder = self.root / "helpers"
+        folder.mkdir(mode=0o700)
+        target = folder / "helper"
+        target.write_bytes(Path(sys.executable).resolve().read_bytes())
+        target.chmod(0o700)
+        original_fstat = os.fstat
+        def fail_child(fd):
+            try:
+                name = os.readlink(f"/proc/self/fd/{fd}")
+            except OSError:
+                name = ""
+            if name == str(folder):
+                raise OSError("synthetic fstat failure")
+            return original_fstat(fd)
+        before = len(os.listdir("/proc/self/fd"))
+        with patch.object(m.os, "fstat", fail_child):
+            with self.assertRaisesRegex(m.Blocked, "unsafe_installation_path"):
+                m._linux_open_regular(str(target))
+        self.assertEqual(len(os.listdir("/proc/self/fd")), before)
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux mapped ancestor policy")
+    def test_descriptor_anchored_adoption_and_leaf_link_refusal(self):
+        # The fixture models a mapped-UID, non-writable intermediate directory
+        # through fstat; this tests policy acceptance, not resistance to its owner
+        # changing mode after approval. No private Vault or runtime Store is opened.
+        folder = self.root / "helpers"; folder.mkdir(mode=0o700)
+        binary = Path(sys.executable).resolve().read_bytes()
+        for name in m.NAMES:
+            target = folder / name; target.write_bytes(binary); target.chmod(0o700)
+        class JournalFixture:
+            data = {"installation": None}
+            def save(self): pass
+        class Consent:
+            def consent(self, _): pass
+        host = m.Helpers(JournalFixture(), ROOT, Consent())
+        # Model a mapped foreign UID on a non-writable intermediate directory.
+        # The real openat/fstat traversal still runs; only that directory's
+        # metadata is represented as the mapped host view.
+        original_fstat = os.fstat
+        mapped_path = str(self.root)
+        def mapped_fstat(fd):
+            info = original_fstat(fd)
+            try:
+                actual = os.readlink(f"/proc/self/fd/{fd}")
+            except OSError:
+                actual = ""
+            if actual == mapped_path and stat.S_ISDIR(info.st_mode):
+                from types import SimpleNamespace
+                return SimpleNamespace(st_mode=stat.S_IFDIR | 0o555, st_uid=os.geteuid() + 12345,
+                    st_nlink=info.st_nlink, st_size=info.st_size, st_dev=info.st_dev,
+                    st_ino=info.st_ino, st_mtime_ns=info.st_mtime_ns, st_ctime_ns=info.st_ctime_ns)
+            return info
+        with patch.object(m.os, "fstat", mapped_fstat):
+            host.adopt(folder)
+        self.assertEqual(set(host.j.data["installation"]), set(m.NAMES))
+        target = folder / m.NAMES[0]
+        os.link(target, self.root / "alias")
+        with self.assertRaisesRegex(m.Blocked, "unsafe_installation"):
+            m.binary_digest(target)
 
 if __name__ == "__main__":
     unittest.main()
