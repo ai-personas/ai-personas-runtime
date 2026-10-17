@@ -1131,6 +1131,57 @@ def progress_candidates():
     return list(dict.fromkeys(candidates))
 
 
+def preflight_progress_creation(path):
+    """Side-effect-free advisory check of the nearest existing parent descriptor.
+
+    This checks effective write/search access before asking consent. It does not
+    reserve the path or guarantee a later mkdir/write: creation reopens and
+    revalidates every component, so races and quota/read-only failures still fail
+    closed after consent without selecting another journal location.
+    """
+    require(path_text(str(path)), "unsafe_private_path")
+    parent = Path(path).parent
+    parts = parent.parts[1:]
+    try:
+        # Resolve platform constants inside the guarded capability boundary:
+        # unsupported Python builds fail with a stable launcher error.
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW
+        fd = os.open("/", flags)
+    except (OSError, AttributeError, TypeError) as error:
+        raise Blocked("progress_location_unavailable") from None
+    try:
+        for part in parts:
+            try:
+                child = os.open(part, flags, dir_fd=fd)
+            except FileNotFoundError:
+                break
+            except (OSError, AttributeError, TypeError):
+                raise Blocked("progress_location_unavailable") from None
+            try:
+                info = os.fstat(child)
+                require(stat.S_ISDIR(info.st_mode), "unsafe_private_path")
+                # Match PrivateDirectory's intermediate-component policy: owner
+                # identity alone is not a security boundary. Reject directories
+                # writable by group/other, except root-owned sticky ancestors.
+                # The final private leaf is separately required to be owned by
+                # this UID and private; same-UID/root remain trusted principals.
+                require(not info.st_mode & 0o022 or
+                        (info.st_uid == 0 and info.st_mode & stat.S_ISVTX),
+                        "writable_path_ancestor")
+            except BaseException:
+                os.close(child)
+                raise
+            os.close(fd)
+            fd = child
+        try:
+            writable = os.access(".", os.W_OK | os.X_OK, dir_fd=fd, effective_ids=True)
+        except (OSError, AttributeError, TypeError, NotImplementedError):
+            raise Blocked("progress_writability_unverifiable") from None
+        require(writable, "progress_location_not_writable")
+    finally:
+        os.close(fd)
+
+
 def select_progress_directory(ui, default=None):
     """Automatically select standard persistent state without moving/resetting journals."""
     candidates = progress_candidates()
@@ -1153,10 +1204,16 @@ def select_progress_directory(ui, default=None):
         return PrivateDirectory(existing[0]), False
     require(safe_missing, "no_supported_persistent_state_location")
     path = safe_missing[0]
+    # Fail before asking consent when the nearest existing parent is read-only.
+    # This is advisory only; create=True repeats descriptor-safe validation.
+    preflight_progress_creation(path)
     ui.say(f"Selected private persistent progress location: {path}")
     ui.say("The journal stores pending requests and operation identities, not credentials.")
     ui.consent("Create a new private progress journal here? This authorizes no sign-in or model call.")
-    return PrivateDirectory(path, create=True), True
+    try:
+        return PrivateDirectory(path, create=True), True
+    except (Blocked, OSError):
+        raise Blocked("progress_location_unavailable_after_consent") from None
 
 
 def main():

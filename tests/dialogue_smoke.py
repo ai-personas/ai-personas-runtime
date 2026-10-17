@@ -894,6 +894,57 @@ class AutomaticProgressSelectionTests(unittest.TestCase):
                     directory.close()
             self.assertEqual(ui.answers, [])
 
+    def test_preflight_accepts_mapped_owner_nonwritable_ancestor(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory(prefix="personas-mapped-preflight-") as raw:
+            root = Path(raw); root.chmod(0o700)
+            target = root / "state" / "journal"
+            real_fstat = os.fstat
+            calls = 0
+            def mapped_fstat(fd):
+                nonlocal calls
+                calls += 1
+                info = real_fstat(fd)
+                # Model a mapped/foreign UID on an intermediate directory with
+                # no group/other write permission; the leaf is still validated
+                # by PrivateDirectory when it is created/opened.
+                if calls > 1:
+                    return SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_uid=42424)
+                return info
+            with patch.object(m.os, "fstat", side_effect=mapped_fstat):
+                m.preflight_progress_creation(target)
+
+    def test_preflight_missing_open_flag_is_controlled(self):
+        with tempfile.TemporaryDirectory(prefix="personas-preflight-capability-") as raw:
+            target = Path(raw) / "state" / "journal"
+            with patch.object(m.os, "O_CLOEXEC", None):
+                with self.assertRaisesRegex(m.Blocked, "progress_location_unavailable"):
+                    m.preflight_progress_creation(target)
+
+    def test_readonly_parent_is_rejected_before_creation_consent(self):
+        with tempfile.TemporaryDirectory(prefix="personas-auto-readonly-") as raw:
+            root = Path(raw); root.chmod(0o700)
+            ui = Answers([])
+            with patch.dict(os.environ, {"XDG_STATE_HOME": str(root), "HOME": str(root)}, clear=False), \
+                    patch.object(m, "inside_checkout", return_value=False), \
+                    patch.object(m.os, "access", return_value=False):
+                with self.assertRaisesRegex(m.Blocked, "progress_location_not_writable"):
+                    m.select_progress_directory(ui)
+            self.assertEqual(ui.questions, [], "writability preflight must precede consent")
+            self.assertFalse((root / "ai-personas-launcher").exists())
+
+    def test_preflight_is_advisory_and_creation_race_fails_closed(self):
+        with tempfile.TemporaryDirectory(prefix="personas-auto-race-") as raw:
+            root = Path(raw); root.chmod(0o700)
+            ui = Answers(["yes"])
+            with patch.dict(os.environ, {"XDG_STATE_HOME": str(root), "HOME": str(root)}, clear=False), \
+                    patch.object(m, "inside_checkout", return_value=False), \
+                    patch.object(m.PrivateDirectory, "__init__", side_effect=OSError("read-only race")):
+                with self.assertRaisesRegex(m.Blocked, "progress_location_unavailable_after_consent"):
+                    m.select_progress_directory(ui)
+            self.assertEqual(ui.answers, [])
+            self.assertEqual(len(ui.questions), 1)
+
     def test_existing_saved_location_wins_without_reset_or_prompt(self):
         with tempfile.TemporaryDirectory(prefix="personas-auto-existing-") as raw:
             root = Path(raw); root.chmod(0o700)
