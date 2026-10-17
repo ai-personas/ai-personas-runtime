@@ -199,6 +199,150 @@ fn retrieved_consequence_to_authored_fragment_selection_survives_reopen() {
     assert_eq!(after.sources[source].revisions.len(), 1);
 }
 
+
+#[test]
+fn retained_feedback_can_inform_explicit_character_fragment_adoption_and_revisit() {
+    let (directory, mut app) = fixture();
+
+    // Create a retained observation through the runtime's synthetic API.
+    let first = prepare(&mut app, "maturation-feedback-produce", FIRST, 100);
+    submit(
+        &mut app,
+        &first,
+        vec![json!({"kind":"history_query","id":"feedback-probe",
+            "mode":{"kind":"literal","needle":"synthetic-feedback-not-present"},
+            "limit":1,"cursor":null})],
+        "Create a synthetic historical feedback observation",
+        101,
+    );
+    let feedback_id = observation_id(
+        "maturation-feedback-produce",
+        "history_query",
+        "feedback-probe",
+    );
+    let consume = prepare(&mut app, "maturation-feedback-consume", FIRST, 102);
+    assert!(consume.supplied_observations.contains(&feedback_id));
+    submit(
+        &mut app,
+        &consume,
+        vec![],
+        "Consume the exact synthetic observation",
+        103,
+    );
+
+    assert_eq!(
+        launch::start(&mut app, "Synthetic revisit for character update").unwrap(),
+        SECOND
+    );
+    let search = prepare(&mut app, "maturation-feedback-search", SECOND, 104);
+    submit(
+        &mut app,
+        &search,
+        vec![query("observation", "find-feedback", &feedback_id)],
+        "Find the exact retained historical observation",
+        105,
+    );
+    let read = prepare(&mut app, "maturation-feedback-read", SECOND, 106);
+    let found = supplied(&read, "history_records_query", "find-feedback");
+    let hit = found["payload"]["records"].as_array().unwrap().first().unwrap();
+    assert_eq!(
+        hit["reference"]["observation_id"].as_str(),
+        Some(feedback_id.as_str())
+    );
+    assert_eq!(hit["actor"], ACTOR);
+    assert_eq!(hit["work"], FIRST);
+    let reference = hit["reference"].clone();
+    submit(
+        &mut app,
+        &read,
+        vec![json!({"kind":"history_record_read","id":"read-feedback",
+            "reference":reference})],
+        "Read the exact historical observation",
+        107,
+    );
+
+    // Grant character authorship only in this disposable synthetic fixture.
+    let (head, mut state) = app.load().unwrap();
+    state.personas.get_mut(ACTOR).unwrap().seed.grants.character = true;
+    app.save(&head, &state).unwrap();
+    let revise = prepare(&mut app, "maturation-character-adopt", SECOND, 108);
+    let read_receipt = supplied(&revise, "history_record_read", "read-feedback");
+    assert_eq!(read_receipt["payload"]["record"]["historical_only"], true);
+    assert_eq!(
+        read_receipt["payload"]["record"]["operative_evidence_or_event"],
+        false
+    );
+
+    let (_, state) = app.load().unwrap();
+    let current = state.personas[ACTOR].character.as_ref().unwrap();
+    let base_revision = current.revision.clone();
+    let mut own_voice = serde_json::to_value(&current.own_voice).unwrap();
+    let policy_id = state.config.policies.active_policies[0].id.clone();
+    let source = "synthetic-character-feedback";
+    let body = format!(
+        "Synthetic own-voice habit drafted after reviewing {feedback_id}: \
+         check the supplied consequence before repeating a promise."
+    );
+    let mut authored = decision(
+        &revise,
+        vec![],
+        "Synthetic character-only adoption fixture",
+    );
+    authored["operations"] = json!([
+        {"kind":"file_write","id":"write-own-voice",
+         "scope":{"kind":"fragments"},"source":source,
+         "path":"fragments/persona-0001/synthetic-feedback-habit.txt",
+         "base_revision":null,"text":body,"qualifications":[],
+         "policy_id":policy_id},
+        {"kind":"character_adopt","id":"adopt-character",
+         "base_revision":base_revision,
+         "ocean":{"openness":"Fixture description","conscientiousness":"Fixture description",
+                  "extraversion":"Fixture description","agreeableness":"Fixture description",
+                  "neuroticism":"Fixture description"},
+         "vad":{"valence":"Fixture description","activation":"Fixture description",
+                "control":"Fixture description"},
+         "own_voice":[],"reason":"Explicit synthetic own-voice revision","evidence":[]}
+    ]);
+    own_voice.as_array_mut().unwrap().push(json!({
+        "source":source,"revision":"proposal-op:write-own-voice",
+        "representation":"utf8","start":null,"end":null,"lifetime":"work"
+    }));
+    authored["operations"][1]["own_voice"] = own_voice;
+    authored["fragment_maintenance"] = json!({
+        "kind":"change",
+        "reason":"The character operation and its necessary own-voice write",
+        "operation_ids":["write-own-voice","adopt-character"]
+    });
+    authored["next_fragments"] = json!({"kind":"clear","reason":"No optional selection requested"});
+    authored["next_assets"] = json!({"kind":"clear","reason":"No optional selection requested"});
+
+    let report = app.submit_synthetic(
+        &revise.request.id,
+        &serde_json::to_vec(&authored).unwrap(),
+        109,
+    ).unwrap();
+    assert_eq!(report.status, AdoptionStatus::CharacterOnly, "{report:?}");
+    let (_, adopted) = app.load().unwrap();
+    let character = adopted.personas[ACTOR].character.as_ref().unwrap();
+    assert!(character.own_voice.iter().any(|r| r.source == source));
+    let saved = &adopted.sources[source].revisions[0].record;
+    assert_eq!(saved.bytes.as_slice(), body.as_bytes());
+    assert_eq!(saved.author, ACTOR);
+
+    // Revisit the same work after reopening; verify mandatory own-voice context.
+    drop(app);
+    let mut app = Runtime::open(&directory.path().join("state")).unwrap();
+    let revisit = prepare(&mut app, "maturation-character-revisit", SECOND, 110);
+    let (_, reopened) = app.load().unwrap();
+    assert!(reopened.personas[ACTOR].character.as_ref().unwrap()
+        .own_voice.iter().any(|r| r.source == source));
+    let qualified = revisit.prompt.split("\nQUALIFIED_CONTEXT\n").nth(1).unwrap();
+    let qualified: Value = serde_json::from_str(qualified).unwrap();
+    assert!(qualified["entries"].as_array().unwrap().iter().any(|entry| {
+        entry["reference"]["source"] == source && entry["text"] == body
+    }), "adopted own voice must be supplied as mandatory context on revisit");
+}
+
 pub(super) fn fixture() -> (tempfile::TempDir, Runtime) {
     let directory = tempfile::tempdir().unwrap();
     let working = directory.path().join("working");
@@ -782,4 +926,111 @@ fn synthetic_planning_failure_retains_terminal_hash_and_cannot_redispatch() {
     // Exercise the real dispatch guard: duplicate prepare is not a dispatch test.
     let redispatch = app.dispatch_synthetic(&prepared.request.id, 203);
     assert!(redispatch.is_err(), "failed invocation must not redispatch");
+}
+#[test]
+fn runtime_response_exact_bound_completes_and_one_byte_over_stays_unresolved() {
+    // Positive control: pad a valid synthetic Decision to the actual prepared
+    // response bound and traverse dispatch, adopt_parsed, complete_transport,
+    // terminal slot fill, and adoption using the existing tests-module helpers.
+    let (_exact_directory, mut exact_app) = fixture();
+    let exact_prepared = prepare(&mut exact_app, "byte-bound-exact", FIRST, 200);
+    let exact_limit = exact_prepared
+        .terminal_response_bytes
+        .expect("normal preparation records a terminal response bound");
+    let exact_decision = decision(
+        &exact_prepared,
+        vec![],
+        "Exact prepared response-bound positive control",
+    );
+    let mut exact_raw = serde_json::to_vec(&exact_decision).unwrap();
+    assert!(exact_raw.len() < exact_limit);
+    exact_raw.resize(exact_limit, b' ');
+    assert_eq!(exact_raw.len(), exact_limit);
+    assert!(exact_limit <= 262_144, "protocol parser ceiling must admit exact case");
+    let exact_hash = s::sha256_bytes(&exact_raw);
+
+    exact_app
+        .dispatch_synthetic(&exact_prepared.request.id, 201)
+        .unwrap();
+    let accepted = exact_app
+        .adopt_response(&exact_prepared.request.id, &exact_raw, 202)
+        .unwrap();
+    assert_eq!(accepted.status, AdoptionStatus::Adopted, "{accepted:?}");
+
+    let exact_invocation = exact_app
+        .store
+        .invocation(&exact_prepared.request.id)
+        .unwrap();
+    assert_eq!(exact_invocation.state, s::InvocationState::Adopted);
+    assert_eq!(
+        exact_invocation.response_hash.as_deref(),
+        Some(exact_hash.as_str())
+    );
+    let retained = exact_app
+        .terminal_evidence(&exact_prepared.request.id)
+        .expect("exact-bound completion retains terminal evidence");
+    assert_eq!(retained.body["response_body"]["bytes"], exact_limit);
+    assert_eq!(retained.body["response_body"]["sha256"], exact_hash);
+
+    // Negative control: the same normal prepared bound, exceeded by exactly
+    // one byte. This limit is below the parser's hard ceiling, so parsing
+    // succeeds and the prepared-output check rejects before complete_transport.
+    let (_over_directory, mut over_app) = fixture();
+    let over_prepared = prepare(&mut over_app, "byte-bound-over", FIRST, 300);
+    let over_limit = over_prepared
+        .terminal_response_bytes
+        .expect("normal preparation records a terminal response bound");
+    assert_eq!(over_limit, exact_limit);
+    assert!(over_limit + 1 <= 262_144, "parser must reach runtime bound gate");
+    let over_decision = decision(
+        &over_prepared,
+        vec![],
+        "One-byte-over prepared response-bound negative control",
+    );
+    let mut over_raw = serde_json::to_vec(&over_decision).unwrap();
+    assert!(over_raw.len() < over_limit + 1);
+    over_raw.resize(over_limit + 1, b' ');
+    assert_eq!(over_raw.len(), over_limit + 1);
+
+    over_app
+        .dispatch_synthetic(&over_prepared.request.id, 301)
+        .unwrap();
+    let epoch_after_dispatch = over_app.epoch().unwrap();
+    let error = over_app
+        .adopt_response(&over_prepared.request.id, &over_raw, 302)
+        .unwrap_err();
+    assert!(
+        matches!(
+            &error,
+            RuntimeError::Held(message) if message == "response exceeds its admitted output bound"
+        ),
+        "expected prepared response-bound rejection, got {error:?}"
+    );
+
+    // The transport was dispatched, but the too-large response was not
+    // authenticated or retained. Preserve unresolved accounting: no response
+    // digest, no terminal evidence, no adoption, no epoch change or settlement.
+    let unresolved = over_app.store.invocation(&over_prepared.request.id).unwrap();
+    assert_eq!(unresolved.state, s::InvocationState::Dispatched);
+    assert_eq!(unresolved.response_hash, None);
+    assert!(over_app.terminal_evidence(&over_prepared.request.id).is_err());
+    assert!(matches!(
+        over_app.store.retained_decision(&over_prepared.request.id),
+        Err(s::StoreError::Missing(_))
+    ));
+    assert_eq!(over_app.epoch().unwrap(), epoch_after_dispatch);
+    assert_eq!(
+        over_app
+            .store
+            .reservation(&unresolved.reservation)
+            .unwrap()
+            .state,
+        s::ReservationState::Reserved
+    );
+    assert!(matches!(
+        over_app
+            .store
+            .dispatch_invocation(&over_prepared.request.id),
+        Err(s::StoreError::AlreadyDispatched)
+    ));
 }
