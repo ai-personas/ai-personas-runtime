@@ -30,6 +30,12 @@ macro_rules! opaque_debug {
 }
 
 #[cfg(unix)]
+pub(crate) mod codex_process;
+#[cfg(unix)]
+pub(crate) mod codex_adapter;
+#[cfg(unix)]
+pub(crate) mod codex_jsonrpc;
+#[cfg(unix)]
 mod vault;
 #[cfg(unix)]
 pub use vault::{LockedVault, Vault};

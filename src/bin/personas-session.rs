@@ -58,8 +58,21 @@ enum Command {
         /// Explicit existing SIWC vault. No sign-in, refresh, export or fallback.
         #[arg(long, requires = "authorize_native")]
         vault: Option<PathBuf>,
-        #[arg(long, requires = "vault")]
+        #[arg(long, requires = "vault", conflicts_with_all = ["codex_executable", "authorize_codex_auth_only"])]
         authorize_native: bool,
+        /// Explicit trusted Codex executable; used only for auth-only app-server JSON-RPC.
+        #[arg(long, requires_all = ["authorize_codex_auth_only", "host_home", "codex_home"], conflicts_with_all = ["vault", "authorize_native"])]
+        codex_executable: Option<PathBuf>,
+        /// Explicit non-secret HOME for the authorized auth-only process.
+        #[arg(long, requires = "codex_executable", conflicts_with_all = ["vault", "authorize_native"])]
+        host_home: Option<PathBuf>,
+        /// Explicit existing Codex state directory; selecting it does not export its contents.
+        #[arg(long, requires = "codex_executable", conflicts_with_all = ["vault", "authorize_native"])]
+        codex_home: Option<PathBuf>,
+        /// Authorizes one auth-only status request. Codex may proactively refresh stored credentials
+        /// even though the request sets refreshToken=false.
+        #[arg(long, requires_all = ["codex_executable", "host_home", "codex_home"], conflicts_with_all = ["vault", "authorize_native"])]
+        authorize_codex_auth_only: bool,
     },
     /// Retained session metadata only. Unrecorded outcome never authorizes replay.
     SessionStatus {
@@ -159,14 +172,36 @@ async fn main() {
             authorize_run,
             vault,
             authorize_native,
+            codex_executable,
+            host_home,
+            codex_home,
+            authorize_codex_auth_only,
         } => {
-            if !authorize_run || vault.is_some() != authorize_native {
+            if !authorize_run
+                || vault.is_some() != authorize_native
+                || codex_executable.is_some() != authorize_codex_auth_only
+                || codex_executable.is_some() != host_home.is_some()
+                || codex_executable.is_some() != codex_home.is_some()
+                || (vault.is_some() && codex_executable.is_some())
+            {
                 emit::<()>(Err(session::BoundaryError::InvalidRequest))
             } else {
-                let route = match vault {
-                    Some(vault) => SessionRoute::NativeSiwc { vault },
-                    None => SessionRoute::SavedEnvironment,
+                let route = match (vault, codex_executable, host_home, codex_home) {
+                    (Some(vault), None, None, None) => SessionRoute::NativeSiwc { vault },
+                    (None, Some(executable), Some(host_home), Some(codex_home)) => SessionRoute::CodexAuthOnly {
+                        executable,
+                        host_home,
+                        codex_home,
+                        authorize_codex_auth_only,
+                    },
+                    (None, None, None, None) => SessionRoute::SavedEnvironment,
+                    _ => unreachable!("mutually exclusive CLI routes validated"),
                 };
+                if matches!(&route, SessionRoute::CodexAuthOnly { .. }) {
+                    eprintln!(
+                        "Notice: Codex may proactively refresh stored credentials even though this auth-only request sets refreshToken=false. The selected CODEX_HOME is a store location; token-bearing status can return an ephemeral bearer to the trusted adapter."
+                    );
+                }
                 emit(
                     session::run_session(
                         &root,
@@ -249,6 +284,30 @@ mod tests {
             "--authorize-native"
         ])
         .is_ok());
+    }
+    #[test]
+    fn codex_auth_only_route_requires_separate_explicit_authorization() {
+        let base = [
+            "personas-session", "run", "--id", "s", "--work", "w",
+            "--authorize-run", "--codex-executable", "/trusted/codex",
+            "--host-home", "/operator/home", "--codex-home", "/operator/codex-state",
+        ];
+        assert!(Cli::try_parse_from(base).is_err());
+        let mut missing_host = vec![
+            "personas-session", "run", "--id", "s", "--work", "w",
+            "--authorize-run", "--codex-executable", "/trusted/codex",
+            "--authorize-codex-auth-only",
+        ];
+        assert!(Cli::try_parse_from(missing_host.clone()).is_err());
+        missing_host.extend(["--host-home", "/operator/home"]);
+        assert!(Cli::try_parse_from(missing_host).is_err());
+
+        let mut authorized = base.to_vec();
+        authorized.push("--authorize-codex-auth-only");
+        assert!(Cli::try_parse_from(authorized).is_ok());
+        let mut mixed = base.to_vec();
+        mixed.extend(["--authorize-codex-auth-only", "--vault", "/fixture/vault", "--authorize-native"]);
+        assert!(Cli::try_parse_from(mixed).is_err());
     }
     #[test]
     fn exact_need_is_one_literal_argument() {

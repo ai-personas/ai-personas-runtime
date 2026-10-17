@@ -722,8 +722,13 @@ async fn actual_selected_vault_source_and_generated_settings_preserve_native_con
         &settings,
     )
     .unwrap();
+    let evidence_account = settings
+        .evidence
+        .account_env
+        .environment()
+        .expect("SIWC evidence remains environment-backed");
     let loaded = source
-        .load(&settings.credentials, &settings.evidence.account_env)
+        .load(&settings.credentials, evidence_account)
         .unwrap();
     assert!(
         matches!(loaded.credential, p::Credential::OAuth { grant:p::OAuthGrant::SiwcTokenSharing, expires_at_unix, .. } if expires_at_unix == now+3_600)

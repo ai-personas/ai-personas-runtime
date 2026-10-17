@@ -746,3 +746,115 @@ async fn native_expiry_failure_is_retained_without_opening_vault_or_replay() {
         Err(BoundaryError::KeyConflict)
     ));
 }
+#[cfg(unix)]
+mod codex_session_process_integration_tests {
+    use super::*;
+    use std::{os::unix::fs::PermissionsExt, path::Path};
+
+    fn quote(s: &str) -> String { format!("'{}'", s.replace('\'', "'\\''")) }
+
+    fn fake_executable(dir: &Path, marker: &Path, account: &str) -> std::path::PathBuf {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+        let header = URL_SAFE_NO_PAD.encode(br#"{"alg":"none","typ":"JWT"}"#);
+        let payload = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&json!({
+            "exp": 4_102_444_800i64,
+            "https://api.openai.com/auth": {"chatgpt_account_id": account}
+        })).unwrap());
+        let token = format!("{header}.{payload}.synthetic-signature");
+        let status = quote(&json!({"id":2,"result":{"authMethod":"chatgpt","authToken":token}}).to_string());
+        let script = format!(
+            "#!/bin/sh\nprintf x >> {}\nwhile IFS= read -r line; do\n case \"$line\" in\n  *'\"method\":\"initialize\"'*) printf '%s\\n' '{{\"id\":1,\"result\":{{\"userAgent\":\"synthetic\",\"codexHome\":\"/synthetic/codex\",\"platformFamily\":\"unix\",\"platformOs\":\"linux\"}}}}' ;;\n  *'\"method\":\"getAuthStatus\"'*) printf '%s\\n' {} ; exit 0 ;;\n esac\ndone\n",
+            quote(&marker.to_string_lossy()), status
+        );
+        let path = dir.join("fake-codex-app-server");
+        fs::write(&path, script).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+        path
+    }
+
+    fn configure_codex(app: &mut Runtime, account_pin: &str) {
+        let (head, mut saved) = load(app).unwrap();
+        saved.setup.provider["mode"] = json!("chatgpt_oauth");
+        saved.setup.provider["credentials"] = value(&provider::CredentialReference::EphemeralAuthOnly {
+            grant: provider::OAuthGrant::TraditionalChatgpt, expires_at_unix: 1,
+        });
+        saved.setup.provider["evidence"]["mode"] = json!("chatgpt_oauth");
+        saved.setup.provider["evidence"]["account_env"] = json!({"ephemeral_auth_only":true});
+        saved.setup.provider["evidence"]["account_sha256"] = json!(s::sha256_bytes(account_pin.as_bytes()));
+        saved.setup.provider["evidence"]["transport_profile"] = json!(provider::AccessMode::ChatgptOAuth.profile());
+        saved.execution_provider().unwrap();
+        save(app, Some(&head), &saved).unwrap();
+    }
+
+    fn route(work: &str, id: &str, executable: std::path::PathBuf, home: std::path::PathBuf,
+        codex_home: std::path::PathBuf, authorized: bool) -> SessionRequest {
+        SessionRequest { id: id.into(), operator: OP.into(), work: work.into(),
+            route: SessionRoute::CodexAuthOnly { executable, host_home: home, codex_home,
+                authorize_codex_auth_only: authorized } }
+    }
+
+    fn homes(tmp: &tempfile::TempDir) -> (std::path::PathBuf, std::path::PathBuf) {
+        let home = tmp.path().join("host-home");
+        let codex = tmp.path().join("codex-home");
+        fs::create_dir(&home).unwrap(); fs::create_dir(&codex).unwrap();
+        (home, codex)
+    }
+
+    #[tokio::test]
+    async fn session_route_uses_fake_process_and_direct_provider_with_account_pin_and_opt_in() {
+        // Missing route authorization must reject before the executable can run.
+        let (tmp, mut app) = fixture();
+        let work = admit(&mut app);
+        let (home, codex_home) = homes(&tmp);
+        let marker = tmp.path().join("must-not-launch");
+        let exe = fake_executable(tmp.path(), &marker, "synthetic-account");
+        let denied = route(&work, "codex-denied", exe.clone(), home.clone(), codex_home.clone(), false);
+        assert!(matches!(begin(&mut app, &denied), Err(BoundaryError::InvalidRequest)));
+        assert!(!marker.exists());
+        drop(app);
+
+        // Correct saved pin: SessionRoute invokes the fake JSON-RPC process,
+        // CodexCredentialSource supplies the token, and DirectProvider reaches only
+        // the injected synthetic HTTP transport.
+        let (tmp, mut app) = fixture();
+        let work = admit(&mut app);
+        configure_codex(&mut app, "synthetic-account");
+        let (home, codex_home) = homes(&tmp);
+        let marker = tmp.path().join("helper-launched");
+        let exe = fake_executable(tmp.path(), &marker, "synthetic-account");
+        let req = route(&work, "codex-good", exe, home, codex_home, true);
+        let claim = new_claim(&mut app, &req);
+        let calls = Arc::new(AtomicUsize::new(0));
+        let transport: Arc<dyn provider::HttpTransport> = Arc::new(Transport {
+            calls: calls.clone(), mode: TransportMode::RejectedDecision,
+        });
+        let execution = execute_with_codex_transport(&mut app, &req, &claim, Some(transport)).await.unwrap();
+        assert_eq!(fs::read_to_string(&marker).unwrap(), "xx", "prepare and dispatch must each acquire a fresh peer");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        let end = end_of_run(&mut app, &work, Ok(execution)).unwrap();
+        finish(&mut app, &claim, end).unwrap();
+        drop(app);
+
+        // Same fake token, wrong immutable saved pin: credential acquisition is
+        // exercised but DirectProvider rejects before the synthetic transport.
+        let (tmp, mut app) = fixture();
+        let work = admit(&mut app);
+        configure_codex(&mut app, "different-pinned-account");
+        let (home, codex_home) = homes(&tmp);
+        let marker = tmp.path().join("helper-launched-mismatch");
+        let exe = fake_executable(tmp.path(), &marker, "synthetic-account");
+        let req = route(&work, "codex-mismatch", exe, home, codex_home, true);
+        let claim = new_claim(&mut app, &req);
+        let calls = Arc::new(AtomicUsize::new(0));
+        let transport: Arc<dyn provider::HttpTransport> = Arc::new(Transport {
+            calls: calls.clone(), mode: TransportMode::RejectedDecision,
+        });
+        let execution = execute_with_codex_transport(&mut app, &req, &claim, Some(transport)).await.unwrap();
+        assert_eq!(fs::read_to_string(&marker).unwrap(), "x", "account mismatch should fail on preparation acquisition");
+        assert_eq!(execution.1, Some(BoundaryError::ProviderBinding));
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        let end = end_of_run(&mut app, &work, Ok(execution)).unwrap();
+        finish(&mut app, &claim, end).unwrap();
+    }
+}
+

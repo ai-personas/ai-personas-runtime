@@ -907,7 +907,7 @@ impl Backend {
                 mode: p::AccessMode::SiwcOAuth,
                 model: a.plan.request.model.clone(),
                 efforts: BTreeSet::from([a.plan.request.effort.clone()]),
-                account_env: account,
+                account_env: p::AccountBindingReference::Environment(account),
                 account_sha256: access.account_sha256,
                 transport_profile: p::AccessMode::SiwcOAuth.profile().into(),
                 catalog_evidence_sha256: digest(&a.catalogue)?,
@@ -933,7 +933,11 @@ impl Backend {
             } if saved.mode == p::AccessMode::SiwcOAuth
                 && token_env.env == super::ACCESS_TOKEN_ENV
                 && account_env.env == super::ACCOUNT_BINDING_ENV
-                && saved.evidence.account_env.env == super::ACCOUNT_BINDING_ENV =>
+                && saved
+                    .evidence
+                    .account_env
+                    .environment()
+                    .is_some_and(|account| account.env == super::ACCOUNT_BINDING_ENV) =>
             {
                 *expires_at_unix
             }

@@ -1,5 +1,6 @@
 use super::*;
 use crate::provider as p;
+use p::Clock as _;
 use serde_json::json;
 use std::sync::Arc;
 
@@ -617,7 +618,7 @@ async fn dispatch_with_limits(
                 mode: p::AccessMode::PlatformApiKey,
                 model: "fixture-model".into(),
                 efforts: ["high".into()].into(),
-                account_env: account,
+                account_env: p::AccountBindingReference::Environment(account),
                 account_sha256: p::digest(b"synthetic-account"),
                 transport_profile: p::AccessMode::PlatformApiKey.profile().into(),
                 catalog_evidence_sha256: "a".repeat(64),
@@ -1050,4 +1051,401 @@ fn remote_error_metadata_preserves_validation_and_unknown_usage() {
         assert_eq!(c.usage, Usage::default());
         assert_eq!(c.finish(), Err(failure));
     }
+}
+
+
+fn ephemeral_auth_settings() -> p::DirectSettings {
+    let account_sha256 = p::digest(b"synthetic-account");
+    p::DirectSettings {
+        mode: p::AccessMode::ChatgptOAuth,
+        model: "fixture-model".into(),
+        effort: "high".into(),
+        credentials: p::CredentialReference::EphemeralAuthOnly {
+            grant: p::OAuthGrant::TraditionalChatgpt,
+            expires_at_unix: 4_000_000_000,
+        },
+        evidence: p::CapabilityEvidence {
+            mode: p::AccessMode::ChatgptOAuth,
+            model: "fixture-model".into(),
+            efforts: ["high".into()].into(),
+            account_env: p::AccountBindingReference::EphemeralAuthOnly {
+                ephemeral_auth_only: true,
+            },
+            account_sha256,
+            transport_profile: p::AccessMode::ChatgptOAuth.profile().into(),
+            catalog_evidence_sha256: "a".repeat(64),
+            structured_output_evidence_sha256: Some("b".repeat(64)),
+        },
+        limits: limits(),
+    }
+}
+
+#[test]
+fn account_binding_reference_keeps_legacy_environment_json_shape() {
+    let legacy = json!({"env":"FIXTURE_ACCOUNT"});
+    let reference: p::AccountBindingReference = serde_json::from_value(legacy.clone()).unwrap();
+    assert_eq!(
+        serde_json::to_value(&reference).unwrap(),
+        legacy,
+        "existing environment account references must round-trip byte-shape compatibly"
+    );
+    assert!(matches!(
+        reference,
+        p::AccountBindingReference::Environment(p::SecretReference { ref env })
+            if env == "FIXTURE_ACCOUNT"
+    ));
+
+    let legacy_settings = p::DirectSettings {
+        mode: p::AccessMode::PlatformApiKey,
+        model: "fixture-model".into(),
+        effort: "high".into(),
+        credentials: p::CredentialReference::ApiKey {
+            key_env: p::SecretReference {
+                env: "FIXTURE_ALIAS_KEY".into(),
+            },
+            account_env: p::SecretReference {
+                env: "FIXTURE_CREDENTIAL_ACCOUNT_ALIAS".into(),
+            },
+        },
+        evidence: p::CapabilityEvidence {
+            mode: p::AccessMode::PlatformApiKey,
+            model: "fixture-model".into(),
+            efforts: ["high".into()].into(),
+            account_env: p::AccountBindingReference::Environment(p::SecretReference {
+                env: "FIXTURE_EVIDENCE_ACCOUNT_ALIAS".into(),
+            }),
+            account_sha256: p::digest(b"synthetic-account"),
+            transport_profile: p::AccessMode::PlatformApiKey.profile().into(),
+            catalog_evidence_sha256: "a".repeat(64),
+            structured_output_evidence_sha256: Some("b".repeat(64)),
+        },
+        limits: limits(),
+    };
+    legacy_settings.validate().unwrap();
+    let legacy_document = serde_json::to_value(&legacy_settings).unwrap();
+    assert_eq!(
+        legacy_document["evidence"]["account_env"],
+        json!({"env":"FIXTURE_EVIDENCE_ACCOUNT_ALIAS"})
+    );
+    let decoded: p::DirectSettings =
+        serde_json::from_value(legacy_document.clone()).unwrap();
+    decoded.validate().unwrap();
+    assert_eq!(serde_json::to_value(&decoded).unwrap(), legacy_document);
+
+    // Distinct configured environment names remain compatible when they resolve
+    // to the same account value; the shared fingerprint check remains authoritative.
+    std::env::set_var("FIXTURE_ALIAS_KEY", "synthetic-key-not-real");
+    std::env::set_var("FIXTURE_CREDENTIAL_ACCOUNT_ALIAS", "synthetic-account");
+    std::env::set_var("FIXTURE_EVIDENCE_ACCOUNT_ALIAS", "synthetic-account");
+    let provider = p::DirectProvider::new(
+        decoded,
+        Arc::new(p::EnvironmentCredentialSource),
+        Arc::new(FixtureTransport {
+            bytes: Vec::new(),
+            fail_after_body: false,
+        }),
+        Arc::new(p::SystemClock),
+    )
+    .unwrap();
+    provider.inner.credentials(None).unwrap();
+
+    // Traditional OAuth likewise permits distinct reference names while pinning
+    // the resolved account value through the shared fingerprint check.
+    let oauth = p::DirectSettings {
+        mode: p::AccessMode::ChatgptOAuth,
+        model: "fixture-model".into(),
+        effort: "high".into(),
+        credentials: p::CredentialReference::OAuth {
+            grant: p::OAuthGrant::TraditionalChatgpt,
+            token_env: p::SecretReference { env: "FIXTURE_OAUTH_TOKEN_ALIAS".into() },
+            account_env: p::SecretReference { env: "FIXTURE_OAUTH_CREDENTIAL_ACCOUNT_ALIAS".into() },
+            expires_at_unix: synthetic_expiry_after(3600),
+        },
+        evidence: p::CapabilityEvidence {
+            mode: p::AccessMode::ChatgptOAuth,
+            model: "fixture-model".into(),
+            efforts: ["high".into()].into(),
+            account_env: p::AccountBindingReference::Environment(p::SecretReference {
+                env: "FIXTURE_OAUTH_EVIDENCE_ACCOUNT_ALIAS".into(),
+            }),
+            account_sha256: p::digest(b"synthetic-account"),
+            transport_profile: p::AccessMode::ChatgptOAuth.profile().into(),
+            catalog_evidence_sha256: "a".repeat(64),
+            structured_output_evidence_sha256: Some("b".repeat(64)),
+        },
+        limits: limits(),
+    };
+    oauth.validate().unwrap();
+
+    std::env::remove_var("FIXTURE_ALIAS_KEY");
+    std::env::remove_var("FIXTURE_CREDENTIAL_ACCOUNT_ALIAS");
+    std::env::remove_var("FIXTURE_EVIDENCE_ACCOUNT_ALIAS");
+}
+
+#[test]
+fn ephemeral_auth_reference_is_explicit_and_validated_against_capability_evidence() {
+    let settings = ephemeral_auth_settings();
+    settings.validate().unwrap();
+    let encoded = serde_json::to_value(&settings).unwrap();
+    assert_eq!(
+        encoded["credentials"],
+        json!({
+            "kind":"ephemeral_auth_only",
+            "grant":"traditional_chatgpt",
+            "expires_at_unix":4_000_000_000u64
+        })
+    );
+    assert_eq!(
+        encoded["evidence"]["account_env"],
+        json!({"ephemeral_auth_only":true})
+    );
+    let round_trip: p::DirectSettings = serde_json::from_value(encoded).unwrap();
+    round_trip.validate().unwrap();
+
+    let mut mismatched_source = round_trip.clone();
+    mismatched_source.evidence.account_env =
+        p::AccountBindingReference::Environment(p::SecretReference {
+            env: "FIXTURE_ACCOUNT".into(),
+        });
+    assert!(mismatched_source.validate().is_err());
+
+    let mut mismatched_grant = round_trip;
+    if let p::CredentialReference::EphemeralAuthOnly { grant, .. } =
+        &mut mismatched_grant.credentials
+    {
+        *grant = p::OAuthGrant::SiwcTokenSharing;
+    }
+    assert!(mismatched_grant.validate().is_err());
+}
+
+#[test]
+fn environment_credential_source_default_denies_ephemeral_auth_without_fallback() {
+    use p::CredentialSource;
+    let settings = ephemeral_auth_settings();
+    let source = p::EnvironmentCredentialSource;
+    let environment_reference = p::SecretReference {
+        env: "FIXTURE_UNUSED_ACCOUNT".into(),
+    };
+    assert!(matches!(
+        source.load(&settings.credentials, &environment_reference),
+        Err(Failure::Configuration)
+    ));
+    assert!(matches!(
+        source.load_ephemeral(
+            &settings.credentials,
+            &settings.evidence.account_sha256
+        ),
+        Err(Failure::Configuration)
+    ));
+}
+
+struct CapturingEphemeralSource {
+    expected_account_sha256: std::sync::Mutex<Option<String>>,
+    actual_expiry: u64,
+    account_value: String,
+}
+impl p::CredentialSource for CapturingEphemeralSource {
+    fn load(
+        &self,
+        _: &p::CredentialReference,
+        _: &p::SecretReference,
+    ) -> std::result::Result<p::CredentialBundle, Failure> {
+        Err(Failure::Configuration)
+    }
+
+    fn load_ephemeral(
+        &self,
+        reference: &p::CredentialReference,
+        expected_account_sha256: &str,
+    ) -> std::result::Result<p::CredentialBundle, Failure> {
+        *self.expected_account_sha256.lock().unwrap() =
+            Some(expected_account_sha256.to_owned());
+        let p::CredentialReference::EphemeralAuthOnly { grant, .. } = reference else {
+            return Err(Failure::Configuration);
+        };
+        let account = p::Secret::new(self.account_value.clone());
+        Ok(p::CredentialBundle {
+            credential: p::Credential::OAuth {
+                grant: *grant,
+                bearer: p::Secret::new("synthetic-token-not-real".into()),
+                account: account.clone(),
+                expires_at_unix: self.actual_expiry,
+            },
+            evidence_account: account,
+        })
+    }
+}
+fn synthetic_expiry_after(seconds: u64) -> u64 {
+    p::SystemClock.unix_seconds().unwrap().saturating_add(seconds)
+}
+
+#[test]
+fn ephemeral_source_receives_account_hash_from_saved_capability_evidence() {
+    let settings = ephemeral_auth_settings();
+    let expected = settings.evidence.account_sha256.clone();
+    let source = Arc::new(CapturingEphemeralSource {
+        expected_account_sha256: std::sync::Mutex::new(None),
+        actual_expiry: synthetic_expiry_after(3600),
+        account_value: "synthetic-account".into(),
+    });
+    let provider = p::DirectProvider::new(
+        settings,
+        source.clone(),
+        Arc::new(FixtureTransport {
+            bytes: Vec::new(),
+            fail_after_body: false,
+        }),
+        Arc::new(p::SystemClock),
+    )
+    .unwrap();
+    // Exercise the real shared provider credential gate without making a request.
+    provider.inner.credentials(None).unwrap();
+    assert_eq!(
+        source.expected_account_sha256.lock().unwrap().as_deref(),
+        Some(expected.as_str())
+    );
+}
+
+
+#[test]
+fn ephemeral_source_accepts_fresh_actual_expiry_different_from_saved_snapshot() {
+    let settings = ephemeral_auth_settings();
+    let source = Arc::new(CapturingEphemeralSource {
+        expected_account_sha256: std::sync::Mutex::new(None),
+        actual_expiry: synthetic_expiry_after(3600),
+        account_value: "synthetic-account".into(),
+    });
+    let provider = p::DirectProvider::new(
+        settings,
+        source,
+        Arc::new(FixtureTransport {
+            bytes: Vec::new(),
+            fail_after_body: false,
+        }),
+        Arc::new(p::SystemClock),
+    )
+    .unwrap();
+    // The fresh handoff expiry differs from the saved snapshot but is still in the future.
+    provider.inner.credentials(None).unwrap();
+}
+
+#[test]
+fn ephemeral_source_rejects_expired_actual_token() {
+    let settings = ephemeral_auth_settings();
+    let source = Arc::new(CapturingEphemeralSource {
+        expected_account_sha256: std::sync::Mutex::new(None),
+        actual_expiry: p::SystemClock.unix_seconds().unwrap().saturating_sub(1),
+        account_value: "synthetic-account".into(),
+    });
+    let provider = p::DirectProvider::new(
+        settings,
+        source,
+        Arc::new(FixtureTransport {
+            bytes: Vec::new(),
+            fail_after_body: false,
+        }),
+        Arc::new(p::SystemClock),
+    )
+    .unwrap();
+    assert!(matches!(
+        provider.inner.credentials(None),
+        Err(Failure::CredentialExpired)
+    ));
+}
+
+#[test]
+fn ephemeral_source_rejects_account_switch_against_saved_fingerprint() {
+    let settings = ephemeral_auth_settings();
+    let source = Arc::new(CapturingEphemeralSource {
+        expected_account_sha256: std::sync::Mutex::new(None),
+        actual_expiry: synthetic_expiry_after(3600),
+        account_value: "different-synthetic-account".into(),
+    });
+    let provider = p::DirectProvider::new(
+        settings,
+        source,
+        Arc::new(FixtureTransport {
+            bytes: Vec::new(),
+            fail_after_body: false,
+        }),
+        Arc::new(p::SystemClock),
+    )
+    .unwrap();
+    assert!(matches!(
+        provider.inner.credentials(None),
+        Err(Failure::AccountMismatch)
+    ));
+}
+
+struct FixedCredentialClock(u64);
+impl p::Clock for FixedCredentialClock {
+    fn unix_seconds(&self) -> std::result::Result<u64, Failure> {
+        Ok(self.0)
+    }
+}
+
+struct RefreshedLegacyOAuthSource {
+    actual_expiry: u64,
+}
+impl p::CredentialSource for RefreshedLegacyOAuthSource {
+    fn load(
+        &self,
+        _: &p::CredentialReference,
+        _: &p::SecretReference,
+    ) -> std::result::Result<p::CredentialBundle, Failure> {
+        let account = p::Secret::new("synthetic-account".into());
+        Ok(p::CredentialBundle {
+            credential: p::Credential::OAuth {
+                grant: p::OAuthGrant::TraditionalChatgpt,
+                bearer: p::Secret::new("synthetic-refreshed-token-not-real".into()),
+                account: account.clone(),
+                expires_at_unix: self.actual_expiry,
+            },
+            evidence_account: account,
+        })
+    }
+}
+
+#[test]
+fn custom_legacy_oauth_source_may_return_a_different_future_expiry() {
+    // Before the source-neutral schema patch, custom CredentialSource implementations
+    // were required to return a currently valid token/account, not to echo the saved
+    // environment reference's expiry snapshot. Preserve that public contract.
+    let account_env = p::SecretReference { env: "FIXTURE_EVIDENCE_ACCOUNT".into() };
+    let settings = p::DirectSettings {
+        mode: p::AccessMode::ChatgptOAuth,
+        model: "fixture-model".into(),
+        effort: "high".into(),
+        credentials: p::CredentialReference::OAuth {
+            grant: p::OAuthGrant::TraditionalChatgpt,
+            token_env: p::SecretReference { env: "FIXTURE_TOKEN".into() },
+            account_env: p::SecretReference { env: "FIXTURE_CREDENTIAL_ACCOUNT".into() },
+            expires_at_unix: 200,
+        },
+        evidence: p::CapabilityEvidence {
+            mode: p::AccessMode::ChatgptOAuth,
+            model: "fixture-model".into(),
+            efforts: ["high".into()].into(),
+            account_env: p::AccountBindingReference::Environment(account_env),
+            account_sha256: p::digest(b"synthetic-account"),
+            transport_profile: p::AccessMode::ChatgptOAuth.profile().into(),
+            catalog_evidence_sha256: "a".repeat(64),
+            structured_output_evidence_sha256: Some("b".repeat(64)),
+        },
+        limits: limits(),
+    };
+    let provider = p::DirectProvider::new(
+        settings,
+        Arc::new(RefreshedLegacyOAuthSource { actual_expiry: 500 }),
+        Arc::new(FixtureTransport {
+            bytes: Vec::new(),
+            fail_after_body: false,
+        }),
+        Arc::new(FixedCredentialClock(100)),
+    )
+    .unwrap();
+
+    // The actual expiry is in the future and the account still matches the saved
+    // capability fingerprint. The source need not reproduce the stale expiry value.
+    provider.inner.credentials(None).unwrap();
 }

@@ -112,7 +112,7 @@ pub enum OAuthGrant {
 }
 
 /// A reference, never a secret value or an implicit credential search path.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SecretReference {
     pub env: String,
@@ -142,6 +142,40 @@ pub enum CredentialReference {
         key_env: SecretReference,
         account_env: SecretReference,
     },
+    /// Explicit source identity for an ephemeral, auth-only handoff. The
+    /// ordinary environment source rejects this variant; it never falls back.
+    EphemeralAuthOnly {
+        grant: OAuthGrant,
+        /// Informational expiry snapshot only; the source returns the current token expiry.
+        /// Runtime validity is determined from the actual handoff result and clock.
+        expires_at_unix: u64,
+    },
+}
+
+/// Account binding source, without inventing an environment name for ephemeral
+/// credentials. The Environment variant serializes exactly as the historical
+/// `{"env":"..."}` object.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AccountBindingReference {
+    Environment(SecretReference),
+    EphemeralAuthOnly { ephemeral_auth_only: bool },
+}
+impl AccountBindingReference {
+    pub(crate) fn environment(&self) -> Option<&SecretReference> {
+        match self {
+            Self::Environment(reference) => Some(reference),
+            Self::EphemeralAuthOnly { .. } => None,
+        }
+    }
+
+    fn validate(&self) -> Result<(), Failure> {
+        match self {
+            Self::Environment(reference) if reference.valid() => Ok(()),
+            Self::EphemeralAuthOnly { ephemeral_auth_only: true } => Ok(()),
+            _ => Err(Failure::Configuration),
+        }
+    }
 }
 
 /// The operator must retain evidence for this exact route, account, model and
@@ -152,7 +186,7 @@ pub struct CapabilityEvidence {
     pub mode: AccessMode,
     pub model: String,
     pub efforts: BTreeSet<String>,
-    pub account_env: SecretReference,
+    pub account_env: AccountBindingReference,
     /// Lowercase SHA-256 of the exact account bytes captured with this evidence.
     /// This configuration pin must never be refreshed from a mutable source.
     pub account_sha256: String,
@@ -259,10 +293,10 @@ impl DirectSettings {
             || self.evidence.efforts.iter().any(|s| !identifier(s))
             || !digest_string(&self.evidence.catalog_evidence_sha256)
             || !digest_string(&self.evidence.account_sha256)
-            || !self.evidence.account_env.valid()
         {
             return Err(Failure::Configuration);
         }
+        self.evidence.account_env.validate()?;
         if !self
             .evidence
             .structured_output_evidence_sha256
@@ -271,21 +305,53 @@ impl DirectSettings {
         {
             return Err(Failure::SchemaCapabilityMissing);
         }
-        let (secret, account, grant) = match &self.credentials {
+        let grant = match &self.credentials {
             CredentialReference::OAuth {
                 grant,
                 token_env,
                 account_env,
                 ..
-            } => (token_env, account_env, Some(*grant)),
+            } => {
+                if !token_env.valid()
+                    || !account_env.valid()
+                    || self.evidence.account_env.environment().is_none()
+                {
+                    return Err(Failure::Configuration);
+                }
+                Some(*grant)
+            }
             CredentialReference::ApiKey {
                 key_env,
                 account_env,
-            } => (key_env, account_env, None),
+            } => {
+                if !key_env.valid()
+                    || !account_env.valid()
+                    || self.evidence.account_env.environment().is_none()
+                {
+                    return Err(Failure::Configuration);
+                }
+                None
+            }
+            CredentialReference::EphemeralAuthOnly {
+                grant,
+                expires_at_unix,
+            } => {
+                if self.mode != AccessMode::ChatgptOAuth
+                    || *grant != OAuthGrant::TraditionalChatgpt
+                {
+                    return Err(Failure::GrantMismatch);
+                }
+                if *expires_at_unix == 0
+                    || self.evidence.account_env
+                        != (AccountBindingReference::EphemeralAuthOnly {
+                            ephemeral_auth_only: true,
+                        })
+                {
+                    return Err(Failure::Configuration);
+                }
+                Some(*grant)
+            }
         };
-        if !secret.valid() || !account.valid() {
-            return Err(Failure::Configuration);
-        }
         if !grant_matches(self.mode, grant) {
             return Err(Failure::GrantMismatch);
         }
@@ -346,6 +412,17 @@ pub trait CredentialSource: Send + Sync {
         reference: &CredentialReference,
         evidence_account: &SecretReference,
     ) -> Result<CredentialBundle, Failure>;
+
+    /// Ephemeral auth-only sources may override this. The expected account
+    /// fingerprint comes directly from the same saved CapabilityEvidence.
+    /// The default deliberately refuses; it never falls back to environment lookup.
+    fn load_ephemeral(
+        &self,
+        _reference: &CredentialReference,
+        _expected_account_sha256: &str,
+    ) -> Result<CredentialBundle, Failure> {
+        Err(Failure::Configuration)
+    }
 }
 pub struct EnvironmentCredentialSource;
 impl CredentialSource for EnvironmentCredentialSource {
@@ -381,6 +458,11 @@ impl CredentialSource for EnvironmentCredentialSource {
                 key: read(key_env)?,
                 account: read(account_env)?,
             },
+            CredentialReference::EphemeralAuthOnly { .. } => {
+                // Ephemeral auth is opt-in through a dedicated host source. This
+                // source never interprets it as environment-backed credentials.
+                return Err(Failure::Configuration);
+            }
         };
         Ok(CredentialBundle {
             credential,
@@ -1004,9 +1086,20 @@ impl DirectProvider {
 impl Inner {
     fn credentials(&self, prepared_account: Option<&Secret>) -> Result<(Secret, Secret), Failure> {
         let settings = &self.settings;
-        let bundle = self
-            .source
-            .load(&settings.credentials, &settings.evidence.account_env)?;
+        let bundle = match &settings.credentials {
+            CredentialReference::EphemeralAuthOnly { .. } => self.source.load_ephemeral(
+                &settings.credentials,
+                &settings.evidence.account_sha256,
+            )?,
+            _ => {
+                let evidence_account = settings
+                    .evidence
+                    .account_env
+                    .environment()
+                    .ok_or(Failure::Configuration)?;
+                self.source.load(&settings.credentials, evidence_account)?
+            }
+        };
         let (bearer, account, grant) = match bundle.credential {
             Credential::OAuth {
                 grant,
@@ -1021,6 +1114,10 @@ impl Inner {
             }
             Credential::ApiKey { key, account } => (key, account, None),
         };
+        // Preserve the original CredentialSource contract: current OAuth expiry is
+        // checked against the clock above, but a custom source may reacquire a token
+        // with a different future expiry than the saved environment-reference snapshot.
+        // SIWC's selected-vault source independently fences its saved record expiry.
         if !grant_matches(settings.mode, grant) {
             return Err(Failure::GrantMismatch);
         }

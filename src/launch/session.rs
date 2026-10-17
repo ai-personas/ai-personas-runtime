@@ -274,6 +274,13 @@ fn intake_opened(app: &mut Runtime, request: &NeedRequest) -> BoundaryResult<Nee
 pub enum SessionRoute {
     SavedEnvironment,
     NativeSiwc { vault: PathBuf },
+    /// Explicit auth-only Codex app-server handoff; no default executable or PATH lookup.
+    CodexAuthOnly {
+        executable: PathBuf,
+        host_home: PathBuf,
+        codex_home: PathBuf,
+        authorize_codex_auth_only: bool,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -288,17 +295,36 @@ impl SessionRequest {
         valid_id(&self.id)?;
         valid_id(&self.operator)?;
         valid_id(&self.work)?;
-        if let SessionRoute::NativeSiwc { vault } = &self.route {
-            check(
-                vault.is_absolute()
-                    && vault
-                        .to_str()
-                        .is_some_and(|p| p.len() <= 4096 && !p.chars().any(char::is_control))
-                    && vault
-                        .components()
-                        .all(|c| matches!(c, Component::RootDir | Component::Normal(_))),
-                BoundaryError::InvalidRequest,
-            )?;
+        match &self.route {
+            SessionRoute::NativeSiwc { vault } => {
+                check(
+                    vault.is_absolute()
+                        && vault
+                            .to_str()
+                            .is_some_and(|p| p.len() <= 4096 && !p.chars().any(char::is_control))
+                        && vault
+                            .components()
+                            .all(|c| matches!(c, Component::RootDir | Component::Normal(_))),
+                    BoundaryError::InvalidRequest,
+                )?;
+            }
+            SessionRoute::CodexAuthOnly {
+                executable, host_home, codex_home, authorize_codex_auth_only
+            } => {
+                let valid_host_path = |path: &PathBuf| {
+                    path.is_absolute()
+                        && path.to_str().is_some_and(|p| p.len() <= 4096 && !p.chars().any(char::is_control))
+                        && path.components().all(|c| matches!(c, Component::RootDir | Component::Normal(_)))
+                };
+                check(
+                    *authorize_codex_auth_only
+                        && valid_host_path(executable)
+                        && valid_host_path(host_home)
+                        && valid_host_path(codex_home),
+                    BoundaryError::InvalidRequest,
+                )?;
+            }
+            SessionRoute::SavedEnvironment => {}
         }
         Ok(())
     }
@@ -598,10 +624,44 @@ impl Driver for OwnedLive<'_> {
         .await
     }
 }
+fn build_codex_provider(
+    settings: &provider::DirectSettings,
+    config: &Config,
+    source: std::sync::Arc<dyn provider::CredentialSource>,
+    transport_override: Option<std::sync::Arc<dyn provider::HttpTransport>>,
+) -> Result<provider::DirectProvider> {
+    settings.validate()?;
+    require(
+        settings.limits.max_prompt_bytes <= config.context_bytes
+            && settings.limits.max_response_bytes <= config.response_bytes
+            && settings.limits.max_stream_bytes as u64 <= config.transport_output_reserve_bytes,
+        "direct provider bounds exceed the existing runtime reservation",
+    )?;
+    let transport: std::sync::Arc<dyn provider::HttpTransport> = match transport_override {
+        Some(transport) => transport,
+        None => std::sync::Arc::new(provider::ReqwestTransport::new()?),
+    };
+    Ok(provider::DirectProvider::new(
+        settings.clone(),
+        source,
+        transport,
+        std::sync::Arc::new(provider::SystemClock),
+    )?)
+}
+
 async fn execute(
     app: &mut Runtime,
     request: &SessionRequest,
     claim: &Claimed,
+) -> Result<(Output, Option<BoundaryError>)> {
+    execute_with_codex_transport(app, request, claim, None).await
+}
+
+async fn execute_with_codex_transport(
+    app: &mut Runtime,
+    request: &SessionRequest,
+    claim: &Claimed,
+    codex_transport: Option<std::sync::Arc<dyn provider::HttpTransport>>,
 ) -> Result<(Output, Option<BoundaryError>)> {
     let retained: SessionClaim = serde_json::from_value(claim.object.body.clone())?;
     let (runtime, _) = app.load()?;
@@ -632,6 +692,70 @@ async fn execute(
             {
                 let _ = vault;
                 Err(invalid("native SIWC requires supported Unix"))
+            }
+        }
+        SessionRoute::CodexAuthOnly { executable, host_home, codex_home, authorize_codex_auth_only } => {
+            #[cfg(unix)]
+            {
+                use std::ffi::OsString;
+                use std::sync::Arc;
+
+                if !authorize_codex_auth_only {
+                    return Err(invalid("explicit Codex auth-only authorization required"));
+                }
+                require(
+                    host_home.is_dir() && codex_home.is_dir(),
+                    "selected HOME and CODEX_HOME must be existing directories",
+                )?;
+                let (_, saved) = load(app)?;
+                let (head, state) = app.load()?;
+                let settings = saved.execution_provider()?;
+                require(
+                    settings.mode == provider::AccessMode::ChatgptOAuth
+                        && matches!(
+                            &settings.credentials,
+                            provider::CredentialReference::EphemeralAuthOnly {
+                                grant: provider::OAuthGrant::TraditionalChatgpt,
+                                ..
+                            }
+                        )
+                        && matches!(
+                            &settings.evidence.account_env,
+                            provider::AccountBindingReference::EphemeralAuthOnly {
+                                ephemeral_auth_only: true
+                            }
+                        ),
+                    "Codex auth-only route requires saved ephemeral ChatGPT settings",
+                )?;
+                let factory = crate::auth::codex_jsonrpc::ProcessJsonRpcPeerFactory::new(
+                    executable.clone(),
+                    vec![OsString::from("app-server")],
+                    host_home.clone(),
+                    codex_home.clone(),
+                );
+                let auth_source = crate::auth::codex_jsonrpc::AuthOnlyJsonRpc::new(
+                    factory,
+                    crate::auth::codex_jsonrpc::AuthOnlyOptIn::after_explicit_user_choice(),
+                );
+                let source = Arc::new(crate::auth::codex_adapter::CodexCredentialSource::new(
+                    auth_source,
+                    settings.evidence.account_sha256.clone(),
+                ).map_err(|failure| RuntimeError::Provider(provider::ProviderError::Rejected(failure)))?);
+                let mut driver = OwnedLive {
+                    owner,
+                    provider: build_codex_provider(&settings, &state.config, source, codex_transport.clone())?,
+                    binding: execution_binding(&saved)?,
+                    config: head.body["config"].clone(),
+                };
+                drive(app, &request.work, &mut driver).await
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = executable;
+                let _ = host_home;
+                let _ = codex_home;
+                let _ = authorize_codex_auth_only;
+                Err(invalid("Codex auth-only requires supported Unix"))
             }
         }
     }
@@ -847,6 +971,9 @@ fn settings_view(state: &State, saved: &Saved, now: u64) -> SettingsView {
             expires_at_unix, ..
         } => Some(*expires_at_unix),
         provider::CredentialReference::ApiKey { .. } => None,
+        // A saved ephemeral expiry is only a historical snapshot. Current validity
+        // is checked against the actual token returned by the auth-only handoff.
+        provider::CredentialReference::EphemeralAuthOnly { .. } => None,
     });
     let credential_status = match (&provider, expiry) {
         (None, _) => CredentialStatus::IncompatibleSavedProvider,
@@ -1048,6 +1175,79 @@ fn inspect_opened(
         BoundaryError::Capacity,
     )?;
     Ok(result)
+}
+
+#[cfg(test)]
+mod codex_auth_only_route_tests {
+    use super::*;
+
+    fn request(route: SessionRoute) -> SessionRequest {
+        SessionRequest {
+            id: "session".into(),
+            operator: "operator".into(),
+            work: "work".into(),
+            route,
+        }
+    }
+
+    #[test]
+    fn codex_host_selection_is_bound_into_session_request_identity() {
+        let original = request(SessionRoute::CodexAuthOnly {
+            executable: PathBuf::from("/trusted/codex"),
+            host_home: PathBuf::from("/operator/home"),
+            codex_home: PathBuf::from("/operator/codex-state"),
+            authorize_codex_auth_only: true,
+        });
+        let encoded = serde_json::to_vec(&original).unwrap();
+        let decoded: SessionRequest = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(decoded, original);
+
+        let changed_home = request(SessionRoute::CodexAuthOnly {
+            executable: PathBuf::from("/trusted/codex"),
+            host_home: PathBuf::from("/operator/home"),
+            codex_home: PathBuf::from("/operator/other-codex-state"),
+            authorize_codex_auth_only: true,
+        });
+        assert_ne!(original, changed_home);
+        assert_ne!(
+            serde_json::to_value(&original).unwrap(),
+            serde_json::to_value(&changed_home).unwrap()
+        );
+    }
+
+    #[test]
+    fn codex_auth_only_route_requires_explicit_consent_and_absolute_executable() {
+        assert!(request(SessionRoute::CodexAuthOnly {
+            executable: PathBuf::from("/trusted/codex"),
+            host_home: PathBuf::from("/operator/home"),
+            codex_home: PathBuf::from("/operator/codex-state"),
+            authorize_codex_auth_only: true,
+        }).validate().is_ok());
+        assert!(request(SessionRoute::CodexAuthOnly {
+            executable: PathBuf::from("/trusted/codex"),
+            host_home: PathBuf::from("/operator/home"),
+            codex_home: PathBuf::from("/operator/codex-state"),
+            authorize_codex_auth_only: false,
+        }).validate().is_err());
+        assert!(request(SessionRoute::CodexAuthOnly {
+            executable: PathBuf::from("codex"),
+            host_home: PathBuf::from("/operator/home"),
+            codex_home: PathBuf::from("/operator/codex-state"),
+            authorize_codex_auth_only: true,
+        }).validate().is_err());
+        assert!(request(SessionRoute::CodexAuthOnly {
+            executable: PathBuf::from("/trusted/codex"),
+            host_home: PathBuf::from("/operator/../home"),
+            codex_home: PathBuf::from("/operator/codex-state"),
+            authorize_codex_auth_only: true,
+        }).validate().is_err());
+        assert!(request(SessionRoute::CodexAuthOnly {
+            executable: PathBuf::from("/trusted/codex"),
+            host_home: PathBuf::from("/operator/home"),
+            codex_home: PathBuf::from("relative-store"),
+            authorize_codex_auth_only: true,
+        }).validate().is_err());
+    }
 }
 
 #[cfg(test)]

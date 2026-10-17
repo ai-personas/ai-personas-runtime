@@ -31,7 +31,11 @@ impl VaultCredentialSource {
     pub(crate) fn open(path: &Path, settings: &p::DirectSettings) -> Result<Self, p::Failure> {
         settings.validate().map_err(|_| p::Failure::Configuration)?;
         if settings.mode != p::AccessMode::SiwcOAuth
-            || settings.evidence.account_env.env != super::ACCOUNT_BINDING_ENV
+            || settings
+                .evidence
+                .account_env
+                .environment()
+                .is_none_or(|account| account.env != super::ACCOUNT_BINDING_ENV)
         {
             return Err(p::Failure::GrantMismatch);
         }
