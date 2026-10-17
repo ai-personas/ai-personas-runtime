@@ -153,6 +153,8 @@ pub enum RuntimeError {
     Protocol(#[from] p::ProtocolError),
     #[error(transparent)]
     Store(#[from] s::StoreError),
+    #[error("terminal_persistence: {source}")]
+    TerminalPersistence { #[source] source: Box<RuntimeError> },
     #[error(transparent)]
     Files(#[from] f::FilesError),
     #[error(transparent)]
@@ -3790,13 +3792,15 @@ impl Runtime {
         });
         // State/digest validation, authentication, slot filling, and the response
         // receipt commit together. Rejected ingress cannot occupy the slot.
-        let terminal_ref = self.complete_transport(
-            &invocation,
-            &prepared,
-            &response_hash,
-            receipt.clone(),
-            Some(std::str::from_utf8(bytes).map_err(|_| invalid("response UTF-8"))?),
-        )?;
+        let terminal_ref = self
+            .complete_transport(
+                &invocation,
+                &prepared,
+                &response_hash,
+                receipt.clone(),
+                Some(std::str::from_utf8(bytes).map_err(|_| invalid("response UTF-8"))?),
+            )
+            .map_err(attribute_terminal_persistence)?;
         if invocation.state == s::InvocationState::Adopted {
             let accepted = self.adopted(id)?;
             require(
@@ -5169,6 +5173,22 @@ impl Runtime {
 enum AdoptionFailureStage {
     Planning,
     Commit,
+}
+
+/// Attribute only known Store byte/capacity errors at the terminal-write
+/// boundary. Wrapping retains the original RuntimeError -> StoreError source
+/// chain; unrelated errors (especially SQLite errors) pass through unchanged.
+pub(crate) fn attribute_terminal_persistence(error: RuntimeError) -> RuntimeError {
+    match error {
+        RuntimeError::Store(
+            error @ (s::StoreError::TooLarge
+            | s::StoreError::SerializationByteBound { .. }
+            | s::StoreError::RuntimeControlCapacity { .. }),
+        ) => RuntimeError::TerminalPersistence {
+            source: Box::new(RuntimeError::Store(error)),
+        },
+        other => other,
+    }
 }
 
 // Labels identify the catch boundary, not an individual encoder call. Include

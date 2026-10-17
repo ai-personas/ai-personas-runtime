@@ -99,7 +99,36 @@ fn case2_explicit_allocation_mismatch_is_too_large_and_rolls_back() {
             Ok(())
         })
         .unwrap_err();
-    assert!(matches!(error, StoreError::TooLarge), "got {error:?}");
+    assert!(matches!(&error, StoreError::TooLarge), "got {error:?}");
+
+    // This is a real bounded Work::insert failure, fed through the same
+    // terminal-boundary attribution helper used by Runtime::adopt_parsed.
+    // It tests classification/source preservation, not complete_transport.
+    let attributed = crate::runtime::attribute_terminal_persistence(error.into());
+    assert_eq!(
+        attributed.to_string(),
+        "terminal_persistence: record or response exceeds its declared byte bound"
+    );
+    // thiserror exposes the declared Box<RuntimeError> as the immediate
+    // source. Inspect that concrete wrapper, then its contained typed error.
+    let boxed = std::error::Error::source(&attributed)
+        .and_then(|source| {
+            source.downcast_ref::<Box<crate::runtime::RuntimeError>>()
+        })
+        .expect("wrapper preserves the boxed RuntimeError source");
+    assert!(matches!(
+        boxed.as_ref(),
+        crate::runtime::RuntimeError::Store(StoreError::TooLarge)
+    ));
+
+    // SQLite identity is not flattened into a string or relabeled.
+    let sqlite = crate::runtime::attribute_terminal_persistence(
+        crate::runtime::RuntimeError::from(StoreError::Sqlite(rusqlite::Error::InvalidQuery)),
+    );
+    assert!(matches!(
+        sqlite,
+        crate::runtime::RuntimeError::Store(StoreError::Sqlite(_))
+    ));
 
     // The failed transaction must roll back all earlier writes in its closure.
     assert_eq!(store.ledger().unwrap(), ledger_before);
