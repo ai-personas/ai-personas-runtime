@@ -4696,3 +4696,7 @@ mod byte_bound_tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "store/case2_allocation_mismatch_tests.rs"]
+mod case2_allocation_mismatch_tests;

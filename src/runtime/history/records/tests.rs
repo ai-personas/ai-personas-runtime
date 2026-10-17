@@ -733,3 +733,53 @@ fn record_query_cursor_survives_reopen_and_keeps_original_membership() {
         .history_cursors
         .contains_key(&handle));
 }
+
+#[test]
+fn synthetic_planning_failure_retains_terminal_hash_and_cannot_redispatch() {
+    let (_directory, mut app) = fixture();
+    let prepared = prepare(&mut app, "adoption-fail-001", FIRST, 200);
+
+    // Enter the actual dispatch/adoption path, then fail at adopt_parsed's
+    // planning boundary. No provider, network, or private evidence is used.
+    let mut authored = decision(&prepared, vec![], "Synthetic failure fixture");
+    authored["invocation_id"] = json!("different-invocation");
+    let raw = serde_json::to_vec(&authored).unwrap();
+    let response_hash = s::sha256_bytes(&raw);
+
+    app.dispatch_synthetic(&prepared.request.id, 201).unwrap();
+    let report = app
+        .adopt_response(&prepared.request.id, &raw, 202)
+        .unwrap();
+    assert_eq!(report.status, AdoptionStatus::Held, "{report:?}");
+
+    let invocation = app.store.invocation(&prepared.request.id).unwrap();
+    assert_eq!(invocation.state, s::InvocationState::Failed);
+    assert_eq!(
+        invocation.response_hash.as_deref(),
+        Some(response_hash.as_str())
+    );
+    let detail = invocation.history.last().unwrap().detail.as_deref().unwrap();
+    let (terminal, reason) = detail.split_once(' ').unwrap();
+    assert_eq!(terminal.len(), "terminal:".len() + 64);
+    assert!(terminal.starts_with("terminal:"));
+    assert!(terminal["terminal:".len()..]
+        .bytes()
+        .all(|byte| byte.is_ascii_hexdigit()));
+    assert!(reason.contains("response invocation identity mismatch"), "{detail}");
+
+    assert!(matches!(
+        app.store.retained_decision(&prepared.request.id),
+        Err(s::StoreError::Missing(_))
+    ));
+    assert_eq!(
+        app.store
+            .reservation(&invocation.reservation)
+            .unwrap()
+            .state,
+        s::ReservationState::Uncertain
+    );
+
+    // Exercise the real dispatch guard: duplicate prepare is not a dispatch test.
+    let redispatch = app.dispatch_synthetic(&prepared.request.id, 203);
+    assert!(redispatch.is_err(), "failed invocation must not redispatch");
+}

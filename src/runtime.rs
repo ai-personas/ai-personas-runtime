@@ -42,6 +42,8 @@ mod local_evidence;
 mod maintenance;
 mod observability;
 mod observation_projection;
+#[cfg(test)]
+mod adoption_diagnostic_tests;
 pub use local_evidence::{
     DeliverPendingMockEventRequest, IngestMockEvidenceRequest, LocalEvidenceBasis,
     LocalEvidenceBridge, LocalEvidenceIngestion, LocalEvidenceReceipt, MockEvidenceBasisRequest,
@@ -3873,12 +3875,13 @@ impl Runtime {
         let (next, mut report, pending_changes) = match plan {
             Ok(value) => value,
             Err(error) => {
-                return self.hold_response(
+                return self.hold_response_at(
                     &prepared,
                     &invocation,
                     error,
                     &terminal_ref,
                     &planning_exposure,
+                    Some(AdoptionFailureStage::Planning),
                 )
             }
         };
@@ -3943,12 +3946,13 @@ impl Runtime {
             // Store validates the complete candidate state and retained capacity,
             // including unrelated work outside the successful plan's exposure.
             // An untracked commit failure must not inherit that narrower manifest.
-            Err(error) => self.hold_response(
+            Err(error) => self.hold_response_at(
                 &prepared,
                 &invocation,
                 error.into(),
                 &terminal_ref,
                 &PlanningExposure::new(None),
+                Some(AdoptionFailureStage::Commit),
             ),
         }
     }
@@ -3960,11 +3964,27 @@ impl Runtime {
         terminal_ref: &s::ObjectRef,
         planning_exposure: &PlanningExposure,
     ) -> Result<AdoptionReport> {
+        self.hold_response_at(
+            prepared, invocation, error, terminal_ref, planning_exposure, None,
+        )
+    }
+    fn hold_response_at(
+        &mut self,
+        prepared: &Prepared,
+        invocation: &s::InvocationRecord,
+        error: RuntimeError,
+        terminal_ref: &s::ObjectRef,
+        planning_exposure: &PlanningExposure,
+        stage: Option<AdoptionFailureStage>,
+    ) -> Result<AdoptionReport> {
+        // Only typed Store byte-bound errors gain a static phase label. Preserve
+        // existing rejection, exposure context, settlement and bounded history.
+        let reason = adoption_failure_reason(&error, stage);
         // The exact terminal reference and bounded actual cause survive restart.
         let detail = format!(
             "terminal:{} {}",
             terminal_ref.sha256,
-            bounded_detail(&error.to_string(), 180)
+            bounded_detail(&reason, 180)
         );
         let context = if matches!(&error, RuntimeError::ClosureRecordNotSupplied) {
             json!({"kind":"protocol_correction","terminal_sha256":terminal_ref.sha256,
@@ -3985,7 +4005,7 @@ impl Runtime {
             accepted_epoch: None,
             applied: Vec::new(),
             fenced: Vec::new(),
-            reason: Some(error.to_string()),
+            reason: Some(reason),
             synthetic: prepared.request.profile == Profile::Synthetic,
             usage_is_unknown: true,
         })
@@ -5142,6 +5162,35 @@ impl Runtime {
                 )
             }
         }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum AdoptionFailureStage {
+    Planning,
+    Commit,
+}
+
+// Labels identify the catch boundary, not an individual encoder call. Include
+// TooLarge because it is the exact historical message reported for this failure.
+// Never include candidate object bodies or other private payloads in diagnostics.
+fn adoption_failure_reason(error: &RuntimeError, stage: Option<AdoptionFailureStage>) -> String {
+    match (stage, error) {
+        (
+            Some(stage),
+            RuntimeError::Store(
+                s::StoreError::TooLarge
+                | s::StoreError::SerializationByteBound { .. }
+                | s::StoreError::RuntimeControlCapacity { .. },
+            ),
+        ) => {
+            let stage = match stage {
+                AdoptionFailureStage::Planning => "planning",
+                AdoptionFailureStage::Commit => "commit",
+            };
+            format!("adoption_stage={stage} {error}")
+        }
+        _ => error.to_string(),
     }
 }
 
