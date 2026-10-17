@@ -542,6 +542,186 @@ class VerifiedExecutable:
             self.fd = None
 
 
+def _toolchain_order(name):
+    """Order recognized rustup directory names; names never prove compiler version."""
+    if re.fullmatch(r"stable(?:-[A-Za-z0-9_.-]+)?", name):
+        return (0, 0, 0, name)
+    numeric = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:-[A-Za-z0-9_.-]+)?", name)
+    if numeric:
+        major, minor, patch = (int(part) for part in numeric.groups())
+        return (1, -major, -minor, -patch, name)
+    if re.fullmatch(r"beta(?:-[A-Za-z0-9_.-]+)?", name):
+        return (2, 0, 0, name)
+    if re.fullmatch(r"nightly(?:-[A-Za-z0-9_.-]+)?", name):
+        return (3, 0, 0, name)
+    return None
+
+
+MAX_TOOLCHAIN_CANDIDATES = 8
+MAX_TOOLCHAIN_DIRECTORY_ENTRIES = 256
+MAX_TOOLCHAIN_PROBE_SECONDS = 12.0
+MAX_RUSTC_VERSION_BYTES = 4096
+
+
+def discover_cargo():
+    """Discover bounded candidates without executing them or scanning unbounded roots.
+
+    PATH Cargo keeps precedence. Off-PATH discovery is limited to configured
+    RUSTUP_HOME, or HOME/.rustup when RUSTUP_HOME is unset. A toolchain root with
+    more than MAX_TOOLCHAIN_DIRECTORY_ENTRIES entries fails closed rather than
+    selecting from a partial, enumeration-order-dependent view.
+    """
+    candidates = []
+    cargo = shutil.which("cargo")
+    if cargo:
+        candidates.append((cargo, None))
+
+    rustup_home = os.environ.get("RUSTUP_HOME")
+    if rustup_home is not None:
+        roots = [Path(rustup_home) / "toolchains"] if path_text(rustup_home) else []
+    else:
+        home = os.environ.get("HOME")
+        roots = [Path(home) / ".rustup" / "toolchains"] if home and path_text(home) else []
+
+    discovered = []
+    for root in roots:
+        try:
+            with os.scandir(root) as entries:
+                names = []
+                for entry in entries:
+                    names.append(entry.name)
+                    if len(names) > MAX_TOOLCHAIN_DIRECTORY_ENTRIES:
+                        raise Blocked("rustup_toolchain_directory_limit")
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+        except PermissionError:
+            continue
+        for name in sorted(names):
+            order = _toolchain_order(name)
+            if order is None:
+                continue
+            directory = root / name
+            if not directory.is_dir():
+                continue
+            bindir = directory / "bin"
+            cargo_path, rustc = bindir / "cargo", bindir / "rustc"
+            if (cargo_path.is_file() and os.access(cargo_path, os.X_OK)
+                    and rustc.is_file() and os.access(rustc, os.X_OK)):
+                discovered.append((order, str(cargo_path), str(bindir)))
+
+    for _, candidate, bindir in sorted(discovered):
+        if all(existing[0] != candidate for existing in candidates):
+            candidates.append((candidate, bindir))
+        if len(candidates) >= MAX_TOOLCHAIN_CANDIDATES:
+            break
+    return candidates[:MAX_TOOLCHAIN_CANDIDATES]
+
+
+def _parse_rustc_version(output):
+    if not isinstance(output, str) or len(output.encode("utf-8", "replace")) > MAX_RUSTC_VERSION_BYTES:
+        return False
+    match = re.match(r"^rustc (\d+)\.(\d+)\.(\d+)(?:-([^\s]+))?(?:\s|$)", output)
+    if not match:
+        return False
+    version = tuple(int(part) for part in match.groups()[:3])
+    return version > (1, 88, 0) or (version == (1, 88, 0) and match.group(4) is None)
+
+
+def _stop_probe(proc):
+    # Always target the isolated group: the parent may have exited while a
+    # descendant still owns stdout and keeps the pipe open.
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except OSError:
+        try:
+            if proc.poll() is None:
+                proc.kill()
+        except OSError:
+            pass
+    try:
+        proc.wait(timeout=0.2)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def _supported_rustc(rustc, env, deadline, cwd):
+    """Probe one compiler with a shared deadline, nonblocking pipe and byte cap."""
+    if deadline - time.monotonic() <= 0:
+        return False
+    try:
+        proc = subprocess.Popen([rustc, "--version"], stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                env=env, cwd=cwd, start_new_session=True)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+    output = bytearray()
+    accepted = False
+    try:
+        fd = proc.stdout.fileno()
+        os.set_blocking(fd, False)
+        with selectors.DefaultSelector() as poll:
+            poll.register(proc.stdout, selectors.EVENT_READ)
+            while poll.get_map():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                events = poll.select(min(0.1, remaining))
+                if not events:
+                    continue
+                try:
+                    part = os.read(fd, min(8192, MAX_RUSTC_VERSION_BYTES + 1 - len(output)))
+                except BlockingIOError:
+                    continue
+                if not part:
+                    poll.unregister(proc.stdout)
+                    continue
+                output.extend(part)
+                if len(output) > MAX_RUSTC_VERSION_BYTES:
+                    return False
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        try:
+            code = proc.wait(timeout=remaining)
+        except subprocess.TimeoutExpired:
+            return False
+        if code != 0:
+            return False
+        try:
+            text = output.decode("utf-8")
+        except UnicodeDecodeError:
+            return False
+        accepted = _parse_rustc_version(text)
+        return accepted
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+    finally:
+        # Version probes must not leave descendants behind, even if the parent
+        # printed a valid version and exited successfully.
+        _stop_probe(proc)
+        if proc.stdout is not None:
+            proc.stdout.close()
+
+
+def select_supported_cargo(candidates, base_env, cwd):
+    """Select a candidate within shared candidate/time bounds using the build env."""
+    deadline = time.monotonic() + MAX_TOOLCHAIN_PROBE_SECONDS
+    for cargo, toolchain_bin in candidates[:MAX_TOOLCHAIN_CANDIDATES]:
+        if time.monotonic() >= deadline:
+            break
+        env = dict(base_env)
+        if toolchain_bin:
+            env["PATH"] = toolchain_bin + os.pathsep + env.get("PATH", "")
+            rustc = str(Path(toolchain_bin) / "rustc")
+        else:
+            rustc = shutil.which("rustc", path=env.get("PATH"))
+            if not rustc:
+                continue
+        if _supported_rustc(rustc, env, deadline, cwd):
+            return cargo, toolchain_bin, env
+    return None
+
+
 class Helpers:
     def __init__(self, journal, checkout, ui):
         self.j = journal
@@ -601,22 +781,37 @@ class Helpers:
             require(path_text(folder), "invalid_installation")
             self.adopt(Path(folder))
         elif choice == "b":
-            cargo = shutil.which("cargo")
-            if not cargo:
-                self.ui.say("Cargo/Rust 1.88+ and a native C toolchain/linker are required to build. "
-                            "No installer or system change was run. Install the toolchain from rust-lang.org/tools/install "
-                            "under your host policy, or choose an approved existing helper directory here.")
+            try:
+                candidates = discover_cargo()
+            except Blocked as error:
+                if error.code != "rustup_toolchain_directory_limit":
+                    raise
+                self.ui.say("The configured Rustup toolchain root has more than 256 entries; discovery refused a partial scan. "
+                            "Set RUSTUP_HOME to the intended root or remove stale toolchain entries under host policy, "
+                            "then retry. No files were changed.")
+                raise Halt()
+            if not candidates:
+                self.ui.say("No Cargo candidate was found on PATH or in the configured Rustup toolchain root. "
+                            "Install or repair Rust 1.88+ and the native C toolchain/linker under host policy, "
+                            "or choose an approved existing helper directory. No installer was run.")
                 return self.install()
             self.ui.consent("Build this exact checkout with locked Cargo dependencies, one job and no debug symbols? "
                             "Cargo may download locked crates and execute their build scripts. No sudo/system installation. "
                             "Build/cache files consume disk; failure preserves your need")
             target = self.j.directory.path / "build"
             env = self.environment()
-            env.update(CARGO_PROFILE_DEV_DEBUG="0", CARGO_PROFILE_TEST_DEBUG="0", CARGO_INCREMENTAL="0",
-                       CARGO_TARGET_DIR=str(target))
             for k in ("CARGO_HOME", "RUSTUP_HOME"):
                 if k in os.environ:
                     env[k] = os.environ[k]
+            env.update(CARGO_PROFILE_DEV_DEBUG="0", CARGO_PROFILE_TEST_DEBUG="0", CARGO_INCREMENTAL="0",
+                       CARGO_TARGET_DIR=str(target))
+            selected = select_supported_cargo(candidates, env, self.checkout)
+            if selected is None:
+                self.ui.say("No discovered candidate reported Rust 1.88+ within the bounded compiler-probe budget. "
+                            "Repair the configured toolchain or choose an approved existing helper directory. "
+                            "No installer or provider operation was run.")
+                return self.install()
+            cargo, toolchain_bin, env = selected
             self.ui.say("Building local helpers; Cargo progress follows. Interrupting never starts provider work.")
             # Child-only (Python 3.9+): keep new build paths private even when
             # the caller uses umask 0002. Never chmod an existing installation.

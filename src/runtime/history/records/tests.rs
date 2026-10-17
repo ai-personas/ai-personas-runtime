@@ -1034,3 +1034,55 @@ fn runtime_response_exact_bound_completes_and_one_byte_over_stays_unresolved() {
         Err(s::StoreError::AlreadyDispatched)
     ));
 }
+#[test]
+fn terminal_slot_capacity_covers_escape_heavy_exact_bound_response() {
+    let (_directory, mut app) = fixture();
+    let prepared = prepare(&mut app, "terminal-escape-bound", FIRST, 200);
+    let response_limit = prepared
+        .terminal_response_bytes
+        .expect("normal preparation records a terminal response bound");
+
+    // A legal Decision reason containing alternating backslash/quote characters
+    // makes the exact raw JSON expensive to embed as the terminal response text.
+    // It remains within the protocol's decoded-string bound and uses no slot
+    // corruption, limit mutation, or synthetic Store error.
+    let mut authored = decision(&prepared, vec![], "temporary");
+    authored["work"]["reason"] = json!(r#"\""#.repeat(1024));
+    let mut raw = serde_json::to_vec(&authored).unwrap();
+    assert!(raw.len() < response_limit);
+    assert!(raw.iter().filter(|byte| **byte == b'\\').count() > 1000);
+    raw.resize(response_limit, b' ');
+    assert_eq!(raw.len(), response_limit);
+    let raw_text = String::from_utf8(raw.clone()).unwrap();
+    let response_hash = s::sha256_bytes(&raw);
+
+    app.dispatch_synthetic(&prepared.request.id, 201).unwrap();
+    let report = app
+        .adopt_response(&prepared.request.id, &raw, 202)
+        .unwrap();
+    assert_eq!(report.status, AdoptionStatus::Adopted, "{report:?}");
+
+    let retained = app
+        .terminal_evidence(&prepared.request.id)
+        .expect("escape-heavy exact-bound response must fit its prepaid terminal slot");
+    assert_eq!(
+        retained.body["response_body"]["text"].as_str(),
+        Some(raw_text.as_str())
+    );
+    assert_eq!(retained.body["response_body"]["bytes"], response_limit);
+    assert_eq!(
+        retained.body["response_body"]["sha256"],
+        response_hash
+    );
+
+    // The actual retained terminal object also fits the same formula used for
+    // reservation. This is a regression guard on escaping plus fixed metadata.
+    let serialized = serde_json::to_vec(&retained).unwrap();
+    let prepaid = crate::runtime::terminal_evidence_capacity(response_limit).unwrap();
+    assert!(
+        serialized.len() as u64 <= prepaid,
+        "terminal object {} bytes exceeds prepaid {}",
+        serialized.len(),
+        prepaid
+    );
+}
