@@ -197,6 +197,15 @@ impl WorkResourceGrantRequest {
         check_ref(&self.expected.runtime, STATE_ID)?;
         check_ref(&self.expected.launch, ID)?;
         let expected = &self.expected;
+        let navigation_increased = [
+            self.increase.navigation.calls,
+            self.increase.navigation.scanned_bytes,
+            self.increase.navigation.inspected_revisions,
+            self.increase.navigation.matches,
+            self.increase.navigation.result_bytes,
+        ]
+        .into_iter()
+        .any(|amount| amount > 0);
         require(
             expected.work_revision > 0
                 && expected.work_epoch > 0
@@ -204,8 +213,9 @@ impl WorkResourceGrantRequest {
                 && expected.max_total_steps > 0
                 && expected.steps <= expected.max_total_steps
                 && (1..=128).contains(&expected.max_steps)
-                && (1..=128).contains(&self.increase.attempts),
-            "invalid work grant counters, nonzero repair allowance or zero attempt addition",
+                && self.increase.attempts <= 128
+                && (self.increase.attempts > 0 || navigation_increased),
+            "invalid work grant counters, nonzero repair allowance or empty resource addition",
         )?;
         let after = add_remaining(expected.remaining, self.increase)?;
         let needed_steps = expected

@@ -115,6 +115,8 @@ A future wait returns to the shell and retains its existing eligibility conditio
 An explicitly authorized operator can inspect `work-resource-grant-snapshot WORK`
 and use `grant-work-resources REQUEST.json --preview` or `--apply` to add ordinary
 attempts and navigation to an existing standalone Open work. The strict request
+can add navigation with `increase.attempts: 0` when reasoning attempts remain;
+an addition with every resource set to zero is refused. The request
 binds exact runtime/launch heads, work version and remaining balances, records the
 authorization reference, and declares the minimal optional lifetime-cap increase.
 That cap remains launch-global; the work addition is not a reservation. Resulting

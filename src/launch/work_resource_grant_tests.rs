@@ -362,7 +362,6 @@ fn work_grant_rejects_stale_unauthorized_overflow_and_out_of_config_requests() {
     case!(authorize_grant, false);
     case!(operator, "persona-0001".into());
     case!(authorization_reference, " ".into());
-    case!(increase.attempts, 0);
     case!(increase.attempts, u64::MAX);
     case!(increase.navigation.calls, 129);
     case!(increase.navigation.result_bytes, usize::MAX);
