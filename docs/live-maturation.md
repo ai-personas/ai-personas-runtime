@@ -50,7 +50,12 @@ It describes moving from a stalled evidence search to a scoped contribution,
 stating unknowns and remaining duties, and distinguishing an artifact from proof
 of its later effect. Its complete body reached accepted `call-00000049`. The
 provider receipt matched that input, and Rowan's reply preserved those distinctions.
-This demonstrates later supply; sustained benefit remains unestablished.
+The same unchanged fragment was still selected and fully supplied in accepted
+`call-00000092`; native inspection again matched the completed provider input.
+Rowan gave a bounded contribution, kept the guidance and stopped without another
+history retrieval. These observations demonstrate retained guidance reaching
+later calls and consistent subsequent action; sustained benefit remains
+unestablished.
 
 ## Returning to ordinary work
 
@@ -99,8 +104,13 @@ of storage-read funding, increasing that one total from 8 to 10 GiB. Native
 reopening confirmed unchanged state/launch heads, uncertain usage and all other
 limits. Existing consumption remained charged, and work-level navigation and
 provider attempts were not replenished by this grant.
-The [runtime reference](../RUNTIME-REFERENCE.md) documents this finite capacity
-extension. The reflection work remains open at this checkpoint.
+The [runtime reference](../RUNTIME-REFERENCE.md) documents these finite capacity
+extensions. Luna then released and locally delivered the integrated reflection
+in `call-00000093`. Its fresh `call-00000094` received the exact delivery receipt
+and recorded closure. The native result reports `completed-as-recorded` with one
+local delivery. The delivered body remains a bounded attributed account; this
+completion does not establish general maturation, requester acceptance or
+independently verified benefit.
 
 ## Reuse across tasks: Tess reviews the tower
 
