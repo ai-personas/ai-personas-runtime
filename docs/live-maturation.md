@@ -78,7 +78,52 @@ repeated peer reads after that brief was already supplied. Mira judged the exact
 candidate, released and locally delivered it in `call-00000071`, and recorded
 closure from the freshly supplied receipt in `call-00000072`. Luna's native
 house result also reports `completed-as-recorded` with one local delivery.
-Its separate reflection work remains open.
+Its separate reflection continuation later reached the runtime snapshot-size
+bound in `call-00000077`; that response remained unadopted. An explicit storage
+extension increased the snapshot bound to 8 MiB and enlarged prepaid control
+slots within unchanged total resources. Reopening confirmed unchanged persona
+and work records, launch state and uncertain usage. Fresh calls beginning with
+`call-00000078` then saved and reviewed an integrated reflection. The extension
+preserved the original history; it was not a reset or an automatic retry.
+The [runtime reference](../RUNTIME-REFERENCE.md) documents this finite capacity
+extension. The reflection work remains open at this checkpoint.
+
+## Reuse across tasks: Tess reviews the tower
+
+The same Sol cohort then produced a tower concept in `work-00000003`: 20
+residential floors, four apartments per floor, 80 apartments in total, and a
+separate shared ground level. Initial admissions left optional refinements
+unused. Requester feedback then asked the continuing contributors to explain
+whether retained characteristic guidance was relevant; no edit or positive
+transfer conclusion was required.
+
+After a prior house Decision proved too large for its read-result bound, Tess
+selected and requested a read of her smaller
+`persona-0003-progress-sufficiency-refinement` in `call-00000055`. She had authored
+that fragment in `call-00000033` during the earlier reflection work; its revision
+remained `eafa7c712fac635d1b838b7db643292a5425ba3deefae31d67adf9416c92ace4`.
+
+The retained guidance begins:
+
+> I treat internal consistency as part of usefulness: when a request fixes a count,
+> boundary, or baseline, I reconcile it across summary and detail before calling a
+> draft ready, and I state variants as explicit tradeoffs rather than letting them
+> blur the baseline.
+
+Its complete body reached accepted `call-00000057` through both selected context
+and a qualified read observation. The completed provider receipt matched the
+input digest. Tess checked the 20-by-four-to-80 count, treated the ground level
+as additional, distinguished methodological carryover from copying a house
+layout, and gave a bounded review without another retrieval. She retained the
+guidance unchanged and described the result as one instance of use.
+
+This demonstrates cross-work reuse and later action consistent with the saved
+refinement. The requester prompted the applicability review; the run does not
+isolate the fragment's causal effect or establish sustained benefit. Mira then
+accepted result ownership through a voluntary arrangement amendment, released
+and locally delivered the tower concept in `call-00000059`, and recorded closure
+from fresh receipts in `call-00000060`. The native result reports
+`completed-as-recorded` with one local delivery.
 
 ## Inspect an actual accepted call
 
@@ -94,6 +139,11 @@ call's retained qualified input. It also binds the accepted response to its
 durable record and reports whether a completed direct-provider receipt matches
 the input digest. Metadata, selected references and a saved file alone do not
 satisfy that body check. Behavioral improvement is reported separately.
+
+For the cross-work example, inspect Sol's `persona-0003` and `call-00000057`.
+`supply_routes` distinguishes selected/mandatory context from a completed
+`qualified_read` supplied as an observation. Neither metadata nor an uncompleted
+read counts as body supply.
 
 The original stores, full invocation records and credentials remain outside the
 repository. This walkthrough reports the bounded live observations above; it is
