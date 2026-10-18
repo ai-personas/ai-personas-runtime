@@ -1243,6 +1243,10 @@ pub enum WorkAction {
     },
     /// Retain an attributed model judgment of a current artifact body already
     /// supplied to this invocation. Not measurement or independent assurance.
+    /// Judge the cited artifact against the actual outcome criterion. Its exact
+    /// full body is required; every peer candidate and the entire work history
+    /// are not implicit prerequisites. Additional reviews or comparisons remain
+    /// required only where the criterion or current mandate actually requires them.
     RecordModelEvidence {
         /// A new evidence identifier, not the judgment text.
         #[schemars(length(min = 1, max = 256))]
