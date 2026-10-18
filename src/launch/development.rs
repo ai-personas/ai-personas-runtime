@@ -187,7 +187,7 @@ fn invocation_evidence(
                 .is_some_and(|e| exposure_permitted(state, e, audience)),
         "invocation evidence unavailable",
     )?;
-    let (_, qualified) = prepared
+    let (prefix, qualified) = prepared
         .prompt
         .rsplit_once("\nQUALIFIED_CONTEXT\n")
         .ok_or_else(|| held("qualified input evidence unavailable"))?;
@@ -195,6 +195,10 @@ fn invocation_evidence(
     let entries = qualified["entries"]
         .as_array()
         .ok_or_else(|| held("qualified input evidence unavailable"))?;
+    let (_, control) = prefix
+        .rsplit_once("\nCONTROL\n")
+        .ok_or_else(|| held("control input evidence unavailable"))?;
+    let control: Value = serde_json::from_str(control)?;
     let mut supplied = Vec::new();
     for revision in revisions {
         let source = revision["source"]
@@ -209,7 +213,7 @@ fn invocation_evidence(
             .map_err(|_| held("fragment text unavailable"))?;
         // A source manifest, inventory, selection, or digest alone cannot satisfy
         // this check: the exact complete body must be in the retained prompt.
-        if entries.iter().any(|entry| {
+        let matches_body = |entry: &Value| {
             entry["scope"] == "fragments"
                 && entry["reference"]["source"] == source
                 && entry["reference"]["revision"] == digest
@@ -217,11 +221,38 @@ fn invocation_evidence(
                 && entry["reference"]["start"].is_null()
                 && entry["reference"]["end"].is_null()
                 && entry["text"] == text
-        }) {
+        };
+        let mut routes = Vec::new();
+        if entries.iter().any(matches_body) {
+            routes.push(json!({"kind":"selected_or_mandatory_context"}));
+        }
+        // A completed Read reaches a later prompt through a host-rendered
+        // observation even when the persona has not selected that source. Match
+        // only its qualified file entries, never text embedded in old Decisions,
+        // messages, inventory metadata, or a proposed operation.
+        if let Some(observations) = control["actual_observations"].as_array() {
+            for observation in observations {
+                if observation["kind"] == "qualified_read"
+                    && observation["actor"] == persona_id
+                    && observation["work"] == prepared.request.work
+                    && observation["payload"]["result"]["entries"]
+                        .as_array()
+                        .is_some_and(|entries| entries.iter().any(matches_body))
+                {
+                    routes.push(json!({
+                        "kind":"qualified_read",
+                        "observation":observation["id"],
+                        "producing_invocation":observation["invocation"]
+                    }));
+                }
+            }
+        }
+        if !routes.is_empty() {
             supplied.push(json!({
                 "reference":wire_reference(&reference),
                 "origin":stored.origin,
                 "complete_body_in_prepared_input":true,
+                "supply_routes":routes,
                 "different_from_authoring_invocation":matches!(&stored.origin,
                     Some(RevisionOrigin::PersonaInvocation { invocation_id: authoring, .. }) if authoring != invocation_id)
             }));
@@ -245,7 +276,7 @@ fn invocation_evidence(
         "adopted_response":exact, "response_sha256":archive.response_hash,
         "provider_completed_with_matching_input":provider_completed,
         "supplied_characteristic_revisions":supplied,
-        "scope":"Exact full bodies among the characteristic revisions returned by this bounded view. Other revisions and invocations are not inspected. Current permissions still apply.",
+        "scope":"Exact full bodies in selected/mandatory context or qualified Read observations, among the characteristic revisions returned by this bounded view. Other revisions and invocations are not inspected. Current permissions still apply.",
         "behavioral_improvement_established":false,
         "limits":"Input supply and an accepted response do not prove attention, causation, improved behavior, or successful execution of every proposed operation. Inspect the work result separately."
     }))

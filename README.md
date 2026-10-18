@@ -24,7 +24,8 @@ To inspect a continuing persona's accepted characteristic fragments:
 
 Add `--invocation CALL_ID` to check which of those fragment bodies reached an
 accepted call and whether the completed provider input matches the retained
-record. Read the work result to judge how the persona used them.
+record. It distinguishes selected context from completed reads supplied as
+observations. Read the work result to judge how the persona used them.
 
 [Live maturation walkthrough](docs/live-maturation.md): retained refinements,
 later input supply, subsequent actions and the limits of those observations.
