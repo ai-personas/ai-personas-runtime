@@ -1210,6 +1210,8 @@ pub enum WorkAction {
     },
     /// Consent only for yourself to the exact proposal supplied in this CONTROL.
     /// An omitted or same-response proposal cannot satisfy actual supply.
+    /// Use kind=accept_arrangement with proposal and exact. A pending arrangement
+    /// proposal is not an invitation offer; accept_arranged_offer is different.
     AcceptArrangement {
         #[schemars(length(min = 1, max = 256))]
         proposal: String,
@@ -1230,6 +1232,8 @@ pub enum WorkAction {
     },
     /// Voluntarily accept an exact supplied offer under the supplied current arrangement.
     /// Existing Responsibility acceptance does not imply assent to a later arrangement.
+    /// This requires offer, terms_revision and arrangement. For consent to a
+    /// pending arrangement proposal, use accept_arrangement with proposal and exact.
     AcceptArrangedOffer {
         #[schemars(length(min = 1, max = 256))]
         offer: String,

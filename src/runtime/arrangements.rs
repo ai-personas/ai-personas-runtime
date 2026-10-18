@@ -652,7 +652,10 @@ pub(super) fn validate_objects(value: &Value) -> Result<()> {
             }
         }
         Some("accept_arrangement" | "decline_arrangement") => object(&value["exact"])?,
-        Some("accept_arranged_offer") => object(&value["arrangement"])?,
+        Some("accept_arranged_offer") => require(
+            value["arrangement"].is_object(),
+            "accept_arranged_offer needs offer, terms_revision and an arrangement object; pending proposal consent uses accept_arrangement with proposal and exact",
+        )?,
         _ => (),
     }
     Ok(())
