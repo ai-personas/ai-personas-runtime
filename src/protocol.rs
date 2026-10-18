@@ -102,6 +102,8 @@ pub enum WorkDisposition {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Maintenance {
+    /// Leave stored material unchanged. This is separate from selecting existing
+    /// material for the next context; no_change does not require clearing selection.
     NoChange {
         reason: String,
     },
@@ -141,7 +143,10 @@ pub enum SelectionIntent {
     Preserve { reason: String },
     /// Clear optional context only, even if uninitialized; CharacterAdopt.own_voice remains mandatory.
     Clear { reason: String },
-    /// Choose exact optional references, including authorized same-response proposals.
+    /// Choose relevant exact optional references, including retained material from
+    /// earlier work and authorized same-response proposals. Reuse needs no new edit
+    /// or prior proof of behavioral improvement. Metadata identifies a candidate;
+    /// its body is supplied only by an authorized read or subsequent context assembly.
     /// An effective character change permits only subsets of whole exact existing entries, never new optional references.
     Replace {
         reason: String,
