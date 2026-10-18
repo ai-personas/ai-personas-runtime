@@ -1251,6 +1251,9 @@ pub enum WorkAction {
     /// full body is required; every peer candidate and the entire work history
     /// are not implicit prerequisites. Additional reviews or comparisons remain
     /// required only where the criterion or current mandate actually requires them.
+    /// A later Judge command in this same Decision may cite this evidence's inner
+    /// id. That local judgment needs no extra read or admission. CloseGoal still
+    /// needs release and delivery receipts supplied in a fresh admission.
     RecordModelEvidence {
         /// A new evidence identifier, not the judgment text.
         #[schemars(length(min = 1, max = 256))]
@@ -1279,6 +1282,9 @@ pub enum WorkAction {
         explanation: String,
         limitations: Vec<String>,
     },
+    /// Judge the exact candidate using available formal evidence, including an
+    /// earlier RecordModelEvidence command in this same Decision. Evidence IDs
+    /// refer to that command's inputs.id, not its outer operation id.
     Judge {
         id: String,
         artifacts: BTreeMap<String, ArtifactKey>,

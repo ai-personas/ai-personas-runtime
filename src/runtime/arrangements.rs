@@ -526,7 +526,9 @@ pub struct ArrangementTermsInput {
     #[schemars(extend("maxProperties" = 32,
         "propertyNames" = {"type": "string", "minLength": 1, "maxLength": 128}))]
     pub changes: BTreeMap<String, CommitmentChangeInput>,
-    /// Null preserves the current rule. Fixed legacy mandates cannot replace it.
+    /// Null preserves the current rule, including its absence. A duty-only
+    /// arrangement with no rule authorizes no shared selection or release.
+    /// Fixed legacy mandates cannot replace their rule.
     pub decision_rule: Option<ArrangementDecisionRuleInput>,
     /// Explicit work-artifact ownership only; never transfers file-source ownership.
     #[schemars(length(max = 32))]
