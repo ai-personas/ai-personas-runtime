@@ -109,6 +109,26 @@ Feedback preserves the original need, stops and resource balances. Resume a stop
 persona explicitly before continuing its work. Active invocations block a new
 feedback write. Feedback remains retrievable through retained observation history.
 
+New feedback also remains in each fresh permitted input until its recipient
+explicitly accounts for it with `ResolveRequesterFeedback`. Ordinary reads,
+observation consumption, waits and stops cannot silently clear it. The action
+copies an exact ID from `CONTROL.requester_feedback.pending`, records `handled`
+or `declined` with the persona's reason, and requires that item's full permitted
+body in the current admission. Unresolved items stay pending. A disposition is
+an attributed account, not proof of compliance or requester acceptance. At most
+eight items may be pending, within 128 accepted items per persona/work; exhaustion
+refuses new feedback without dropping existing items. Current permission and
+context-size checks still apply. Previously consumed feedback is not retroactively
+declared pending, and replay does not revive a resolved item.
+
+`CONTROL.previous_authored_continuation` carries the exact last accepted persona
+intention, its invocation and its original information lineage when still
+permitted. It is context for a fresh decision, not new authority or an instruction
+to replay effects. Operator resume does not rewrite it. Legacy continuations
+without this attributable record are not reconstructed from a reason string.
+Records containing these new optional fields require this runtime version;
+older stores remain readable with empty pending-feedback and continuation records.
+
 The foreground driver considers at most 128 participant entries and attempts at
 most 12 steps per command by default, within 32 attempts per work, 256 attempted
 foreground steps across all saved work IDs, and 32 work IDs. Setup flags can
@@ -555,7 +575,10 @@ partial exact-release evidence, fulfillment and authority judgments left to the
 persona, and validations required at adoption. Freshly supplied validated
 receipts satisfy `require_supplied` without a duplicate deliveries inventory;
 an anchor alone does not. The persona may propose `CloseGoal`, identify remaining
-work or voluntarily yield. Accepted `CloseGoal` appends exact historical completion
+work or voluntarily yield. The author must explicitly dispose of their own
+pending requester feedback before proposing closure; resolution may precede
+`CloseGoal` in the same response. Stopping alone does not resolve feedback.
+Accepted `CloseGoal` appends exact historical completion
 without ending work, overwriting peer choices, or changing the work lifecycle epoch.
 The author independently chooses continuation, wait, pause, or stop; ordinary
 revision checks still fence stale requests. Newly recorded completion must remain

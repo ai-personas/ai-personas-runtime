@@ -86,6 +86,7 @@ pub fn feedback(
             active_invocations(&state).is_empty(),
             "active invocation blocks feedback",
         )?;
+        requester_feedback::check_capacity(&state.personas[&input.persona].focus[&input.work])?;
         app.store.require_terminal_invocations()?;
         state.observations.insert(
             id.clone(),
@@ -102,15 +103,15 @@ pub fn feedback(
                 qualified_roots: Vec::new(),
             },
         );
-        state
+        let focus = state
             .personas
             .get_mut(&input.persona)
             .unwrap()
             .focus
             .get_mut(&input.work)
-            .unwrap()
-            .pending_observations
-            .push(id.clone());
+            .unwrap();
+        focus.pending_observations.push(id.clone());
+        focus.pending_requester_feedback.insert(id.clone());
         state.operator_events.push(json!({
             "kind":"work_feedback","operator":operator,"observation":id,
             "work":input.work,"recipient":input.persona,"at_unix":now
@@ -121,6 +122,8 @@ pub fn feedback(
     Ok(json!({
         "observation":id,"work":input.work,"persona":input.persona,"replayed":replayed,
         "supply":"pending fresh permitted admission","persona_resumed":false,
+        "retained_until_explicit_disposition":state.personas[&input.persona].focus[&input.work]
+            .pending_requester_feedback.contains(&id),
         "inference_performed":false,"budget_reset":false
     }))
 }

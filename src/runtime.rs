@@ -42,6 +42,8 @@ mod local_evidence;
 mod maintenance;
 mod observability;
 mod observation_projection;
+mod requester_feedback;
+pub use requester_feedback::Disposition as RequesterFeedbackDisposition;
 #[cfg(test)]
 mod adoption_diagnostic_tests;
 pub use local_evidence::{
@@ -438,6 +440,13 @@ pub struct RepairTrigger {
     pub ordinary_required_bytes: usize,
     pub mandatory_bytes: usize,
 }
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AuthoredContinuation {
+    pub invocation: String,
+    pub value: p::Continuation,
+    pub exposure: Exposure,
+}
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Focus {
@@ -454,7 +463,17 @@ pub struct Focus {
     #[serde(default)]
     pub ordinary_continuation: bool,
     pub continuation: Option<p::Continuation>,
+    /// Exact last primary-authored intention and its original information lineage.
+    /// Legacy absence cannot establish a safely attributable continuation body.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) authored_continuation: Option<AuthoredContinuation>,
     pub pending_observations: Vec<String>,
+    /// New requester feedback stays in current context until explicitly disposed.
+    /// Ordinary observation consumption cannot erase an unresolved direction.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub(crate) pending_requester_feedback: BTreeSet<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) feedback_dispositions: Vec<requester_feedback::Receipt>,
     pub protected_maintenance: Vec<Value>,
     pub last_judgment: Option<p::WorkDisposition>,
     #[serde(default)]
@@ -1180,6 +1199,19 @@ pub struct ClaimInput {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WorkAction {
+    /// Explicitly account for one pending requester feedback item whose complete
+    /// body was supplied in this admission's actual_observations. Copy its exact
+    /// observation ID from CONTROL.requester_feedback.pending. Use handled only
+    /// when you have addressed the direction; use declined with an explanation
+    /// when you will not do so. Leave unresolved work pending across reads/waits.
+    /// This records your account, not requester acceptance, compliance or success.
+    /// Resolve all your pending items before proposing CloseGoal; a same-response
+    /// resolution may precede CloseGoal. Other closure gates still apply.
+    ResolveRequesterFeedback {
+        observation: String,
+        disposition: RequesterFeedbackDisposition,
+        reason: String,
+    },
     /// Register one future local message from a named current participant.
     /// A Decision may register up to eight waits. Choose continuation.kind=wait,
     /// include every new inputs.id in dependency_ids, and supply a future
@@ -1595,6 +1627,10 @@ fn action(value: &Value) -> Result<WorkAction> {
         )
     };
     match &parsed {
+        WorkAction::ResolveRequesterFeedback { observation, reason, .. } => {
+            p::check_id(observation, "resolve_requester_feedback.observation")?;
+            text(reason, 4096)?;
+        }
         WorkAction::RegisterMessageWait { id, from } => {
             p::check_id(id, "message_wait.id")?;
             identity(from)?;
@@ -6467,6 +6503,15 @@ fn render_mode_with_history(
         (None, _) => Value::Null,
         _ => json!({"status":"withheld_unavailable","body_supplied":false}),
     };
+    let prior_continuation = match &focus.authored_continuation {
+        Some(record) if exposure_permitted(state, &record.exposure, &a) => {
+            extend_exposure(&mut exposure, &record.exposure);
+            json!({"invocation":record.invocation,"value":record.value,
+                "meaning":"Previous accepted persona intention, not new authority or an instruction to replay actions. Decide afresh using the current request and observations."})
+        }
+        None => Value::Null,
+        _ => json!({"status":"withheld_unavailable","body_supplied":false}),
+    };
     let protected_maintenance = maintenance::project(state, actor, work_id, &a, &mut exposure)?;
     let serial = if admitted {
         persona.admission_serial
@@ -6501,7 +6546,13 @@ fn render_mode_with_history(
     } else {
         None
     };
-    for (slot, id) in focus.pending_observations.iter().enumerate() {
+    let mut observation_queue = focus.pending_observations.clone();
+    for id in &focus.pending_requester_feedback {
+        if !observation_queue.contains(id) {
+            observation_queue.push(id.clone());
+        }
+    }
+    for (slot, id) in observation_queue.iter().enumerate() {
         let observation = state
             .observations
             .get(id)
@@ -6561,6 +6612,7 @@ fn render_mode_with_history(
                 .push(json!({"slot":slot,"status":"withheld_unavailable","body_supplied":false}));
         }
     }
+    let requester_feedback_control = requester_feedback::control(focus, &observation_ids);
     let offers = work
         .offers
         .iter()
@@ -6780,6 +6832,18 @@ fn render_mode_with_history(
     } else {
         serde_json::to_vec(&formal_review_readiness)?.len()
     })
+    .ok_or_else(|| invalid("mandatory growth size overflow"))?
+    .checked_add(if prior_continuation.is_null() {
+        0
+    } else {
+        serde_json::to_vec(&prior_continuation)?.len()
+    })
+    .ok_or_else(|| invalid("mandatory growth size overflow"))?
+    .checked_add(if requester_feedback_control.is_null() {
+        0
+    } else {
+        serde_json::to_vec(&requester_feedback_control)?.len()
+    })
     .ok_or_else(|| invalid("mandatory growth size overflow"))?;
     let current_navigation = navigation.unwrap_or_else(|| {
         let mut remaining = meta.navigation_left;
@@ -6837,6 +6901,12 @@ fn render_mode_with_history(
         "storage":"logical retention only; physical/token/dollar hard bounds unsupported",
         "work_capability":{"id":work_interface.capability_id,"binding_revision":work_interface.binding_revision,"inputs_schema":work_interface.inputs_schema},
         "not_ready":["external effects","top-level Deliver without release binding"],"readiness_limits":readiness()});
+    if !prior_continuation.is_null() {
+        core["previous_authored_continuation"] = prior_continuation;
+    }
+    if !requester_feedback_control.is_null() {
+        core["requester_feedback"] = requester_feedback_control;
+    }
     if let Some(interface) = &need_interface {
         core["need_capability"] = serde_json::to_value(interface)?;
         core["need_proposal_rules"] = json!({
@@ -7868,6 +7938,11 @@ fn plan_response(
             focus.last_judgment = Some(decision.work.clone());
             focus.judgment_exposure = Some(prepared_exposure(prepared)?.clone());
             focus.continuation = Some(decision.continuation.clone());
+            focus.authored_continuation = Some(AuthoredContinuation {
+                invocation: prepared.request.id.clone(),
+                value: decision.continuation.clone(),
+                exposure: prepared_exposure(prepared)?.clone(),
+            });
             focus.permit = matches!(decision.continuation, p::Continuation::Immediate { .. });
             focus.ordinary_continuation = matches!(
                 decision.continuation,
@@ -8462,6 +8537,11 @@ fn plan_selection_repair(
         focus.permit = false;
         focus.ordinary_continuation = false;
         focus.continuation = Some(decision.continuation.clone());
+        focus.authored_continuation = Some(AuthoredContinuation {
+            invocation: prepared.request.id.clone(),
+            value: decision.continuation.clone(),
+            exposure: prepared_exposure(prepared)?.clone(),
+        });
         // Keep every previous observation pending, including observations supplied
         // to this repair. Restricted consideration cannot consume ordinary history.
     }
@@ -8983,6 +9063,9 @@ fn apply_work_actions(
                 .get(id)
                 .ok_or_else(|| held("capability was not validated"))?
             {
+                WorkAction::ResolveRequesterFeedback { observation, disposition, reason } => {
+                    requester_feedback::resolve(state, prepared, observation, disposition, reason, now)?;
+                }
                 WorkAction::RegisterMessageWait { id, from } => {
                     p::check_id(id, "message_wait.id")?;
                     identity(from)?;
@@ -9310,6 +9393,10 @@ fn apply_work_actions(
                     shared: w::RecordId(shared.clone()),
                 }),
                 WorkAction::CloseGoal { release } => {
+                    require(
+                        state.personas[&actor.0].focus[&wid.0].pending_requester_feedback.is_empty(),
+                        "resolve current requester feedback explicitly before proposing closure",
+                    )?;
                     closure_readiness::require_supplied(state, prepared, release, now)?;
                     commands.push(w::Command::CloseGoal {
                         release: w::RecordId(release.clone()),
