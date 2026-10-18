@@ -263,6 +263,15 @@ enum Command {
         acknowledge_remote_unknown: bool,
     },
     Status,
+    /// Read accepted character and fragment revisions, with exact authorship.
+    Development {
+        persona: String,
+        /// Limit inspection to this exact characteristic source.
+        #[arg(long)]
+        source: Option<String>,
+        #[arg(long, default_value_t = 8)]
+        limit: usize,
+    },
     /// Explicit legacy provisioning from existing resources; requires unfrozen state.
     ProvisionCloseout,
     /// Operator inspection: queued eligibility is not a prepared invocation.
@@ -636,6 +645,9 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         .operator
         .as_deref()
         .ok_or_else(|| argument("--operator"))?;
+    if let Command::Development { persona, source, limit } = &cli.command {
+        return emit(&launch::development(root, operator, persona, source.as_deref(), *limit)?);
+    }
     if let Command::ImportSupportingFile { file } = &cli.command {
         // Parse and validate before normal open can perform metered orphan recovery.
         let request: ImportSupportingFileRequest = runtime::read_json_file(file, 262_144)?;
@@ -1001,6 +1013,7 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             emit(&app.adopt_response(&invocation, &bytes, now)?)
         }
         Command::Status => emit(&app.status()?),
+        Command::Development { .. } => unreachable!("development inspection handled before recovery"),
         Command::ProvisionCloseout => {
             app.provision_closeout(operator)?;
             emit(

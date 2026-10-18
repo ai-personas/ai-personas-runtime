@@ -71,6 +71,22 @@ validated before Store creation and retained with their attribution. This option
 creates a fresh cohort only; it does not replace continuing personas or their
 history. Later needs reuse that same cohort, including its accepted development.
 
+Inspect the accepted character and characteristic fragment history without a
+model call:
+
+```sh
+ai-personas --state-root /absolute/private/state --operator local-operator \
+  development persona-0001
+```
+
+The JSON view includes exact revision authorship and full qualified fragment
+text, newest first within each source. `--source SOURCE_ID` focuses on one file;
+`--limit 1..16` limits returned revisions within existing navigation and output
+bounds. `truncated` indicates an incomplete bounded view. Current permissions
+still apply, and the command does not recover or interrupt running invocations.
+Supporting assets are separate. Accepted edits show what was retained; read the
+subsequent work and communication to see whether behavior actually changed.
+
 The foreground driver considers at most 128 participant entries and attempts at
 most 12 steps per command by default, within 32 attempts per work, 256 attempted
 foreground steps across all saved work IDs, and 32 work IDs. Setup flags can
