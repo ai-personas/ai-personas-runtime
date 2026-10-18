@@ -26,6 +26,8 @@ usage() {
        ./personas [OPTIONS]                 # explicit-option prompt; no arguments open onboarding
        ./personas [OPTIONS] --resume WORK
        ./personas [OPTIONS] --result WORK
+       ./personas [OPTIONS] --development PERSONA
+       ./personas [OPTIONS] --feedback FILE.json
 
 No arguments: integrated first-run/returning interaction (see docs/interactive-launch.md).
 Explicit options below use the existing installation and saved configuration. No automatic
@@ -39,6 +41,8 @@ Options (values are separate arguments):
   --require-acceptance    Require human acceptance for a NEW ordinary run
   --resume WORK          Continue only already eligible work; not a recovery
   --result WORK          Read the ordinary result; no inference or vault use
+  --development PERSONA  Read accepted characteristic revisions; no inference
+  --feedback FILE.json   Give a participant feedback within an existing work
   --vault PATH           Explicit existing SIWC vault; never auto-discovered
   --authorize            Required with --vault, for this one native run only
   --                     Treat the next single argument as the exact need
@@ -77,7 +81,7 @@ authorize=false
 while [ "$#" -gt 0 ]; do
     case "$1" in
         -h|--help) usage; exit 0 ;;
-        --state-root|--operator|--vault|--resume|--result)
+        --state-root|--operator|--vault|--resume|--result|--development|--feedback)
             [ "$#" -ge 2 ] && [ -n "$2" ] || fail 'An option value is missing.'
             case "$2" in -*) fail 'An option value looks like another option; use an explicit path or identifier.' ;; esac
             case "$1" in
@@ -90,8 +94,8 @@ while [ "$#" -gt 0 ]; do
                 --vault)
                     [ -z "$vault" ] || fail 'Duplicate --vault.'
                     vault=$2 ;;
-                --resume|--result)
-                    [ "$mode" = need ] || fail 'Choose only one of --resume and --result.'
+                --resume|--result|--development|--feedback)
+                    [ "$mode" = need ] || fail 'Choose only one of --resume, --result, --development and --feedback.'
                     mode=${1#--}
                     work=$2 ;;
             esac
@@ -115,11 +119,13 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ "$mode" != need ]; then
-    [ "$have_need" = false ] || fail 'A need cannot accompany --resume or --result.'
+    [ "$have_need" = false ] || fail 'A need cannot accompany another operation.'
     [ "$acceptance" = false ] || fail '--require-acceptance applies only to a new need.'
 fi
 if [ -n "$vault" ]; then
-    [ "$mode" != result ] || fail 'Result inspection uses no vault; omit --vault and --authorize.'
+    case "$mode" in
+        result|development|feedback) fail 'This operation uses no vault; omit --vault and --authorize.' ;;
+    esac
     [ "$authorize" = true ] || fail '--vault requires explicit --authorize for this one native run.'
     [ "$acceptance" = false ] || fail 'Native SIWC does not expose --require-acceptance; no requirement was discarded.'
     case "$vault" in /*) ;; *) fail 'Native SIWC requires an absolute --vault path.' ;; esac
@@ -186,7 +192,9 @@ else
     set --
     [ -z "$state_root" ] || set -- "$@" "--state-root=$state_root"
     [ -z "$operator" ] || set -- "$@" "--operator=$operator"
-    if [ "$mode" = result ]; then
+    if [ "$mode" = development ] || [ "$mode" = feedback ]; then
+        set -- "$@" "$mode" -- "$work"
+    elif [ "$mode" = result ]; then
         set -- "$@" result
         [ "$json" = false ] || set -- "$@" --json
         set -- "$@" -- "$work"
