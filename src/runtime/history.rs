@@ -16,6 +16,29 @@ const MAX_CURSOR_MEMBERS: usize = 4096;
 // checked exactly before emission and by the final transactional render.
 const CONTROL_BYTES: usize = 4096;
 
+/// Public accounting only: no retained-history inspection or inferred selection.
+pub(super) fn resource_accounting(available: f::NavigationLimits) -> Value {
+    let inspected_revisions = PROJECTION_REVISIONS * 2 + 1;
+    let maximum = available
+        .calls
+        .min(available.scanned_bytes / PROJECTION_BYTES)
+        .min(available.inspected_revisions / inspected_revisions);
+    json!({
+        "operations":["history_query","history_read","history_records_query","history_record_read"],
+        "per_operation_reservation":{
+            "calls":1,"scanned_bytes":PROJECTION_BYTES,
+            "inspected_revisions":inspected_revisions
+        },
+        "maximum_operations_before_additional_costs":maximum,
+        "meaning":"Each history operation shares this admission's navigation allowance with all other navigation. Scans, qualification expansion, matches and complete results cost additional resources; this maximum is an upper bound, not a promise. With a maximum of one, choose one query or exact read for this response and wait for fresh supply before further retrieval. An exhausted result establishes no absence of history. No allowance is refilled.",
+        "record_bodies":{
+            "adopted_decision":"Original authored choices and reasoning; not proof that every proposed operation executed.",
+            "observation":"Original runtime receipt; a metadata-only receipt remains metadata-only after reading it. Reading a history-query receipt does not read the records it lists.",
+            "message":"Original attributed exchange text through history_query and history_read."
+        }
+    })
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(transparent)]
 struct Membership(Vec<(String, String)>);

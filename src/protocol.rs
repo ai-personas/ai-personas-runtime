@@ -346,6 +346,7 @@ pub enum Operation {
     },
     /// Explicit selective retrieval of retained messages across works. Returns
     /// attributed metadata only; continuation requires a freshly supplied handle.
+    /// Check CONTROL.command_resource_accounting.history before batching retrievals.
     HistoryQuery {
         id: String,
         mode: crate::files::SearchMode,
@@ -360,6 +361,10 @@ pub enum Operation {
         sha256: String,
     },
     /// Selective retained observations or adopted authored Decisions across works.
+    /// adopted_decision finds authored choices and reasoning; observation finds
+    /// runtime receipts, which may themselves contain only metadata. Neither
+    /// index supplies record bodies. Check CONTROL.command_resource_accounting.history
+    /// before batching retrievals; exhausted does not establish missing history.
     HistoryRecordsQuery {
         id: String,
         record_kind: HistoryRecordKind,
@@ -368,6 +373,8 @@ pub enum Operation {
         cursor: Option<String>,
     },
     /// Exact typed identity from a permitted query; later fresh supply rechecks access.
+    /// Reading a metadata-only observation does not supply the file, message or
+    /// Decision body it describes. Read the exact record of the desired kind.
     HistoryRecordRead {
         id: String,
         reference: HistoryRecordReference,

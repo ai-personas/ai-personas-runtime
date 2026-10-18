@@ -6785,6 +6785,7 @@ fn render_mode_with_history(
         "file_mutation_metadata":file_mutation_metadata,"file_mutation_metadata_truncated":file_mutation_metadata_truncated,
         "navigation_current_admission":current_navigation,
         "command_resource_accounting":{
+            "history":history::resource_accounting(current_navigation),
             "close_goal":{
                 "navigation_charge":"none",
                 "meaning":"This command consumes no invocation navigation allowance. Complete response validation and bounds, current authorization and accepted responsibility, current release support, exact permitted supplied delivery receipts and required stakeholders' globally latest positive exact-release consent still apply. Other operations retain their charges; this accounting fact grants no authority or resources and refills nothing."
