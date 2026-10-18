@@ -42,6 +42,7 @@ Options (values are separate arguments):
   --resume WORK          Continue only already eligible work; not a recovery
   --result WORK          Read the ordinary result; no inference or vault use
   --development PERSONA  Read accepted characteristic revisions; no inference
+  --invocation CALL      With --development, check exact body supply in that call
   --feedback FILE.json   Give a participant feedback within an existing work
   --vault PATH           Explicit existing SIWC vault; never auto-discovered
   --authorize            Required with --vault, for this one native run only
@@ -71,6 +72,7 @@ state_root=
 operator=
 vault=
 work=
+invocation=
 need=
 mode=need
 have_need=false
@@ -81,7 +83,7 @@ authorize=false
 while [ "$#" -gt 0 ]; do
     case "$1" in
         -h|--help) usage; exit 0 ;;
-        --state-root|--operator|--vault|--resume|--result|--development|--feedback)
+        --state-root|--operator|--vault|--resume|--result|--development|--feedback|--invocation)
             [ "$#" -ge 2 ] && [ -n "$2" ] || fail 'An option value is missing.'
             case "$2" in -*) fail 'An option value looks like another option; use an explicit path or identifier.' ;; esac
             case "$1" in
@@ -94,6 +96,9 @@ while [ "$#" -gt 0 ]; do
                 --vault)
                     [ -z "$vault" ] || fail 'Duplicate --vault.'
                     vault=$2 ;;
+                --invocation)
+                    [ -z "$invocation" ] || fail 'Duplicate --invocation.'
+                    invocation=$2 ;;
                 --resume|--result|--development|--feedback)
                     [ "$mode" = need ] || fail 'Choose only one of --resume, --result, --development and --feedback.'
                     mode=${1#--}
@@ -118,6 +123,9 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
+if [ -n "$invocation" ]; then
+    [ "$mode" = development ] || fail '--invocation applies only to --development.'
+fi
 if [ "$mode" != need ]; then
     [ "$have_need" = false ] || fail 'A need cannot accompany another operation.'
     [ "$acceptance" = false ] || fail '--require-acceptance applies only to a new need.'
@@ -192,7 +200,11 @@ else
     set --
     [ -z "$state_root" ] || set -- "$@" "--state-root=$state_root"
     [ -z "$operator" ] || set -- "$@" "--operator=$operator"
-    if [ "$mode" = development ] || [ "$mode" = feedback ]; then
+    if [ "$mode" = development ]; then
+        set -- "$@" development
+        [ -z "$invocation" ] || set -- "$@" "--invocation=$invocation"
+        set -- "$@" -- "$work"
+    elif [ "$mode" = feedback ]; then
         set -- "$@" "$mode" -- "$work"
     elif [ "$mode" = result ]; then
         set -- "$@" result

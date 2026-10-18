@@ -87,6 +87,16 @@ still apply, and the command does not recover or interrupt running invocations.
 Supporting assets are separate. Accepted edits show what was retained; read the
 subsequent work and communication to see whether behavior actually changed.
 
+Add `--invocation CALL_ID` to inspect one accepted call for the same persona.
+`invocation_evidence` checks the retained qualified input for the exact full
+bodies of the returned fragment revisions, binds the accepted response to its
+durable decision record, and reports whether a completed direct-provider call
+has the matching input digest. Discovery metadata and selected references alone
+do not satisfy the body check. This does not scan other calls, expose their
+prompt bodies, infer attention or causation, or establish behavioral improvement.
+Unavailable or currently restricted evidence is refused. The same option works
+with `./personas --development PERSONA --invocation CALL_ID`.
+
 Requester feedback can stay in the existing work. Run `ai-personas --state-root
 /private/state --operator requester feedback feedback.json`, where the JSON object
 contains `id`, `work`, `persona` and `text` (at most 16 KiB). The saved requester can

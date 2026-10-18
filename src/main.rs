@@ -276,6 +276,9 @@ enum Command {
         source: Option<String>,
         #[arg(long, default_value_t = 8)]
         limit: usize,
+        /// Check exact fragment-body supply in this accepted invocation.
+        #[arg(long)]
+        invocation: Option<String>,
     },
     /// Explicit legacy provisioning from existing resources; requires unfrozen state.
     ProvisionCloseout,
@@ -654,14 +657,16 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         persona,
         source,
         limit,
+        invocation,
     } = &cli.command
     {
-        return emit(&launch::development(
+        return emit(&launch::development_at(
             root,
             operator,
             persona,
             source.as_deref(),
             *limit,
+            invocation.as_deref(),
         )?);
     }
     if let Command::Feedback { file } = &cli.command {
