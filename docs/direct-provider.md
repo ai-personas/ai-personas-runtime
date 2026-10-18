@@ -40,6 +40,11 @@ The exact native prompt is a user input-text message. The exact carrier schema i
 
 Completion requires one completed assistant output-text message, consistent response/model/item identity, agreement with observed text deltas, and EOF after the terminal event. OAuth routes may omit the response Content-Type header; the same complete SSE validation still applies. A conflicting media type, duplicate headers or encoded body remains invalid. Refusals, returned tools, unsupported snapshots, malformed streams, duplicate/conflicting terminals, trailing errors, incomplete output and exhausted limits fail closed. Reasoning is never adopted as a response.
 
+Bounded `keepalive` events may carry only their type and optional sequence/response
+identity. They supply no output, usage or completion and do not reset the transfer
+deadline. Sequence and identity checks still apply, and a heartbeat after terminal
+completion remains invalid. Unknown event types and heartbeat payloads remain refused.
+
 Cancellation stops local request/stream work; remote cancellation is unconfirmed. Byte counters concern local encoded payloads and delivered response bytes, not TLS overhead, operating-system or HTTP-client buffers, hidden provider context or hard remote token limits. Missing usage counters remain unknown, separately from zero, and charges remain unknown. Provider-reported model identity is evidence of a report, not independent proof of the served model.
 
 Offline tests inject credentials, clocks and transports or inspect constructed requests without sending them. They establish serialization, route isolation and native state-transition behavior. They do not establish account eligibility, live model behavior, conceptual quality, collaborative completion or improvement over elapsed time.

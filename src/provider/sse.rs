@@ -410,6 +410,24 @@ impl Collector {
                 return Err(Failure::ReportedModelMismatch.into());
             }
         }
+        if kind == "keepalive" {
+            // The live OAuth route can emit heartbeats while reasoning. They
+            // carry no output or completion authority and do not reset time or
+            // byte/event bounds. Refuse an unexpected semantic payload.
+            if event.as_object().is_none_or(|fields| {
+                fields.keys().any(|key| {
+                    !matches!(key.as_str(), "type" | "sequence_number" | "response_id")
+                })
+            }) {
+                return Err(protocol("keepalive_fields_invalid"));
+            }
+            if let Some(id) = event.get("response_id") {
+                if id.as_str().is_none() || id.as_str() != self.response_id.as_deref() {
+                    return Err(protocol("keepalive_response_id_mismatch"));
+                }
+            }
+            return Ok(());
+        }
         if matches!(
             kind,
             "response.created"
@@ -996,6 +1014,7 @@ fn safe_remote_error_label(
 
 fn safe_event_type(name: &str) -> &'static str {
     match name {
+        "keepalive" => "keepalive",
         "response.created" => "response.created",
         "response.in_progress" => "response.in_progress",
         "response.metadata" => "response.metadata",
