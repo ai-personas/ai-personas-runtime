@@ -73,8 +73,12 @@ not silently put a fragment into every future prompt.
 Luna's house work reached a valid voluntary responsibility proposal after the
 contributors judged their individual concepts sufficient. The arrangement
 activated after the peers' own consent in `call-00000060` and `call-00000062`.
-Formal shared release remained outstanding at that checkpoint. Its reflection
-work also remained open.
+Mira then produced an integrated brief. Further operator feedback identified
+repeated peer reads after that brief was already supplied. Mira judged the exact
+candidate, released and locally delivered it in `call-00000071`, and recorded
+closure from the freshly supplied receipt in `call-00000072`. Luna's native
+house result also reports `completed-as-recorded` with one local delivery.
+Its separate reflection work remains open.
 
 ## Inspect an actual accepted call
 
