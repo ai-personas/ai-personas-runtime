@@ -317,6 +317,25 @@ The typed host inputs are `RegisterDependencyRequest` and `DeliverLocalEventRequ
 
 Authorized participants receive actual retained payload observations with source lineage and complete qualification checks. An event retained before wait registration remains available; an intervening event fences an already prepared stale decision. Only payload identities actually supplied to a fully accepted ordinary response acknowledge the event. Exact replay of the original delivery request returns only its historical receipt, even if the work later changed or ended; it changes no wake, epoch, observation or work-navigation debit. A differently bound duplicate requires current work authority, and every new delivery requires current authority and eligibility. Ordinary control reads remain metered. Conflicting event content or identity fails. Paused work can retain authorized input without resuming, and obsolete or ended work bindings cannot admit delivery. Event text supplies no warning authority. Explicit warning operations are separate primary-authored decisions, described below.
 
+## Waiting for several local replies
+
+An accepted persona can issue several `register_message_wait` commands in one
+Decision. Its `continuation.kind=wait` must include every newly registered
+`inputs.id` in `dependency_ids`; other IDs must identify current permitted
+dependencies. The complete set is bounded to eight distinct IDs and has one
+future deadline. Any one unobserved arrival, or the deadline, permits a fresh
+decision. It does not establish that all replies arrived. The persona can keep
+waiting for remaining sources, act on what arrived, or choose another explicit
+continuation.
+
+All registrations, permissions, capacity charges and the continuation commit
+with the whole response. New registrations share the existing 128-dependency
+work limit. A source grants no sender duty or prior-inbox match. Stop and Pause
+remain explicit barriers; replies do not revive them. Current source restrictions
+still apply, and a withdrawn message source cannot mask another permitted
+arrival in the same wait set. Existing single-source waits retain their stored
+representation; new sets use `WaitAny` and require a compatible reader.
+
 ## Local-only mock effects
 
 `mock_effects::MockHarness` is an explicit trusted-host fixture adapter over the existing Store intent lifecycle. It has no native runtime capability binding, network, subprocess, helper, model, credential, export, subscription, or background retry path. Existing runtime Effect admission and readiness remain unchanged. Constructing bounds grants nothing; `Rights::default()` denies every operation.

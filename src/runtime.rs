@@ -1180,10 +1180,11 @@ pub struct ClaimInput {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WorkAction {
-    /// Wait for one future local message from a named current participant.
-    /// At most one register_message_wait is allowed per Decision. That same
-    /// Decision must choose continuation.kind=wait, set dependency_ids to exactly
-    /// [this command's inputs.id] with no other IDs, and supply a future deadline_unix.
+    /// Register one future local message from a named current participant.
+    /// A Decision may register up to eight waits. Choose continuation.kind=wait,
+    /// include every new inputs.id in dependency_ids, and supply a future
+    /// deadline_unix. Other listed IDs must be current permitted dependencies.
+    /// Any one arrival permits a fresh decision; it does not establish all replies.
     /// Registration with an immediate, stop, pause or reconsider_at
     /// continuation is invalid; register only when choosing to wait now.
     /// No sender duty, prior inbox match, or Stop/Pause wake.
@@ -1855,7 +1856,8 @@ pub(crate) fn runtime_opportunity(
     actor: &w::PersonaId,
     now: u64,
 ) -> Option<w::Opportunity> {
-    if need_proposals::route_reason(state, &work.0, i64::try_from(now).ok()?).is_some()
+    let now_unix = i64::try_from(now).ok()?;
+    if need_proposals::route_reason(state, &work.0, now_unix).is_some()
         || need_proposals::actor_reason(state, &work.0, &actor.0).is_some()
     {
         return None;
@@ -1883,18 +1885,27 @@ pub(crate) fn runtime_opportunity(
     }
     let mut opportunity = state.board.opportunity_for(work, actor, now)?;
     if let w::OpportunityCause::Event(key) = &opportunity.cause {
-        if let Some(wait) = state.work_meta[&work.0]
-            .message_waits
-            .values()
-            .find(|wait| &wait.key == key)
-        {
-            if !message_wait_visible(state, &work.0, wait, &actor.0, i64::try_from(now).ok()?) {
-                let current = state.board.work(work).ok()?;
-                match current.participants.get(actor)?.continuation.as_ref()? {
-                    w::Continuation::Wait { deadline, .. } if now >= *deadline => {
-                        opportunity.cause = w::OpportunityCause::Deadline;
-                    }
-                    _ => return None,
+        let visible = |key: &w::EventKey| {
+            state.work_meta[&work.0]
+                .message_waits
+                .values()
+                .find(|wait| &wait.key == key)
+                .is_none_or(|wait| message_wait_visible(state, &work.0, wait, &actor.0, now_unix))
+        };
+        if !visible(key) {
+            // A now-hidden arrival must not mask another permitted member of
+            // the same authored wait set. Neither Stop nor Pause has this route.
+            if let Some(other) = state.board.waiting_event_keys(work, actor)
+                .into_iter().find(visible)
+            {
+                opportunity.cause = w::OpportunityCause::Event(other);
+            } else {
+                let next = state.board.work(work).ok()?.participants.get(actor)?
+                    .continuation.as_ref()?;
+                if next.wait_deadline().is_some_and(|deadline| now >= deadline) {
+                    opportunity.cause = w::OpportunityCause::Deadline;
+                } else {
+                    return None;
                 }
             }
         }
@@ -1911,8 +1922,8 @@ fn invalidate_replaced_message_waits(state: &mut State, work: &str) -> Result<()
         .values_mut()
     {
         let matching = current.participants.get(&w::PersonaId(wait.actor.clone()))
-            .is_some_and(|participant| matches!(&participant.continuation,
-                Some(w::Continuation::Wait { dependency, .. }) if dependency == &wait.key.dependency));
+            .and_then(|participant| participant.continuation.as_ref())
+            .is_some_and(|next| next.waits_for(&wait.key.dependency));
         // A global pause hides opportunities but does not erase their bindings.
         wait.active &= matches!(current.phase, w::Phase::Open | w::Phase::Paused { .. })
             && wait.key.epoch == current.version.epoch
@@ -2070,6 +2081,9 @@ fn scheduler_change(old: Option<&s::StoredObject>, state: &SchedulerState) -> Re
     })
 }
 fn check_local_dependency_capacity(state: &State, work: &str) -> Result<()> {
+    check_local_dependency_additions(state, work, 1)
+}
+fn check_local_dependency_additions(state: &State, work: &str, additions: usize) -> Result<()> {
     let exact_count = state
         .work_meta
         .get(work)
@@ -2086,7 +2100,8 @@ fn check_local_dependency_capacity(state: &State, work: &str) -> Result<()> {
         exact_count
             .saturating_add(pending_count)
             .saturating_add(state.work_meta[work].message_waits.len())
-            < 128,
+            .saturating_add(additions)
+            <= 128,
         "work local dependency limit exhausted",
     )
 }
@@ -8768,9 +8783,9 @@ fn satisfy_message_wait(state: &mut State, message: &Message, now: i64) -> Resul
             && message_wait_visible(state, &message.work, wait, &message.recipient, now)
             && state.personas[&message.recipient].focus.get(&message.work).is_some_and(|focus|
                 focus.ordinary_continuation && matches!(focus.continuation, Some(p::Continuation::Wait { .. })))
-            && current.participants.get(&w::PersonaId(message.recipient.clone())).is_some_and(|participant|
-                matches!(&participant.continuation, Some(w::Continuation::Wait { dependency, .. })
-                    if dependency == &wait.key.dependency))
+            && current.participants.get(&w::PersonaId(message.recipient.clone()))
+                .and_then(|participant| participant.continuation.as_ref())
+                .is_some_and(|next| next.waits_for(&wait.key.dependency))
     }).cloned();
     let Some(mut wait) = candidate else {
         return Ok(());
@@ -8851,7 +8866,11 @@ fn candidate(work: &w::Work, artifacts: &BTreeMap<String, ArtifactKey>) -> Resul
             .collect::<Result<_>>()?,
     })
 }
-fn continuation(work: &w::Work, requested: &p::Continuation) -> Result<w::Continuation> {
+fn continuation(
+    work: &w::Work,
+    requested: &p::Continuation,
+    registrations: &[MessageWait],
+) -> Result<w::Continuation> {
     Ok(match requested {
         p::Continuation::Immediate { purpose } => w::Continuation::Immediate {
             purpose: purpose.clone(),
@@ -8875,20 +8894,34 @@ fn continuation(work: &w::Work, requested: &p::Continuation) -> Result<w::Contin
             reason,
         } => {
             require(
-                dependency_ids.len() == 1,
-                "this work interface supports one exact registered dependency per wait",
+                (1..=w::MAX_WAIT_DEPENDENCIES).contains(&dependency_ids.len()),
+                "wait requires one to eight exact registered dependencies",
             )?;
-            let dependency = work
-                .dependencies
+            let dependencies = dependency_ids
                 .iter()
-                .find(|d| {
-                    d.key.epoch == work.version.epoch && d.key.dependency.id == dependency_ids[0]
+                .map(|id| {
+                    registrations.iter().find(|wait| &wait.id == id)
+                        .map(|wait| wait.key.dependency.clone())
+                        .or_else(|| {
+                            work.dependencies.iter()
+                                .find(|d| d.key.epoch == work.version.epoch && &d.key.dependency.id == id)
+                                .map(|d| d.key.dependency.clone())
+                        })
+                        .ok_or_else(|| held("wait dependency is not registered"))
                 })
-                .ok_or_else(|| held("wait dependency is not registered"))?;
-            w::Continuation::Wait {
-                dependency: dependency.key.dependency.clone(),
-                deadline: *deadline_unix,
-                purpose: reason.clone(),
+                .collect::<Result<BTreeSet<_>>>()?;
+            if dependencies.len() == 1 {
+                w::Continuation::Wait {
+                    dependency: dependencies.into_iter().next().unwrap(),
+                    deadline: *deadline_unix,
+                    purpose: reason.clone(),
+                }
+            } else {
+                w::Continuation::WaitAny {
+                    dependencies,
+                    deadline: *deadline_unix,
+                    purpose: reason.clone(),
+                }
             }
         }
     })
@@ -8911,7 +8944,7 @@ fn apply_work_actions(
     let mut artifact_sources = Vec::new();
     let mut model_evidence = Vec::new();
     let mut deliveries = Vec::new();
-    let mut message_registration = None;
+    let mut message_registrations: Vec<MessageWait> = Vec::new();
     for operation in &decision.operations {
         match operation {
             p::Operation::Responsibility {
@@ -8954,8 +8987,8 @@ fn apply_work_actions(
                     p::check_id(id, "message_wait.id")?;
                     identity(from)?;
                     require(
-                        message_registration.is_none(),
-                        "one message wait per response",
+                        !message_registrations.iter().any(|wait| wait.id == *id),
+                        "message wait identity is repeated in this response",
                     )?;
                     require(
                         initial.acceptance(&actor).is_some(),
@@ -8970,8 +9003,8 @@ fn apply_work_actions(
                     )?;
                     require(
                         matches!(&decision.continuation,
-                        p::Continuation::Wait { dependency_ids, .. } if dependency_ids == &vec![id.clone()]),
-                        "register_message_wait requires continuation.kind=wait with dependency_ids containing only its inputs.id; one registration per Decision",
+                        p::Continuation::Wait { dependency_ids, .. } if dependency_ids.contains(id)),
+                        "register_message_wait requires continuation.kind=wait with its inputs.id in dependency_ids; every new registration must be included",
                     )?;
                     require(!decision.operations.iter().any(|operation| matches!(operation,
                         p::Operation::Responsibility { disposition, .. } if disposition == "decline")),
@@ -8985,7 +9018,7 @@ fn apply_work_actions(
                             && !local_evidence::has_pending_dependency(state, &wid.0, id),
                         "message dependency identity already used",
                     )?;
-                    check_local_dependency_capacity(state, &wid.0)?;
+                    check_local_dependency_additions(state, &wid.0, message_registrations.len() + 1)?;
                     let bytes = serde_json::to_vec(&(
                         "persona-message-wait-v1",
                         &wid.0,
@@ -9015,7 +9048,7 @@ fn apply_work_actions(
                         message_wait_visible(state, &wid.0, &wait, &actor.0, now),
                         "message wait sender grant, audience or exposure unavailable",
                     )?;
-                    message_registration = Some(wait);
+                    message_registrations.push(wait);
                 }
                 WorkAction::Invite { offer, to, terms } => commands.push(w::Command::Invite {
                     id: w::RecordId(offer.clone()),
@@ -9343,9 +9376,7 @@ fn apply_work_actions(
                                 )
                         })
                         || local_evidence::pending_wait_visible(state, &wid.0, id, &actor.0, now)
-                        || message_registration
-                            .as_ref()
-                            .is_some_and(|wait| &wait.id == id)
+                        || message_registrations.iter().any(|wait| &wait.id == id)
                         || state.work_meta[&wid.0]
                             .message_waits
                             .get(id)
@@ -9356,23 +9387,7 @@ fn apply_work_actions(
                 "wait requires the participant's current permitted local source binding",
             )?;
         }
-        if let (
-            Some(wait),
-            p::Continuation::Wait {
-                deadline_unix,
-                reason,
-                ..
-            },
-        ) = (&message_registration, &decision.continuation)
-        {
-            w::Continuation::Wait {
-                dependency: wait.key.dependency.clone(),
-                deadline: *deadline_unix,
-                purpose: reason.clone(),
-            }
-        } else {
-            continuation(&initial, &decision.continuation)?
-        }
+        continuation(&initial, &decision.continuation, &message_registrations)?
     };
     let observed_events = supplied_local_events(state, prepared, now);
     let context = w::DecisionContext::from_runtime(
@@ -9385,7 +9400,7 @@ fn apply_work_actions(
         BTreeMap::new(),
         observed_events,
     );
-    let mut authored_exposure = if commands.is_empty() && message_registration.is_none() {
+    let mut authored_exposure = if commands.is_empty() && message_registrations.is_empty() {
         None
     } else {
         let previous = work_exposure(pre_response, &wid.0)?;
@@ -9434,17 +9449,18 @@ fn apply_work_actions(
             _ => None,
         })
         .collect();
-    state.board.apply_response_with_message_wait(
+    state.board.apply_response_with_message_waits(
         &context,
         w::DecisionResponse {
             commands,
             continuation: next,
         },
-        message_registration
-            .as_ref()
+        message_registrations
+            .iter()
             .map(|wait| w::MessageWaitRegistration {
                 dependency: wait.key.dependency.clone(),
-            }),
+            })
+            .collect(),
     )?;
     // The core also enforces the immutable PersonaArranged pool for invitations,
     // handoffs, duty changes and decision holders. Recheck the child envelope
@@ -9508,7 +9524,7 @@ fn apply_work_actions(
             }
         }
     }
-    if let Some(wait) = message_registration {
+    for wait in message_registrations {
         state
             .work_meta
             .get_mut(&wid.0)

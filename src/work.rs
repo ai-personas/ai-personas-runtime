@@ -215,6 +215,13 @@ pub enum Continuation {
         deadline: u64,
         purpose: String,
     },
+    /// Resume for any one of these exact sources, or at the deadline. A fresh
+    /// persona decision determines whether more replies are still needed.
+    WaitAny {
+        dependencies: BTreeSet<ExactRef>,
+        deadline: u64,
+        purpose: String,
+    },
     Blocked {
         reason: String,
         accountability: Accountability,
@@ -226,6 +233,22 @@ pub enum Continuation {
     Ended {
         reason: String,
     },
+}
+pub const MAX_WAIT_DEPENDENCIES: usize = 8;
+impl Continuation {
+    pub(crate) fn waits_for(&self, reference: &ExactRef) -> bool {
+        match self {
+            Self::Wait { dependency, .. } => dependency == reference,
+            Self::WaitAny { dependencies, .. } => dependencies.contains(reference),
+            _ => false,
+        }
+    }
+    pub(crate) fn wait_deadline(&self) -> Option<u64> {
+        match self {
+            Self::Wait { deadline, .. } | Self::WaitAny { deadline, .. } => Some(*deadline),
+            _ => None,
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct EventKey {
@@ -982,6 +1005,19 @@ impl WorkBoard {
         response: DecisionResponse,
         registration: Option<MessageWaitRegistration>,
     ) -> Result<()> {
+        self.apply_response_with_message_waits(ctx, response, registration.into_iter().collect())
+    }
+    /// Every registration and the authored wait set commit as one response.
+    pub(crate) fn apply_response_with_message_waits(
+        &mut self,
+        ctx: &DecisionContext,
+        response: DecisionResponse,
+        registrations: Vec<MessageWaitRegistration>,
+    ) -> Result<()> {
+        require(
+            registrations.len() <= MAX_WAIT_DEPENDENCIES,
+            "message wait bound",
+        )?;
         let personas = self.personas.clone();
         self.transaction(&ctx.work, ctx.version, |w| {
             open(w)?;
@@ -1001,13 +1037,11 @@ impl WorkBoard {
                 }),
                 "actual observed event bindings",
             )?;
-            if let Some(registration) = registration {
+            for registration in registrations {
                 accepted(w, &ctx.persona)?;
                 require(registration.dependency.valid(), "message wait dependency")?;
                 require(
-                    matches!(&response.continuation,
-                        Continuation::Wait { dependency, .. }
-                            if dependency == &registration.dependency),
+                    response.continuation.waits_for(&registration.dependency),
                     "matching message wait",
                 )?;
                 require(
@@ -1160,7 +1194,7 @@ impl WorkBoard {
                     if target_accepted
                         && matches!(
                             participant.continuation,
-                            Some(Continuation::Paused { .. } | Continuation::Wait { .. } | Continuation::ReconsiderAt { .. })
+                            Some(Continuation::Paused { .. } | Continuation::Wait { .. } | Continuation::WaitAny { .. } | Continuation::ReconsiderAt { .. })
                         )
                     {
                         participant.wake = Some(Wake::ExplicitResume);
@@ -1403,6 +1437,15 @@ impl WorkBoard {
             cause: eligibility(current, persona, now)?,
         })
     }
+    /// Alternative unobserved arrivals for the same current authored wait.
+    /// The runtime still checks each source's current information permissions.
+    pub(crate) fn waiting_event_keys(&self, work: &WorkId, persona: &PersonaId) -> Vec<EventKey> {
+        self.works
+            .get(work)
+            .filter(|w| matches!(w.phase, Phase::Open) && w.acceptance(persona).is_some())
+            .map(|w| pending_wait_event_keys(w, persona))
+            .unwrap_or_default()
+    }
     /// Pure round robin over identity order. The caller persists the returned pair as cursor.
     pub fn next_eligible(
         &self,
@@ -1440,6 +1483,24 @@ fn event_permitted(w: &Work, key: &EventKey, persona: &PersonaId) -> bool {
         .find(|(bound, _)| bound == key)
         .is_none_or(|(_, audience)| audience.contains(persona))
 }
+fn pending_wait_event_keys(w: &Work, persona: &PersonaId) -> Vec<EventKey> {
+    let Some(participant) = w.participants.get(persona) else {
+        return Vec::new();
+    };
+    let Some(next) = participant.continuation.as_ref() else {
+        return Vec::new();
+    };
+    w.events.iter().rev()
+        .filter(|event| {
+            event.key.epoch == w.version.epoch
+                && next.waits_for(&event.key.dependency)
+                && event_permitted(w, &event.key, persona)
+                && !participant.observed_events.contains(&event.key)
+        })
+        .take(MAX_WAIT_DEPENDENCIES)
+        .map(|event| event.key.clone())
+        .collect()
+}
 fn record_event(w: &mut Work, event: Event, audience: Option<BTreeSet<PersonaId>>) -> Result<bool> {
     require(event.observation.valid(), "event observation")?;
     require(
@@ -1467,8 +1528,8 @@ fn record_event(w: &mut Work, event: Event, audience: Option<BTreeSet<PersonaId>
     if matches!(w.phase, Phase::Open) && event.key.epoch == w.version.epoch {
         for (id, participant) in &mut w.participants {
             if audience.as_ref().is_none_or(|people| people.contains(id))
-                && matches!(&participant.continuation,
-                    Some(Continuation::Wait { dependency, .. }) if dependency == &event.key.dependency)
+                && participant.continuation.as_ref()
+                    .is_some_and(|next| next.waits_for(&event.key.dependency))
                 && !participant.observed_events.contains(&event.key)
             {
                 participant.wake = Some(Wake::Event(event.key.clone()));
@@ -2254,22 +2315,25 @@ fn set_continuation(
             purpose,
         } => {
             require(*deadline > now && text(purpose), "bounded wait and purpose")?;
-            let key = EventKey {
-                dependency: dependency.clone(),
-                epoch: w.version.epoch,
-            };
-            let registered = w
-                .dependencies
-                .iter()
-                .find(|d| d.key == key)
-                .ok_or(WorkError::Invalid("actual registered dependency"))?;
-            check_accountability(w, &registered.accountability)?;
-            if w.events.iter().any(|e| e.key == key)
-                && event_permitted(w, &key, persona)
-                && !w.participants[persona].observed_events.contains(&key)
-            {
-                wake = Some(Wake::Event(key));
-            }
+            wake = registered_wait_wake(w, persona, std::iter::once(dependency))?;
+        }
+        Continuation::WaitAny {
+            dependencies,
+            deadline,
+            purpose,
+        } => {
+            require(
+                (2..=MAX_WAIT_DEPENDENCIES).contains(&dependencies.len())
+                    && *deadline > now
+                    && text(purpose),
+                "bounded wait set and purpose",
+            )?;
+            require(
+                dependencies.iter().map(|d| &d.id).collect::<BTreeSet<_>>().len()
+                    == dependencies.len(),
+                "distinct wait dependency identities",
+            )?;
+            wake = registered_wait_wake(w, persona, dependencies.iter())?;
         }
         Continuation::Blocked {
             reason,
@@ -2292,6 +2356,30 @@ fn set_continuation(
     p.wake = wake;
     Ok(())
 }
+fn registered_wait_wake<'a>(
+    w: &Work,
+    persona: &PersonaId,
+    dependencies: impl Iterator<Item = &'a ExactRef>,
+) -> Result<Option<Wake>> {
+    let mut wake = None;
+    for dependency in dependencies {
+        let key = EventKey {
+            dependency: dependency.clone(),
+            epoch: w.version.epoch,
+        };
+        let registered = w.dependencies.iter()
+            .find(|d| d.key == key)
+            .ok_or(WorkError::Invalid("actual registered dependency"))?;
+        check_accountability(w, &registered.accountability)?;
+        if w.events.iter().any(|e| e.key == key)
+            && event_permitted(w, &key, persona)
+            && !w.participants[persona].observed_events.contains(&key)
+        {
+            wake = Some(Wake::Event(key));
+        }
+    }
+    Ok(wake)
+}
 fn end_continuations(w: &mut Work, reason: &str) {
     for p in w.participants.values_mut() {
         p.continuation = Some(Continuation::Ended {
@@ -2312,17 +2400,20 @@ fn eligibility(w: &Work, persona: &PersonaId, now: u64) -> Option<OpportunityCau
             _ if now >= *not_before => Some(OpportunityCause::Reconsideration),
             _ => None,
         },
-        Continuation::Wait { deadline, .. } => match &p.wake {
+        Continuation::Wait { deadline, .. } | Continuation::WaitAny { deadline, .. } => match &p.wake {
             Some(Wake::Event(key))
                 if key.epoch == w.version.epoch
+                    && p.continuation.as_ref()
+                        .is_some_and(|next| next.waits_for(&key.dependency))
                     && event_permitted(w, key, persona)
                     && !p.observed_events.contains(key) =>
             {
                 Some(OpportunityCause::Event(key.clone()))
             }
             Some(Wake::ExplicitResume) => Some(OpportunityCause::ExplicitResume),
-            _ if now >= *deadline => Some(OpportunityCause::Deadline),
-            _ => None,
+            _ => pending_wait_event_keys(w, persona).into_iter().next()
+                .map(OpportunityCause::Event)
+                .or_else(|| (now >= *deadline).then_some(OpportunityCause::Deadline)),
         },
         Continuation::Blocked { reconsider_at, .. } if now >= *reconsider_at => {
             Some(OpportunityCause::Reconsideration)

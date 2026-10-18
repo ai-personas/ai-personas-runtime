@@ -190,9 +190,12 @@ pub enum Continuation {
         not_before_unix: u64,
         purpose: String,
     },
-    /// Wait on an exact supplied dependency (or a same-response registered message
-    /// wait), within its deadline. This does not invent an external subscription.
+    /// Wait for any of 1..8 exact supplied dependencies or same-response registered
+    /// message waits, or until the deadline. One arrival permits a fresh decision;
+    /// it does not prove all replies arrived. Include every new registration id.
+    /// This does not invent an external subscription or a sender commitment.
     Wait {
+        #[schemars(length(min = 1, max = 8))]
         dependency_ids: Vec<String>,
         deadline_unix: u64,
         reason: String,
@@ -1294,6 +1297,9 @@ fn check_continuation(continuation: &Continuation) -> Result<(), ProtocolError> 
             ..
         } => {
             check_ids(dependency_ids, 1, "continuation.dependency_ids")?;
+            if dependency_ids.len() > crate::work::MAX_WAIT_DEPENDENCIES {
+                return Err(invalid("continuation.dependency_ids", "at most eight exact dependencies"));
+            }
             check_text(reason, MAX_REASON_BYTES, "continuation.reason")
         }
         Continuation::Pause { reason } | Continuation::Stop { reason } => {
