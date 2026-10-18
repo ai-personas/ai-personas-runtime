@@ -993,7 +993,9 @@ fn native_limits() -> p::Limits {
         max_request_bytes: 524_288,
         max_response_bytes: 32_768,
         max_stream_bytes: 1_048_576,
-        max_event_bytes: 131_072,
+        // A completed event includes the full provider output envelope, which
+        // can exceed the final authored Decision bound during reasoning calls.
+        max_event_bytes: 524_288,
         max_events: 10_000,
     }
 }

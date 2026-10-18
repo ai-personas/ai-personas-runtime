@@ -20,6 +20,12 @@ Capability evidence binds the selected mode, immutable transport profile, model,
 
 Limits bound prompt/schema size and structure, encoded request size, observed stream/event bytes and count, response size and local transfer duration. Every required field must be supplied; an absent limit is not unlimited. Setup validates configuration without resolving credentials or building transport. Preparation resolves the explicitly selected source; dispatch rechecks grant, expiry and the prepared account binding. Environment secrets must be configured through a separately authorized operator action.
 
+The completion event can contain a larger provider envelope than the authored
+Decision. Native onboarding allows a 512 KiB event within its 1 MiB total stream
+ceiling while retaining the 32 KiB response limit. Existing saved settings keep
+their exact bounds until explicit migration. Increasing an event bound does not
+permit an oversized Decision or turn an interrupted stream into a completed reply.
+
 Use `setup --allow-direct-provider --share-cohort` and `step --profile direct`. Runtime configuration also requires explicit `allow_direct_provider: true`. The historical research flag grants no direct access. Existing working-directory arguments remain compatibility metadata; the provider does not read that directory or transmit it.
 
 ## Migration and recovery
