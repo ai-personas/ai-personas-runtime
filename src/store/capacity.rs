@@ -4,7 +4,7 @@ use super::*;
 
 const KIND: &str = "runtime-store-capacity-extension-v1";
 const RECEIPT_BYTES: u64 = 32 * 1024;
-const MAX_EXTENSIONS: usize = 8;
+const MAX_EXTENSIONS: usize = 16;
 const MIB: u64 = 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,6 +32,8 @@ struct Extension {
     limits: Limits,
     control_plan: String,
     control_capacity_added_bytes: u64,
+    #[serde(default)]
+    ordinary_capacity_added_bytes: u64,
     epoch: u64,
 }
 
@@ -57,7 +59,9 @@ fn proposed_limits(request: &CapacityExtensionRequest) -> Result<Limits> {
         || request.authorization_reference.len() > 4096
         || request.expected_runtime.id != RUNTIME_CONTROL_STATE_ID
         || request.expected_launch.id != "runtime-launch-v1"
-        || request.max_body_bytes <= old.max_body_bytes
+        || request.max_body_bytes < old.max_body_bytes
+        || (request.max_body_bytes == old.max_body_bytes
+            && request.protected_closeout_retained_bytes != old.protected_closeout.retained_bytes)
         || request.max_body_bytes > 12 * MIB
         || request.max_body_bytes % MIB != 0
         || request.protected_closeout_retained_bytes < old.protected_closeout.retained_bytes
@@ -86,6 +90,8 @@ fn decode_extension(object: &StoredObject, reference: &ObjectRef) -> Result<Exte
         || object.id != receipt_id(&value.request.id)
         || value.version != 1
         || proposed_limits(&value.request)? != value.limits
+        || (value.limits == value.request.expected_limits
+            && value.ordinary_capacity_added_bytes == 0)
         || value.control_plan != format!("{}:plan", object.id)
         || value.epoch
             != value
@@ -172,8 +178,9 @@ impl Store {
     }
 
     /// The launcher holds execution ownership and authenticates its saved local
-    /// operator before calling. One transaction grows pending control allocations,
-    /// changes structural limits and appends the immutable authorization receipt.
+    /// operator before calling. One transaction grows the state-head and pending
+    /// control allocations, changes structural limits and appends the immutable
+    /// authorization receipt.
     /// Preview rolls back all candidate changes; its caller's reads are metered.
     pub(crate) fn extend_runtime_capacity(
         &mut self,
@@ -244,6 +251,41 @@ impl Store {
             work.meta.check_dimension(resource, BudgetClass::Ordinary)?;
             work.meta.check_dimension(resource, BudgetClass::Closeout)?;
         }
+        // The mutable Ordinary head has a prepaid allocation too. Raising only
+        // the global bound and Closeout slots leaves its next update capped at
+        // the original allocation. Charge its growth while preserving its data,
+        // class, revision and history. Equal-limit requests can repair an older
+        // extension that did not enlarge this head, but cannot become no-op grants.
+        let mut head = work
+            .cell("object", RUNTIME_CONTROL_STATE_ID)?
+            .ok_or_else(|| StoreError::Missing(RUNTIME_CONTROL_STATE_ID.into()))?;
+        if head.class != BudgetClass::Ordinary || head.capacity > limits.max_record_bytes {
+            return Err(StoreError::Corrupt("runtime head allocation".into()));
+        }
+        let head_before = head.charge("object", RUNTIME_CONTROL_STATE_ID)?;
+        head.capacity = limits.max_record_bytes;
+        let ordinary_added = head
+            .charge("object", RUNTIME_CONTROL_STATE_ID)?
+            .checked_sub(head_before)
+            .ok_or(StoreError::Overflow("runtime head growth"))?;
+        if limits == request.expected_limits && ordinary_added == 0 {
+            return Err(StoreError::Invalid(
+                "runtime head is already aligned with its capacity".into(),
+            ));
+        }
+        work.meta.ordinary.consumed.retained_bytes = work
+            .meta
+            .ordinary
+            .consumed
+            .retained_bytes
+            .checked_add(ordinary_added)
+            .ok_or(StoreError::Overflow("runtime head charge"))?;
+        work.meta
+            .check_dimension(Resource::RetainedBytes, BudgetClass::Ordinary)?;
+        if ordinary_added > 0 {
+            work.pending
+                .insert(("object".into(), RUNTIME_CONTROL_STATE_ID.into()), head);
+        }
         let mut added = 0u64;
         for (key, mut cell, mut slot) in slots {
             let before = cell.charge("runtime_control", &key)?;
@@ -284,6 +326,7 @@ impl Store {
             limits: limits.clone(),
             control_plan: plan_id,
             control_capacity_added_bytes: added,
+            ordinary_capacity_added_bytes: ordinary_added,
             epoch: work.meta.epoch,
         };
         let object = StoredObject {

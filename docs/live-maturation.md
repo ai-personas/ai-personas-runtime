@@ -85,6 +85,13 @@ slots within unchanged total resources. Reopening confirmed unchanged persona
 and work records, launch state and uncertain usage. Fresh calls beginning with
 `call-00000078` then saved and reviewed an integrated reflection. The extension
 preserved the original history; it was not a reset or an automatic retry.
+`call-00000086` then exposed an incomplete part of that migration: the mutable
+Ordinary state head still had its original allocation. Its complete response
+also remained unadopted. A second explicit migration aligned that allocation
+with the already approved 8 MiB limit, charged the retained-space growth, and
+preserved every resource limit, state/launch revision and uncertain usage.
+The capacity extension now grows both the Ordinary state head and unused
+protected control slots.
 The [runtime reference](../RUNTIME-REFERENCE.md) documents this finite capacity
 extension. The reflection work remains open at this checkpoint.
 

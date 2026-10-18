@@ -143,10 +143,17 @@ both existing accounts must still fit. Used, reserved and uncertain resources
 remain charged. No work, attempts, navigation allowances, provider calls or
 persona continuations are created or reset.
 
+An equal-limit request is supported only to enlarge a current state-head
+allocation left smaller by an earlier extension; it must add actual Ordinary
+capacity and leave every limit unchanged. Preview reports the charged head and
+control-slot growth separately. An already aligned head rejects a new no-op
+request; exact retained request replay remains available.
+
 The migration requires terminal invocations, execution ownership, current saved
 operator authority and exact state/launch/Store fences. One SQLite transaction
-enlarges and charges unused control slots, appends a new immutable control plan
-and migration receipt, and changes the controlling limits. Committed control
+enlarges and charges the Ordinary state head and unused control slots, appends a
+new immutable control plan and migration receipt, and changes the controlling
+limits. Committed control
 snapshots and all persona/work records stay unchanged. Reopening accepts only a
 bounded receipt chain rooted in the original limits; use a binary supporting
 this migration for an extended Store. Repeating an exact request returns its
