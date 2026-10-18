@@ -87,6 +87,18 @@ still apply, and the command does not recover or interrupt running invocations.
 Supporting assets are separate. Accepted edits show what was retained; read the
 subsequent work and communication to see whether behavior actually changed.
 
+Requester feedback can stay in the existing work. Run `ai-personas --state-root
+/private/state --operator requester feedback feedback.json`, where the JSON object
+contains `id`, `work`, `persona` and `text` (at most 16 KiB). The saved requester can
+address an existing participant under the work's current sharing restrictions.
+The text becomes an attributed `received_local_operator_feedback` observation on
+the next permitted admission; it is not a persona-authored memory, independent
+authentication, mandate change or formal stakeholder acceptance. Exact replay of
+the same ID and input does not queue it twice; conflicting reuse is refused.
+Feedback preserves the original need, stops and resource balances. Resume a stopped
+persona explicitly before continuing its work. Active invocations block a new
+feedback write. Feedback remains retrievable through retained observation history.
+
 The foreground driver considers at most 128 participant entries and attempts at
 most 12 steps per command by default, within 32 attempts per work, 256 attempted
 foreground steps across all saved work IDs, and 32 work IDs. Setup flags can
@@ -303,7 +315,7 @@ Immutable file bytes and independently accepted qualifications are stored separa
 
 Each complete response accounts for work, fragment maintenance, asset maintenance, future selections, continuation, and reply. Whole-response validation precedes adoption. Character changes receive disposition first and suppress the other fresh operations from that response. Ordinary model-directed file revision and organization can support maturation; elapsed time alone does not establish improvement.
 
-During ordinary work, actually supplied criticism and consequences may suggest useful changes in habitual attention, judgment, response to disagreement, standards or coordination. `no_change` is legitimate; no lesson, separate reflection invocation, scoring or schedule is required. Optional character/behavior prompt refinement uses ordinary fragment `FileWrite` plus explicit per-work `next_fragments replace`, without an OCEAN/VAD change. Revising current mandatory own voice requires `CharacterAdopt` and its existing fresh-decision fence even when those profile descriptions remain unchanged. Historical messages support that judgment but are never character fragments by themselves.
+During ordinary work, actually supplied criticism and consequences may suggest useful changes in habitual attention, judgment, response to disagreement, standards or coordination. `no_change` is legitimate; no lesson, separate reflection invocation, scoring or schedule is required. Supplied exchanges and consequences in the current workflow can support a scoped reflection without complete recovery of every historical record or formal work-completion proof. The persona must still distinguish observation, interpretation and intended refinement from later demonstrated benefit. Optional character/behavior prompt refinement uses ordinary fragment `FileWrite` plus explicit per-work `next_fragments replace`, without an OCEAN/VAD change. Revising current mandatory own voice requires `CharacterAdopt` and its existing fresh-decision fence even when those profile descriptions remain unchanged. Historical messages support that judgment but are never character fragments by themselves.
 
 Pending offers expose current conflicting exclusive outcome/review-role ownership without changing their terms or promising acceptance. Intake, invitation and handoff offer identifiers must satisfy the same bounded identifier syntax used to answer them. An accepted participant who declines another offer and chooses Stop retains the existing responsibility and pauses local continuation. Work command inputs follow the published closed schema: optional fields may be absent or null, set members must be unique but need not be sorted, and unknown fields are rejected. Current work-artifact metadata includes permitted exact source mappings and distinguishes artifact ownership from file ownership. Metadata does not supply a body, select future context, or grant mutation authority; the persona must explicitly obtain the qualified body when needed.
 

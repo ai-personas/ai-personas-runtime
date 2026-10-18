@@ -263,6 +263,11 @@ enum Command {
         acknowledge_remote_unknown: bool,
     },
     Status,
+    /// Queue attributed requester feedback for a persona in an existing work. No inference or resume.
+    Feedback {
+        /// JSON object with id, work, persona and text. Text is at most 16384 bytes.
+        file: PathBuf,
+    },
     /// Read accepted character and fragment revisions, with exact authorship.
     Development {
         persona: String,
@@ -645,8 +650,30 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         .operator
         .as_deref()
         .ok_or_else(|| argument("--operator"))?;
-    if let Command::Development { persona, source, limit } = &cli.command {
-        return emit(&launch::development(root, operator, persona, source.as_deref(), *limit)?);
+    if let Command::Development {
+        persona,
+        source,
+        limit,
+    } = &cli.command
+    {
+        return emit(&launch::development(
+            root,
+            operator,
+            persona,
+            source.as_deref(),
+            *limit,
+        )?);
+    }
+    if let Command::Feedback { file } = &cli.command {
+        let input: launch::FeedbackInput = runtime::read_json_file(file, 65_536)?;
+        input.validate()?;
+        let mut app = launch::open(root, Some(operator))?;
+        return emit(&launch::feedback(
+            &mut app,
+            operator,
+            &input,
+            runtime::unix_now()?,
+        )?);
     }
     if let Command::ImportSupportingFile { file } = &cli.command {
         // Parse and validate before normal open can perform metered orphan recovery.
@@ -1013,7 +1040,10 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             emit(&app.adopt_response(&invocation, &bytes, now)?)
         }
         Command::Status => emit(&app.status()?),
-        Command::Development { .. } => unreachable!("development inspection handled before recovery"),
+        Command::Development { .. } => {
+            unreachable!("development inspection handled before recovery")
+        }
+        Command::Feedback { .. } => unreachable!("feedback handled before dispatch"),
         Command::ProvisionCloseout => {
             app.provision_closeout(operator)?;
             emit(
