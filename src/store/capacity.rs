@@ -1,11 +1,12 @@
-//! Explicit growth of runtime snapshot bounds within the existing resource
-//! totals. Immutable receipts authorize reopening; counters and history survive.
+//! Explicit growth of runtime snapshot bounds and finite storage-read capacity.
+//! Immutable receipts authorize reopening; counters and history survive.
 use super::*;
 
 const KIND: &str = "runtime-store-capacity-extension-v1";
 const RECEIPT_BYTES: u64 = 32 * 1024;
-const MAX_EXTENSIONS: usize = 16;
+const MAX_EXTENSIONS: usize = 32;
 const MIB: u64 = 1024 * 1024;
+const GIB: u64 = 1024 * MIB;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -21,6 +22,9 @@ pub struct CapacityExtensionRequest {
     pub expected_limits: Limits,
     pub max_body_bytes: u64,
     pub protected_closeout_retained_bytes: u64,
+    /// Explicit storage-read funding only. Omission preserves the existing total.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_navigation_bytes: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -34,6 +38,8 @@ struct Extension {
     control_capacity_added_bytes: u64,
     #[serde(default)]
     ordinary_capacity_added_bytes: u64,
+    #[serde(default)]
+    navigation_allowance_added_bytes: u64,
     epoch: u64,
 }
 
@@ -66,6 +72,9 @@ fn proposed_limits(request: &CapacityExtensionRequest) -> Result<Limits> {
         || request.max_body_bytes % MIB != 0
         || request.protected_closeout_retained_bytes < old.protected_closeout.retained_bytes
         || request.protected_closeout_retained_bytes > 256 * MIB
+        || request
+            .total_navigation_bytes
+            .is_some_and(|n| n < old.total.navigation_bytes || n > 16 * GIB || n % GIB != 0)
     {
         return Err(StoreError::Invalid("unsupported capacity extension".into()));
     }
@@ -76,8 +85,11 @@ fn proposed_limits(request: &CapacityExtensionRequest) -> Result<Limits> {
         .max_read_bytes
         .max(next.max_record_bytes.next_power_of_two());
     next.protected_closeout.retained_bytes = request.protected_closeout_retained_bytes;
-    // Every total and all other limits stay unchanged. More protected retained
-    // space reduces Ordinary's ceiling; neither lane's usage is refunded.
+    if let Some(bytes) = request.total_navigation_bytes {
+        next.total.navigation_bytes = bytes;
+    }
+    // Only explicitly requested storage-read funding can change a total. More
+    // protected retained space reduces Ordinary's ceiling. Usage is not refunded.
     next.validate()?;
     Ok(next)
 }
@@ -92,6 +104,9 @@ fn decode_extension(object: &StoredObject, reference: &ObjectRef) -> Result<Exte
         || proposed_limits(&value.request)? != value.limits
         || (value.limits == value.request.expected_limits
             && value.ordinary_capacity_added_bytes == 0)
+        || value.navigation_allowance_added_bytes
+            != value.limits.total.navigation_bytes
+                - value.request.expected_limits.total.navigation_bytes
         || value.control_plan != format!("{}:plan", object.id)
         || value.epoch
             != value
@@ -154,13 +169,26 @@ impl Store {
         Ok(store)
     }
 
-    /// Retained operator receipt only, with normal Ordinary read accounting.
+    /// Narrow host-control inspection, including when Ordinary reads are spent.
+    /// One metered transaction supplies coherent authority heads to the trusted
+    /// launcher; it does not supply persona context or allow general state access.
+    pub(crate) fn capacity_authority(&mut self) -> Result<(StoredObject, StoredObject)> {
+        self.transaction(|work| {
+            let runtime: StoredObject = work.required("object", RUNTIME_CONTROL_STATE_ID)?;
+            let launch: StoredObject = work.required("object", "runtime-launch-v1")?;
+            let heads = (runtime, launch);
+            work.returned(&heads, work.limits.max_read_bytes, BudgetClass::Closeout)?;
+            Ok(heads)
+        })
+    }
+
+    /// Retained operator receipt only, with finite Closeout read accounting.
     pub(crate) fn capacity_extension(&mut self, id: &str) -> Result<Option<StoredObject>> {
         self.transaction(|work| {
             let object: Option<StoredObject> = work.get("capacity_extension", &receipt_id(id))?;
             if let Some(object) = &object {
                 decode_extension(object, &object.exact_ref()?)?;
-                work.returned(object, work.limits.max_read_bytes, BudgetClass::Ordinary)?;
+                work.returned(object, work.limits.max_read_bytes, BudgetClass::Closeout)?;
             }
             Ok(object)
         })
@@ -197,7 +225,6 @@ impl Store {
         if work.meta.limits != request.expected_limits {
             return Err(StoreError::LimitsMismatch);
         }
-        work.require_terminal_invocations()?;
         let state: StoredObject = work.required("object", &request.expected_runtime.id)?;
         let launch: StoredObject = work.required("object", &request.expected_launch.id)?;
         if state.exact_ref()? != request.expected_runtime
@@ -247,6 +274,10 @@ impl Store {
         }
         work.limits = &limits;
         work.meta.limits = limits.clone();
+        // This terminal-history scan is paid from the explicitly proposed
+        // allowance. A rejected or preview transaction grants no new capacity.
+        // Current operator authority was checked using existing Closeout reads.
+        work.require_terminal_invocations()?;
         for resource in RESOURCES {
             work.meta.check_dimension(resource, BudgetClass::Ordinary)?;
             work.meta.check_dimension(resource, BudgetClass::Closeout)?;
@@ -327,6 +358,8 @@ impl Store {
             control_plan: plan_id,
             control_capacity_added_bytes: added,
             ordinary_capacity_added_bytes: ordinary_added,
+            navigation_allowance_added_bytes: limits.total.navigation_bytes
+                - request.expected_limits.total.navigation_bytes,
             epoch: work.meta.epoch,
         };
         let object = StoredObject {

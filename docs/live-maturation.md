@@ -92,6 +92,13 @@ with the already approved 8 MiB limit, charged the retained-space growth, and
 preserved every resource limit, state/launch revision and uncertain usage.
 The capacity extension now grows both the Ordinary state head and unused
 protected control slots.
+Fresh accepted calls continued through `call-00000089`, whose voluntary consent
+completed the decision arrangement. The foreground session then stopped at its
+cumulative Store navigation limit. A separate explicit extension added 2 GiB
+of storage-read funding, increasing that one total from 8 to 10 GiB. Native
+reopening confirmed unchanged state/launch heads, uncertain usage and all other
+limits. Existing consumption remained charged, and work-level navigation and
+provider attempts were not replenished by this grant.
 The [runtime reference](../RUNTIME-REFERENCE.md) documents this finite capacity
 extension. The reflection work remains open at this checkpoint.
 

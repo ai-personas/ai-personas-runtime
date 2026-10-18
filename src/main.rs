@@ -132,8 +132,8 @@ enum Command {
     HumanIntakeSnapshot,
     /// Inspect structural Store limits and exact extension fences. No inference.
     StoreCapacitySnapshot,
-    /// Explicitly grow snapshot bounds and protected retained space within existing
-    /// total resources. Preserves history, charges, uncertainty and work limits.
+    /// Explicitly grow snapshot bounds, protected retained space or storage-read
+    /// funding. Preserves history, charges, uncertainty and work limits.
     ExtendStoreCapacity {
         file: PathBuf,
         #[arg(long, required_unless_present = "apply", conflicts_with = "apply")]
@@ -913,6 +913,22 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             _ => unreachable!(),
         };
     }
+    // Capacity control must remain available when Ordinary reads are spent.
+    // Its narrow launcher entry meters authority reads against existing Closeout
+    // resources and performs no ordinary open recovery or model execution.
+    match &cli.command {
+        Command::StoreCapacitySnapshot => {
+            return emit(&launch::store_capacity::snapshot_at(root, operator)?);
+        }
+        Command::ExtendStoreCapacity { apply, .. } => {
+            return emit(&launch::store_capacity::extend_at(
+                root,
+                store_capacity_request.as_ref().expect("capacity request validated before open"),
+                *apply,
+            )?);
+        }
+        _ => {}
+    }
     let mut app = Runtime::open(root)?;
     let now = runtime::unix_now()?;
     match cli.command {
@@ -932,12 +948,9 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             }
         }
         Command::HumanIntakeSnapshot => emit(&launch::human_intake_snapshot(&mut app, operator)?),
-        Command::StoreCapacitySnapshot => emit(&launch::store_capacity::snapshot(&mut app, operator)?),
-        Command::ExtendStoreCapacity { apply, .. } => emit(&launch::store_capacity::extend(
-            &mut app,
-            store_capacity_request.as_ref().expect("capacity request validated before open"),
-            apply,
-        )?),
+        Command::StoreCapacitySnapshot | Command::ExtendStoreCapacity { .. } => {
+            unreachable!("capacity control handled before ordinary open")
+        }
         Command::WorkResourceGrantSnapshot { work } => emit(&launch::work_resource_grant_snapshot(
             &mut app, operator, &work,
         )?),

@@ -131,16 +131,19 @@ A future wait returns to the shell and retains its existing eligibility conditio
 
 An explicitly authorized operator can inspect `store-capacity-snapshot` and use
 `extend-store-capacity REQUEST.json --preview` or `--apply` when a retained runtime
-snapshot reaches its structural byte bound. The request copies `expected_epoch`,
+snapshot or cumulative storage reads reach their capacity. The request copies `expected_epoch`,
 `expected_runtime`, `expected_launch` and `expected_limits` from the snapshot and
 provides `id`, `operator`, `reason`, `authorization_reference`,
 `authorize_extension: true`, `max_body_bytes` and
 `protected_closeout_retained_bytes`. Body bounds grow in whole MiB steps, up to
 12 MiB; the protected retained-space partition can grow up to 256 MiB. Record and
-read bounds follow the new body bound. All total resource limits stay unchanged.
-Increasing the protected partition reduces the Ordinary retained-space ceiling;
+read bounds follow the new body bound. By default all total resource limits stay
+unchanged. The optional `total_navigation_bytes` explicitly increases cumulative
+storage-read funding in whole GiB steps up to 16 GiB. It cannot decrease the
+current allowance or change any other total, and does not grant tokens or money.
+Increasing the protected retained partition reduces the Ordinary retained-space ceiling;
 both existing accounts must still fit. Used, reserved and uncertain resources
-remain charged. No work, attempts, navigation allowances, provider calls or
+remain charged. No work, attempts, work-level navigation allowances, provider calls or
 persona continuations are created or reset.
 
 An equal-limit request is supported only to enlarge a current state-head
@@ -158,8 +161,13 @@ snapshots and all persona/work records stay unchanged. Reopening accepts only a
 bounded receipt chain rooted in the original limits; use a binary supporting
 this migration for an extended Store. Repeating an exact request returns its
 retained receipt; changing it under the same identity fails. Preview reserves
-nothing. Normal opening may recover an orphaned dispatch, and inspection reads
-remain metered. This extends finite storage capacity, not indefinite retention
+nothing. These two CLI commands use a narrow host-control path: their coherent
+authority-head read is charged to existing Closeout navigation, without ordinary
+opening reads or orphan recovery. They require enough remaining control capacity;
+they do not unfreeze a Store. A new grant rechecks all retained invocation states
+inside its transaction against the proposed allowance; unresolved invocations
+prevent the grant. Authority and exact fences are revalidated before mutation.
+This extends finite storage capacity, not indefinite retention
 or automatic compaction.
 
 An explicitly authorized operator can inspect `work-resource-grant-snapshot WORK`
