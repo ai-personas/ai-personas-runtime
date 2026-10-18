@@ -427,6 +427,9 @@ pub enum Operation {
         evidence: Vec<String>,
         judgment: String,
     },
+    /// Retained for parsing historical wire responses. Current execution requires
+    /// a release-bound work command, so this is not an offered operation.
+    #[schemars(skip)]
     Deliver {
         id: String,
         subject: ExactRef,
