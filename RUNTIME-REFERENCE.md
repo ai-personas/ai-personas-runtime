@@ -129,6 +129,32 @@ response's new continuation and other ordinary operations remain fenced. Stops,
 pauses, unresolved transport and failures keep their existing control requirements.
 A future wait returns to the shell and retains its existing eligibility conditions.
 
+An explicitly authorized operator can inspect `store-capacity-snapshot` and use
+`extend-store-capacity REQUEST.json --preview` or `--apply` when a retained runtime
+snapshot reaches its structural byte bound. The request copies `expected_epoch`,
+`expected_runtime`, `expected_launch` and `expected_limits` from the snapshot and
+provides `id`, `operator`, `reason`, `authorization_reference`,
+`authorize_extension: true`, `max_body_bytes` and
+`protected_closeout_retained_bytes`. Body bounds grow in whole MiB steps, up to
+12 MiB; the protected retained-space partition can grow up to 256 MiB. Record and
+read bounds follow the new body bound. All total resource limits stay unchanged.
+Increasing the protected partition reduces the Ordinary retained-space ceiling;
+both existing accounts must still fit. Used, reserved and uncertain resources
+remain charged. No work, attempts, navigation allowances, provider calls or
+persona continuations are created or reset.
+
+The migration requires terminal invocations, execution ownership, current saved
+operator authority and exact state/launch/Store fences. One SQLite transaction
+enlarges and charges unused control slots, appends a new immutable control plan
+and migration receipt, and changes the controlling limits. Committed control
+snapshots and all persona/work records stay unchanged. Reopening accepts only a
+bounded receipt chain rooted in the original limits; use a binary supporting
+this migration for an extended Store. Repeating an exact request returns its
+retained receipt; changing it under the same identity fails. Preview reserves
+nothing. Normal opening may recover an orphaned dispatch, and inspection reads
+remain metered. This extends finite storage capacity, not indefinite retention
+or automatic compaction.
+
 An explicitly authorized operator can inspect `work-resource-grant-snapshot WORK`
 and use `grant-work-resources REQUEST.json --preview` or `--apply` to add ordinary
 attempts and navigation to an existing standalone Open work. The strict request

@@ -227,8 +227,8 @@ fn archive_id(id: &str) -> String {
     format!("adoption:{}", s::sha256_bytes(id.as_bytes()))
 }
 
-/// Fixed storage-format limits are also the controlling limits when reopening.
-/// Changing these requires an explicit migration, not a larger CLI argument.
+/// Original storage-format limits. Runtime reopening accepts only these or a
+/// retained, explicitly authorized capacity-extension chain rooted in them.
 pub fn storage_limits() -> s::Limits {
     s::Limits {
         total: s::Resources {
@@ -2302,7 +2302,7 @@ impl Runtime {
             "state database is missing",
         )?;
         let mut app = Self {
-            store: s::Store::open_for_inspection(&root.join("state.sqlite3"), storage_limits())?,
+            store: s::Store::open_runtime(&root.join("state.sqlite3"), storage_limits(), false)?,
             root,
             synthetic_owner: None,
         };
@@ -2327,7 +2327,7 @@ impl Runtime {
             "state database is missing",
         )?;
         let mut runtime = Self {
-            store: s::Store::open(&root.join("state.sqlite3"), storage_limits())?,
+            store: s::Store::open_runtime(&root.join("state.sqlite3"), storage_limits(), true)?,
             root,
             synthetic_owner: None,
         };

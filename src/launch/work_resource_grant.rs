@@ -532,7 +532,10 @@ fn plan(
     // Runtime preparation reserves twice the serialized request body, and Store
     // independently bounds that body. This conservative inspection quote needs
     // no provider/credential resolution and does not promise later admission.
-    let input_bytes = storage_limits()
+    let input_bytes = app
+        .store
+        .ledger()?
+        .limits
         .max_body_bytes
         .checked_mul(2)
         .and_then(|bytes| bytes.checked_mul(request.increase.attempts))

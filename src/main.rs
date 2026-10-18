@@ -130,6 +130,17 @@ enum Command {
     },
     /// Inspect exact fences and allocation limits for standalone human intake. No inference.
     HumanIntakeSnapshot,
+    /// Inspect structural Store limits and exact extension fences. No inference.
+    StoreCapacitySnapshot,
+    /// Explicitly grow snapshot bounds and protected retained space within existing
+    /// total resources. Preserves history, charges, uncertainty and work limits.
+    ExtendStoreCapacity {
+        file: PathBuf,
+        #[arg(long, required_unless_present = "apply", conflicts_with = "apply")]
+        preview: bool,
+        #[arg(long, required_unless_present = "preview", conflicts_with = "preview")]
+        apply: bool,
+    },
     /// Inspect exact fences and remaining allowances for one standalone Open work.
     /// Metered reads and normal open recovery apply; no grant, resume or inference.
     WorkResourceGrantSnapshot {
@@ -741,6 +752,27 @@ async fn run(cli: Cli) -> runtime::Result<()> {
     } else {
         None
     };
+    let store_capacity_request = if let Command::ExtendStoreCapacity {
+        file, preview, apply,
+    } = &cli.command {
+        if preview == apply {
+            return Err(argument("exactly one of --preview or --apply"));
+        }
+        let value: serde_json::Value = runtime::read_json_file(file, 16_384)?;
+        for path in [
+            "", "/expected_runtime", "/expected_launch", "/expected_limits",
+            "/expected_limits/total", "/expected_limits/protected_closeout",
+        ] {
+            if !value.pointer(path).is_some_and(serde_json::Value::is_object) {
+                return Err(argument("capacity request requires JSON objects"));
+            }
+        }
+        let request: ai_personas::store::CapacityExtensionRequest = serde_json::from_value(value)?;
+        launch::store_capacity::validate(&request, operator)?;
+        Some(request)
+    } else {
+        None
+    };
     let work_resource_grant_request = if let Command::GrantWorkResources {
         file,
         preview,
@@ -900,6 +932,12 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             }
         }
         Command::HumanIntakeSnapshot => emit(&launch::human_intake_snapshot(&mut app, operator)?),
+        Command::StoreCapacitySnapshot => emit(&launch::store_capacity::snapshot(&mut app, operator)?),
+        Command::ExtendStoreCapacity { apply, .. } => emit(&launch::store_capacity::extend(
+            &mut app,
+            store_capacity_request.as_ref().expect("capacity request validated before open"),
+            apply,
+        )?),
         Command::WorkResourceGrantSnapshot { work } => emit(&launch::work_resource_grant_snapshot(
             &mut app, operator, &work,
         )?),

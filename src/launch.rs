@@ -48,6 +48,8 @@ pub use human_intake::{
 
 #[path = "launch/work_resource_grant.rs"]
 mod work_resource_grant;
+#[path = "launch/store_capacity.rs"]
+pub mod store_capacity;
 pub use work_resource_grant::{
     grant_work_resources, preview_work_resource_grant, work_resource_grant_snapshot,
     WorkResourceGrantFence, WorkResourceGrantOutcome, WorkResourceGrantReceipt,

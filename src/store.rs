@@ -79,6 +79,8 @@ use std::time::Duration;
 use thiserror::Error;
 
 mod archive_history;
+mod capacity;
+pub use capacity::CapacityExtensionRequest;
 
 const SCHEMA_VERSION: u32 = 1;
 const META_CAPACITY: u64 = 16 * 1024;
@@ -685,6 +687,10 @@ struct Meta {
     frozen: bool,
     accounting_complete: bool,
     overruns: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    capacity_extension: Option<ObjectRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    runtime_control_plan: Option<String>,
 }
 
 impl Meta {
@@ -701,6 +707,8 @@ impl Meta {
             frozen: false,
             accounting_complete: true,
             overruns: 0,
+            capacity_extension: None,
+            runtime_control_plan: None,
         };
         meta.ordinary.consumed.retained_bytes = META_CAPACITY * 2;
         meta.check_dimension(Resource::RetainedBytes, BudgetClass::Ordinary)?;
@@ -1947,6 +1955,9 @@ impl Store {
                  WHEN OLD.ns='terminal_evidence'
                       AND json_type(OLD.data,'$.object') IS NOT 'null'
                  BEGIN SELECT RAISE(ABORT,'immutable terminal evidence'); END;
+                 CREATE TRIGGER IF NOT EXISTS immutable_capacity_extension
+                 BEFORE UPDATE ON store_cells WHEN OLD.ns='capacity_extension'
+                 BEGIN SELECT RAISE(ABORT,'immutable capacity extension'); END;
                  CREATE TRIGGER IF NOT EXISTS immutable_runtime_control
                  BEFORE UPDATE ON store_cells
                  WHEN OLD.ns='runtime_control'
@@ -3365,7 +3376,10 @@ impl<'a> Work<'a> {
     }
 
     fn update<T: Serialize>(&mut self, ns: &str, key: &str, value: &T) -> Result<()> {
-        if matches!(ns, "revision" | "decision" | "runtime_control_plan") {
+        if matches!(
+            ns,
+            "revision" | "decision" | "runtime_control_plan" | "capacity_extension"
+        ) {
             return Err(StoreError::Conflict(key.into()));
         }
         let mut cell = self
@@ -3799,8 +3813,10 @@ impl<'a> Work<'a> {
     }
 
     fn runtime_control_plan(&self) -> Result<Option<RuntimeControlPlan>> {
-        let plan: Option<RuntimeControlPlan> =
-            self.get("runtime_control_plan", RUNTIME_CONTROL_STATE_ID)?;
+        let plan: Option<RuntimeControlPlan> = self.get(
+            "runtime_control_plan",
+            self.meta.runtime_control_plan.as_deref().unwrap_or(RUNTIME_CONTROL_STATE_ID),
+        )?;
         if let Some(plan) = &plan {
             if plan.provisioned_at.id != RUNTIME_CONTROL_STATE_ID
                 || plan.max_object_bytes == 0
