@@ -1202,6 +1202,9 @@ pub enum WorkAction {
     },
     /// Propose exact voluntary duty/authority changes within the current mandate.
     /// consent_own explicitly controls the author's own consent; wakes no peer.
+    /// decision_rule chooses who may decide; it does not assign outcome ownership.
+    /// Assigning an outcome also requires the affected persona's changed commitment
+    /// in terms.changes, with that outcome ID in terms.outcomes, and exact consent.
     ProposeArrangement {
         #[schemars(length(min = 1, max = 256))]
         id: String,
@@ -1283,6 +1286,9 @@ pub enum WorkAction {
         claims: BTreeMap<String, ClaimInput>,
         explanation: String,
     },
+    /// Select a sufficient candidate under the current decision rule. Each required
+    /// outcome must also have one accepted owner; a designated decider alone does
+    /// not satisfy ownership. Current evidence, judgment and review gates apply.
     DecideShared {
         id: String,
         artifacts: BTreeMap<String, ArtifactKey>,
