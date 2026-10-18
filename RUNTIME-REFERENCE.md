@@ -578,6 +578,13 @@ an anchor alone does not. The persona may propose `CloseGoal`, identify remainin
 work or voluntarily yield. The author must explicitly dispose of their own
 pending requester feedback before proposing closure; resolution may precede
 `CloseGoal` in the same response. Stopping alone does not resolve feedback.
+The persona explains its current fulfillment assessment in `Decision.work`;
+closure does not require another persisted `Judge` command. A new judgment
+supersedes that persona's previous vote on the exact candidate, even when its
+conclusion is unchanged, and can invalidate an existing shared decision and
+release supported by the previous vote. Intentionally replacing that support
+requires renewing the affected shared decision and release and supplying fresh
+delivery receipts before closing the new release.
 Accepted `CloseGoal` appends exact historical completion
 without ending work, overwriting peer choices, or changing the work lifecycle epoch.
 The author independently chooses continuation, wait, pause, or stop; ordinary
