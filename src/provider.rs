@@ -1006,7 +1006,10 @@ fn permits_unencoded_sse(headers: &reqwest::header::HeaderMap, mode: AccessMode)
     let content_types = headers.get_all(CONTENT_TYPE);
     let mut types = content_types.iter();
     let sse = match types.next() {
-        None => mode == AccessMode::SiwcOAuth,
+        // Both OAuth routes can omit this header. The bounded SSE collector
+        // still requires a complete, internally consistent Responses stream;
+        // absence of a media type is not evidence of a valid response body.
+        None => matches!(mode, AccessMode::SiwcOAuth | AccessMode::ChatgptOAuth),
         Some(value) => value.to_str().ok().is_some_and(|v| {
             v.split(';')
                 .next()
