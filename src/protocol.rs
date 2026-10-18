@@ -71,6 +71,11 @@ pub enum WorkDisposition {
         /// entries are unique. Use [] when no exact evidence identifier is available.
         evidence: Vec<String>,
     },
+    /// Your contribution satisfies the requested scope with its stated limits.
+    /// Unknowns explicitly allowed by the need may remain in a sufficient result;
+    /// do not invent additional deliverables or stakeholder acceptance requirements.
+    /// This attributed judgment does not perform shared selection, release,
+    /// delivery or CloseGoal, whose actual authority and evidence gates still apply.
     IndividualSufficient {
         reason: String,
         /// Exact available evidence identifiers, never prose or invented references.
@@ -166,6 +171,11 @@ pub struct ExactRef {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Continuation {
+    /// Request another admission as soon as eligible, even without new input.
+    /// The purpose is an explanation, not an event condition: "if answers arrive"
+    /// still schedules an immediate call. Choose a concrete next action that can
+    /// proceed now. Repeating the same result or awaiting absent information does
+    /// not itself require another call; wait, pause and stop remain available.
     Immediate {
         purpose: String,
     },
@@ -175,14 +185,21 @@ pub enum Continuation {
         not_before_unix: u64,
         purpose: String,
     },
+    /// Wait on an exact supplied dependency (or a same-response registered message
+    /// wait), within its deadline. This does not invent an external subscription.
     Wait {
         dependency_ids: Vec<String>,
         deadline_unix: u64,
         reason: String,
     },
+    /// Suspend this persona's continuation until explicitly resumed. Preserve
+    /// remaining duties; pausing does not complete the work or refund resources.
     Pause {
         reason: String,
     },
+    /// End this persona's current continuation. A later explicit resume is needed;
+    /// neither peers nor a future answer automatically revive it. Stopping does
+    /// not itself declare completion or discharge remaining accepted duties.
     Stop {
         reason: String,
     },
@@ -401,6 +418,9 @@ pub enum Operation {
         limit: usize,
         cursor: Option<String>,
     },
+    /// Local attributed message. Fields are exactly kind, id, recipient, subject
+    /// and text. This operation has no depends_on member; do not copy that field
+    /// from work_command or effect. Complete-response acceptance is still atomic.
     Communicate {
         id: String,
         recipient: String,
@@ -534,8 +554,12 @@ pub enum ProtocolError {
     NodeLimit { offset: usize, maximum: usize },
     #[error("decoded JSON string exceeds {maximum} bytes at byte {offset}")]
     StringLimit { offset: usize, maximum: usize },
-    #[error("response does not match the protocol shape at line {line}, column {column}")]
-    Shape { line: usize, column: usize },
+    #[error("response does not match the protocol shape at line {line}, column {column}: {rule}")]
+    Shape {
+        line: usize,
+        column: usize,
+        rule: &'static str,
+    },
     #[error("invalid {path}: {rule}")]
     Invalid { path: String, rule: &'static str },
 }
@@ -558,19 +582,12 @@ pub fn parse_decision(bytes: &[u8], max_bytes: usize) -> Result<Decision, Protoc
         nodes: 0,
     }
     .document()?;
-    let decision: Decision =
-        serde_json::from_slice(bytes).map_err(|error| ProtocolError::Shape {
-            line: error.line(),
-            column: error.column(),
-        })?;
+    let decision: Decision = serde_json::from_slice(bytes).map_err(shape_error)?;
     // Serde also accepts positional sequences for derived named structs. Compare
     // the original containers with their typed wire shape, so those sequences
     // cannot bypass the advertised object-only boundaries. Preflight bounds both
     // traversals and rejects duplicate keys before either tree is constructed.
-    let received: Value = serde_json::from_slice(bytes).map_err(|error| ProtocolError::Shape {
-        line: error.line(),
-        column: error.column(),
-    })?;
+    let received: Value = serde_json::from_slice(bytes).map_err(shape_error)?;
     let typed = serde_json::to_value(&decision)
         .expect("a deserialized Decision contains only JSON-serializable fields");
     if !same_container_shapes(&received, &typed) {
@@ -581,6 +598,30 @@ pub fn parse_decision(bytes: &[u8], max_bytes: usize) -> Result<Decision, Protoc
     }
     validate_decision(&decision)?;
     Ok(decision)
+}
+
+fn shape_error(error: serde_json::Error) -> ProtocolError {
+    // Preserve a useful structural category without echoing any rejected field
+    // name or value. Such strings can contain private text or quote delimiters.
+    let detail = error.to_string();
+    let rule = if detail.starts_with("unknown field ") {
+        "unknown field; use only the fields allowed for this object in the supplied schema"
+    } else if detail.starts_with("missing field ") {
+        "missing required field; supply every required member of this object"
+    } else if detail.starts_with("unknown variant ") {
+        "unknown variant; use an exact kind offered by the supplied schema"
+    } else if detail.starts_with("invalid type:") {
+        "wrong JSON type; match the supplied object's schema"
+    } else if detail.starts_with("invalid value:") {
+        "invalid value; match the supplied object's schema"
+    } else {
+        "match the complete supplied schema"
+    };
+    ProtocolError::Shape {
+        line: error.line(),
+        column: error.column(),
+        rule,
+    }
 }
 
 fn same_container_shapes(received: &Value, typed: &Value) -> bool {

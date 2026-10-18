@@ -115,6 +115,13 @@ foreground steps across all saved work IDs, and 32 work IDs. Setup flags can
 lower or change these finite bounds. Existing Store and runtime limits remain
 controlling. Resume never replenishes them. There is no daemon, polling loop,
 model substitution, automatic failed-response retry or between-task exploration.
+An authored `immediate` continuation requests another admission even if no new
+input arrives. Its purpose text is not an event condition. The application schema
+states this behavior alongside explicit wait, pause and stop semantics, and
+distinguishes a sufficient scoped contribution from formal shared completion.
+Protocol shape failures retain the line, column and a fixed structural category
+(such as an unknown field), without echoing rejected field names or values.
+The message schema explicitly excludes the effect-only `depends_on` member.
 The one initial character-adoption fence receives one explicit recorded host
 handover. Later character changes preserve an earlier accepted ordinary
 continuation as a route to a fresh decision under the new character. The changing
