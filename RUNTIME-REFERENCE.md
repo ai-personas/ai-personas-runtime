@@ -339,6 +339,12 @@ runtime cannot execute. Exact local delivery uses `work_command` with
 `deliver_release` after a release exists. Historical wire responses remain readable;
 attempting the unsupported legacy operation still refuses the whole response.
 
+Arrangement `terms.changes` contains only genuinely changed commitments. Omitted
+participants retain their accepted terms. Including an unchanged commitment is
+refused with an explicit diagnostic. Required consent is computed separately:
+changing decision authority still requires every accepted participant's consent,
+including participants omitted from that map.
+
 During ordinary work, actually supplied criticism and consequences may suggest useful changes in habitual attention, judgment, response to disagreement, standards or coordination. `no_change` is legitimate; no lesson, separate reflection invocation, scoring or schedule is required. Supplied exchanges and consequences in the current workflow can support a scoped reflection without complete recovery of every historical record or formal work-completion proof. The persona must still distinguish observation, interpretation and intended refinement from later demonstrated benefit. Optional character/behavior prompt refinement uses ordinary fragment `FileWrite` plus explicit per-work `next_fragments replace`, without an OCEAN/VAD change. Revising current mandatory own voice requires `CharacterAdopt` and its existing fresh-decision fence even when those profile descriptions remain unchanged. Historical messages support that judgment but are never character fragments by themselves.
 
 Pending offers expose current conflicting exclusive outcome/review-role ownership without changing their terms or promising acceptance. Intake, invitation and handoff offer identifiers must satisfy the same bounded identifier syntax used to answer them. An accepted participant who declines another offer and chooses Stop retains the existing responsibility and pauses local continuation. Work command inputs follow the published closed schema: optional fields may be absent or null, set members must be unique but need not be sorted, and unknown fields are rejected. Current work-artifact metadata includes permitted exact source mappings and distinguishes artifact ownership from file ownership. Metadata does not supply a body, select future context, or grant mutation authority; the persona must explicitly obtain the qualified body when needed.

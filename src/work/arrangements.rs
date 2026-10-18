@@ -281,9 +281,13 @@ fn validate_terms(w: &Work, terms: &ArrangementTerms) -> Result<()> {
     for (persona, change) in &terms.changes {
         actor_in_pool(w, persona)?;
         let (id, old) = accepted(w, persona)?;
-        if id != &change.prior_acceptance || change.terms == old.terms {
+        if id != &change.prior_acceptance {
             return Err(WorkError::Conflict);
         }
+        require(
+            change.terms != old.terms,
+            "arrangement changes must omit unchanged commitments; consent requirements remain separate",
+        )?;
         require(
             change.terms.mandate_revision == w.current_mandate
                 && text(&change.terms.exact_terms)

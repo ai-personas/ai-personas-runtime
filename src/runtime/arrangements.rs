@@ -518,7 +518,11 @@ pub struct ArrangementTermsInput {
     pub delegation: Option<WorkExactRef>,
     /// Copy CONTROL.arrangements.current_exact; null only before any arrangement.
     pub base: Option<WorkExactRef>,
-    /// At most 32 persona keys, each naming its exact current acceptance.
+    /// Only changed commitments: at most 32 persona keys, each naming its exact
+    /// current acceptance and genuinely different successor terms. Omit people
+    /// whose terms stay unchanged; their commitments are retained automatically.
+    /// Required consent is computed separately: a decision-rule change still
+    /// requires every accepted participant's consent, including omitted people.
     #[schemars(extend("maxProperties" = 32,
         "propertyNames" = {"type": "string", "minLength": 1, "maxLength": 128}))]
     pub changes: BTreeMap<String, CommitmentChangeInput>,
