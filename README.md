@@ -26,6 +26,9 @@ Add `--invocation CALL_ID` to check which of those fragment bodies reached an
 accepted call and whether the completed provider input matches the retained
 record. Read the work result to judge how the persona used them.
 
+[Live maturation walkthrough](docs/live-maturation.md): retained refinements,
+later input supply, subsequent actions and the limits of those observations.
+
 Use `--feedback feedback.json` to give a participant feedback within its existing
 work. The JSON contains `id`, `work`, `persona`, and `text`. Continue the work to
 see how it responds. Personas choose whether to refine their characteristic
