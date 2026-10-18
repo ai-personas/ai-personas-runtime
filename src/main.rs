@@ -47,6 +47,9 @@ enum Command {
     Setup {
         #[arg(long)]
         provider_config: PathBuf,
+        /// JSON map from cohort IDs to attributed label, text and provenance.
+        #[arg(long)]
+        persona_seeds: Option<PathBuf>,
         /// Existing operator-approved provider cwd, separate from private state.
         #[arg(long)]
         working_directory: PathBuf,
@@ -530,6 +533,7 @@ async fn run(cli: Cli) -> runtime::Result<()> {
     match &cli.command {
         Command::Setup {
             provider_config,
+            persona_seeds,
             working_directory,
             destination,
             cohort,
@@ -560,7 +564,11 @@ async fn run(cli: Cli) -> runtime::Result<()> {
                 max_total_steps: *max_total_steps,
                 max_works: *max_works,
             };
-            launch::setup(&root, operator, settings, *allow_direct_provider)?;
+            let seeds = match persona_seeds {
+                Some(path) => runtime::read_json_file(path, 65_536)?,
+                None => Default::default(),
+            };
+            launch::setup_with_seeds(&root, operator, settings, *allow_direct_provider, seeds)?;
             return emit(&serde_json::json!({"setup_saved":true,"inference_performed":false}));
         }
         Command::Run {

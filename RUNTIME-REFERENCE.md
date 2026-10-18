@@ -51,6 +51,26 @@ and gaps remain visible pending adoption. Saved `--owner` is legacy compatibilit
 new needs. Existing mandates are preserved. The generic creation material asserts
 no prior character or experience. The same cohort is reused on later needs.
 
+For distinct starting characters, add `--persona-seeds /absolute/private/seeds.json`
+to `setup`. The file maps cohort IDs to `label`, `text`, and `provenance`:
+
+```json
+{
+  "persona-0001": {
+    "label": "Mira",
+    "text": "An illustrative seed: curious, careful, reserved and considerate, with moderate sensitivity to uncertainty. Initially calm, neutral in valence and balanced in dominance. No prior experience is asserted.",
+    "provenance": "Operator-authored starting traits, not a biography"
+  }
+}
+```
+
+Unspecified members retain generic creation material. The initial LLM authors
+the accepted OCEAN/VAD account and own-voice fragments from this material; the
+seed itself is not an accepted persona or evidence of maturation. Seeds are
+validated before Store creation and retained with their attribution. This option
+creates a fresh cohort only; it does not replace continuing personas or their
+history. Later needs reuse that same cohort, including its accepted development.
+
 The foreground driver considers at most 128 participant entries and attempts at
 most 12 steps per command by default, within 32 attempts per work, 256 attempted
 foreground steps across all saved work IDs, and 32 work IDs. Setup flags can

@@ -53,6 +53,15 @@ pub mod bootstrap;
 
 const ID: &str = "runtime-launch-v1";
 const POLICY: &str = "launch-local";
+/// Attributed starting material, not an accepted character or invented experience.
+/// The initial persona invocation authors its own character and fragments.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PersonaSeed {
+    pub label: String,
+    pub text: String,
+    pub provenance: String,
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Setup {
@@ -74,6 +83,8 @@ const PROVIDER_MIGRATION: &str = "saved provider is incompatible with direct HTT
 #[serde(deny_unknown_fields)]
 struct SavedSetup {
     cohort: usize,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    persona_seeds: BTreeMap<String, PersonaSeed>,
     owner: usize,
     destination: String,
     provider: serde_json::Value,
@@ -192,11 +203,18 @@ fn private_tree(path: &Path) -> Result<PathBuf> {
 fn seed_for(saved: &Saved, provider: &ResearchSettings, id: &str) -> Seed {
     let mut audience: BTreeSet<_> = people(saved.setup.cohort).into_iter().collect();
     audience.insert(saved.operator.clone());
+    let supplied = saved.setup.persona_seeds.get(id);
     Seed {
         id: id.into(),
-        label: id.into(),
-        text: format!("Unaccepted creation material for {id}; no prior experience asserted."),
-        provenance: "operator-supplied generic seed".into(),
+        label: supplied.map_or_else(|| id.into(), |seed| seed.label.clone()),
+        text: supplied.map_or_else(
+            || format!("Unaccepted creation material for {id}; no prior experience asserted."),
+            |seed| seed.text.clone(),
+        ),
+        provenance: supplied.map_or_else(
+            || "operator-supplied generic seed".into(),
+            |seed| seed.provenance.clone(),
+        ),
         requested_model: provider.model.clone(),
         requested_effort: provider.effort.clone(),
         model_confirmed: true,
@@ -298,7 +316,29 @@ fn setup_parts(operator: &str, settings: Setup, opt_in: bool) -> Result<(Config,
 }
 
 pub fn setup(root: &Path, operator: &str, settings: Setup, opt_in: bool) -> Result<Runtime> {
-    let (config, saved) = setup_parts(operator, settings, opt_in)?;
+    setup_with_seeds(root, operator, settings, opt_in, BTreeMap::new())
+}
+
+/// Select creation material only while creating a fresh cohort. Continuing
+/// personas retain their exact accepted history and cannot be reseeded here.
+pub fn setup_with_seeds(
+    root: &Path,
+    operator: &str,
+    settings: Setup,
+    opt_in: bool,
+    seeds: BTreeMap<String, PersonaSeed>,
+) -> Result<Runtime> {
+    let (config, mut saved) = setup_parts(operator, settings, opt_in)?;
+    let ids = people(saved.setup.cohort);
+    require(
+        seeds.len() <= ids.len() && seeds.keys().all(|id| ids.contains(id)),
+        "persona seed must name a member of this cohort",
+    )?;
+    saved.setup.persona_seeds = seeds;
+    let provider = saved.execution_provider()?;
+    for id in &ids {
+        validate_seed(&seed_for(&saved, &provider, id))?;
+    }
     let root = private_tree(root)?;
     require(
         !saved.working_directory.starts_with(&root) && !root.starts_with(&saved.working_directory),
