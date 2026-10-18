@@ -1181,8 +1181,9 @@ pub struct ClaimInput {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WorkAction {
     /// Wait for one future local message from a named current participant.
-    /// This same Decision must choose continuation.kind=wait, include this
-    /// command's id in dependency_ids, and supply a future deadline_unix.
+    /// At most one register_message_wait is allowed per Decision. That same
+    /// Decision must choose continuation.kind=wait, set dependency_ids to exactly
+    /// [this command's inputs.id] with no other IDs, and supply a future deadline_unix.
     /// Registration with an immediate, stop, pause or reconsider_at
     /// continuation is invalid; register only when choosing to wait now.
     /// No sender duty, prior inbox match, or Stop/Pause wake.
@@ -8958,7 +8959,7 @@ fn apply_work_actions(
                     require(
                         matches!(&decision.continuation,
                         p::Continuation::Wait { dependency_ids, .. } if dependency_ids == &vec![id.clone()]),
-                        "message registration requires the matching same-response Wait",
+                        "register_message_wait requires continuation.kind=wait with dependency_ids containing only its inputs.id; one registration per Decision",
                     )?;
                     require(!decision.operations.iter().any(|operation| matches!(operation,
                         p::Operation::Responsibility { disposition, .. } if disposition == "decline")),
