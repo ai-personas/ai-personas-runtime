@@ -2,6 +2,7 @@
 //! AI Personas Rust implementation. See deployment limitations before use.
 pub mod auth;
 pub mod computation;
+pub mod http_fetch;
 pub mod files;
 pub mod mock_effects;
 pub mod protocol;

@@ -230,10 +230,10 @@ pub(super) fn validate(
         decision
             .operations
             .iter()
-            .filter(|o| is_computation(o))
+            .filter(|o| is_computation(o) || http_tools::is_http_fetch(o))
             .count()
             == 1,
-        "one computation per decision; result-dependent work needs a fresh decision",
+        "one external execution per decision; results need a fresh decision",
     )?;
     let input: Inputs = serde_json::from_value(inputs.clone())?;
     require(
@@ -797,7 +797,7 @@ pub(super) fn result_bindings(state: &State, files: &[f::FileRevision]) -> Resul
     let mut bindings = Vec::new();
     for file in files {
         let stored = record(state, &file.reference(f::Representation::Utf8))?;
-        if !matches!(&stored.origin, Some(RevisionOrigin::ComputationResult { .. })) {
+        if !matches!(&stored.origin, Some(RevisionOrigin::ComputationResult { .. } | RevisionOrigin::HttpFetchResult { .. })) {
             continue;
         }
         let required: Vec<_> = qualifications(state, &stored.lineage).into_iter()
@@ -870,7 +870,7 @@ pub(super) fn inspect(
     proof: &s::DecisionRecord,
 ) -> Result<Value> {
     let mut results = Vec::new();
-    for id in &proof.intent_ids {
+    for id in proof.intent_ids.iter().filter(|id| state.computation_jobs.contains_key(*id)) {
         let retained = app.store.trusted_host().intent(id)?;
         let job: Job = serde_json::from_value(retained.intent.body.clone())?;
         require(

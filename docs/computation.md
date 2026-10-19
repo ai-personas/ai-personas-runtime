@@ -60,7 +60,7 @@ again at adoption and dispatch.
 The persona invokes the supplied definition using `effect`, copying its
 `capability_id` and `binding_revision`. `inputs` contains `program` (an exact full
 UTF-8 asset reference) and `input` (a string). One computation is permitted per
-decision. A persona may author a program through `file_write` in that same
+decision across computation and [HTTPS retrieval](https-retrieval.md). A persona may author a program through `file_write` in that same
 complete decision, reference it as `proposal-op:SAVE_ID`, and name `SAVE_ID` in
 `depends_on`. Validation binds the exact accepted candidate before dispatch.
 Other effects and unobserved tool results cannot be dependencies.

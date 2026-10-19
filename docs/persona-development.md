@@ -100,14 +100,19 @@ program ran. Compare the supplied instructions with the accepted response and
 the work's actual results to assess skill application.
 
 The native runtime supports explicitly granted [bounded WebAssembly computation](computation.md)
-as well as its internal file, discovery, history and work operations. Shell
-commands, network tools and arbitrary installed software remain unavailable.
+and [HTTPS source retrieval](https-retrieval.md), as well as its internal file,
+discovery, history and work operations. Shell commands and arbitrary installed
+software remain unavailable.
 The legacy `Effect` encoding of `work.command.v1` denotes an internal work operation.
 The view reports supplied computation interfaces, the accepted decision's intent
 count, and `computation_execution`: actual intent states, dispatch and terminal
 receipts, exact program/input digests, engine binding and result. Current source
 permissions protect those records too. An admitted intent alone is not execution.
-An operator's later rendering or calculation is not persona tool use. Broader
+The separate `http_fetch_execution` view reports actual HTTPS intents, URL/client
+bindings and terminal evidence, and `supplied_http_fetch_interfaces` records the
+callables in the accepted input. HTTP result metadata does not mean the remote
+body reached the persona; inspect its later exact read or selection. An operator's
+later rendering or calculation is not persona tool use. Broader
 external adapters remain an implementation gap against the design.
 The runtime does not inherit the coding agent's tools or installed Codex skills.
 An operator can retain a guide with `import-supporting-file`; the persona must

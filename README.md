@@ -38,8 +38,9 @@ work result to judge how the persona used them.
 Personas use internal file, search, history and collaboration operations. An
 explicit work grant also permits [bounded WebAssembly computation](docs/computation.md)
 after the persona reads or selects its exact guide. Program execution produces
-durable intent and result receipts. Shell commands, network tools and arbitrary
-installed software remain unavailable. A supplied skill guide alone does not
+durable intent and result receipts. [HTTPS source retrieval](docs/https-retrieval.md)
+is available with an expiring work grant, exact permitted origins and compatible
+source policies. Shell commands and arbitrary installed software remain unavailable. A supplied skill guide alone does not
 establish execution or skill application.
 
 [Inspect persona development](docs/persona-development.md) explains requester

@@ -277,6 +277,7 @@ fn invocation_evidence(
         "supplied_characteristic_revisions":supplied,
         "resource_use":resource_use::inspect(state, audience, &prepared, &control, &qualified, &proof)?,
         "computation_execution":tools::inspect(app, state, audience, &proof)?,
+        "http_fetch_execution":http_tools::inspect(app, state, audience, &proof)?,
         "accepted_decision":accepted_decision_view(state, audience, &archive)?,
         "input_accounting":{
             "prompt_utf8_bytes":prepared.prompt.len(),

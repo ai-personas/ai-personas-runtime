@@ -56,6 +56,10 @@ enum Command {
         /// Exact processing destination named in the new local sharing policy.
         #[arg(long)]
         destination: String,
+        /// Permit new local source material to be processed at these HTTPS origins.
+        /// Repeat for multiple origins. Does not grant or start HTTP execution.
+        #[arg(long = "http-origin")]
+        http_origins: Vec<String>,
         #[arg(long, default_value_t = 3)]
         cohort: usize,
         #[arg(long, default_value_t = 1)]
@@ -265,6 +269,12 @@ enum Command {
     RevokeComputation { grant: String },
     /// Settle pending computations; never replay a dispatched execution.
     RecoverComputations,
+    /// Grant finite HTTPS retrieval for one persona/work, exact guide and origins.
+    GrantHttpFetch { file: PathBuf },
+    /// Permanently revoke an HTTPS allocation without refunding it.
+    RevokeHttpFetch { grant: String },
+    /// Settle HTTPS retrieval; never replay a dispatched request.
+    RecoverHttpFetches,
     AddNeed {
         file: PathBuf,
     },
@@ -611,6 +621,7 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             persona_seeds,
             working_directory,
             destination,
+            http_origins,
             cohort,
             owner,
             max_steps,
@@ -630,6 +641,7 @@ async fn run(cli: Cli) -> runtime::Result<()> {
                 cohort: *cohort,
                 owner: *owner,
                 destination: destination.clone(),
+                http_origins: http_origins.iter().cloned().collect(),
                 provider: runtime::read_json_file(provider_config, 262_144)?,
                 working_directory: working_directory.clone(),
                 share_cohort: *share_cohort,
@@ -793,6 +805,21 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         let mut app = launch::open(root, Some(operator))?;
         let count = app.recover_computations(runtime::unix_now()?)?;
         return emit(&serde_json::json!({"settled_jobs":count,"dispatched_replayed":false}));
+    }
+    if let Command::GrantHttpFetch { file } = &cli.command {
+        let request: runtime::HttpFetchGrantRequest = runtime::read_json_file(file, 16_384)?;
+        let mut app = launch::open(root, Some(operator))?;
+        return emit(&app.grant_http_fetch(operator, request, runtime::unix_now()?)?);
+    }
+    if let Command::RevokeHttpFetch { grant } = &cli.command {
+        let mut app = launch::open(root, Some(operator))?;
+        app.revoke_http_fetch(operator, grant)?;
+        return emit(&serde_json::json!({"revoked":grant}));
+    }
+    if let Command::RecoverHttpFetches = &cli.command {
+        let mut app = launch::open(root, Some(operator))?;
+        let count = app.recover_http_fetches(runtime::unix_now()?)?;
+        return emit(&serde_json::json!({"visited_jobs":count,"dispatched_replayed":false}));
     }
     if let Command::InitState { config } = &cli.command {
         let config: Config = runtime::read_json_file(config, 4 * 1024 * 1024)?;
@@ -1402,6 +1429,9 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         | Command::ImportSupportingFile { .. }
         | Command::GrantComputation { .. }
         | Command::RevokeComputation { .. }
+        | Command::GrantHttpFetch { .. }
+        | Command::RevokeHttpFetch { .. }
+        | Command::RecoverHttpFetches
         | Command::RecoverComputations
         | Command::InitState { .. }
         | Command::DispatchSynthetic { .. }

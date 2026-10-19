@@ -2,6 +2,11 @@
 
 A Rust application for personas whose primary language model directs their work, character, behavior, voice, supporting assets, and next-context selection. The application implements a bounded local subset of [design revision 67894561](https://github.com/ai-personas/ai-personas-design/tree/67894561fa88a8f734e8f536bcbafda271b18c63). [Revision 294d5c6](https://github.com/ai-personas/ai-personas-design/tree/294d5c6bf29b6d5fe597c40b4c9c33e9da3bc03c) is its later editorial and illustrated restatement, with the same substantive obligations.
 
+[Bounded WebAssembly computation](docs/computation.md) and
+[HTTPS source retrieval](docs/https-retrieval.md) use explicit persona/work grants,
+selected qualified guides and durable intent/result evidence. HTTPS origins also
+require compatible source processing permissions.
+
 The current executable supports an explicitly controlled local workflow. Full design conformance and unattended production operation are not yet established. `ai-personas doctor` reports the current limits.
 
 [Illustrated quickstart](docs/QUICKSTART.md): setup, one-command work, and how to read the result.
@@ -740,7 +745,7 @@ Bounded warning views and exact receipt accompaniment survive restart and old-re
 
 ## Remaining coverage
 
-Ordinary scheduling is an explicitly invoked bounded local interface, with persisted fair consideration under its declared assumptions; it is not an unattended service and does not launch a live model. Events cover exact one-shot local dependency evidence. External watches, real effect adapters, exports, independent-review attestations and optional between-task exploration remain unsupported. The local warning lifecycle covers explicit primary-owned exact-revision judgments, with the protected-character and range limitations above. The sealed mock-effect fixture does not enable a native runtime capability. Logical allocation limits and prepaid closeout do not establish physical database, remote retention, token, or dollar bounds. A fixture or successful transport does not establish full runtime conformance.
+Ordinary scheduling is an explicitly invoked bounded local interface, with persisted fair consideration under its declared assumptions; it is not an unattended service and does not launch a live model. Events cover exact one-shot local dependency evidence. External watches, general host-process and authenticated remote adapters, exports, independent-review attestations and optional between-task exploration remain unsupported. The implemented external adapters are the explicit bounded computation and HTTPS retrieval profiles described above. The local warning lifecycle covers explicit primary-owned exact-revision judgments, with the protected-character and range limitations above. The sealed mock-effect fixture does not enable a native runtime capability. Logical allocation limits and prepaid closeout do not establish physical database, remote retention, token, or dollar bounds. A fixture or successful transport does not establish full runtime conformance.
 
 For legacy roots, `provision-closeout` explicitly reserves the control capacity from existing resources while unfrozen. It returns an error if that existing capacity cannot support the reservation; it never increases the allowance. Its library equivalent is `Runtime::provision_closeout`.
 

@@ -919,6 +919,7 @@ pub struct SettingsView {
     pub working_directory: PathBuf,
     pub cohort: usize,
     pub share_cohort: bool,
+    pub http_origins: BTreeSet<String>,
     pub direct_provider_authorized: bool,
     pub compatible_for_execution: bool,
     /// Saved credential-reference compatibility only; no credential was read.
@@ -1088,6 +1089,7 @@ fn settings_view(state: &State, saved: &Saved, now: u64) -> SettingsView {
         working_directory: saved.working_directory.clone(),
         cohort: saved.setup.cohort,
         share_cohort: saved.setup.share_cohort,
+        http_origins: saved.setup.http_origins.clone(),
         direct_provider_authorized: state.config.allow_direct_provider,
         compatible_for_execution: admission_extension::validate_saved(state, saved).is_ok(),
         codex_auth_only_supported: provider.as_ref().is_some_and(supports_codex_auth_only),

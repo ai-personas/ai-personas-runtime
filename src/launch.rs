@@ -91,6 +91,8 @@ pub struct Setup {
     pub provider: DirectProviderSettings,
     pub working_directory: PathBuf,
     pub share_cohort: bool,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub http_origins: BTreeSet<String>,
     pub max_steps: usize,
     pub max_considerations: usize,
     pub max_work_attempts: u64,
@@ -110,6 +112,8 @@ struct SavedSetup {
     provider: serde_json::Value,
     working_directory: PathBuf,
     share_cohort: bool,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    http_origins: BTreeSet<String>,
     max_steps: usize,
     max_considerations: usize,
     max_work_attempts: u64,
@@ -293,11 +297,16 @@ fn setup_parts(operator: &str, settings: Setup, opt_in: bool) -> Result<(Config,
     )?;
     let mut audience: BTreeSet<_> = ids.iter().cloned().collect();
     audience.insert(operator.into());
+    require(settings.http_origins.len() <= 8
+        && settings.http_origins.iter().all(|origin| crate::http_fetch::valid_origin(origin)),
+        "setup HTTPS origins must be canonical; at most eight")?;
+    let mut processing_destinations = settings.http_origins.clone();
+    processing_destinations.insert(settings.destination.clone());
     let policy = f::Policy {
         id: POLICY.into(),
         revision: "1".into(),
         readers: ids.into_iter().collect(),
-        processing_destinations: BTreeSet::from([settings.destination.clone()]),
+        processing_destinations,
         audience,
         derivative_use: f::DerivativeUse::AllowDerivatives,
         expires_at_unix: None,

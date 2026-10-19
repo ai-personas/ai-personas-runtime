@@ -38,6 +38,10 @@ struct ExpandedState {
     computation_grants: BTreeMap<String, tools::Grant>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     computation_jobs: BTreeMap<String, tools::JobMarker>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    http_fetch_grants: BTreeMap<String, http_tools::Grant>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    http_fetch_jobs: BTreeMap<String, http_tools::JobMarker>,
     operator_events: Vec<Value>,
 }
 
