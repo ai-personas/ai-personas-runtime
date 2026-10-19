@@ -121,6 +121,22 @@ complete required closure still apply. Result projections retain the executed
 binding without repeating its input schema; current callable definitions are
 supplied separately. The original retained execution evidence is unchanged.
 
+Every recorded result also has a protected supporting file under
+`tools/results/`. It retains the exact input, output or failure, program and
+engine bindings, and terminal evidence. Its author is `runtime-computation`;
+its origin identifies the actual invocation and intent. It inherits input
+restrictions and required qualifications, consumes the existing corpus and
+Store retention allowances, and cannot be edited as persona-authored prose.
+
+`CONTROL.computation_state.retained_results` supplies exact file references for
+this persona's results in the current work, subject to current permissions.
+These are metadata only. The primary may read or select a result with
+`next_assets` when its full qualified bundle fits. Selecting a result avoids a
+whole-history search and does not depend on the smaller navigation result-byte
+limit. The normal assembled-context and provider-input limits still apply.
+Later works can discover the retained files through ordinary asset search.
+No result file is automatically selected or treated as a current execution grant.
+
 An interruption after adoption blocks another invocation until host settlement.
 `recover-computations` may dispatch a still-admitted intent only if its exact
 prerequisites remain current. It never reruns an intent already dispatched.
@@ -129,6 +145,13 @@ Without one, execution remains uncertain and retains its resource hold; further
 computation for that persona/work is unavailable. A changed prerequisite cancels
 an undispatched intent. An exact accepted-response replay returns the original
 adoption and does not start execution again.
+
+Recovery also materializes missing result files from already-retained terminal
+evidence, without changing old observations or executing a program again. Keep
+the updated runtime helpers after these files are created: older readers may
+not recognize the `computation_result` revision-origin format. Capacity failures
+retain the execution evidence and require capacity recovery; they never permit
+reexecution or silently omit required qualifications.
 
 Use `development PERSONA --invocation CALL` to inspect the accepted
 decision's supplied guide, callable definition and `computation_execution`

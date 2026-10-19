@@ -58,6 +58,8 @@ pub struct JobMarker {
     pub operation: String,
     pub state: s::IntentState,
     pub observation: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_source: Option<p::ExactRef>,
     pub exposure: Exposure,
 }
 
@@ -326,6 +328,7 @@ pub(super) fn stage(
             "computation input lineage unavailable",
         )?;
         let intent_id = composite_id("computation", &[&prepared.request.id, id]);
+        result_location(state, &intent_id, &prepared.request.persona)?;
         let marker = JobMarker {
             actor: prepared.request.persona.clone(),
             work: prepared.request.work.clone(),
@@ -333,6 +336,7 @@ pub(super) fn stage(
             operation: id.clone(),
             state: s::IntentState::Admitted,
             observation: None,
+            result_source: None,
             exposure: exposure.clone(),
         };
         let job = Job {
@@ -480,7 +484,7 @@ impl Runtime {
             .snapshot()?
             .computation_jobs
             .iter()
-            .filter(|(_, j)| j.observation.is_none())
+            .filter(|(_, j)| j.observation.is_none() || j.result_source.is_none())
             .map(|(id, _)| id.clone())
             .collect();
         for id in &ids {
@@ -497,7 +501,7 @@ impl Runtime {
             .computation_jobs
             .get(id)
             .ok_or_else(|| held("computation admission absent"))?;
-        if marker.observation.is_some() {
+        if marker.observation.is_some() && marker.result_source.is_some() {
             return Ok(());
         }
         let prepared = decode_prepared(&self.store.trusted_host().invocation(&job.invocation)?)?;
@@ -677,34 +681,90 @@ impl Runtime {
         // Retain accompanying qualifications as actual future supplied bodies,
         // not only hidden lineage. The program body itself remains selectable.
         let qualifications = qualifications(&state, &job.exposure.sources);
-        add_observation(
-            &mut state,
-            &prepared,
-            &job.operation,
-            "computation_result",
-            payload,
-            job.exposure.sources.clone(),
-            qualifications,
-            now,
-        )?;
         let observation_id = observation_id(&job.invocation, "computation_result", &job.operation);
-        extend_exposure(
-            state
-                .observations
-                .get_mut(&observation_id)
-                .unwrap()
-                .exposure
-                .as_mut()
-                .unwrap(),
-            &job.exposure,
-        );
+        if let Some(existing) = state.computation_jobs[id].observation.as_ref() {
+            let observation = state.observations.get(existing)
+                .ok_or_else(|| held("retained computation observation absent"))?;
+            require(existing == &observation_id && observation.payload == payload,
+                "retained computation observation changed")?;
+        } else {
+            add_observation(
+                &mut state,
+                &prepared,
+                &job.operation,
+                "computation_result",
+                payload.clone(),
+                job.exposure.sources.clone(),
+                qualifications,
+                now,
+            )?;
+            extend_exposure(
+                state.observations.get_mut(&observation_id).unwrap().exposure.as_mut().unwrap(),
+                &job.exposure,
+            );
+        }
+        let result_source = retain_result(&mut state, id, &job, &payload)?;
         let marker = state.computation_jobs.get_mut(id).unwrap();
         marker.state = retained.state;
         marker.observation = Some(observation_id);
+        marker.result_source = Some(result_source);
         // Factual result persistence never changes continuation, permit or work phase.
         self.save(&old, &state)?;
         Ok(())
     }
+}
+
+/// A protected supporting file lets the primary select an exact old result
+/// without scanning all history or executing the program again. Its body is
+/// host evidence, and inherits every input restriction and required qualifier.
+fn result_location(state: &State, id: &str, actor: &str) -> Result<(String, String)> {
+    let digest = s::sha256_bytes(id.as_bytes());
+    let source = format!("computation-result:{digest}");
+    let path = format!("tools/results/{digest}.json");
+    require(!state.sources.contains_key(&source), "computation result source conflict")?;
+    require(!state.sources.values().any(|entry| !entry.retired && entry.owner == actor
+        && entry.revisions.iter().any(|r| r.record.revision == entry.head
+            && r.record.scope == f::Scope::Assets && r.record.path == path)),
+        "computation result path conflict")?;
+    Ok((source, path))
+}
+
+fn retain_result(state: &mut State, id: &str, job: &Job, payload: &Value) -> Result<p::ExactRef> {
+    let (source, path) = result_location(state, id, &job.actor)?;
+    let policy = record(state, &file_reference(&job.interface.guide)?)?.record.policy.clone();
+    let mut required = qualifications(state, &job.exposure.sources);
+    required.push(file_reference(&job.interface.guide)?);
+    required.sort();
+    required.dedup();
+    let mut body = payload.clone();
+    if let Some(capability) = body.get_mut("capability").and_then(Value::as_object_mut) {
+        capability.remove("inputs_schema");
+    }
+    body["record_kind"] = json!("host_computation_result_v1");
+    body["actor"] = json!(job.actor);
+    body["work"] = json!(job.work);
+    body["invocation"] = json!(job.invocation);
+    let file = f::FileRevision {
+        source: source.clone(), revision: String::new(), path,
+        scope: f::Scope::Assets, bytes: serde_json::to_vec(&body)?,
+        author: "runtime-computation".into(), policy,
+        qualifications: required, retired: false,
+    }.seal()?;
+    let reference = wire_reference(&file.reference(f::Representation::Utf8));
+    let terminal_evidence = serde_json::from_value(payload["terminal_evidence"].clone())?;
+    state.sources.insert(source, Source {
+        owner: job.actor.clone(), protected: true, retired: false,
+        head: file.revision.clone(), imported_by: None,
+        revisions: vec![ManagedRevision {
+            record: file, lineage: job.exposure.sources.clone(), exposure: Some(job.exposure.clone()),
+            origin: Some(RevisionOrigin::ComputationResult {
+                actor: job.actor.clone(), work: job.work.clone(), invocation_id: job.invocation.clone(),
+                intent_id: id.into(), terminal_evidence,
+            }),
+        }],
+    });
+    validate_inventory(state)?;
+    Ok(reference)
 }
 
 pub(super) fn qualifications(state: &State, sources: &[f::Reference]) -> Vec<f::Reference> {
@@ -744,6 +804,20 @@ pub(super) fn control(
     a: &f::Admission,
     exposure: &mut Exposure,
 ) -> Value {
+    let mut results = Vec::new();
+    for (id, job) in state.computation_jobs.iter().filter(|(_, job)| job.actor == actor && job.work == work) {
+        if let Some(reference) = &job.result_source {
+            if let Ok(file) = file_reference(reference) {
+                if exposure_permitted(state, &job.exposure, a)
+                    && lineage_permitted(state, std::slice::from_ref(&file), a) {
+                    extend_exposure(exposure, &job.exposure);
+                    exposure.sources.push(file);
+                    results.push(json!({"intent":id,"invocation":job.invocation,
+                        "operation":job.operation,"state":job.state,"source":reference,"metadata_only":true}));
+                }
+            }
+        }
+    }
     let entries: Vec<_> = state.computation_jobs.iter().filter(|(_, job)| job.actor == actor && job.work == work
         && matches!(job.state, s::IntentState::Admitted | s::IntentState::Dispatched | s::IntentState::Uncertain))
         .map(|(id, job)| {
@@ -754,10 +828,12 @@ pub(super) fn control(
                 json!({"status":"withheld_unavailable","body_supplied":false,"automatic_replay":false})
             }
         }).collect();
-    if entries.is_empty() {
+    if entries.is_empty() && results.is_empty() {
         Value::Null
     } else {
-        json!({"unresolved":entries,"meaning":"No completion is inferred. Uncertain computation requires host recovery; it is not replayed or treated as free, and blocks further computation for this persona/work."})
+        json!({"unresolved":entries,"retained_results":results,
+            "retrieval":"Exact protected supporting files from this persona/work, metadata only. Read or select the source under next_assets to recover its inputs, output and terminal evidence with required qualifications. Selection can avoid a history scan and a read-result byte limit. Do not rerun a computation to recover a receipt. Files are host records, not current callable grants or persona-authored judgments. Inaccessible results are omitted.",
+            "meaning":"No work completion is inferred. Uncertain computation requires host recovery; it is not replayed or treated as free, and blocks further computation for this persona/work."})
     }
 }
 
@@ -820,6 +896,7 @@ pub(super) fn inspect(
             )?)?);
         }
         results.push(json!({"intent":id,"state":retained.state,"operation":job.operation,
+            "result_source":state.computation_jobs.get(id).and_then(|job| job.result_source.as_ref()),
             "binding":job.interface,"program":job.program_reference,
             "program_sha256":s::sha256_bytes(job.program.as_bytes()),"input_sha256":s::sha256_bytes(job.input.as_bytes()),
             "receipts":retained.history,"terminal":terminal,

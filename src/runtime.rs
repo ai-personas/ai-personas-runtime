@@ -546,6 +546,13 @@ pub enum RevisionOrigin {
         invocation_id: String,
         operation_id: String,
     },
+    ComputationResult {
+        actor: String,
+        work: String,
+        invocation_id: String,
+        intent_id: String,
+        terminal_evidence: Option<s::ObjectRef>,
+    },
     LocalEvidence {
         operator: String,
         actor: String,
@@ -6125,6 +6132,9 @@ fn attributed_context(
             let author_status = match &stored.origin {
                 Some(RevisionOrigin::OperatorImport { .. }) => "operator-imported author assertion",
                 Some(RevisionOrigin::PersonaInvocation { .. }) => "accepted persona authorship",
+                Some(RevisionOrigin::ComputationResult { .. }) => {
+                    "host-retained computation result; no persona authorship or correctness claim"
+                }
                 Some(RevisionOrigin::LocalEvidence { .. }) => {
                     "host-retained local mock evidence; no persona authorship or goal-success claim"
                 }
@@ -7053,6 +7063,8 @@ fn render_mode_with_history(
     }
     let computation_control = tools::control(state, actor, work_id, &a, &mut exposure);
     if !computation_control.is_null() {
+        growth_bytes = growth_bytes.checked_add(serde_json::to_vec(&computation_control)?.len())
+            .ok_or_else(|| invalid("computation context growth overflow"))?;
         core["computation_state"] = computation_control;
     }
     if let Some(interface) = &need_interface {
