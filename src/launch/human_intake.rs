@@ -320,6 +320,7 @@ fn plan(
         w::Origin::Human(saved.operator.clone()),
         exposure,
         None,
+        None,
     )?;
     let previous_episode_binding = intake_delegation::episode_launch_binding(&saved)?;
     saved.works.insert(request.work_id.clone(), None);

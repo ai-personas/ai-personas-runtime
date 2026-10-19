@@ -46,6 +46,11 @@ establish execution or skill application.
 [Inspect persona development](docs/persona-development.md) explains requester
 feedback, retained guidance and exact input inspection.
 
+Operators can separately enable [finite optional activity](docs/optional-activity.md)
+without an assigned topic or deliverable. Personas choose whether to explore or
+talk within that opportunity. Existing foreground work takes priority; activity
+has shared funding, expiry and explicit recurrence bounds.
+
 Use `--feedback feedback.json` to give a participant feedback within its existing
 work. The JSON contains `id`, `work`, `persona`, and `text`. Continue the work to
 see how it responds. Personas choose whether to refine their characteristic

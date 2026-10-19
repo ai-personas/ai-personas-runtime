@@ -21,6 +21,8 @@ pub struct Output {
     pub completion_supported: Option<bool>,
     /// Latest permitted historical completion; no current support assertion.
     pub recorded_completion: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub optional_activity_ending: Option<Value>,
     /// Exact permitted receipt for the focus release; not global freshness.
     pub status_delivery: Option<String>,
     pub last_attempt: Option<Value>,
@@ -114,6 +116,7 @@ pub(super) fn project(app: &mut Runtime, work_id: &str, saved: &Saved) -> Result
         focus_release: None,
         completion_supported: None,
         recorded_completion: None,
+        optional_activity_ending: None,
         status_delivery: None,
         last_attempt: None,
         messages: Vec::new(),
@@ -130,6 +133,10 @@ pub(super) fn project(app: &mut Runtime, work_id: &str, saved: &Saved) -> Result
     // an independently retained basis for current global phase/attempt status.
     // Explicit trusted operator status remains a separate interface.
     result.status = "current-state-unestablished".into();
+    result.optional_activity_ending = optional_activity::ending_for_recipient(&state,work_id,&saved.operator,now)?;
+    if result.optional_activity_ending.is_some() {
+        result.status = "optional-activity-ended-as-recorded".into();
+    }
     let completion = closure_readiness::recorded_completion_for_recipient(
         &state,
         work_id,

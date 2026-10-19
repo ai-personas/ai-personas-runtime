@@ -81,6 +81,7 @@ pub(super) fn construct_host_need(
     origin: w::Origin,
     need_exposure: Exposure,
     authored_origin: Option<Value>,
+    optional_activity: Option<w::OptionalActivity>,
 ) -> Result<State> {
     validate_input(operator, input)?;
     allocation.validate()?;
@@ -155,6 +156,7 @@ pub(super) fn construct_host_need(
             request: input.request.clone(),
             supplied: BTreeSet::new(),
             boundaries: work_ref(&input.id, "boundaries", &input.boundaries)?,
+            optional_activity,
         },
         mandate,
     )?;

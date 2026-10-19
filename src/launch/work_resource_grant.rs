@@ -254,6 +254,7 @@ fn target<'a>(state: &'a State, saved: &Saved, work: &str) -> Result<&'a WorkMet
         !need_proposals::bound(state, work),
         "episode-bound work requires separate explicit episode authority",
     )?;
+    require(!optional_activity::bound(state, work), "optional episode allowances cannot be refilled by an ordinary work grant")?;
     require(
         matches!(
             state.board.work(&w::WorkId(work.into()))?.phase,

@@ -434,6 +434,7 @@ fn child_input(
         request: proposal.request.clone(),
         supplied: BTreeSet::new(),
         boundaries: work_ref(&request.child_work_id, "boundaries", &grant.boundaries)?,
+        optional_activity: None,
     };
     let outcomes: BTreeMap<_, _> = proposal
         .outcomes
@@ -669,6 +670,7 @@ fn plan(
             "response_sha256":pending.response_sha256,"proposal_sha256":pending.proposal_sha256,
             "request_sha256":pending.request_sha256,"receipt_id":binding.receipt_id,
             "intake_operator":request.operator,"acceptance_inferred":false})),
+        None,
     )?;
     if let Some(after) = parent_after {
         let meta = next

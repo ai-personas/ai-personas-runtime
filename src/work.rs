@@ -100,12 +100,23 @@ pub enum Origin {
     Human(String),
     Persona(PersonaId),
 }
+/// Host-bound optional activity, not an assigned artifact outcome. The runtime
+/// must separately establish the current opportunity, funding and eligibility.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OptionalActivity {
+    pub opportunity: ExactRef,
+    pub episode: String,
+    pub expires_at_unix: u64,
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Need {
     pub origin: Origin,
     pub request: String,
     pub supplied: BTreeSet<ExactRef>,
     pub boundaries: ExactRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub optional_activity: Option<OptionalActivity>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RequiredOutcome {
@@ -283,6 +294,9 @@ pub struct Participant {
 pub enum EndingKind {
     Canceled,
     Unfinished,
+    /// All participating personas ended this optional activity. This is not an
+    /// artifact completion, evidence of benefit, or authority for recurrence.
+    OptionalActivityEnded,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Phase {
@@ -924,7 +938,7 @@ impl WorkBoard {
         if self.works.contains_key(&ctx.work) {
             return Err(WorkError::Conflict);
         }
-        validate_mandate(&mandate, &self.personas)?;
+        validate_mandate(&mandate, &self.personas, need.optional_activity.as_ref())?;
         arrangements::validate_delegation(&ctx.work, &need, &mandate, &ctx.principal)?;
         require(mandate.revision == 1, "initial mandate revision")?;
         let work = Work {
@@ -1141,7 +1155,7 @@ impl WorkBoard {
                             "live mandate amendment after acceptance",
                         ));
                     }
-                    validate_mandate(&m, &personas)?;
+                    validate_mandate(&m, &personas, w.need.optional_activity.as_ref())?;
                     arrangements::validate_delegation(&ctx.work, &w.need, &m, &ctx.principal)?;
                     require(
                         m.revision == increment(w.current_mandate)? && m.authority == ctx.authority,
@@ -1212,6 +1226,18 @@ impl WorkBoard {
                         return Err(WorkError::Stopped);
                     }
                     require(text(&reason), "ending reason")?;
+                    if kind == EndingKind::OptionalActivityEnded {
+                        require(
+                            w.need.optional_activity.is_some()
+                                && w.mandate().outcomes.is_empty()
+                                && w.mandate().review_roles.is_empty()
+                                && w.participants.iter().all(|(id, participant)| {
+                                    w.acceptance(id).is_none()
+                                        || matches!(participant.continuation, Some(Continuation::Ended { .. }))
+                                }),
+                            "optional activity has continuing accepted participation",
+                        )?;
+                    }
                     end_continuations(w, &reason);
                     w.version.epoch = increment(w.version.epoch)?;
                     w.phase = Phase::Ended { kind, reason, by };
@@ -1549,15 +1575,32 @@ fn record_event(w: &mut Work, event: Event, audience: Option<BTreeSet<PersonaId>
     Ok(true)
 }
 
-fn validate_mandate(m: &Mandate, personas: &BTreeSet<PersonaId>) -> Result<()> {
+fn validate_mandate(
+    m: &Mandate,
+    personas: &BTreeSet<PersonaId>,
+    activity: Option<&OptionalActivity>,
+) -> Result<()> {
     require(
         m.revision > 0 && text(&m.terms) && m.authority.valid() && m.assumptions.valid(),
         "mandate",
     )?;
-    require(
-        !m.outcomes.is_empty() && !m.delivery_to.is_empty(),
-        "explicit outcomes and delivery recipients",
-    )?;
+    if let Some(activity) = activity {
+        require(
+            activity.opportunity.valid()
+                && text(&activity.episode)
+                && activity.expires_at_unix > 0
+                && m.outcomes.is_empty()
+                && m.review_roles.is_empty()
+                && m.delivery_to.is_empty()
+                && m.stakeholders.is_empty(),
+            "optional activity binding without assigned outcomes, reviews or delivery",
+        )?;
+    } else {
+        require(
+            !m.outcomes.is_empty() && !m.delivery_to.is_empty(),
+            "explicit outcomes and delivery recipients",
+        )?;
+    }
     require(
         m.delivery_to.iter().chain(&m.stakeholders).all(|s| text(s)),
         "recipient identities",
@@ -2270,6 +2313,7 @@ fn apply_command(
                     w.releases.insert(id, r);
                 }
                 Command::CloseGoal { release } => {
+                    require(w.need.optional_activity.is_none(), "optional activity has no artifact completion goal")?;
                     decision_right(w, &by.persona)?;
                     if !closure_ready(w, &release) {
                         return Err(WorkError::Unmet);
@@ -2298,7 +2342,7 @@ fn set_continuation(
     match &continuation {
         Continuation::Ended { reason } => {
             require(text(reason), "ending explanation")?;
-            if has_responsibility {
+            if has_responsibility && w.need.optional_activity.is_none() {
                 return Err(WorkError::Unauthorized);
             }
         }

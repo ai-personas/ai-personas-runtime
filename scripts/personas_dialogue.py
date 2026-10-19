@@ -1296,8 +1296,12 @@ class Dialogue:
 
     def output(self, work, summary=False, invocation=None, receipt_json=False):
         result = self.session("result", work)
-        self.ui.say(f"Work {work}: {result.get('status', 'unavailable')}. "
-                    "Local delivery/attributed completion is not independent quality or human acceptance.")
+        if result.get("optional_activity_ending"):
+            self.ui.say(f"Work {work}: the optional activity ended as recorded. "
+                        "No artifact or later benefit was required or established.")
+        else:
+            self.ui.say(f"Work {work}: {result.get('status', 'unavailable')}. "
+                        "Local delivery/attributed completion is not independent quality or human acceptance.")
         messages = result.get("messages", [])
         deliveries = result.get("local_deliveries", [])
         if summary:

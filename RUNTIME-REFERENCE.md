@@ -242,7 +242,11 @@ most 12 steps per command by default, within 32 attempts per work, 256 attempted
 foreground steps across all saved work IDs, and 32 work IDs. Setup flags can
 lower or change these finite bounds. Existing Store and runtime limits remain
 controlling. Resume never replenishes them. There is no daemon, polling loop,
-model substitution, automatic failed-response retry or between-task exploration.
+model substitution or automatic failed-response retry. Separately enabled
+[optional activity](docs/optional-activity.md) can admit finite episodes without
+an assigned topic or artifact. It has an exact opportunity, shared allocation,
+expiry, bounded explicit recurrence and foreground priority; nothing runs
+between tasks unless that opportunity and a bounded session are authorized.
 An authored `immediate` continuation requests another admission even if no new
 input arrives. Its purpose text is not an event condition. The application schema
 states this behavior alongside explicit wait, pause and stop semantics, and

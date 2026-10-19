@@ -483,7 +483,8 @@ impl Clock for SystemClock {
     }
 }
 
-/// Opt-in guard for one finite intake grant, not general exposure-policy support.
+/// Opt-in guard for one finite episode grant, not general exposure-policy support.
+/// The retained name covers intake delegation and optional-activity deadlines.
 /// A trusted transport must call begin_launch at its final actual launch boundary.
 /// The shared observation survives cancellation or dropping the transport future.
 pub struct IntakeLaunchGuard {
@@ -547,9 +548,9 @@ pub enum Failure {
     InvalidCredential,
     #[error("OAuth credential expired; a separate access renewal is required")]
     CredentialExpired,
-    #[error("intake delegation expired before provider launch")]
+    #[error("episode authorization expired before provider launch")]
     IntakeExpired,
-    #[error("provider or transport cannot enforce the final intake launch guard")]
+    #[error("provider or transport cannot enforce the final episode launch guard")]
     IntakeGuardUnsupported,
     #[error("credential grant does not match the selected mode")]
     GrantMismatch,

@@ -20,6 +20,7 @@ mod initialization;
 mod intake;
 pub use intake::WorkAllocation;
 mod need_proposals;
+mod optional_activity;
 pub use need_proposals::{IntakeEpisodeSnapshot, NeedInterface, PendingNeedProposal};
 #[path = "launch.rs"]
 pub mod launch;
@@ -645,6 +646,12 @@ pub struct Message {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NeedOrigin {
     Human,
+    /// A host-written availability notice bound to an operator-enabled opportunity,
+    /// not a quoted human task request or a persona-authored purpose.
+    OptionalOpportunity {
+        opportunity: w::ExactRef,
+        episode: String,
+    },
     /// Host intake resolves an adopted reply or Communicate operation.
     /// Delegated intake separately proves an adopted closed ProposeNeed operation.
     PersonaResponse {
@@ -812,6 +819,7 @@ pub struct State {
     pub computation_jobs: BTreeMap<String, tools::JobMarker>,
     pub http_fetch_grants: BTreeMap<String, http_tools::Grant>,
     pub http_fetch_jobs: BTreeMap<String, http_tools::JobMarker>,
+    pub(crate) optional_activities: BTreeMap<String, optional_activity::Opportunity>,
     pub operator_events: Vec<Value>,
 }
 
@@ -2195,6 +2203,7 @@ pub(crate) fn runtime_opportunity(
     let now_unix = i64::try_from(now).ok()?;
     if need_proposals::route_reason(state, &work.0, now_unix).is_some()
         || need_proposals::actor_reason(state, &work.0, &actor.0).is_some()
+        || optional_activity::route_reason(state, &work.0, &actor.0, now_unix).is_some()
     {
         return None;
     }
@@ -2291,6 +2300,9 @@ fn active_invocations(state: &State) -> BTreeMap<String, String> {
         .collect()
 }
 fn continuation_permit(state: &State, actor: &str, work: &str) -> bool {
+    if optional_activity::route_reason(state, work, actor, unix_now().unwrap_or(-1)).is_some() {
+        return false;
+    }
     if need_proposals::actor_reason(state, work, actor).is_some() {
         return false;
     }
@@ -2359,7 +2371,9 @@ fn scheduler_entry(
     now: i64,
 ) -> Result<SchedulerConsideration> {
     let current = state.board.work(&work)?;
-    let reason = if let Some(reason) = need_proposals::actor_reason(state, &work.0, &persona.0) {
+    let reason = if let Some(reason) = optional_activity::route_reason(state, &work.0, &persona.0, now) {
+        Some(reason)
+    } else if let Some(reason) = need_proposals::actor_reason(state, &work.0, &persona.0) {
         Some(reason)
     } else if let Some(reason) = need_proposals::route_reason(state, &work.0, now) {
         Some(reason)
@@ -2620,6 +2634,7 @@ fn initial_state(config: Config, operator: &str) -> State {
         computation_jobs: BTreeMap::new(),
         http_fetch_grants: BTreeMap::new(),
         http_fetch_jobs: BTreeMap::new(),
+        optional_activities: BTreeMap::new(),
         operator_events: vec![json!({"kind":"initialization","operator":operator})],
     }
 }
@@ -3015,6 +3030,9 @@ impl Runtime {
         let mut authored_origin = None;
         let origin = match &input.origin {
             NeedOrigin::Human => w::Origin::Human(operator.into()),
+            NeedOrigin::OptionalOpportunity { .. } => {
+                return Err(held("optional opportunities require the dedicated bounded episode admission"));
+            }
             NeedOrigin::PersonaResponse {
                 invocation_id,
                 operation_id,
@@ -3088,6 +3106,7 @@ impl Runtime {
             origin,
             need_exposure,
             authored_origin,
+            None,
         )?;
         self.save(&old, &state)?;
         Ok(())
@@ -3725,6 +3744,7 @@ impl Runtime {
         {
             return Err(held(reason));
         }
+        optional_activity::require_current(&state, &request.work, &request.persona, now)?;
         tools::require_settled(&state, &request.persona, &request.work)?;
         http_tools::require_settled(&state, &request.persona, &request.work)?;
         let meta = state
@@ -3876,6 +3896,7 @@ impl Runtime {
                 meta.repair_attempts_left -= 1;
             }
         }
+        optional_activity::record_admission(&mut state, &request, now)?;
         let epoch = increment(start_epoch)?;
         let history_material = history::records::Material::pending(
             &mut self.store,
@@ -4022,6 +4043,7 @@ impl Runtime {
             request_context::decode(&prepared)?;
         }
         prepared.provider_preparation = hook(&prepared)?;
+        optional_activity::seal_admission(&mut state, &prepared)?;
         let request_value = serde_json::to_value(&prepared)?;
         let input_bytes = (serde_json::to_vec(&request_value)?.len() as u64)
             .checked_mul(2)
@@ -4088,6 +4110,7 @@ impl Runtime {
         )?;
         let (_, state) = self.load()?;
         self.current(&state, &prepared, now)?;
+        optional_activity::require_current(&state, &prepared.request.work, &prepared.request.persona, now)?;
         Ok(self.store.dispatch_invocation(id)?)
     }
     /// Validate complete raw fixture bytes first, then dispatch and adopt under
@@ -4253,6 +4276,7 @@ impl Runtime {
             }
             planning_exposure.unknown();
             self.current(&state, &prepared, now)?;
+            optional_activity::require_response(&state, &prepared, &decision, now)?;
             planning_exposure = PlanningExposure::new(prepared.exposure.as_ref());
             let (mut next, report, accepted_writes, intents) = plan_response(
                 state,
@@ -4276,6 +4300,13 @@ impl Runtime {
                 now,
             )?;
             planning_exposure = before_proposal;
+            if matches!(report.status, AdoptionStatus::Adopted)
+                && prepared.request.mode == Mode::Ordinary
+                && matches!(decision.continuation, p::Continuation::Stop { .. })
+            {
+                planning_exposure.unknown();
+                optional_activity::finish_if_stopped(&mut next, &prepared, now)?;
+            }
             Ok((next, report, pending, intents))
         })();
         let (next, mut report, pending_changes, mut intents) = match plan {
@@ -5462,9 +5493,10 @@ impl Runtime {
         let authorization = (|| -> Result<()> {
             let (_, fresh) = self.load()?;
             self.current(&fresh, &prepared, unix_now()?)?;
+            optional_activity::require_current(&fresh, &prepared.request.work, &prepared.request.persona, unix_now()?)?;
             let exposure = expanded_exposure(&fresh, prepared_exposure(&prepared)?)?;
             // Credential expiry retains the direct provider's existing check.
-            // The new final-launch guard is restricted to intake grants;
+            // The final-launch guard covers intake and optional-episode grants;
             // unrelated time-limited exposure policies remain unsupported.
             require(
                 exposure
@@ -5477,6 +5509,12 @@ impl Runtime {
             // current registry. Carry its unchanged deadline to actual launch.
             intake_deadline = need_proposals::episode(&fresh, &prepared.request.work)
                 .map(|episode| episode.grant.request.expires_at_unix);
+            if let Some(deadline) = fresh.board.work(&w::WorkId(prepared.request.work.clone()))?
+                .need.optional_activity.as_ref().map(|activity| activity.expires_at_unix)
+            {
+                let deadline = i64::try_from(deadline).map_err(|_| held("optional deadline unavailable"))?;
+                intake_deadline = Some(intake_deadline.map_or(deadline, |prior| prior.min(deadline)));
+            }
             self.store.dispatch_invocation(&prepared.request.id)?;
             Ok(())
         })();
@@ -7274,6 +7312,12 @@ fn render_mode_with_history(
             json!({"id":work_interface.capability_id,"binding_revision":work_interface.binding_revision,"inputs_schema":work_interface.inputs_schema})
         },
         "not_ready":["external effects","top-level Deliver without release binding"],"readiness_limits":readiness()});
+    let optional_control = optional_activity::control(state, work_id)?;
+    if !optional_control.is_null() {
+        growth_bytes = growth_bytes.checked_add(serde_json::to_vec(&optional_control)?.len())
+            .ok_or_else(|| invalid("optional activity control accounting"))?;
+        core["optional_activity"] = optional_control;
+    }
     if !prior_continuation.is_null() {
         core["previous_authored_continuation"] = prior_continuation;
     }
@@ -9258,6 +9302,7 @@ fn validate_messages(
         recipients.extend(audience);
     }
     for recipient in recipients {
+        optional_activity::require_recipient(state, &prepared.request.work, recipient)?;
         require(
             grants.communicate_with.contains(recipient) && prepared.audience.contains(recipient),
             "communication audience not granted or supplied",
@@ -9481,6 +9526,9 @@ fn continuation(
         },
         p::Continuation::Pause { reason } => w::Continuation::Paused {
             reason: reason.clone(),
+        },
+        p::Continuation::Stop { reason } if work.need.optional_activity.is_some() => w::Continuation::Ended {
+            reason: format!("Voluntary optional participation ended: {reason}"),
         },
         p::Continuation::Stop { reason } => w::Continuation::Paused {
             reason: format!("Local stop; responsibility retained: {reason}"),
@@ -10438,6 +10486,7 @@ pub fn readiness() -> Value {
         "mock_effects":"sealed local Store fixture harness only; no external effects",
         "computation":"explicit finite work grant and actually supplied guide; compute.wasm.v1 runs exact WAT after durable adoption and dispatch; no host imports; exact result observations and no uncertain replay",
         "https_retrieval":"explicit expiring persona/work grant and actually supplied guide; https.get.v1 permits direct unauthenticated public HTTPS GET on approved origins; full input policy check, durable receipts, no uncertain replay",
+        "optional_activity":"disabled without an explicit finite opportunity; local episodes have shared funding, expiry, bounded explicit recurrence and foreground priority; voluntary engagement and stopping, no assigned artifact; no timer, automatic inference or nested optional intake",
         "protected_closeout":"prepaid per-work control snapshots support bounded pause and ending during logical admission freeze; physical storage failures remain possible",
         "qualification_bindings":"immutable file identities sealed before coherent exact-version bindings; persisted atomically",
         "synthetic":"explicit fixture transport only; no provider/model evidence",

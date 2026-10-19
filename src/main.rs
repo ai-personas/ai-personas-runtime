@@ -134,6 +134,14 @@ enum Command {
     },
     /// Inspect exact fences and allocation limits for standalone human intake. No inference.
     HumanIntakeSnapshot,
+    /// Inspect optional opportunities and episode allocations without inference or recovery.
+    OptionalActivitySnapshot,
+    /// Enable a finite optional opportunity inside existing resources; starts no work or model call.
+    GrantOptionalActivity { file: PathBuf },
+    /// Admit one explicitly triggered optional episode; starts no model call.
+    StartOptionalActivity { file: PathBuf },
+    /// Prevent further optional starts and discretionary work without erasing incurred costs.
+    RevokeOptionalActivity { file: PathBuf },
     /// Inspect structural Store limits and exact extension fences. No inference.
     StoreCapacitySnapshot,
     /// Inspect assembled-context allocation within existing provider allowances.
@@ -432,6 +440,7 @@ fn human_status(status: &str) -> &str {
         "current-state-unestablished" => "Current work state is not established by this result view.",
         "paused" => "Work is paused.",
         "ended-unfinished" => "Work ended without completion.",
+        "optional-activity-ended-as-recorded" => "The optional activity ended. No artifact or later benefit was required or established.",
         "withheld" => "This result is unavailable under current permissions.",
         "intake-incomplete" => "The request has not completed intake.",
         _ => "Current work state is not established by this result view.",
@@ -1075,6 +1084,9 @@ async fn run(cli: Cli) -> runtime::Result<()> {
     // Its narrow launcher entry meters authority reads against existing Closeout
     // resources and performs no ordinary open recovery or model execution.
     match &cli.command {
+        Command::OptionalActivitySnapshot => {
+            return emit(&launch::optional_activity_snapshot_at(root,operator,runtime::unix_now()?)?);
+        }
         Command::ContextCapacitySnapshot => {
             return emit(&launch::context_capacity::snapshot_at(root, operator)?);
         }
@@ -1139,6 +1151,22 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             }
         }
         Command::HumanIntakeSnapshot => emit(&launch::human_intake_snapshot(&mut app, operator)?),
+        Command::OptionalActivitySnapshot => unreachable!("optional inspection handled before ordinary open"),
+        Command::GrantOptionalActivity { file } => {
+            let request: launch::OptionalActivityRequest = runtime::read_json_file(&file,32_768)?;
+            if request.operator != operator { return Err(argument("optional activity operator mismatch")); }
+            emit(&launch::grant_optional_activity(&mut app,&request,now)?)
+        }
+        Command::StartOptionalActivity { file } => {
+            let request: launch::OptionalActivityStart = runtime::read_json_file(&file,4096)?;
+            if request.operator != operator { return Err(argument("optional activity operator mismatch")); }
+            emit(&launch::start_optional_activity(&mut app,&request,now)?)
+        }
+        Command::RevokeOptionalActivity { file } => {
+            let request: launch::OptionalActivityRevocation = runtime::read_json_file(&file,8192)?;
+            if request.operator != operator { return Err(argument("optional activity operator mismatch")); }
+            emit(&launch::revoke_optional_activity(&mut app,&request,now)?)
+        }
         Command::ContextCapacitySnapshot | Command::ExtendContextCapacity { .. } => {
             unreachable!("context capacity handled before ordinary open")
         }

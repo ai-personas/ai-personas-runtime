@@ -503,6 +503,7 @@ impl Runtime {
         let slot_id = composite_id("http_fetch-result", &[id]);
         if retained.state == s::IntentState::Admitted {
             let authorized = (|| -> Result<()> {
+                optional_activity::require_current(&state, &job.work, &job.actor, now)?;
                 let grant = state
                     .http_fetch_grants
                     .get(&job.interface.grant)
@@ -697,7 +698,9 @@ impl Runtime {
         marker.state = retained.state;
         marker.observation = Some(observation_id);
         marker.result_source = Some(result_source);
-        // Factual result persistence never changes continuation, permit or work phase.
+        // This creates no continuation or permit. An optional episode may close
+        // only after every participant already chose Stop and all jobs settled.
+        optional_activity::finish_if_stopped(&mut state, &prepared, now)?;
         self.save(&old, &state)?;
         Ok(())
     }

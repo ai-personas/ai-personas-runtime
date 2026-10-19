@@ -908,6 +908,8 @@ fn issue_availability(
     }
     let mut currently_enabled_requesters = BTreeMap::new();
     for id in &request.proposal_work_ids {
+        require(!optional_activity::bound(state, id),
+            "optional activity has no nested intake delegation; it cannot create foreground funding or priority")?;
         require(
             !need_proposals::is_child(state, id),
             "delegated children have no further intake delegation authority",

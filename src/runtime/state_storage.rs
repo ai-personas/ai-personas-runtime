@@ -42,6 +42,8 @@ struct ExpandedState {
     http_fetch_grants: BTreeMap<String, http_tools::Grant>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     http_fetch_jobs: BTreeMap<String, http_tools::JobMarker>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    optional_activities: BTreeMap<String, optional_activity::Opportunity>,
     operator_events: Vec<Value>,
 }
 
