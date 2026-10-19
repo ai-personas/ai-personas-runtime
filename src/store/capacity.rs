@@ -80,7 +80,7 @@ fn proposed_limits(request: &CapacityExtensionRequest) -> Result<Limits> {
         || request.protected_closeout_retained_bytes > 256 * MIB
         || request
             .total_navigation_bytes
-            .is_some_and(|n| n < old.total.navigation_bytes || n > 16 * GIB || n % GIB != 0)
+            .is_some_and(|n| n < old.total.navigation_bytes || n > 64 * GIB || n % GIB != 0)
         || request
             .total_retained_bytes
             .is_some_and(|n| n < old.total.retained_bytes || n > 16 * GIB || n % GIB != 0)
@@ -221,15 +221,22 @@ impl Store {
     }
 
     /// The launcher holds execution ownership and authenticates its saved local
-    /// operator before calling. One transaction grows the state-head and pending
+    /// operator through the callback on the exact transaction-bound heads. One
+    /// transaction grows the state-head and pending
     /// control allocations, changes structural limits and appends the immutable
     /// authorization receipt.
-    /// Preview rolls back all candidate changes; its caller's reads are metered.
-    pub(crate) fn extend_runtime_capacity(
+    /// Preview rolls back all candidate changes, including the authority-read
+    /// charge. Apply charges those reads against the explicitly requested limits;
+    /// it need not spend exhausted old funding before admitting the extension.
+    pub(crate) fn extend_runtime_capacity<F>(
         &mut self,
         request: &CapacityExtensionRequest,
         apply: bool,
-    ) -> Result<StoredObject> {
+        authorize: F,
+    ) -> Result<StoredObject>
+    where
+        F: FnOnce(&StoredObject, &StoredObject) -> Result<()>,
+    {
         let limits = proposed_limits(request)?;
         let tx = self
             .connection
@@ -249,6 +256,7 @@ impl Store {
                 "capacity extension fence".into(),
             ));
         }
+        authorize(&state, &launch)?;
         let old_plan = work
             .runtime_control_plan()?
             .ok_or(StoreError::Unsupported("runtime control plan absent"))?;
@@ -289,9 +297,10 @@ impl Store {
         }
         work.limits = &limits;
         work.meta.limits = limits.clone();
+        work.returned(&(&state, &launch), limits.max_read_bytes, BudgetClass::Closeout)?;
         // This terminal-history scan is paid from the explicitly proposed
         // allowance. A rejected or preview transaction grants no new capacity.
-        // Current operator authority was checked using existing Closeout reads.
+        // Current operator authority and its read charge are in this transaction.
         work.require_terminal_invocations()?;
         for resource in RESOURCES {
             work.meta.check_dimension(resource, BudgetClass::Ordinary)?;

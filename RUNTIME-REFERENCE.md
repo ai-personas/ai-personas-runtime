@@ -237,7 +237,7 @@ provides `id`, `operator`, `reason`, `authorization_reference`,
 12 MiB; the protected retained-space partition can grow up to 256 MiB. Record and
 read bounds follow the new body bound. By default all total resource limits stay
 unchanged. The optional `total_navigation_bytes` explicitly increases cumulative
-storage-read funding in whole GiB steps up to 16 GiB. The optional
+storage-read funding in whole GiB steps up to 64 GiB. The optional
 `total_retained_bytes` independently increases the retained-storage allowance in
 whole GiB steps up to 16 GiB. Omission preserves each current total; neither can
 decrease its allowance or change another resource. Receipts state the additional
@@ -248,6 +248,17 @@ Increasing the protected retained partition reduces the Ordinary retained-space 
 both existing accounts must still fit. Used, reserved and uncertain resources
 remain charged. No work, attempts, work-level navigation allowances, provider calls or
 persona continuations are created or reset.
+
+A new extension validates the current operator and exact authority heads inside
+the same transaction that admits its proposed limits. Its authority reads and
+terminal-invocation scan are charged against that explicitly requested funding,
+so exhaustion of the previous read allowance does not itself prevent applying an
+exact extension request. Failed and preview transactions grant no capacity and
+retain no candidate read charge. Snapshot and historical-receipt inspections
+still spend existing Closeout resources. If those reads are exhausted, preparing
+the request requires exact current fences from trusted local state inspection;
+the extension does not infer or relax them. Existing consumption and uncertainty
+are preserved on apply.
 
 An equal-limit request is supported only to enlarge a current state-head
 allocation left smaller by an earlier extension; it must add actual Ordinary

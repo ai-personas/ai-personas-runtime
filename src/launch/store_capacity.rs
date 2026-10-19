@@ -15,6 +15,11 @@ pub fn validate(request: &s::CapacityExtensionRequest, operator: &str) -> Result
 
 fn authorized(store: &mut s::Store, operator: &str) -> Result<(s::StoredObject, s::StoredObject)> {
     let (runtime, launch) = store.capacity_authority()?;
+    authorize_heads(&runtime, &launch, operator)?;
+    Ok((runtime, launch))
+}
+
+fn authorize_heads(runtime: &s::StoredObject, launch: &s::StoredObject, operator: &str) -> Result<()> {
     let state: State = serde_json::from_value(runtime.body.clone())?;
     let saved: Saved = serde_json::from_value(launch.body.clone())?;
     require(
@@ -27,7 +32,7 @@ fn authorized(store: &mut s::Store, operator: &str) -> Result<(s::StoredObject, 
     need_proposals::validate_state(&state)?;
     admission_extension::authorize(&state, &saved, operator)?;
     admission_extension::validate_saved(&state, &saved)?;
-    Ok((runtime, launch))
+    Ok(())
 }
 
 pub fn snapshot(app: &mut Runtime, operator: &str) -> Result<Value> {
@@ -64,7 +69,7 @@ fn snapshot_store(store: &mut s::Store, operator: &str) -> Result<Value> {
         "snapshot_atomic":false,"capacity_reserved":false,
         "supported_max_body_bytes":12*1024*1024,
         "supported_max_protected_closeout_retained_bytes":256*1024*1024,
-        "supported_max_total_navigation_bytes":16u64*1024*1024*1024,
+        "supported_max_total_navigation_bytes":64u64*1024*1024*1024,
         "supported_max_total_retained_bytes":16u64*1024*1024*1024,
         "scope":"Larger snapshot bounds, protected retained-space partition and explicitly requested storage funding. No history, uncertainty or consumption is reset."
     }))
@@ -78,8 +83,9 @@ pub fn extend(
     extend_store(&mut app.store, request, apply)
 }
 
-/// Authority reads use existing Closeout resources; new capacity remains fenced
-/// on exact state and launch heads, terminal invocations and execution ownership.
+/// Authority reads for a new extension use its explicitly proposed funding in
+/// the same transaction. Exact heads, authority and execution ownership remain
+/// required; a failed or preview transaction grants no new capacity.
 pub fn extend_at(root: &Path, request: &s::CapacityExtensionRequest, apply: bool) -> Result<Value> {
     validate(request, &request.operator)?;
     extend_store(&mut open(root)?, request, apply)
@@ -94,8 +100,8 @@ fn extend_store(
     let _owner = store
         .try_execution_owner_without_recovery()?
         .ok_or_else(|| held("execution owner busy"))?;
-    let (runtime, launch) = authorized(store, &request.operator)?;
     if let Some(receipt) = store.capacity_extension(&request.id)? {
+        authorized(store, &request.operator)?;
         require(
             s::Store::capacity_request_matches(&receipt, request)?,
             "capacity identity is bound to a different request",
@@ -104,12 +110,10 @@ fn extend_store(
             json!({"receipt":receipt,"replayed":true,"applied":true,"inference_performed":false,"resumed":false,"budget_reset":false}),
         );
     }
-    require(
-        runtime.exact_ref()? == request.expected_runtime
-            && launch.exact_ref()? == request.expected_launch,
-        "capacity extension snapshot changed",
-    )?;
-    let receipt = store.extend_runtime_capacity(request, apply)?;
+    let receipt = store.extend_runtime_capacity(request, apply, |runtime, launch| {
+        authorize_heads(runtime, launch, &request.operator)
+            .map_err(|error| s::StoreError::Invalid(error.to_string()))
+    })?;
     let added_navigation = receipt.body["navigation_allowance_added_bytes"]
         .as_u64()
         .unwrap_or(0);
