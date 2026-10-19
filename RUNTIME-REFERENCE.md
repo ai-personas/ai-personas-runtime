@@ -129,6 +129,28 @@ without this attributable record are not reconstructed from a reason string.
 Records containing these new optional fields require this runtime version;
 older stores remain readable with empty pending-feedback and continuation records.
 
+The recipient can optionally account for consequential peer feedback with
+`AccountPeerFeedback`. It names an exact `received_local_persona_message` whose
+full body is supplied in the current admission and records `pending`, `handled`
+or `declined` with a reason. This is the recipient's choice; ordinary conversation
+does not automatically become a pending obligation. Pending messages remain in
+`actual_observations`, with the recipient's attributed reason in
+`CONTROL.peer_feedback`, across reads, waits and stops. The original message
+and the recipient's interpretation retain separate provenance and current
+permission checks. Unavailable bodies and interpretations are withheld; nested
+history, source metadata and unsent messages cannot substitute for actual supply.
+
+Up to eight peer messages, each with at most 16 KiB of text, may remain pending.
+The persona/work retains at most 128 disposition records, reserving a final
+disposition slot for every pending item. A pending item needs no repeated command;
+the recipient can later handle or decline it, or account directly for a newly
+received message. Final dispositions cannot be reopened under the same message
+identity. Retention grants no wake, resources, sender duty, consent or authority.
+The recipient must explicitly dispose of retained peer feedback before
+`CloseGoal`, and the final staged response cannot add another pending item after
+closure. This remains an attributed account, not a verified claim of compliance.
+Use a separate `Communicate` operation for an actual reply.
+
 The foreground driver considers at most 128 participant entries and attempts at
 most 12 steps per command by default, within 32 attempts per work, 256 attempted
 foreground steps across all saved work IDs, and 32 work IDs. Setup flags can

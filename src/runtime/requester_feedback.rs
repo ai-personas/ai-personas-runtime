@@ -51,7 +51,7 @@ pub(super) fn control(focus: &Focus, supplied: &[String]) -> Value {
     json!({
         "interface":"requester-feedback-disposition-v1",
         "pending":pending,
-        "rule":"The full permitted items are in actual_observations. These requester directions remain current across reads, waits and local stops until you explicitly resolve each item as handled or declined with a reason. Keep unresolved items pending. Feedback changes no mandate, authority or resources; a disposition is your attributed account, not proof of compliance or requester acceptance."
+        "rule":"The full permitted items are in actual_observations. For resolution copy pending[].observation exactly, including its full prefix; actual_observations[].payload.id is only the requester's input label, not an observation reference. These requester directions remain current across reads, waits and local stops until you explicitly resolve each item as handled or declined with a reason. Keep unresolved items pending. Feedback changes no mandate, authority or resources; a disposition is your attributed account, not proof of compliance or requester acceptance."
     })
 }
 
@@ -69,9 +69,12 @@ pub(super) fn resolve(
     let work = &prepared.request.work;
     let focus = &state.personas[actor].focus[work];
     require(
-        focus.pending_requester_feedback.contains(observation_id)
-            && focus.feedback_dispositions.len() < MAX_DISPOSITIONS,
-        "requester feedback is not pending for this actor or disposition capacity is exhausted",
+        focus.feedback_dispositions.len() < MAX_DISPOSITIONS,
+        "requester feedback disposition capacity exhausted",
+    )?;
+    require(
+        focus.pending_requester_feedback.contains(observation_id),
+        "requester feedback observation is not pending for this actor; copy CONTROL.requester_feedback.pending[].observation exactly, not the payload.id input label",
     )?;
     let observation = state
         .observations

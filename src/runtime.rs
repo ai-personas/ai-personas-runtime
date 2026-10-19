@@ -44,6 +44,8 @@ mod observability;
 mod observation_projection;
 mod requester_feedback;
 pub use requester_feedback::Disposition as RequesterFeedbackDisposition;
+mod peer_feedback;
+pub use peer_feedback::Disposition as PeerFeedbackDisposition;
 #[cfg(test)]
 mod adoption_diagnostic_tests;
 pub use local_evidence::{
@@ -474,6 +476,9 @@ pub struct Focus {
     pub(crate) pending_requester_feedback: BTreeSet<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) feedback_dispositions: Vec<requester_feedback::Receipt>,
+    /// Recipient-authored peer feedback dispositions; pending bodies remain current.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) peer_feedback: Vec<peer_feedback::Receipt>,
     pub protected_maintenance: Vec<Value>,
     pub last_judgment: Option<p::WorkDisposition>,
     #[serde(default)]
@@ -1208,8 +1213,31 @@ pub enum WorkAction {
     /// Resolve all your pending items before proposing CloseGoal; a same-response
     /// resolution may precede CloseGoal. Other closure gates still apply.
     ResolveRequesterFeedback {
+        /// Copy CONTROL.requester_feedback.pending[].observation exactly,
+        /// including its full prefix. The requester input label in
+        /// actual_observations[].payload.id is NOT an observation reference.
         observation: String,
         disposition: RequesterFeedbackDisposition,
+        reason: String,
+    },
+    /// Optionally account for consequential feedback from another persona.
+    /// Copy the exact ID of a received_local_persona_message in actual_observations;
+    /// its complete permitted body must be supplied now, not just in nested history.
+    /// Choose pending when further work is needed: the full message and your reason
+    /// remain current across reads, waits and stops until handled or declined.
+    /// Leave pending feedback unchanged without repeating this operation. Handled
+    /// and declined may also account directly for a newly received message.
+    /// Ordinary conversation needs no feedback record. This records your judgment,
+    /// not a sender commitment, mandate change, agreement, acceptance or compliance.
+    /// Use a separate communicate operation for an actual reply.
+    /// It creates no wake or funding. At most eight messages of 16384 text bytes
+    /// each may be pending, within 128 dispositions including reserved final slots.
+    /// Resolve pending items before CloseGoal; final dispositions cannot be reopened.
+    AccountPeerFeedback {
+        /// Exact top-level id of a supplied received_local_persona_message.
+        /// Pending items also expose it as CONTROL.peer_feedback.pending[].observation.
+        observation: String,
+        disposition: PeerFeedbackDisposition,
         reason: String,
     },
     /// Register one future local message from a named current participant.
@@ -1641,6 +1669,10 @@ fn action(value: &Value) -> Result<WorkAction> {
     match &parsed {
         WorkAction::ResolveRequesterFeedback { observation, reason, .. } => {
             p::check_id(observation, "resolve_requester_feedback.observation")?;
+            text(reason, 4096)?;
+        }
+        WorkAction::AccountPeerFeedback { observation, reason, .. } => {
+            p::check_id(observation, "account_peer_feedback.observation")?;
             text(reason, 4096)?;
         }
         WorkAction::RegisterMessageWait { id, from } => {
@@ -6564,6 +6596,11 @@ fn render_mode_with_history(
             observation_queue.push(id.clone());
         }
     }
+    for id in peer_feedback::observation_ids(state, focus, &a) {
+        if !observation_queue.contains(&id) {
+            observation_queue.push(id);
+        }
+    }
     for (slot, id) in observation_queue.iter().enumerate() {
         let observation = state
             .observations
@@ -6625,6 +6662,8 @@ fn render_mode_with_history(
         }
     }
     let requester_feedback_control = requester_feedback::control(focus, &observation_ids);
+    let peer_feedback_control =
+        peer_feedback::control(state, focus, &a, &observation_ids, &mut exposure)?;
     let offers = work
         .offers
         .iter()
@@ -6856,6 +6895,12 @@ fn render_mode_with_history(
     } else {
         serde_json::to_vec(&requester_feedback_control)?.len()
     })
+    .ok_or_else(|| invalid("mandatory growth size overflow"))?
+    .checked_add(if peer_feedback_control.is_null() {
+        0
+    } else {
+        serde_json::to_vec(&peer_feedback_control)?.len()
+    })
     .ok_or_else(|| invalid("mandatory growth size overflow"))?;
     let current_navigation = navigation.unwrap_or_else(|| {
         let mut remaining = meta.navigation_left;
@@ -6918,6 +6963,9 @@ fn render_mode_with_history(
     }
     if !requester_feedback_control.is_null() {
         core["requester_feedback"] = requester_feedback_control;
+    }
+    if !peer_feedback_control.is_null() {
+        core["peer_feedback"] = peer_feedback_control;
     }
     if let Some(interface) = &need_interface {
         core["need_capability"] = serde_json::to_value(interface)?;
@@ -9078,6 +9126,9 @@ fn apply_work_actions(
                 WorkAction::ResolveRequesterFeedback { observation, disposition, reason } => {
                     requester_feedback::resolve(state, prepared, observation, disposition, reason, now)?;
                 }
+                WorkAction::AccountPeerFeedback { observation, disposition, reason } => {
+                    peer_feedback::account(state, prepared, observation, disposition, reason, now)?;
+                }
                 WorkAction::RegisterMessageWait { id, from } => {
                     p::check_id(id, "message_wait.id")?;
                     identity(from)?;
@@ -9406,8 +9457,9 @@ fn apply_work_actions(
                 }),
                 WorkAction::CloseGoal { release } => {
                     require(
-                        state.personas[&actor.0].focus[&wid.0].pending_requester_feedback.is_empty(),
-                        "resolve current requester feedback explicitly before proposing closure",
+                        state.personas[&actor.0].focus[&wid.0].pending_requester_feedback.is_empty()
+                            && !peer_feedback::has_pending(&state.personas[&actor.0].focus[&wid.0]),
+                        "resolve current retained feedback explicitly before proposing closure",
                     )?;
                     closure_readiness::require_supplied(state, prepared, release, now)?;
                     commands.push(w::Command::CloseGoal {
@@ -9548,6 +9600,16 @@ fn apply_work_actions(
             _ => None,
         })
         .collect();
+    if commands
+        .iter()
+        .any(|command| matches!(command, w::Command::CloseGoal { .. }))
+    {
+        let focus = &state.personas[&actor.0].focus[&wid.0];
+        require(
+            focus.pending_requester_feedback.is_empty() && !peer_feedback::has_pending(focus),
+            "closure cannot leave retained feedback pending in the final response",
+        )?;
+    }
     state.board.apply_response_with_message_waits(
         &context,
         w::DecisionResponse {

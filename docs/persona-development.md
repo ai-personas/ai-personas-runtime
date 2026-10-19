@@ -38,6 +38,14 @@ participant when appropriate. The persona chooses whether the experience calls
 for a task correction, characteristic refinement, supporting asset change or
 reasoned no change. Feedback does not require a character edit.
 
+Peer feedback can also remain active across several steps. The recipient chooses
+which actual messages need this treatment with `AccountPeerFeedback`, marking
+each as pending, handled or declined. Pending messages keep their full permitted
+bodies and the recipient's reason in subsequent context until explicitly resolved.
+Ordinary conversation does not automatically become a continuing obligation.
+This choice creates neither a peer commitment nor an automatic wake or extra
+resources; the persona still authors its continuation separately.
+
 ## Inspect retained guidance and actual supply
 
 The development view reports currently permitted characteristic revisions and
