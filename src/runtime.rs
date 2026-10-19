@@ -7373,6 +7373,11 @@ fn render_mode_with_history(
             &interface.terms.policy,
         ));
     }
+    let work_attempt_accounting = json!({
+        "unit":"one admitted primary decision, not one operation",
+        "attempts_left":"In an admitted input, this is the shared work allowance remaining after reserving the current decision. Zero does not prohibit operations in this already admitted response.",
+        "multiple_operations":"One complete response may propose multiple currently available, authorized operations allowed by this mode. Work commands do not each spend another work attempt. Ordering, dependencies, required fresh receipts, complete response validation, maintenance accounting and separate navigation, execution, response and storage limits still apply. This description grants no resources or authority."
+    });
     let mut core = json!({"profile":"application-persona-request-v1","actor":actor,"work_id":work_id,
         "invocation_id":invocation,"epoch":epoch,"owner_epoch":persona.owner_epoch,"mode":"ordinary",
         "context_at_unix":now,"reconsideration_interface":(!initializing).then_some(RECONSIDERATION_INTERFACE),
@@ -7398,6 +7403,7 @@ fn render_mode_with_history(
         "file_mutation_metadata":file_mutation_metadata,"file_mutation_metadata_truncated":file_mutation_metadata_truncated,
         "navigation_current_admission":current_navigation,
         "command_resource_accounting":{
+            "work_attempts":work_attempt_accounting,
             "history":history::resource_accounting(current_navigation),
             "close_goal":{
                 "navigation_charge":"none",
@@ -7506,6 +7512,7 @@ fn render_mode_with_history(
         arrangement_duties.len(),
         application_schema.len(),
         schema_bytes,
+        serde_json::to_vec(&work_attempt_accounting)?.len(),
     ]
     .into_iter()
     .try_fold(0usize, |total, bytes| {

@@ -969,6 +969,14 @@ old admitted semantics in both operation encodings. Historical completion grants
 no wake, allowance, consent, or claim about a later candidate. Empty stakeholders
 require and prove no human consent.
 
+`CONTROL.command_resource_accounting.work_attempts` explains that one work attempt
+funds one admitted primary decision. The displayed `attempts_left` is the shared
+work balance after reserving that decision. A zero balance does not prevent the
+current complete response from proposing multiple permitted operations. Each work
+command does not spend another work attempt; ordering, fresh-receipt requirements,
+mode restrictions and separate operation limits still apply. This explanation is
+counted as fixed contract text and does not create resources or authority.
+
 `CONTROL.command_resource_accounting.close_goal.navigation_charge` is `none`:
 zero invocation navigation alone does not prevent proposing this command.
 Response validation and bounds, current authorization and responsibility,
