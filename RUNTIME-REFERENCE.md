@@ -374,6 +374,16 @@ inventory that distinguishes withheld optional bodies from bodies independently
 supplied by mandatory context. It permits only whole-entry selection reductions,
 bounded exact repair reads, or an honest stop. After repair, explicit resume and
 fresh ordinary admission are required; the repair cannot answer the task itself.
+A remaining repair attempt alone is insufficient: navigation must cover both
+preparations, including the repair projection.
+
+`CONTROL.mode` describes the current admission. Historical repair receipts,
+rejected responses, requester messages about earlier repair, and a persona's
+previous description of its mode do not override it. An ordinary admission may
+perform currently authorized ordinary work even when it follows a repair or
+retains an earlier overflow diagnostic. A selection-repair admission remains
+restricted under its current rules. This distinction changes no authority,
+allowance, resume requirement or substantive adoption check.
 
 Repair's projection allocation bounds its complete retained snapshot material
 plus prospective response/read growth. Repeated traversal of the same in-memory
@@ -398,6 +408,14 @@ allocation cannot exceed the saved provider's prompt allowance plus the existing
 output reserve, or the runtime's 2 MiB limit. Assembly charges schema and safety
 margins as well, so this ceiling conservatively fits the existing provider prompt
 envelope. Provider limits, output reserves and model/account bindings are unchanged.
+
+Increasing the provider's own prompt allowance uses a separate explicit
+`migrate-provider REQUEST.json` operation. Its prompt limit must fit the current
+runtime context allocation; response and stream limits are checked separately.
+Where both allocations need growth, apply coherent bounded steps: migrate to a
+prompt limit within the current context allocation, then inspect the new context
+ceiling before requesting a context extension. Neither operation adds work
+attempts or navigation, and neither proves remote token or billing bounds.
 
 Snapshot, preview and apply use metered reads without orphan recovery. A new
 extension requires exclusive execution ownership and terminal invocations, and

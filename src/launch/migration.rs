@@ -349,10 +349,13 @@ fn plan(
     )?;
     let limits = &request.provider.limits;
     require(
-        limits.max_prompt_bytes <= state.config.context_bytes
-            && limits.max_response_bytes <= state.config.response_bytes
+        limits.max_prompt_bytes <= state.config.context_bytes,
+        "provider prompt limit exceeds saved context allocation",
+    )?;
+    require(
+        limits.max_response_bytes <= state.config.response_bytes
             && limits.max_stream_bytes as u64 <= state.config.transport_output_reserve_bytes,
-        "provider output exceeds saved runtime bounds",
+        "provider output limits exceed saved runtime bounds",
     )?;
     let old_provider_sha256 = digest(&saved.setup.provider)?;
     let provider_value = serde_json::to_value(&request.provider)?;
