@@ -344,11 +344,19 @@ pub enum Operation {
         // Exact observation IDs actually supplied to this invocation, or [].
         evidence: Vec<String>,
     },
+    /// Create a new file source or revise a currently owned source. The source
+    /// identity, not the path, determines whether this is a creation or revision.
+    /// Reuse an exact saved reference when no content change is needed.
     FileWrite {
         id: String,
         scope: Scope,
         source: String,
         path: String,
+        /// For an existing source, copy its current accepted head revision
+        /// exactly. Omitting this field or using null is valid only for a new
+        /// source; it does not mean "use the latest". Discover or read the current
+        /// reference before editing when its head is unknown. A proposal-op
+        /// reference is not an accepted base revision.
         base_revision: Option<String>,
         text: String,
         qualifications: Vec<ExactRef>,

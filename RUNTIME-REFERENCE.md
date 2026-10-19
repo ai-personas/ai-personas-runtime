@@ -686,6 +686,12 @@ For a future-result wait, `register_pending_mock_dependency` binds a distinct ty
 
 ## Files and decisions
 
+`file_write` identifies an existing file by `source`, not by its path. Revising
+that source requires its exact current head in `base_revision`; null or omission
+means creation and cannot revise an existing source. The admitted schema explains
+this distinction. Registration or reuse of unchanged content needs its saved
+reference, without another file write.
+
 Structural response errors identify a schema-owned response section, or an
 operation index when available, and the allowed fields of a known object variant.
 Rejected field names, discriminator values and authored text are not echoed.
