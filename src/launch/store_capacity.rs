@@ -1,4 +1,4 @@
-//! Operator-controlled storage growth and finite storage-read funding.
+//! Operator-controlled storage growth and finite storage funding.
 //! No inference, work resume, allowance reset, history deletion or settlement
 //! of unknown provider usage.
 use super::*;
@@ -65,7 +65,8 @@ fn snapshot_store(store: &mut s::Store, operator: &str) -> Result<Value> {
         "supported_max_body_bytes":12*1024*1024,
         "supported_max_protected_closeout_retained_bytes":256*1024*1024,
         "supported_max_total_navigation_bytes":16u64*1024*1024*1024,
-        "scope":"Larger snapshot bounds, protected retained-space partition and explicitly requested storage-read funding. No history, uncertainty or consumption is reset."
+        "supported_max_total_retained_bytes":16u64*1024*1024*1024,
+        "scope":"Larger snapshot bounds, protected retained-space partition and explicitly requested storage funding. No history, uncertainty or consumption is reset."
     }))
 }
 
@@ -112,10 +113,14 @@ fn extend_store(
     let added_navigation = receipt.body["navigation_allowance_added_bytes"]
         .as_u64()
         .unwrap_or(0);
+    let added_retained = receipt.body["retained_allowance_added_bytes"]
+        .as_u64()
+        .unwrap_or(0);
     Ok(json!({"receipt":receipt,"replayed":false,"applied":apply,
         "inference_performed":false,"resumed":false,"budget_reset":false,
-        "total_resources_unchanged":added_navigation == 0,
+        "total_resources_unchanged":added_navigation == 0 && added_retained == 0,
         "navigation_allowance_added_bytes":added_navigation,
+        "retained_allowance_added_bytes":added_retained,
         "retained_history_unchanged":true,
         "note":"A preview reserves no capacity. An applied extension requires a binary supporting these retained migration receipts on subsequent opens."}))
 }

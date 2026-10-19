@@ -1,4 +1,4 @@
-//! Explicit growth of runtime snapshot bounds and finite storage-read capacity.
+//! Explicit growth of runtime snapshot bounds and finite storage capacity.
 //! Immutable receipts authorize reopening; counters and history survive.
 use super::*;
 
@@ -25,6 +25,10 @@ pub struct CapacityExtensionRequest {
     /// Explicit storage-read funding only. Omission preserves the existing total.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub total_navigation_bytes: Option<u64>,
+    /// Explicit retained-storage funding. Omission preserves the existing total.
+    /// This never refunds the charged history or allocates physical disk space.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_retained_bytes: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -40,6 +44,8 @@ struct Extension {
     ordinary_capacity_added_bytes: u64,
     #[serde(default)]
     navigation_allowance_added_bytes: u64,
+    #[serde(default)]
+    retained_allowance_added_bytes: u64,
     epoch: u64,
 }
 
@@ -75,6 +81,9 @@ fn proposed_limits(request: &CapacityExtensionRequest) -> Result<Limits> {
         || request
             .total_navigation_bytes
             .is_some_and(|n| n < old.total.navigation_bytes || n > 16 * GIB || n % GIB != 0)
+        || request
+            .total_retained_bytes
+            .is_some_and(|n| n < old.total.retained_bytes || n > 16 * GIB || n % GIB != 0)
     {
         return Err(StoreError::Invalid("unsupported capacity extension".into()));
     }
@@ -88,7 +97,10 @@ fn proposed_limits(request: &CapacityExtensionRequest) -> Result<Limits> {
     if let Some(bytes) = request.total_navigation_bytes {
         next.total.navigation_bytes = bytes;
     }
-    // Only explicitly requested storage-read funding can change a total. More
+    if let Some(bytes) = request.total_retained_bytes {
+        next.total.retained_bytes = bytes;
+    }
+    // Only explicitly requested storage funding can change a total. More
     // protected retained space reduces Ordinary's ceiling. Usage is not refunded.
     next.validate()?;
     Ok(next)
@@ -107,6 +119,9 @@ fn decode_extension(object: &StoredObject, reference: &ObjectRef) -> Result<Exte
         || value.navigation_allowance_added_bytes
             != value.limits.total.navigation_bytes
                 - value.request.expected_limits.total.navigation_bytes
+        || value.retained_allowance_added_bytes
+            != value.limits.total.retained_bytes
+                - value.request.expected_limits.total.retained_bytes
         || value.control_plan != format!("{}:plan", object.id)
         || value.epoch
             != value
@@ -360,6 +375,8 @@ impl Store {
             ordinary_capacity_added_bytes: ordinary_added,
             navigation_allowance_added_bytes: limits.total.navigation_bytes
                 - request.expected_limits.total.navigation_bytes,
+            retained_allowance_added_bytes: limits.total.retained_bytes
+                - request.expected_limits.total.retained_bytes,
             epoch: work.meta.epoch,
         };
         let object = StoredObject {

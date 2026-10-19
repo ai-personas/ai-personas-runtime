@@ -229,7 +229,7 @@ A future wait returns to the shell and retains its existing eligibility conditio
 
 An explicitly authorized operator can inspect `store-capacity-snapshot` and use
 `extend-store-capacity REQUEST.json --preview` or `--apply` when a retained runtime
-snapshot or cumulative storage reads reach their capacity. The request copies `expected_epoch`,
+snapshot, retained history or cumulative storage reads reach their capacity. The request copies `expected_epoch`,
 `expected_runtime`, `expected_launch` and `expected_limits` from the snapshot and
 provides `id`, `operator`, `reason`, `authorization_reference`,
 `authorize_extension: true`, `max_body_bytes` and
@@ -237,8 +237,13 @@ provides `id`, `operator`, `reason`, `authorization_reference`,
 12 MiB; the protected retained-space partition can grow up to 256 MiB. Record and
 read bounds follow the new body bound. By default all total resource limits stay
 unchanged. The optional `total_navigation_bytes` explicitly increases cumulative
-storage-read funding in whole GiB steps up to 16 GiB. It cannot decrease the
-current allowance or change any other total, and does not grant tokens or money.
+storage-read funding in whole GiB steps up to 16 GiB. The optional
+`total_retained_bytes` independently increases the retained-storage allowance in
+whole GiB steps up to 16 GiB. Omission preserves each current total; neither can
+decrease its allowance or change another resource. Receipts state the additional
+navigation and retained-storage bytes separately and verify both against their
+exact requests on reopening. These are finite logical allocations, not reserved
+physical disk, tokens or money.
 Increasing the protected retained partition reduces the Ordinary retained-space ceiling;
 both existing accounts must still fit. Used, reserved and uncertain resources
 remain charged. No work, attempts, work-level navigation allowances, provider calls or
