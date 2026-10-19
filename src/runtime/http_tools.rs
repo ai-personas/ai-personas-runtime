@@ -659,8 +659,11 @@ impl Runtime {
         let qualifications = tools::qualifications(&state, &job.exposure.sources);
         let observation_id = observation_id(&job.invocation, "http_fetch_result", &job.operation);
         let observation = json!({"intent":id,"operation":job.operation,
+            "url":job.url,
             "state":retained.state,"result_source":result_source,"body_supplied":false,
             "status":outcome.as_ref().and_then(|r| r.status),
+            "body_bytes":outcome.as_ref().and_then(|r| r.body.as_ref()).map(|body| body.len()),
+            "body_sha256":outcome.as_ref().and_then(|r| r.body_sha256.as_ref()),
             "failure":outcome.as_ref().and_then(|r| r.failure.as_ref()),
             "terminal_evidence":evidence_ref,"automatic_retry":false,
             "meaning":"Host retrieval evidence only. Select or read the exact result source for untrusted remote text and its qualifications. HTTP success is not correctness or acceptance; failure does not prove absence of remote processing."});
@@ -803,10 +806,28 @@ pub(super) fn control(
                 if exposure_permitted(state, &job.exposure, a)
                     && lineage_permitted(state, std::slice::from_ref(&file), a)
                 {
+                    // Project metadata from the exact protected result, including
+                    // records written by earlier helpers. This neither supplies
+                    // remote text nor changes historical observations or grants.
+                    let retrieval = record(state, &file)
+                        .ok()
+                        .and_then(|stored| {
+                            serde_json::from_slice::<Value>(&stored.record.bytes).ok()
+                        })
+                        .filter(|body| {
+                            body["record_kind"] == "host_https_result_v1" && body["intent"] == *id
+                        })
+                        .map(|body| {
+                            json!({"url":body["url"],"status":body["result"]["status"],
+                            "failure":body["result"]["failure"],
+                            "body_bytes":body["result"]["body"].as_str().map(str::len),
+                            "body_sha256":body["result"]["body_sha256"],"body_supplied":false})
+                        });
                     extend_exposure(exposure, &job.exposure);
                     exposure.sources.push(file);
                     results.push(json!({"intent":id,"invocation":job.invocation,
-                        "operation":job.operation,"state":job.state,"source":reference,"metadata_only":true}));
+                        "operation":job.operation,"state":job.state,"source":reference,
+                        "retrieval":retrieval,"metadata_only":true}));
                 }
             }
         }

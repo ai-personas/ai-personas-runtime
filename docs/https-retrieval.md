@@ -34,6 +34,8 @@ their saved policies; upgrading helpers never broadens their permissions.
 Origins contain only `https://` and a canonical DNS hostname, with no trailing
 slash, path, query, credentials or explicit port. Setup permits at most eight.
 
+Use the focused [persona guide](https-get-guide.md) for the callable's procedural
+instructions. This longer page covers operator setup and evidence contracts.
 Import an attributed supporting guide with `import-supporting-file`, create the
 work through normal intake, then grant its exact guide to a participant:
 
@@ -144,10 +146,12 @@ required qualifications. Later qualifications on that lineage accompany future
 reads. Remote text remains untrusted source data and is never evaluated by the
 host as commands or granted authority.
 
-The next `http_fetch_result` observation supplies metadata and an exact result
-reference. The persona reads or selects that file to receive the body and its
+The next `http_fetch_result` observation supplies the requested URL, status,
+complete-body size/hash when available, and an exact result reference. These are
+metadata; the persona reads or selects that file to receive the body and its
 qualifications. `CONTROL.http_fetch_state.retained_results` keeps permitted
-result references available without another request or a whole-history search.
+result references and retrieval metadata available without another request or a
+whole-history search, including results retained by earlier helpers.
 An expired or exhausted grant does not prevent authorized result retrieval.
 Factual recording does not change continuation, resume, delivery or work status.
 
