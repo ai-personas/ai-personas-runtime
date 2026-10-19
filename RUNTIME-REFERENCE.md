@@ -234,7 +234,9 @@ snapshot, retained history or cumulative storage reads reach their capacity. The
 provides `id`, `operator`, `reason`, `authorization_reference`,
 `authorize_extension: true`, `max_body_bytes` and
 `protected_closeout_retained_bytes`. Body bounds grow in whole MiB steps, up to
-12 MiB; the protected retained-space partition can grow up to 256 MiB. Record and
+15 MiB; the protected retained-space partition can grow up to 256 MiB. The largest
+body still leaves control/record headroom within the Store's existing 16 MiB record
+envelope; ordinary setup defaults are unchanged. Record and
 read bounds follow the new body bound. By default all total resource limits stay
 unchanged. The optional `total_navigation_bytes` explicitly increases cumulative
 storage-read funding in whole GiB steps up to 64 GiB. The optional

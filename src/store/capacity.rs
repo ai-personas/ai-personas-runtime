@@ -7,6 +7,9 @@ const RECEIPT_BYTES: u64 = 32 * 1024;
 const MAX_EXTENSIONS: usize = 32;
 const MIB: u64 = 1024 * 1024;
 const GIB: u64 = 1024 * MIB;
+/// Largest whole-MiB body leaving control/record headroom inside the Store's
+/// existing 16 MiB maximum record envelope. This is opt-in, not a new default.
+pub const MAX_RUNTIME_SNAPSHOT_BODY_BYTES: u64 = 15 * MIB;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -74,7 +77,7 @@ fn proposed_limits(request: &CapacityExtensionRequest) -> Result<Limits> {
         || request.max_body_bytes < old.max_body_bytes
         || (request.max_body_bytes == old.max_body_bytes
             && request.protected_closeout_retained_bytes != old.protected_closeout.retained_bytes)
-        || request.max_body_bytes > 12 * MIB
+        || request.max_body_bytes > MAX_RUNTIME_SNAPSHOT_BODY_BYTES
         || request.max_body_bytes % MIB != 0
         || request.protected_closeout_retained_bytes < old.protected_closeout.retained_bytes
         || request.protected_closeout_retained_bytes > 256 * MIB

@@ -67,7 +67,7 @@ fn snapshot_store(store: &mut s::Store, operator: &str) -> Result<Value> {
         "ordinary":ledger.ordinary,"closeout":ledger.closeout,
         "frozen":ledger.frozen,
         "snapshot_atomic":false,"capacity_reserved":false,
-        "supported_max_body_bytes":12*1024*1024,
+        "supported_max_body_bytes":s::MAX_RUNTIME_SNAPSHOT_BODY_BYTES,
         "supported_max_protected_closeout_retained_bytes":256*1024*1024,
         "supported_max_total_navigation_bytes":64u64*1024*1024*1024,
         "supported_max_total_retained_bytes":16u64*1024*1024*1024,

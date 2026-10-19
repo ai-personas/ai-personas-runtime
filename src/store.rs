@@ -80,7 +80,7 @@ use thiserror::Error;
 
 mod archive_history;
 mod capacity;
-pub use capacity::CapacityExtensionRequest;
+pub use capacity::{CapacityExtensionRequest, MAX_RUNTIME_SNAPSHOT_BODY_BYTES};
 
 const SCHEMA_VERSION: u32 = 1;
 const META_CAPACITY: u64 = 16 * 1024;
