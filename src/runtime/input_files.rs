@@ -83,6 +83,10 @@ fn candidates(control: &Value, qualified: &Value) -> Result<Candidates> {
     candidates.entries(&control["file_mutation_metadata"], "current_head")?;
     candidates.entries(&control["work_artifacts"], "source")?;
     candidates.entries(
+        &control["work_guide_discovery"]["control_guides"],
+        "reference",
+    )?;
+    candidates.entries(
         &control["retained_optional_fragments"]["entries"],
         "reference",
     )?;

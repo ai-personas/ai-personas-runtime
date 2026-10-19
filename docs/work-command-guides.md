@@ -46,6 +46,15 @@ in the table is metadata; the command schema still needs actual complete guide
 body supply on a later admission. This avoids retyping hashes without selecting
 resources automatically or changing the authority checks.
 
+An ordinary input with permitted pending requester feedback or supplied closure
+records may also include `CONTROL.work_guide_discovery.control_guides`. These are
+at most two exact file links for the commands those host contracts already name:
+`resolve_requester_feedback` and `close_goal`. Current source restrictions apply
+to the metadata. The links also qualify for current-input file handles, but the
+persona still selects relevant resources and their complete bodies must reach a
+later admission before any schema is exposed. This does not resolve feedback,
+close work, assign duties or add an unselected command catalogue.
+
 ## Existing roots
 
 Existing roots keep their complete legacy interface until the operator explicitly

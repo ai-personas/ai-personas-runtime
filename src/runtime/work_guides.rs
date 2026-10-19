@@ -335,6 +335,31 @@ pub(super) fn control(state: &State) -> Option<Value> {
     }))
 }
 
+/// A file link for a command already named by a supplied host contract. This
+/// carries metadata restrictions, but neither supplies a body nor enables it.
+pub(super) fn control_guide(
+    state: &State,
+    command: &str,
+    contract: &str,
+    audience: &f::Admission,
+    exposure: &mut Exposure,
+) -> Result<Option<Value>> {
+    let Some(reference) = state.work_guides.as_ref()
+        .and_then(|catalog| catalog.guides.get(command)) else {
+        return Ok(None);
+    };
+    let exact = file_reference(reference)?;
+    if !lineage_permitted(state, std::slice::from_ref(&exact), audience) {
+        return Ok(None);
+    }
+    let file = &record(state, &exact)?.record;
+    let value = json!({"command":command,"referenced_by":contract,
+        "reference":reference,"scope":file.scope,"path":file.path,
+        "metadata_only":true});
+    exposure.sources.push(exact);
+    Ok(Some(value))
+}
+
 pub(super) fn capability(
     state: &State,
     bodies: &BTreeSet<f::Reference>,

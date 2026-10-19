@@ -7425,7 +7425,31 @@ fn render_mode_with_history(
         },
         "not_ready":["external effects","top-level Deliver without release binding"],"readiness_limits":readiness()});
     if !initializing {
-        if let Some(discovery) = work_guides::control(state) {
+        if let Some(mut discovery) = work_guides::control(state) {
+            if ordinary_interfaces {
+                // Resolve only links from these actually supplied contracts,
+                // not a semantic task plan or the whole command catalogue.
+                let mut control_guides = Vec::new();
+                let feedback_supplied = requester_feedback_control["pending"].as_array()
+                    .is_some_and(|items| items.iter().any(|item| item["body_supplied"] == true));
+                let closure_supplied = closure_readiness["records"].as_array()
+                    .is_some_and(|records| !records.is_empty());
+                for (supplied, command, contract) in [
+                    (feedback_supplied, "resolve_requester_feedback", "requester_feedback"),
+                    (closure_supplied, "close_goal", "closure_readiness"),
+                ] {
+                    if supplied {
+                        if let Some(guide) = work_guides::control_guide(
+                            state, command, contract, &a, &mut exposure,
+                        )? {
+                            control_guides.push(guide);
+                        }
+                    }
+                }
+                if !control_guides.is_empty() {
+                    discovery["control_guides"] = serde_json::to_value(control_guides)?;
+                }
+            }
             growth_bytes = growth_bytes.checked_add(serde_json::to_vec(&discovery)?.len())
                 .ok_or_else(|| invalid("native work discovery accounting"))?;
             core["work_guide_discovery"] = discovery;

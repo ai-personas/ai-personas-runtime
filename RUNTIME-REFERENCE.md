@@ -699,6 +699,10 @@ The table contains at most 128 entries and 32768 serialized bytes and is omitted
 when it cannot fit alongside required material. It derives candidates only from
 current host projections and qualified entries, not authored text or nested
 history. Its actual bytes and exact source restrictions enter admission accounting.
+Current host contracts for permitted pending feedback and supplied closure records
+can provide at most two exact guide-file links in
+`CONTROL.work_guide_discovery.control_guides`; these metadata links can also be
+chosen by handle. Unavailable guide metadata is omitted without granting access.
 It loads no body or callable definition. The existing selection, overlap, scope,
 permission, character-change, lifetime and combined-context checks still apply
 after resolution. Explicit `replace.references` remains available for ranges,
