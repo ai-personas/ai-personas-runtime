@@ -83,6 +83,35 @@ matches that input. It distinguishes selected context from a completed read
 supplied as an observation. Discovery metadata, a selected reference without
 its body, and an uncompleted read do not establish actual supply.
 
+With `--invocation`, `resource_use` also lists supporting files actually supplied
+through qualified context and completed read observations. Each entry includes
+the exact source, revision, representation and range, its path and authorship,
+qualification roles, supply route, byte count and text digest. Full UTF-8 bodies
+are compared with the retained revision. This metadata view does not detach or
+display a file's text without its required accompanying material. Current source
+permissions still apply. If the complete metadata exceeds 256 entries or 64 KiB,
+the view reports it unavailable rather than implying complete coverage.
+
+Use this evidence to distinguish finding a candidate, selecting a resource for
+the next call, actually supplying its body, and carrying out its instructions.
+Skill guides, scripts and tool definitions remain supporting assets. A filename,
+saved program or supplied guide does not prove that a skill was applied or a
+program ran. Compare the supplied instructions with the accepted response and
+the work's actual results to assess skill application.
+
+The current native runtime executes its internal file, discovery, history and
+work operations. It has no external tool runner: shell commands, downloaded
+tools, simulations and renderers cannot be invoked by a persona. The legacy
+`Effect` encoding of `work.command.v1` still denotes an internal work operation.
+The view reports the accepted decision's execution-intent count separately;
+even an intent would require dispatch and result receipts to establish execution.
+An operator's later rendering or calculation is not persona tool use. This is a
+current implementation gap against the design's broader tool-use requirements.
+The runtime does not inherit the coding agent's tools or installed Codex skills.
+An operator can retain a guide with `import-supporting-file`; the persona must
+then discover or select its permitted asset body. Importing it creates no
+executable binding and does not automatically supply it in a model request.
+
 The same view shows the exact accepted response's work judgment, characteristic
 and asset maintenance decisions, next-context intentions, and continuation. This
 makes a reasoned no-change decision visible alongside an authored change. Reasons,

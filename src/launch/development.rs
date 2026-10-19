@@ -1,6 +1,8 @@
 //! Permission-filtered inspection of accepted characteristic revisions.
 //! Reading this view makes no model call and selects no future persona context.
 use super::*;
+#[path = "resource_use.rs"]
+mod resource_use;
 
 pub fn development(
     root: &Path,
@@ -56,7 +58,7 @@ pub fn development_at(
             .is_ok_and(|exposure| exposure_permitted(&state, &exposure, &audience))
     });
     let corpus = corpus(&state, &audience)?;
-    let mut navigation = f::NavigationBudget::new(state.config.navigation_per_call.clone());
+    let mut navigation = f::NavigationBudget::new(state.config.navigation_per_call);
     let mut revisions = Vec::new();
     let mut truncated = false;
     let mut encoded_bytes = 0;
@@ -278,6 +280,7 @@ fn invocation_evidence(
         "adopted_response":exact, "response_sha256":archive.response_hash,
         "provider_completed_with_matching_input":provider_completed,
         "supplied_characteristic_revisions":supplied,
+        "resource_use":resource_use::inspect(state, audience, &prepared, &control, &qualified, &proof)?,
         "accepted_decision":accepted_decision_view(state, audience, &archive)?,
         "input_accounting":{
             "prompt_utf8_bytes":prepared.prompt.len(),
@@ -305,13 +308,18 @@ fn accepted_decision_view(
     audience: &f::Admission,
     archive: &AdoptedResponse,
 ) -> Result<Value> {
-    let unavailable = || json!({
-        "available":false,
-        "reason":"The complete decision view is unavailable under current source permissions or retention; no partial judgment is presented."
-    });
+    let unavailable = || {
+        json!({
+            "available":false,
+            "reason":"The complete decision view is unavailable under current source permissions or retention; no partial judgment is presented."
+        })
+    };
     // A next selection may name material that was not in this call's input.
     // Its identities must not inherit disclosure from the input's exposure.
-    for selection in [&archive.response.next_fragments, &archive.response.next_assets] {
+    for selection in [
+        &archive.response.next_fragments,
+        &archive.response.next_assets,
+    ] {
         if let p::SelectionIntent::Replace { references, .. } = selection {
             for reference in references {
                 if reference.revision.starts_with(p::PROPOSED_REVISION_PREFIX)
@@ -321,9 +329,9 @@ fn accepted_decision_view(
                     // checked below before any of this projection is returned.
                     continue;
                 }
-                if !file_reference(reference).is_ok_and(|reference| {
-                    lineage_permitted(state, &[reference], audience)
-                }) {
+                if !file_reference(reference)
+                    .is_ok_and(|reference| lineage_permitted(state, &[reference], audience))
+                {
                     return Ok(unavailable());
                 }
             }
@@ -341,7 +349,22 @@ fn accepted_decision_view(
         if let p::Operation::WorkCommand { inputs, .. } = operation {
             item["command"] = inputs["kind"].clone();
         }
-        if let p::Operation::FileWrite { source, policy_id, .. } = operation {
+        if let p::Operation::Effect {
+            capability_id,
+            inputs,
+            ..
+        } = operation
+        {
+            item["capability_id"] = json!(capability_id);
+            if capability_id == "work.command.v1" {
+                item["command"] = inputs["kind"].clone();
+                item["execution_scope"] = json!("internal_work_operation");
+            }
+        }
+        if let p::Operation::FileWrite {
+            source, policy_id, ..
+        } = operation
+        {
             if !current_policy(state, policy_id)
                 .is_ok_and(|policy| policy_permitted(state, policy, audience))
             {

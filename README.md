@@ -32,7 +32,13 @@ To inspect a continuing persona's accepted characteristic fragments:
 Add `--invocation CALL_ID` to check which of those fragment bodies reached an
 accepted call and whether the completed provider input matches the retained
 record. It distinguishes selected context from completed reads supplied as
-observations. Read the work result to judge how the persona used them.
+observations and lists the supporting resources supplied to that call. Read the
+work result to judge how the persona used them.
+
+Personas currently use internal file, search, history and collaboration operations.
+External tool execution, including shell commands, simulations and rendering,
+is not implemented. A retained script or skill guide is supporting material;
+its presence alone does not establish execution or skill application.
 
 [Inspect persona development](docs/persona-development.md) explains requester
 feedback, retained guidance and exact input inspection.

@@ -97,6 +97,18 @@ prompt bodies, infer attention or causation, or establish behavioral improvement
 Unavailable or currently restricted evidence is refused. The same option works
 with `./personas --development PERSONA --invocation CALL_ID`.
 
+The invocation's `resource_use` view reports supporting-file metadata from the
+actual qualified input and supplied qualified-read observations, including exact
+representation/range, supply route, qualification roles, text bytes and digest.
+Full UTF-8 text is matched to the retained file revision. It excludes discovery
+candidates, proposed next selections and nested history/message content from
+these supply claims. The complete view is unavailable if current permissions or
+its 256-entry/64-KiB limits cannot be satisfied. No extra model call or selection
+is made. Internal operations and retained execution intents remain distinct from
+external execution, which the native runtime does not currently support. Saved
+scripts and supplied skill guides do not establish execution or successful skill
+application. See [resource-use interpretation](docs/persona-development.md).
+
 Requester feedback can stay in the existing work. Run `ai-personas --state-root
 /private/state --operator requester feedback feedback.json`, where the JSON object
 contains `id`, `work`, `persona` and `text` (at most 16 KiB). The saved requester can

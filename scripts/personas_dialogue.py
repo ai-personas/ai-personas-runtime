@@ -1534,9 +1534,34 @@ class Dialogue:
             if not supplied:
                 self.ui.say("None of the characteristic revisions in this view was supplied in full to this call.")
             self.development_decision(evidence)
+            self.resource_use(evidence)
         if result.get("truncated"):
             self.ui.say("This bounded view omits additional revisions. Use an exact source ID to narrow it.")
         self.ui.say("Retained guidance and actual input supply do not by themselves establish improved behavior. Review the work and its consequences.")
+
+    def resource_use(self, evidence):
+        resources = evidence.get("resource_use")
+        if resources is None:
+            self.ui.say("This helper does not expose supporting-resource supply evidence.")
+            return
+        if not resources.get("available"):
+            self.ui.say("Supporting-resource evidence unavailable: " + resources.get("reason", "unavailable"))
+            return
+        self.ui.say("Supporting resources supplied to this accepted call (metadata):")
+        for resource in resources["supplied_supporting_resources"]:
+            ref = resource["reference"]
+            self.ui.say(f"{resource['path']} — {ref['source']} @ {ref['revision']}")
+            self.ui.say("Exact representation and range: " + json.dumps(ref, ensure_ascii=False))
+            self.ui.say(f"Supplied text: {resource['supplied_utf8_bytes']} UTF-8 bytes; "
+                        f"SHA-256 {resource['supplied_text_sha256']}; "
+                        f"complete UTF-8 revision matched: {resource['complete_utf8_revision_matched']}")
+            self.ui.say("Supply route: " + json.dumps(resource["supply_route"], ensure_ascii=False)
+                        + "; qualification roles: " + json.dumps(resource["roles"], ensure_ascii=False))
+        if not resources["supplied_supporting_resources"]:
+            self.ui.say("No supporting-file entries were supplied through the routes inspected here.")
+        self.ui.say(f"Execution intents in this accepted decision: {resources['execution_intents_in_accepted_decision']}.")
+        self.ui.say(resources["scope"])
+        self.ui.say(resources["limits"])
 
     def development_decision(self, evidence):
         decision = evidence.get("accepted_decision")
