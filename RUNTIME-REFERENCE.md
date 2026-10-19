@@ -262,6 +262,19 @@ both existing accounts must still fit. Used, reserved and uncertain resources
 remain charged. No work, attempts, work-level navigation allowances, provider calls or
 persona continuations are created or reset.
 
+New runtime snapshots store repeated observation and message exposure manifests
+once in a versioned `retained_exposures` table. Exact digest references replace
+only those typed host fields. Loading verifies each complete manifest and restores
+the original source revisions, policies and array order before any permission or
+history operation. Authored content, payloads, historical evidence identities and
+old immutable snapshots are unchanged. No charged storage is refunded.
+Legacy expanded snapshots remain readable. Keep the updated helpers after a new
+snapshot is saved; older readers do not understand the compact representation.
+Stored record limits still apply. Ordinary saves allow up to 48 MiB of expanded
+JSON; decoding checks a 64 MiB bound before duplicating referenced manifests,
+leaving room for the existing prepaid pause and ending controls. These are
+representation bounds, not host-process memory guarantees.
+
 A new extension validates the current operator and exact authority heads inside
 the same transaction that admits its proposed limits. Its authority reads and
 terminal-invocation scan are charged against that explicitly requested funding,

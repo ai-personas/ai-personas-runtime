@@ -855,6 +855,7 @@ pub(super) fn control(
         Value::Null
     } else {
         json!({"unresolved":entries,"retained_results":results,
+            "capability_scope":"CONTROL.work_capability describes internal work commands only. Computation uses separate CONTROL.computation_capabilities through effect when the exact guide is supplied and its allocation remains available. An absent computation callable does not prevent retrieving a retained result through its exact supporting-file reference. Previous blocked judgments do not establish current resource availability.",
             "retrieval":"Exact protected supporting files from this persona/work, metadata only. Read or select the source under next_assets to recover its inputs, output and terminal evidence with required qualifications. Selection can avoid a history scan and a read-result byte limit. Do not rerun a computation to recover a receipt. Files are host records, not current callable grants or persona-authored judgments. Inaccessible results are omitted.",
             "meaning":"No work completion is inferred. Uncertain computation requires host recovery; it is not replayed or treated as free, and blocks further computation for this persona/work."})
     }

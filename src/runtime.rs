@@ -23,6 +23,7 @@ pub use need_proposals::{IntakeEpisodeSnapshot, NeedInterface, PendingNeedPropos
 #[path = "launch.rs"]
 pub mod launch;
 mod stakeholder;
+mod state_storage;
 mod tools;
 pub use tools::{ComputationGrantRequest, ComputationInterface};
 pub mod warnings;
@@ -765,18 +766,15 @@ impl WorkMeta {
         self.repair_attempts_declared.unwrap_or(config.max_repair_attempts)
     }
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct State {
     pub format: u32,
     pub config: Config,
     pub personas: BTreeMap<String, Persona>,
     pub sources: BTreeMap<String, Source>,
-    #[serde(default)]
     pub accepted_bindings: Vec<f::AcceptedBinding>,
     /// Immutable warning authorship and append-only resolution history. The
     /// active files binding snapshot is a separately enforced projection.
-    #[serde(default)]
     pub semantic_warnings: BTreeMap<String, warnings::SemanticWarning>,
     pub board: w::WorkBoard,
     pub work_meta: BTreeMap<String, WorkMeta>,
@@ -785,15 +783,11 @@ pub struct State {
     pub local_deliveries: BTreeMap<String, Value>,
     pub interpretations: BTreeMap<String, Value>,
     /// Absent legacy bridge state grants no registration or ingestion authority.
-    #[serde(default)]
     pub local_evidence: LocalEvidenceBridge,
     /// Missing legacy state binds no work to an intake episode. Selection is
     /// explicit and its charges are retained independently of response success.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) intake_episodes: BTreeMap<String, need_proposals::IntakeEpisode>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub computation_grants: BTreeMap<String, tools::Grant>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub computation_jobs: BTreeMap<String, tools::JobMarker>,
     pub operator_events: Vec<Value>,
 }
