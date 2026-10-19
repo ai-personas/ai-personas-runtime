@@ -43,8 +43,10 @@ Select an existing directory containing the four current Rust helpers, or approv
 a build of this checkout with locked Cargo dependencies. Approved binaries are
 pinned by exact path and SHA-256; changed binaries stop the flow rather than
 silently replacing an installation. Cargo may download locked crates and execute
-build scripts, only after confirmation. The build uses one job, no incremental
-compilation and no debug symbols, storing artifacts under the private UI root.
+build scripts, only after confirmation. The build produces optimized release
+helpers using one job, no incremental compilation and no debug symbols, storing
+artifacts under the private UI root. Initial compilation can take longer than a
+development build; normal work and inspection use the optimized helpers.
 Cargo caches, native toolchains and physical disk are not hard-bounded by the UI.
 The shell launcher selects the first available Python 3.9+ from supported versioned names, then checks Linux memfd sealing and procfs descriptor support before starting the UI. If none qualifies, it prints an actionable host-prerequisite message; it does not install software or fall back to pathname execution. Missing Rust 1.88+, Cargo, compiler/linker or host approval requires operator installation/approval; no sudo, arbitrary installer, privilege bypass, Codex CLI or coding-agent fallback is used.
 

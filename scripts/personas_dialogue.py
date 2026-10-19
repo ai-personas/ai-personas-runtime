@@ -913,7 +913,7 @@ class Helpers:
                             "Install or repair Rust 1.88+ and the native C toolchain/linker under host policy, "
                             "or choose an approved existing helper directory. No installer was run.")
                 return self.install()
-            self.ui.consent("Build this exact checkout with locked Cargo dependencies, one job and no debug symbols? "
+            self.ui.consent("Build optimized helpers from this exact checkout with locked Cargo dependencies, one job and no debug symbols? "
                             "Cargo may download locked crates and execute their build scripts. No sudo/system installation. "
                             "Build/cache files consume disk; failure preserves your need")
             target = self.j.directory.path / "build"
@@ -921,7 +921,7 @@ class Helpers:
             for k in ("CARGO_HOME", "RUSTUP_HOME"):
                 if k in os.environ:
                     env[k] = os.environ[k]
-            env.update(CARGO_PROFILE_DEV_DEBUG="0", CARGO_PROFILE_TEST_DEBUG="0", CARGO_INCREMENTAL="0",
+            env.update(CARGO_PROFILE_RELEASE_DEBUG="0", CARGO_INCREMENTAL="0",
                        CARGO_TARGET_DIR=str(target))
             selected = select_supported_cargo(candidates, env, self.checkout)
             if selected is None:
@@ -933,7 +933,7 @@ class Helpers:
             self.ui.say("Building local helpers; Cargo progress follows. Interrupting never starts provider work.")
             # Child-only (Python 3.9+): keep new build paths private even when
             # the caller uses umask 0002. Never chmod an existing installation.
-            proc = subprocess.Popen([cargo, "build", "--locked", "--bins", "-j", "1"],
+            proc = subprocess.Popen([cargo, "build", "--locked", "--release", "--bins", "-j", "1"],
                                     cwd=self.checkout, env=env, start_new_session=True, umask=0o077)
             try:
                 code = proc.wait()
@@ -941,7 +941,7 @@ class Helpers:
                 self.stop(proc)
                 raise
             require(code == 0, "build_failed")
-            self.adopt(target / "debug")
+            self.adopt(target / "release")
         else:
             raise Halt()
 
