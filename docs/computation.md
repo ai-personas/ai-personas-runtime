@@ -124,7 +124,7 @@ computation for that persona/work is unavailable. A changed prerequisite cancels
 an undispatched intent. An exact accepted-response replay returns the original
 adoption and does not start execution again.
 
-Use `development PERSONA --invocation CALL --json` to inspect the accepted
+Use `development PERSONA --invocation CALL` to inspect the accepted
 decision's supplied guide, callable definition and `computation_execution`
 receipts. The result view remains subject to current lineage and byte bounds.
 Keep live run records in private state directories, outside the source repository.
