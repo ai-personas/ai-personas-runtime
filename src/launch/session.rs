@@ -130,7 +130,7 @@ fn authorized(
         BoundaryError::Unauthorized,
     )?;
     check(
-        (2..=8).contains(&saved.setup.cohort) && saved.works.len() <= 128,
+        (1..=8).contains(&saved.setup.cohort) && saved.works.len() <= 128,
         BoundaryError::InvalidState,
     )?;
     for actor in people(saved.setup.cohort) {

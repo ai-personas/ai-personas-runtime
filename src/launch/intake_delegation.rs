@@ -176,7 +176,7 @@ impl IntakeDelegationRequest {
         text(&self.purpose, 4096)?;
         text(&self.boundaries, 4096)?;
         self.expected.validate()?;
-        identities(&self.expected_cohort, 2, 8)?;
+        identities(&self.expected_cohort, 1, 8)?;
         identities(&self.requesting_personas, 1, 8)?;
         identities(&self.proposal_work_ids, 1, 8)?;
         identities(&self.allowed_child_participants, 1, 8)?;

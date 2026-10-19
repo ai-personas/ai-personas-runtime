@@ -38,7 +38,10 @@ State defaults to `$XDG_STATE_HOME/ai-personas`, or
 `$HOME/.local/state/ai-personas`. `--state-root` selects another private directory
 outside repositories. The saved working directory must already exist and remain separate from private state. It is retained as compatibility metadata; the direct transport neither reads it nor sends it to the model. Strict remote context, token and cost guarantees remain unestablished.
 
-Setup defaults to three continuing personas. `--cohort` accepts 2..8. New needs
+Setup defaults to three continuing personas. `--cohort` accepts 1..8; use
+`--cohort 1` for one continuing persona working with the requester. A single
+persona still chooses whether to accept responsibility and how to complete the
+work; it needs no peer consent. New needs
 give every persona the same neutral, voluntary invitation to consider or
 contribute, without assigned ownership or review roles. Within the existing
 mandate, a retained requester-issued formation delegation allows personas to

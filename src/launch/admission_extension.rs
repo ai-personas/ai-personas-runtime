@@ -268,7 +268,7 @@ pub(super) fn validate_saved(state: &State, saved: &Saved) -> Result<()> {
         u64::try_from(saved.works.len()).map_err(|_| invalid("saved work count overflow"))?;
     require(
         setup.share_cohort
-            && (2..=8).contains(&setup.cohort)
+            && (1..=8).contains(&setup.cohort)
             && (1..=setup.cohort).contains(&setup.owner)
             && (1..=128).contains(&setup.max_steps)
             && (1..=128).contains(&setup.max_considerations)

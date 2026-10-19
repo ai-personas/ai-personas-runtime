@@ -57,6 +57,11 @@ configured for the Codex auth-only ChatGPT OAuth route can also continue from th
 work menu. Other saved provider modes retain their explicit CLI paths; the menu
 does not convert provider modes or switch billing accounts.
 
+For a fresh runtime, choose between one and eight continuing personas before
+reviewing the sharing permissions and resource limits. One persona can work
+directly with you. Larger groups choose their own contributions and arrangements.
+The chosen size is saved with the setup request and shown again on restart.
+
 ### Continue an existing Codex OAuth runtime
 
 Open the saved work, add feedback if needed, explicitly resume a stopped

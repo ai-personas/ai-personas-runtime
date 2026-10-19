@@ -28,7 +28,7 @@ ai-personas --operator local-operator setup \
   --share-cohort --allow-direct-provider
 ```
 
-Setup performs no inference. It saves three continuing personas by default and explicitly permits sharing within that cohort and with the requester. Creation seeds assert no prior experience. State defaults to `$XDG_STATE_HOME/ai-personas`, or `$HOME/.local/state/ai-personas`; keep it outside repositories. If you choose another location with `--state-root`, pass that same flag on subsequent commands.
+Setup performs no inference. It saves three continuing personas by default and explicitly permits sharing within that cohort and with the requester. Add `--cohort 1` to work with a single continuing persona; the supported range is one to eight. Creation seeds assert no prior experience. State defaults to `$XDG_STATE_HOME/ai-personas`, or `$HOME/.local/state/ai-personas`; keep it outside repositories. If you choose another location with `--state-root`, pass that same flag on subsequent commands.
 
 ## Give a need, then read or continue
 

@@ -87,7 +87,7 @@ fn validate_saved(
     let setup = &saved.setup;
     require(
         setup.share_cohort
-            && (2..=8).contains(&setup.cohort)
+            && (1..=8).contains(&setup.cohort)
             && (1..=setup.cohort).contains(&setup.owner)
             && (1..=128).contains(&setup.max_steps)
             && (1..=128).contains(&setup.max_considerations)

@@ -273,8 +273,8 @@ fn setup_parts(operator: &str, settings: Setup, opt_in: bool) -> Result<(Config,
         "explicit direct-provider access and cohort sharing consent required",
     )?;
     require(
-        (2..=8).contains(&settings.cohort) && (1..=settings.cohort).contains(&settings.owner),
-        "cohort must be 2..=8 and owner must name a cohort position",
+        (1..=8).contains(&settings.cohort) && (1..=settings.cohort).contains(&settings.owner),
+        "cohort must be 1..=8 and owner must name a cohort position",
     )?;
     require(
         (1..=128).contains(&settings.max_steps)

@@ -118,8 +118,8 @@ fn reference(reference: &s::ObjectRef, id: &str) -> Result<()> {
 
 fn binding_bounds(bindings: &BTreeMap<String, PersonaBinding>) -> Result<()> {
     require(
-        (2..=8).contains(&bindings.len()),
-        "migration requires 2..=8 bindings",
+        (1..=8).contains(&bindings.len()),
+        "migration requires 1..=8 bindings",
     )?;
     for (id, binding) in bindings {
         identity(id)?;
@@ -153,7 +153,7 @@ fn cohort(saved: &Saved) -> Result<Vec<String>> {
     identity(&saved.operator)?;
     identity(&saved.setup.destination)?;
     require(
-        (2..=8).contains(&saved.setup.cohort)
+        (1..=8).contains(&saved.setup.cohort)
             && (1..=saved.setup.cohort).contains(&saved.setup.owner)
             && saved.setup.share_cohort,
         "invalid saved cohort or sharing authorization",

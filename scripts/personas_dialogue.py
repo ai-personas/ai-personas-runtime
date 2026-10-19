@@ -1243,7 +1243,9 @@ class Dialogue:
         self.account()
         if self.p["bootstrap"] is None:
             settings = self.settings()
-            self.ui.say("Proposed local cohort: 2 continuing personas and you, without assigned owner/reviewer roles. "
+            cohort = self.ui.number("Number of continuing personas", 2, 1, 8)
+            noun = "persona" if cohort == 1 else "personas"
+            self.ui.say(f"Proposed local cohort: {cohort} continuing {noun} and you, without assigned owner/reviewer roles. "
                         "Grants permit their own fragments, assets, character proposals, work commands and cohort messages. "
                         "This grants NO host shell/tools, external effects, automatic retries or background work.")
             attempts = self.ui.number("Lifetime attempt allowance for each new work", 16, 1, 128)
@@ -1251,7 +1253,7 @@ class Dialogue:
             steps = self.ui.number("Maximum foreground attempts per explicitly authorized session", 4, 1, min(128, total))
             works = self.ui.number("Maximum saved work identities", 8, 1, 128)
             request = {"id": "bootstrap-" + uuid.uuid4().hex, "operator": self.p["operator"],
-                       "allow_direct_provider": True, "setup": {"cohort": 2, "owner": 1,
+                       "allow_direct_provider": True, "setup": {"cohort": cohort, "owner": 1,
                        "destination": "openai-siwc", "provider": settings, "working_directory": str(self.checkout),
                        "share_cohort": True, "max_steps": steps, "max_considerations": 128,
                        "max_work_attempts": attempts, "max_total_steps": total, "max_works": works}}
@@ -1259,9 +1261,10 @@ class Dialogue:
         path, request = self.j.document("bootstrap")
         preview = self.session("bootstrap", path, "--preview")
         setup = request["setup"]
+        noun = "persona" if setup["cohort"] == 1 else "personas"
         self.ui.say(f"Runtime: {self.p['runtime']['path']}\n"
                     f"Operator: {self.p['operator']}; exact model/effort: {setup['provider']['model']} / {setup['provider']['effort']}\n"
-                    f"Share needs, authorized persona context and outputs with OpenAI SIWC, 2 personas and this requester. "
+                    f"Share needs, authorized persona context and outputs with OpenAI SIWC, {setup['cohort']} {noun} and this requester. "
                     f"Cohort self-authorship is permitted, not forced. Work/session/lifetime caps: "
                     f"{setup['max_work_attempts']} / {setup['max_steps']} / {setup['max_total_steps']}; works: {setup['max_works']}.\n"
                     "All local storage/navigation/repair/closeout limits below are controlling finite allocations, "
