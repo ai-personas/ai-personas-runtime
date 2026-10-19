@@ -27,6 +27,7 @@ mod stakeholder;
 mod state_storage;
 mod tools;
 mod http_tools;
+mod context_fit_recovery;
 pub use http_tools::{HttpFetchGrantRequest, HttpFetchInterface};
 pub use tools::{ComputationGrantRequest, ComputationInterface};
 pub mod warnings;
@@ -196,6 +197,7 @@ pub enum RuntimeError {
     SelectionOverflow {
         required_bytes: usize,
         mandatory_bytes: usize,
+        limit_bytes: usize,
         growth_bytes: usize,
         fixed_contract_bytes: usize,
         selection_sha256: String,
@@ -824,22 +826,23 @@ pub struct Exposure {
 // independently of the candidate State so rollback cannot erase its restrictions.
 #[derive(Clone)]
 struct PlanningExposure {
+    // The complete original request is already durably retained. Refer to its
+    // exact bytes instead of copying that potentially large manifest into the
+    // separately bounded failure record. Only newly consulted restrictions
+    // consume the additional manifest allowance.
+    admitted: Option<Exposure>,
     exposure: Option<Exposure>,
     remaining_bytes: usize,
 }
 impl PlanningExposure {
     fn new(exposure: Option<&Exposure>) -> Self {
-        // Leave room for array/object syntax and the terminal-bound envelope
-        // within Store's independent 4096-byte cap.
-        let mut result = Self {
-            exposure: Some(Exposure::default()),
-            remaining_bytes: 3800,
-        };
-        match exposure {
-            Some(exposure) => result.include(exposure),
-            None => result.unknown(),
+        // Leave room for exact request/terminal bindings and a typed diagnostic
+        // within Store's unchanged 4096-byte rejection-context cap.
+        Self {
+            admitted: exposure.cloned(),
+            exposure: exposure.map(|_| Exposure::default()),
+            remaining_bytes: 3200,
         }
-        result
     }
     fn include(&mut self, exposure: &Exposure) {
         let Some(retained) = self.exposure.as_mut() else {
@@ -849,7 +852,8 @@ impl PlanningExposure {
         // overlapping consulted views neither repeatedly serialize the growing
         // union nor allocate an oversized failure manifest.
         for source in &exposure.sources {
-            if !retained.sources.contains(source) {
+            if !self.admitted.as_ref().is_some_and(|base| base.sources.contains(source))
+                && !retained.sources.contains(source) {
                 if !Self::charge_component(&mut self.remaining_bytes, source) {
                     self.unknown();
                     return;
@@ -858,7 +862,8 @@ impl PlanningExposure {
             }
         }
         for policy in &exposure.policies {
-            if !retained.policies.contains(policy) {
+            if !self.admitted.as_ref().is_some_and(|base| base.policies.contains(policy))
+                && !retained.policies.contains(policy) {
                 if !Self::charge_component(&mut self.remaining_bytes, policy) {
                     self.unknown();
                     return;
@@ -891,13 +896,40 @@ impl PlanningExposure {
     fn unknown(&mut self) {
         self.exposure = None;
     }
-    fn context(&self, terminal_sha256: &str) -> Value {
-        match &self.exposure {
-            Some(exposure) => json!({"kind":"known","terminal_sha256":terminal_sha256,
-                "exposure":exposure}),
-            None => json!({"kind":"unknown"}),
+    fn context(
+        &self,
+        terminal_sha256: &str,
+        invocation: &s::InvocationRecord,
+        prepared: &Prepared,
+        diagnostic: Option<ContextFitFailure>,
+    ) -> Value {
+        let Some(additional_exposure) = &self.exposure else {
+            return json!({"kind":"unknown"});
+        };
+        if self.admitted.is_none() || self.admitted != prepared.exposure {
+            return json!({"kind":"unknown"});
+        }
+        let Some(request_sha256) = invocation.request.as_ref().and_then(|request| digest(request).ok()) else {
+            return json!({"kind":"unknown"});
+        };
+        let value = json!({"kind":"known_admitted_v1", "terminal_sha256":terminal_sha256,
+            "request_sha256":request_sha256,"additional_exposure":additional_exposure,
+            "diagnostic":diagnostic});
+        if serde_json::to_vec(&value).is_ok_and(|bytes| bytes.len() <= 4096) {
+            value
+        } else {
+            json!({"kind":"unknown"})
         }
     }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ContextFitFailure {
+    required_bytes: usize,
+    mandatory_bytes: usize,
+    limit_bytes: usize,
+    selection_sha256: String,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -914,6 +946,13 @@ enum RetainedFailureContext {
         terminal_sha256: String,
         exposure: Exposure,
     },
+    #[serde(rename = "known_admitted_v1")]
+    KnownAdmitted {
+        terminal_sha256: String,
+        request_sha256: String,
+        additional_exposure: Exposure,
+        diagnostic: Option<ContextFitFailure>,
+    },
     Unknown,
     ProtocolCorrection {
         terminal_sha256: String,
@@ -921,15 +960,18 @@ enum RetainedFailureContext {
     },
 }
 
-// A typed request-only fact never declassifies the full failure envelope.
-// Legacy markers grant no historical classification. The separate shape check
-// can inspect an authenticated rejected body; raw error text is never parsed.
-fn protocol_recovery_observation(
+// Each correction retains its own exact source restrictions. Legacy markers
+// grant no historical fit classification. The separate shape check can inspect
+// an authenticated rejected body; raw error text is never parsed.
+fn recovery_correction_observation(
     invocation: &s::InvocationRecord,
     evidence: &s::StoredObject,
     prepared: &Prepared,
     now: i64,
 ) -> Result<Option<Observation>> {
+    if let Some(observation) = context_fit_recovery::observation(invocation, evidence, prepared, now)? {
+        return Ok(Some(observation));
+    }
     let context = invocation
         .runtime_failure_context
         .as_ref()
@@ -1120,20 +1162,31 @@ fn failure_recovery_exposure(
     }
     // A historical complete response may lack even the terminal-bound failure
     // detail. Its rejection provenance is still unknown, not merely Prepared.
-    Ok(retained_failure_exposure(
-        invocation.runtime_failure_context.as_ref(),
-        &terminal.sha256,
-    ))
+    Ok(retained_failure_exposure(invocation, &terminal.sha256, prepared))
 }
 
-fn retained_failure_exposure(context: Option<&Value>, terminal_sha: &str) -> Option<Exposure> {
-    match context
+fn retained_failure_exposure(
+    invocation: &s::InvocationRecord,
+    terminal_sha: &str,
+    prepared: &Prepared,
+) -> Option<Exposure> {
+    match invocation.runtime_failure_context.as_ref()
         .and_then(|value| serde_json::from_value::<RetainedFailureContext>(value.clone()).ok())
     {
         Some(RetainedFailureContext::Known {
             terminal_sha256,
             exposure,
         }) if terminal_sha256 == terminal_sha => Some(exposure),
+        Some(RetainedFailureContext::KnownAdmitted {
+            terminal_sha256, request_sha256, additional_exposure, ..
+        }) if terminal_sha256 == terminal_sha
+            && prepared.request.id == invocation.id
+            && invocation.request.as_ref().and_then(|request| digest(request).ok())
+                .as_deref() == Some(request_sha256.as_str()) => {
+                let mut exposure = prepared.exposure.clone()?;
+                extend_exposure(&mut exposure, &additional_exposure);
+                Some(exposure)
+            },
         // Missing legacy provenance is unknown; never substitute Prepared.
         _ => None,
     }
@@ -4342,7 +4395,18 @@ impl Runtime {
             json!({"kind":"protocol_correction","terminal_sha256":terminal_ref.sha256,
                 "code":ProtocolCorrection::CloseGoalRecordNotSupplied})
         } else {
-            planning_exposure.context(&terminal_ref.sha256)
+            let diagnostic = match &error {
+                RuntimeError::SelectionOverflow {
+                    required_bytes, mandatory_bytes, limit_bytes, selection_sha256, ..
+                } => Some(ContextFitFailure {
+                    required_bytes: *required_bytes,
+                    mandatory_bytes: *mandatory_bytes,
+                    limit_bytes: *limit_bytes,
+                    selection_sha256: selection_sha256.clone(),
+                }),
+                _ => None,
+            };
+            planning_exposure.context(&terminal_ref.sha256, invocation, prepared, diagnostic)
         };
         self.store.trusted_host().reject_runtime_invocation(
             &prepared.request.id,
@@ -4938,11 +5002,11 @@ impl Runtime {
                             state.personas.get_mut(persona).unwrap().focus.get_mut(work)
                                 .ok_or_else(|| held("work focus absent"))?.pending_observations.push(observation_id);
                             if let Some(correction) =
-                                protocol_recovery_observation(&inv, &evidence, &prepared, unix_now()?)?
+                                recovery_correction_observation(&inv, &evidence, &prepared, unix_now()?)?
                             {
                                 let correction_id = correction.id.clone();
                                 require(!state.observations.contains_key(&correction_id),
-                                    "protocol recovery observation identity conflict")?;
+                                    "recovery correction observation identity conflict")?;
                                 state.observations.insert(correction_id.clone(), correction);
                                 state.personas.get_mut(persona).unwrap().focus.get_mut(work)
                                     .ok_or_else(|| held("work focus absent"))?.pending_observations.push(correction_id);
@@ -6523,6 +6587,7 @@ fn overflow_trigger(focus: &Focus, error: &RuntimeError) -> Option<RepairTrigger
         growth_bytes,
         fixed_contract_bytes,
         selection_sha256,
+        ..
     } = error
     else {
         return None;
@@ -6680,16 +6745,22 @@ fn render_with_history(
         None,
         navigation,
     )?;
-    if rendered.total > state.config.context_bytes {
+    require_render_fit(&rendered, state.config.context_bytes)?;
+    Ok(rendered)
+}
+
+fn require_render_fit(rendered: &Rendered, limit_bytes: usize) -> Result<()> {
+    if rendered.total > limit_bytes {
         return Err(RuntimeError::SelectionOverflow {
             required_bytes: rendered.total,
             mandatory_bytes: rendered.mandatory_bytes,
+            limit_bytes,
             growth_bytes: rendered.growth_bytes,
             fixed_contract_bytes: rendered.fixed_contract_bytes,
-            selection_sha256: rendered.selection_sha256,
+            selection_sha256: rendered.selection_sha256.clone(),
         });
     }
-    Ok(rendered)
+    Ok(())
 }
 #[allow(clippy::too_many_arguments)] // Explicit rendering inputs; no ambient mutable context.
 fn render_mode_with_history(
@@ -8336,7 +8407,7 @@ fn plan_response(
         // failed diagnostic remains conservatively unavailable to inference.
         planning_exposure.unknown();
         // Verify resulting mandatory/selected state before performing requested navigation.
-        let navigation_context_base = render_with_history(
+        let navigation_context_base = render_mode_with_history(
             &state,
             &history_material,
             actor,
@@ -8345,10 +8416,15 @@ fn plan_response(
             increment(prepared.epoch)?,
             now,
             false,
+            None,
             Some(prepared.navigation),
         )?;
         *planning_exposure = admitted_exposure;
         planning_exposure.include(&navigation_context_base.exposure);
+        // A completely rendered but oversized candidate has known disclosure
+        // restrictions. Retain them before refusing its size; never replay the
+        // proposal later merely to reconstruct that diagnostic.
+        require_render_fit(&navigation_context_base, state.config.context_bytes)?;
         let a = admission(&state.personas[actor], now);
         let before_corpus = planning_exposure.clone();
         planning_exposure.unknown();
@@ -8770,7 +8846,7 @@ fn plan_response(
     }
     let before_final_render = planning_exposure.clone();
     planning_exposure.unknown();
-    let fitted = render_with_history(
+    let fitted = render_mode_with_history(
         &state,
         &history_material,
         actor,
@@ -8780,10 +8856,17 @@ fn plan_response(
         now,
         false,
         None,
+        None,
     )?;
-    check_aggregate_replacement(&state, prepared, decision, &previous_focus, &fitted, now)?;
     *planning_exposure = before_final_render;
     planning_exposure.include(&fitted.exposure);
+    require_render_fit(&fitted, state.config.context_bytes)?;
+    // Aggregate-replacement checks may consult more than the successful final
+    // rendering. Preserve their existing conservative failure boundary.
+    let before_aggregate_check = planning_exposure.clone();
+    planning_exposure.unknown();
+    check_aggregate_replacement(&state, prepared, decision, &previous_focus, &fitted, now)?;
+    *planning_exposure = before_aggregate_check;
     let persona = state.personas.get_mut(actor).unwrap();
     let focus = persona.focus.get_mut(work_id).unwrap();
     focus.selection_fit = Some(fit_checkpoint(&fitted));
@@ -9043,6 +9126,7 @@ fn plan_selection_repair(
             growth_bytes: _,
             fixed_contract_bytes: _,
             selection_sha256,
+            ..
         }) => {
             // A subset inherits the original fit/growth witness; this does not
             // create a new attempt allowance or claim that the subset now fits.
