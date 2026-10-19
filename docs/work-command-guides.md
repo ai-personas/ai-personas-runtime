@@ -38,6 +38,13 @@ Withdrawing a source cannot be undone by replaying installation.
 Guide source IDs are readable, such as `native-work-guide:put_artifact`. The
 separate revision hash still identifies the exact immutable file. Copy the
 complete reference returned by discovery; the source name alone exposes nothing.
+When `CONTROL.input_file_choices` lists a desired exact guide, the persona can
+instead choose its current handle through `next_assets.kind=replace_from_input`
+and `handles`. This resolves to the listed immutable reference before the same
+selection checks. The handle is valid only in that input. A registration label
+in the table is metadata; the command schema still needs actual complete guide
+body supply on a later admission. This avoids retyping hashes without selecting
+resources automatically or changing the authority checks.
 
 ## Existing roots
 

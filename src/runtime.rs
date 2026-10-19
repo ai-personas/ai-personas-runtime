@@ -18,6 +18,7 @@ mod failed_attempt;
 mod history;
 mod initialization;
 mod work_guides;
+mod input_files;
 mod intake;
 pub use intake::WorkAllocation;
 pub(crate) mod lifecycle;
@@ -1292,6 +1293,10 @@ pub struct Prepared {
     pub history_records_interface: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub work_interface: Option<WorkInterface>,
+    /// Admission-bound shortcuts for exact file references actually offered in
+    /// CONTROL. Legacy absence cannot resolve a handle from another input.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub input_file_choices: BTreeMap<String, p::ExactRef>,
     /// Separate sealed capability. Legacy absence grants no ProposeNeed right.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub need_interface: Option<NeedInterface>,
@@ -4092,6 +4097,7 @@ impl Runtime {
             history_records_interface: (request.mode == Mode::Ordinary && persona.character.is_some())
                 .then(|| history::records::INTERFACE.into()),
             work_interface: rendered.work_interface,
+            input_file_choices: rendered.input_file_choices,
             need_interface: rendered.need_interface,
             intake_episode: need_proposals::reference(&state, &request.work),
             assembled_bytes_with_reserve: rendered.total,
@@ -4107,8 +4113,9 @@ impl Runtime {
         };
         // Verify the complete shared-body representation before reserving or
         // dispatching it. Validation and inspection must recover the same text.
-        if prepared.prompt_encoding.is_some() {
-            request_context::decode(&prepared)?;
+        if prepared.prompt_encoding.is_some() || !prepared.input_file_choices.is_empty() {
+            let decoded = request_context::decode(&prepared)?;
+            input_files::validate_control(&prepared, &decoded.control)?;
         }
         prepared.provider_preparation = hook(&prepared)?;
         optional_activity::seal_admission(&mut state, &prepared)?;
@@ -6681,6 +6688,7 @@ struct Rendered {
     computation_interfaces: Vec<ComputationInterface>,
     http_fetch_interfaces: Vec<HttpFetchInterface>,
     work_interface: Option<WorkInterface>,
+    input_file_choices: BTreeMap<String, p::ExactRef>,
     need_interface: Option<NeedInterface>,
     withheld: Vec<f::WithheldBundle>,
     prompt: String,
@@ -7704,6 +7712,40 @@ fn render_mode_with_history(
             }
         }
     }
+    let mut input_file_choices = BTreeMap::new();
+    if ordinary_interfaces && ordinary_total < state.config.context_bytes {
+        if let Ok(Some((choices, references, inherited))) = input_files::offer(
+            state, &core, &ordinary_context, invocation, &a,
+            state.config.context_bytes - ordinary_total,
+        ) {
+            let choice_material_bytes = input_files::material_bytes(&choices)?;
+            let mut candidate_core = core.clone();
+            candidate_core["input_file_choices"] = choices;
+            let (candidate_prompt, candidate_encoding, candidate_total) =
+                render_prompt(&candidate_core, &ordinary_context, false)?;
+            let mut combined = exposure.clone();
+            extend_exposure(&mut combined, &inherited);
+            combined.sources.extend(sources.iter().cloned());
+            combined.sources.extend(assembly.entries.iter().map(|entry| entry.reference.clone()));
+            if candidate_total <= state.config.context_bytes
+                && expanded_exposure(state, &combined)
+                    .is_ok_and(|value| exposure_permitted(state, &value, &a))
+            {
+                require(candidate_total >= ordinary_total, "input file choice accounting")?;
+                ordinary_prompt = candidate_prompt;
+                ordinary_encoding = candidate_encoding;
+                ordinary_total = candidate_total;
+                mandatory_total = render_prompt(&candidate_core, &mandatory_context, false)?.2;
+                growth_bytes = growth_bytes.checked_add(choice_material_bytes)
+                    .ok_or_else(|| invalid("input file choice growth overflow"))?;
+                fixed_contract_bytes = fixed_contract_bytes.checked_add(input_files::contract_bytes())
+                    .ok_or_else(|| invalid("input file choice contract overflow"))?;
+                core = candidate_core;
+                extend_exposure(&mut exposure, &inherited);
+                input_file_choices = references;
+            }
+        }
+    }
     if state.work_guides.is_some() && !initializing {
         // Optional guide-dependent schemas belong to their selected bundles.
         // Only guides in mandatory context/observations contribute to this
@@ -7799,6 +7841,7 @@ fn render_mode_with_history(
         computation_interfaces,
         http_fetch_interfaces,
         work_interface: if ordinary_interfaces { work_interface } else { None },
+        input_file_choices,
         need_interface,
         withheld: assembly.withheld,
         prompt,
@@ -8181,6 +8224,7 @@ fn select(
     intent: &p::SelectionIntent,
     old: &Option<Vec<Selected>>,
     serial: u64,
+    prepared: &Prepared,
     proposals: &BTreeMap<String, String>,
     reduction_only: bool,
 ) -> Result<Option<Vec<Selected>>> {
@@ -8191,9 +8235,14 @@ fn select(
             Ok(Some(current))
         }
         p::SelectionIntent::Clear { .. } => Ok(Some(Vec::new())),
-        p::SelectionIntent::Replace { references, .. } => {
+        p::SelectionIntent::Replace { .. } | p::SelectionIntent::ReplaceFromInput { .. } => {
+            let references = match intent {
+                p::SelectionIntent::Replace { references, .. } => references.clone(),
+                p::SelectionIntent::ReplaceFromInput { handles, .. } => input_files::resolve(prepared, handles)?,
+                _ => unreachable!("replacement variant"),
+            };
             let mut result = Vec::new();
-            for reference in references {
+            for reference in &references {
                 let reference = resolve(reference, proposals)?;
                 if reduction_only {
                     // Conservative first implementation: subsets of whole exact
@@ -8224,7 +8273,7 @@ fn check_replacement(
     which: f::Scope,
     now: i64,
 ) -> Result<()> {
-    if !matches!(intent, p::SelectionIntent::Replace { .. }) {
+    if !matches!(intent, p::SelectionIntent::Replace { .. } | p::SelectionIntent::ReplaceFromInput { .. }) {
         return Ok(());
     }
     let persona = &state.personas[&prepared.request.persona];
@@ -8267,7 +8316,7 @@ fn check_aggregate_replacement(
             _ => continue,
         };
         require(
-            !matches!(intent, p::SelectionIntent::Replace { .. }),
+            !matches!(intent, p::SelectionIntent::Replace { .. } | p::SelectionIntent::ReplaceFromInput { .. }),
             "replacement selection is unavailable under the combined context allowance",
         )?;
         if matches!(intent, p::SelectionIntent::Preserve { .. }) {
@@ -8541,6 +8590,7 @@ fn plan_response(
         &decision.next_fragments,
         &previous_focus.fragments,
         prepared.admission_serial,
+        prepared,
         &proposals,
         character_changed,
     )?;
@@ -8548,6 +8598,7 @@ fn plan_response(
         &decision.next_assets,
         &previous_focus.assets,
         prepared.admission_serial,
+        prepared,
         &proposals,
         character_changed,
     )?;
@@ -9180,6 +9231,7 @@ fn plan_selection_repair(
         &decision.next_fragments,
         &previous.fragments,
         prepared.admission_serial,
+        prepared,
         &proposals,
         true,
     )?;
@@ -9187,6 +9239,7 @@ fn plan_selection_repair(
         &decision.next_assets,
         &previous.assets,
         prepared.admission_serial,
+        prepared,
         &proposals,
         true,
     )?;

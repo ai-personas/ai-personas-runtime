@@ -686,6 +686,35 @@ For a future-result wait, `register_pending_mock_dependency` binds a distinct ty
 
 ## Files and decisions
 
+Ordinary initialized admissions may offer `CONTROL.input_file_choices`: bounded
+metadata for exact references already identified in the current input. A persona
+can choose `next_assets` or `next_fragments` with `kind: replace_from_input`, a
+reason and the listed `handles`, avoiding another copy of each source and hash.
+Each handle contains the current invocation identity and resolves only against
+that admission's sealed table. Older handles, unknown handles and absent tables
+are rejected. This never chooses a latest revision, searches for a substitute or
+repairs a malformed reference.
+
+The table contains at most 128 entries and 32768 serialized bytes and is omitted
+when it cannot fit alongside required material. It derives candidates only from
+current host projections and qualified entries, not authored text or nested
+history. Its actual bytes and exact source restrictions enter admission accounting.
+It loads no body or callable definition. The existing selection, overlap, scope,
+permission, character-change, lifetime and combined-context checks still apply
+after resolution. Explicit `replace.references` remains available for ranges,
+other known exact files and same-response proposals. Initialization and restricted
+repair do not offer handles; legacy admissions have no handle authority.
+
+Handles retain the listed reference's lifetime value. Like an explicit ordinary
+replacement, selecting a `next_call` reference schedules it for the next
+admission; `preserve` instead retains the existing expiration. The character-change
+barrier still permits only whole existing entries without renewing their lifetime.
+
+The development view reports `resource_use.supplied_input_file_choices` and,
+for an accepted handle selection, `accepted_decision.resolved_input_selections`.
+The original authored choice remains retained alongside the sealed input mapping.
+These are metadata and selection evidence, not evidence of later body supply.
+
 `file_write` identifies an existing file by `source`, not by its path. Revising
 that source requires its exact current head in `base_revision`; null or omission
 means creation and cannot revise an existing source. The admitted schema explains

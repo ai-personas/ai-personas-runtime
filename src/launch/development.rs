@@ -290,7 +290,7 @@ fn invocation_evidence(
         "resource_use":resource_use::inspect(state, audience, &prepared, &control, &qualified, &proof)?,
         "computation_execution":tools::inspect(app, state, audience, &proof)?,
         "http_fetch_execution":http_tools::inspect(app, state, audience, &proof)?,
-        "accepted_decision":accepted_decision_view(state, audience, &archive)?,
+        "accepted_decision":accepted_decision_view(state, audience, &prepared, &archive)?,
         "input_accounting":{
             "prompt_utf8_bytes":prepared.prompt.len(),
             "instructions_and_application_schema_utf8_bytes":instructions.len(),
@@ -316,6 +316,7 @@ fn invocation_evidence(
 fn accepted_decision_view(
     state: &State,
     audience: &f::Admission,
+    prepared: &Prepared,
     archive: &AdoptedResponse,
 ) -> Result<Value> {
     let unavailable = || {
@@ -326,24 +327,34 @@ fn accepted_decision_view(
     };
     // A next selection may name material that was not in this call's input.
     // Its identities must not inherit disclosure from the input's exposure.
-    for selection in [
-        &archive.response.next_fragments,
-        &archive.response.next_assets,
+    let mut resolved_input_selections = BTreeMap::new();
+    for (scope, selection) in [
+        ("fragments", &archive.response.next_fragments),
+        ("assets", &archive.response.next_assets),
     ] {
-        if let p::SelectionIntent::Replace { references, .. } = selection {
-            for reference in references {
-                if reference.revision.starts_with(p::PROPOSED_REVISION_PREFIX)
-                    || reference.revision.starts_with(p::PROPOSED_OPERATION_PREFIX)
-                {
-                    // Same-response FileWrite policies and retained origins are
-                    // checked below before any of this projection is returned.
-                    continue;
-                }
-                if !file_reference(reference)
-                    .is_ok_and(|reference| lineage_permitted(state, &[reference], audience))
-                {
-                    return Ok(unavailable());
-                }
+        let references = match selection {
+            p::SelectionIntent::Replace { references, .. } => references.clone(),
+            p::SelectionIntent::ReplaceFromInput { handles, .. } => {
+                let references = input_files::resolve(prepared, handles)?;
+                resolved_input_selections.insert(scope, handles.iter().zip(&references)
+                    .map(|(handle, reference)| json!({"handle":handle,"reference":reference,"metadata_only":true}))
+                    .collect::<Vec<_>>());
+                references
+            }
+            _ => Vec::new(),
+        };
+        for reference in &references {
+            if reference.revision.starts_with(p::PROPOSED_REVISION_PREFIX)
+                || reference.revision.starts_with(p::PROPOSED_OPERATION_PREFIX)
+            {
+                // Same-response FileWrite policies and retained origins are
+                // checked below before any of this projection is returned.
+                continue;
+            }
+            if !file_reference(reference)
+                .is_ok_and(|reference| lineage_permitted(state, &[reference], audience))
+            {
+                return Ok(unavailable());
             }
         }
     }
@@ -421,7 +432,7 @@ fn accepted_decision_view(
         operations.push(item);
     }
     let decision = &archive.response;
-    let view = json!({
+    let mut view = json!({
         "available":true,
         "adoption_status":archive.report.status,
         "adoption_reason":archive.report.reason,
@@ -434,6 +445,9 @@ fn accepted_decision_view(
         "operations":operations,
         "scope":"Authored judgments and next-context intentions from this exact accepted response. Applied means adopted locally, not independently verified quality, external execution or delivery. Fenced proposals did not take effect. Retained-write metadata does not supply a file body, prove current selection or establish later benefit."
     });
+    if !resolved_input_selections.is_empty() {
+        view["resolved_input_selections"] = serde_json::to_value(resolved_input_selections)?;
+    }
     if serde_json::to_vec(&view)?.len() > 65_536 {
         return Ok(json!({
             "available":false,

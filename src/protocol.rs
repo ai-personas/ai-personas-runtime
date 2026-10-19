@@ -159,6 +159,17 @@ pub enum SelectionIntent {
         reason: String,
         references: Vec<ExactRef>,
     },
+    /// Choose exact references by their short handles in this admission's
+    /// CONTROL.input_file_choices. Copy the listed handles instead of retyping
+    /// source identities or revision hashes. Each handle names one immutable
+    /// reference already shown in this input; it is not a path, search, latest
+    /// revision, body read or permission grant. Handles from earlier admissions
+    /// are invalid. Use replace for a new same-response file or a different range.
+    /// Existing selection lifetimes are retained in the named references.
+    ReplaceFromInput {
+        reason: String,
+        handles: Vec<String>,
+    },
 }
 
 /// Ranges are nonempty, half-open intervals in the named representation's
@@ -718,6 +729,7 @@ pub fn decision_schema() -> Value {
 pub(crate) fn initialization_schema() -> Value {
     let mut schema = decision_schema();
     retain_schema_variants(&mut schema, "Operation", &["file_write", "character_adopt"]);
+    retain_schema_variants(&mut schema, "SelectionIntent", &["preserve", "clear", "replace"]);
     retain_reachable_definitions(&mut schema);
     schema
 }
@@ -736,6 +748,7 @@ pub fn selection_repair_schema() -> Value {
     );
     retain_schema_variants(&mut schema, "Continuation", &["stop", "pause"]);
     retain_schema_variants(&mut schema, "ReplyDisposition", &["none"]);
+    retain_schema_variants(&mut schema, "SelectionIntent", &["preserve", "clear", "replace"]);
     schema["$defs"]["WorkDisposition"]["oneOf"][0]["properties"]["evidence"]["maxItems"] =
         Value::from(0);
     schema["$defs"]["SelectionIntent"]["oneOf"]
@@ -1306,6 +1319,10 @@ fn ranges_overlap(left: &ExactRef, right: &ExactRef) -> bool {
     }
 }
 
+pub(crate) fn validate_selected_references(references: &[ExactRef]) -> Result<(), ProtocolError> {
+    check_references(references, 1, true, "next_context.references")
+}
+
 fn check_references(
     references: &[ExactRef],
     minimum: usize,
@@ -1430,6 +1447,22 @@ fn check_selection(selection: &SelectionIntent, path: &str) -> Result<(), Protoc
             check_text(reason, MAX_REASON_BYTES, &format!("{path}.reason"))?;
             // Use clear to express an empty replacement explicitly.
             check_references(references, 1, true, &format!("{path}.references"))
+        }
+        SelectionIntent::ReplaceFromInput { reason, handles } => {
+            check_text(reason, MAX_REASON_BYTES, &format!("{path}.reason"))?;
+            check_count(handles.len(), 1, MAX_COLLECTION_ITEMS, &format!("{path}.handles"))?;
+            let mut seen = BTreeSet::new();
+            for handle in handles {
+                // The current invocation identity plus a short ordinal. This
+                // is larger than an ordinary ID only to retain the full binding.
+                check_text(handle, MAX_ID_BYTES + 16, &format!("{path}.handles"))?;
+                if handle.chars().any(|c| c.is_whitespace() || c.is_control())
+                    || !seen.insert(handle)
+                {
+                    return Err(invalid(&format!("{path}.handles"), "unique exact current-input handles required"));
+                }
+            }
+            Ok(())
         }
     }
 }
