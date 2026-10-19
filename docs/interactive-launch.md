@@ -50,9 +50,44 @@ The shell launcher selects the first available Python 3.9+ from supported versio
 
 Choose a fresh runtime or explicitly select an existing private one and its
 operator. Existing runtime access is an operator inspection grant, not a new
-sharing policy. The first-run integrated provider path supports **native SIWC**;
-existing other provider modes retain their explicit CLI paths and may be inspected
-but are not silently converted to SIWC or API billing.
+sharing policy. Fresh-runtime setup supports **native SIWC**. Existing runtimes
+configured for the Codex auth-only ChatGPT OAuth route can also continue from the
+work menu. Other saved provider modes retain their explicit CLI paths; the menu
+does not convert provider modes or switch billing accounts.
+
+### Continue an existing Codex OAuth runtime
+
+Open the saved work, add feedback if needed, explicitly resume a stopped
+participant, and choose **c: continue**. On first use, select the trusted Codex
+executable, the home directory it should use, and its existing Codex state
+directory. **a: Codex auth source** changes these locations for future sessions.
+Only these non-secret locations are saved in the launcher journal.
+
+Before each session the menu shows the exact model, effort, saved account and
+authentication route. Authorizing the session permits the native runtime's
+auth-only request to the selected Codex process, which may refresh stored
+credentials even with `refreshToken=false`. The native adapter checks the returned
+account against the saved binding. Persona inference uses direct provider HTTP
+requests. The UI does not read credential files, import tokens, perform Codex
+inference or fall back to another provider. An unavailable or mismatched account
+stops the session; follow the existing explicit authentication/migration controls.
+
+The session retains its exact route, paths and inspected launch reference before
+dispatch. A changed launch is rejected before a new session claim is created.
+An interrupted session keeps that same identity and request. A confirmed
+unclaimed request whose launch has changed cannot be reused; the menu lets you
+review a fresh run separately. An unrecorded terminal outcome still blocks all
+replacement sessions. Old native-SIWC journal pointers remain readable with their
+original request identity.
+
+After a session, or when reopening its journal, the menu shows replies from the
+exact last reserved call and counts the available replies and deliveries. An older
+reply is never presented as the result of a failed or silent call. Choose **r** in
+the work menu for the full permitted reply history and complete delivery packages,
+including their required qualifications. This display choice does not change the
+native result's permission checks or bounded contents.
+
+### Fresh native SIWC setup
 
 The selected Personas vault uses the existing auth helper's browser sign-in,
 registration, callback, account and refresh fences. Its authorization URL is
@@ -123,6 +158,8 @@ Selecting a work opens its action menu:
 - **c: continue** rechecks current eligibility before the existing foreground
   authorization flow. Resume a stopped participant with **u** first. Work-wide
   pauses, failed-attempt holds and exhausted resources use their separate controls.
+- **a: Codex auth source** selects non-secret authentication locations for a
+  compatible saved runtime. It neither authenticates nor starts a session.
 
 Feedback and answers use the native idempotent operations; they neither start
 inference nor reset resources. They can satisfy a wait already authored for
@@ -167,8 +204,10 @@ probe is not proof for a new credential generation.
 
 The journal is bounded to 2 MiB, 32 pending/intake records and 16 probe identities.
 Generated settings/bootstrap requests are bounded immutable 64 KiB files. Only
-the most recent session pointer is needed: it is replaced solely after retained
-terminal inspection and new consent. Writes are atomic, synchronized and guarded
+the most recent session pointer is needed: replacement requires a known terminal
+or a confirmed unclaimed stale request, followed by new consent. The bounded
+`session-launch.json` transport file is reconstructed from the exact saved
+session, not accumulated per run. Writes are atomic, synchronized and guarded
 by a nonblocking OS lock; malformed/missing progress with retained files blocks
 instead of resetting. Bounded stale write files are not silently removed. This is
 not protection from hostile same-UID/root access, deletion or rollback. Preserve

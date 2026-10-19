@@ -194,18 +194,48 @@ class PrivateDirectory:
         os.close(self.fd)
 
 
+def valid_codex_paths(value):
+    return (isinstance(value, dict) and set(value) == {"executable", "host_home", "codex_home"}
+            and all(path_text(path) for path in value.values()))
+
+
+def valid_launch_reference(value):
+    return (isinstance(value, dict) and set(value) == {"id", "revision", "sha256"}
+            and value["id"] == "runtime-launch-v1" and type(value["revision"]) is int
+            and value["revision"] > 0 and isinstance(value["sha256"], str)
+            and re.fullmatch(r"[a-f0-9]{64}", value["sha256"]) is not None)
+
+
+def valid_session_route(route):
+    if not isinstance(route, dict):
+        return False
+    if route.get("kind") == "native_siwc":
+        return set(route) == {"kind", "vault"} and path_text(route["vault"])
+    return (set(route) == {"kind", "executable", "host_home", "codex_home", "authorize_codex_auth_only"}
+            and route["kind"] == "codex_auth_only" and route["authorize_codex_auth_only"] is True
+            and valid_codex_paths({k: route[k] for k in ("executable", "host_home", "codex_home")}))
+
+
+def session_route(session):
+    # Interpret legacy pointers without changing the already-authorized request.
+    return session["route"] if "route" in session else {"kind": "native_siwc", "vault": session["vault"]}
+
+
 def new_progress():
     return {"version": 1, "operator": None, "installation": None, "runtime": None,
             "vault": None, "needs": [], "session": None, "probes": [],
             "settings": None, "bootstrap": None, "setup_authorized": False,
-            "work_input": None}
+            "work_input": None, "codex_auth": None}
 
 
 def validate_progress(p):
     fields = set(new_progress())
-    require(isinstance(p, dict) and set(p) in (fields, fields - {"work_input"}) and p["version"] == 1)
-    # Older journals have no pending requester input; this adds no operation or grant.
-    p.setdefault("work_input", None)
+    optional = {"work_input", "codex_auth"}
+    require(isinstance(p, dict) and fields - optional <= set(p) <= fields and p["version"] == 1)
+    # Older journals gain no operation, credential or authorization.
+    for field in optional:
+        p.setdefault(field, None)
+    require(p["codex_auth"] is None or valid_codex_paths(p["codex_auth"]))
     require(type(p["setup_authorized"]) is bool)
     require(not p["setup_authorized"] or p["bootstrap"] is not None)
     require(p["operator"] is None or identifier(p["operator"]))
@@ -228,8 +258,12 @@ def validate_progress(p):
         seen.add(n["id"])
     if p["session"] is not None:
         s = p["session"]
-        require(isinstance(s, dict) and set(s) == {"id", "work", "vault"}
-                and identifier(s["id"]) and identifier(s["work"]) and path_text(s["vault"]))
+        require(isinstance(s, dict)
+                and set(s) in ({"id", "work", "vault"}, {"id", "work", "route", "expected_launch"})
+                and identifier(s["id"]) and identifier(s["work"]))
+        require(valid_session_route(session_route(s)))
+        if "expected_launch" in s:
+            require(valid_launch_reference(s["expected_launch"]))
     require(isinstance(p["probes"], list) and len(p["probes"]) <= 16)
     seen = set()
     for probe in p["probes"]:
@@ -863,7 +897,7 @@ class Helpers:
 
     @staticmethod
     def environment():
-        # Native helpers use their explicit vault, not inherited provider secrets.
+        # Helpers use an explicit vault or auth-only route, not inherited secrets.
         return {k: os.environ[k] for k in ("HOME", "PATH", "LANG", "LC_ALL", "TMPDIR")
                 if k in os.environ}
 
@@ -919,8 +953,15 @@ class Helpers:
                 code = proc.wait(timeout=max(0.1, deadline - time.monotonic()))
             if code != 0:
                 try:
-                    error = decode(err)
+                    # The session CLI may precede its static JSON error with
+                    # the Codex auth-only refresh notice. Never echo that stream.
+                    error = decode(err.rstrip().split(b"\n")[-1] if name == "personas-session" else err)
+                    require(isinstance(error, dict), "invalid_helper_error")
+                    if name == "personas-session":
+                        require(error.get("version") == 1 and error.get("ok") is False,
+                                "invalid_session_error")
                     label = error.get("code", "helper_rejected")
+                    require(isinstance(label, str), "invalid_helper_error")
                 except Blocked:
                     label = "helper_outcome_unknown"
                 raise Blocked(label)
@@ -1200,13 +1241,24 @@ class Dialogue:
             args += ["--after", after]
         return self.session(*args)
 
-    def output(self, work):
+    def output(self, work, summary=False, invocation=None):
         result = self.session("result", work)
         self.ui.say(f"Work {work}: {result.get('status', 'unavailable')}. "
                     "Local delivery/attributed completion is not independent quality or human acceptance.")
-        for msg in result.get("messages", []):
+        messages = result.get("messages", [])
+        deliveries = result.get("local_deliveries", [])
+        if summary:
+            self.ui.say(f"Available in this view: {len(messages)} replies; {len(deliveries)} local deliveries.")
+            # Only an exact retained call can label the session's reply. Never
+            # mistake older history for a response from a failed or silent run.
+            messages = [msg for msg in messages if invocation is not None and msg.get("invocation") == invocation]
+            if invocation:
+                self.ui.say(f"Reply from the session's last reserved call, {invocation}:" if messages else
+                            f"No permitted reply from {invocation} is available in this bounded result view.")
+            self.ui.say("Choose r in the work menu for the full reply history and complete qualified deliveries.")
+        for msg in messages:
             self.ui.say(f"{msg.get('sender', 'unknown author')}: {msg.get('text', '')}")
-        for delivery in result.get("local_deliveries", []):
+        for delivery in ([] if summary else deliveries):
             self.ui.say("Permission-projected local delivery (including required qualifications):")
             # Preserve the complete qualified package, policy/author attribution,
             # and exact body. Never peel text out of its qualifications.
@@ -1436,7 +1488,7 @@ class Dialogue:
         self.ui.say(f"Work {work['id']}: {work['need']}")
         for _ in range(16):
             self.ui.say("r: results; q: questions and answers; f: feedback; d: persona development; "
-                        "u: resume participant; c: continue; b: back")
+                        "u: resume participant; c: continue; a: Codex auth source; b: back")
             choice = self.ui.ask("Work action:").strip().lower()
             if choice in ("", "b"):
                 return
@@ -1450,6 +1502,11 @@ class Dialogue:
                 self.development(work)
             elif choice == "u":
                 self.resume_participant(work, after)
+            elif choice == "a":
+                if self.inspect(after)["settings"].get("codex_auth_only_supported"):
+                    self.codex_auth_source(change=True)
+                else:
+                    self.ui.say("This runtime does not use the Codex auth-only route. Its saved provider remains unchanged.")
             elif choice == "c":
                 view = self.inspect(after)
                 current = next((w for w in view["works"] if w["id"] == work["id"]), None)
@@ -1468,38 +1525,118 @@ class Dialogue:
                 and work["phase"] == "open" and work["attempts_left"] > 0
                 and any(p["eligible_candidate"] for p in work["participants"]))
 
+    def codex_auth_source(self, change=False):
+        if self.p["codex_auth"] is None or change:
+            previous = self.p["codex_auth"] or {}
+            default = previous.get("executable") or shutil.which("codex") or ""
+            executable = self.ui.ask(f"Trusted Codex executable (authentication only) [{default}]:").strip() or default
+            default_home = previous.get("host_home") or os.environ.get("HOME", "")
+            host_home = self.ui.ask(f"Home directory to give that Codex process [{default_home}]:").strip() or default_home
+            default_state = previous.get("codex_home") or os.environ.get("CODEX_HOME") or str(Path(host_home) / ".codex")
+            codex_home = self.ui.ask(f"Existing Codex state directory [{default_state}]:").strip() or default_state
+            paths = {"executable": executable, "host_home": host_home, "codex_home": codex_home}
+            require(valid_codex_paths(paths), "invalid_codex_auth_paths")
+            require(Path(executable).is_file() and os.access(executable, os.X_OK)
+                    and Path(host_home).is_dir() and Path(codex_home).is_dir(), "codex_auth_source_unavailable")
+            self.p["codex_auth"] = paths
+            self.j.save()
+            self.ui.say("Saved these locations. No authentication request or model call was made.")
+        return {"kind": "codex_auth_only", **self.p["codex_auth"], "authorize_codex_auth_only": True}
+
+    def session_binding(self, outcome, session):
+        if outcome.get("status") == "not_recorded":
+            return
+        claim = outcome.get("claim")
+        expected = {"id": session["id"], "operator": self.p["operator"],
+                    "work": session["work"], "route": session_route(session)}
+        require(isinstance(claim, dict) and claim.get("request") == expected, "session_binding_changed")
+        if "expected_launch" in session:
+            require(claim.get("launch") == session["expected_launch"], "session_binding_changed")
+
+    @staticmethod
+    def session_last_call(outcome):
+        terminal = outcome.get("terminal", {}).get("outcome", {})
+        before = outcome.get("claim", {}).get("steps_before")
+        after = terminal.get("steps_after")
+        if type(before) is int and type(after) is int and after > before:
+            return terminal.get("last_invocation")
+        return None
+
     def run_work(self, work, view, reuse=False):
         settings = view["settings"]
-        require(settings.get("mode") == "siwc_oauth", "interactive_native_siwc_only")
-        self.account(settings)
+        if reuse:
+            s = self.p["session"]
+            require(s is not None and s["work"] == work, "session_binding_changed")
+            route = session_route(s)
+        elif settings.get("mode") == "siwc_oauth":
+            self.account(settings)
+            route = {"kind": "native_siwc", "vault": self.p["vault"]}
+        elif settings.get("codex_auth_only_supported") is True:
+            route = self.codex_auth_source()
+        else:
+            raise Blocked("interactive_provider_route_unsupported")
+        if route["kind"] == "native_siwc":
+            require(settings.get("mode") == "siwc_oauth" and route["vault"] == self.p["vault"],
+                    "session_binding_changed")
+            if reuse:
+                self.account(settings)
+        else:
+            require(settings.get("codex_auth_only_supported") is True, "session_binding_changed")
+            self.ui.say(f"Auth-only Codex: {route['executable']}; HOME: {route['host_home']}; "
+                        f"Codex state: {route['codex_home']}. Saved account: {settings['account_sha256']}.")
+            self.ui.say("The native runtime will ask Codex only for authentication and check the returned account. "
+                        "Codex may refresh its saved credentials. Persona inference uses direct provider requests; "
+                        "the launcher does not import or record tokens.")
         self.ui.say(f"Exact saved model/effort: {settings['model']} / {settings['effort']}; "
                     f"at most {settings['max_steps']} attempts, within remaining work/runtime limits. "
-                    "SIWC has NO hard remote token/dollar cap; local time/bytes do not guarantee remote cancellation.")
+                    "OAuth has NO hard remote token/dollar cap; local time/bytes do not guarantee remote cancellation.")
         self.ui.consent("Authorize this ONE bounded native foreground session and sending its currently permitted "
-                        "context to this exact saved account? Stops, pauses, holds and existing limits remain effective")
+                        "context to this exact saved account through the displayed authentication route? "
+                        "Stops, pauses, holds and existing limits remain effective")
         if not reuse:
-            self.p["session"] = {"id": "session-" + uuid.uuid4().hex, "work": work, "vault": self.p["vault"]}
+            self.p["session"] = {"id": "session-" + uuid.uuid4().hex, "work": work,
+                                 "route": route, "expected_launch": view["launch"]}
             self.j.save()
         s = self.p["session"]
-        require(s["work"] == work and s["vault"] == self.p["vault"], "session_binding_changed")
-        outcome = self.session("run", "--id", s["id"], "--work", work, "--authorize-run",
-                               "--vault", s["vault"], "--authorize-native",
-                               timeout=settings["max_steps"] * 300 + 60)
-        self.output(work)
+        require(s["work"] == work and session_route(s) == route, "session_binding_changed")
+        args = ["run", "--id", s["id"], "--work", work, "--authorize-run"]
+        if "expected_launch" in s:
+            self.j.directory.write("session-launch.json", encoded(s["expected_launch"]))
+            args += ["--expected-launch", str(self.j.directory.path / "session-launch.json")]
+        if route["kind"] == "native_siwc":
+            args += ["--vault", route["vault"], "--authorize-native"]
+        else:
+            args += ["--codex-executable", route["executable"], "--host-home", route["host_home"],
+                     "--codex-home", route["codex_home"], "--authorize-codex-auth-only"]
+        self.ui.say(f"Submitting {s['id']}. Waiting for its recorded native outcome.")
+        outcome = self.session(*args, timeout=settings["max_steps"] * 300 + 60)
+        self.session_binding(outcome, s)
         require(outcome.get("status") == "finished", "session_outcome_unknown_no_replay")
+        terminal = outcome["terminal"]["outcome"]
+        failure = terminal.get("driver_failure") or terminal.get("code")
+        if failure:
+            self.ui.say(f"Session stopped: {failure}. Review the saved state before another run.")
+        else:
+            self.ui.say(f"Session finished: {terminal.get('stop')}; last recorded work call: {terminal.get('last_invocation')}.")
+        self.output(work, summary=True, invocation=self.session_last_call(outcome))
 
     def recover_session(self, view):
         s = self.p["session"]
         if s is None:
             return
         status = self.session("session-status", "--id", s["id"])
+        self.session_binding(status, s)
         self.ui.say(f"Previous session {s['id']}: {status['status']}")
-        self.output(s["work"])
+        self.output(s["work"], summary=True, invocation=self.session_last_call(status))
         if status["status"] == "outcome_unrecorded":
             self.ui.say("No terminal outcome is retained. No new session or replay will be started. "
                         "Keep this progress and use the exact advanced evidence/recovery controls in RUNTIME-REFERENCE.md.")
             raise Blocked("session_outcome_unknown_no_replay")
         if status["status"] == "not_recorded":
+            if "expected_launch" in s and s["expected_launch"] != view["launch"]:
+                self.ui.say("This unstarted session's saved launch has changed, so its exact request cannot run. "
+                            "No session was started. Return to the work menu to review a fresh run.")
+                return
             self.ui.say("The retained ID has no runtime claim. It is the ONLY ID eligible for a retry after your fresh consent.")
             if self.ui.ask("Authorize reviewing this same unclaimed session for dispatch? [yes/NO]").strip().lower() != "yes":
                 raise Halt()

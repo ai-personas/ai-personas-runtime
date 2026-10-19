@@ -126,17 +126,13 @@ the result rather than interpreting the exit code as goal completion.
 The wrapper uses `exec`, so runtime stdout/stderr, process identity, exit status
 and signal handling are preserved. It adds no cleanup or recovery trap. Interrupting
 a process does not establish remote cancellation or refund unknown usage.
-There is no runtime Codex CLI/app-server execution or fallback.
+The explicit Codex auth-only session route may use app-server for authentication.
+Persona inference uses the native direct-provider path; no automatic provider or
+Codex-inference fallback is used. The [interactive guide](interactive-launch.md)
+describes continuing an existing compatible runtime from the work menu.
 
-The former root README is retained **byte-for-byte** as
-[`RUNTIME-REFERENCE.md`](../RUNTIME-REFERENCE.md), the detailed snapshot from
-runtime base `9654325e9141664c80a6ab654971b3f6448d7157`. It remains at the root so
-its relative source/document links retain their meaning; the quickstart's moved
-stakeholder anchor points there. Its opening assertion that the user-facing native
-handoff is unavailable is stale; the native path above and
-[activation documentation](activation.md#renewal-and-explicit-runtime-handoff)
-describe the implemented entry point. Its older design-revision links remain
-historical references, not the current target. The current target is
+[`RUNTIME-REFERENCE.md`](../RUNTIME-REFERENCE.md) is maintained alongside the
+implementation and documents the detailed native controls. The current design target is
 [design revision 17f165b](https://github.com/ai-personas/ai-personas-design/tree/17f165b156ee5962e290a7e2326bba3f81ad2069).
 No historical text or test is promoted to proof of new conformance.
 

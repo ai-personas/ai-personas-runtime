@@ -55,6 +55,9 @@ enum Command {
         work: String,
         #[arg(long, required = true)]
         authorize_run: bool,
+        /// Exact launch reference previously inspected before authorizing this session.
+        #[arg(long)]
+        expected_launch: Option<PathBuf>,
         /// Explicit existing SIWC vault. No sign-in, refresh, export or fallback.
         #[arg(long, requires = "authorize_native")]
         vault: Option<PathBuf>,
@@ -186,6 +189,7 @@ async fn main() {
             id,
             work,
             authorize_run,
+            expected_launch,
             vault,
             authorize_native,
             codex_executable,
@@ -218,18 +222,30 @@ async fn main() {
                         "Notice: Codex may proactively refresh stored credentials even though this auth-only request sets refreshToken=false. The selected CODEX_HOME is a store location; token-bearing status can return an ephemeral bearer to the trusted adapter."
                     );
                 }
-                emit(
-                    session::run_session(
-                        &root,
-                        &SessionRequest {
-                            id,
-                            operator,
-                            work,
-                            route,
-                        },
-                    )
-                    .await,
-                )
+                let request = SessionRequest {
+                    id,
+                    operator,
+                    work,
+                    route,
+                };
+                if let Some(file) = expected_launch {
+                    let reference = (|| -> session::BoundaryResult<ai_personas::store::ObjectRef> {
+                        let value: serde_json::Value =
+                            ai_personas::runtime::read_json_file(&file, 4096)?;
+                        if !value.is_object() {
+                            return Err(session::BoundaryError::InvalidRequest);
+                        }
+                        Ok(serde_json::from_value(value)?)
+                    })();
+                    match reference {
+                        Ok(reference) => {
+                            emit(session::run_session_with_launch(&root, &request, &reference).await)
+                        }
+                        Err(error) => emit::<()>(Err(error)),
+                    }
+                } else {
+                    emit(session::run_session(&root, &request).await)
+                }
             }
         }
         Command::SessionStatus { id } => emit(session::session_status(&root, &operator, &id)),

@@ -469,6 +469,13 @@ enum Begin {
     New(Claimed),
 }
 fn begin(app: &mut Runtime, request: &SessionRequest) -> BoundaryResult<Begin> {
+    begin_with_launch(app, request, None)
+}
+fn begin_with_launch(
+    app: &mut Runtime,
+    request: &SessionRequest,
+    expected_launch: Option<&s::ObjectRef>,
+) -> BoundaryResult<Begin> {
     request.validate()?;
     authorized(app, &request.operator)?;
     let view = read_session(app, &request.operator, &request.id)?;
@@ -485,6 +492,11 @@ fn begin(app: &mut Runtime, request: &SessionRequest) -> BoundaryResult<Begin> {
         return Ok(Begin::Existing(Box::new(view)));
     }
     admission_extension::validate_saved(&state, &saved)?;
+    let launch_reference = launch.exact_ref()?;
+    check(
+        expected_launch.is_none_or(|expected| expected == &launch_reference),
+        BoundaryError::SnapshotChanged,
+    )?;
     check(
         saved.works.contains_key(&request.work)
             && state
@@ -504,7 +516,7 @@ fn begin(app: &mut Runtime, request: &SessionRequest) -> BoundaryResult<Begin> {
         request: request.clone(),
         request_sha256: digest(request)?,
         runtime: runtime.exact_ref()?,
-        launch: launch.exact_ref()?,
+        launch: launch_reference,
         started_at_unix: unix_now()?,
         steps_before: saved.steps,
     };
@@ -652,6 +664,23 @@ fn build_codex_provider(
     )?)
 }
 
+fn supports_codex_auth_only(settings: &provider::DirectSettings) -> bool {
+    settings.mode == provider::AccessMode::ChatgptOAuth
+        && matches!(
+            &settings.credentials,
+            provider::CredentialReference::EphemeralAuthOnly {
+                grant: provider::OAuthGrant::TraditionalChatgpt,
+                ..
+            }
+        )
+        && matches!(
+            &settings.evidence.account_env,
+            provider::AccountBindingReference::EphemeralAuthOnly {
+                ephemeral_auth_only: true
+            }
+        )
+}
+
 async fn execute(
     app: &mut Runtime,
     request: &SessionRequest,
@@ -714,20 +743,7 @@ async fn execute_with_codex_transport(
                 let (head, state) = app.load()?;
                 let settings = saved.execution_provider()?;
                 require(
-                    settings.mode == provider::AccessMode::ChatgptOAuth
-                        && matches!(
-                            &settings.credentials,
-                            provider::CredentialReference::EphemeralAuthOnly {
-                                grant: provider::OAuthGrant::TraditionalChatgpt,
-                                ..
-                            }
-                        )
-                        && matches!(
-                            &settings.evidence.account_env,
-                            provider::AccountBindingReference::EphemeralAuthOnly {
-                                ephemeral_auth_only: true
-                            }
-                        ),
+                    supports_codex_auth_only(&settings),
                     "Codex auth-only route requires saved ephemeral ChatGPT settings",
                 )?;
                 let factory = crate::auth::codex_jsonrpc::ProcessJsonRpcPeerFactory::new(
@@ -792,9 +808,41 @@ fn end_of_run(
 /// persona Stop recovery, a pause lift, resource additions, or a new auth grant.
 /// Repeating the exact request returns retained metadata, NEVER another driver.
 pub async fn run_session(root: &Path, request: &SessionRequest) -> BoundaryResult<SessionView> {
+    run_session_bound(root, request, None).await
+}
+
+/// Bind a new session to the exact launch shown before authorization. Existing
+/// session identities still return their retained metadata without dispatch.
+pub async fn run_session_with_launch(
+    root: &Path,
+    request: &SessionRequest,
+    expected_launch: &s::ObjectRef,
+) -> BoundaryResult<SessionView> {
+    check(
+        expected_launch.id == ID
+            && expected_launch.revision > 0
+            && expected_launch.sha256.len() == 64
+            && expected_launch
+                .sha256
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+        BoundaryError::InvalidRequest,
+    )?;
+    run_session_bound(root, request, Some(expected_launch)).await
+}
+
+async fn run_session_bound(
+    root: &Path,
+    request: &SessionRequest,
+    expected_launch: Option<&s::ObjectRef>,
+) -> BoundaryResult<SessionView> {
     request.validate()?;
     let mut app = open(root, &request.operator)?;
-    let claim = match begin(&mut app, request)? {
+    let started = match expected_launch {
+        Some(expected) => begin_with_launch(&mut app, request, Some(expected))?,
+        None => begin(&mut app, request)?,
+    };
+    let claim = match started {
         Begin::Existing(view) => return Ok(*view),
         Begin::New(claim) => claim,
     };
@@ -869,6 +917,8 @@ pub struct SettingsView {
     pub share_cohort: bool,
     pub direct_provider_authorized: bool,
     pub compatible_for_execution: bool,
+    /// Saved credential-reference compatibility only; no credential was read.
+    pub codex_auth_only_supported: bool,
     pub model: Option<String>,
     pub effort: Option<String>,
     pub mode: Option<provider::AccessMode>,
@@ -1036,6 +1086,7 @@ fn settings_view(state: &State, saved: &Saved, now: u64) -> SettingsView {
         share_cohort: saved.setup.share_cohort,
         direct_provider_authorized: state.config.allow_direct_provider,
         compatible_for_execution: admission_extension::validate_saved(state, saved).is_ok(),
+        codex_auth_only_supported: provider.as_ref().is_some_and(supports_codex_auth_only),
         model: provider.as_ref().map(|p| p.model.clone()),
         effort: provider.as_ref().map(|p| p.effort.clone()),
         mode: provider.as_ref().map(|p| p.mode),

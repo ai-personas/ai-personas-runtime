@@ -20,6 +20,8 @@ Choose a saved work in the launcher to read results, give feedback, answer share
 questions or inspect a persona's development. These actions do not start a model
 call. To let a stopped participant respond, choose **Resume participant**, then
 **Continue** to authorize a model session.
+Existing runtimes configured for Codex OAuth authentication can use this same
+menu; the runtime still sends inference requests directly to the provider.
 
 To inspect a continuing persona's accepted characteristic fragments:
 

@@ -340,6 +340,17 @@ no resume. Current eligibility must be inspected separately before a new run.
 The UI retains one pending work action and uses this same exact request if its
 confirmation was lost. Advanced resume/recovery commands remain available.
 
+`personas-session run --expected-launch REFERENCE.json` additionally requires a
+new session to use the exact inspected launch reference. The claim's existing
+atomic dependencies protect that check through persistence. An already recorded
+session still returns its original metadata without another dispatch; callers
+must compare its retained request and launch before interpreting the receipt.
+The normal menu uses this guard for both native SIWC and saved Codex auth-only
+runtimes, retains the complete route in its private journal, and does not replace
+an uncertain session. Inspection reports `codex_auth_only_supported` only for the
+saved ephemeral ChatGPT credential-reference contract accepted by that route;
+this metadata does not establish live credential validity.
+
 Output contains accepted replies and complete currently permitted local delivery
 bundles. `--json` emits one structured result on stdout; progress and stopping
 diagnostics use stderr. `result` performs no inference. A delivered artifact can
