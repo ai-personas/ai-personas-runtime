@@ -476,15 +476,15 @@ fn work_grant_request_rejects_positional_arrays_at_every_object_boundary() {
 }
 
 #[test]
-fn work_grant_refuses_retained_repair_capacity_and_wrong_original_need_id() {
+fn work_grant_preserves_retained_repair_capacity_and_refuses_wrong_original_need_id() {
     for repair in [false, true] {
         let (_directory, mut app) = fixture();
         let mut req = request(&mut app, "work-00000001");
         let (head, mut state) = app.load().unwrap();
         let meta = state.work_meta.get_mut(&req.work_id).unwrap();
         if repair {
-            // Ordinary exhaustion can legitimately leave repair capacity. This
-            // narrow API refuses it; it must never normalize or spend it.
+            // Ordinary exhaustion can leave repair capacity. An ordinary grant
+            // preserves that suballowance without normalizing or spending it.
             state.config.max_repair_attempts = 1;
             meta.repair_attempts_left = 1;
             req.expected.remaining.repair_attempts = 1;
@@ -494,13 +494,17 @@ fn work_grant_refuses_retained_repair_capacity_and_wrong_original_need_id() {
         app.save(&head, &state).unwrap();
         let before = heads(&mut app);
         req.expected.runtime = intake_delegation::IntakeReference::of(&before.0).unwrap();
-        let error =
-            work_resource_grant_snapshot(&mut app, "fixture-human", &req.work_id).unwrap_err();
-        assert!(error.to_string().contains(if repair {
-            "retained repair allowance"
-        } else {
-            "original need identity"
-        }));
+        if repair {
+            work_resource_grant_snapshot(&mut app, "fixture-human", &req.work_id).unwrap();
+            let granted = grant_work_resources(&mut app, &req, 100).unwrap();
+            assert_eq!(granted.receipt.remaining_after.repair_attempts, 1);
+            assert_eq!(app.load().unwrap().1.work_meta[&req.work_id].repair_attempts_left, 1);
+            assert!(grant_work_resources(&mut app, &req, 101).unwrap().replayed);
+            assert_eq!(app.load().unwrap().1.work_meta[&req.work_id].repair_attempts_left, 1);
+            continue;
+        }
+        let error = work_resource_grant_snapshot(&mut app, "fixture-human", &req.work_id).unwrap_err();
+        assert!(error.to_string().contains("original need identity"));
         assert!(grant_work_resources(&mut app, &req, 100).is_err());
         assert_eq!(heads(&mut app), before);
         assert!(app.store.read(&receipt_id(&req.id)).unwrap().is_none());

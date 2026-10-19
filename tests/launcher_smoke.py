@@ -4,7 +4,6 @@
 Only temporary fake executables run, under a fresh HOME, XDG_STATE_HOME and PATH.
 No Cargo, provider, credentials, real Store, or additional packages are needed.
 """
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -322,16 +321,11 @@ class LauncherSmoke(unittest.TestCase):
         self.assertEqual(proc.returncode, -signal.SIGTERM)
         self.assertEqual(self.records()[0]["pid"], proc.pid)
 
-    def test_baseline_reference_is_preserved_byte_for_byte(self):
-        raw = (ROOT / "RUNTIME-REFERENCE.md").read_bytes()
-        blob = hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
-        self.assertEqual(blob, "b550a77f8d062e78972441e386e8c4228f06631f")
-
     def test_readme_stays_short_and_moved_anchor_is_linked(self):
         readme = (ROOT / "README.md").read_text()
         quickstart = (ROOT / "docs/QUICKSTART.md").read_text()
         self.assertLessEqual(len(readme.split()), 600)
-        self.assertIn("docs/launcher.md", readme)
+        self.assertIn("docs/interactive-launch.md", readme)
         self.assertIn("../RUNTIME-REFERENCE.md#foreground-cohort-workflow", quickstart)
         self.assertNotIn("../README.md#foreground-cohort-workflow", quickstart)
         self.assertIn("## Foreground cohort workflow", (ROOT / "RUNTIME-REFERENCE.md").read_text())

@@ -284,11 +284,18 @@ mod tests {
             let pid: i32 = std::fs::read_to_string(&pid_file).unwrap().trim().parse().unwrap();
             #[cfg(target_os = "linux")]
             {
-                let stat = std::fs::read_to_string(format!("/proc/{pid}/stat"));
-                match stat {
-                    Ok(value) => assert_eq!(value.split_whitespace().nth(2), Some("Z")),
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(error) => panic!("cannot inspect synthetic descendant state: {error}"),
+                // SIGKILL is asynchronous, and this orphan is reaped by another
+                // parent. Observe termination within a bound instead of assuming
+                // it is already a zombie on the first scheduling turn.
+                let deadline = Instant::now() + CLEANUP_GRACE;
+                loop {
+                    match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+                        Ok(value) if value.split_whitespace().nth(2) == Some("Z") => break,
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+                        Err(error) => panic!("cannot inspect synthetic descendant state: {error}"),
+                        Ok(_) => assert!(Instant::now() < deadline, "synthetic descendant survived group cleanup"),
+                    }
+                    thread::sleep(Duration::from_millis(5));
                 }
             }
         });

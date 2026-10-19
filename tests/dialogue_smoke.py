@@ -55,6 +55,7 @@ class MockHelpers:
         self.configuration_count = 0
         self.intakes = {}
         self.runs = {}
+        self.claims = {}
         self.setup = None
         self.lost = None
         self.phase = "open"
@@ -76,12 +77,23 @@ class MockHelpers:
         settings = {"mode": "siwc_oauth", "model": "fixture-model", "effort": "high",
                     "account_sha256": self.account, "saved_expires_at_unix": 9999999999,
                     "max_steps": 4}
-        works = [{"id": w, "phase": self.phase, "attempts_left": self.attempts,
+        works = [{"id": w, "need": "Synthetic saved need", "phase": self.phase, "attempts_left": self.attempts,
                   "participants": [{"continuation": "persona_stop" if self.stop else "immediate",
                                     "eligible_candidate": not self.stop and not self.frozen and self.phase == "open"}]}
                  for w in self.intakes.values()]
         return {"settings": settings, "works": works, "frozen": self.frozen,
+                "launch": {"id": "runtime-launch-v1", "revision": 1, "sha256": "f" * 64},
                 "active_invocations_present": False, "next_after": None}
+
+    def session_view(self, key):
+        status = self.runs.get(key, "not_recorded")
+        if status == "not_recorded":
+            return {"status": status}
+        view = {"status": status, "claim": self.claims[key]}
+        if status == "finished":
+            view["terminal"] = {"outcome": {"stop": "no_eligible_route", "steps_after": 1,
+                                             "last_invocation": "fixture-call", "driver_failure": None}}
+        return view
 
     def call(self, name, args, **kwargs):
         self.calls.append((name, list(args)))
@@ -153,7 +165,7 @@ class MockHelpers:
             return {"status": "fixture-unfinished", "messages": [{"sender": "fixture", "text": "fixture result"}],
                     "local_deliveries": []}
         if op == "session-status":
-            return {"status": self.runs.get(self.val(args, "--id"), "not_recorded")}
+            return self.session_view(self.val(args, "--id"))
         if op == "run":
             if self.lost == "before_run":
                 self.lost = None
@@ -161,12 +173,17 @@ class MockHelpers:
             key = self.val(args, "--id")
             assert key not in self.runs, "Synthetic session redispatched"
             assert "--authorize-run" in args and "--authorize-native" in args
+            saved = self.j.data["session"]
+            self.claims[key] = {"request": {"id": key, "operator": self.j.data["operator"],
+                                           "work": saved["work"], "route": saved["route"]},
+                                "launch": copy.deepcopy(saved["expected_launch"]), "steps_before": 0}
+            assert json.loads(Path(self.val(args, "--expected-launch")).read_text()) == self.claims[key]["launch"]
             self.runs[key] = "outcome_unrecorded" if self.lost == "run" else "finished"
             self.attempts -= 1
             if self.lost == "run":
                 self.lost = None
                 raise m.Blocked("fixture_lost_run")
-            return {"status": "finished"}
+            return self.session_view(key)
         raise AssertionError((name, args))
 
 
@@ -225,7 +242,7 @@ class DialogueTests(unittest.TestCase):
         self.dialogue(FIRST + SUBMIT + ["q"])
         first = self.j.data["session"]["id"]
         self.reopen()
-        self.dialogue(["1", "yes", "yes", "q"])
+        self.dialogue(["1", "c", "yes", "b", "q"])
         self.assertNotEqual(self.j.data["session"]["id"], first)
         self.assertEqual(len(self.h.runs), 2)
         self.assertEqual(self.count("personas-provider", "probe"), 1)
@@ -352,7 +369,7 @@ class DialogueTests(unittest.TestCase):
             self.h.stop, self.h.phase, self.h.attempts = stop, phase, attempts
             before = len(self.h.runs)
             self.reopen()
-            self.dialogue(["1", "q"])
+            self.dialogue(["1", "c", "b", "q"])
             self.assertEqual(len(self.h.runs), before)
             self.assertEqual(self.h.attempts, attempts)
 
@@ -361,7 +378,7 @@ class DialogueTests(unittest.TestCase):
         self.h.expiry -= 1
         self.reopen()
         with self.assertRaisesRegex(m.Blocked, "explicit_provider_migration_required"):
-            self.dialogue(["1", "yes"])
+            self.dialogue(["1", "c"])
         self.assertEqual(len(self.h.runs), 1)
         self.assertEqual(self.count("personas-auth", "refresh"), 0)
 
@@ -473,13 +490,15 @@ class DialogueTests(unittest.TestCase):
         cargo.write_text(
             "#!" + sys.executable + "\n"
             "import json, os, pathlib, sys\n"
+            "if sys.argv[1:] == ['--version']:\n"
+            "    print('rustc 1.95.0 (fixture)'); sys.exit(0)\n"
             "target = pathlib.Path(os.environ['CARGO_TARGET_DIR'])\n"
-            "(target / 'debug' / 'deps').mkdir(parents=True, mode=0o777, exist_ok=True)\n"
+            "(target / 'release' / 'deps').mkdir(parents=True, mode=0o777, exist_ok=True)\n"
             "mask = os.umask(0); os.umask(mask)\n"
             "record = {'args': sys.argv[1:], 'cwd': os.getcwd(), 'umask': mask}\n"
             "(target / 'trace.json').write_text(json.dumps(record))\n"
             "for name in " + repr(m.NAMES) + ":\n"
-            "    fd = os.open(target / 'debug' / name, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o777)\n"
+            "    fd = os.open(target / 'release' / name, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o777)\n"
             "    with os.fdopen(fd, 'wb') as out: out.write(b'fixture helper; never executed\\n')\n"
         )
         cargo.chmod(0o700)  # Only our synthetic Cargo, not an existing installation.
@@ -498,17 +517,17 @@ class DialogueTests(unittest.TestCase):
                     else:
                         host.install()
                 self.assertEqual(ui.answers, [])
-                self.assertEqual(sum("Build this exact checkout" in q for q in ui.questions), 1)
-                self.assertEqual(sum("Use these four local helpers" in q for q in ui.questions), 1)
+                self.assertEqual(sum("Build optimized helpers from this exact checkout" in q for q in ui.questions), 1)
+                self.assertEqual(sum("Approve these exact helper bytes" in q for q in ui.questions), 1)
                 self.assertEqual(os.umask(0o002), 0o002, "The parent umask was changed")
                 target = self.root / "build"
                 trace = json.loads((target / "trace.json").read_text())
-                self.assertEqual(trace, {"args": ["build", "--locked", "--bins", "-j", "1"],
+                self.assertEqual(trace, {"args": ["build", "--locked", "--release", "--bins", "-j", "1"],
                                          "cwd": str(ROOT), "umask": 0o077})
-                for folder in (target, target / "debug", target / "debug/deps"):
+                for folder in (target, target / "release", target / "release/deps"):
                     self.assertEqual(folder.stat().st_mode & 0o777, 0o700)
                 for name in m.NAMES:
-                    binary = target / "debug" / name
+                    binary = target / "release" / name
                     self.assertEqual(binary.stat().st_mode & 0o777, 0o700)
                     digest = m.binary_digest(binary)
                     if approval == "yes":
