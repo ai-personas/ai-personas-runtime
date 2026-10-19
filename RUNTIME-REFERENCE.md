@@ -114,8 +114,10 @@ explicitly accounts for it with `ResolveRequesterFeedback`. Ordinary reads,
 observation consumption, waits and stops cannot silently clear it. The action
 copies an exact ID from `CONTROL.requester_feedback.pending`, records `handled`
 or `declined` with the persona's reason, and requires that item's full permitted
-body in the current admission. Unresolved items stay pending. A disposition is
-an attributed account, not proof of compliance or requester acceptance. At most
+body in the current admission. Unresolved items stay pending automatically:
+omit the action until resolution; `pending` is not a valid disposition for
+`ResolveRequesterFeedback`. A disposition is an attributed account, not proof
+of compliance or requester acceptance. At most
 eight items may be pending, within 128 accepted items per persona/work; exhaustion
 refuses new feedback without dropping existing items. Current permission and
 context-size checks still apply. Previously consumed feedback is not retroactively

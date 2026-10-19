@@ -1199,8 +1199,9 @@ pub struct ClaimInput {
 }
 /// The one exposed local capability. It cannot choose actor, work, authority,
 /// model, observation provenance, separation attestation, or execution context.
-/// Only the variants below belong in work_command.inputs. Communication uses a
-/// top-level communicate operation from APPLICATION_DECISION_SCHEMA instead.
+/// Only the variants below belong in work_command.inputs. Read, search and
+/// communicate are top-level operations from APPLICATION_DECISION_SCHEMA;
+/// never wrap them in work_command.inputs.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WorkAction {
@@ -1208,7 +1209,9 @@ pub enum WorkAction {
     /// body was supplied in this admission's actual_observations. Copy its exact
     /// observation ID from CONTROL.requester_feedback.pending. Use handled only
     /// when you have addressed the direction; use declined with an explanation
-    /// when you will not do so. Leave unresolved work pending across reads/waits.
+    /// when you will not do so. Unresolved requester feedback stays pending
+    /// automatically across reads/waits: omit this action until resolved.
+    /// Unlike AccountPeerFeedback, this action does not accept pending.
     /// This records your account, not requester acceptance, compliance or success.
     /// Resolve all your pending items before proposing CloseGoal; a same-response
     /// resolution may precede CloseGoal. Other closure gates still apply.

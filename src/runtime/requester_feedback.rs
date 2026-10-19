@@ -7,6 +7,7 @@ pub(super) const MAX_DISPOSITIONS: usize = 128;
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
+#[schemars(rename = "RequesterFeedbackDisposition")]
 pub enum Disposition {
     Handled,
     Declined,
@@ -51,7 +52,7 @@ pub(super) fn control(focus: &Focus, supplied: &[String]) -> Value {
     json!({
         "interface":"requester-feedback-disposition-v1",
         "pending":pending,
-        "rule":"The full permitted items are in actual_observations. For resolution copy pending[].observation exactly, including its full prefix; actual_observations[].payload.id is only the requester's input label, not an observation reference. These requester directions remain current across reads, waits and local stops until you explicitly resolve each item as handled or declined with a reason. Keep unresolved items pending. Feedback changes no mandate, authority or resources; a disposition is your attributed account, not proof of compliance or requester acceptance."
+        "rule":"The full permitted items are in actual_observations. For resolution copy pending[].observation exactly, including its full prefix; actual_observations[].payload.id is only the requester's input label, not an observation reference. These requester directions remain current across reads, waits and local stops automatically. For an unresolved item, omit resolve_requester_feedback entirely; pending is not a valid disposition for that action. Use it only when recording handled or declined with a reason. Feedback changes no mandate, authority or resources; a disposition is your attributed account, not proof of compliance or requester acceptance."
     })
 }
 
