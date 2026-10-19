@@ -63,6 +63,8 @@ struct Job {
     operation: String,
     url: String,
     exposure: Exposure,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    qualification_sources: Option<Vec<f::Reference>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -308,6 +310,9 @@ pub(super) fn stage(
             operation: id.clone(),
             url: input.url,
             exposure,
+            qualification_sources: Some(tools::qualification_inputs(prepared, &[
+                file_reference(&offered.guide)?,
+            ])?),
         };
         let reservation = s::Resources {
             attempts: 1,
@@ -656,7 +661,7 @@ impl Runtime {
         let result_source = retain_result(&mut state, id, &job, &payload)?;
         // Supply metadata now; the persona chooses a later exact read/selection.
         // A large remote page must not become an unavoidable mandatory prompt.
-        let qualifications = tools::qualifications(&state, &job.exposure.sources);
+        let qualifications = tools::qualifications(&state, job.qualification_sources.as_deref().unwrap_or(&job.exposure.sources));
         let observation_id = observation_id(&job.invocation, "http_fetch_result", &job.operation);
         let observation = json!({"intent":id,"operation":job.operation,
             "url":job.url,
@@ -677,6 +682,7 @@ impl Runtime {
             qualifications,
             now,
         )?;
+        state.observations.get_mut(&observation_id).unwrap().qualification_sources = job.qualification_sources.clone();
         extend_exposure(
             state
                 .observations
@@ -729,7 +735,7 @@ fn retain_result(state: &mut State, id: &str, job: &Job, payload: &Value) -> Res
         .record
         .policy
         .clone();
-    let mut required = tools::qualifications(state, &job.exposure.sources);
+    let mut required = tools::qualifications(state, job.qualification_sources.as_deref().unwrap_or(&job.exposure.sources));
     required.push(file_reference(&job.interface.guide)?);
     required.sort();
     required.dedup();
@@ -766,6 +772,7 @@ fn retain_result(state: &mut State, id: &str, job: &Job, payload: &Value) -> Res
             revisions: vec![ManagedRevision {
                 record: file,
                 lineage: job.exposure.sources.clone(),
+                qualification_sources: job.qualification_sources.clone(),
                 exposure: Some(job.exposure.clone()),
                 origin: Some(RevisionOrigin::HttpFetchResult {
                     actor: job.actor.clone(),
@@ -891,7 +898,7 @@ pub(super) fn inspect(
         };
         let corpus = corpus(state, audience)?;
         let mut accompaniment = Vec::new();
-        let roots = tools::qualifications(state, &job.exposure.sources);
+        let roots = tools::qualifications(state, job.qualification_sources.as_deref().unwrap_or(&job.exposure.sources));
         if !roots.is_empty() {
             let bundle = f::assemble(
                 &corpus,

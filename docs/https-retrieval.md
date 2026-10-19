@@ -141,10 +141,20 @@ effects even if the client reports a failure.
 
 The resulting protected supporting file under `tools/http-results/` has author
 `runtime-https` and `HttpFetchResult` origin, identifying the actual invocation,
-intent and terminal evidence. It inherits the complete input exposure and its
-required qualifications. Later qualifications on that lineage accompany future
-reads. Remote text remains untrusted source data and is never evaluated by the
-host as commands or granted authority.
+intent and terminal evidence. It inherits the complete input exposure. For newly
+admitted jobs, required text follows the exact file bodies actually supplied in
+the admitted request and the operative guide, retained as `qualification_sources`
+separately from permission ancestry. Later qualifications on those operative
+inputs accompany future reads. An earlier source that contributes only inherited
+permissions does not automatically add its guide or data body to a new result.
+All of its permission restrictions still apply to dispatch and subsequent use.
+Remote text remains untrusted source data and is never evaluated by the host as
+commands or granted authority.
+
+Legacy jobs, observations and result files retain their original conservative
+qualification scope. Helper updates do not rewrite their bodies or remove
+required material. Once new records contain `qualification_sources`, keep the
+updated helpers: older readers reject that unfamiliar field.
 
 The next `http_fetch_result` observation supplies the requested URL, status,
 complete-body size/hash when available, and an exact result reference. These are

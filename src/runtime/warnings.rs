@@ -488,6 +488,7 @@ fn create_marker(
             revisions: vec![ManagedRevision {
                 record,
                 lineage: Vec::new(),
+                qualification_sources: None,
                 exposure: Some(authored.exposure.clone()),
                 origin: Some(RevisionOrigin::PersonaInvocation {
                     persona: authored.persona.clone(),

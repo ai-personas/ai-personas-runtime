@@ -105,5 +105,6 @@ pub(super) fn observation(
         sources: exposure.sources.clone(),
         exposure: Some(exposure),
         qualified_roots: Vec::new(),
+        qualification_sources: None,
     }))
 }

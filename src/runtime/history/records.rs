@@ -1029,6 +1029,7 @@ pub(crate) fn apply(
             sources: Vec::new(),
             exposure: Some(consulted.clone()),
             qualified_roots: Vec::new(),
+            qualification_sources: None,
         };
         let a = admission(&state.personas[&prepared.request.persona], now);
         if let Ok(corpus) = corpus(state, &a) {

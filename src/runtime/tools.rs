@@ -75,6 +75,8 @@ struct Job {
     program: String,
     input: String,
     exposure: Exposure,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    qualification_sources: Option<Vec<f::Reference>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -339,6 +341,10 @@ pub(super) fn stage(
             result_source: None,
             exposure: exposure.clone(),
         };
+        let qualification_sources = qualification_inputs(prepared, &[
+            file_reference(&program_reference)?,
+            file_reference(&offered.guide)?,
+        ])?;
         let job = Job {
             interface: offered.clone(),
             actor: marker.actor.clone(),
@@ -349,6 +355,7 @@ pub(super) fn stage(
             program,
             input: input.input,
             exposure,
+            qualification_sources: Some(qualification_sources),
         };
         let reservation = s::Resources {
             attempts: 1,
@@ -680,7 +687,7 @@ impl Runtime {
             "execution_is_not_correctness_or_acceptance":true,"automatic_retry":false});
         // Retain accompanying qualifications as actual future supplied bodies,
         // not only hidden lineage. The program body itself remains selectable.
-        let qualifications = qualifications(&state, &job.exposure.sources);
+        let qualifications = qualifications(&state, job.qualification_sources.as_deref().unwrap_or(&job.exposure.sources));
         let observation_id = observation_id(&job.invocation, "computation_result", &job.operation);
         if let Some(existing) = state.computation_jobs[id].observation.as_ref() {
             let observation = state.observations.get(existing)
@@ -698,6 +705,7 @@ impl Runtime {
                 qualifications,
                 now,
             )?;
+            state.observations.get_mut(&observation_id).unwrap().qualification_sources = job.qualification_sources.clone();
             extend_exposure(
                 state.observations.get_mut(&observation_id).unwrap().exposure.as_mut().unwrap(),
                 &job.exposure,
@@ -732,7 +740,7 @@ fn result_location(state: &State, id: &str, actor: &str) -> Result<(String, Stri
 fn retain_result(state: &mut State, id: &str, job: &Job, payload: &Value) -> Result<p::ExactRef> {
     let (source, path) = result_location(state, id, &job.actor)?;
     let policy = record(state, &file_reference(&job.interface.guide)?)?.record.policy.clone();
-    let mut required = qualifications(state, &job.exposure.sources);
+    let mut required = qualifications(state, job.qualification_sources.as_deref().unwrap_or(&job.exposure.sources));
     required.push(file_reference(&job.interface.guide)?);
     required.sort();
     required.dedup();
@@ -757,6 +765,7 @@ fn retain_result(state: &mut State, id: &str, job: &Job, payload: &Value) -> Res
         head: file.revision.clone(), imported_by: None,
         revisions: vec![ManagedRevision {
             record: file, lineage: job.exposure.sources.clone(), exposure: Some(job.exposure.clone()),
+            qualification_sources: job.qualification_sources.clone(),
             origin: Some(RevisionOrigin::ComputationResult {
                 actor: job.actor.clone(), work: job.work.clone(), invocation_id: job.invocation.clone(),
                 intent_id: id.into(), terminal_evidence,
@@ -765,6 +774,16 @@ fn retain_result(state: &mut State, id: &str, job: &Job, payload: &Value) -> Res
     });
     validate_inventory(state)?;
     Ok(reference)
+}
+
+/// Actual supplied bodies and host-resolved executable inputs determine required
+/// accompaniment. The complete permission exposure is retained independently.
+pub(super) fn qualification_inputs(prepared: &Prepared, inputs: &[f::Reference]) -> Result<Vec<f::Reference>> {
+    let mut sources = request_context::supplied_file_references(prepared)?;
+    sources.extend_from_slice(inputs);
+    sources.sort();
+    sources.dedup();
+    Ok(sources)
 }
 
 pub(super) fn qualifications(state: &State, sources: &[f::Reference]) -> Vec<f::Reference> {
@@ -800,7 +819,7 @@ pub(super) fn result_bindings(state: &State, files: &[f::FileRevision]) -> Resul
         if !matches!(&stored.origin, Some(RevisionOrigin::ComputationResult { .. } | RevisionOrigin::HttpFetchResult { .. })) {
             continue;
         }
-        let required: Vec<_> = qualifications(state, &stored.lineage).into_iter()
+        let required: Vec<_> = qualifications(state, stored.qualification_sources.as_deref().unwrap_or(&stored.lineage)).into_iter()
             .filter(|reference| !file.qualifications.contains(reference)).collect();
         if !required.is_empty() {
             bindings.push(f::AcceptedBinding {
@@ -896,7 +915,7 @@ pub(super) fn inspect(
         };
         let corpus = corpus(state, audience)?;
         let mut accompaniment = Vec::new();
-        let roots = qualifications(state, &job.exposure.sources);
+        let roots = qualifications(state, job.qualification_sources.as_deref().unwrap_or(&job.exposure.sources));
         if !roots.is_empty() {
             let bundle = f::assemble(
                 &corpus,

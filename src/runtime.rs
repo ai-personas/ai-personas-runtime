@@ -586,6 +586,10 @@ pub enum RevisionOrigin {
 pub struct ManagedRevision {
     pub record: f::FileRevision,
     pub lineage: Vec<f::Reference>,
+    /// Tool inputs whose required accompaniment follows this result. Permission
+    /// ancestry remains in lineage/exposure. Legacy absence keeps the old scope.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub qualification_sources: Option<Vec<f::Reference>>,
     #[serde(default)]
     pub exposure: Option<Exposure>,
     /// Missing historical metadata does not invent an accepted invocation.
@@ -613,6 +617,10 @@ pub struct Observation {
     pub at_unix: i64,
     pub payload: Value,
     pub sources: Vec<f::Reference>,
+    /// Exact operative tool inputs, separate from transitive source permissions.
+    /// Only trusted tool settlement sets this; legacy absence remains conservative.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub qualification_sources: Option<Vec<f::Reference>>,
     #[serde(default)]
     pub exposure: Option<Exposure>,
     #[serde(default)]
@@ -1047,6 +1055,7 @@ fn recovery_correction_observation(
         // request lineage. The private terminal/error envelope stays withheld.
         exposure: prepared.exposure.clone(),
         qualified_roots: Vec::new(),
+        qualification_sources: None,
     }))
 }
 
@@ -1133,6 +1142,7 @@ fn shape_recovery_observation(
         sources: prepared.sources.clone(),
         exposure: prepared.exposure.clone(),
         qualified_roots: Vec::new(),
+        qualification_sources: None,
     }))
 }
 
@@ -2823,6 +2833,7 @@ impl Runtime {
                 revisions: vec![ManagedRevision {
                     record: import.voice,
                     lineage: Vec::new(),
+                    qualification_sources: None,
                     exposure: Some(Exposure::default()),
                     origin: Some(RevisionOrigin::OperatorImport {
                         operator: operator.into(),
@@ -2899,6 +2910,7 @@ impl Runtime {
                     revisions: vec![ManagedRevision {
                         record,
                         lineage: Vec::new(),
+                        qualification_sources: None,
                         exposure: Some(Exposure::default()),
                         origin: Some(RevisionOrigin::OperatorImport {
                             operator: operator.into(),
@@ -3547,6 +3559,7 @@ impl Runtime {
                 sources,
                 exposure: Some(exposure.clone()),
                 qualified_roots: vec![reference.clone()],
+                qualification_sources: None,
             };
             if let Some(ingestion_id) = &pending_ingestion {
                 let ingested = &state.local_evidence.ingestions[ingestion_id];
@@ -4998,6 +5011,7 @@ impl Runtime {
                                 payload: json!({"terminal":terminal_diagnostic(&evidence.body),"terminal_evidence":evidence.exact_ref()?,"disposition":{"state":inv.state,"adoption_error":observability::adoption_error(&inv, &evidence)?},
                                     "acknowledged_by":operator,"provider_usage":"unknown","replay_authorized":false}),
                                 sources: prepared.sources.clone(), exposure: failure_recovery_exposure(&inv, &evidence, &prepared)?, qualified_roots: Vec::new(),
+                                qualification_sources: None,
                             });
                             state.personas.get_mut(persona).unwrap().focus.get_mut(work)
                                 .ok_or_else(|| held("work focus absent"))?.pending_observations.push(observation_id);
@@ -7803,6 +7817,7 @@ fn apply_writes(
             entry.revisions.push(ManagedRevision {
                 record,
                 lineage: Vec::new(),
+                qualification_sources: None,
                 exposure: Some(prepared_exposure(prepared)?.clone()),
                 origin: Some(RevisionOrigin::PersonaInvocation {
                     persona: actor.clone(),
@@ -9202,6 +9217,7 @@ fn add_observation(
             sources,
             exposure: Some(exposure),
             qualified_roots,
+            qualification_sources: None,
         },
     );
     state
@@ -9298,7 +9314,7 @@ fn deposit_message(
             payload: json!({"id":message.id,"sender":message.sender,"recipient":message.recipient,
                 "work":message.work,"invocation":message.invocation,"subject":message.subject,"text":message.text,
                 "local_deposit_only":true}), sources: prepared.sources.clone(),
-            exposure: Some(prepared_exposure(prepared)?.clone()), qualified_roots: Vec::new() });
+            exposure: Some(prepared_exposure(prepared)?.clone()), qualified_roots: Vec::new(), qualification_sources: None });
     }
     satisfy_message_wait(state, &message, now)?;
     Ok(())

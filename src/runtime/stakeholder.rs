@@ -183,6 +183,7 @@ impl Runtime {
                     sources: Vec::new(),
                     exposure: Some(exposure.clone()),
                     qualified_roots: Vec::new(),
+                    qualification_sources: None,
                 },
             );
         }

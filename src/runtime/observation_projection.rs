@@ -18,6 +18,9 @@ pub(super) fn project(
     inherited
         .sources
         .extend(observation.qualified_roots.iter().cloned());
+    if let Some(sources) = &observation.qualification_sources {
+        inherited.sources.extend(sources.iter().cloned());
+    }
     require(
         exposure_permitted(state, &inherited, a),
         "observation lineage unavailable",
@@ -26,13 +29,13 @@ pub(super) fn project(
     let mut exact = Vec::new();
     let mut roots = observation.qualified_roots.clone();
     if matches!(observation.kind.as_str(), "computation_result" | "http_fetch_result") {
-        roots.extend(tools::qualifications(state, &observation.sources));
+        roots.extend(tools::qualifications(state, observation.qualification_sources.as_deref().unwrap_or(&observation.sources)));
         roots.sort();
         roots.dedup();
     }
-    // Computation inherits the complete input lineage. Different source roots
-    // can require the same supporting documents; assemble their union once so
-    // overlapping qualification closures do not multiply the next prompt.
+    // Full permission ancestry stays above. Operative source roots can require
+    // the same documents; assemble their union once so overlapping qualification
+    // closures do not multiply the next prompt.
     let groups: Vec<&[f::Reference]> = if matches!(observation.kind.as_str(), "computation_result" | "http_fetch_result") {
         if roots.is_empty() { Vec::new() } else { vec![roots.as_slice()] }
     } else {

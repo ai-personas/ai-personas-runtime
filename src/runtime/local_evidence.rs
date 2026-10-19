@@ -620,6 +620,7 @@ impl Runtime {
                 revisions: vec![ManagedRevision {
                     record: file,
                     lineage: basis.specification.lineage.clone(),
+                    qualification_sources: None,
                     exposure: Some(exposure),
                     origin: Some(origin),
                 }],

@@ -396,3 +396,27 @@ pub(super) fn decode(prepared: &Prepared) -> Result<Decoded<'_>> {
         accounting,
     })
 }
+
+/// Exact file bodies in the sealed host-rendered request. Permission ancestry,
+/// discovery metadata, authored previews and arbitrary nested history are not
+/// body supply. Sharing changes storage of text, never its source roles.
+pub(super) fn supplied_file_references(prepared: &Prepared) -> Result<Vec<f::Reference>> {
+    let decoded = decode(prepared)?;
+    let mut references = BTreeSet::new();
+    let paths = bundle_paths(&decoded.control);
+    for bundle in std::iter::once(&decoded.qualified).chain(
+        paths.iter().filter_map(|path| decoded.control.pointer(&pointer(path))),
+    ) {
+        for entry in entries(bundle)? {
+            require(entry["text"].is_string(), "qualified body text unavailable")?;
+            let reference: p::ExactRef = serde_json::from_value(entry["reference"].clone())?;
+            let reference = file_reference(&reference)?;
+            require(
+                prepared_exposure(prepared)?.sources.contains(&reference),
+                "qualified body absent from admitted source restrictions",
+            )?;
+            references.insert(reference);
+        }
+    }
+    Ok(references.into_iter().collect())
+}

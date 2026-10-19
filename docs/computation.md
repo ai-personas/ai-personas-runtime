@@ -127,8 +127,20 @@ engine bindings, and terminal evidence. Its author is `runtime-computation`;
 its origin identifies the actual invocation and intent. It inherits input
 restrictions and required qualifications, consumes the existing corpus and
 Store retention allowances, and cannot be edited as persona-authored prose.
-Later accepted qualifications on its input lineage are rechecked and attached
-to the result's immutable revision when it is read or selected.
+For newly admitted jobs, required accompaniment follows the exact file bodies
+actually supplied in the admitted request, the operative guide and the resolved
+program. The job, result observation and protected file retain those inputs
+separately from their full permission ancestry. Later accepted qualifications
+on these operative inputs are rechecked and attached to the result's immutable
+revision when it is read or selected. Every original permission restriction
+still applies, including restrictions inherited through earlier work; a
+permission-only ancestor does not by itself request its guide or data body.
+
+Older jobs, observations and result files without this distinction keep their
+original conservative qualification scope. Updating helpers does not rewrite
+their bodies, remove required material or reclassify historical supply. Stores
+with the new `qualification_sources` metadata require updated helpers; older
+readers reject the unfamiliar record rather than silently drop its meaning.
 
 `CONTROL.computation_state.retained_results` supplies exact file references for
 this persona's results in the current work, subject to current permissions.

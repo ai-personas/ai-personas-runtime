@@ -101,6 +101,7 @@ pub fn feedback(
                 sources: Vec::new(),
                 exposure: Some(exposure),
                 qualified_roots: Vec::new(),
+                qualification_sources: None,
             },
         );
         let focus = state

@@ -660,6 +660,7 @@ pub(crate) fn operator_reply(
                 sources: Vec::new(),
                 exposure: Some(origin.exposure.clone()),
                 qualified_roots: Vec::new(),
+                qualification_sources: None,
             },
         );
         state
