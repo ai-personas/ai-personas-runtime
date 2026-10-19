@@ -80,6 +80,56 @@ def terminal_text(value):
     return "".join(c if c in "\n\t" or (c.isprintable() and c != "\x1b") else "�" for c in str(value))
 
 
+def readable_delivery(delivery):
+    """Display complete qualified text, omitting only verified duplicate bytes.
+
+    Unknown or inconsistent packages retain the original JSON presentation.
+    All metadata, qualifications and attribution remain in the readable view.
+    """
+    try:
+        artifacts = delivery["artifacts"]
+        if not isinstance(artifacts, list) or not artifacts:
+            return None
+        parts = [json.dumps({k: v for k, v in delivery.items() if k != "artifacts"},
+                            ensure_ascii=False, indent=2)]
+        for artifact in artifacts:
+            serialized = artifact["qualified_bundle_json"]
+            if hashlib.sha256(serialized.encode("utf-8")).hexdigest() != artifact["qualified_bundle_sha256"]:
+                return None
+            bundle = decode(serialized)
+            if bundle.get("profile") != "qualified-exact-context-json-v1":
+                return None
+            entries = bundle["entries"]
+            raw = artifact["bytes"]
+            if (not isinstance(entries, list) or not entries or not isinstance(raw, list)
+                    or any(type(byte) is not int or not 0 <= byte <= 255 for byte in raw)):
+                return None
+            source = artifact["source"]
+            roots = [entry for entry in entries if all(
+                entry["reference"].get(key) == source.get(key)
+                for key in ("source", "revision", "representation", "start", "end"))]
+            if (len(roots) != 1 or not isinstance(roots[0]["text"], str)
+                    or roots[0]["text"].encode("utf-8") != bytes(raw)):
+                return None
+            parts.append("Artifact record (duplicate byte array shown as its qualified text below):")
+            parts.append(json.dumps({k: v for k, v in artifact.items()
+                                     if k not in ("bytes", "qualified_bundle_json")},
+                                    ensure_ascii=False, indent=2))
+            parts.append("Package qualifications and source attribution:")
+            parts.append(json.dumps({k: v for k, v in bundle.items() if k != "entries"},
+                                    ensure_ascii=False, indent=2))
+            for number, entry in enumerate(entries, 1):
+                if not isinstance(entry["text"], str):
+                    return None
+                parts.append(f"Document {number}/{len(entries)}: {entry.get('path', 'unnamed')}")
+                parts.append(json.dumps({k: v for k, v in entry.items() if k != "text"},
+                                        ensure_ascii=False, indent=2))
+                parts.extend(("Document text:", entry["text"], "End of document text."))
+        return parts
+    except (Blocked, KeyError, TypeError, ValueError, AttributeError, UnicodeError):
+        return None
+
+
 def inside_checkout(path):
     """Reject state inside this checkout; normalize resolution failures to a safe refusal."""
     try:
@@ -1241,7 +1291,7 @@ class Dialogue:
             args += ["--after", after]
         return self.session(*args)
 
-    def output(self, work, summary=False, invocation=None):
+    def output(self, work, summary=False, invocation=None, receipt_json=False):
         result = self.session("result", work)
         self.ui.say(f"Work {work}: {result.get('status', 'unavailable')}. "
                     "Local delivery/attributed completion is not independent quality or human acceptance.")
@@ -1260,9 +1310,12 @@ class Dialogue:
             self.ui.say(f"{msg.get('sender', 'unknown author')}: {msg.get('text', '')}")
         for delivery in ([] if summary else deliveries):
             self.ui.say("Permission-projected local delivery (including required qualifications):")
-            # Preserve the complete qualified package, policy/author attribution,
-            # and exact body. Never peel text out of its qualifications.
-            self.ui.say(json.dumps(delivery, ensure_ascii=False, indent=2))
+            parts = None if receipt_json else readable_delivery(delivery)
+            if parts is None:
+                self.ui.say(json.dumps(delivery, ensure_ascii=False, indent=2))
+            else:
+                for part in parts:
+                    self.ui.say(part)
         if result.get("truncated"):
             self.ui.say("This permission-projected result is truncated at its existing bound.")
         if result.get("human_decision_pointers"):
@@ -1541,13 +1594,15 @@ class Dialogue:
     def work_menu(self, work, after):
         self.ui.say(f"Work {work['id']}: {work['need']}")
         for _ in range(16):
-            self.ui.say("r: results; q: questions and answers; f: feedback; d: persona development; "
+            self.ui.say("r: results; j: delivery receipt JSON; q: questions and answers; f: feedback; d: persona development; "
                         "u: resume participant; c: continue; a: Codex auth source; b: back")
             choice = self.ui.ask("Work action:").strip().lower()
             if choice in ("", "b"):
                 return
             if choice == "r":
                 self.output(work["id"])
+            elif choice == "j":
+                self.output(work["id"], receipt_json=True)
             elif choice == "q":
                 self.questions(work["id"])
             elif choice == "f":

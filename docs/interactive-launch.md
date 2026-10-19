@@ -84,8 +84,12 @@ After a session, or when reopening its journal, the menu shows replies from the
 exact last reserved call and counts the available replies and deliveries. An older
 reply is never presented as the result of a failed or silent call. Choose **r** in
 the work menu for the full permitted reply history and complete delivery packages,
-including their required qualifications. This display choice does not change the
-native result's permission checks or bounded contents.
+including their required qualifications. Qualified UTF-8 packages show their full
+document text, metadata and source attribution without a duplicate numeric byte
+array. The display verifies the package digest and matching artifact text first;
+unrecognized or inconsistent packages keep their original JSON presentation.
+Choose **j** for the original delivery receipt JSON. Both choices request a fresh
+permission-projected result and retain the native result's bounded contents.
 
 ### Fresh native SIWC setup
 
@@ -142,7 +146,10 @@ automatic model request occurs merely by starting the UI.
 
 Selecting a work opens its action menu:
 
-- **r: results** shows the currently permitted deliveries and replies.
+- **r: results** shows the currently permitted deliveries and replies, with
+  qualified text packages expanded into readable documents.
+- **j: delivery receipt JSON** shows the currently permitted deliveries in their
+  original JSON form, including the byte arrays and serialized qualified bundles.
 - **q: questions and answers** shows original questions, each reply's attributed
   basis, and the owner's separate conclusions and per-reply dispositions. Select
   a question and enter an answer and basis to retain a requester reply.
