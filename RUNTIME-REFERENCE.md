@@ -673,6 +673,15 @@ Selection-fit checkpoints now retain a separate measured instruction/schema size
 
 An ordinary accepted persona may explicitly call `record_model_evidence` for a current registered artifact and an adopted outcome. The complete qualified artifact body must already be present in that invocation, through an explicit selection or an earlier read; metadata and same-response reads or saves do not qualify. The runtime binds the persona, invocation, prompt, exact artifact/source and criterion, retaining the authored explanation and limitations as `ModelJudgment`. It does not record human acceptance, measurement, execution or independent assurance, or verify semantic truth. Required outside evidence and review remain obligations. The evidence action may precede an explicitly authored judgment and completion commands in one atomically accepted response; it does not automatically pass or close anything. Invalid later commands roll back the entire response. `CONTROL.model_evidence` exposes the attributed record under the work's inherited source restrictions. This path supports explained judgment of ordinary artifacts; it cannot establish engineering validation from a conceptual document.
 
+Every evidence ID in a met outcome claim must support that outcome's exact
+selected artifact and current criterion. A record bound only to a different
+artifact cannot support that claim, even when the documents were reviewed
+together. The candidate's artifact map also determines the delivered roots;
+mentioning other registered documents or citing their evidence does not include
+their bodies. A result comprising several documents needs a candidate whose
+complete qualified bundle includes those documents, preserving their current
+permissions, attribution and required accompaniment.
+
 Successful release and local-delivery operations queue exact metadata receipts for
 the acting persona's next ordinary request. These protected observations provide
 the persisted release identity and local deposit receipt across the required
