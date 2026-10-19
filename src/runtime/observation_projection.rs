@@ -30,10 +30,18 @@ pub(super) fn project(
         roots.sort();
         roots.dedup();
     }
-    for root in &roots {
+    // Computation inherits the complete input lineage. Different source roots
+    // can require the same supporting documents; assemble their union once so
+    // overlapping qualification closures do not multiply the next prompt.
+    let groups: Vec<&[f::Reference]> = if observation.kind == "computation_result" {
+        if roots.is_empty() { Vec::new() } else { vec![roots.as_slice()] }
+    } else {
+        roots.iter().map(std::slice::from_ref).collect()
+    };
+    for group in groups {
         let bundle = f::assemble(
             observation_corpus,
-            std::slice::from_ref(root),
+            group,
             &[],
             &[],
             a,
@@ -74,6 +82,14 @@ pub(super) fn project(
     } else {
         observation.payload.clone()
     };
+    if observation.kind == "computation_result" {
+        // The immutable receipt retains the executed interface. A result needs
+        // its binding, not another copy of the input schema; current callable
+        // definitions are supplied separately under CONTROL.
+        if let Some(capability) = payload.get_mut("capability").and_then(Value::as_object_mut) {
+            capability.remove("inputs_schema");
+        }
+    }
     if matches!(
         observation.kind.as_str(),
         "qualified_read" | "selection_repair_read" | "local_dependency_event"

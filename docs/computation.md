@@ -115,6 +115,12 @@ output or fixed failure code, fuel usage and terminal receipt remain distinct
 from the persona's interpretation. Factual recording changes no Stop, wait,
 permit or work phase. It creates no release or correctness claim.
 
+Required supporting documents are assembled together so overlapping
+qualification closures supply each exact body once. Current permissions and the
+complete required closure still apply. Result projections retain the executed
+binding without repeating its input schema; current callable definitions are
+supplied separately. The original retained execution evidence is unchanged.
+
 An interruption after adoption blocks another invocation until host settlement.
 `recover-computations` may dispatch a still-admitted intent only if its exact
 prerequisites remain current. It never reruns an intent already dispatched.

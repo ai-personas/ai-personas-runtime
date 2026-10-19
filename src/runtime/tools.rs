@@ -796,10 +796,11 @@ pub(super) fn inspect(
         };
         let corpus = corpus(state, audience)?;
         let mut accompaniment = Vec::new();
-        for root in qualifications(state, &job.exposure.sources) {
+        let roots = qualifications(state, &job.exposure.sources);
+        if !roots.is_empty() {
             let bundle = f::assemble(
                 &corpus,
-                &[root],
+                &roots,
                 &[],
                 &[],
                 audience,
