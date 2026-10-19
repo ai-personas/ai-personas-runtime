@@ -1562,6 +1562,20 @@ class Dialogue:
         self.ui.say(f"Execution intents in this accepted decision: {resources['execution_intents_in_accepted_decision']}.")
         self.ui.say(resources["scope"])
         self.ui.say(resources["limits"])
+        execution = evidence.get("computation_execution")
+        if execution is not None:
+            if not execution.get("available"):
+                self.ui.say("Computation evidence unavailable: " + execution.get("reason", "unavailable"))
+            for item in execution.get("executions", []):
+                self.ui.say(f"Computation {item['operation']}: {item['state']}.")
+                self.ui.say("Exact program digest: " + item["program_sha256"])
+                terminal = item.get("terminal")
+                if terminal:
+                    self.ui.say("Observed result: " + json.dumps(terminal["body"]["outcome"], ensure_ascii=False))
+                    for bundle in item.get("current_required_qualifications", []):
+                        for entry in bundle.get("entries", []):
+                            self.ui.say("Required qualification: " + entry["text"])
+                self.ui.say("Execution alone does not establish correctness or skill application.")
 
     def development_decision(self, evidence):
         decision = evidence.get("accepted_decision")

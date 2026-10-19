@@ -75,9 +75,11 @@ pub(super) fn inspect(
         "available":true,
         "supplied_supporting_resources":resources,
         "execution_intents_in_accepted_decision":proof.intent_ids.len(),
+        "supplied_computation_interfaces":prepared.computation_interfaces,
+        "current_runtime_computation":"explicitly granted import-free compute.wasm.v1; inspect actual intent and terminal receipts",
         "current_runtime_external_tool_execution":"unsupported",
         "skill_application_established":false,
-        "scope":"Supporting-file entries actually present in this call's qualified context or supplied qualified-read observations. Entries retain their exact representation, range and qualification roles. Discovery candidates, next-context proposals, message text and nested history are not counted. This view returns metadata, not detached file content.",
+        "scope":"Supporting-file entries actually present in this call's qualified context, supplied qualified-read observations or computation-result qualifications. Entries retain their exact representation, range and qualification roles. Discovery candidates, next-context proposals, message text and nested history are not counted. This view returns metadata, not detached file content.",
         "limits":"Input supply proves neither application of a skill's instructions nor code, simulator, renderer, shell or external tool execution. The current runtime executes internal file, history and work operations; work.command.v1 is internal even when encoded as Effect. Execution intents alone also do not prove dispatch or success. Inspect accepted operations and actual result receipts separately."
     });
     if serde_json::to_vec(&view)?.len() > MAX_VIEW_BYTES {
@@ -103,7 +105,8 @@ fn supplied_entries<'a>(
     }
     if let Some(observations) = control["actual_observations"].as_array() {
         for observation in observations {
-            if observation["kind"] != "qualified_read"
+            if (observation["kind"] != "qualified_read"
+                && observation["kind"] != "computation_result")
                 || observation["actor"] != persona
                 || observation["work"] != work
                 || !observation["id"]
@@ -112,7 +115,23 @@ fn supplied_entries<'a>(
             {
                 continue;
             }
-            if let Some(values) = observation["payload"]["result"]["entries"].as_array() {
+            if observation["kind"] == "computation_result" {
+                for bundle in observation["current_required_qualifications"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                {
+                    for entry in bundle["entries"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter(|entry| entry["scope"] == "assets")
+                    {
+                        entries.push((entry, json!({"kind":"computation_result_qualification", "observation":observation["id"],
+                            "producing_invocation":observation["invocation"]})));
+                    }
+                }
+            } else if let Some(values) = observation["payload"]["result"]["entries"].as_array() {
                 for entry in values.iter().filter(|entry| entry["scope"] == "assets") {
                     entries.push((
                         entry,

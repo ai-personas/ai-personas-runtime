@@ -253,12 +253,18 @@ enum Command {
     ImportPersona {
         file: PathBuf,
     },
-    /// Import one new operator-authored UTF-8 supporting file through the saved launch.
+    /// Import one new UTF-8 supporting file, preserving operator-asserted source authorship.
     /// Requires --state-root and the saved --operator. No selection, event, resume or inference.
     /// The imported source is protected from persona edits. Normal open/recovery and metering apply.
     ImportSupportingFile {
         file: PathBuf,
     },
+    /// Grant bounded import-free computation for one persona/work and exact guide.
+    GrantComputation { file: PathBuf },
+    /// Revoke an existing computation allocation. Does not refund or refill it.
+    RevokeComputation { grant: String },
+    /// Settle pending computations; never replay a dispatched execution.
+    RecoverComputations,
     AddNeed {
         file: PathBuf,
     },
@@ -566,7 +572,9 @@ impl ImportSupportingFileRequest {
     fn validate(&self, operator: &str) -> runtime::Result<()> {
         let record = &self.record;
         if self.operator != operator
-            || record.author != operator
+            || record.author.is_empty()
+            || record.author.len() > 128
+            || record.author.chars().any(|c| c.is_control() || c.is_whitespace())
             || record.scope != files::Scope::Assets
             || record.retired
             || record.bytes.is_empty()
@@ -575,7 +583,7 @@ impl ImportSupportingFileRequest {
             || record.computed_revision()? != record.revision
         {
             return Err(runtime::RuntimeError::Invalid(
-                "supporting import requires matching operator authorship, one live UTF-8 asset of 1..=32768 bytes, and its exact computed revision".into(),
+                "supporting import requires the matching operator, an explicit source author identity, one live UTF-8 asset of 1..=32768 bytes, and its exact computed revision".into(),
             ));
         }
         Ok(())
@@ -770,6 +778,21 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             "selected":false, "persona_resumed":false, "inference_performed":false,
             "event_delivered":false, "budget_reset":false
         }));
+    }
+    if let Command::GrantComputation { file } = &cli.command {
+        let request: runtime::ComputationGrantRequest = runtime::read_json_file(file, 16_384)?;
+        let mut app = launch::open(root, Some(operator))?;
+        return emit(&app.grant_computation(operator, request, runtime::unix_now()?)?);
+    }
+    if let Command::RevokeComputation { grant } = &cli.command {
+        let mut app = launch::open(root, Some(operator))?;
+        app.revoke_computation(operator, grant)?;
+        return emit(&serde_json::json!({"revoked":grant}));
+    }
+    if let Command::RecoverComputations = &cli.command {
+        let mut app = launch::open(root, Some(operator))?;
+        let count = app.recover_computations(runtime::unix_now()?)?;
+        return emit(&serde_json::json!({"settled_jobs":count,"dispatched_replayed":false}));
     }
     if let Command::InitState { config } = &cli.command {
         let config: Config = runtime::read_json_file(config, 4 * 1024 * 1024)?;
@@ -1377,6 +1400,9 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         | Command::Closeout { .. }
         | Command::ValidateResponse { .. }
         | Command::ImportSupportingFile { .. }
+        | Command::GrantComputation { .. }
+        | Command::RevokeComputation { .. }
+        | Command::RecoverComputations
         | Command::InitState { .. }
         | Command::DispatchSynthetic { .. }
         | Command::ProviderReadiness

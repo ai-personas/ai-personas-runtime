@@ -27,3 +27,4 @@ jsonwebtoken = { version = "=10.3.0", default-features = false, features = ["rus
 base64 = "=0.22.1"
 getrandom = "=0.3.4"
 url = "2"
+wasmi = { version = "=2.0.0", default-features = false, features = ["stable", "std", "wat", "validate", "portable-dispatch", "deterministic"] }

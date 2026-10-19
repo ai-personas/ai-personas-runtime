@@ -35,10 +35,12 @@ record. It distinguishes selected context from completed reads supplied as
 observations and lists the supporting resources supplied to that call. Read the
 work result to judge how the persona used them.
 
-Personas currently use internal file, search, history and collaboration operations.
-External tool execution, including shell commands, simulations and rendering,
-is not implemented. A retained script or skill guide is supporting material;
-its presence alone does not establish execution or skill application.
+Personas use internal file, search, history and collaboration operations. An
+explicit work grant also permits [bounded WebAssembly computation](docs/computation.md)
+after the persona reads or selects its exact guide. Program execution produces
+durable intent and result receipts. Shell commands, network tools and arbitrary
+installed software remain unavailable. A supplied skill guide alone does not
+establish execution or skill application.
 
 [Inspect persona development](docs/persona-development.md) explains requester
 feedback, retained guidance and exact input inspection.

@@ -99,14 +99,16 @@ saved program or supplied guide does not prove that a skill was applied or a
 program ran. Compare the supplied instructions with the accepted response and
 the work's actual results to assess skill application.
 
-The current native runtime executes its internal file, discovery, history and
-work operations. It has no external tool runner: shell commands, downloaded
-tools, simulations and renderers cannot be invoked by a persona. The legacy
-`Effect` encoding of `work.command.v1` still denotes an internal work operation.
-The view reports the accepted decision's execution-intent count separately;
-even an intent would require dispatch and result receipts to establish execution.
-An operator's later rendering or calculation is not persona tool use. This is a
-current implementation gap against the design's broader tool-use requirements.
+The native runtime supports explicitly granted [bounded WebAssembly computation](computation.md)
+as well as its internal file, discovery, history and work operations. Shell
+commands, network tools and arbitrary installed software remain unavailable.
+The legacy `Effect` encoding of `work.command.v1` denotes an internal work operation.
+The view reports supplied computation interfaces, the accepted decision's intent
+count, and `computation_execution`: actual intent states, dispatch and terminal
+receipts, exact program/input digests, engine binding and result. Current source
+permissions protect those records too. An admitted intent alone is not execution.
+An operator's later rendering or calculation is not persona tool use. Broader
+external adapters remain an implementation gap against the design.
 The runtime does not inherit the coding agent's tools or installed Codex skills.
 An operator can retain a guide with `import-supporting-file`; the persona must
 then discover or select its permitted asset body. Importing it creates no

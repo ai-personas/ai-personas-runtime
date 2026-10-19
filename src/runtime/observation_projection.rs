@@ -24,7 +24,13 @@ pub(super) fn project(
     )?;
     let mut qualifications = Vec::new();
     let mut exact = Vec::new();
-    for root in &observation.qualified_roots {
+    let mut roots = observation.qualified_roots.clone();
+    if observation.kind == "computation_result" {
+        roots.extend(tools::qualifications(state, &observation.sources));
+        roots.sort();
+        roots.dedup();
+    }
+    for root in &roots {
         let bundle = f::assemble(
             observation_corpus,
             std::slice::from_ref(root),
