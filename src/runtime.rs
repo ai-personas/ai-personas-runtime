@@ -4834,34 +4834,14 @@ impl Runtime {
                 }
             }
         }
-        observe(
+        resume_participant_state(
             &mut state,
             operator,
+            persona,
             work,
-            w::RuntimeRight::Governance,
-            w::RuntimeOperation::ResumeParticipant {
-                persona: w::PersonaId(persona.into()),
-            },
+            initial.is_none(),
+            failed_attempt_ack,
         )?;
-        let persona_state = state.personas.get_mut(persona).unwrap();
-        if failed_attempt_ack.is_some() {
-            failed_attempt::halt_routes(persona_state);
-            persona_state.failed_attempt_hold = None;
-        }
-        persona_state.active_invocation = None;
-        persona_state.owner_epoch = increment(persona_state.owner_epoch)?;
-        let focus = persona_state
-            .focus
-            .get_mut(work)
-            .ok_or_else(|| held("work focus absent"))?;
-        focus.permit = true;
-        // Only explicit operator resume can authorize another ended-participant
-        // admission. Initial-character handover grants no such exception.
-        focus.explicit_resume_permit = initial.is_none();
-        state.operator_events.push(
-            json!({"kind":"explicit_resume","operator":operator,"persona":persona,"work":work,
-                "failed_attempt_acknowledgment":failed_attempt_ack,"remote_outcome_reconciled":false}),
-        );
         let release_synthetic_owner = recovery.as_ref().is_some_and(|(id, invocation)| {
             invocation.is_some()
                 && self
@@ -9099,6 +9079,49 @@ fn work_ref(work: &str, label: &str, value: &str) -> Result<w::ExactRef> {
         value.as_bytes(),
     ))
 }
+/// Common targeted-resume transition after the caller has checked current
+/// authority, work controls, invocation disposition and any recovery evidence.
+fn resume_participant_state(
+    state: &mut State,
+    operator: &str,
+    persona: &str,
+    work: &str,
+    explicit: bool,
+    failed_attempt_ack: Option<&s::ObjectRef>,
+) -> Result<()> {
+    observe(
+        state,
+        operator,
+        work,
+        w::RuntimeRight::Governance,
+        w::RuntimeOperation::ResumeParticipant {
+            persona: w::PersonaId(persona.into()),
+        },
+    )?;
+    let persona_state = state
+        .personas
+        .get_mut(persona)
+        .ok_or_else(|| held("persona absent"))?;
+    if failed_attempt_ack.is_some() {
+        failed_attempt::halt_routes(persona_state);
+        persona_state.failed_attempt_hold = None;
+    }
+    persona_state.active_invocation = None;
+    persona_state.owner_epoch = increment(persona_state.owner_epoch)?;
+    let focus = persona_state
+        .focus
+        .get_mut(work)
+        .ok_or_else(|| held("work focus absent"))?;
+    focus.permit = true;
+    // Initial-character handover grants no ended-participant exception.
+    focus.explicit_resume_permit = explicit;
+    state.operator_events.push(
+        json!({"kind":"explicit_resume","operator":operator,"persona":persona,"work":work,
+            "failed_attempt_acknowledgment":failed_attempt_ack,"remote_outcome_reconciled":false}),
+    );
+    Ok(())
+}
+
 fn observe(
     state: &mut State,
     operator: &str,

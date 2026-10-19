@@ -18,7 +18,8 @@ Follow the sign-in and permission prompts. You need Unix, Python 3.9+, eligible 
 
 Choose a saved work in the launcher to read results, give feedback, answer shared
 questions or inspect a persona's development. These actions do not start a model
-call; continuation is a separate choice.
+call. To let a stopped participant respond, choose **Resume participant**, then
+**Continue** to authorize a model session.
 
 To inspect a continuing persona's accepted characteristic fragments:
 

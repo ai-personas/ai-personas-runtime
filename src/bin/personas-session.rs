@@ -95,6 +95,8 @@ enum Command {
     Feedback { file: PathBuf },
     /// Reply to an exact shared question without inference or an explicit resume.
     AnswerQuestion { file: PathBuf },
+    /// One exact explicit participant resume; no inference, pause lift or recovery.
+    ResumeParticipant { file: PathBuf },
 }
 fn emit<T: Serialize>(result: session::BoundaryResult<T>) -> bool {
     match result {
@@ -252,6 +254,18 @@ async fn main() {
             emit((|| -> session::BoundaryResult<serde_json::Value> {
                 let input = ai_personas::runtime::read_json_file(&file, 65_536)?;
                 session::submit_question_answer(&root, &operator, &input)
+            })())
+        }
+        Command::ResumeParticipant { file } => {
+            emit((|| -> session::BoundaryResult<serde_json::Value> {
+                let value: serde_json::Value = ai_personas::runtime::read_json_file(&file, 16_384)?;
+                for path in ["", "/expected_runtime", "/expected_launch"] {
+                    if !value.pointer(path).is_some_and(serde_json::Value::is_object) {
+                        return Err(session::BoundaryError::InvalidRequest);
+                    }
+                }
+                let input = serde_json::from_value(value)?;
+                session::resume_participant(&root, &operator, &input)
             })())
         }
     };

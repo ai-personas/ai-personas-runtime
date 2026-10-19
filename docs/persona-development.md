@@ -15,9 +15,11 @@ body supply. **q: questions and answers** shows the shared clarification record
 and lets you answer in plain text, including the basis for your reply.
 
 These actions use the existing runtime's current permissions without starting
-inference. Continue eligible work separately. A stopped or paused persona still
-requires the existing explicit resume controls. If input delivery is interrupted,
-the work list offers **i** to deliver the same saved identity and text; it does
+inference. For a stopped or individually paused participant in an Open work,
+choose **u: resume participant**, then **c: continue** to authorize a model session.
+Work-wide pauses and failure recovery use their separate explicit controls.
+If input delivery is interrupted, the work list offers **i** to deliver the same
+saved identity and text; it does
 not create a replacement input. The CLI equivalents below remain available.
 
 The saved requester can address an existing participant without creating a new

@@ -258,20 +258,32 @@ def validate_progress(p):
     item = p["work_input"]
     if item is not None:
         require(isinstance(item, dict) and set(item) == {"kind", "request", "delivered"}
-                and item["kind"] in ("feedback", "answer-question") and type(item["delivered"]) is bool)
+                and item["kind"] in ("feedback", "answer-question", "resume-participant")
+                and type(item["delivered"]) is bool)
         request = item["request"]
         require(isinstance(request, dict) and identifier(request.get("work")))
         if item["kind"] == "feedback":
             require(set(request) == {"id", "work", "persona", "text"}
                     and identifier(request["id"]) and identifier(request["persona"])
                     and safe_text(request["text"], 16384))
-        else:
+        elif item["kind"] == "answer-question":
             require(set(request) == {"work", "reply"} and isinstance(request["reply"], dict))
             reply = request["reply"]
             require(set(reply) == {"id", "question", "question_revision", "text", "basis"}
                     and identifier(reply["id"]) and safe_text(reply["question"], 256)
                     and re.fullmatch(r"[a-f0-9]{64}", reply["question_revision"]) is not None
                     and safe_text(reply["text"], 8192) and safe_text(reply["basis"], 4096))
+        else:
+            require(set(request) == {"id", "operator", "work", "persona", "expected_runtime",
+                                     "expected_launch", "authorize_resume"}
+                    and identifier(request["id"]) and identifier(request["persona"])
+                    and request["operator"] == p["operator"] and request["authorize_resume"] is True)
+            for key, name in (("expected_runtime", "runtime-state-v1"),
+                              ("expected_launch", "runtime-launch-v1")):
+                ref = request[key]
+                require(isinstance(ref, dict) and set(ref) == {"id", "revision", "sha256"}
+                        and ref["id"] == name and type(ref["revision"]) is int and ref["revision"] > 0
+                        and re.fullmatch(r"[a-f0-9]{64}", ref["sha256"]) is not None)
         require(len(encoded(request)) <= 65536)
     require(len(encoded(p)) <= MAX_JOURNAL)
 
@@ -1217,6 +1229,32 @@ class Dialogue:
         # A new identity may replace the pointer only after confirmed delivery.
         self.j.directory.write("work-input.json", encoded(request))
         receipt = self.session(item["kind"], str(self.j.directory.path / "work-input.json"))
+        if item["kind"] == "resume-participant":
+            require(receipt.get("work") == request["work"]
+                    and receipt.get("persona") == request["persona"]
+                    and receipt.get("id") == request["id"]
+                    and receipt.get("inference_performed") is False
+                    and receipt.get("budget_reset") is False
+                    and type(receipt.get("resume_recorded")) is bool
+                    and receipt.get("snapshot_changed") is (not receipt["resume_recorded"]),
+                    "resume_receipt_mismatch")
+            if receipt["resume_recorded"]:
+                recorded = receipt.get("receipt")
+                require(isinstance(recorded, dict) and recorded.get("request") == request,
+                        "resume_receipt_mismatch")
+            else:
+                require(receipt.get("persona_resumed") is False, "resume_receipt_mismatch")
+            item["delivered"] = True
+            self.j.save()
+            if receipt["resume_recorded"]:
+                self.ui.say("The explicit resume is recorded. " +
+                            ("This is the earlier receipt; it did not resume the participant again. "
+                             if receipt.get("replayed") else "") +
+                            "Choose Continue to review current eligibility and start a model session.")
+            else:
+                self.ui.say("The work changed before this resume could apply. Nobody was resumed. "
+                            "Choose Resume participant again to review the current state.")
+            return
         require(receipt.get("work") == request["work"]
                 and receipt.get("inference_performed") is False
                 and receipt.get("persona_resumed") is False
@@ -1244,12 +1282,36 @@ class Dialogue:
     def choose_participant(self, work):
         participants = work["participants"]
         for i, participant in enumerate(participants, 1):
-            self.ui.say(f"{i}: {participant['persona']} — {participant['continuation']}")
+            self.ui.say(f"{i}: {participant.get('label', participant['persona'])} "
+                        f"({participant['persona']}) — {participant['continuation']}")
         choice = self.ui.ask("Participant number (Enter to go back):").strip()
         if not choice:
             return None
         require(choice.isdecimal() and 1 <= int(choice) <= len(participants), "invalid_participant_choice")
         return participants[int(choice) - 1]["persona"]
+
+    def resume_participant(self, work, after):
+        if self.pending_work_input() is not None:
+            self.ui.say("An earlier work action still needs confirmation. Return to the work list and choose i to finish it.")
+            return
+        view = self.inspect(after)
+        current = next((w for w in view["works"] if w["id"] == work["id"]), None)
+        if current is None:
+            self.ui.say("This work is no longer in the current view. Return to the work list.")
+            return
+        candidates = [p for p in current["participants"] if p.get("resume_candidate")]
+        if not candidates:
+            self.ui.say("No participant can be resumed here. Ready participants can Continue; "
+                        "work-wide pauses, holds and exhausted resources need their separate controls.")
+            return
+        persona = self.choose_participant({"participants": candidates})
+        if persona is None:
+            return
+        self.ui.consent(f"Resume {persona} for {work['id']}? Starting a model session remains a separate choice")
+        self.queue_work_input("resume-participant", {"id": "resume-" + uuid.uuid4().hex,
+            "operator": self.p["operator"], "work": work["id"], "persona": persona,
+            "expected_runtime": view["runtime"], "expected_launch": view["launch"],
+            "authorize_resume": True})
 
     def feedback(self, work):
         if self.pending_work_input() is not None:
@@ -1373,7 +1435,8 @@ class Dialogue:
     def work_menu(self, work, after):
         self.ui.say(f"Work {work['id']}: {work['need']}")
         for _ in range(16):
-            self.ui.say("r: results; q: questions and answers; f: feedback; d: persona development; c: continue; b: back")
+            self.ui.say("r: results; q: questions and answers; f: feedback; d: persona development; "
+                        "u: resume participant; c: continue; b: back")
             choice = self.ui.ask("Work action:").strip().lower()
             if choice in ("", "b"):
                 return
@@ -1385,13 +1448,16 @@ class Dialogue:
                 self.feedback(work)
             elif choice == "d":
                 self.development(work)
+            elif choice == "u":
+                self.resume_participant(work, after)
             elif choice == "c":
                 view = self.inspect(after)
                 current = next((w for w in view["works"] if w["id"] == work["id"]), None)
                 if current is not None and self.eligible(view, current):
                     self.run_work(work["id"], view)
                 else:
-                    self.ui.say("No participant is currently eligible. Inspect the saved continuation and any hold or limit; explicit resume and recovery controls are in RUNTIME-REFERENCE.md.")
+                    self.ui.say("No participant is currently eligible. Choose Resume participant for a stopped "
+                                "or individually paused participant. Other holds and limits use the controls in RUNTIME-REFERENCE.md.")
             else:
                 self.ui.say("Choose a listed action.")
         self.ui.say("Returning to the work list; progress remains saved.")
@@ -1504,11 +1570,15 @@ class Dialogue:
             saved_input = self.pending_work_input()
             if saved_input:
                 request = saved_input["request"]
-                content = request if saved_input["kind"] == "feedback" else request["reply"]
-                self.ui.say(f"Saved {saved_input['kind']} for {request['work']} awaiting confirmation:\n{content['text']}")
-                if "basis" in content:
-                    self.ui.say("Basis: " + content["basis"])
-                self.ui.say("i: deliver this same saved input; its identity and text will be reused")
+                if saved_input["kind"] == "resume-participant":
+                    self.ui.say(f"Saved explicit resume for {request['persona']} in {request['work']} awaiting confirmation.")
+                    self.ui.say("i: finish this same resume request; an earlier receipt cannot resume anyone again")
+                else:
+                    content = request if saved_input["kind"] == "feedback" else request["reply"]
+                    self.ui.say(f"Saved {saved_input['kind']} for {request['work']} awaiting confirmation:\n{content['text']}")
+                    if "basis" in content:
+                        self.ui.say("Basis: " + content["basis"])
+                    self.ui.say("i: deliver this same saved input; its identity and text will be reused")
             self.ui.say(f"{len(pending)} private pending need(s). p: submit first pending; n: new need; "
                         "work number: open work actions; more: next saved page; q: leave")
             choice = self.ui.ask("Choose:").strip().lower()

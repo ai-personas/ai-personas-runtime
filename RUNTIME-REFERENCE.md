@@ -326,6 +326,20 @@ are charged separately on each actual read; exact repair reads have a separate
 navigation share. This logical material envelope is not a CPU-work or provider
 usage measurement. Allocation reserves no future capacity or successful fit.
 
+The normal work menu offers an explicit targeted resume through
+`personas-session resume-participant REQUEST.json`. Its request contains `id`,
+`operator`, `work`, `persona`, `authorize_resume: true`, and the exact
+`expected_runtime` and `expected_launch` references from `inspect`. It admits only
+a stopped or individually paused participant in an Open standalone work with
+remaining attempts and no active invocation or failed-attempt hold. It neither
+lifts a work-wide pause nor performs recovery, grants funding or runs inference.
+The state transition and immutable receipt commit atomically. Exact replay returns
+historical evidence without restoring permission. A changed snapshot with no
+receipt returns `resume_recorded: false` and `snapshot_changed: true`; it creates
+no resume. Current eligibility must be inspected separately before a new run.
+The UI retains one pending work action and uses this same exact request if its
+confirmation was lost. Advanced resume/recovery commands remain available.
+
 Output contains accepted replies and complete currently permitted local delivery
 bundles. `--json` emits one structured result on stdout; progress and stopping
 diagnostics use stderr. `result` performs no inference. A delivered artifact can

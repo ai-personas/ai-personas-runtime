@@ -1,4 +1,4 @@
-//! Operator-only protocol for an interactive launcher. No onboarding or grants.
+//! Operator-only protocol for an interactive launcher. No onboarding or resource grants.
 //!
 //! All openings are nonrecovering. Inspection is bounded, metered, and metadata
 //! only except for the operator's own exact original need. Session claims are
@@ -6,6 +6,9 @@
 //! permission to retry. Receipts consume existing Ordinary Store capacity. Same
 //! OS-account integrity and the existing Store durability limits still apply.
 use super::*;
+#[path = "session_resume.rs"]
+mod participant_resume;
+pub use participant_resume::{resume_participant, ParticipantResumeRequest};
 
 pub type BoundaryResult<T> = std::result::Result<T, BoundaryError>;
 const NEED_KIND: &str = "launch-keyed-need-v1";
@@ -963,6 +966,7 @@ pub enum ContinuationStatus {
 #[derive(Clone, Debug, Serialize)]
 pub struct ParticipantView {
     pub persona: String,
+    pub label: String,
     pub continuation: ContinuationStatus,
     pub permit: bool,
     pub ordinary_continuation: bool,
@@ -971,6 +975,8 @@ pub struct ParticipantView {
     pub active_invocation: Option<AttemptView>,
     /// Candidate only. Not admission, a provider check, or a grant to resume Stop.
     pub eligible_candidate: bool,
+    /// Explicit targeted resume only; no inference, recovery or funding promise.
+    pub resume_candidate: bool,
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct WorkView {
@@ -1157,7 +1163,10 @@ fn inspect_opened(
                 .map(|id| attempt_view(app, id))
                 .transpose()?
                 .flatten();
+            let resume_candidate =
+                !frozen && participant_resume::candidate(&state, &saved, id, &actor);
             participants.push(ParticipantView {
+                label: persona.seed.label.clone(),
                 persona: actor,
                 continuation,
                 permit: focus.permit,
@@ -1172,6 +1181,7 @@ fn inspect_opened(
                     .map(|h| h.acknowledgment.clone()),
                 active_invocation,
                 eligible_candidate,
+                resume_candidate,
             });
         }
         let last = saved.works.get(id).cloned().flatten();

@@ -116,34 +116,43 @@ Selecting a work opens its action menu:
   attribution and complete qualifications. An optional source ID narrows the
   eight-revision view; an optional accepted call ID inspects exact body supply
   and the matching completed provider input. This does not establish improvement.
+- **u: resume participant** lets you choose a stopped or individually paused
+  participant in an Open work and explicitly allow a fresh decision. It starts
+  no model call. The menu shows names alongside identities and rechecks the
+  exact work state before applying the choice.
 - **c: continue** rechecks current eligibility before the existing foreground
-  authorization flow. Stops, pauses and holds still require their supported
-  explicit controls.
+  authorization flow. Resume a stopped participant with **u** first. Work-wide
+  pauses, failed-attempt holds and exhausted resources use their separate controls.
 
 Feedback and answers use the native idempotent operations; they neither start
 inference nor reset resources. They can satisfy a wait already authored for
 requester input. Reading these views needs no provider credential access and is
 also available for saved provider modes that the interactive runner cannot start.
 
-Before delivery, the journal retains one exact requester input and its identity.
+Before delivery, the journal retains one exact requester input or targeted resume
+request and its identity.
 If the operation is interrupted, **i** in the work list explicitly delivers that
 same input. Native replay queues no duplicate. A new input cannot replace an
 unconfirmed one. After a confirmed receipt, the next input may replace the UI's
 pointer; accepted history remains in the runtime. One bounded transport file is
 reconstructed from the journal, without accumulating an input file per operation.
+Resume commits its state transition and immutable receipt together. Repeating the
+request returns that earlier receipt without resuming anyone again, even if the
+persona has since stopped. An unapplied request whose exact state has changed is
+reported as stale; review the current participant list before choosing again.
 Older journals acquire an empty optional input field without changing their
 runtime, pending needs, sessions or permissions. Input text and files stay private.
 
 The machine boundary exposes these actions as `personas-session questions`,
-`development`, `feedback` and `answer-question`. Its openings do not recover
+`development`, `feedback`, `answer-question` and `resume-participant`. Its openings do not recover
 execution owners, and errors remain static machine codes. The explicit native
 CLI and thin-wrapper commands remain available.
 
 An unknown probe, malformed/uncertain transport or unrecorded session blocks
-further execution; quit and retain progress for exact evidence review. Stops,
+further execution; quit and retain progress for exact evidence review. Work-wide
 pauses, complete rejected responses, failed holds, exhausted capacity and
 uncertain usage require their existing supported advanced controls. The UI does
-not infer acceptance, release a hold, wake stopped personas, forgive usage or
+not infer acceptance, release a hold, implicitly wake stopped personas, forgive usage or
 replenish budgets. [Runtime reference](../RUNTIME-REFERENCE.md) documents the
 operator controls; [provider onboarding](provider-onboarding.md) describes probe
 limits and [activation](activation.md) covers same-account renewal/migration.
