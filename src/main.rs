@@ -62,6 +62,10 @@ enum Command {
         http_origins: Vec<String>,
         #[arg(long, default_value_t = 3)]
         cohort: usize,
+        /// Preauthorize local sharing with up to this many lifetime identity slots (at most 8).
+        /// Creates only --cohort personas; later creation requires an exact approved proposal.
+        #[arg(long)]
+        persona_capacity: Option<usize>,
         #[arg(long, default_value_t = 1)]
         owner: usize,
         #[arg(long, default_value_t = 12)]
@@ -138,6 +142,17 @@ enum Command {
     OptionalActivitySnapshot,
     /// Inspect identity status, independent quarantine and retirement blockers. No inference.
     PersonaLifecycleSnapshot { persona: String },
+    /// Inspect reserved population capacity and exact creation fences. No inference.
+    PersonaBirthSnapshot { parent: String },
+    /// Create a dormant identity from an exact accepted persona-authored asset proposal.
+    /// Creates no work, commitment, model call or additional resources.
+    CreatePersonaFromProposal {
+        file: PathBuf,
+        #[arg(long, required_unless_present = "apply", conflicts_with = "apply")]
+        preview: bool,
+        #[arg(long, required_unless_present = "preview", conflicts_with = "preview")]
+        apply: bool,
+    },
     /// Provision identity controls, reactivate, release quarantine or retire with exact authorization.
     ChangePersonaLifecycle {
         file: PathBuf,
@@ -663,6 +678,7 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             destination,
             http_origins,
             cohort,
+            persona_capacity,
             owner,
             max_steps,
             max_considerations,
@@ -679,6 +695,7 @@ async fn run(cli: Cli) -> runtime::Result<()> {
                 .ok_or_else(|| argument("--operator"))?;
             let settings = launch::Setup {
                 cohort: *cohort,
+                persona_capacity: *persona_capacity,
                 owner: *owner,
                 destination: destination.clone(),
                 http_origins: http_origins.iter().cloned().collect(),
@@ -965,6 +982,18 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         request.validate(operator)?;
         Some(request)
     } else { None };
+    let birth_request = if let Command::CreatePersonaFromProposal { file, preview, apply } = &cli.command {
+        if preview == apply { return Err(argument("exactly one of --preview or --apply")); }
+        let value: serde_json::Value = runtime::read_json_file(file, 16_384)?;
+        for path in ["", "/proposal", "/expected_runtime", "/expected_launch"] {
+            if !value.pointer(path).is_some_and(serde_json::Value::is_object) {
+                return Err(argument("persona creation request requires JSON objects"));
+            }
+        }
+        let request: launch::persona_birth::Request = serde_json::from_value(value)?;
+        request.validate(operator)?;
+        Some(request)
+    } else { None };
     let work_resource_grant_request = if let Command::GrantWorkResources {
         file,
         preview,
@@ -1131,6 +1160,13 @@ async fn run(cli: Cli) -> runtime::Result<()> {
     // Its narrow launcher entry meters authority reads against existing Closeout
     // resources and performs no ordinary open recovery or model execution.
     match &cli.command {
+        Command::PersonaBirthSnapshot { parent } => {
+            return emit(&launch::persona_birth::snapshot_at(root, operator, parent)?);
+        }
+        Command::CreatePersonaFromProposal { apply, .. } => {
+            return emit(&launch::persona_birth::create_at(root,
+                birth_request.as_ref().expect("birth request validated"), *apply, runtime::unix_now()?)?);
+        }
         Command::PersonaLifecycleSnapshot { persona } => {
             return emit(&launch::persona_lifecycle::snapshot_at(root,operator,persona,runtime::unix_now()?)?);
         }
@@ -1226,6 +1262,9 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         }
         Command::PersonaLifecycleSnapshot { .. } | Command::ChangePersonaLifecycle { .. } => {
             unreachable!("lifecycle handled before ordinary open")
+        }
+        Command::PersonaBirthSnapshot { .. } | Command::CreatePersonaFromProposal { .. } => {
+            unreachable!("birth handled before ordinary open")
         }
         Command::TransportCapacitySnapshot | Command::ExtendTransportCapacity { .. } => {
             unreachable!("transport capacity handled before ordinary open")

@@ -283,6 +283,8 @@ pub(super) fn validate_saved(state: &State, saved: &Saved) -> Result<()> {
     let config = &state.config;
     require(
         config.allow_direct_provider
+            && config.persona_capacity == setup.persona_capacity
+            && (setup.cohort..=8).contains(&setup.persona_capacity())
             && config.max_work_attempts == setup.max_work_attempts
             && provider.limits.max_prompt_bytes <= config.context_bytes
             && provider.limits.max_response_bytes <= config.response_bytes

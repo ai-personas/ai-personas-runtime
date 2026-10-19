@@ -49,6 +49,9 @@ pub fn preview(request: &Request) -> Result<Value> {
         "request_sha256": digest(request)?, "runtime_config": config,
         "storage_limits": storage_limits(), "setup": request.setup,
         "seed_grants": seed_for(&saved, &provider, &people(saved.setup.cohort)[0]).grants,
+        "created_personas": people(saved.setup.cohort),
+        "sharing_identity_slots": people(saved.setup.persona_capacity()),
+        "remaining_persona_slots": saved.setup.persona_capacity() - saved.setup.cohort,
         "inference_performed": false, "authority_granted": false,
         "remote_token_hard_bound": false, "remote_dollar_hard_bound": false
     }))

@@ -293,6 +293,9 @@ pub struct Config {
     pub corpus: f::CorpusLimits,
     pub policies: f::PolicySnapshot,
     pub local_recipients: BTreeSet<String>,
+    /// Optional lifetime population capacity preauthorized at fresh launch setup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persona_capacity: Option<usize>,
     /// Historical metadata only; this flag no longer authorizes a live adapter.
     pub allow_nonconformant_research: bool,
     #[serde(default)]
@@ -348,6 +351,7 @@ impl Config {
             },
             policies,
             local_recipients: BTreeSet::new(),
+            persona_capacity: None,
             allow_nonconformant_research: false,
             allow_direct_provider: false,
             require_physical_hard_bound: false,
@@ -356,6 +360,8 @@ impl Config {
         }
     }
     fn validate(&self) -> Result<()> {
+        require(self.persona_capacity.is_none_or(|capacity| (1..=8).contains(&capacity)),
+            "declared lifetime persona capacity must be 1..=8")?;
         if self.require_physical_hard_bound
             || self.require_token_hard_bound
             || self.require_dollar_hard_bound
@@ -527,6 +533,9 @@ pub struct Focus {
 pub struct Persona {
     pub seed: Seed,
     pub created_by: String,
+    /// Accepted persona-authored starting material, distinct from operator seeds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) birth: Option<launch::persona_birth::Origin>,
     /// Absent on legacy identities until protected controls are explicitly funded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) lifecycle: Option<lifecycle::Record>,
@@ -2215,7 +2224,8 @@ pub(crate) fn runtime_opportunity(
     if state
         .personas
         .get(&actor.0)
-        .is_some_and(|p| p.failed_attempt_hold.is_some())
+        .is_some_and(|p| p.failed_attempt_hold.is_some()
+            || launch::persona_birth::initialization_reason(p).is_some())
     {
         return None;
     }
@@ -2390,6 +2400,8 @@ fn scheduler_entry(
     } else if let Some(actor) = state.personas.get(&persona.0) {
         if actor.failed_attempt_hold.is_some() {
             Some("failed attempt held pending separate exact operator resume")
+        } else if let Some(reason) = launch::persona_birth::initialization_reason(actor) {
+            Some(reason)
         } else if actor.active_invocation.is_some() {
             Some("active invocation requires completion or explicit recovery")
         } else if !actor.focus.get(&work.0).is_some_and(|focus| {
@@ -3883,6 +3895,7 @@ impl Runtime {
         // Keep unadmitted unchanged: failed preparation may record its existing
         // overflow diagnostic, but cannot commit a fit or ownership transition.
         let persona = state.personas.get_mut(&request.persona).unwrap();
+        launch::persona_birth::charge_initialization(persona)?;
         for focus in persona.focus.values_mut() {
             carry_expiry_witness(
                 focus,
@@ -6089,6 +6102,8 @@ fn validate_seed(seed: &Seed) -> Result<()> {
     Ok(())
 }
 fn insert_seed(state: &mut State, operator: &str, seed: Seed) -> Result<()> {
+    require(state.config.persona_capacity.is_none_or(|capacity| state.personas.len() < capacity),
+        "declared lifetime persona capacity exhausted")?;
     require(
         !state.personas.contains_key(&seed.id),
         "persona creation identity conflict",
@@ -6101,6 +6116,7 @@ fn insert_seed(state: &mut State, operator: &str, seed: Seed) -> Result<()> {
         Persona {
             seed,
             created_by: operator.into(),
+            birth: None,
             lifecycle: None,
             character: None,
             owner_epoch: 0,
@@ -6890,6 +6906,12 @@ fn render_mode_with_history(
         exposure_permitted(state, &exposure, &a),
         "work core lineage unavailable",
     )?;
+    if persona.character.is_none() {
+        if let Some(origin) = &persona.birth {
+            require(exposure_permitted(state, &origin.exposure, &a), "birth seed lineage unavailable")?;
+            extend_exposure(&mut exposure, &origin.exposure);
+        }
+    }
     let current_character = if let Some(character) = &persona.character {
         let inherited = character_exposure(character)?;
         require(
@@ -6937,7 +6959,7 @@ fn render_mode_with_history(
     let mut sources = BTreeSet::new();
     let mut supplied_bodies = BTreeSet::new();
     let mut observation_roots = Vec::new();
-    let mut visible_files = character_refs(persona)?
+    let mut visible_files = launch::persona_birth::mandatory_references(persona)?
         .into_iter()
         .collect::<BTreeSet<_>>();
     let selection_state =
@@ -7161,7 +7183,7 @@ fn render_mode_with_history(
     // required accompaniment. This projection supplies no additional body.
     let metadata_context = f::assemble(
         &observation_corpus,
-        &character_refs(persona)?,
+        &launch::persona_birth::mandatory_references(persona)?,
         &fragments
             .iter()
             .map(|s| file_reference(&s.reference))
@@ -7352,6 +7374,27 @@ fn render_mode_with_history(
             json!({"id":work_interface.capability_id,"binding_revision":work_interface.binding_revision,"inputs_schema":work_interface.inputs_schema})
         },
         "not_ready":["external effects","top-level Deliver without release binding"],"readiness_limits":readiness()});
+    if ordinary_interfaces {
+        if let Some(capacity) = state.config.persona_capacity {
+            if state.personas.len() < capacity {
+                core["persona_birth_proposal"] = json!({
+                    "proposal_schema":launch::persona_birth::proposal_schema(),
+                    "remaining_lifetime_slots":capacity-state.personas.len(),
+                    "rule":"Creation is optional. When useful, you may author a bounded JSON supporting asset matching this schema and explain its purpose to the requester. A proposal is not a new identity, competence, membership, work acceptance or extra resources. Only the operator can accept an exact current proposal through the native creation interface. The new persona then authors its own initial character under a finite limit on a later explicitly admitted work. Existing personas and simple work need no creation ritual. Do not invent biography, experience or expertise."
+                });
+                growth_bytes = growth_bytes.checked_add(serde_json::to_vec(&core["persona_birth_proposal"])?.len())
+                    .ok_or_else(|| invalid("birth proposal context accounting"))?;
+            }
+        }
+    }
+    if let Some(origin) = &persona.birth {
+        core["creation_origin"] = json!({"parent":origin.parent,"invocation":origin.invocation,
+            "proposal":origin.proposal,"initialization_limit":origin.initialization_limit,
+            "initialization_attempts_spent":origin.initialization_attempts,
+            "meaning":"Persona-authored starting material accepted by the operator; not prior lived experience, competence or accepted responsibility."});
+        growth_bytes = growth_bytes.checked_add(serde_json::to_vec(&core["creation_origin"])?.len())
+            .ok_or_else(|| invalid("birth origin context accounting"))?;
+    }
     let optional_control = optional_activity::control(state, work_id)?;
     if !optional_control.is_null() {
         growth_bytes = growth_bytes.checked_add(serde_json::to_vec(&optional_control)?.len())
@@ -7448,7 +7491,7 @@ fn render_mode_with_history(
         Ok((prompt, encoded.encoding, total))
     };
     let corpus = corpus(state, &a)?;
-    let character = character_refs(persona)?;
+    let character = launch::persona_birth::mandatory_references(persona)?;
     let mut roots = BundleRoots {
         mandatory: character.clone(),
         fragments: fragments
@@ -9652,6 +9695,10 @@ fn apply_work_actions(
                 require(
                     offer_revision(&initial, &offer)? == *terms_revision && current.to == actor,
                     "offered terms/actor mismatch",
+                )?;
+                require(
+                    disposition != "accept" || initial.current_arrangement.is_none(),
+                    "joining requires explicit current arrangement consent: use work command accept_arranged_offer with the supplied offer, terms_revision and CONTROL.arrangements.current_exact; Responsibility accept supplies no arrangement consent",
                 )?;
                 commands.push(match disposition.as_str() {
                     "accept" => w::Command::Accept {

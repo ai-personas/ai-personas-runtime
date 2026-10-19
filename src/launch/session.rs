@@ -918,6 +918,9 @@ pub struct SettingsView {
     pub destination: String,
     pub working_directory: PathBuf,
     pub cohort: usize,
+    /// All lifetime slots, including future identities named in sharing policy.
+    pub persona_capacity: usize,
+    pub remaining_persona_slots: usize,
     pub share_cohort: bool,
     pub http_origins: BTreeSet<String>,
     pub direct_provider_authorized: bool,
@@ -1089,6 +1092,8 @@ fn settings_view(state: &State, saved: &Saved, now: u64) -> SettingsView {
         destination: saved.setup.destination.clone(),
         working_directory: saved.working_directory.clone(),
         cohort: saved.setup.cohort,
+        persona_capacity: saved.setup.persona_capacity(),
+        remaining_persona_slots: saved.setup.persona_capacity().saturating_sub(saved.setup.cohort),
         share_cohort: saved.setup.share_cohort,
         http_origins: saved.setup.http_origins.clone(),
         direct_provider_authorized: state.config.allow_direct_provider,

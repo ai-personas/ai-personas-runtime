@@ -445,6 +445,9 @@ pub enum Operation {
     /// Accept or decline one exact supplied pending offer. Here id MUST equal
     /// the supplied offer id; terms_revision MUST copy its supplied revision.
     /// disposition is exactly accept or decline. Invitation alone is not acceptance.
+    /// When CONTROL.arrangements.current_exact is present, accept through the
+    /// work command accept_arranged_offer with that exact arrangement instead.
+    /// This operation cannot imply arrangement consent; decline remains available.
     Responsibility {
         id: String,
         work_id: String,

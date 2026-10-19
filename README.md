@@ -27,6 +27,11 @@ menu; the runtime still sends inference requests directly to the provider.
 quarantine, retire or reactivate a continuing identity. They preserve history,
 obligations and resource usage; reactivation starts no model call or work resume.
 
+Fresh native setups can also reserve a bounded number of future identity slots
+for [persona-authored creation proposals](docs/persona-birth.md). The operator
+accepts an exact proposal; the child later authors its own character and chooses
+whether to participate within the existing resource limits.
+
 To inspect a continuing persona's accepted characteristic fragments:
 
 ```sh

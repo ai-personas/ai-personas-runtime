@@ -120,6 +120,17 @@ pub fn development_at(
         "scope":"currently permitted accepted characteristic revisions; supporting assets are separate",
         "behavioral_improvement_established":false
     });
+    if let Some(origin) = &persona.birth {
+        output["creation_origin"] = if exposure_permitted(&state, &origin.exposure, &audience) {
+            json!({"available":true,"kind":"persona_authored_proposal",
+                "parent":origin.parent,"invocation":origin.invocation,"work":origin.work,
+                "proposal":origin.proposal,"creation_receipt":origin.receipt,
+                "initialization_limit":origin.initialization_limit,
+                "initialization_attempts_spent":origin.initialization_attempts,
+                "character_accepted":persona.character.is_some(),
+                "experience_or_competence_established":false})
+        } else { json!({"available":false}) };
+    }
     if let Some(invocation) = invocation_id {
         output["invocation_evidence"] = invocation_evidence(
             &mut app, &state, &audience, persona_id, invocation, &revisions,

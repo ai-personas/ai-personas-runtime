@@ -89,6 +89,17 @@ validated before Store creation and retained with their attribution. This option
 creates a fresh cohort only; it does not replace continuing personas or their
 history. Later needs reuse that same cohort, including its accepted development.
 
+Fresh native setup can opt into [bounded persona creation](docs/persona-birth.md)
+with `--persona-capacity N`, between the initial cohort size and eight. Sharing
+is authorized for all future identity slots at setup. `persona-birth-snapshot`
+and `create-persona-from-proposal FILE --preview|--apply` accept an exact adopted
+persona-authored asset as a new identity's attributed starting material. Creation
+starts no inference or work and adds no resources. Later character authorship
+uses the qualified seed under a finite initialization allowance. Exact retries
+return the same identity and actual initialization state; retirement and decline
+do not refund population or initialization spending. Existing intake grants keep
+their original participants and bounds.
+
 Inspect the accepted character and characteristic fragment history without a
 model call:
 

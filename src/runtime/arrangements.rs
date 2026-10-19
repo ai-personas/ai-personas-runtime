@@ -970,7 +970,8 @@ pub(super) fn context(
         "maximum_proposals": MAX_PROPOSALS,
         "maximum_projection_bytes": maximum,
         "omission_semantics": "Bounded current permitted work-core metadata only. Omitted records establish neither absence nor consent nor permission. No history traversal, file body, peer wake, resume, or resources are supplied.",
-        "consent_rule": "Copy a supplied proposal id and exact reference to accept or decline for yourself. Merely proposing grants no consent; consent_own=true explicitly consents only for the author. Activation is atomic only after all required personal consents under the immutable formation delegation; every acceptance and current base is rechecked."
+        "consent_rule": "Copy a supplied proposal id and exact reference to accept or decline for yourself. Merely proposing grants no consent; consent_own=true explicitly consents only for the author. Activation is atomic only after all required personal consents under the immutable formation delegation; every acceptance and current base is rechecked.",
+        "joining_rule": "When current_exact is present, a new participant must use work command accept_arranged_offer with offer, terms_revision and arrangement=current_exact to accept the supplied invitation and current arrangement explicitly. Responsibility accept is available only before an arrangement exists. Responsibility decline remains available; inspecting an arrangement is not consent."
     });
     let mut bytes = serde_json::to_vec(&projection)?.len();
     let mut proposals = Vec::new();

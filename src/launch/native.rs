@@ -105,6 +105,8 @@ fn validate_saved(
     config.validate()?;
     require(
         config.allow_direct_provider
+            && config.persona_capacity == setup.persona_capacity
+            && (setup.cohort..=8).contains(&setup.persona_capacity())
             && !config.require_physical_hard_bound
             && !config.require_token_hard_bound
             && !config.require_dollar_hard_bound

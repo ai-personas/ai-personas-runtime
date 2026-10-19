@@ -1412,7 +1412,9 @@ pub(in crate::runtime) fn episode_authority(
     require(
         grant.usable_at(now)
             && grant.request.operator == saved.operator
-            && grant.request.expected_cohort == people(saved.setup.cohort).into_iter().collect()
+            // Later explicitly authorized births add no participants to this
+            // grant. Its original pool and every other bound remain unchanged.
+            && grant.request.expected_cohort.is_subset(&people(saved.setup.cohort).into_iter().collect())
             && grant.request.destination == saved.setup.destination
             && current_policy(state, &grant.request.policy.id)? == &grant.request.policy
             && !state

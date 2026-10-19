@@ -68,6 +68,8 @@ pub mod store_capacity;
 pub mod context_capacity;
 #[path = "launch/persona_lifecycle.rs"]
 pub mod persona_lifecycle;
+#[path = "launch/persona_birth.rs"]
+pub mod persona_birth;
 #[path = "launch/transport_capacity.rs"]
 pub mod transport_capacity;
 pub use work_resource_grant::{
@@ -94,6 +96,10 @@ pub struct PersonaSeed {
 #[serde(deny_unknown_fields)]
 pub struct Setup {
     pub cohort: usize,
+    /// Explicitly preauthorize sharing with these bounded future identity slots.
+    /// Missing means the initial cohort is the whole lifetime population.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persona_capacity: Option<usize>,
     pub owner: usize,
     pub destination: String,
     pub provider: DirectProviderSettings,
@@ -113,6 +119,8 @@ const PROVIDER_MIGRATION: &str = "saved provider is incompatible with direct HTT
 #[serde(deny_unknown_fields)]
 struct SavedSetup {
     cohort: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    persona_capacity: Option<usize>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     persona_seeds: BTreeMap<String, PersonaSeed>,
     owner: usize,
@@ -129,6 +137,9 @@ struct SavedSetup {
     max_works: u64,
 }
 impl SavedSetup {
+    fn persona_capacity(&self) -> usize {
+        self.persona_capacity.unwrap_or(self.cohort)
+    }
     fn execution_provider(&self) -> Result<ResearchSettings> {
         // CLI identity remains forbidden even if a settings deserializer accepts it.
         if ["executable", "cli_version", "temporary_directory"]
@@ -233,7 +244,7 @@ fn private_tree(path: &Path) -> Result<PathBuf> {
     secure_state_root(path, true)
 }
 fn seed_for(saved: &Saved, provider: &ResearchSettings, id: &str) -> Seed {
-    let mut audience: BTreeSet<_> = people(saved.setup.cohort).into_iter().collect();
+    let mut audience: BTreeSet<_> = people(saved.setup.persona_capacity()).into_iter().collect();
     audience.insert(saved.operator.clone());
     let supplied = saved.setup.persona_seeds.get(id);
     Seed {
@@ -298,7 +309,9 @@ fn setup_parts(operator: &str, settings: Setup, opt_in: bool) -> Result<(Config,
             && (1..=128).contains(&settings.max_works),
         "invalid foreground bounds",
     )?;
-    let ids = people(settings.cohort);
+    let capacity = settings.persona_capacity.unwrap_or(settings.cohort);
+    require((settings.cohort..=8).contains(&capacity), "persona capacity must contain the initial cohort and be at most eight")?;
+    let ids = people(capacity);
     require(
         !ids.iter().any(|id| id == operator),
         "requester collides with a cohort identity",
@@ -325,6 +338,7 @@ fn setup_parts(operator: &str, settings: Setup, opt_in: bool) -> Result<(Config,
         revoked_policies: BTreeSet::new(),
     });
     config.local_recipients = BTreeSet::from([operator.into()]);
+    config.persona_capacity = settings.persona_capacity;
     config.allow_direct_provider = true;
     config.max_work_attempts = settings.max_work_attempts;
     settings.provider.validate()?;
