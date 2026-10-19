@@ -47,4 +47,12 @@ completion remains invalid. Unknown event types and heartbeat payloads remain re
 
 Cancellation stops local request/stream work; remote cancellation is unconfirmed. Byte counters concern local encoded payloads and delivered response bytes, not TLS overhead, operating-system or HTTP-client buffers, hidden provider context or hard remote token limits. Missing usage counters remain unknown, separately from zero, and charges remain unknown. Provider-reported model identity is evidence of a report, not independent proof of the served model.
 
+Stream failure diagnostics retain static recognized error types and codes,
+including `slow_down` and `server_is_overloaded` described in the
+[official rate-limit guidance](https://developers.openai.com/api/docs/guides/rate-limits).
+Unknown string labels retain a SHA-256 fingerprint for correlation, alongside
+`unrecognized`; their text and the provider's free-form error message are not
+retained. These fingerprints identify equal labels, not their meaning. Diagnostic
+classification does not authorize replay or settle missing usage.
+
 Offline tests inject credentials, clocks and transports or inspect constructed requests without sending them. They establish serialization, route isolation and native state-transition behavior. They do not establish account eligibility, live model behavior, conceptual quality, collaborative completion or improvement over elapsed time.

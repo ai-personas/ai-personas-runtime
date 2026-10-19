@@ -152,6 +152,8 @@ pub(super) struct Collector {
     event_type_sha256: Option<String>,
     remote_error_type: Option<&'static str>,
     remote_error_code: Option<&'static str>,
+    remote_error_type_sha256: Option<String>,
+    remote_error_code_sha256: Option<String>,
     pub diagnostic: Option<StreamDiagnostic>,
     pub observed: usize,
     pub events: usize,
@@ -185,6 +187,8 @@ impl Collector {
             event_type_sha256: None,
             remote_error_type: None,
             remote_error_code: None,
+            remote_error_type_sha256: None,
+            remote_error_code_sha256: None,
             diagnostic: None,
             observed: 0,
             events: 0,
@@ -215,6 +219,8 @@ impl Collector {
             event_type_sha256: self.event_type_sha256.clone(),
             remote_error_type: self.remote_error_type,
             remote_error_code: self.remote_error_code,
+            remote_error_type_sha256: self.remote_error_type_sha256.clone(),
+            remote_error_code_sha256: self.remote_error_code_sha256.clone(),
             rule: failure.rule,
             field: failure.field,
         });
@@ -229,7 +235,12 @@ impl Collector {
     fn observe_remote_error(&mut self, error_type: Option<&Value>, code: Option<&Value>) {
         self.remote_error_type = safe_remote_error_label(
             error_type,
-            &["server_error", "invalid_request_error", "rate_limit_error"],
+            &[
+                "server_error",
+                "invalid_request_error",
+                "rate_limit_error",
+                "service_unavailable_error",
+            ],
         );
         self.remote_error_code = safe_remote_error_label(
             code,
@@ -239,8 +250,12 @@ impl Collector {
                 "insufficient_quota",
                 "context_length_exceeded",
                 "model_not_found",
+                "slow_down",
+                "server_is_overloaded",
             ],
         );
+        self.remote_error_type_sha256 = unknown_error_digest(error_type, self.remote_error_type);
+        self.remote_error_code_sha256 = unknown_error_digest(code, self.remote_error_code);
     }
     pub fn transport_limit(&mut self, oversized_chunk: bool) -> Failure {
         if let Some(failure) = self.failure {
@@ -993,6 +1008,13 @@ fn usage(value: Option<&Value>) -> Result<Usage> {
         }
     }
     Ok(result)
+}
+
+fn unknown_error_digest(value: Option<&Value>, label: Option<&str>) -> Option<String> {
+    if label != Some("unrecognized") {
+        return None;
+    }
+    value?.as_str().map(|value| super::digest(value.as_bytes()))
 }
 
 fn safe_remote_error_label(

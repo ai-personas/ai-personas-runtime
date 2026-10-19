@@ -7169,10 +7169,13 @@ fn render_mode_with_history(
         state.config.output_reserve_bytes,
     )?;
     let (_, mut mandatory_total) = render_bundle(&mandatory)?;
-    require(
-        mandatory_total <= state.config.context_bytes,
-        "mandatory attributed context exceeds admitted bound",
-    )?;
+    if mandatory_total > state.config.context_bytes {
+        return Err(f::FilesError::MandatoryOverflow {
+            required: mandatory_total,
+            limit: state.config.context_bytes,
+        }
+        .into());
+    }
     supplied_bodies.extend(mandatory.entries.iter().map(|e| e.reference.clone()));
     let assembly = f::assemble(
         &corpus,

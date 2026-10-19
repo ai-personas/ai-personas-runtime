@@ -40,6 +40,8 @@ pub enum BoundaryError {
     Blocked,
     #[error("existing_capacity_exhausted")]
     Capacity,
+    #[error("mandatory_context_exceeds_limit_optional_repair_cannot_fix")]
+    MandatoryContextOverflow,
     #[error("credential_unavailable")]
     CredentialUnavailable,
     #[error("credential_expired")]
@@ -54,6 +56,7 @@ pub enum BoundaryError {
 fn error_code(error: &RuntimeError) -> BoundaryError {
     use BoundaryError as E;
     match error {
+        RuntimeError::Files(f::FilesError::MandatoryOverflow { .. }) => E::MandatoryContextOverflow,
         RuntimeError::Provider(provider::ProviderError::Rejected(failure)) => match failure {
             provider::Failure::CredentialExpired => E::CredentialExpired,
             provider::Failure::CredentialMissing | provider::Failure::InvalidCredential => {

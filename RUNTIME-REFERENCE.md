@@ -337,6 +337,13 @@ are charged separately on each actual read; exact repair reads have a separate
 navigation share. This logical material envelope is not a CPU-work or provider
 usage measurement. Allocation reserves no future capacity or successful fit.
 
+If the mandatory core itself exceeds the context allocation, foreground sessions
+report `mandatory_context_overflow` and the boundary classifies the failure as
+`mandatory_context_overflow`. The diagnostic reports only the required and
+configured byte counts. This also covers attribution added during assembly.
+Removing optional selections cannot resolve this failure; no repair invocation
+or provider request is admitted, and the blocked preparation grants no resources.
+
 The normal work menu offers an explicit targeted resume through
 `personas-session resume-participant REQUEST.json`. Its request contains `id`,
 `operator`, `work`, `persona`, `authorize_resume: true`, and the exact

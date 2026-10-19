@@ -784,6 +784,12 @@ async fn run_with_options<D: Driver>(
             }
             Err(error) => {
                 stop = match error {
+                    RuntimeError::Files(f::FilesError::MandatoryOverflow { required, limit }) => {
+                        // Only trusted numeric assembly measurements enter stderr;
+                        // never echo provider text, private paths or parser errors.
+                        eprintln!("Mandatory context requires {required} bytes; configured limit is {limit}. Optional-selection repair cannot remove mandatory context.");
+                        "mandatory_context_overflow"
+                    }
                     RuntimeError::SelectionOverflow { .. } => "selection_overflow",
                     RuntimeError::Provider(_) => "provider_preflight_or_transport_failed",
                     RuntimeError::Protocol(_) => "invalid_response",

@@ -623,6 +623,11 @@ pub struct StreamDiagnostic {
     pub remote_error_type: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remote_error_code: Option<&'static str>,
+    /// Unknown string labels are fingerprinted, never copied into diagnostics.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_error_type_sha256: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_error_code_sha256: Option<String>,
     pub rule: &'static str,
     pub field: Option<&'static str>,
 }
