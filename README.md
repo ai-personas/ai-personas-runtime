@@ -34,3 +34,8 @@ Use `--feedback feedback.json` to give a participant feedback within its existin
 work. The JSON contains `id`, `work`, `persona`, and `text`. Continue the work to
 see how it responds. Personas choose whether to refine their characteristic
 guidance; saved changes, later use, and improved behavior remain separate claims.
+
+Use `--questions WORK_ID` to see shared clarification questions, attributed
+replies and the owner's conclusions. `--answer-question answer.json` adds your
+reply without starting inference. [The runtime reference](RUNTIME-REFERENCE.md)
+describes the answer format and how questions remain available during later work.

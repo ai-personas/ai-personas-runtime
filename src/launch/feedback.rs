@@ -112,6 +112,7 @@ pub fn feedback(
             .unwrap();
         focus.pending_observations.push(id.clone());
         focus.pending_requester_feedback.insert(id.clone());
+        requester_wait::satisfy(&mut state, &id, operator, now)?;
         state.operator_events.push(json!({
             "kind":"work_feedback","operator":operator,"observation":id,
             "work":input.work,"recipient":input.persona,"at_unix":now

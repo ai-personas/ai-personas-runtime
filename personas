@@ -28,6 +28,8 @@ usage() {
        ./personas [OPTIONS] --result WORK
        ./personas [OPTIONS] --development PERSONA
        ./personas [OPTIONS] --feedback FILE.json
+       ./personas [OPTIONS] --questions WORK
+       ./personas [OPTIONS] --answer-question FILE.json
 
 No arguments: integrated first-run/returning interaction (see docs/interactive-launch.md).
 Explicit options below use the existing installation and saved configuration. No automatic
@@ -44,6 +46,8 @@ Options (values are separate arguments):
   --development PERSONA  Read accepted characteristic revisions; no inference
   --invocation CALL      With --development, check exact body supply in that call
   --feedback FILE.json   Give a participant feedback within an existing work
+  --questions WORK       Read shared questions, replies and owner conclusions
+  --answer-question FILE.json  Add a requester reply; no inference or resume
   --vault PATH           Explicit existing SIWC vault; never auto-discovered
   --authorize            Required with --vault, for this one native run only
   --                     Treat the next single argument as the exact need
@@ -83,7 +87,7 @@ authorize=false
 while [ "$#" -gt 0 ]; do
     case "$1" in
         -h|--help) usage; exit 0 ;;
-        --state-root|--operator|--vault|--resume|--result|--development|--feedback|--invocation)
+        --state-root|--operator|--vault|--resume|--result|--development|--feedback|--questions|--answer-question|--invocation)
             [ "$#" -ge 2 ] && [ -n "$2" ] || fail 'An option value is missing.'
             case "$2" in -*) fail 'An option value looks like another option; use an explicit path or identifier.' ;; esac
             case "$1" in
@@ -99,8 +103,8 @@ while [ "$#" -gt 0 ]; do
                 --invocation)
                     [ -z "$invocation" ] || fail 'Duplicate --invocation.'
                     invocation=$2 ;;
-                --resume|--result|--development|--feedback)
-                    [ "$mode" = need ] || fail 'Choose only one of --resume, --result, --development and --feedback.'
+                --resume|--result|--development|--feedback|--questions|--answer-question)
+                    [ "$mode" = need ] || fail 'Choose only one work operation.'
                     mode=${1#--}
                     work=$2 ;;
             esac
@@ -132,7 +136,7 @@ if [ "$mode" != need ]; then
 fi
 if [ -n "$vault" ]; then
     case "$mode" in
-        result|development|feedback) fail 'This operation uses no vault; omit --vault and --authorize.' ;;
+        result|development|feedback|questions|answer-question) fail 'This operation uses no vault; omit --vault and --authorize.' ;;
     esac
     [ "$authorize" = true ] || fail '--vault requires explicit --authorize for this one native run.'
     [ "$acceptance" = false ] || fail 'Native SIWC does not expose --require-acceptance; no requirement was discarded.'
@@ -204,7 +208,7 @@ else
         set -- "$@" development
         [ -z "$invocation" ] || set -- "$@" "--invocation=$invocation"
         set -- "$@" -- "$work"
-    elif [ "$mode" = feedback ]; then
+    elif [ "$mode" = feedback ] || [ "$mode" = questions ] || [ "$mode" = answer-question ]; then
         set -- "$@" "$mode" -- "$work"
     elif [ "$mode" = result ]; then
         set -- "$@" result

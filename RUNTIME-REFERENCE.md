@@ -153,6 +153,60 @@ The recipient must explicitly dispose of retained peer feedback before
 closure. This remains an attributed account, not a verified claim of compliance.
 Use a separate `Communicate` operation for an actual reply.
 
+Accepted participants can use `AskQuestion`, `AnswerQuestion` and
+`ConcludeQuestion` within an ordinary complete decision. `AskQuestion` records
+the owner's question, addressee, reason, affected claims, needed evidence,
+any actual human-input requirement and an optional provisional interpretation.
+The addressee does not determine the audience: currently permitted participants
+receive a local notification and can see the shared question. A peer can offer
+an attributed answer to a question addressed to the requester.
+
+`CONTROL.shared_questions` retains complete permitted questions, reply bodies
+and bases, and separate owner conclusions after inbox acknowledgment. Replies
+copy the immutable `question_revision`; conclusions copy the current complete
+`review_revision` and explicitly account for every reply as used, declined or
+unresolved. A later reply remains an outstanding owner decision. An answered
+conclusion cannot leave a reply unresolved. This is an attributed interpretation,
+not verified fact, a mandate amendment, human consent or formal acceptance.
+Source statements in a reply's basis are authored claims; a citation by itself
+does not prove that the cited body was supplied or read.
+Dependencies and affected claims still require their own authority and evidence.
+Neither asking nor answering creates a blocking dependency, funding or a resume.
+Notifications may satisfy an already registered permitted message wait. Such a
+wait can name a current persona or the work's configured local requester. A new
+requester reply or feedback item can satisfy the latter; it retains a human-input
+observation and never fabricates a persona invocation. Stops and pauses remain
+effective, and no inference starts automatically. Other continuations retain
+their existing explicit admission conditions.
+
+Each record retains its original audience and information lineage. The runtime
+rechecks current permissions, supplies no private source ancestry as answer
+content, and withholds inaccessible records. A conclusion that would narrow
+current participants' access to a previously readable question or reply fails
+with the whole decision. Original records remain intact; restricted reasoning
+can be communicated separately under existing permissions.
+
+The requester can inspect and answer without inference:
+
+```sh
+./personas --state-root /private/state --operator requester --questions WORK_ID
+./personas --state-root /private/state --operator requester --answer-question answer.json
+```
+
+The answer file contains `work` and `reply`; `reply` contains a new `id`, the
+`question` ID, exact `question_revision`, `text` and an attributed `basis`.
+An identical replay queues nothing twice; conflicting ID reuse is refused.
+This local requester input is not independent authentication or consent. The
+native commands are `ai-personas questions WORK_ID` and
+`ai-personas answer-question answer.json` with the same state/operator options.
+
+Each work retains at most 16 questions, 16 replies and 16 conclusions per
+question, within 2 MiB of serialized question state. Each current permitted
+view is bounded to 64 KiB and is charged as mandatory context. Questions and
+bases have individual text bounds in the action contract. Exceeding a bound
+refuses the mutation; no unresolved question or reply is silently truncated.
+These optional state fields default empty for older stores.
+
 The foreground driver considers at most 128 participant entries and attempts at
 most 12 steps per command by default, within 32 attempts per work, 256 attempted
 foreground steps across all saved work IDs, and 32 work IDs. Setup flags can
@@ -379,6 +433,13 @@ remain explicit barriers; replies do not revive them. Current source restriction
 still apply, and a withdrawn message source cannot mask another permitted
 arrival in the same wait set. Existing single-source waits retain their stored
 representation; new sets use `WaitAny` and require a compatible reader.
+
+`from` may also name this work's configured local requester. Only a newly
+deposited feedback item or shared-question answer to the waiting persona can
+satisfy that route. Its original human-input observation is retained and must be
+actually supplied in the fresh admission. No persona invocation is invented.
+Exact replay of the input does not generate another event, and ordinary local
+message permission, work authority, pause and stop checks still govern admission.
 
 ## Local-only mock effects
 

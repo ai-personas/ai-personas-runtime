@@ -279,6 +279,10 @@ enum Command {
         /// JSON object with id, work, persona and text. Text is at most 16384 bytes.
         file: PathBuf,
     },
+    /// Inspect current permitted shared questions, replies and owner decisions. No inference.
+    Questions { work: String },
+    /// Add a requester reply to an exact shared question. No implicit resume or consent.
+    AnswerQuestion { file: PathBuf },
     /// Read accepted character and fragment revisions, with exact authorship.
     Development {
         persona: String,
@@ -685,6 +689,26 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         input.validate()?;
         let mut app = launch::open(root, Some(operator))?;
         return emit(&launch::feedback(
+            &mut app,
+            operator,
+            &input,
+            runtime::unix_now()?,
+        )?);
+    }
+    if let Command::Questions { work } = &cli.command {
+        let mut app = launch::open(root, Some(operator))?;
+        return emit(&launch::shared_questions(
+            &mut app,
+            operator,
+            work,
+            runtime::unix_now()?,
+        )?);
+    }
+    if let Command::AnswerQuestion { file } = &cli.command {
+        let input: launch::QuestionAnswerInput = runtime::read_json_file(file, 65_536)?;
+        input.validate()?;
+        let mut app = launch::open(root, Some(operator))?;
+        return emit(&launch::answer_question(
             &mut app,
             operator,
             &input,
@@ -1100,6 +1124,9 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             unreachable!("development inspection handled before recovery")
         }
         Command::Feedback { .. } => unreachable!("feedback handled before dispatch"),
+        Command::Questions { .. } | Command::AnswerQuestion { .. } => {
+            unreachable!("shared questions handled before dispatch")
+        }
         Command::ProvisionCloseout => {
             app.provision_closeout(operator)?;
             emit(

@@ -43,9 +43,15 @@ mod maintenance;
 mod observability;
 mod observation_projection;
 mod requester_feedback;
+mod requester_wait;
 pub use requester_feedback::Disposition as RequesterFeedbackDisposition;
 mod peer_feedback;
 pub use peer_feedback::Disposition as PeerFeedbackDisposition;
+pub(crate) mod questions;
+pub use questions::{
+    QuestionConclusionInput, QuestionDisposition, QuestionInput, QuestionReplyAccount,
+    QuestionReplyDisposition, QuestionReplyInput,
+};
 #[cfg(test)]
 mod adoption_diagnostic_tests;
 pub use local_evidence::{
@@ -735,6 +741,9 @@ pub struct WorkMeta {
     /// Persona-authored, bounded local waits; historical absence grants no watch.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub message_waits: BTreeMap<String, MessageWait>,
+    /// Shared clarification survives consumption of its one-time notifications.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) questions: BTreeMap<String, questions::Question>,
     #[serde(default)]
     pub exposure: Option<Exposure>,
     #[serde(default)]
@@ -1205,6 +1214,23 @@ pub struct ClaimInput {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WorkAction {
+    /// Publish a shared question within your accepted work. You own follow-through.
+    /// Current permitted participants can read and answer it even when addressed
+    /// to the requester. Asking creates no blocking dependency, wake or authority.
+    /// State why it matters, affected claims, needed evidence and any conditional
+    /// interpretation; human_input_required explains an actual human-only need.
+    AskQuestion(QuestionInput),
+    /// Reply to an exact question actually supplied in CONTROL.shared_questions.
+    /// Include your attributed basis. A peer cannot provide human consent or
+    /// confirm a private preference by inference. Later replies remain reviewable
+    /// even after an earlier conclusion; they do not automatically settle anything.
+    AnswerQuestion(QuestionReplyInput),
+    /// The original owner records a separate conclusion and an explicit used,
+    /// declined or unresolved account for every current reply. Copy review_revision
+    /// from a complete supplied CONTROL.shared_questions item. Original question
+    /// and reply bodies stay readable; narrower derived conclusions are refused.
+    /// This changes no mandate, dependency, authority, consent or verified fact.
+    ConcludeQuestion(QuestionConclusionInput),
     /// Explicitly account for one pending requester feedback item whose complete
     /// body was supplied in this admission's actual_observations. Copy its exact
     /// observation ID from CONTROL.requester_feedback.pending. Use handled only
@@ -1243,14 +1269,16 @@ pub enum WorkAction {
         disposition: PeerFeedbackDisposition,
         reason: String,
     },
-    /// Register one future local message from a named current participant.
+    /// Register one future local message from a named current participant, or
+    /// new feedback/question-answer input from this work's local requester.
     /// A Decision may register up to eight waits. Choose continuation.kind=wait,
     /// include every new inputs.id in dependency_ids, and supply a future
     /// deadline_unix. Other listed IDs must be current permitted dependencies.
     /// Any one arrival permits a fresh decision; it does not establish all replies.
     /// Registration with an immediate, stop, pause or reconsider_at
     /// continuation is invalid; register only when choosing to wait now.
-    /// No sender duty, prior inbox match, or Stop/Pause wake.
+    /// No sender duty, prior inbox match, or Stop/Pause wake. Requester input is
+    /// locally attributed, not independently authenticated or implied consent.
     RegisterMessageWait {
         id: String,
         from: String,
@@ -1663,6 +1691,7 @@ fn action(value: &Value) -> Result<WorkAction> {
     // remove duplicates; check raw cardinality while allowing any unique order.
     let parsed: WorkAction = serde_json::from_value(value.clone())?;
     arrangements::validate_action(value, &parsed)?;
+    questions::validate(&parsed)?;
     let unique = |raw: &Value, count: usize| -> Result<()> {
         require(
             raw.as_array().is_some_and(|items| items.len() == count),
@@ -1878,9 +1907,20 @@ pub struct MessageWait {
     pub exposure: Exposure,
     pub active: bool,
     pub message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requester_observation: Option<String>,
+}
+impl MessageWait {
+    fn observation_id(&self) -> Option<&String> {
+        self.message.as_ref().or(self.requester_observation.as_ref())
+    }
 }
 
 fn message_wait_exposure(state: &State, work: &str, wait: &MessageWait) -> Result<Exposure> {
+    require(
+        wait.message.is_none() || wait.requester_observation.is_none(),
+        "ambiguous message wait payload",
+    )?;
     let mut exposure = work_exposure(state, work)?;
     extend_exposure(&mut exposure, &wait.exposure);
     if let Some(id) = &wait.message {
@@ -1896,6 +1936,23 @@ fn message_wait_exposure(state: &State, work: &str, wait: &MessageWait) -> Resul
                 .ok_or_else(|| held("message lineage unknown"))?,
         );
     }
+    if let Some(id) = &wait.requester_observation {
+        let observation = state
+            .observations
+            .get(id)
+            .ok_or_else(|| held("requester wait payload absent"))?;
+        require(
+            requester_wait::matches(observation, work, &wait.actor, &wait.from),
+            "requester wait payload binding mismatch",
+        )?;
+        extend_exposure(
+            &mut exposure,
+            observation
+                .exposure
+                .as_ref()
+                .ok_or_else(|| held("requester input lineage unknown"))?,
+        );
+    }
     expanded_exposure(state, &exposure)
 }
 fn message_wait_visible(
@@ -1908,24 +1965,35 @@ fn message_wait_visible(
     let Ok(current) = state.board.work(&w::WorkId(work.into())) else {
         return false;
     };
-    let Some(sender) = state.personas.get(&wait.from) else {
-        return false;
+    let sender_permitted = if let Some(sender) = state.personas.get(&wait.from) {
+        need_proposals::actor_reason(state, work, &wait.from).is_none()
+            && current
+                .participants
+                .contains_key(&w::PersonaId(wait.from.clone()))
+            && sender.seed.grants.communicate_with.contains(actor)
+            && sender.seed.audience.contains(actor)
+            && work_exposure(state, work)
+                .is_ok_and(|exposure| exposure_permitted(state, &exposure, &admission(sender, now)))
+    } else {
+        wait.from == state.work_meta[work].intake_operator
+            && state.config.local_recipients.contains(&wait.from)
+            && state.personas.get(actor).is_some_and(|recipient| {
+                let mut a = admission(recipient, now);
+                a.audience = BTreeSet::from([wait.from.clone()]);
+                recipient.seed.grants.communicate_with.contains(&wait.from)
+                    && recipient.seed.audience.contains(&wait.from)
+                    && work_exposure(state, work)
+                        .is_ok_and(|exposure| exposure_permitted(state, &exposure, &a))
+            })
     };
     wait.active
         && need_proposals::actor_reason(state, work, actor).is_none()
-        && need_proposals::actor_reason(state, work, &wait.from).is_none()
+        && sender_permitted
         && wait.actor == actor
         && matches!(current.phase, w::Phase::Open)
         && wait.key.epoch == current.version.epoch
         && wait.authority == current.mandate().authority
         && current.acceptance(&w::PersonaId(actor.into())).is_some()
-        && current
-            .participants
-            .contains_key(&w::PersonaId(wait.from.clone()))
-        && sender.seed.grants.communicate_with.contains(actor)
-        && sender.seed.audience.contains(actor)
-        && work_exposure(state, work)
-            .is_ok_and(|exposure| exposure_permitted(state, &exposure, &admission(sender, now)))
         && state.personas.get(actor).is_some_and(|persona| {
             message_wait_exposure(state, work, wait).is_ok_and(|exposure| {
                 exposure_permitted(state, &exposure, &admission(persona, now))
@@ -2248,8 +2316,7 @@ fn event_observation_id<'a>(
                 .message_waits
                 .values()
                 .find(|wait| &wait.key == key && wait.actor == actor)?
-                .message
-                .as_ref()
+                .observation_id()
         })
 }
 fn supplied_local_events(state: &State, prepared: &Prepared, now: i64) -> BTreeSet<w::EventKey> {
@@ -2277,8 +2344,7 @@ fn supplied_local_events(state: &State, prepared: &Prepared, now: i64) -> BTreeS
                         &prepared.request.persona,
                         now,
                     ) && wait
-                        .message
-                        .as_ref()
+                        .observation_id()
                         .is_some_and(|id| prepared.supplied_observations.contains(id))
                 })
                 .map(|wait| wait.key.clone()),
@@ -6667,6 +6733,7 @@ fn render_mode_with_history(
     let requester_feedback_control = requester_feedback::control(focus, &observation_ids);
     let peer_feedback_control =
         peer_feedback::control(state, focus, &a, &observation_ids, &mut exposure)?;
+    let shared_questions = questions::view(state, work_id, actor, &a, &mut exposure)?;
     let offers = work
         .offers
         .iter()
@@ -6771,10 +6838,10 @@ fn render_mode_with_history(
     for wait in meta.message_waits.values() {
         if message_wait_visible(state, work_id, wait, actor, now) {
             extend_exposure(&mut exposure, &message_wait_exposure(state, work_id, wait)?);
-            dependencies.push(json!({"key":wait.key,"kind":"local_persona_message_wait",
+            dependencies.push(json!({"key":wait.key,"kind":if state.personas.contains_key(&wait.from) {"local_persona_message_wait"} else {"local_requester_input_wait"},
                 "from":wait.from,"activation_invocation":wait.activation_invocation,
                 "one_shot":true,"external_subscription":false,"sender_commitment_inferred":false}));
-            if wait.message.is_some() {
+            if wait.observation_id().is_some() {
                 events.extend(
                     work.events
                         .iter()
@@ -6904,6 +6971,12 @@ fn render_mode_with_history(
     } else {
         serde_json::to_vec(&peer_feedback_control)?.len()
     })
+    .ok_or_else(|| invalid("mandatory growth size overflow"))?
+    .checked_add(if shared_questions.is_null() {
+        0
+    } else {
+        serde_json::to_vec(&shared_questions)?.len()
+    })
     .ok_or_else(|| invalid("mandatory growth size overflow"))?;
     let current_navigation = navigation.unwrap_or_else(|| {
         let mut remaining = meta.navigation_left;
@@ -6969,6 +7042,9 @@ fn render_mode_with_history(
     }
     if !peer_feedback_control.is_null() {
         core["peer_feedback"] = peer_feedback_control;
+    }
+    if !shared_questions.is_null() {
+        core["shared_questions"] = shared_questions;
     }
     if let Some(interface) = &need_interface {
         core["need_capability"] = serde_json::to_value(interface)?;
@@ -8029,6 +8105,7 @@ fn plan_response(
         apply_work_actions(
             &mut state, &original, prepared, decision, &actions, &proposals, now,
         )?;
+        questions::deliver_changes(&mut state, &original, prepared, now)?;
         validate_messages(&state, prepared, decision, now)?;
         // A failed render can itself depend on a newly selected private source.
         // Successful rendering yields its exact bounded exposure; otherwise the
@@ -8921,7 +8998,7 @@ fn deposit_message(
 fn satisfy_message_wait(state: &mut State, message: &Message, now: i64) -> Result<()> {
     let current = state.board.work(&w::WorkId(message.work.clone()))?;
     let candidate = state.work_meta[&message.work].message_waits.values().find(|wait| {
-        wait.message.is_none() && wait.actor == message.recipient && wait.from == message.sender
+        wait.observation_id().is_none() && wait.actor == message.recipient && wait.from == message.sender
             && wait.activation_invocation != message.invocation
             && message_wait_visible(state, &message.work, wait, &message.recipient, now)
             && state.personas[&message.recipient].focus.get(&message.work).is_some_and(|focus|
@@ -9126,6 +9203,10 @@ fn apply_work_actions(
                 .get(id)
                 .ok_or_else(|| held("capability was not validated"))?
             {
+                action @ (WorkAction::AskQuestion(_) | WorkAction::AnswerQuestion(_)
+                    | WorkAction::ConcludeQuestion(_)) => {
+                    questions::apply(state, prepared, action, now)?;
+                }
                 WorkAction::ResolveRequesterFeedback { observation, disposition, reason } => {
                     requester_feedback::resolve(state, prepared, observation, disposition, reason, now)?;
                 }
@@ -9145,10 +9226,10 @@ fn apply_work_actions(
                     )?;
                     require(
                         from != &actor.0
-                            && initial
-                                .participants
-                                .contains_key(&w::PersonaId(from.clone())),
-                        "message wait sender must be a distinct current participant",
+                            && (initial.participants.contains_key(&w::PersonaId(from.clone()))
+                                || (*from == state.work_meta[&wid.0].intake_operator
+                                    && state.config.local_recipients.contains(from))),
+                        "message wait sender must be a distinct current participant or the local requester",
                     )?;
                     require(
                         matches!(&decision.continuation,
@@ -9192,6 +9273,7 @@ fn apply_work_actions(
                         exposure: prepared_exposure(prepared)?.clone(),
                         active: true,
                         message: None,
+                        requester_observation: None,
                     };
                     require(
                         message_wait_visible(state, &wid.0, &wait, &actor.0, now),

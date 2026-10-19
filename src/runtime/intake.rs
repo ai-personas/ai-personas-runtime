@@ -196,6 +196,7 @@ pub(super) fn construct_host_need(
             arrangement_origins,
             local_dependencies: BTreeMap::new(),
             message_waits: BTreeMap::new(),
+            questions: BTreeMap::new(),
             exposure: Some(need_exposure),
             authored_origin,
         },

@@ -12,6 +12,9 @@ pub use development::{development, development_at};
 #[path = "launch/feedback.rs"]
 mod feedback;
 pub use feedback::{feedback, FeedbackInput};
+#[path = "launch/questions.rs"]
+mod question_commands;
+pub use question_commands::{answer_question, shared_questions, QuestionAnswerInput};
 #[cfg(unix)]
 #[path = "launch/native.rs"]
 mod native;
