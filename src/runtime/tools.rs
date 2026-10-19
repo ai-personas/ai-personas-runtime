@@ -790,6 +790,29 @@ pub(super) fn qualifications(state: &State, sources: &[f::Reference]) -> Vec<f::
     roots.into_iter().collect()
 }
 
+/// Later accepted warnings on an input must still accompany its retained
+/// computation result. Derive restrictions on the immutable result revision;
+/// do not rewrite its bytes or claim a new persona-authored judgment.
+pub(super) fn result_bindings(state: &State, files: &[f::FileRevision]) -> Result<Vec<f::AcceptedBinding>> {
+    let mut bindings = Vec::new();
+    for file in files {
+        let stored = record(state, &file.reference(f::Representation::Utf8))?;
+        if !matches!(&stored.origin, Some(RevisionOrigin::ComputationResult { .. })) {
+            continue;
+        }
+        let required: Vec<_> = qualifications(state, &stored.lineage).into_iter()
+            .filter(|reference| !file.qualifications.contains(reference)).collect();
+        if !required.is_empty() {
+            bindings.push(f::AcceptedBinding {
+                id: format!("computation-lineage:{}", file.revision),
+                revision: String::new(), source: file.source.clone(), file_revision: file.revision.clone(),
+                policy: file.policy.clone(), disposition: f::BindingDisposition::Qualify { required },
+            }.seal()?);
+        }
+    }
+    Ok(bindings)
+}
+
 pub(super) fn require_settled(state: &State, actor: &str, work: &str) -> Result<()> {
     require(state.computation_jobs.values().all(|j| j.actor != actor || j.work != work || j.observation.is_some()),
         "admitted computation needs host settlement or explicit recovery before another persona invocation")

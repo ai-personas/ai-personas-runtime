@@ -127,6 +127,8 @@ engine bindings, and terminal evidence. Its author is `runtime-computation`;
 its origin identifies the actual invocation and intent. It inherits input
 restrictions and required qualifications, consumes the existing corpus and
 Store retention allowances, and cannot be edited as persona-authored prose.
+Later accepted qualifications on its input lineage are rechecked and attached
+to the result's immutable revision when it is read or selected.
 
 `CONTROL.computation_state.retained_results` supplies exact file references for
 this persona's results in the current work, subject to current permissions.

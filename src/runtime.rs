@@ -6168,12 +6168,14 @@ fn corpus(state: &State, a: &f::Admission) -> Result<f::Corpus> {
         .filter(|r| lineage_permitted(state, &[r.record.reference(f::Representation::Utf8)], a))
         .map(|r| r.record.clone())
         .collect::<Vec<_>>();
+    let mut bindings = state.accepted_bindings.clone();
+    bindings.extend(tools::result_bindings(state, &records)?);
     Ok(f::Corpus::from_revisions(
         records,
         state.config.policies.clone(),
         state.config.corpus.clone(),
     )?
-    .with_bindings(state.accepted_bindings.clone())?)
+    .with_bindings(bindings)?)
 }
 fn validate_inventory(state: &State) -> Result<()> {
     f::Corpus::from_revisions(
