@@ -197,11 +197,15 @@ class PrivateDirectory:
 def new_progress():
     return {"version": 1, "operator": None, "installation": None, "runtime": None,
             "vault": None, "needs": [], "session": None, "probes": [],
-            "settings": None, "bootstrap": None, "setup_authorized": False}
+            "settings": None, "bootstrap": None, "setup_authorized": False,
+            "work_input": None}
 
 
 def validate_progress(p):
-    require(isinstance(p, dict) and set(p) == set(new_progress()) and p["version"] == 1)
+    fields = set(new_progress())
+    require(isinstance(p, dict) and set(p) in (fields, fields - {"work_input"}) and p["version"] == 1)
+    # Older journals have no pending requester input; this adds no operation or grant.
+    p.setdefault("work_input", None)
     require(type(p["setup_authorized"]) is bool)
     require(not p["setup_authorized"] or p["bootstrap"] is not None)
     require(p["operator"] is None or identifier(p["operator"]))
@@ -251,6 +255,24 @@ def validate_progress(p):
             require(isinstance(ref, dict) and set(ref) == {"file", "sha256"}
                     and re.fullmatch(r"[a-z-]+[a-z0-9-]*\.json", ref["file"]) is not None
                     and re.fullmatch(r"[a-f0-9]{64}", ref["sha256"]) is not None)
+    item = p["work_input"]
+    if item is not None:
+        require(isinstance(item, dict) and set(item) == {"kind", "request", "delivered"}
+                and item["kind"] in ("feedback", "answer-question") and type(item["delivered"]) is bool)
+        request = item["request"]
+        require(isinstance(request, dict) and identifier(request.get("work")))
+        if item["kind"] == "feedback":
+            require(set(request) == {"id", "work", "persona", "text"}
+                    and identifier(request["id"]) and identifier(request["persona"])
+                    and safe_text(request["text"], 16384))
+        else:
+            require(set(request) == {"work", "reply"} and isinstance(request["reply"], dict))
+            reply = request["reply"]
+            require(set(reply) == {"id", "question", "question_revision", "text", "basis"}
+                    and identifier(reply["id"]) and safe_text(reply["question"], 256)
+                    and re.fullmatch(r"[a-f0-9]{64}", reply["question_revision"]) is not None
+                    and safe_text(reply["text"], 8192) and safe_text(reply["basis"], 4096))
+        require(len(encoded(request)) <= 65536)
     require(len(encoded(p)) <= MAX_JOURNAL)
 
 
@@ -1182,6 +1204,198 @@ class Dialogue:
         if result.get("human_decision_pointers"):
             self.ui.say("Explicit acceptance is separate; no acceptance was fabricated. See docs/activation.md and RUNTIME-REFERENCE.md.")
 
+    def pending_work_input(self):
+        item = self.p["work_input"]
+        return item if item is not None and not item["delivered"] else None
+
+    def deliver_work_input(self):
+        item = self.pending_work_input()
+        require(item is not None, "no_pending_work_input")
+        request = item["request"]
+        # This one replaceable transport file is reconstructed from the journal's
+        # exact request. The journal lock protects it through the helper call.
+        # A new identity may replace the pointer only after confirmed delivery.
+        self.j.directory.write("work-input.json", encoded(request))
+        receipt = self.session(item["kind"], str(self.j.directory.path / "work-input.json"))
+        require(receipt.get("work") == request["work"]
+                and receipt.get("inference_performed") is False
+                and receipt.get("persona_resumed") is False
+                and receipt.get("budget_reset") is False, "input_receipt_mismatch")
+        if item["kind"] == "feedback":
+            require(receipt.get("persona") == request["persona"], "input_receipt_mismatch")
+        else:
+            require(receipt.get("question") == request["reply"]["question"]
+                    and receipt.get("reply") == request["reply"]["id"], "input_receipt_mismatch")
+        item["delivered"] = True
+        self.j.save()
+        self.ui.say("Your input is retained. " + ("The same input was already recorded. "
+                    if receipt.get("replayed") else "") + "No model call was started.")
+        if receipt.get("existing_waits_satisfied", 0):
+            self.ui.say("It satisfied an existing requester-input wait. Choose Continue when you want work to proceed.")
+        else:
+            self.ui.say("Participants keep their existing continuation choices. Stopped or paused participants need an explicit resume.")
+
+    def queue_work_input(self, kind, request):
+        require(self.pending_work_input() is None, "pending_work_input_requires_delivery")
+        self.p["work_input"] = {"kind": kind, "request": request, "delivered": False}
+        self.j.save()
+        self.deliver_work_input()
+
+    def choose_participant(self, work):
+        participants = work["participants"]
+        for i, participant in enumerate(participants, 1):
+            self.ui.say(f"{i}: {participant['persona']} — {participant['continuation']}")
+        choice = self.ui.ask("Participant number (Enter to go back):").strip()
+        if not choice:
+            return None
+        require(choice.isdecimal() and 1 <= int(choice) <= len(participants), "invalid_participant_choice")
+        return participants[int(choice) - 1]["persona"]
+
+    def feedback(self, work):
+        if self.pending_work_input() is not None:
+            self.ui.say("An earlier input still needs delivery confirmation. Return to the work list and choose i to finish that same input.")
+            return
+        persona = self.choose_participant(work)
+        if persona is None:
+            return
+        text = self.ui.ask(f"Feedback to store for {persona} in {work['id']} (Enter to cancel):")
+        if not text.strip():
+            return
+        require(safe_text(text, 16384), "feedback_too_large")
+        self.queue_work_input("feedback", {"id": "feedback-" + uuid.uuid4().hex,
+            "work": work["id"], "persona": persona, "text": text})
+
+    def questions(self, work):
+        result = self.session("questions", "--", work)
+        view = result.get("shared_questions")
+        if view is None or not view.get("items"):
+            self.ui.say("No shared questions are currently available in this work.")
+            return
+        available = []
+        for item in view["items"]:
+            question = item.get("question")
+            if question is None:
+                self.ui.say("A shared question is currently unavailable.")
+                continue
+            available.append(item)
+            self.ui.say(f"{len(available)}: {question['text']}\n"
+                        f"Owner: {item['owner']}; addressed to: {question['addressee']}")
+            self.ui.say("Why it matters: " + question["why"])
+            self.ui.say("Affected claims: " + "; ".join(question["affected_claims"]))
+            self.ui.say("Evidence needed: " + question["evidence_needed"])
+            if question.get("human_input_required"):
+                self.ui.say("Input needed from the person concerned: " + question["human_input_required"])
+            if question.get("provisional_interpretation"):
+                self.ui.say("Provisional interpretation: " + question["provisional_interpretation"])
+            if item.get("follow_through") == "ownership_gap_original_owner_has_no_current_acceptance":
+                self.ui.say("The original owner no longer has current accepted participation; follow-through has an ownership gap.")
+            for reply in item["replies"]:
+                if "input" not in reply:
+                    self.ui.say("A reply is currently unavailable.")
+                    continue
+                self.ui.say(f"Reply {reply['input']['id']} from {reply['attribution']['author']}:\n"
+                            f"{reply['input']['text']}\nAttributed basis: {reply['input']['basis']}")
+            for conclusion in item["conclusions"]:
+                if "input" not in conclusion:
+                    self.ui.say("An owner conclusion is currently unavailable.")
+                    continue
+                value = conclusion["input"]
+                self.ui.say(f"Owner conclusion ({value['disposition']}): {value['conclusion']}")
+                for reply_id, account in value["replies"].items():
+                    self.ui.say(f"  {reply_id}: {account['disposition']} — {account['reason']}")
+            pending = item.get("owner_review_pending")
+            self.ui.say("Owner review: " + ("pending" if pending is True else
+                        "current replies accounted for" if pending is False else "unavailable"))
+        self.ui.say("Reply bases and conclusions are attributed statements; they do not independently establish facts or consent.")
+        if not available:
+            return
+        if self.pending_work_input() is not None:
+            self.ui.say("An earlier input still needs delivery confirmation. Return to the work list and choose i to finish that same input.")
+            return
+        choice = self.ui.ask("Question number to answer (Enter to go back):").strip()
+        if not choice:
+            return
+        require(choice.isdecimal() and 1 <= int(choice) <= len(available), "invalid_question_choice")
+        selected = available[int(choice) - 1]
+        text = self.ui.ask("Your answer to store for the permitted work participants (Enter to cancel):")
+        if not text.strip():
+            return
+        require(safe_text(text, 8192), "answer_too_large")
+        basis = self.ui.ask("Basis for your answer, such as your preference or an observation (Enter to cancel):")
+        if not basis.strip():
+            return
+        require(safe_text(basis, 4096), "answer_basis_too_large")
+        self.queue_work_input("answer-question", {"work": work, "reply": {
+            "id": "answer-" + uuid.uuid4().hex, "question": selected["question"]["id"],
+            "question_revision": selected["question_revision"], "text": text, "basis": basis}})
+
+    def development(self, work):
+        persona = self.choose_participant(work)
+        if persona is None:
+            return
+        source = self.ui.ask("Exact source ID (Enter to show up to eight retained revisions):").strip()
+        invocation = self.ui.ask("Accepted call ID to inspect (Enter for guidance only):").strip()
+        args = ["development"]
+        if source:
+            args.append("--source=" + source)
+        if invocation:
+            args.append("--invocation=" + invocation)
+        result = self.session(*args, "--", persona)
+        self.ui.say(f"{result['label']} ({persona}) — retained characteristic guidance")
+        character = result.get("character")
+        if character:
+            self.ui.say(f"Current character revision: {character['revision']}")
+            for scope in ("ocean", "vad"):
+                for name, value in character[scope].items():
+                    self.ui.say(f"{name}: {value}")
+        for revision in result["characteristic_revisions"]:
+            self.ui.say(f"{revision['source']} @ {revision['revision']} "
+                        f"({'current' if revision['current'] else 'historical'})")
+            self.ui.say("Authorship: " + json.dumps(revision["origin"], ensure_ascii=False))
+            # Keep the complete qualified package. A convenient prose excerpt
+            # must not detach a fragment from its required accompanying text.
+            self.ui.say(json.dumps(revision["context"], ensure_ascii=False, indent=2))
+        evidence = result.get("invocation_evidence")
+        if evidence:
+            self.ui.say(f"Accepted call: {evidence['invocation']}; completed provider input matches: "
+                        f"{evidence['provider_completed_with_matching_input']}")
+            supplied = evidence["supplied_characteristic_revisions"]
+            for revision in supplied:
+                ref = revision["reference"]
+                self.ui.say(f"Supplied in full: {ref['source']} @ {ref['revision']}; "
+                            "route: " + json.dumps(revision["supply_routes"], ensure_ascii=False))
+            if not supplied:
+                self.ui.say("None of the characteristic revisions in this view was supplied in full to this call.")
+        if result.get("truncated"):
+            self.ui.say("This bounded view omits additional revisions. Use an exact source ID to narrow it.")
+        self.ui.say("Retained guidance and actual input supply do not by themselves establish improved behavior. Review the work and its consequences.")
+
+    def work_menu(self, work, after):
+        self.ui.say(f"Work {work['id']}: {work['need']}")
+        for _ in range(16):
+            self.ui.say("r: results; q: questions and answers; f: feedback; d: persona development; c: continue; b: back")
+            choice = self.ui.ask("Work action:").strip().lower()
+            if choice in ("", "b"):
+                return
+            if choice == "r":
+                self.output(work["id"])
+            elif choice == "q":
+                self.questions(work["id"])
+            elif choice == "f":
+                self.feedback(work)
+            elif choice == "d":
+                self.development(work)
+            elif choice == "c":
+                view = self.inspect(after)
+                current = next((w for w in view["works"] if w["id"] == work["id"]), None)
+                if current is not None and self.eligible(view, current):
+                    self.run_work(work["id"], view)
+                else:
+                    self.ui.say("No participant is currently eligible. Inspect the saved continuation and any hold or limit; explicit resume and recovery controls are in RUNTIME-REFERENCE.md.")
+            else:
+                self.ui.say("Choose a listed action.")
+        self.ui.say("Returning to the work list; progress remains saved.")
+
     @staticmethod
     def eligible(view, work):
         return (not view["frozen"] and not view["active_invocations_present"]
@@ -1287,13 +1501,23 @@ class Dialogue:
                 for participant in work["participants"]:
                     if participant.get("failed_attempt_hold"):
                         self.ui.say(f"   {participant['persona']}: failed-attempt hold {participant['failed_attempt_hold']}")
+            saved_input = self.pending_work_input()
+            if saved_input:
+                request = saved_input["request"]
+                content = request if saved_input["kind"] == "feedback" else request["reply"]
+                self.ui.say(f"Saved {saved_input['kind']} for {request['work']} awaiting confirmation:\n{content['text']}")
+                if "basis" in content:
+                    self.ui.say("Basis: " + content["basis"])
+                self.ui.say("i: deliver this same saved input; its identity and text will be reused")
             self.ui.say(f"{len(pending)} private pending need(s). p: submit first pending; n: new need; "
-                        "work number: result/continue; more: next saved page; q: leave")
+                        "work number: open work actions; more: next saved page; q: leave")
             choice = self.ui.ask("Choose:").strip().lower()
             if choice == "q" or not choice:
                 return
             if choice == "n":
                 self.capture_need()
+            elif choice == "i" and saved_input:
+                self.deliver_work_input()
             elif choice == "p" and pending:
                 work_id = self.submit_pending(pending[0])
                 after = None
@@ -1305,15 +1529,7 @@ class Dialogue:
                 after = view["next_after"]
             elif choice.isdecimal() and 1 <= int(choice) <= len(view["works"]):
                 work = view["works"][int(choice) - 1]
-                self.output(work["id"])
-                if self.eligible(view, work):
-                    if self.ui.ask("Continue only currently eligible participants? [yes/NO]").strip().lower() == "yes":
-                        self.run_work(work["id"], view)
-                else:
-                    self.ui.say("No eligible continuation was authorized. Stop, pause, complete rejection, expired credentials, "
-                                "uncertain usage, holds or exhausted limits require their separate supported decisions. "
-                                "Inspect the retained status above; see RUNTIME-REFERENCE.md and docs/activation.md. "
-                                "No automatic refresh, migration, resume or replenishment was performed.")
+                self.work_menu(work, after)
             else:
                 self.ui.say("Choose a listed entry. No operation was started.")
         self.ui.say("This foreground interaction reached its menu bound; progress remains saved.")

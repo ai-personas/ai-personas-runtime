@@ -8,6 +8,18 @@ behavior or improved results.
 
 ## Give feedback within existing work
 
+In `./personas`, choose a saved work and then **f: feedback**. Select its recipient
+and enter your feedback. **d: persona development** shows accepted characteristic
+guidance; optionally name an exact source and accepted call to inspect actual
+body supply. **q: questions and answers** shows the shared clarification record
+and lets you answer in plain text, including the basis for your reply.
+
+These actions use the existing runtime's current permissions without starting
+inference. Continue eligible work separately. A stopped or paused persona still
+requires the existing explicit resume controls. If input delivery is interrupted,
+the work list offers **i** to deliver the same saved identity and text; it does
+not create a replacement input. The CLI equivalents below remain available.
+
 The saved requester can address an existing participant without creating a new
 work item. Put the feedback in a local JSON file, replacing the work and persona
 placeholders with existing identifiers:

@@ -16,6 +16,10 @@ Follow the sign-in and permission prompts. You need Unix, Python 3.9+, eligible 
 
 [Launch help](docs/interactive-launch.md) · [Canonical design](https://github.com/ai-personas/ai-personas-design/tree/17f165b156ee5962e290a7e2326bba3f81ad2069) · [Developer details](RUNTIME-REFERENCE.md)
 
+Choose a saved work in the launcher to read results, give feedback, answer shared
+questions or inspect a persona's development. These actions do not start a model
+call; continuation is a separate choice.
+
 To inspect a continuing persona's accepted characteristic fragments:
 
 ```sh

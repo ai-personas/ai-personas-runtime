@@ -808,6 +808,47 @@ pub fn result_view(root: &Path, operator: &str, work: &str) -> BoundaryResult<Ou
     Ok(result(&mut app, work)?)
 }
 
+/// Current permitted content only; never an inspection of cached UI output.
+pub fn questions_view(root: &Path, operator: &str, work: &str) -> BoundaryResult<Value> {
+    valid_id(work)?;
+    let mut app = open(root, operator)?;
+    Ok(shared_questions(&mut app, operator, work, unix_now()?)?)
+}
+
+pub fn development_view(
+    root: &Path,
+    operator: &str,
+    persona: &str,
+    source: Option<&str>,
+    invocation: Option<&str>,
+) -> BoundaryResult<Value> {
+    valid_id(operator)?;
+    valid_id(persona)?;
+    Ok(development_at(root, operator, persona, source, 8, invocation)?)
+}
+
+/// Attributed local input uses the native idempotent operation. Opening this
+/// boundary never recovers an owner, resumes a persona or dispatches inference.
+pub fn submit_feedback(
+    root: &Path,
+    operator: &str,
+    input: &FeedbackInput,
+) -> BoundaryResult<Value> {
+    input.validate().map_err(|_| BoundaryError::InvalidRequest)?;
+    let mut app = open(root, operator)?;
+    Ok(feedback(&mut app, operator, input, unix_now()?)?)
+}
+
+pub fn submit_question_answer(
+    root: &Path,
+    operator: &str,
+    input: &QuestionAnswerInput,
+) -> BoundaryResult<Value> {
+    input.validate().map_err(|_| BoundaryError::InvalidRequest)?;
+    let mut app = open(root, operator)?;
+    Ok(answer_question(&mut app, operator, input, unix_now()?)?)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CredentialStatus {

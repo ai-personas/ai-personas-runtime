@@ -81,6 +81,20 @@ enum Command {
     },
     /// Current permission-filtered retained result; no cached private output replay.
     Result { work: String },
+    /// Current permitted shared questions, replies and conclusions; no inference.
+    Questions { work: String },
+    /// Retained characteristic guidance and optional exact accepted-call evidence.
+    Development {
+        persona: String,
+        #[arg(long)]
+        source: Option<String>,
+        #[arg(long)]
+        invocation: Option<String>,
+    },
+    /// Deposit exact attributed requester feedback; replay creates no duplicate.
+    Feedback { file: PathBuf },
+    /// Reply to an exact shared question without inference or an explicit resume.
+    AnswerQuestion { file: PathBuf },
 }
 fn emit<T: Serialize>(result: session::BoundaryResult<T>) -> bool {
     match result {
@@ -218,6 +232,28 @@ async fn main() {
         }
         Command::SessionStatus { id } => emit(session::session_status(&root, &operator, &id)),
         Command::Result { work } => emit(session::result_view(&root, &operator, &work)),
+        Command::Questions { work } => emit(session::questions_view(&root, &operator, &work)),
+        Command::Development {
+            persona,
+            source,
+            invocation,
+        } => emit(session::development_view(
+            &root,
+            &operator,
+            &persona,
+            source.as_deref(),
+            invocation.as_deref(),
+        )),
+        Command::Feedback { file } => emit((|| -> session::BoundaryResult<serde_json::Value> {
+            let input = ai_personas::runtime::read_json_file(&file, 65_536)?;
+            session::submit_feedback(&root, &operator, &input)
+        })()),
+        Command::AnswerQuestion { file } => {
+            emit((|| -> session::BoundaryResult<serde_json::Value> {
+                let input = ai_personas::runtime::read_json_file(&file, 65_536)?;
+                session::submit_question_answer(&root, &operator, &input)
+            })())
+        }
     };
     if !ok {
         std::process::exit(1);

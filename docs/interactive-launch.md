@@ -105,6 +105,40 @@ an unknown session is queried, not redispatched or replaced. Even an unclaimed
 session requires fresh consent before the same ID may run. No background work or
 automatic model request occurs merely by starting the UI.
 
+Selecting a work opens its action menu:
+
+- **r: results** shows the currently permitted deliveries and replies.
+- **q: questions and answers** shows original questions, each reply's attributed
+  basis, and the owner's separate conclusions and per-reply dispositions. Select
+  a question and enter an answer and basis to retain a requester reply.
+- **f: feedback** records plain-text input for a selected participant.
+- **d: persona development** displays accepted characteristic guidance with its
+  attribution and complete qualifications. An optional source ID narrows the
+  eight-revision view; an optional accepted call ID inspects exact body supply
+  and the matching completed provider input. This does not establish improvement.
+- **c: continue** rechecks current eligibility before the existing foreground
+  authorization flow. Stops, pauses and holds still require their supported
+  explicit controls.
+
+Feedback and answers use the native idempotent operations; they neither start
+inference nor reset resources. They can satisfy a wait already authored for
+requester input. Reading these views needs no provider credential access and is
+also available for saved provider modes that the interactive runner cannot start.
+
+Before delivery, the journal retains one exact requester input and its identity.
+If the operation is interrupted, **i** in the work list explicitly delivers that
+same input. Native replay queues no duplicate. A new input cannot replace an
+unconfirmed one. After a confirmed receipt, the next input may replace the UI's
+pointer; accepted history remains in the runtime. One bounded transport file is
+reconstructed from the journal, without accumulating an input file per operation.
+Older journals acquire an empty optional input field without changing their
+runtime, pending needs, sessions or permissions. Input text and files stay private.
+
+The machine boundary exposes these actions as `personas-session questions`,
+`development`, `feedback` and `answer-question`. Its openings do not recover
+execution owners, and errors remain static machine codes. The explicit native
+CLI and thin-wrapper commands remain available.
+
 An unknown probe, malformed/uncertain transport or unrecorded session blocks
 further execution; quit and retain progress for exact evidence review. Stops,
 pauses, complete rejected responses, failed holds, exhausted capacity and
