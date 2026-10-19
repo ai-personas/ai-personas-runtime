@@ -7215,6 +7215,9 @@ fn render_mode_with_history(
     } else {
         p::decision_schema()
     })?;
+    let repair_schema = repair_navigation
+        .map(|_| serde_json::to_string(&p::selection_repair_schema()))
+        .transpose()?;
     let work_interface = WorkInterface::current()?;
     let need_interface =
         need_proposals::interface(state, actor, work_id, now, ordinary_interfaces)?;
@@ -7350,6 +7353,9 @@ fn render_mode_with_history(
         let control = serde_json::to_string(encoded.control.as_ref())?;
         let qualified = serde_json::to_string(encoded.qualified.as_ref())?;
         let prompt = if repair {
+            let application_schema = repair_schema
+                .as_ref()
+                .ok_or_else(|| invalid("selection repair schema unavailable"))?;
             format!("{duties}\n{arrangement_duties}\n{REPAIR_DUTIES}\nAPPLICATION_DECISION_SCHEMA\n{application_schema}\nCONTROL\n{control}\nQUALIFIED_CONTEXT\n{qualified}")
         } else {
             format!("{duties}\n{arrangement_duties}\nAPPLICATION_DECISION_SCHEMA\n{application_schema}\nCONTROL\n{control}\nQUALIFIED_CONTEXT\n{qualified}")
@@ -7556,7 +7562,11 @@ fn render_mode_with_history(
         core["mode"] = json!("selection_repair");
         core["reconsideration_interface"] = Value::Null;
         core["history_records_interface"] = Value::Null;
-        core["work_capability"]["enabled"] = json!(false);
+        // Keep the ordinary contract above for ordinary fit accounting. The
+        // actual repair request carries no inoperative work-command catalogue;
+        // its complete response still goes through validate_selection_repair.
+        core["work_capability"] = json!({"enabled":false,
+            "reason":"Restricted selection repair; no work command is available. A fresh ordinary admission supplies the current work interface."});
         core["selection_repair"] = json!({
             "ordinary_required_bytes":ordinary_total,"ordinary_mandatory_bytes":mandatory_total,
             "ordinary_fits":ordinary_total <= state.config.context_bytes,

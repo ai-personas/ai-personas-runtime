@@ -688,6 +688,7 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         }
         Command::Schema => {
             return emit(&serde_json::json!({"decision":protocol::decision_schema(),
+            "selection_repair_decision":protocol::selection_repair_schema(),
             "provider_transport":runtime::provider_schema(),"adopt_response_input":"complete raw Decision JSON",
             "work_capability":{"id":"work.command.v1","binding_revision":runtime::work_binding(),"inputs":runtime::work_schema()}}))
         }

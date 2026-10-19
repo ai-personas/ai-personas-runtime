@@ -686,19 +686,60 @@ pub fn decision_schema() -> Value {
 /// subset, not a second wire protocol or an authorization mechanism.
 pub(crate) fn initialization_schema() -> Value {
     let mut schema = decision_schema();
-    schema["$defs"]["Operation"]["oneOf"]
-        .as_array_mut()
-        .expect("generated Operation schema is a tagged union")
-        .retain(|variant| {
-            matches!(
-                variant["properties"]["kind"]["const"].as_str(),
-                Some("file_write" | "character_adopt")
-            )
-        });
+    retain_schema_variants(&mut schema, "Operation", &["file_write", "character_adopt"]);
+    retain_reachable_definitions(&mut schema);
+    schema
+}
 
+/// Present the same Decision envelope with only the restricted repair shapes.
+/// This does not admit a repair, authorize a read, establish a selection subset,
+/// or replace the complete parser and runtime's current-state validation.
+pub fn selection_repair_schema() -> Value {
+    let mut schema = decision_schema();
+    retain_schema_variants(&mut schema, "Operation", &["read"]);
+    retain_schema_variants(&mut schema, "WorkDisposition", &["ongoing"]);
+    retain_schema_variants(
+        &mut schema,
+        "Maintenance",
+        &["no_change", "blocked", "deferred"],
+    );
+    retain_schema_variants(&mut schema, "Continuation", &["stop", "pause"]);
+    retain_schema_variants(&mut schema, "ReplyDisposition", &["none"]);
+    schema["$defs"]["WorkDisposition"]["oneOf"][0]["properties"]["evidence"]["maxItems"] =
+        Value::from(0);
+    schema["$defs"]["SelectionIntent"]["oneOf"]
+        .as_array_mut()
+        .expect("generated SelectionIntent schema is a tagged union")
+        .iter_mut()
+        .find(|variant| variant["properties"]["kind"]["const"] == "replace")
+        .expect("generated selection schema contains replace")["description"] = Value::String(
+        "Retain a nonempty subset of whole exact existing selection entries from this scope's supplied repair inventory. No added reference, range narrowing, changed revision or lifetime renewal. Use clear for an empty choice. A response requesting reads must instead preserve both selections.".into(),
+    );
+    schema["$defs"]["ExactRef"]["properties"]["source"]["description"] = Value::String(
+        "Copy the exact source identity from the supplied repair inventory. Metadata alone does not supply its body.".into(),
+    );
+    schema["$defs"]["ExactRef"]["properties"]["revision"]["description"] = Value::String(
+        "Copy the complete accepted revision from the supplied repair inventory. No new or proposed revision is permitted.".into(),
+    );
+    retain_reachable_definitions(&mut schema);
+    schema
+}
+
+fn retain_schema_variants(schema: &mut Value, name: &str, allowed: &[&str]) {
+    schema["$defs"][name]["oneOf"]
+        .as_array_mut()
+        .expect("generated schema is a tagged union")
+        .retain(|variant| {
+            variant["properties"]["kind"]["const"]
+                .as_str()
+                .is_some_and(|kind| allowed.contains(&kind))
+        });
+}
+
+fn retain_reachable_definitions(schema: &mut Value) {
     // Keep every definition reachable from the complete response, including
     // fields outside operations. Unoffered operation-only definitions would
-    // otherwise keep the discarded catalogue in the initialization request.
+    // otherwise keep the discarded catalogue in a restricted request.
     fn references(value: &Value, pending: &mut BTreeSet<String>) {
         match value {
             Value::Object(object) => {
@@ -728,7 +769,7 @@ pub(crate) fn initialization_schema() -> Value {
         .expect("generated Decision schema has definitions");
     let mut pending = BTreeSet::new();
     let mut retained = serde_json::Map::new();
-    references(&schema, &mut pending);
+    references(schema, &mut pending);
     while let Some(name) = pending.pop_first() {
         if retained.contains_key(&name) {
             continue;
@@ -741,7 +782,6 @@ pub(crate) fn initialization_schema() -> Value {
         retained.insert(name, definition);
     }
     schema["$defs"] = Value::Object(retained);
-    schema
 }
 
 /// Exact identifier for a same-response file proposal. Hashes the compact serde

@@ -377,6 +377,18 @@ fresh ordinary admission are required; the repair cannot answer the task itself.
 A remaining repair attempt alone is insufficient: navigation must cover both
 preparations, including the repair projection.
 
+The repair request presents the complete Decision envelope with only exact-read
+operations, ongoing work with empty evidence, unchanged/blocked/deferred
+maintenance, no reply, and stop/pause continuation. Selection choices remain
+subject to the supplied inventory and whole-entry subset rules. Unreachable
+schema definitions and the disabled work-command input catalogue are omitted;
+current character, permissions, observations, obligations and qualifications
+remain supplied. `ai-personas schema` exposes this presentation as
+`selection_repair_decision`. The full response parser and runtime repair checks
+remain authoritative. Ordinary-context fit still uses the full ordinary contract,
+so a smaller repair request does not establish that ordinary work fits or grant
+another admission. Historical requests and receipts remain unchanged.
+
 `CONTROL.mode` describes the current admission. Historical repair receipts,
 rejected responses, requester messages about earlier repair, and a persona's
 previous description of its mode do not override it. An ordinary admission may
