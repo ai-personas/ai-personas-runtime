@@ -610,6 +610,26 @@ For a future-result wait, `register_pending_mock_dependency` binds a distinct ty
 
 ## Files and decisions
 
+When an exact file reference and its complete text recur in selected context or
+current qualified read observations, the request may supply that text once in
+`QUALIFIED_CONTEXT.shared_texts.bodies`. Each original entry retains its own
+reference, roles, attribution, policies and qualifications, with `text_ref`
+identifying the included body. Text sharing does not merge those records or
+require another retrieval. Different revisions, representations or ranges are
+not combined. Authored prose, messages and historical records are not rewritten.
+Sharing is used only when it reduces the complete serialized sections.
+
+Admission measures the actual encoded prompt, provider schema, output reserve
+and existing margin. Required and eligible selected bundles remain complete;
+sharing does not change source eligibility or closure quotas. Validation and
+development inspection expand the same hash-bound bodies before checking supply
+evidence. Expansion is bounded to 64 MiB, separately from the smaller configured
+request allowance. The retained prompt digest always identifies the actual
+encoded input. `shared-qualified-text-v1` is recorded in `Prepared.prompt_encoding`
+only when sharing occurs. Current helpers read both plain and shared requests;
+older helpers reject the unfamiliar field and must be upgraded before inspecting
+or continuing these invocations.
+
 Fragments and supporting assets remain separate. Bounded file discovery and exact reads produce observations; they do not silently select future context. The primary model explicitly preserves, clears, or replaces selections, including their exact revisions, representations, ranges, and lifetimes. Selection-repair receipts account for independently supplied permitted local-event bodies and their qualifications, including partial range coverage; registration metadata or withheld observations do not become supplied-body claims. A `next_call` selection is not renewed by preserving it. Proposed replacements must also fit the combined closure allocation across mandatory character, fragments and assets. Adding selected roots cannot displace a previously admissible preserved bundle under the same final authority and mandatory context. Refusal rolls back the whole response; preserving an already unavailable old selection remains permitted.
 
 The closed `Discover` operation exposes one caller-requested lexical page. Its `request` chooses `scope` (`fragments` or `assets`), `surface` (`path` or `text` with `utf8` / `json_string` representation), `mode` (`listing`, `literal`, or `regex` with `rust_regex1` dialect), `hidden_paths`, and `retirement`. Listing is valid only for paths. `limit` is 1–1024, intersected with remaining scan, match, result and work allowances; `cursor: null` starts a query. A supplied `next_cursor` can be copied with the identical request on a fresh call to request the next page. There is no automatic paging, semantic ranking, context selection, or body supply from candidates. Runtime discovery covers only currently eligible active sources and their retained revisions.

@@ -46,6 +46,7 @@ mod local_evidence;
 mod maintenance;
 mod observability;
 mod observation_projection;
+mod request_context;
 mod requester_feedback;
 mod requester_wait;
 pub use requester_feedback::Disposition as RequesterFeedbackDisposition;
@@ -1091,6 +1092,11 @@ pub struct Prepared {
     pub requested_effort: String,
     pub prompt: String,
     pub prompt_sha256: String,
+    /// Present only when qualified text is shared within this exact prompt.
+    /// Older readers must refuse the unfamiliar admitted format, not silently
+    /// reinterpret a text reference as missing body evidence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_encoding: Option<String>,
     pub output_schema: Value,
     /// Sealed admission capability; legacy absence never offers the new timed route.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1530,9 +1536,7 @@ fn resolved_work_operation<'a>(
 // unknown provenance and must never inherit this request-only diagnostic scope.
 fn check_supplied_citation_namespace(prepared: &Prepared, decision: &p::Decision) -> Result<()> {
     let mismatch = (|| -> Option<bool> {
-        let (_, suffix) = prepared.prompt.split_once("\nCONTROL\n")?;
-        let (control, _) = suffix.split_once("\nQUALIFIED_CONTEXT\n")?;
-        let control: Value = serde_json::from_str(control).ok()?;
+        let control = request_context::decode(prepared).ok()?.control;
         if prepared.request.mode != Mode::Ordinary
             || control["invocation_id"] != prepared.request.id
             || control["actor"] != prepared.request.persona
@@ -1615,9 +1619,7 @@ fn check_supplied_closure_record(prepared: &Prepared, decision: &p::Decision) ->
         return Ok(());
     }
     let missing = (|| -> Option<bool> {
-        let (_, suffix) = prepared.prompt.split_once("\nCONTROL\n")?;
-        let (control, _) = suffix.split_once("\nQUALIFIED_CONTEXT\n")?;
-        let control: Value = serde_json::from_str(control).ok()?;
+        let control = request_context::decode(prepared).ok()?.control;
         if control["invocation_id"] != prepared.request.id
             || control["actor"] != prepared.request.persona
             || control["work_id"] != prepared.request.work
@@ -3824,6 +3826,7 @@ impl Runtime {
             requested_effort: persona.seed.requested_effort.clone(),
             prompt_sha256: s::sha256_bytes(rendered.prompt.as_bytes()),
             prompt: rendered.prompt,
+            prompt_encoding: rendered.prompt_encoding,
             output_schema: provider_schema(),
             reconsideration_interface: (request.mode == Mode::Ordinary && persona.character.is_some())
                 .then(|| RECONSIDERATION_INTERFACE.into()),
@@ -3843,6 +3846,11 @@ impl Runtime {
             exposure: Some(rendered.exposure),
             bundle_roots: Some(rendered.roots),
         };
+        // Verify the complete shared-body representation before reserving or
+        // dispatching it. Validation and inspection must recover the same text.
+        if prepared.prompt_encoding.is_some() {
+            request_context::decode(&prepared)?;
+        }
         prepared.provider_preparation = hook(&prepared)?;
         let request_value = serde_json::to_value(&prepared)?;
         let input_bytes = (serde_json::to_vec(&request_value)?.len() as u64)
@@ -6360,6 +6368,7 @@ struct Rendered {
     need_interface: Option<NeedInterface>,
     withheld: Vec<f::WithheldBundle>,
     prompt: String,
+    prompt_encoding: Option<String>,
     total: usize,
     sources: Vec<f::Reference>,
     observations: Vec<String>,
@@ -7127,18 +7136,26 @@ fn render_mode_with_history(
             .checked_add(bytes)
             .ok_or_else(|| invalid("contract size overflow"))
     })?;
-    let fixed_size = |prefix: &str| -> Result<usize> {
-        prefix
+    let total_size = |prompt: &str| -> Result<usize> {
+        prompt
             .len()
             .checked_add(schema_bytes)
             .and_then(|n| n.checked_add(PROMPT_MARGIN))
+            .and_then(|n| n.checked_add(state.config.output_reserve_bytes))
             .ok_or_else(|| invalid("prompt size overflow"))
     };
-    let mut prefix = format!(
-        "{duties}\n{arrangement_duties}\nAPPLICATION_DECISION_SCHEMA\n{application_schema}\nCONTROL\n{}\nQUALIFIED_CONTEXT\n",
-        serde_json::to_string(&core)?
-    );
-    let fixed = fixed_size(&prefix)?;
+    let render_prompt = |control: &Value, context: &Value, repair: bool| -> Result<(String, Option<String>, usize)> {
+        let encoded = request_context::encode(control, context)?;
+        let control = serde_json::to_string(encoded.control.as_ref())?;
+        let qualified = serde_json::to_string(encoded.qualified.as_ref())?;
+        let prompt = if repair {
+            format!("{duties}\n{arrangement_duties}\n{REPAIR_DUTIES}\nAPPLICATION_DECISION_SCHEMA\n{application_schema}\nCONTROL\n{control}\nQUALIFIED_CONTEXT\n{qualified}")
+        } else {
+            format!("{duties}\n{arrangement_duties}\nAPPLICATION_DECISION_SCHEMA\n{application_schema}\nCONTROL\n{control}\nQUALIFIED_CONTEXT\n{qualified}")
+        };
+        let total = total_size(&prompt)?;
+        Ok((prompt, encoded.encoding, total))
+    };
     let corpus = corpus(state, &a)?;
     let character = character_refs(persona)?;
     let mut roots = BundleRoots {
@@ -7153,19 +7170,14 @@ fn render_mode_with_history(
             .collect::<Result<Vec<_>>>()?,
         observations: observation_roots,
     };
-    let render_bundle = |bundle: &f::Assembly| -> Result<(String, usize)> {
+    let render_bundle = |bundle: &f::Assembly| -> Result<Value> {
         let exact = bundle
             .entries
             .iter()
             .map(|e| e.reference.clone())
             .collect::<Vec<_>>();
         let context = attributed_context(state, &bundle.rendered_context, &exact)?;
-        let total = bundle
-            .total_bytes
-            .checked_sub(bundle.rendered_context.len())
-            .and_then(|n| n.checked_add(context.len()))
-            .ok_or_else(|| invalid("context accounting overflow"))?;
-        Ok((context, total))
+        Ok(serde_json::from_str(&context)?)
     };
     // A mandatory failure is never converted to selection-repair eligibility.
     let mandatory = f::assemble(
@@ -7174,11 +7186,14 @@ fn render_mode_with_history(
         &[],
         &[],
         &a,
-        state.config.context_bytes,
-        fixed,
-        state.config.output_reserve_bytes,
+        usize::MAX,
+        0,
+        0,
     )?;
-    let (_, mut mandatory_total) = render_bundle(&mandatory)?;
+    // Corpus closure quotas still bound assembly. Request fit is checked after
+    // exact text sharing, including the complete control and qualification data.
+    let mandatory_context = render_bundle(&mandatory)?;
+    let (_, _, mut mandatory_total) = render_prompt(&core, &mandatory_context, false)?;
     if mandatory_total > state.config.context_bytes {
         return Err(f::FilesError::MandatoryOverflow {
             required: mandatory_total,
@@ -7200,10 +7215,12 @@ fn render_mode_with_history(
             .collect::<Result<Vec<_>>>()?,
         &a,
         usize::MAX,
-        fixed,
-        state.config.output_reserve_bytes,
+        0,
+        0,
     )?;
-    let (ordinary_context, mut ordinary_total) = render_bundle(&assembly)?;
+    let ordinary_context = render_bundle(&assembly)?;
+    let (mut ordinary_prompt, mut ordinary_encoding, mut ordinary_total) =
+        render_prompt(&core, &ordinary_context, false)?;
     let computation_interfaces = if ordinary_interfaces {
         let mut complete_bodies = supplied_bodies.clone();
         complete_bodies.extend(assembly.entries.iter().map(|e| e.reference.clone()));
@@ -7220,13 +7237,13 @@ fn render_mode_with_history(
             "input_bytes":crate::computation::INPUT_BYTES,"output_bytes":crate::computation::OUTPUT_BYTES,
             "fuel":crate::computation::FUEL,"linear_memory_bytes":crate::computation::MEMORY_BYTES,
             "rule":"Copy the supplied capability_id and binding_revision. Use the exact full WAT asset and input string under inputs. A same-response program save requires its proposal-op reference and depends_on. The host executes only after complete adoption and records a later computation_result observation. Interpret it in a fresh decision. Output is untrusted guest data; success proves execution only. This runner links no imports and grants no filesystem, network, clock, credential or model access. Guide supply and execution are separate facts."});
-        let candidate = format!("{duties}\n{arrangement_duties}\nAPPLICATION_DECISION_SCHEMA\n{application_schema}\nCONTROL\n{}\nQUALIFIED_CONTEXT\n",
-            serde_json::to_string(&core)?);
-        let extra = candidate.len().checked_sub(prefix.len()).ok_or_else(|| invalid("computation interface accounting"))?;
-        prefix = candidate;
-        ordinary_total += extra;
-        mandatory_total += extra;
-        growth_bytes += extra;
+        let (candidate, encoding, total) = render_prompt(&core, &ordinary_context, false)?;
+        let extra = total.checked_sub(ordinary_total).ok_or_else(|| invalid("computation interface accounting"))?;
+        ordinary_prompt = candidate;
+        ordinary_encoding = encoding;
+        ordinary_total = total;
+        mandatory_total = render_prompt(&core, &mandatory_context, false)?.2;
+        growth_bytes = growth_bytes.checked_add(extra).ok_or_else(|| invalid("computation interface accounting"))?;
     }
     let mut next_fragment_inventory_after = None;
     // Awareness is optional. Measure required material and accepted selections
@@ -7243,13 +7260,10 @@ fn render_mode_with_history(
         {
             let mut candidate_core = core.clone();
             candidate_core["retained_optional_fragments"] = metadata;
-            let candidate_prefix =
-                format!(
-                "{duties}\n{arrangement_duties}\nAPPLICATION_DECISION_SCHEMA\n{application_schema}\nCONTROL\n{}\nQUALIFIED_CONTEXT\n",
-                serde_json::to_string(&candidate_core)?);
-            let extra = candidate_prefix
-                .len()
-                .checked_sub(prefix.len())
+            let (candidate_prompt, candidate_encoding, candidate_total) =
+                render_prompt(&candidate_core, &ordinary_context, false)?;
+            let extra = candidate_total
+                .checked_sub(ordinary_total)
                 .ok_or_else(|| invalid("inventory prefix accounting"))?;
             let mut combined = exposure.clone();
             extend_exposure(&mut combined, &inventory_exposure);
@@ -7261,9 +7275,11 @@ fn render_mode_with_history(
                 && expanded_exposure(state, &combined)
                     .is_ok_and(|e| exposure_permitted(state, &e, &a))
             {
-                prefix = candidate_prefix;
-                ordinary_total += extra;
-                mandatory_total += extra;
+                ordinary_prompt = candidate_prompt;
+                ordinary_encoding = candidate_encoding;
+                ordinary_total = candidate_total;
+                mandatory_total = render_prompt(&candidate_core, &mandatory_context, false)?.2;
+                core = candidate_core;
                 growth_bytes = growth_bytes
                     .checked_add(extra)
                     .ok_or_else(|| invalid("inventory growth size overflow"))?;
@@ -7273,7 +7289,7 @@ fn render_mode_with_history(
         }
     }
     let mut repair_reads = Vec::new();
-    let (prompt, total) = if let Some(navigation) = repair_navigation {
+    let (prompt, prompt_encoding, total) = if let Some(navigation) = repair_navigation {
         let eligible: BTreeSet<_> = assembly
             .entries
             .iter()
@@ -7330,30 +7346,19 @@ fn render_mode_with_history(
             "selection_reductions":"whole exact entry subsets only; no range narrowing or lifetime renewal",
             "read_rule":"only listed exact body references; preserve both selections when requesting reads",
             "continuation_rule":"stop or pause; explicit resume and fresh admission required"});
-        let prefix = format!("{duties}\n{arrangement_duties}\n{REPAIR_DUTIES}\nAPPLICATION_DECISION_SCHEMA\n{application_schema}\nCONTROL\n{}\nQUALIFIED_CONTEXT\n", serde_json::to_string(&core)?);
-        let restricted = f::assemble(
-            &corpus,
-            &character,
-            &[],
-            &[],
-            &a,
-            state.config.context_bytes,
-            fixed_size(&prefix)?,
-            state.config.output_reserve_bytes,
-        )?;
-        sources.extend(restricted.entries.iter().map(|e| e.reference.clone()));
-        let (context, total) = render_bundle(&restricted)?;
+        sources.extend(mandatory.entries.iter().map(|e| e.reference.clone()));
+        let rendered = render_prompt(&core, &mandatory_context, true)?;
         require(
-            total <= state.config.context_bytes,
+            rendered.2 <= state.config.context_bytes,
             "restricted attributed context exceeds admitted bound",
         )?;
         // Optional inventory is policy-bearing metadata, not supplied bodies.
         roots.fragments.clear();
         roots.assets.clear();
-        (format!("{prefix}{context}"), total)
+        rendered
     } else {
         sources.extend(assembly.entries.iter().map(|e| e.reference.clone()));
-        (format!("{prefix}{ordinary_context}"), ordinary_total)
+        (ordinary_prompt, ordinary_encoding, ordinary_total)
     };
     exposure.sources.extend(sources.iter().cloned());
     let exposure = expanded_exposure(state, &exposure)?;
@@ -7367,6 +7372,7 @@ fn render_mode_with_history(
         need_interface,
         withheld: assembly.withheld,
         prompt,
+        prompt_encoding,
         total,
         exposure,
         roots,

@@ -1070,13 +1070,7 @@ fn supplied_control(prepared: &Prepared) -> Result<Value> {
         s::sha256_bytes(prepared.prompt.as_bytes()) == prepared.prompt_sha256,
         "arrangement prepared prompt hash mismatch",
     )?;
-    let control = prepared
-        .prompt
-        .split_once("\nCONTROL\n")
-        .and_then(|(_, tail)| tail.split_once("\nQUALIFIED_CONTEXT\n"))
-        .ok_or_else(|| held("arrangement proposal supply unavailable"))?
-        .0;
-    let control: Value = serde_json::from_str(control)?;
+    let control = request_context::decode(prepared)?.control;
     require(
         control["actor"].as_str() == Some(prepared.request.persona.as_str())
             && control["work_id"].as_str() == Some(prepared.request.work.as_str())

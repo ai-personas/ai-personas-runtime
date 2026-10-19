@@ -189,20 +189,15 @@ fn invocation_evidence(
                 .is_some_and(|e| exposure_permitted(state, e, audience)),
         "invocation evidence unavailable",
     )?;
-    let (prefix, qualified) = prepared
-        .prompt
-        .rsplit_once("\nQUALIFIED_CONTEXT\n")
-        .ok_or_else(|| held("qualified input evidence unavailable"))?;
-    let qualified_bytes = qualified.len();
-    let qualified: Value = serde_json::from_str(qualified)?;
+    let decoded = request_context::decode(&prepared)?;
+    let qualified_bytes = decoded.qualified_bytes;
+    let qualified = decoded.qualified;
     let entries = qualified["entries"]
         .as_array()
         .ok_or_else(|| held("qualified input evidence unavailable"))?;
-    let (instructions, control) = prefix
-        .rsplit_once("\nCONTROL\n")
-        .ok_or_else(|| held("control input evidence unavailable"))?;
-    let control_bytes = control.len();
-    let control: Value = serde_json::from_str(control)?;
+    let instructions = decoded.instructions;
+    let control_bytes = decoded.control_bytes;
+    let control = decoded.control;
     let mut supplied = Vec::new();
     for revision in revisions {
         let source = revision["source"]
@@ -288,6 +283,7 @@ fn invocation_evidence(
             "instructions_and_application_schema_utf8_bytes":instructions.len(),
             "control_utf8_bytes":control_bytes,
             "qualified_context_utf8_bytes":qualified_bytes,
+            "qualified_text_sharing":decoded.accounting,
             "section_separator_utf8_bytes":"\nCONTROL\n\nQUALIFIED_CONTEXT\n".len(),
             "assembled_bytes_with_reserve":prepared.assembled_bytes_with_reserve,
             "provider_reported_usage":if provider_completed { receipt.and_then(|r| r.get("usage")) } else { None },

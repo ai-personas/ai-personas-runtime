@@ -202,17 +202,8 @@ pub(super) fn inherited_exposure(
 }
 
 fn control_and_context(prepared: &Prepared) -> Result<(Value, Value)> {
-    let (_, tail) = prepared
-        .prompt
-        .split_once("\nCONTROL\n")
-        .ok_or_else(|| held("warning requires the actual supplied control record"))?;
-    let (control, context) = tail
-        .split_once("\nQUALIFIED_CONTEXT\n")
-        .ok_or_else(|| held("warning requires the actual supplied context"))?;
-    Ok((
-        serde_json::from_str(control)?,
-        serde_json::from_str(context)?,
-    ))
+    let decoded = request_context::decode(prepared)?;
+    Ok((decoded.control, decoded.qualified))
 }
 
 fn collect_entries(value: &Value, result: &mut BTreeSet<f::Reference>) -> Result<()> {

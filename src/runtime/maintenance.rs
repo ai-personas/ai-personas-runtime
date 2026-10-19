@@ -176,14 +176,7 @@ pub(super) fn apply(
         prepared.request.mode == Mode::Ordinary,
         "maintenance disposition requires ordinary mode",
     )?;
-    let (_, tail) = prepared
-        .prompt
-        .split_once("\nCONTROL\n")
-        .ok_or_else(|| held("maintenance requires supplied control"))?;
-    let (control, _) = tail
-        .split_once("\nQUALIFIED_CONTEXT\n")
-        .ok_or_else(|| held("maintenance requires supplied context"))?;
-    let control: Value = serde_json::from_str(control)?;
+    let control = request_context::decode(prepared)?.control;
     let actor = &prepared.request.persona;
     let work = &prepared.request.work;
     let admission = admission(&state.personas[actor], now);

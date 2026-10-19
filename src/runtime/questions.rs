@@ -209,13 +209,7 @@ pub(crate) fn view(
 }
 
 fn supplied(prepared: &Prepared, question: &Question) -> Result<Value> {
-    let control = prepared
-        .prompt
-        .split_once("\nCONTROL\n")
-        .and_then(|(_, rest)| rest.split_once("\nQUALIFIED_CONTEXT\n"))
-        .map(|(control, _)| control)
-        .ok_or_else(|| held("shared question control missing"))?;
-    let control: Value = serde_json::from_str(control)?;
+    let control = request_context::decode(prepared)?.control;
     require(
         s::sha256_bytes(prepared.prompt.as_bytes()) == prepared.prompt_sha256
             && control["actor"] == prepared.request.persona

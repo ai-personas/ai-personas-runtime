@@ -613,14 +613,7 @@ pub(super) fn validate_operation(
             "ProposeNeed dependencies may name local saves only; observations require a fresh decision",
         )?;
     }
-    let (_, tail) = prepared
-        .prompt
-        .split_once("\nCONTROL\n")
-        .ok_or_else(|| held("proposal control absent"))?;
-    let (control, _) = tail
-        .split_once("\nQUALIFIED_CONTEXT\n")
-        .ok_or_else(|| held("proposal control absent"))?;
-    let control: Value = serde_json::from_str(control)?;
+    let control = request_context::decode(prepared)?.control;
     require(
         s::sha256_bytes(prepared.prompt.as_bytes()) == prepared.prompt_sha256
             && control["actor"] == prepared.request.persona

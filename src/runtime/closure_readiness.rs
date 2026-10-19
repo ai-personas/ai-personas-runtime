@@ -113,13 +113,7 @@ pub(super) fn retain_supplied(state: &mut State, prepared: &Prepared) -> Result<
     if prepared.supplied_observations.is_empty() {
         return Ok(());
     }
-    let control = prepared
-        .prompt
-        .split_once("\nCONTROL\n")
-        .and_then(|(_, tail)| tail.split_once("\nQUALIFIED_CONTEXT\n"))
-        .ok_or_else(|| held("closure anchor supply proof unavailable"))?
-        .0;
-    let control: Value = serde_json::from_str(control)?;
+    let control = request_context::decode(prepared)?.control;
     let actor = prepared.request.persona.as_str();
     let work = prepared.request.work.as_str();
     require(
@@ -585,13 +579,7 @@ pub(super) fn require_supplied(
     release: &str,
     now: i64,
 ) -> Result<()> {
-    let control = prepared
-        .prompt
-        .split_once("\nCONTROL\n")
-        .and_then(|(_, tail)| tail.split_once("\nQUALIFIED_CONTEXT\n"))
-        .ok_or_else(|| held("closure evidence was not supplied"))?
-        .0;
-    let control: Value = serde_json::from_str(control)?;
+    let control = request_context::decode(prepared)?.control;
     let record = control["closure_readiness"]["records"]
         .as_array()
         .and_then(|records| records.iter().find(|record| record["release"] == release))
@@ -747,13 +735,7 @@ impl Runtime {
                 .contains(&request.observation),
             "closure anchor observation was not in the supplied list",
         )?;
-        let control = prepared
-            .prompt
-            .split_once("\nCONTROL\n")
-            .and_then(|(_, tail)| tail.split_once("\nQUALIFIED_CONTEXT\n"))
-            .ok_or_else(|| held("closure anchor supply proof unavailable"))?
-            .0;
-        let control: Value = serde_json::from_str(control)?;
+        let control = request_context::decode(&prepared)?.control;
         require(
             control["actor"].as_str() == Some(request.actor.as_str())
                 && control["work_id"].as_str() == Some(request.work.as_str())

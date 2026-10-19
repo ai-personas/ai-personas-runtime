@@ -91,13 +91,7 @@ pub(super) fn resolve(
     let a = admission(&state.personas[actor], now);
     let corpus = corpus(state, &a)?;
     let (projected, _, _) = observation_projection::project(state, observation, &a, &corpus)?;
-    let control_text = prepared
-        .prompt
-        .split_once("\nCONTROL\n")
-        .and_then(|(_, rest)| rest.split_once("\nQUALIFIED_CONTEXT\n"))
-        .map(|(control, _)| control)
-        .ok_or_else(|| held("requester feedback supplied control missing"))?;
-    let control: Value = serde_json::from_str(control_text)?;
+    let control = request_context::decode(prepared)?.control;
     require(
         prepared
             .supplied_observations
