@@ -722,6 +722,10 @@ pub struct WorkMeta {
     /// Missing historical fields mean disabled, never a newly granted allowance.
     #[serde(default)]
     pub repair_attempts_left: u64,
+    /// A separately authorized lifetime repair suballowance for this work.
+    /// None retains the intake configuration and enables no foreground fallback.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repair_attempts_declared: Option<u64>,
     pub artifact_sources: BTreeMap<String, p::ExactRef>,
     pub human_evidence: BTreeMap<String, Value>,
     /// Attributed primary judgments of actually supplied exact artifact bodies.
@@ -748,6 +752,11 @@ pub struct WorkMeta {
     pub exposure: Option<Exposure>,
     #[serde(default)]
     pub authored_origin: Option<Value>,
+}
+impl WorkMeta {
+    pub(crate) fn declared_repair_attempts(&self, config: &Config) -> u64 {
+        self.repair_attempts_declared.unwrap_or(config.max_repair_attempts)
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3540,7 +3549,9 @@ impl Runtime {
         require(meta.attempts_left > 0, "work attempt allowance exhausted")?;
         if request.mode == Mode::SelectionRepair {
             require(
-                state.config.max_repair_attempts > 0 && meta.repair_attempts_left > 0,
+                meta.declared_repair_attempts(&state.config) > 0
+                    && meta.repair_attempts_left > 0
+                    && meta.repair_attempts_left <= meta.declared_repair_attempts(&state.config),
                 "selection repair has no remaining declared allowance",
             )?;
         }
@@ -5164,47 +5175,91 @@ impl Runtime {
             }
             Err(error) => return Err(error.into()),
         }
-        let mut native_preparation = None;
-        let prepared = self.prepare_with_scheduler_and_intake(
-            request,
-            now,
-            |prepared| {
-                let native = provider.prepare(provider::ProviderRequest {
-                    prompt: prepared.prompt.clone(),
-                    output_schema: prepared.output_schema.clone(),
-                    invocation_id: prepared.request.id.clone(),
-                })?;
-                let audit = native.audit();
-                require(
-                    audit.invocation_id == prepared.request.id
-                        && audit.prompt_sha256 == prepared.prompt_sha256
-                        && audit.prompt_bytes == prepared.prompt.len() as u64
-                        && audit.schema_sha256
-                            == s::sha256_bytes(&serde_json::to_vec(&prepared.output_schema)?)
-                        && audit.schema_bytes
-                            == serde_json::to_vec(&prepared.output_schema)?.len() as u64
-                        && audit.request_bytes <= intent.max_request_bytes as u64,
-                    "provider preparation does not bind the exact native request",
-                )?;
-                let audit = serde_json::to_value(audit)?;
-                // Existing admission reserves twice the serialized Prepared bytes.
-                // Verify that the actual serialized HTTP body fits that reservation.
-                let mut bound = prepared.clone();
-                bound.provider_preparation = Some(audit.clone());
-                let reserved_input = (serde_json::to_vec(&bound)?.len() as u64)
-                    .checked_mul(2)
-                    .ok_or_else(|| invalid("input reservation overflow"))?;
-                require(
-                    native.audit().request_bytes <= reserved_input,
-                    "direct request exceeds input reservation",
-                )?;
-                native_preparation = Some(native);
-                Ok(Some(audit))
-            },
-            None,
-            intake_selection,
-        )?;
-        let native = native_preparation.ok_or_else(|| held("provider preparation absent"))?;
+        let mut candidate = request;
+        let mut preparation_time = now;
+        let (prepared, native) = loop {
+            let mut native_preparation = None;
+            let preparation = self.prepare_with_scheduler_and_intake(
+                candidate.clone(),
+                preparation_time,
+                |prepared| {
+                    let native = provider.prepare(provider::ProviderRequest {
+                        prompt: prepared.prompt.clone(),
+                        output_schema: prepared.output_schema.clone(),
+                        invocation_id: prepared.request.id.clone(),
+                    })?;
+                    let audit = native.audit();
+                    require(
+                        audit.invocation_id == prepared.request.id
+                            && audit.prompt_sha256 == prepared.prompt_sha256
+                            && audit.prompt_bytes == prepared.prompt.len() as u64
+                            && audit.schema_sha256
+                                == s::sha256_bytes(&serde_json::to_vec(&prepared.output_schema)?)
+                            && audit.schema_bytes
+                                == serde_json::to_vec(&prepared.output_schema)?.len() as u64
+                            && audit.request_bytes <= intent.max_request_bytes as u64,
+                        "provider preparation does not bind the exact native request",
+                    )?;
+                    let audit = serde_json::to_value(audit)?;
+                    // Existing admission reserves twice the serialized Prepared bytes.
+                    // Verify that the actual serialized HTTP body fits that reservation.
+                    let mut bound = prepared.clone();
+                    bound.provider_preparation = Some(audit.clone());
+                    let reserved_input = (serde_json::to_vec(&bound)?.len() as u64)
+                        .checked_mul(2)
+                        .ok_or_else(|| invalid("input reservation overflow"))?;
+                    require(
+                        native.audit().request_bytes <= reserved_input,
+                        "direct request exceeds input reservation",
+                    )?;
+                    native_preparation = Some(native);
+                    Ok(Some(audit))
+                },
+                None,
+                intake_selection.clone(),
+            );
+            match preparation {
+                Ok(prepared) => break (
+                    prepared,
+                    native_preparation.ok_or_else(|| held("provider preparation absent"))?,
+                ),
+                Err(error @ RuntimeError::SelectionOverflow { .. })
+                    if candidate.mode == Mode::Ordinary
+                        && intake_selection.is_none()
+                        && native_preparation.is_none() =>
+                {
+                    // Only an explicitly allocated work opts into this path.
+                    // Ordinary overflow occurred before provider preparation or
+                    // invocation admission. Preserve its charged navigation and
+                    // diagnostics; no dispatched request is ever retried here.
+                    let (_, fresh) = self.load()?;
+                    let eligible = fresh.work_meta.get(&candidate.work).is_some_and(|meta| {
+                        meta.repair_attempts_declared.is_some()
+                            && meta.repair_attempts_left > 0
+                            && meta.attempts_left > 0
+                    }) && !need_proposals::bound(&fresh, &candidate.work)
+                        && continuation_permit(&fresh, &candidate.persona, &candidate.work)
+                        && fresh.personas.get(&candidate.persona).is_some_and(|persona| {
+                            persona.active_invocation.is_none()
+                                && persona.failed_attempt_hold.is_none()
+                                && persona.focus.get(&candidate.work).is_some_and(|focus| {
+                                    focus.repair_trigger.is_some()
+                                })
+                        });
+                    if !eligible {
+                        return Err(error);
+                    }
+                    match self.store.invocation(&candidate.id) {
+                        Err(s::StoreError::Missing(_)) => (),
+                        Ok(_) => return Err(held("overflow already has an invocation; repair refused")),
+                        Err(error) => return Err(error.into()),
+                    }
+                    candidate.mode = Mode::SelectionRepair;
+                    preparation_time = unix_now()?;
+                }
+                Err(error) => return Err(error),
+            }
+        };
         let native_audit = native.audit().clone();
         let mut intake_deadline = None;
         let authorization = (|| -> Result<()> {
@@ -6384,10 +6439,14 @@ fn repair_navigation_parts(
     (projection, reads)
 }
 fn check_repair_projection(state: &State, total: f::NavigationLimits) -> Result<()> {
-    // A deliberately conservative material/metadata envelope for preparation,
-    // dispatch/adoption guards and the resulting-context projections. It is
-    // prepaid once, never refunded, and is not a measurement of provider usage.
-    // No corpus identities or inaccessible counts are exposed by this check.
+    // Bound the complete retained material used by the in-memory projection,
+    // including prospective response/read growth. The snapshot is shared by
+    // graph traversals: charging its entire history once for every reference
+    // made repair unusable as unrelated observation history accumulated.
+    // Store reads remain separately charged on every actual load. Exact repair
+    // reads spend their own half of the navigation allocation. This is a
+    // logical material envelope, not a CPU-work or provider-usage measurement.
+    // No inaccessible identities, counts or actual footprint are exposed.
     let (projection, _) = repair_navigation_parts(total);
     let mut links = 1usize;
     let mut add = |n: usize| -> Result<()> {
@@ -6446,18 +6505,10 @@ fn check_repair_projection(state: &State, total: f::NavigationLimits) -> Result<
                 .and_then(|extra| n.checked_add(extra))
         })
         .ok_or_else(|| invalid("repair projection overflow"))?;
-    let material = bytes
-        .checked_mul(links)
-        .and_then(|n| n.checked_mul(32))
-        .ok_or_else(|| invalid("repair projection overflow"))?;
-    let inspections = links
-        .checked_mul(links)
-        .and_then(|n| n.checked_mul(32))
-        .ok_or_else(|| invalid("repair projection overflow"))?;
     require(
         projection.calls > 0
-            && material <= projection.scanned_bytes
-            && inspections <= projection.inspected_revisions,
+            && bytes <= projection.scanned_bytes
+            && links <= projection.inspected_revisions,
         "repair projection exceeds the existing navigation allocation",
     )
 }
@@ -7027,7 +7078,7 @@ fn render_mode_with_history(
         "grants":persona.seed.grants,"destination":a.destination,"audience":a.audience,
         "requested_model":persona.seed.requested_model,"requested_effort":persona.seed.requested_effort,
         "model_confirmation":persona.seed.model_confirmed,"attempts_left":meta.attempts_left,
-        "declared_max_repair_attempts":state.config.max_repair_attempts,"repair_attempts_left":meta.repair_attempts_left,
+        "declared_max_repair_attempts":meta.declared_repair_attempts(&state.config),"repair_attempts_left":meta.repair_attempts_left,
         "repair_funding":"subset of existing work attempts and Store limits; no renewal",
         "navigation_left_after_this_admission":meta.navigation_left,
         "context_bytes":state.config.context_bytes,"response_bytes":state.config.response_bytes,
@@ -7258,7 +7309,7 @@ fn render_mode_with_history(
             "inventory_scope":"exact stored selection with available complete bundles; inaccessible entries omitted without identities or counts; no corpus catalogue",
             "inventory_is_guidance":false,"optional_bundles_omitted":true,
             "projection_allocation":projection,"exact_read_allocation":reads,
-            "projection_accounting":"prepaid conservative material envelope; allocation is never refunded",
+            "projection_accounting":"prepaid snapshot material envelope; Store loads charged separately; repeated in-memory traversal is not measured CPU work; allocation is never refunded",
             "maintenance_changes_permitted":false,"warning_adoption_or_resolution_permitted":false,
             "selection_reductions":"whole exact entry subsets only; no range narrowing or lifetime renewal",
             "read_rule":"only listed exact body references; preserve both selections when requesting reads",

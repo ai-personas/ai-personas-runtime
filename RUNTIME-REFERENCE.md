@@ -282,8 +282,8 @@ binds exact runtime/launch heads, work version and remaining balances, records t
 authorization reference, and declares the minimal optional lifetime-cap increase.
 That cap remains launch-global; the work addition is not a reservation. Resulting
 balances must fit the existing configured per-work remaining-balance bounds;
-successive explicitly authorized grants can increase cumulative use. Targets with
-a retained nonzero repair allowance are refused because attempts also fund repair.
+successive explicitly authorized grants can increase cumulative use. Existing
+repair suballowances are preserved; this command cannot increase them.
 Holds, continuation, original requests, identities and spent/uncertain resources
 are preserved. Episode-bound targets require separate authority and are refused.
 Snapshot and preview use metered reads and normal open/owner recovery may occur;
@@ -293,6 +293,38 @@ headroom, but reserves nothing and does not guarantee later admission. Actual
 requests still require fresh permission, funding, context and continuation checks.
 Token figures remain operator snapshot attestations, enforced by the serialized
 supervisor across calls and Stores, rather than new token funds or measurements.
+
+`work-repair-snapshot WORK` reports exact fences and the existing repair
+suballowance. `allocate-work-repair REQUEST.json --preview` or `--apply` explicitly
+allocates restricted repair from the work's remaining attempts. The request has
+`id`, `operator`, `work_id`, `reason`, `authorization_reference`,
+`authorize_allocation: true`, the snapshot's `expected` and
+`expected_declared_repair_attempts`, and `additional_repair_attempts` (1–8).
+Cumulative declared repair attempts cannot exceed eight, and remaining repair
+attempts cannot exceed remaining work attempts. Each admitted repair spends one
+of both balances. Allocation adds no attempts, navigation, lifetime steps or
+Store funding, changes no continuation, and performs no inference. Exact request
+replay returns the immutable historical receipt without replenishing anything.
+These commands use metered reads without orphan recovery. Episode-bound work
+requires its separate authority and is refused.
+
+For an explicitly allocated work, a foreground/direct step may prepare one
+restricted primary repair when ordinary preparation records eligible context
+growth overflow before any provider preparation or invocation admission.
+The same persona, model and existing explicit continuation permission are used.
+Both preparations retain their navigation charges. This route never retries a
+dispatched request. Repair supplies the mandatory core and an access-filtered
+inventory that distinguishes withheld optional bodies from bodies independently
+supplied by mandatory context. It permits only whole-entry selection reductions,
+bounded exact repair reads, or an honest stop. After repair, explicit resume and
+fresh ordinary admission are required; the repair cannot answer the task itself.
+
+Repair's projection allocation bounds its complete retained snapshot material
+plus prospective response/read growth. Repeated traversal of the same in-memory
+snapshot does not multiply the retained history by every reference. Store loads
+are charged separately on each actual read; exact repair reads have a separate
+navigation share. This logical material envelope is not a CPU-work or provider
+usage measurement. Allocation reserves no future capacity or successful fit.
 
 Output contains accepted replies and complete currently permitted local delivery
 bundles. `--json` emits one structured result on stdout; progress and stopping

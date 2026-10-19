@@ -51,6 +51,11 @@ pub use human_intake::{
 
 #[path = "launch/work_resource_grant.rs"]
 mod work_resource_grant;
+#[path = "launch/repair_allocation.rs"]
+mod repair_allocation;
+pub use repair_allocation::{
+    allocate_work_repair_at, work_repair_snapshot_at, RepairAllocationRequest,
+};
 #[path = "launch/store_capacity.rs"]
 pub mod store_capacity;
 pub use work_resource_grant::{

@@ -189,6 +189,7 @@ pub(super) fn construct_host_need(
             attempts_left: allocation.attempts,
             navigation_left: allocation.navigation,
             repair_attempts_left: allocation.repair_attempts,
+            repair_attempts_declared: None,
             artifact_sources: BTreeMap::new(),
             human_evidence: BTreeMap::new(),
             model_evidence: BTreeMap::new(),

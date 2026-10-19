@@ -209,13 +209,12 @@ impl WorkResourceGrantRequest {
         require(
             expected.work_revision > 0
                 && expected.work_epoch > 0
-                && expected.remaining.repair_attempts == 0
                 && expected.max_total_steps > 0
                 && expected.steps <= expected.max_total_steps
                 && (1..=128).contains(&expected.max_steps)
                 && self.increase.attempts <= 128
                 && (self.increase.attempts > 0 || navigation_increased),
-            "invalid work grant counters, nonzero repair allowance or empty resource addition",
+            "invalid work grant counters or empty resource addition",
         )?;
         let after = add_remaining(expected.remaining, self.increase)?;
         let needed_steps = expected
@@ -270,14 +269,10 @@ fn target<'a>(state: &'a State, saved: &Saved, work: &str) -> Result<&'a WorkMet
         meta.original.id == work,
         "work original need identity mismatch",
     )?;
-    require(
-        meta.repair_attempts_left == 0,
-        "ordinary-only resource grant does not support retained repair allowance",
-    )?;
     Ok(meta)
 }
 
-fn fence(
+pub(super) fn fence(
     runtime: &s::StoredObject,
     state: &State,
     launch: &s::StoredObject,
@@ -315,11 +310,13 @@ pub fn work_resource_grant_snapshot(
     let (launch, saved) = load(app)?;
     admission_extension::authorize(&state, &saved, operator)?;
     admission_extension::validate_saved(&state, &saved)?;
+    let mut maximum = WorkAllocation::configured(&state.config);
+    maximum.repair_attempts = target(&state, &saved, work)?.declared_repair_attempts(&state.config);
     Ok(json!({
         "operator": operator,
         "work_id": work,
         "expected": fence(&runtime, &state, &launch, &saved, work)?,
-        "maximum_remaining": WorkAllocation::configured(&state.config),
+        "maximum_remaining": maximum,
         "navigation_per_call": state.config.navigation_per_call,
         "repair_grants_supported": false,
         "capacity_reserved": false,
@@ -441,7 +438,10 @@ fn plan(
     )?;
     app.store.require_terminal_invocations()?;
     let after = add_remaining(request.expected.remaining, request.increase)?;
-    after.require_within_config(&state.config)?;
+    let mut ceilings = state.config.clone();
+    ceilings.max_repair_attempts =
+        state.work_meta[&request.work_id].declared_repair_attempts(&state.config);
+    after.require_within_config(&ceilings)?;
 
     let previous_binding = intake_delegation::episode_launch_binding(&saved)?;
     saved.setup.max_total_steps = request.new_max_total_steps;

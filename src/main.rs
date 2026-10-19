@@ -147,11 +147,23 @@ enum Command {
         work: String,
     },
     /// Add explicit ordinary resources to one existing standalone Open work.
-    /// Targets with retained repair capacity require a separate supported grant.
+    /// Existing repair suballowances are preserved.
     /// Requires exact state/work fences and --preview or --apply. No repair grant,
     /// holds cleared, resume, inference or Store-account reset. Preview uses metered
     /// reads and may perform normal owner recovery; no future capacity is reserved.
     GrantWorkResources {
+        file: PathBuf,
+        #[arg(long, required_unless_present = "apply", conflicts_with = "apply")]
+        preview: bool,
+        #[arg(long, required_unless_present = "preview", conflicts_with = "preview")]
+        apply: bool,
+    },
+    /// Inspect a work's finite repair suballowance without recovery or inference.
+    WorkRepairSnapshot {
+        work: String,
+    },
+    /// Allocate restricted repair from existing work attempts. No funds or resume.
+    AllocateWorkRepair {
         file: PathBuf,
         #[arg(long, required_unless_present = "apply", conflicts_with = "apply")]
         preview: bool,
@@ -812,6 +824,18 @@ async fn run(cli: Cli) -> runtime::Result<()> {
     } else {
         None
     };
+    let repair_allocation_request = if let Command::AllocateWorkRepair {
+        file, preview, apply,
+    } = &cli.command {
+        if preview == apply {
+            return Err(argument("exactly one of --preview or --apply"));
+        }
+        let request: launch::RepairAllocationRequest = runtime::read_json_file(file, 16_384)?;
+        request.validate(operator)?;
+        Some(request)
+    } else {
+        None
+    };
     let human_intake_request = if let Command::AdmitHumanNeed {
         file,
         preview,
@@ -951,6 +975,17 @@ async fn run(cli: Cli) -> runtime::Result<()> {
                 *apply,
             )?);
         }
+        Command::WorkRepairSnapshot { work } => {
+            return emit(&launch::work_repair_snapshot_at(root, operator, work)?);
+        }
+        Command::AllocateWorkRepair { apply, .. } => {
+            return emit(&launch::allocate_work_repair_at(
+                root,
+                repair_allocation_request.as_ref().expect("repair allocation validated"),
+                *apply,
+                runtime::unix_now()?,
+            )?);
+        }
         _ => {}
     }
     let mut app = Runtime::open(root)?;
@@ -974,6 +1009,9 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         Command::HumanIntakeSnapshot => emit(&launch::human_intake_snapshot(&mut app, operator)?),
         Command::StoreCapacitySnapshot | Command::ExtendStoreCapacity { .. } => {
             unreachable!("capacity control handled before ordinary open")
+        }
+        Command::WorkRepairSnapshot { .. } | Command::AllocateWorkRepair { .. } => {
+            unreachable!("repair allocation handled before ordinary open")
         }
         Command::WorkResourceGrantSnapshot { work } => emit(&launch::work_resource_grant_snapshot(
             &mut app, operator, &work,
