@@ -465,6 +465,23 @@ fn readable_result(value: &launch::Output) -> runtime::Result<String> {
         format!("Work {}", value.work_id),
         human_status(&value.status).into(),
     ];
+    if let Some(feedback) = &value.requester_feedback {
+        if let Some(items) = feedback["items"].as_array().filter(|items| !items.is_empty()) {
+            lines.push("Requester feedback: persona accounts are separate from actual artifact changes and your acceptance.".into());
+            for item in items {
+                let label = item["label"].as_str().unwrap_or("Persona");
+                let status = match item["status"].as_str() {
+                    Some("pending") => "has not yet accounted for this feedback",
+                    Some("handled") => "marked this feedback handled",
+                    Some("declined") => "declined this feedback",
+                    _ => "has no currently available disposition for this feedback",
+                };
+                lines.push(format!("{label} {status}."));
+                if let Some(text) = item["feedback_text"].as_str() { lines.push(format!("Your feedback: {text}")); }
+                if let Some(reason) = item["account"]["reason"].as_str() { lines.push(format!("{label}'s account: {reason}")); }
+            }
+        }
+    }
     for (index, delivery) in value.local_deliveries.iter().enumerate() {
         lines.push(String::new());
         let label = if index == 0 && delivery["release"].as_str() == value.focus_release.as_deref()

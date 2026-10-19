@@ -132,3 +132,148 @@ pub(super) fn resolve(
     focus.feedback_dispositions.push(receipt);
     Ok(())
 }
+
+/// A bounded account of the requester's own tracked inputs and the persona's
+/// attributed dispositions. Never a verdict on whether a requested edit exists.
+pub(super) fn project_for_recipient(
+    state: &State,
+    work_id: &str,
+    recipient: &str,
+    now: i64,
+    max_bytes: usize,
+) -> Result<Value> {
+    let view = |items: Vec<Value>, truncated: bool| {
+        json!({
+            "items":items,"truncated":truncated,
+            "scope":"Currently permitted tracked requester feedback and attributed persona accounts. Handled does not establish compliance, an artifact change or requester acceptance; omitted history establishes no absence of obligations."
+        })
+    };
+    let work = state.board.work(&w::WorkId(work_id.into()))?;
+    if !state.config.local_recipients.contains(recipient) {
+        return Ok(view(Vec::new(), false));
+    }
+    if work.participants.len() > 128 || max_bytes < 1024 {
+        return Ok(view(Vec::new(), true));
+    }
+    let mut candidates = Vec::new();
+    let mut truncated = false;
+    for actor in work.participants.keys() {
+        let Some(persona) = state.personas.get(&actor.0) else {
+            continue;
+        };
+        let Some(focus) = persona.focus.get(work_id) else {
+            continue;
+        };
+        if persona.created_by != recipient
+            || !persona.seed.audience.contains(recipient)
+            || !persona.seed.grants.communicate_with.contains(recipient)
+        {
+            continue;
+        }
+        if focus.pending_requester_feedback.len() > MAX_PENDING
+            || focus.feedback_dispositions.len() > MAX_DISPOSITIONS
+        {
+            truncated = true;
+            continue;
+        }
+        let mut a = admission(persona, now);
+        a.audience = BTreeSet::from([recipient.into()]);
+        let inherited = work_exposure(state, work_id)?;
+        if !exposure_permitted(state, &inherited, &a) {
+            continue;
+        }
+        let ids: BTreeSet<_> = focus
+            .pending_requester_feedback
+            .iter()
+            .chain(focus.feedback_dispositions.iter().map(|r| &r.observation))
+            .collect();
+        for id in ids {
+            let Some(observation) = state.observations.get(id) else {
+                continue;
+            };
+            if observation.actor != actor.0
+                || observation.work != work_id
+                || observation.kind != "received_local_operator_feedback"
+                || observation.invocation.is_some()
+                || observation.payload["sender"] != recipient
+                || observation.payload["recipient"] != actor.0
+                || observation.payload["work"] != work_id
+                || !observation.sources.is_empty()
+                || !observation.qualified_roots.is_empty()
+            {
+                continue;
+            }
+            let Some(exposure) = observation.exposure.as_ref() else {
+                continue;
+            };
+            // Do not carry restrictions from one unrelated feedback item into
+            // the next. Every body has its own retained permission ancestry.
+            let mut permitted = inherited.clone();
+            extend_exposure(&mut permitted, exposure);
+            if !exposure_permitted(state, &permitted, &a) {
+                continue;
+            }
+            let pending = focus.pending_requester_feedback.contains(id);
+            let receipt = focus
+                .feedback_dispositions
+                .iter()
+                .rev()
+                .find(|receipt| receipt.observation == *id);
+            let receipt = receipt.filter(|receipt| {
+                exposure_permitted(state, &receipt.exposure, &a)
+                    && digest(observation).is_ok_and(|hash| hash == receipt.observation_sha256)
+            });
+            candidates.push((
+                !pending,
+                std::cmp::Reverse(observation.at_unix),
+                id,
+                persona,
+                observation,
+                pending,
+                receipt,
+            ));
+        }
+    }
+    candidates.sort_by(|a, b| (&a.0, &a.1, a.2).cmp(&(&b.0, &b.1, b.2)));
+    let mut left = max_bytes.min(65_536).saturating_sub(512);
+    let mut items = Vec::new();
+    for (_, _, id, persona, observation, pending, receipt) in candidates {
+        if items.len() == 64 {
+            truncated = true;
+            break;
+        }
+        let status = if pending {
+            "pending"
+        } else {
+            match receipt.map(|r| &r.disposition) {
+                Some(Disposition::Handled) => "handled",
+                Some(Disposition::Declined) => "declined",
+                None => "disposition_unavailable",
+            }
+        };
+        let mut item = json!({"persona":persona.seed.id,"label":persona.seed.label,
+            "observation":id,"input_id":observation.payload["id"],
+            "received_at_unix":observation.at_unix,"status":status,
+            "feedback_text":observation.payload["text"],"feedback_body_supplied":true,
+            "account":receipt.map(|r|json!({"invocation":r.invocation,
+                "at_unix":r.at_unix,"reason":r.reason})),
+            "compliance_verified":false,"requester_acceptance_established":false});
+        let mut size = serde_json::to_vec(&item)?.len();
+        if size > left {
+            // Keep the useful pending/disposition metadata if its full text
+            // does not fit. Never present a truncated quote as the full input.
+            item["feedback_text"] = Value::Null;
+            item["feedback_body_supplied"] = json!(false);
+            item["account"] = Value::Null;
+            item["detail_omitted"] = json!("result_byte_bound");
+            size = serde_json::to_vec(&item)?.len();
+            truncated = true;
+        }
+        if size > left {
+            break;
+        }
+        left -= size;
+        items.push(item);
+    }
+    Ok(view(items, truncated))
+}

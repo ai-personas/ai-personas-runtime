@@ -1304,6 +1304,21 @@ class Dialogue:
                         "Local delivery/attributed completion is not independent quality or human acceptance.")
         messages = result.get("messages", [])
         deliveries = result.get("local_deliveries", [])
+        feedback = (result.get("requester_feedback") or {}).get("items", [])
+        if feedback:
+            pending = sum(item.get("status") == "pending" for item in feedback)
+            self.ui.say(f"Visible requester feedback: {pending} pending, {len(feedback) - pending} with a recorded or unavailable disposition. "
+                        "A persona's account does not establish that a requested artifact change was made.")
+            if not summary:
+                for item in feedback:
+                    status = {"pending": "has not yet accounted for this feedback",
+                              "handled": "marked this feedback handled",
+                              "declined": "declined this feedback"}.get(item.get("status"), "has no currently available feedback disposition")
+                    self.ui.say(f"{item['label']} {status}.")
+                    if item.get("feedback_body_supplied"):
+                        self.ui.say("Your feedback: " + item["feedback_text"])
+                    if item.get("account"):
+                        self.ui.say(item["label"] + "'s account: " + item["account"]["reason"])
         if summary:
             self.ui.say(f"Available in this view: {len(messages)} replies; {len(deliveries)} local deliveries.")
             # Only an exact retained call can label the session's reply. Never

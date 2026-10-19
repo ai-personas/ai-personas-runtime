@@ -23,6 +23,9 @@ pub struct Output {
     pub recorded_completion: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub optional_activity_ending: Option<Value>,
+    /// Permission-filtered input/disposition history, never proof of compliance.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requester_feedback: Option<Value>,
     /// Exact permitted receipt for the focus release; not global freshness.
     pub status_delivery: Option<String>,
     pub last_attempt: Option<Value>,
@@ -117,6 +120,7 @@ pub(super) fn project(app: &mut Runtime, work_id: &str, saved: &Saved) -> Result
         completion_supported: None,
         recorded_completion: None,
         optional_activity_ending: None,
+        requester_feedback: None,
         status_delivery: None,
         last_attempt: None,
         messages: Vec::new(),
@@ -172,6 +176,17 @@ pub(super) fn project(app: &mut Runtime, work_id: &str, saved: &Saved) -> Result
         )
     });
     let mut left = 1024 * 1024 - 4096;
+    let feedback = requester_feedback::project_for_recipient(
+        &state, work_id, &saved.operator, now, left,
+    )?;
+    let feedback_size = serde_json::to_vec(&feedback)?.len();
+    if feedback_size <= left {
+        left -= feedback_size;
+        result.truncated |= feedback["truncated"].as_bool().unwrap_or(true);
+        result.requester_feedback = Some(feedback);
+    } else {
+        result.truncated = true;
+    }
     // Choose status before any presentation truncation. This is the latest
     // permitted release creation, not an assertion of global release freshness.
     if let Some((receipt, _, a)) = permitted_deliveries.first() {

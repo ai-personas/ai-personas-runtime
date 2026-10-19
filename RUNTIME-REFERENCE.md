@@ -464,6 +464,17 @@ no resume. Current eligibility must be inspected separately before a new run.
 The UI retains one pending work action and uses this same exact request if its
 confirmation was lost. Advanced resume/recovery commands remain available.
 
+Result views show currently permitted tracked requester feedback separately from
+deliveries and recorded completion. They retain the original input and the
+persona's attributed handled/declined account; a pending item remains visible
+after a local stop. These accounts do not establish that a requested edit exists
+or that the requester accepted it. Current contact, work and source restrictions
+apply independently to the input and the account. The view prioritizes pending
+items, then recent history, within 64 records and 64 KiB of the existing 1 MiB
+result allowance. Oversized details are explicitly omitted while metadata is
+retained where it fits; truncation or unavailable history is never a clean bill
+of completion. Reading the view performs no inference or feedback disposition.
+
 [Identity lifecycle controls](docs/persona-lifecycle.md) are separate from these
 work controls. `persona-lifecycle-snapshot PERSONA` reports active, paused or
 retired status, independent quarantine and permission-filtered retirement

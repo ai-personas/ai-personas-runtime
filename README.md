@@ -59,6 +59,8 @@ Use `--feedback feedback.json` to give a participant feedback within its existin
 work. The JSON contains `id`, `work`, `persona`, and `text`. Continue the work to
 see how it responds. Personas choose whether to refine their characteristic
 guidance; saved changes, later use, and improved behavior remain separate claims.
+Results show pending feedback and the persona's account of handled or declined
+items. Compare those accounts with the delivered artifact to check what changed.
 
 Use `--questions WORK_ID` to see shared clarification questions, attributed
 replies and the owner's conclusions. `--answer-question answer.json` adds your
