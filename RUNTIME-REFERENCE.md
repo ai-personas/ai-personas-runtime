@@ -610,6 +610,17 @@ For a future-result wait, `register_pending_mock_dependency` binds a distinct ty
 
 ## Files and decisions
 
+Structural response errors identify a schema-owned response section, or an
+operation index when available, and the allowed fields of a known object variant.
+Rejected field names, discriminator values and authored text are not echoed.
+Validation still rejects the complete response; the host does not repair it.
+After explicit failed-response acknowledgment and resume, a retained complete
+response may receive a fresh structural check. Its bounded correction observation
+is tied to the original terminal response and input permissions. It reports a
+current-schema check without rewriting the historical failure or exposing its
+private error envelope. It grants no retry, replay, funding or work authority;
+the persona must author a complete decision for a fresh admitted invocation.
+
 When an exact file reference and its complete text recur in selected context or
 current qualified read observations, the request may supply that text once in
 `QUALIFIED_CONTEXT.shared_texts.bodies`. Each original entry retains its own

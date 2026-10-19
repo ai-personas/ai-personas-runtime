@@ -911,7 +911,8 @@ enum RetainedFailureContext {
 }
 
 // A typed request-only fact never declassifies the full failure envelope.
-// Missing or legacy markers yield no correction; raw error text is not parsed.
+// Legacy markers grant no historical classification. The separate shape check
+// can inspect an authenticated rejected body; raw error text is never parsed.
 fn protocol_recovery_observation(
     invocation: &s::InvocationRecord,
     evidence: &s::StoredObject,
@@ -927,7 +928,7 @@ fn protocol_recovery_observation(
         code: ProtocolCorrection::CloseGoalRecordNotSupplied,
     }) = context
     else {
-        return Ok(None);
+        return shape_recovery_observation(invocation, evidence, prepared, now);
     };
     let terminal = evidence.exact_ref()?;
     let receipt = &evidence.body["receipt"];
@@ -991,6 +992,92 @@ fn protocol_recovery_observation(
         sources: prepared.sources.clone(),
         // Ordinary rendering rechecks this separate observation's original
         // request lineage. The private terminal/error envelope stays withheld.
+        exposure: prepared.exposure.clone(),
+        qualified_roots: Vec::new(),
+    }))
+}
+
+// A rejected complete response can be checked against the current structural
+// contract without consulting private work state or exposing authored values.
+// This is a new, attributed check, not a reclassification of the old failure.
+fn shape_recovery_observation(
+    invocation: &s::InvocationRecord,
+    evidence: &s::StoredObject,
+    prepared: &Prepared,
+    now: i64,
+) -> Result<Option<Observation>> {
+    let terminal = evidence.exact_ref()?;
+    let receipt = &evidence.body["receipt"];
+    let Some(text) = evidence.body["response_body"]["text"].as_str() else {
+        return Ok(None);
+    };
+    let completed = match prepared.request.profile {
+        Profile::Synthetic => {
+            receipt["kind"] == "synthetic_complete"
+                && receipt["synthetic"].as_bool() == Some(true)
+        }
+        Profile::Direct | Profile::NonconformantResearch => {
+            receipt["kind"] == "provider_complete"
+                && receipt["synthetic"].as_bool() == Some(false)
+                && receipt["attempt"]["response_completed"].as_bool() == Some(true)
+                && receipt["audit"]["invocation_id"] == prepared.request.id
+                && receipt["audit"]["prompt_sha256"] == prepared.prompt_sha256
+        }
+        Profile::Strict => false,
+    };
+    let failed_prefix = format!("terminal:{} ", terminal.sha256);
+    let failed = invocation.history.iter().any(|record| {
+        record.subject == s::EntityId::Invocation(invocation.id.clone())
+            && record.status == s::ReceiptStatus::Failed
+            && record.detail.as_ref()
+                .is_some_and(|detail| detail.starts_with(&failed_prefix))
+    });
+    let response_bound = invocation.response_hash.as_deref().is_some_and(|hash| {
+        receipt["inner_sha256"].as_str()
+            .or_else(|| receipt["transport_sha256"].as_str()) == Some(hash)
+            && s::sha256_bytes(text.as_bytes()) == hash
+    });
+    if invocation.state != s::InvocationState::Failed
+        || invocation.id != prepared.request.id
+        || prepared.request.mode != Mode::Ordinary
+        || evidence.kind != "runtime-terminal-transport"
+        || terminal.id != terminal_id(&invocation.id)
+        || terminal.revision != 1
+        || !completed
+        || !failed
+        || !response_bound
+        || evidence.body["invocation_id"] != prepared.request.id
+        || evidence.body["prepare_hash"] != invocation.prepare_hash
+        || evidence.body["prepared_epoch"] != prepared.epoch
+        || evidence.body["prompt_sha256"] != prepared.prompt_sha256
+        || s::sha256_bytes(prepared.prompt.as_bytes()) != prepared.prompt_sha256
+        || prepared.exposure.is_none()
+    {
+        return Ok(None);
+    }
+    let response_limit = prepared.terminal_response_bytes
+        .unwrap_or(RESPONSE_LIMIT).min(RESPONSE_LIMIT);
+    let Err(p::ProtocolError::Shape { line, column, rule, hint }) =
+        p::parse_decision(text.as_bytes(), response_limit)
+    else {
+        return Ok(None);
+    };
+    Ok(Some(Observation {
+        id: composite_id("protocol-shape-correction", &[&invocation.id]),
+        actor: prepared.request.persona.clone(),
+        work: prepared.request.work.clone(),
+        invocation: Some(invocation.id.clone()),
+        kind: "protocol_correction".into(),
+        at_unix: now,
+        payload: json!({
+            "code":"retained_response_shape_v1",
+            "scope":"Current protocol structural check of the exact rejected response; original failure classification is unchanged.",
+            "terminal":terminal,
+            "shape":{"line":line,"column":column,"rule":rule,"hint":hint},
+            "detail":"The retained rejected response does not match the current Decision shape. Use the supplied schema for the named section and exact variant. Allowed fields, when known, come from that schema; rejected names and authored values are not supplied. Return a complete new Decision for the fresh invocation. No operation from the rejected decision was adopted. This observation supplies no work evidence, permission, additional resources, or authorization to replay.",
+            "response_body_supplied":false,"replay_authorized":false
+        }),
+        sources: prepared.sources.clone(),
         exposure: prepared.exposure.clone(),
         qualified_roots: Vec::new(),
     }))

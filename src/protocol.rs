@@ -22,6 +22,8 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 pub mod need;
+mod diagnostics;
+pub use diagnostics::ShapeHint;
 
 pub const PROTOCOL_VERSION: u32 = 1;
 pub const MAX_JSON_DEPTH: usize = 64;
@@ -562,11 +564,12 @@ pub enum ProtocolError {
     NodeLimit { offset: usize, maximum: usize },
     #[error("decoded JSON string exceeds {maximum} bytes at byte {offset}")]
     StringLimit { offset: usize, maximum: usize },
-    #[error("response does not match the protocol shape at line {line}, column {column}: {rule}")]
+    #[error("response shape at {hint} (line {line}, column {column}): {rule}")]
     Shape {
         line: usize,
         column: usize,
         rule: &'static str,
+        hint: ShapeHint,
     },
     #[error("invalid {path}: {rule}")]
     Invalid { path: String, rule: &'static str },
@@ -590,7 +593,13 @@ pub fn parse_decision(bytes: &[u8], max_bytes: usize) -> Result<Decision, Protoc
         nodes: 0,
     }
     .document()?;
-    let decision: Decision = serde_json::from_slice(bytes).map_err(shape_error)?;
+    let decision: Decision = serde_path_to_error::deserialize(
+        &mut serde_json::Deserializer::from_slice(bytes),
+    )
+    .map_err(|error| {
+        let hint = diagnostics::hint(error.path(), bytes);
+        shape_error_with_hint(error.into_inner(), hint)
+    })?;
     // Serde also accepts positional sequences for derived named structs. Compare
     // the original containers with their typed wire shape, so those sequences
     // cannot bypass the advertised object-only boundaries. Preflight bounds both
@@ -609,6 +618,10 @@ pub fn parse_decision(bytes: &[u8], max_bytes: usize) -> Result<Decision, Protoc
 }
 
 fn shape_error(error: serde_json::Error) -> ProtocolError {
+    shape_error_with_hint(error, ShapeHint::default())
+}
+
+fn shape_error_with_hint(error: serde_json::Error, hint: ShapeHint) -> ProtocolError {
     // Preserve a useful structural category without echoing any rejected field
     // name or value. Such strings can contain private text or quote delimiters.
     let detail = error.to_string();
@@ -629,6 +642,7 @@ fn shape_error(error: serde_json::Error) -> ProtocolError {
         line: error.line(),
         column: error.column(),
         rule,
+        hint,
     }
 }
 
