@@ -83,6 +83,31 @@ matches that input. It distinguishes selected context from a completed read
 supplied as an observation. Discovery metadata, a selected reference without
 its body, and an uncompleted read do not establish actual supply.
 
+The same view shows the exact accepted response's work judgment, characteristic
+and asset maintenance decisions, next-context intentions, and continuation. This
+makes a reasoned no-change decision visible alongside an authored change. Reasons,
+consequences and exact references remain attached to each judgment. Character-only
+adoption reports its fence; authored proposals must not be mistaken for effects.
+
+Operation dispositions come from the retained adoption report. **Applied locally**
+does not establish outside execution, delivery or quality. For a file write, the
+view separately looks for a currently permitted retained revision with matching
+persona, invocation and operation authorship. This is exact storage metadata,
+not a supplied file body or evidence of current selection. Newly named selections
+and file writes require their own current source permissions. If these cannot be
+established, the complete decision view is unavailable; this does not imply that
+a write never happened. The complete decision projection is
+bounded to 64 KiB; if it cannot fit, the view reports it unavailable without
+presenting a partial judgment. Existing source, work and invocation permissions
+remain controlling.
+
+Per-call accounting separates the retained prompt's instructions/schema, work
+controls, qualified context and separators, alongside the reserved assembly size.
+Provider-reported usage and transport size are shown only for a matching completed
+provider input. They remain distinct from Store reservation accounting, which may
+still be uncertain. These figures describe one call, not total episode cost or
+demonstrated savings.
+
 Optional selections belong to a work. Reusing a refinement in another work
 requires that persona's own selection or an authorized character adoption;
 retention alone does not add it to every later prompt. A permitted character

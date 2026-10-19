@@ -1480,9 +1480,63 @@ class Dialogue:
                             "route: " + json.dumps(revision["supply_routes"], ensure_ascii=False))
             if not supplied:
                 self.ui.say("None of the characteristic revisions in this view was supplied in full to this call.")
+            self.development_decision(evidence)
         if result.get("truncated"):
             self.ui.say("This bounded view omits additional revisions. Use an exact source ID to narrow it.")
         self.ui.say("Retained guidance and actual input supply do not by themselves establish improved behavior. Review the work and its consequences.")
+
+    def development_decision(self, evidence):
+        decision = evidence.get("accepted_decision")
+        if decision is None:
+            self.ui.say("This helper does not expose the accepted maintenance decision.")
+        elif not decision.get("available"):
+            self.ui.say("Accepted decision unavailable: " + decision.get("reason", "unavailable"))
+        else:
+            self.ui.say("Recorded adoption: " + decision["adoption_status"])
+            if decision.get("adoption_reason"):
+                self.ui.say(decision["adoption_reason"])
+            for field, label in (("work", "Authored work judgment"),
+                                 ("fragment_maintenance", "Characteristic maintenance"),
+                                 ("asset_maintenance", "Supporting-asset maintenance"),
+                                 ("next_fragments", "Authored next fragments"),
+                                 ("next_assets", "Authored next assets"),
+                                 ("continuation", "Authored continuation")):
+                # Preserve reasons, consequences, evidence and exact selections;
+                # a short label must not detach a judgment from its conditions.
+                self.ui.say(label + ": " + json.dumps(decision[field], ensure_ascii=False, indent=2))
+            if not decision["operations"]:
+                self.ui.say("No operations were proposed in this response.")
+            for operation in decision["operations"]:
+                name = operation.get("command") or operation["kind"]
+                self.ui.say(f"{name.replace('_', ' ')} — {operation['disposition'].replace('_', ' ')} "
+                            f"({operation['id']})")
+                stored = operation.get("retained_write")
+                if stored and stored["status"] == "retained_exact_revision":
+                    ref = stored["reference"]
+                    self.ui.say(f"Retained {stored['scope']}: {ref['source']} @ {ref['revision']} "
+                                "(metadata only; current selection is separate)")
+                    if stored.get("source_retired"):
+                        self.ui.say("This source is retired; this historical write does not make it usable again.")
+                elif stored:
+                    self.ui.say("An exact retained write is unavailable in this view.")
+            self.ui.say(decision["scope"])
+        accounting = evidence.get("input_accounting")
+        if accounting:
+            self.ui.say(f"This call's prompt: {accounting['prompt_utf8_bytes']} UTF-8 bytes; "
+                        f"instructions/schema {accounting['instructions_and_application_schema_utf8_bytes']}, "
+                        f"work controls {accounting['control_utf8_bytes']}, "
+                        f"qualified context {accounting['qualified_context_utf8_bytes']}, "
+                        f"section separators {accounting['section_separator_utf8_bytes']}.")
+            self.ui.say(f"Assembled bytes including reserves: {accounting['assembled_bytes_with_reserve']}.")
+            transport = accounting.get("provider_request_bytes")
+            if transport is not None:
+                self.ui.say(f"Matching provider request: {transport} transport bytes.")
+            usage = accounting.get("provider_reported_usage")
+            self.ui.say("Provider-reported usage: " + (json.dumps(usage, ensure_ascii=False) if usage is not None
+                                                      else "unavailable for a matching completed provider input"))
+            if accounting.get("store_usage_is_unknown"):
+                self.ui.say("Store usage accounting remains uncertain; reported provider tokens do not refund its reservation.")
+            self.ui.say(accounting["scope"])
 
     def work_menu(self, work, after):
         self.ui.say(f"Work {work['id']}: {work['need']}")

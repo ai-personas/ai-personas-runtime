@@ -191,13 +191,15 @@ fn invocation_evidence(
         .prompt
         .rsplit_once("\nQUALIFIED_CONTEXT\n")
         .ok_or_else(|| held("qualified input evidence unavailable"))?;
+    let qualified_bytes = qualified.len();
     let qualified: Value = serde_json::from_str(qualified)?;
     let entries = qualified["entries"]
         .as_array()
         .ok_or_else(|| held("qualified input evidence unavailable"))?;
-    let (_, control) = prefix
+    let (instructions, control) = prefix
         .rsplit_once("\nCONTROL\n")
         .ok_or_else(|| held("control input evidence unavailable"))?;
+    let control_bytes = control.len();
     let control: Value = serde_json::from_str(control)?;
     let mut supplied = Vec::new();
     for revision in revisions {
@@ -276,8 +278,134 @@ fn invocation_evidence(
         "adopted_response":exact, "response_sha256":archive.response_hash,
         "provider_completed_with_matching_input":provider_completed,
         "supplied_characteristic_revisions":supplied,
+        "accepted_decision":accepted_decision_view(state, audience, &archive)?,
+        "input_accounting":{
+            "prompt_utf8_bytes":prepared.prompt.len(),
+            "instructions_and_application_schema_utf8_bytes":instructions.len(),
+            "control_utf8_bytes":control_bytes,
+            "qualified_context_utf8_bytes":qualified_bytes,
+            "section_separator_utf8_bytes":"\nCONTROL\n\nQUALIFIED_CONTEXT\n".len(),
+            "assembled_bytes_with_reserve":prepared.assembled_bytes_with_reserve,
+            "provider_reported_usage":if provider_completed { receipt.and_then(|r| r.get("usage")) } else { None },
+            "provider_request_bytes":if provider_completed { receipt.and_then(|r| r.get("audit")).and_then(|a| a.get("request_bytes")) } else { None },
+            "store_usage_is_unknown":archive.report.usage_is_unknown,
+            "scope":"This retained call only. Prompt bytes, reserved assembly bytes, provider transport bytes, reported tokens and Store accounting are distinct; no whole-episode cost or savings claim."
+        },
         "scope":"Exact full bodies in selected/mandatory context or qualified Read observations, among the characteristic revisions returned by this bounded view. Other revisions and invocations are not inspected. Current permissions still apply.",
         "behavioral_improvement_established":false,
         "limits":"Input supply and an accepted response do not prove attention, causation, improved behavior, or successful execution of every proposed operation. Inspect the work result separately."
     }))
+}
+
+/// Keep authored judgments distinct from locally applied operations. The
+/// invocation/archive permission checks above cover the decision; newly written
+/// file metadata additionally needs its own current source permission check.
+fn accepted_decision_view(
+    state: &State,
+    audience: &f::Admission,
+    archive: &AdoptedResponse,
+) -> Result<Value> {
+    let unavailable = || json!({
+        "available":false,
+        "reason":"The complete decision view is unavailable under current source permissions or retention; no partial judgment is presented."
+    });
+    // A next selection may name material that was not in this call's input.
+    // Its identities must not inherit disclosure from the input's exposure.
+    for selection in [&archive.response.next_fragments, &archive.response.next_assets] {
+        if let p::SelectionIntent::Replace { references, .. } = selection {
+            for reference in references {
+                if reference.revision.starts_with(p::PROPOSED_REVISION_PREFIX)
+                    || reference.revision.starts_with(p::PROPOSED_OPERATION_PREFIX)
+                {
+                    // Same-response FileWrite policies and retained origins are
+                    // checked below before any of this projection is returned.
+                    continue;
+                }
+                if !file_reference(reference).is_ok_and(|reference| {
+                    lineage_permitted(state, &[reference], audience)
+                }) {
+                    return Ok(unavailable());
+                }
+            }
+        }
+    }
+    let mut operations = Vec::new();
+    for operation in &archive.response.operations {
+        let value = serde_json::to_value(operation)?;
+        let applied = archive.report.applied.iter().any(|id| id == operation.id());
+        let fenced = archive.report.fenced.iter().any(|id| id == operation.id());
+        let mut item = json!({
+            "id":operation.id(), "kind":value["kind"],
+            "disposition":if applied { "applied_locally" } else if fenced { "fenced" } else { "unestablished" }
+        });
+        if let p::Operation::WorkCommand { inputs, .. } = operation {
+            item["command"] = inputs["kind"].clone();
+        }
+        if let p::Operation::FileWrite { source, policy_id, .. } = operation {
+            if !current_policy(state, policy_id)
+                .is_ok_and(|policy| policy_permitted(state, policy, audience))
+            {
+                return Ok(unavailable());
+            }
+            // Never infer successful storage from an authored FileWrite alone.
+            // A currently retained exact origin corroborates the adoption report.
+            let retained = if applied {
+                state.sources.get(source).and_then(|source| {
+                    source.revisions.iter().find(|stored| {
+                        matches!(&stored.origin,
+                            Some(RevisionOrigin::PersonaInvocation { persona, invocation_id, operation_id })
+                            if persona == &archive.actor
+                                && invocation_id == &archive.response.invocation_id
+                                && operation_id == operation.id())
+                            && lineage_permitted(
+                                state,
+                                &[stored.record.reference(f::Representation::Utf8)],
+                                audience,
+                            )
+                    })
+                })
+            } else {
+                None
+            };
+            if applied && retained.is_none() {
+                // The maintenance explanation or proposed selection may name
+                // this new material too. Withhold the whole decision view.
+                return Ok(unavailable());
+            }
+            item["retained_write"] = match retained {
+                Some(stored) => json!({
+                    "status":"retained_exact_revision",
+                    "reference":wire_reference(&stored.record.reference(f::Representation::Utf8)),
+                    "scope":stored.record.scope,
+                    "origin":stored.origin,
+                    "source_retired":state.sources[source].retired,
+                    "metadata_only":true,
+                    "current_selection_not_inferred":true
+                }),
+                None => json!({"status":"unavailable_or_not_applied"}),
+            };
+        }
+        operations.push(item);
+    }
+    let decision = &archive.response;
+    let view = json!({
+        "available":true,
+        "adoption_status":archive.report.status,
+        "adoption_reason":archive.report.reason,
+        "work":decision.work,
+        "fragment_maintenance":decision.fragment_maintenance,
+        "asset_maintenance":decision.asset_maintenance,
+        "next_fragments":decision.next_fragments,
+        "next_assets":decision.next_assets,
+        "continuation":decision.continuation,
+        "operations":operations,
+        "scope":"Authored judgments and next-context intentions from this exact accepted response. Applied means adopted locally, not independently verified quality, external execution or delivery. Fenced proposals did not take effect. Retained-write metadata does not supply a file body, prove current selection or establish later benefit."
+    });
+    if serde_json::to_vec(&view)?.len() > 65_536 {
+        return Ok(json!({
+            "available":false,
+            "reason":"The complete decision projection exceeds this view's 65536-byte bound; no partial judgment is presented."
+        }));
+    }
+    Ok(view)
 }

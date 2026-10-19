@@ -150,7 +150,9 @@ Selecting a work opens its action menu:
 - **d: persona development** displays accepted characteristic guidance with its
   attribution and complete qualifications. An optional source ID narrows the
   eight-revision view; an optional accepted call ID inspects exact body supply
-  and the matching completed provider input. This does not establish improvement.
+  and the matching completed provider input, authored maintenance and next-context
+  decisions, locally applied or fenced operations, and per-call input accounting.
+  Retained file-write metadata is checked separately. This does not establish improvement.
 - **u: resume participant** lets you choose a stopped or individually paused
   participant in an Open work and explicitly allow a fresh decision. It starts
   no model call. The menu shows names alongside identities and rechecks the
