@@ -738,6 +738,20 @@ runtime cannot execute. Exact local delivery uses `work_command` with
 `deliver_release` after a release exists. Historical wire responses remain readable;
 attempting the unsupported legacy operation still refuses the whole response.
 
+`work_command.depends_on` names only `file_write` proposals whose revisions the
+command consumes. Use `[]` otherwise. Local work commands run in their listed
+order; an action that permits an earlier record uses its inner record ID in
+`inputs`, without a command-to-command dependency edge. The supplied schema
+describes this boundary, and structural response validation identifies a non-file
+dependency before adoption. Read results, external execution results and
+closure receipts still require their existing fresh-admission evidence.
+
+The maintenance fields account for all mutations in their respective scopes.
+Editing an existing task deliverable is an asset change: use
+`asset_maintenance.kind = "change"` and include its `file_write` ID in
+`asset_maintenance.operation_ids`. The schema and validation diagnostic identify
+the applicable maintenance field for both task edits and other mutations.
+
 Arrangement `terms.changes` contains only genuinely changed commitments. Omitted
 participants retain their accepted terms. Including an unchanged commitment is
 refused with an explicit diagnostic. Required consent is computed separately:

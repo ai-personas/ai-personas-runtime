@@ -46,7 +46,12 @@ pub struct Decision {
     pub invocation_id: String,
     pub epoch: u64,
     pub work: WorkDisposition,
+    /// Account for every fragment mutation and character adoption in this
+    /// response with change.operation_ids, including edits made for this task.
     pub fragment_maintenance: Maintenance,
+    /// Account for every supporting-asset mutation in this response, including
+    /// task deliverable edits. Each file_write with scope assets belongs in
+    /// change.operation_ids; revising an existing file is still a change.
     pub asset_maintenance: Maintenance,
     pub next_fragments: SelectionIntent,
     pub next_assets: SelectionIntent,
@@ -473,9 +478,18 @@ pub enum Operation {
         proposal: need::Proposal,
         depends_on: Vec<String>,
     },
+    /// Applies an offered internal work action. Commands run in listed order
+    /// after staged file saves; this is not an external execution dependency.
     WorkCommand {
         id: String,
+        /// Match CONTROL.work_capability.inputs_schema exactly. Where that
+        /// action permits an earlier local record, cite its inner record ID.
         inputs: Value,
+        /// Only file_write operation IDs whose proposed revisions this command
+        /// consumes. Use [] otherwise; never name another work_command here.
+        /// Ordered local commands need no command-to-command depends_on edge.
+        /// Reading or executing something does not supply its result until a
+        /// fresh decision receives the actual observation.
         depends_on: Vec<String>,
     },
     Effect {
@@ -483,6 +497,9 @@ pub enum Operation {
         capability_id: String,
         binding_revision: String,
         inputs: Value,
+        /// Follow this capability's supplied dependency contract. For
+        /// work.command.v1, name only consumed file_write proposals; use [] for
+        /// ordered local commands that consume no same-response file save.
         depends_on: Vec<String>,
     },
 }
@@ -2100,11 +2117,14 @@ pub fn validate_decision(
         &mut referenced,
     )?;
     for (index, operation) in decision.operations.iter().enumerate() {
-        if operation.maintenance_scope().is_some() && !referenced.contains(&index) {
-            return Err(invalid(
-                &format!("operations[{index}]"),
-                "mutation is not accounted for by its maintenance scope",
-            ));
+        if let Some(scope) = operation.maintenance_scope() {
+            if !referenced.contains(&index) {
+                let rule = match scope {
+                    Scope::Fragments {} => "fragment mutation requires fragment_maintenance.kind=change and its exact operation ID in operation_ids",
+                    Scope::Assets {} => "asset mutation, including a task deliverable edit, requires asset_maintenance.kind=change and its exact operation ID in operation_ids",
+                };
+                return Err(invalid(&format!("operations[{index}]"), rule));
+            }
         }
     }
 
@@ -2162,6 +2182,14 @@ pub fn validate_decision(
                     return Err(invalid(
                         &format!("operations[{index}].depends_on"),
                         "an operation cannot depend on itself",
+                    ));
+                }
+                if matches!(operation, Operation::WorkCommand { .. })
+                    && !matches!(decision.operations[prerequisite], Operation::FileWrite { .. })
+                {
+                    return Err(invalid(
+                        &format!("operations[{index}].depends_on"),
+                        "work command prerequisites may name file_write operations only; local commands run in listed order without command-to-command dependencies",
                     ));
                 }
                 if matches!(
