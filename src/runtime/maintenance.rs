@@ -31,6 +31,21 @@ fn latest<'a>(focus: &'a Focus, id: &str) -> Option<&'a DispositionReceipt> {
     })
 }
 
+/// A historical deferral remains open until its owner explicitly accounts for
+/// it. This is disposition bookkeeping, never proof that a repair succeeded.
+pub(super) fn has_unresolved(actor: &str, work: &str, focus: &Focus) -> Result<bool> {
+    bounds(focus)?;
+    for (index, record) in focus.protected_maintenance.iter().enumerate() {
+        let (id, _) = identity_for(actor, work, index, record)?;
+        let Some(receipt) = latest(focus, &id) else { return Ok(true); };
+        let p::Operation::MaintenanceDispose { disposition, .. } = receipt.operation else {
+            return Err(held("maintenance disposition unavailable"));
+        };
+        if disposition == p::MaintenanceDisposition::Unresolved { return Ok(true); }
+    }
+    Ok(false)
+}
+
 fn bounds(focus: &Focus) -> Result<()> {
     require(
         focus.protected_maintenance.len() <= MAX_RECORDS

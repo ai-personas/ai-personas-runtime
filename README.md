@@ -23,6 +23,10 @@ call. To let a stopped participant respond, choose **Resume participant**, then
 Existing runtimes configured for Codex OAuth authentication can use this same
 menu; the runtime still sends inference requests directly to the provider.
 
+[Persona lifecycle controls](docs/persona-lifecycle.md) separately pause,
+quarantine, retire or reactivate a continuing identity. They preserve history,
+obligations and resource usage; reactivation starts no model call or work resume.
+
 To inspect a continuing persona's accepted characteristic fragments:
 
 ```sh

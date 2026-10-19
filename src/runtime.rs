@@ -19,6 +19,7 @@ mod history;
 mod initialization;
 mod intake;
 pub use intake::WorkAllocation;
+pub(crate) mod lifecycle;
 mod need_proposals;
 mod optional_activity;
 pub use need_proposals::{IntakeEpisodeSnapshot, NeedInterface, PendingNeedProposal};
@@ -526,6 +527,9 @@ pub struct Focus {
 pub struct Persona {
     pub seed: Seed,
     pub created_by: String,
+    /// Absent on legacy identities until protected controls are explicitly funded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) lifecycle: Option<lifecycle::Record>,
     pub character: Option<Character>,
     pub owner_epoch: u64,
     pub admission_serial: u64,
@@ -2201,7 +2205,8 @@ pub(crate) fn runtime_opportunity(
     now: u64,
 ) -> Option<w::Opportunity> {
     let now_unix = i64::try_from(now).ok()?;
-    if need_proposals::route_reason(state, &work.0, now_unix).is_some()
+    if lifecycle::reason(state, &actor.0).is_some()
+        || need_proposals::route_reason(state, &work.0, now_unix).is_some()
         || need_proposals::actor_reason(state, &work.0, &actor.0).is_some()
         || optional_activity::route_reason(state, &work.0, &actor.0, now_unix).is_some()
     {
@@ -2300,6 +2305,7 @@ fn active_invocations(state: &State) -> BTreeMap<String, String> {
         .collect()
 }
 fn continuation_permit(state: &State, actor: &str, work: &str) -> bool {
+    if lifecycle::reason(state, actor).is_some() { return false; }
     if optional_activity::route_reason(state, work, actor, unix_now().unwrap_or(-1)).is_some() {
         return false;
     }
@@ -2371,7 +2377,9 @@ fn scheduler_entry(
     now: i64,
 ) -> Result<SchedulerConsideration> {
     let current = state.board.work(&work)?;
-    let reason = if let Some(reason) = optional_activity::route_reason(state, &work.0, &persona.0, now) {
+    let reason = if let Some(reason) = lifecycle::reason(state, &persona.0) {
+        Some(reason)
+    } else if let Some(reason) = optional_activity::route_reason(state, &work.0, &persona.0, now) {
         Some(reason)
     } else if let Some(reason) = need_proposals::actor_reason(state, &work.0, &persona.0) {
         Some(reason)
@@ -2596,6 +2604,18 @@ impl CloseoutRuntime {
     pub fn pause(&mut self, operator: &str, work: &str, reason: &str) -> Result<()> {
         self.runtime
             .pause_in_class(operator, work, reason, s::BudgetClass::Closeout)
+    }
+    pub fn pause_persona(&mut self, operator: &str, persona: &str, reason: &str) -> Result<()> {
+        self.runtime.apply_runtime_control(s::RuntimeControl {
+            operator: operator.into(), work: persona.into(), reason: reason.into(),
+            action: s::RuntimeControlAction::PersonaPause,
+        }, s::BudgetClass::Closeout)
+    }
+    pub fn quarantine_persona(&mut self, operator: &str, persona: &str, reason: &str) -> Result<()> {
+        self.runtime.apply_runtime_control(s::RuntimeControl {
+            operator: operator.into(), work: persona.into(), reason: reason.into(),
+            action: s::RuntimeControlAction::PersonaQuarantine,
+        }, s::BudgetClass::Closeout)
     }
     pub fn closeout(
         &mut self,
@@ -3716,6 +3736,7 @@ impl Runtime {
         }
         let mut start_epoch = self.store.epoch()?;
         let (mut old, mut state) = self.load()?;
+        lifecycle::require_active(&state, &request.persona)?;
         if let Some(admission) = &scheduler {
             require(
                 old.exact_ref()? == admission.expected_state,
@@ -4471,6 +4492,7 @@ impl Runtime {
         })
     }
     fn current(&mut self, state: &State, prepared: &Prepared, now: i64) -> Result<()> {
+        lifecycle::require_active(state, &prepared.request.persona)?;
         if let Some(reason) =
             need_proposals::actor_reason(state, &prepared.request.work, &prepared.request.persona)
         {
@@ -4988,6 +5010,7 @@ impl Runtime {
             }
             return Err(error);
         }
+        lifecycle::require_active(&state, persona)?;
         require(
             !matches!(
                 state.board.work(&w::WorkId(work.into()))?.phase,
@@ -5771,6 +5794,10 @@ pub(crate) fn runtime_control_id(
     current: &s::StoredObject,
     control: &s::RuntimeControl,
 ) -> s::Result<String> {
+    if control.is_persona() {
+        return lifecycle::control_id(current, control)
+            .map_err(|error| s::StoreError::Invalid(error.to_string()));
+    }
     let version: w::Version = serde_json::from_value(
         current.body["board"]["works"][control.work.as_str()]["version"].clone(),
     )?;
@@ -5792,6 +5819,10 @@ pub(crate) fn runtime_control_is_current(
     recorded: &s::StoredObject,
     control: &s::RuntimeControl,
 ) -> s::Result<bool> {
+    if control.is_persona() {
+        return lifecycle::control_is_current(current, recorded, control)
+            .map_err(|error| s::StoreError::Invalid(error.to_string()));
+    }
     let phase: w::Phase = serde_json::from_value(
         current.body["board"]["works"][control.work.as_str()]["phase"].clone(),
     )?;
@@ -5848,7 +5879,7 @@ pub(crate) fn runtime_control_requirements(
             object.body["operator_events"].is_array(),
             "operator history unavailable",
         )?;
-        works
+        let mut requirements = works
             .iter()
             .map(|(id, work)| {
                 identity(id)?;
@@ -5914,7 +5945,9 @@ pub(crate) fn runtime_control_requirements(
                     growth_bytes,
                 })
             })
-            .collect::<Result<Vec<_>>>()
+            .collect::<Result<Vec<_>>>()?;
+        requirements.extend(lifecycle::requirements(object)?);
+        Ok(requirements)
     })();
     result.map_err(|error| s::StoreError::Invalid(error.to_string()))
 }
@@ -5929,6 +5962,9 @@ pub(crate) fn runtime_control_object(
 ) -> s::Result<s::StoredObject> {
     let result = (|| -> Result<_> {
         runtime_control_requirements(old)?;
+        if control.is_persona() {
+            return lifecycle::control_object(old, control);
+        }
         identity(&control.operator)?;
         identity(&control.work)?;
         text(&control.reason, 4096)?;
@@ -5956,6 +5992,9 @@ pub(crate) fn runtime_control_object(
                     },
                     reason: control.reason.clone(),
                 }
+            }
+            s::RuntimeControlAction::PersonaPause | s::RuntimeControlAction::PersonaQuarantine => {
+                return Err(held("persona control cannot change work phase"));
             }
         };
         board.observe(&context, operation)?;
@@ -6062,6 +6101,7 @@ fn insert_seed(state: &mut State, operator: &str, seed: Seed) -> Result<()> {
         Persona {
             seed,
             created_by: operator.into(),
+            lifecycle: None,
             character: None,
             owner_epoch: 0,
             admission_serial: 0,
@@ -9437,6 +9477,7 @@ fn resume_participant_state(
     explicit: bool,
     failed_attempt_ack: Option<&s::ObjectRef>,
 ) -> Result<()> {
+    lifecycle::require_active(state, persona)?;
     observe(
         state,
         operator,

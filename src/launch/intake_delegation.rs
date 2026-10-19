@@ -894,6 +894,7 @@ fn issue_availability(
         .requesting_personas
         .union(&request.allowed_child_participants)
     {
+        lifecycle::require_active(state, id)?;
         let persona = state
             .personas
             .get(id)

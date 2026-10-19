@@ -602,6 +602,7 @@ fn plan(
         "remaining launch calls cannot support this child allocation",
     )?;
     let mut exposure = expanded_exposure(&state, &pending.exposure)?;
+    lifecycle::require_active(&state, &pending.author)?;
     let author = state
         .personas
         .get(&pending.author)
@@ -617,6 +618,7 @@ fn plan(
         "operator delivery is outside the exact policy audience",
     )?;
     for invitee in &proposal.invitees {
+        lifecycle::require_active(&state, &invitee.persona)?;
         require(
             grant
                 .request

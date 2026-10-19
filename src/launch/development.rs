@@ -114,6 +114,7 @@ pub fn development_at(
     }
     let mut output = json!({
         "persona":persona_id, "label":persona.seed.label,
+        "lifecycle":lifecycle::projection(persona),
         "character":character, "characteristic_revisions":revisions,
         "truncated":truncated, "inference_performed":false,
         "scope":"currently permitted accepted characteristic revisions; supporting assets are separate",

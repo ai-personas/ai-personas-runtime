@@ -804,6 +804,8 @@ pub enum RuntimeControlAction {
     Pause,
     Canceled,
     Unfinished,
+    PersonaPause,
+    PersonaQuarantine,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -812,6 +814,19 @@ pub struct RuntimeControl {
     pub work: String,
     pub reason: String,
     pub action: RuntimeControlAction,
+}
+
+impl RuntimeControl {
+    pub(crate) fn is_persona(&self) -> bool {
+        matches!(self.action, RuntimeControlAction::PersonaPause | RuntimeControlAction::PersonaQuarantine)
+    }
+    fn slot_work(&self) -> String {
+        if self.is_persona() { crate::runtime::lifecycle::slot_key(&self.work) }
+        else { self.work.clone() }
+    }
+    fn uses_ending_slot(&self) -> bool {
+        matches!(self.action, RuntimeControlAction::Canceled | RuntimeControlAction::Unfinished | RuntimeControlAction::PersonaQuarantine)
+    }
 }
 
 /// Exact transaction arguments, not a serialized grant of authority.
@@ -1427,8 +1442,8 @@ impl TrustedHost<'_> {
         self.store.transaction(|work| {
             work.id(&control.work)?;
             let current: StoredObject = work.required("object", RUNTIME_CONTROL_STATE_ID)?;
-            let ending = control.action != RuntimeControlAction::Pause;
-            let key = work.current_runtime_control_key(&control.work, ending)?;
+            let ending = control.uses_ending_slot();
+            let key = work.current_runtime_control_key(&control.slot_work(), ending)?;
             let retained = work
                 .get::<RuntimeControlSlot>("runtime_control", &key)?
                 .and_then(|slot| slot.commit);
@@ -1533,9 +1548,10 @@ impl TrustedHost<'_> {
             let plan = work.runtime_control_plan()?.ok_or(StoreError::Unsupported(
                 "runtime closeout was not prepaid; explicitly provision while unfrozen",
             ))?;
-            let ending = request.control.action != RuntimeControlAction::Pause;
-            let key = work.current_runtime_control_key(&request.control.work, ending)?;
-            let mut slot = work.runtime_control_slot(&key, &request.control.work, ending, &plan)?;
+            let ending = request.control.uses_ending_slot();
+            let slot_work = request.control.slot_work();
+            let key = work.current_runtime_control_key(&slot_work, ending)?;
+            let mut slot = work.runtime_control_slot(&key, &slot_work, ending, &plan)?;
             if slot.commit.is_some() {
                 return Err(StoreError::Conflict(request.id.clone()));
             }
@@ -3834,7 +3850,7 @@ impl<'a> Work<'a> {
     // latest finite allocation without a new mutable cursor or secondary index.
     fn current_runtime_control_key(&self, work_id: &str, ending: bool) -> Result<String> {
         let base = runtime_control_key(work_id, ending);
-        if ending {
+        if ending && !work_id.starts_with(crate::runtime::lifecycle::SLOT_PREFIX) {
             return Ok(base);
         }
         let upper = format!("{base};");
@@ -3980,18 +3996,38 @@ impl<'a> Work<'a> {
         }
         let Some(plan) = self.runtime_control_plan()? else {
             // Legacy state is never silently given a new control allocation.
+            if !crate::runtime::lifecycle::requirements(object)
+                .map_err(|error| StoreError::Invalid(error.to_string()))?.is_empty()
+            {
+                return Err(StoreError::Unsupported("prepay runtime closeout before provisioning persona controls"));
+            }
             return Ok(());
         };
         let previous: Option<StoredObject> = self.get("object", RUNTIME_CONTROL_STATE_ID)?;
+        let previous_requirements = previous.as_ref()
+            .map(crate::runtime::runtime_control_requirements).transpose()?.unwrap_or_default();
         for requirement in crate::runtime::runtime_control_requirements(object)? {
-            let existed = previous.as_ref().is_some_and(|old| {
-                old.body
-                    .pointer("/board/works")
-                    .and_then(Value::as_object)
-                    .is_some_and(|works| works.contains_key(&requirement.work))
-            });
-            if !existed {
+            let previous = previous_requirements.iter().find(|old| old.work == requirement.work);
+            if previous.is_none() {
                 self.reserve_runtime_control_slots(&requirement.work, &plan)?;
+            } else if requirement.work.starts_with(crate::runtime::lifecycle::SLOT_PREFIX) {
+                let previous = previous.unwrap();
+                for (ending, needed, was_needed) in [
+                    (false, requirement.pause, previous.pause),
+                    (true, requirement.ending, previous.ending),
+                ] {
+                    if !needed || was_needed { continue; }
+                    let key = self.current_runtime_control_key(&requirement.work, ending)?;
+                    let slot = self.runtime_control_slot(&key, &requirement.work, ending, &plan)?;
+                    if slot.commit.is_some() {
+                        // A widening transition funds a new immutable slot from
+                        // the existing account. Never refund or reuse history.
+                        let key = format!("{}:{:020}", runtime_control_key(&requirement.work, ending), object.revision);
+                        self.insert("runtime_control", &key,
+                            &RuntimeControlSlot { commit: None, ..slot },
+                            Some(self.limits.max_record_bytes), BudgetClass::Closeout, 1)?;
+                    }
+                }
             }
         }
         self.check_runtime_control_capacity(object, &plan)

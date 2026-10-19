@@ -1022,6 +1022,7 @@ pub enum ContinuationStatus {
 pub struct ParticipantView {
     pub persona: String,
     pub label: String,
+    pub lifecycle: Value,
     pub continuation: ContinuationStatus,
     pub permit: bool,
     pub ordinary_continuation: bool,
@@ -1224,6 +1225,7 @@ fn inspect_opened(
                 !frozen && participant_resume::candidate(&state, &saved, id, &actor);
             participants.push(ParticipantView {
                 label: persona.seed.label.clone(),
+                lifecycle: lifecycle::projection(persona),
                 persona: actor,
                 continuation,
                 permit: focus.permit,

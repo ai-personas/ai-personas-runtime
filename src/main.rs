@@ -136,6 +136,16 @@ enum Command {
     HumanIntakeSnapshot,
     /// Inspect optional opportunities and episode allocations without inference or recovery.
     OptionalActivitySnapshot,
+    /// Inspect identity status, independent quarantine and retirement blockers. No inference.
+    PersonaLifecycleSnapshot { persona: String },
+    /// Provision identity controls, reactivate, release quarantine or retire with exact authorization.
+    ChangePersonaLifecycle {
+        file: PathBuf,
+        #[arg(long, required_unless_present = "apply", conflicts_with = "apply")]
+        preview: bool,
+        #[arg(long, required_unless_present = "preview", conflicts_with = "preview")]
+        apply: bool,
+    },
     /// Enable a finite optional opportunity inside existing resources; starts no work or model call.
     GrantOptionalActivity { file: PathBuf },
     /// Admit one explicitly triggered optional episode; starts no model call.
@@ -394,6 +404,10 @@ enum Command {
         work: String,
         reason: String,
     },
+    /// Pause a provisioned identity using protected capacity, preserving all work and effects.
+    PausePersona { persona: String, reason: String },
+    /// Independently quarantine a provisioned identity using protected capacity.
+    QuarantinePersona { persona: String, reason: String },
     Closeout {
         work: String,
         reason: String,
@@ -928,6 +942,12 @@ async fn run(cli: Cli) -> runtime::Result<()> {
     } else {
         None
     };
+    let lifecycle_request = if let Command::ChangePersonaLifecycle { file, preview, apply } = &cli.command {
+        if preview == apply { return Err(argument("exactly one of --preview or --apply")); }
+        let request: launch::persona_lifecycle::Request = runtime::read_json_file(file, 16_384)?;
+        request.validate(operator)?;
+        Some(request)
+    } else { None };
     let work_resource_grant_request = if let Command::GrantWorkResources {
         file,
         preview,
@@ -1048,6 +1068,8 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         Command::TerminalEvidence { .. }
             | Command::AcknowledgeCompleteRejection { .. }
             | Command::Pause { .. }
+            | Command::PausePersona { .. }
+            | Command::QuarantinePersona { .. }
             | Command::Closeout { .. }
     ) {
         let mut app = Runtime::open_for_closeout(root)?;
@@ -1067,6 +1089,14 @@ async fn run(cli: Cli) -> runtime::Result<()> {
                 app.pause(operator, work, reason)?;
                 emit(&serde_json::json!({"paused":true,"goal_completed":false}))
             }
+            Command::PausePersona { persona, reason } => {
+                app.pause_persona(operator, persona, reason)?;
+                emit(&serde_json::json!({"persona":persona,"paused":true,"obligations_resolved":false,"inference_performed":false,"budget_reset":false}))
+            }
+            Command::QuarantinePersona { persona, reason } => {
+                app.quarantine_persona(operator, persona, reason)?;
+                emit(&serde_json::json!({"persona":persona,"quarantined":true,"obligations_resolved":false,"inference_performed":false,"budget_reset":false}))
+            }
             Command::Closeout {
                 work,
                 reason,
@@ -1084,6 +1114,13 @@ async fn run(cli: Cli) -> runtime::Result<()> {
     // Its narrow launcher entry meters authority reads against existing Closeout
     // resources and performs no ordinary open recovery or model execution.
     match &cli.command {
+        Command::PersonaLifecycleSnapshot { persona } => {
+            return emit(&launch::persona_lifecycle::snapshot_at(root,operator,persona,runtime::unix_now()?)?);
+        }
+        Command::ChangePersonaLifecycle { apply, .. } => {
+            return emit(&launch::persona_lifecycle::change_at(root,
+                lifecycle_request.as_ref().expect("lifecycle request validated"),*apply,runtime::unix_now()?)?);
+        }
         Command::OptionalActivitySnapshot => {
             return emit(&launch::optional_activity_snapshot_at(root,operator,runtime::unix_now()?)?);
         }
@@ -1169,6 +1206,9 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         }
         Command::ContextCapacitySnapshot | Command::ExtendContextCapacity { .. } => {
             unreachable!("context capacity handled before ordinary open")
+        }
+        Command::PersonaLifecycleSnapshot { .. } | Command::ChangePersonaLifecycle { .. } => {
+            unreachable!("lifecycle handled before ordinary open")
         }
         Command::TransportCapacitySnapshot | Command::ExtendTransportCapacity { .. } => {
             unreachable!("transport capacity handled before ordinary open")
@@ -1453,6 +1493,8 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         | Command::TerminalEvidence { .. }
         | Command::AcknowledgeCompleteRejection { .. }
         | Command::Pause { .. }
+        | Command::PausePersona { .. }
+        | Command::QuarantinePersona { .. }
         | Command::Closeout { .. }
         | Command::ValidateResponse { .. }
         | Command::ImportSupportingFile { .. }

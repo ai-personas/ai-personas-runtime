@@ -464,6 +464,17 @@ no resume. Current eligibility must be inspected separately before a new run.
 The UI retains one pending work action and uses this same exact request if its
 confirmation was lost. Advanced resume/recovery commands remain available.
 
+[Identity lifecycle controls](docs/persona-lifecycle.md) are separate from these
+work controls. `persona-lifecycle-snapshot PERSONA` reports active, paused or
+retired status, independent quarantine and permission-filtered retirement
+blockers. `change-persona-lifecycle FILE --preview|--apply` provisions protected
+controls or records explicit reactivation, quarantine release or retirement.
+Provisioned `pause-persona PERSONA REASON` and `quarantine-persona PERSONA REASON`
+use prepaid closeout capacity and fence current decisions without erasing effects
+or obligations. Reactivation requires fresh authorization and starts no inference
+or work resume. Retired identities cannot execute; retirement requires actual
+obligation dispositions and revokes retained computation and HTTPS work grants.
+
 `personas-session run --expected-launch REFERENCE.json` additionally requires a
 new session to use the exact inspected launch reference. The claim's existing
 atomic dependencies protect that check through persistence. An already recorded

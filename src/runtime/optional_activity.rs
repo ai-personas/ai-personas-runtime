@@ -192,6 +192,7 @@ pub(crate) fn foreground_eligible(state: &State, now: i64) -> Result<bool> {
                 return Ok(true);
             }
             if persona.failed_attempt_hold.is_some()
+                || lifecycle::reason(state, &actor.0).is_some()
                 || meta.attempts_left == 0
                 || need_proposals::route_reason(state, &id.0, now).is_some()
                 || need_proposals::actor_reason(state, &id.0, &actor.0).is_some()
@@ -285,6 +286,7 @@ pub(crate) fn require_current(state: &State, work: &str, actor: &str, now: i64) 
     if !bound(state, work) {
         return Ok(());
     }
+    lifecycle::require_active(state, actor)?;
     let (opportunity, episode) = binding(state, work)?;
     let request = &opportunity.request;
     require(

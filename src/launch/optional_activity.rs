@@ -178,6 +178,7 @@ pub fn grant_optional_activity(
         "optional participants must belong to the saved cohort",
     )?;
     for id in &request.participants {
+        lifecycle::require_active(&state, id)?;
         let persona = state
             .personas
             .get(id)
@@ -412,6 +413,7 @@ pub fn start_optional_activity(
             "optional inference binding changed",
         )?;
         for id in &grant.participants {
+            lifecycle::require_active(&state, id)?;
             let persona = state
                 .personas
                 .get(id)

@@ -50,6 +50,7 @@ impl WorkAllocation {
 pub(super) fn validate_input(operator: &str, input: &NeedInput) -> Result<()> {
     identity(operator)?;
     identity(&input.id)?;
+    require(!input.id.starts_with(lifecycle::SLOT_PREFIX), "reserved persona control namespace")?;
     text(&input.request, 32_768)?;
     for value in [
         &input.boundaries,

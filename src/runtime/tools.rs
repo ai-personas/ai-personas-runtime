@@ -412,6 +412,7 @@ impl Runtime {
             "computation grant requires 1..=32 attempts",
         )?;
         let (old, mut state) = self.load()?;
+        lifecycle::require_active(&state, &request.actor)?;
         if let Some(existing) = state.computation_grants.get(&request.id) {
             require(
                 existing.request == request && existing.operator == operator && !existing.revoked,
@@ -529,6 +530,7 @@ impl Runtime {
         let slot_id = composite_id("computation-result", &[id]);
         if retained.state == s::IntentState::Admitted {
             let authorized = (|| -> Result<()> {
+                lifecycle::require_active(&state, &job.actor)?;
                 optional_activity::require_current(&state, &job.work, &job.actor, now)?;
                 let grant = state
                     .computation_grants

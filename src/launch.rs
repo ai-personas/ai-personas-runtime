@@ -66,6 +66,8 @@ pub use repair_allocation::{
 pub mod store_capacity;
 #[path = "launch/context_capacity.rs"]
 pub mod context_capacity;
+#[path = "launch/persona_lifecycle.rs"]
+pub mod persona_lifecycle;
 #[path = "launch/transport_capacity.rs"]
 pub mod transport_capacity;
 pub use work_resource_grant::{

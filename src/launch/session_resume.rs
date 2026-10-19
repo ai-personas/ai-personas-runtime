@@ -65,6 +65,7 @@ pub(super) fn candidate(state: &State, saved: &Saved, work: &str, persona: &str)
         return false;
     };
     saved.works.contains_key(work)
+        && lifecycle::reason(state, persona).is_none()
         && saved.steps < saved.setup.max_total_steps
         && !need_proposals::bound(state, work)
         && matches!(board.phase, w::Phase::Open)

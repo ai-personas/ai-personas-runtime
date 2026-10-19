@@ -1516,6 +1516,10 @@ class Dialogue:
             args.append("--invocation=" + invocation)
         result = self.session(*args, "--", persona)
         self.ui.say(f"{result['label']} ({persona}) — retained characteristic guidance")
+        lifecycle = result.get("lifecycle")
+        if lifecycle:
+            self.ui.say(f"Identity: {lifecycle['status']}; quarantined: {lifecycle['quarantined']}. "
+                        "Work participation and continuation are separate.")
         character = result.get("character")
         if character:
             self.ui.say(f"Current character revision: {character['revision']}")
@@ -1861,6 +1865,10 @@ class Dialogue:
                     self.ui.say(f"   Last retained attempt: {attempt['id']} — {attempt['status']}; "
                                 f"reservation: {attempt.get('reservation_state', 'unavailable')}")
                 for participant in work["participants"]:
+                    lifecycle = participant.get("lifecycle")
+                    if lifecycle and (lifecycle["status"] != "active" or lifecycle["quarantined"]):
+                        self.ui.say(f"   {participant['persona']}: identity {lifecycle['status']}; "
+                                    f"quarantined={lifecycle['quarantined']}. See persona lifecycle controls in RUNTIME-REFERENCE.md.")
                     if participant.get("failed_attempt_hold"):
                         self.ui.say(f"   {participant['persona']}: failed-attempt hold {participant['failed_attempt_hold']}")
             saved_input = self.pending_work_input()
