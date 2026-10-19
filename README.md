@@ -27,8 +27,8 @@ accepted call and whether the completed provider input matches the retained
 record. It distinguishes selected context from completed reads supplied as
 observations. Read the work result to judge how the persona used them.
 
-[Live maturation walkthrough](docs/live-maturation.md): retained refinements,
-later input supply, subsequent actions and the limits of those observations.
+[Inspect persona development](docs/persona-development.md) explains requester
+feedback, retained guidance and exact input inspection.
 
 Use `--feedback feedback.json` to give a participant feedback within its existing
 work. The JSON contains `id`, `work`, `persona`, and `text`. Continue the work to
