@@ -26,6 +26,34 @@ ceiling while retaining the 32 KiB response limit. Existing saved settings keep
 their exact bounds until explicit migration. Increasing an event bound does not
 permit an oversized Decision or turn an interrupted stream into a completed reply.
 
+For an existing standalone launch, `transport-capacity-snapshot` and
+`extend-transport-capacity REQUEST.json --preview|--apply` provide explicit
+recovery when a stream, event-count or transfer-time allowance is too small.
+The request contains `id`, `operator`, `reason`, `authorization_reference`,
+`authorize_extension: true`, the snapshot's `expected_runtime`, `expected_launch`,
+`expected_transport_output_reserve_bytes` and `expected_limits`, plus
+`new_limits`. Both limit objects contain `max_stream_bytes`, `max_events` and
+`timeout_ms`. At least one must increase and none may decrease; existing provider
+configuration ceilings still apply. Size the event-count and time allowances
+alongside the stream allowance: a larger stream can contain more events and take
+longer to receive.
+
+The operation atomically updates those three provider limits and raises the
+runtime's per-call transport-output reservation only if needed. Account, model,
+effort, credentials, capability evidence, prompt and Decision bounds remain
+unchanged. It preserves history, charges, uncertainty, selections, Stop/Pause and
+remaining resources, and neither resumes work nor makes a provider call. Fresh
+calls must fund the increased reservation from existing Store resources; this
+operation grants no output, navigation or token funds. A failed attempt still
+requires its separate native acknowledgment and recovery.
+
+Snapshot and preview reserve no future capacity. All paths use metered reads
+without orphan recovery. A new extension requires execution ownership, terminal
+invocations and exact current runtime/launch references, and records an immutable
+receipt. Repeating the exact applied request returns that historical receipt.
+The original incomplete stream remains incomplete; only a fresh authorized call
+uses the new allowances.
+
 Use `setup --allow-direct-provider --share-cohort` and `step --profile direct`. Runtime configuration also requires explicit `allow_direct_provider: true`. The historical research flag grants no direct access. Existing working-directory arguments remain compatibility metadata; the provider does not read that directory or transmit it.
 
 ## Migration and recovery

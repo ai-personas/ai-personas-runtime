@@ -134,6 +134,17 @@ enum Command {
     StoreCapacitySnapshot,
     /// Inspect assembled-context allocation within existing provider allowances.
     ContextCapacitySnapshot,
+    /// Inspect exact local provider transport allowances and their reservation.
+    TransportCapacitySnapshot,
+    /// Grow stream bytes, event count or timeout with an attributable receipt.
+    /// Preserves provider identity, response bounds, history, funds and holds.
+    ExtendTransportCapacity {
+        file: PathBuf,
+        #[arg(long, required_unless_present = "apply", conflicts_with = "apply")]
+        preview: bool,
+        #[arg(long, required_unless_present = "preview", conflicts_with = "preview")]
+        apply: bool,
+    },
     /// Explicitly increase assembled context without changing provider limits,
     /// selections, continuations, remaining resources or invocation history.
     ExtendContextCapacity {
@@ -821,6 +832,24 @@ async fn run(cli: Cli) -> runtime::Result<()> {
     } else {
         None
     };
+    let transport_capacity_request = if let Command::ExtendTransportCapacity {
+        file, preview, apply,
+    } = &cli.command {
+        if preview == apply {
+            return Err(argument("exactly one of --preview or --apply"));
+        }
+        let value: serde_json::Value = runtime::read_json_file(file, 16_384)?;
+        for path in ["", "/expected_runtime", "/expected_launch", "/expected_limits", "/new_limits"] {
+            if !value.pointer(path).is_some_and(serde_json::Value::is_object) {
+                return Err(argument("transport capacity request requires JSON objects"));
+            }
+        }
+        let request: launch::transport_capacity::TransportCapacityRequest = serde_json::from_value(value)?;
+        request.validate(operator)?;
+        Some(request)
+    } else {
+        None
+    };
     let context_capacity_request = if let Command::ExtendContextCapacity {
         file, preview, apply,
     } = &cli.command {
@@ -998,6 +1027,17 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         Command::ContextCapacitySnapshot => {
             return emit(&launch::context_capacity::snapshot_at(root, operator)?);
         }
+        Command::TransportCapacitySnapshot => {
+            return emit(&launch::transport_capacity::snapshot_at(root, operator)?);
+        }
+        Command::ExtendTransportCapacity { apply, .. } => {
+            return emit(&launch::transport_capacity::extend_at(
+                root,
+                transport_capacity_request.as_ref().expect("transport request validated"),
+                *apply,
+                runtime::unix_now()?,
+            )?);
+        }
         Command::ExtendContextCapacity { apply, .. } => {
             return emit(&launch::context_capacity::extend_at(
                 root,
@@ -1050,6 +1090,9 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         Command::HumanIntakeSnapshot => emit(&launch::human_intake_snapshot(&mut app, operator)?),
         Command::ContextCapacitySnapshot | Command::ExtendContextCapacity { .. } => {
             unreachable!("context capacity handled before ordinary open")
+        }
+        Command::TransportCapacitySnapshot | Command::ExtendTransportCapacity { .. } => {
+            unreachable!("transport capacity handled before ordinary open")
         }
         Command::StoreCapacitySnapshot | Command::ExtendStoreCapacity { .. } => {
             unreachable!("capacity control handled before ordinary open")

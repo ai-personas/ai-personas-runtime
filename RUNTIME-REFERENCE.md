@@ -364,6 +364,15 @@ attempts, navigation and Stop/Pause dispositions remain intact. It does not resu
 any persona or prove that the next request will fit. Repeating the exact applied
 request returns its historical receipt; preview reserves no future capacity.
 
+`transport-capacity-snapshot` and `extend-transport-capacity` separately recover
+insufficient local stream bytes, event count or transfer time. They atomically
+increase the explicitly selected provider allowances and the matching per-call
+transport-output reservation, without increasing the authored Decision bound or
+changing provider identity, history, uncertain charges, remaining resources or
+continuations. Exact current state fences, terminal invocations and execution
+ownership are required. See the [transport recovery contract](docs/direct-provider.md#configuration-and-evidence)
+for the request fields, preview and immutable receipt behavior.
+
 The normal work menu offers an explicit targeted resume through
 `personas-session resume-participant REQUEST.json`. Its request contains `id`,
 `operator`, `work`, `persona`, `authorize_resume: true`, and the exact
