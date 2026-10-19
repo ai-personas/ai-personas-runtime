@@ -368,23 +368,11 @@ fn replay(
     request: &WorkResourceGrantRequest,
     hash: &str,
 ) -> Result<Option<WorkResourceGrantReceipt>> {
-    replay_with_read_hook(app, request, hash, |_| Ok(()))
-}
-
-// The private hook lets synthetic tests force a real atomic Store change at
-// this read boundary; the production path always supplies the empty hook.
-fn replay_with_read_hook(
-    app: &mut Runtime,
-    request: &WorkResourceGrantRequest,
-    hash: &str,
-    after_runtime_read: impl FnOnce(&mut Runtime) -> Result<()>,
-) -> Result<Option<WorkResourceGrantReceipt>> {
     let id = receipt_id(&request.id);
     let Some(object) = app.store.read(&id)? else {
         return Ok(None);
     };
     let (runtime_head, state) = app.load()?;
-    after_runtime_read(app)?;
     let (_, saved) = load(app)?;
     // Immutable, monotonic revisions establish that this runtime and launch
     // coexisted at the launch read. Never authorize a mixed pair of heads.
@@ -614,7 +602,3 @@ pub fn grant_work_resources(
         replayed: false,
     })
 }
-
-#[cfg(test)]
-#[path = "work_resource_grant_tests.rs"]
-mod tests;

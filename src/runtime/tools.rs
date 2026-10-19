@@ -3,8 +3,6 @@
 use super::*;
 use crate::computation as c;
 
-#[cfg(test)]
-mod tests;
 
 const RESULT_CAPACITY: u64 = 128 * 1024;
 

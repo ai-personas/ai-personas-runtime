@@ -103,7 +103,7 @@ does not fabricate a sample configuration that appears verified.
 For SIWC, use the separately authorized [activation flow](activation.md).
 Sign-in establishes a grant, not capability evidence or a saved runtime setup.
 Catalog/capability checks require their own authorization and are not launcher
-preflight or unit tests. After renewal or changed provider bindings, use the
+preflight. After renewal or changed provider bindings, use the
 existing explicit migration operation; do not rerun setup over a continuing
 cohort or create replacement personas to escape a failed binding.
 
@@ -134,25 +134,4 @@ describes continuing an existing compatible runtime from the work menu.
 [`RUNTIME-REFERENCE.md`](../RUNTIME-REFERENCE.md) is maintained alongside the
 implementation and documents the detailed native controls. The current design target is
 [design revision 17f165b](https://github.com/ai-personas/ai-personas-design/tree/17f165b156ee5962e290a7e2326bba3f81ad2069).
-No historical text or test is promoted to proof of new conformance.
-
-## Offline smoke tests
-
-```sh
-sh -n personas
-python3 tests/launcher_smoke.py -v
-```
-
-The standard-library Python tests create temporary fake binaries and an isolated
-`HOME`, `XDG_STATE_HOME`, workspace and `PATH`. They do not inherit credentials,
-launch a real runtime, open a Store, or call any provider. They check argument
-fidelity, the one-prompt boundary, selection precedence, explicit native authority,
-unsupported combinations, output/exit/signal propagation, no retry, and reference
-preservation. On another available POSIX shell, repeat with, for example,
-`LAUNCHER_TEST_SHELL=/bin/bash python3 tests/launcher_smoke.py -v`.
-
-These tests do not validate an installed executable's version, actual Rust CLI
-parsing, state permissions, credential readiness, live transport, persona behavior,
-or quality. Integration should additionally run the repository's Rust build,
-format, Clippy and locked tests in an isolated checkout, with isolated temporary
-state only. No live inference or access action is required by these smoke tests.
+Historical records do not establish current conformance.

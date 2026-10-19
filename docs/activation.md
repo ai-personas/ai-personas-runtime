@@ -19,7 +19,7 @@ personas-auth --vault /absolute/private/personas-account.json status
 personas-auth --vault /absolute/private/personas-account.json refresh --authorize
 ```
 
-These are access operations, not offline validation commands. Do not run them against a real vault as part of unit tests. The helper may create the final missing protected parent directory during explicitly authorized sign-in; its ancestors must already exist.
+These are access operations, not offline validation commands. The helper may create the final missing protected parent directory during explicitly authorized sign-in; its ancestors must already exist.
 
 For an existing Store, inspect current migration references, then preview and apply an explicit request:
 
@@ -57,7 +57,7 @@ Before preparing a runtime provider configuration, obtain separately authorized 
 2. Perform a separately authorized, bounded Responses capability check for the exact selected model and supported requested effort and small strict carrier schema (`decision_json` as a string), followed by native validation of the complete Decision value. Catalog membership alone does not establish these capabilities.
 3. Retain the evidence and bind its digests to the exact account binding, SIWC wire profile, model and effort in `DirectSettings`.
 
-No probe is part of sign-in, refresh, migration, unit tests or ordinary configuration validation. Configuration digests identify operator-retained evidence; they do not authenticate evidence or prove entitlement by themselves. See [models and inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference).
+No probe is part of sign-in, refresh, migration or ordinary configuration validation. Configuration digests identify operator-retained evidence; they do not authenticate evidence or prove entitlement by themselves. See [models and inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference).
 
 ## Preserve existing personas when bindings change
 

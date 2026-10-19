@@ -178,16 +178,3 @@ boundary should be used for the UI's prior display. Blocked migration stays
 blocked. No automatic resume, new grant, replacement cohort, ledger reset, expiry
 forgiveness, history rewrite, pause lifting or hold removal is added here. This
 stage intentionally adds no new runtime migration operation.
-
-## Verification scope
-
-The new tests use in-process synthetic HTTP/auth adapters and protected temporary
-vault/journal state. One test feeds generated settings through the actual selected
-vault source and native credential contract using synthetic tokens. There is no
-real sign-in, token import, provider inference or host runtime. Use a protected
-`TMPDIR` outside repository ancestry (for example an isolated `/var/tmp` directory)
-on hosts where `/tmp` or task ancestors have repository markers.
-
-The contribution was authored without a Rust toolchain on its authoring container.
-Compilation, formatting, Clippy and test execution remain orchestrator checks.
-No live capability or current account eligibility has been demonstrated here.

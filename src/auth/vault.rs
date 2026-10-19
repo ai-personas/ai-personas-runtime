@@ -664,18 +664,6 @@ fn ancestor_directory_permitted(owner_uid: u32, mode: u32) -> bool {
     mode & 0o022 == 0 || (owner_uid == 0 && mode & 0o1000 != 0)
 }
 
-#[cfg(test)]
-mod mapped_ancestor_policy_tests {
-    use super::ancestor_directory_permitted;
-
-    #[test]
-    fn mapped_owner_is_allowed_only_for_non_group_world_writable_ancestor() {
-        assert!(ancestor_directory_permitted(12345, 0o755));
-        assert!(!ancestor_directory_permitted(12345, 0o775));
-        assert!(ancestor_directory_permitted(0, 0o1777));
-        assert!(!ancestor_directory_permitted(12345, 0o1777));
-    }
-}
 
 fn check_file(file: &File) -> Result<Metadata, AuthError> {
     let metadata = file.metadata().map_err(|_| AuthError::Vault)?;

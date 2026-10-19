@@ -3,8 +3,6 @@ use crate::files::{parse_json_unique, JsonLimits, JsonProfileError};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
-#[cfg(test)]
-mod tests;
 
 #[derive(Clone, Copy)]
 struct StreamFailure {

@@ -137,8 +137,7 @@ fn validate_saved(
     Ok((settings, head.body["config"].clone()))
 }
 
-// Private construction seam: production supplies only the fixed closure above;
-// offline tests supply a synthetic transport after the same owner admission.
+// Construct the selected transport after acquiring the execution owner.
 async fn run_opened(
     app: &mut Runtime,
     operator: &str,

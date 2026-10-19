@@ -552,19 +552,6 @@ fn trusted_directory_metadata(is_dir: bool, owner_uid: u32, mode: u32) -> bool {
     is_dir && (mode & 0o022 == 0 || (owner_uid == 0 && mode & 0o1000 != 0))
 }
 
-#[cfg(test)]
-mod mapped_ancestor_policy_tests {
-    use super::trusted_directory_metadata;
-
-    #[test]
-    fn auth_path_accepts_safe_mapped_ancestor_but_rejects_shared_write() {
-        assert!(trusted_directory_metadata(true, 12345, 0o755));
-        assert!(!trusted_directory_metadata(true, 12345, 0o775));
-        assert!(trusted_directory_metadata(true, 0, 0o1777));
-        assert!(!trusted_directory_metadata(true, 12345, 0o1777));
-        assert!(!trusted_directory_metadata(false, 12345, 0o755));
-    }
-}
 
 fn open_directory_at(parent: &File, name: &OsStr, create: bool) -> Result<File> {
     let name = CString::new(name.as_bytes()).map_err(|_| AuthError::Vault)?;

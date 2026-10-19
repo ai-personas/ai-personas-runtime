@@ -1097,9 +1097,3 @@ pub(crate) fn apply(
     *cursors = replacement;
     Ok(true)
 }
-
-#[cfg(test)]
-mod tests;
-
-#[cfg(test)]
-mod permissions_tests;

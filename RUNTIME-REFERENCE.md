@@ -12,13 +12,12 @@ The current executable supports an explicitly controlled local workflow. Full de
 
 ```sh
 cargo build --locked --release
-cargo test --locked
 cargo clippy --locked --all-targets -- -D warnings
 ./target/release/ai-personas --help
 ./target/release/ai-personas doctor
 ```
 
-The declared minimum Rust version is 1.88, required by the locked HTTPS dependencies. Development checks use Rust 1.95.0. Cargo tests use offline fixtures and do not establish live provider access, persona behavior or scenario outcomes.
+The declared minimum Rust version is 1.88, required by the locked HTTPS dependencies. Development builds use Rust 1.95.0. Compilation alone does not establish live provider access, persona behavior or scenario outcomes.
 
 ## Foreground cohort workflow
 
@@ -582,15 +581,6 @@ Store evidence identities and Runtime file identities remain distinct. The trust
 
 For a future-result wait, `register_pending_mock_dependency` binds a distinct typed registration to the already-admitted exact request. It neither fabricates future bytes nor overwrites a placeholder. After ingestion, `deliver_pending_mock_event` separately authorizes one exact result for current permitted recipients through the common event reservation, payload and acknowledgment path. Registration and result identities remain separate. A crash between ingestion and delivery requires no new mock execution. Existing exact-file registration/delivery remains available. Metadata and bodies are withheld from excluded recipients; actual supplied bodies, complete qualifications and accepted acknowledgment remain distinct. Terminal evidence may be retained after ending without authorizing a wake. No bridge API creates a real adapter, native external Effect, subscription, background retry or semantic selector.
 
-The explicit executable example uses a private temporary Store, finite fixture-only limits, and no helper execution:
-
-```sh
-cargo run --locked --example mock_effects_fixture
-cargo test --locked --test mock_effects_integration
-```
-
-The integration fixtures also call the example's exact entry point in-process. They cover persistence/reopen, complete-response rejection, exact replay/conflicts, owner-loss uncertainty, late outcomes after cancellation, current authority/source fences, finite quota, independent effects, evidence-allocation failure, interrupted terminal disposition, and conversion of an actual receipt into the local event carrier. These are synthetic mechanism fixtures, not evidence that native capabilities or unattended operation are ready.
-
 ## Files and decisions
 
 Fragments and supporting assets remain separate. Bounded file discovery and exact reads produce observations; they do not silently select future context. The primary model explicitly preserves, clears, or replaces selections, including their exact revisions, representations, ranges, and lifetimes. Selection-repair receipts account for independently supplied permitted local-event bodies and their qualifications, including partial range coverage; registration metadata or withheld observations do not become supplied-body claims. A `next_call` selection is not renewed by preserving it. Proposed replacements must also fit the combined closure allocation across mandatory character, fragments and assets. Adding selected roots cannot displace a previously admissible preserved bundle under the same final authority and mandatory context. Refusal rolls back the whole response; preserving an already unavailable old selection remains permitted.
@@ -672,7 +662,7 @@ Personas sends one bounded HTTPS Responses request for each admitted step. Its o
 
 Traditional ChatGPT OAuth, SIWC token-sharing OAuth and Platform API keys are distinct access modes. Each requires its own authorized credentials and exact route/account/model/effort/schema evidence. OAuth failure never switches to API-key billing. The runtime does not discover, extract or refresh credentials.
 
-A direct step retains native admission, exact prompt/schema binding, durable dispatch and terminal-before-adoption ordering. It never retries uncertain requests automatically. Requested model and effort, provider-reported values, verified served identity, observed usage and unknown charges remain separate. Offline tests establish local contracts only. See [transport limits and migration](docs/direct-provider.md).
+A direct step retains native admission, exact prompt/schema binding, durable dispatch and terminal-before-adoption ordering. It never retries uncertain requests automatically. Requested model and effort, provider-reported values, verified served identity, observed usage and unknown charges remain separate. See [transport limits and migration](docs/direct-provider.md).
 
 ## Explicit maintenance dispositions
 
@@ -689,23 +679,6 @@ Per persona/work, newly accepted maintenance is limited to 128 original records,
 Warning authorship, origin work/invocation, receipt files, exact applicability bindings and append-only resolution history persist separately from the current accepted-binding snapshot. Target bytes remain unchanged. A failed patch or malformed/held response creates no accepted warning. A separately valid, freshly admitted warning decision can follow the failure. Content correction, peer disagreement and correction-work closeout do not automatically resolve a warning. An authorized resolution requires the original primary, the supplied exact current warning revision, a supplied evidentiary basis and an explicit retain/release disposition. Release preserves its exact resolution receipt as required accompaniment and never deletes prior history; replay cannot revive an earlier binding.
 
 Bounded warning views and exact receipt accompaniment survive restart and old-revision rediscovery. Confidentiality remains checked separately from applicability, so permitted warning metadata can explain an ineligible target without supplying its body. A read diagnostic is expanded only after its call and conservative scan reservation succeed; the complete serialized warning/history payload must fit and is charged against both the read limit and remaining result allowance. Exhaustion or overflow retains only a fixed empty unavailable disposition. Retained read observations keep their full applicability lineage and may still be withheld on later calls, independently of the permitted warning-control view. Missing or denied required accompaniment withholds the bundle. Receipt acceptance records an attributed judgment; it establishes neither content correctness, successful correction nor improvement. Warning identities/history remain finite and share existing State, corpus and Store retention limits.
-
-## Local evaluation fixtures
-
-`tests/combined/cases.rs` runs six domain-neutral synthetic lifecycle traces in the normal suite: distinct completion stages, result before and after waiting, interrupted dispatch with late reconciliation, freeze/pause/resume, and warning/correction/reuse. Imported modeled characters and deterministic responses are explicitly fixture material. Each roster member receives its own admission and accepts its own exact responsibility. These checks establish transitions and evidence handling, not voluntary collaboration, conceptual quality, LLM behavior or improvement over elapsed time.
-
-A separately invoked matrix runner accepts a bounded versioned private manifest with two distinct task requests, rosters of three and five, and all six schedules. Requests must actually appear in each prepared context. It validates all 24 combinations before execution and refuses existing report identities. Input and report paths must be private, owned, and outside the checkout. No domain cases, expected solutions or scoring rubrics are embedded in source.
-
-```sh
-PERSONAS_FIXTURE_MANIFEST=/absolute/private/fixture-matrix.json \
-PERSONAS_FIXTURE_OUTPUT_DIR=/absolute/private/new-trace-reports \
-PERSONAS_FIXTURE_KEEP_STATES=1 \
-cargo test --locked --test runtime_integration combined_local_private_matrix -- --ignored --nocapture
-```
-
-Each trace checks its 32-persona-preparation ceiling before admission and separately counts up to two mock intent admissions and their fixture invocations. Actual Store attempts, unknown usage holds, accepted responses, exact prompt/body hashes, event acknowledgment, replay and final state are checked against retained records. Normal completion distinguishes attributed individual sufficiency, shared decision, release, exact local deposit and supported closure. A frozen resume is expected to refuse while preserving holds; an ordinary admitted continuation is demonstrated before the deliberate freeze, without replenishing accounts. Correct boundary refusal can pass while the underlying work remains unfinished.
-
-Reports contain bounded before/after projections and exact prepared contexts and authored decisions. Diagnostics have separate finite caps: at most 192 normal checkpoints, 1 MiB per checkpoint, 12 MiB aggregate checkpoint bytes and 16 MiB per final report. Hitting a diagnostic cap is a reported failure, not permission to claim omitted evidence was retained. `PERSONAS_FIXTURE_KEEP_STATES=1` retains the actual private temporary state after Runtime owners drop; default suite runs clean their temporary state. Read-only SQLite diagnostics are outside production admission accounting and can use normal SQLite coordination sidecars. This driver contains no provider invocation, semantic action planner, hidden evaluator or real effect adapter. A future live pilot still requires its own authorization, model availability evidence and complete resource/context preflight.
 
 ## Remaining coverage
 

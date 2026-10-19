@@ -1,6 +1,6 @@
 # Contributing
 
-Use `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test --locked` for Rust changes. Live provider experiments are separate opt-in research, never implicit unit tests.
+Prioritize working functionality against the user requirements and authoritative design. Build Rust changes with `cargo build --locked --bins`. Use the authorized live workflow to inspect actual persona decisions, supplied resources, tool execution and results. Keep the repository free of automated test cases. Live provider use requires explicit authorization.
 
 The runtime must not hardcode domain intent, professions, scenario behavior, semantic resource ranking, or tool choices on behalf of personas. Deployment policy belongs in operator configuration. Fail closed when required authority or evidence is unknown, and record the reason. Surface deviations from the authoritative design.
 

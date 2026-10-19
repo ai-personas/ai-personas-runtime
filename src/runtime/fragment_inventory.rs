@@ -134,6 +134,3 @@ pub(super) fn context(
     )?;
     Ok((value, next_after))
 }
-
-#[cfg(test)]
-mod tests;

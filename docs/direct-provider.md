@@ -82,5 +82,3 @@ Unknown string labels retain a SHA-256 fingerprint for correlation, alongside
 `unrecognized`; their text and the provider's free-form error message are not
 retained. These fingerprints identify equal labels, not their meaning. Diagnostic
 classification does not authorize replay or settle missing usage.
-
-Offline tests inject credentials, clocks and transports or inspect constructed requests without sending them. They establish serialization, route isolation and native state-transition behavior. They do not establish account eligibility, live model behavior, conceptual quality, collaborative completion or improvement over elapsed time.

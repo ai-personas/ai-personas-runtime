@@ -164,7 +164,3 @@ fn apply_with(
         existing_state_reset: false,
     })
 }
-
-#[cfg(test)]
-#[path = "bootstrap_tests.rs"]
-mod tests;

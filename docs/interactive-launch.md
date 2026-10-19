@@ -226,15 +226,6 @@ private state; do not copy it into repositories. Build outputs and Runtime/vault
 evidence have separate limits; physical disk and arbitrary outside copies are
 not covered by the progress-journal cap.
 
-## Offline checks
-
-`python3 tests/dialogue_smoke.py -v` exercises the real Python orchestration with
-synthetic helpers and private temporary state. New Rust bootstrap tests are under
-`launch::bootstrap::tests`. They use synthetic settings and no provider calls.
-Legacy wrapper smoke tests still cover explicit commands. No test establishes
-live account eligibility, capability, persona quality or complete design conformance.
-
-
 If the selected standard state location is rejected by the native vault helper,
 the dialogue stops with `native_vault_location_unsupported`; it does not prompt
 for arbitrary filesystem paths or switch to ephemeral credential storage. Native

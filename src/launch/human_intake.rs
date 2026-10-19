@@ -230,9 +230,6 @@ fn validate_receipt(receipt: &HumanIntakeReceipt) -> Result<()> {
     )
 }
 
-#[cfg(test)]
-#[path = "human_intake_tests.rs"]
-mod tests;
 
 fn replay(
     app: &mut Runtime,

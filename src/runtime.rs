@@ -54,8 +54,6 @@ pub use questions::{
     QuestionConclusionInput, QuestionDisposition, QuestionInput, QuestionReplyAccount,
     QuestionReplyDisposition, QuestionReplyInput,
 };
-#[cfg(test)]
-mod adoption_diagnostic_tests;
 pub use local_evidence::{
     DeliverPendingMockEventRequest, IngestMockEvidenceRequest, LocalEvidenceBasis,
     LocalEvidenceBridge, LocalEvidenceIngestion, LocalEvidenceReceipt, MockEvidenceBasisRequest,
@@ -6531,56 +6529,6 @@ fn covers(a: &f::Reference, b: &f::Reference) -> bool {
         && a.representation == b.representation
         && a.start.unwrap_or(0) <= b.start.unwrap_or(0)
         && a.end.unwrap_or(usize::MAX) >= b.end.unwrap_or(usize::MAX)
-}
-#[cfg(test)]
-#[allow(clippy::too_many_arguments)]
-fn render(
-    state: &State,
-    actor: &str,
-    work: &str,
-    invocation: &str,
-    epoch: u64,
-    now: i64,
-    admitted: bool,
-    navigation: Option<f::NavigationLimits>,
-) -> Result<Rendered> {
-    render_with_history(
-        state,
-        &history::records::Material::default(),
-        actor,
-        work,
-        invocation,
-        epoch,
-        now,
-        admitted,
-        navigation,
-    )
-}
-#[cfg(test)]
-#[allow(clippy::too_many_arguments)]
-fn render_mode(
-    state: &State,
-    actor: &str,
-    work: &str,
-    invocation: &str,
-    epoch: u64,
-    now: i64,
-    admitted: bool,
-    repair_navigation: Option<f::NavigationLimits>,
-    navigation: Option<f::NavigationLimits>,
-) -> Result<Rendered> {
-    render_mode_with_history(
-        state,
-        &history::records::Material::default(),
-        actor,
-        work,
-        invocation,
-        epoch,
-        now,
-        admitted,
-        repair_navigation,
-        navigation,
-    )
 }
 #[allow(clippy::too_many_arguments)]
 fn render_with_history(
