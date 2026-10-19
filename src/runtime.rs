@@ -9295,8 +9295,15 @@ fn apply_work_actions(
                         "message wait identity is repeated in this response",
                     )?;
                     require(
-                        initial.acceptance(&actor).is_some(),
-                        "message wait requires already accepted responsibility",
+                        initial.acceptance(&actor).is_some()
+                            || commands.iter().any(|command| {
+                                matches!(
+                                    command,
+                                    w::Command::Accept { .. }
+                                        | w::Command::AcceptArrangedOffer { .. }
+                                )
+                            }),
+                        "message wait requires accepted responsibility before its operation",
                     )?;
                     require(
                         from != &actor.0
@@ -9349,10 +9356,8 @@ fn apply_work_actions(
                         message: None,
                         requester_observation: None,
                     };
-                    require(
-                        message_wait_visible(state, &wid.0, &wait, &actor.0, now),
-                        "message wait sender grant, audience or exposure unavailable",
-                    )?;
+                    // Check visibility after the atomic board response has validated
+                    // any preceding acceptance. Merely queuing Accept grants nothing.
                     message_registrations.push(wait);
                 }
                 WorkAction::Invite { offer, to, terms } => commands.push(w::Command::Invite {
@@ -9845,6 +9850,10 @@ fn apply_work_actions(
         }
     }
     for wait in message_registrations {
+        require(
+            message_wait_visible(state, &wid.0, &wait, &actor.0, now),
+            "message wait sender grant, audience or exposure unavailable",
+        )?;
         state
             .work_meta
             .get_mut(&wid.0)

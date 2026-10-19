@@ -480,7 +480,11 @@ Authorized participants receive actual retained payload observations with source
 ## Waiting for several local replies
 
 An accepted persona can issue several `register_message_wait` commands in one
-Decision. Its `continuation.kind=wait` must include every newly registered
+Decision. An unaccepted persona may first accept its exact current offer in the
+same response, placing that acceptance before the wait command. The acceptance
+must pass all ordinary checks; an invalid offer or later operation rejects the
+whole response, including the wait. No sender responsibility is inferred.
+Its `continuation.kind=wait` must include every newly registered
 `inputs.id` in `dependency_ids`; other IDs must identify current permitted
 dependencies. The complete set is bounded to eight distinct IDs and has one
 future deadline. Any one unobserved arrival, or the deadline, permits a fresh

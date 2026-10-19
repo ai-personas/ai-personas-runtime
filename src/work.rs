@@ -1037,8 +1037,8 @@ impl WorkBoard {
                 }),
                 "actual observed event bindings",
             )?;
+            let registers_message_wait = !registrations.is_empty();
             for registration in registrations {
-                accepted(w, &ctx.persona)?;
                 require(registration.dependency.valid(), "message wait dependency")?;
                 require(
                     response.continuation.waits_for(&registration.dependency),
@@ -1081,6 +1081,12 @@ impl WorkBoard {
             for command in response.commands {
                 open(w)?;
                 apply_command(w, &personas, ctx, &by, command)?;
+            }
+            // Acceptance may occur in this response. Require its actual validated
+            // result before committing a wait; all staged registrations roll back
+            // if acceptance or any later command fails.
+            if registers_message_wait {
+                accepted(w, &ctx.persona)?;
             }
             // A new completion describes this atomic response as committed, not an
             // intermediate state invalidated by a later command in that response.
