@@ -156,7 +156,7 @@ fn records(
     // Each profile has its own ordinary directory. Historical guide revisions
     // remain addressable and keep their permissions; discovery at the current
     // locator cannot confuse them with the current registered definitions.
-    let profile = digest(&("native-work-guide-profile-v2", owner, policy, &bodies))?;
+    let profile = digest(&("native-work-guide-profile-v3", owner, policy, &bodies))?;
     let directory = format!("{DIRECTORY}{profile}/");
     let files = bodies
         .into_iter()
@@ -165,16 +165,10 @@ fn records(
                 body.len() <= 8192,
                 "native work guide exceeds its byte bound",
             )?;
-            let identity = digest(&(
-                "native-work-guide-v2",
-                owner,
-                policy,
-                &directory,
-                &command,
-                &body,
-            ))?;
             let record = f::FileRevision {
-                source: format!("native-work-guide:{identity}:{command}"),
+                // Logical identity stays readable; the sealed revision binds
+                // the exact content, path, author and source policy.
+                source: format!("native-work-guide:{command}"),
                 revision: String::new(),
                 path: format!("{directory}{command}.md"),
                 scope: f::Scope::Assets,
@@ -247,12 +241,49 @@ pub(in crate::runtime) fn install(
     let (directory, files) = records(state, owner, policy_id)?;
     for (command, file) in files {
         let reference = file.reference(f::Representation::Utf8);
-        if let Some(source) = state.sources.get(&file.source) {
-            require(source.owner == owner && source.protected && !source.retired
-                && source.head == file.revision
-                && source.revisions.iter().any(|revision| revision.record == file
-                    && matches!(&revision.origin, Some(RevisionOrigin::OperatorImport {operator: author, ..}) if author == operator)),
-                "native guide identity conflict or withdrawal; installation cannot restore it")?;
+        let current = state
+            .work_guides
+            .as_ref()
+            .and_then(|catalog| catalog.guides.get(&command))
+            .cloned();
+        if let Some(source) = state.sources.get_mut(&file.source) {
+            require(
+                source.owner == owner
+                    && source.protected
+                    && !source.retired
+                    && source.imported_by.as_deref() == Some(operator),
+                "native guide identity conflict or withdrawal; installation cannot restore it",
+            )?;
+            if let Some(existing) = source
+                .revisions
+                .iter()
+                .find(|revision| revision.record.revision == file.revision)
+            {
+                require(
+                    existing.record == file
+                        && source.head == file.revision
+                        && matches!(&existing.origin, Some(RevisionOrigin::OperatorImport {operator: author, ..}) if author == operator),
+                    "native guide identity conflict; installation cannot rewind an older revision",
+                )?;
+            } else {
+                require(
+                    current.as_ref().is_some_and(|registered| {
+                        registered.source == file.source && registered.revision == source.head
+                    }),
+                    "native guide identity is not the current registered source",
+                )?;
+                source.head = file.revision.clone();
+                source.revisions.push(ManagedRevision {
+                    record: file,
+                    lineage: Vec::new(),
+                    qualification_sources: None,
+                    exposure: Some(Exposure::default()),
+                    origin: Some(RevisionOrigin::OperatorImport {
+                        operator: operator.into(),
+                        event_index,
+                    }),
+                });
+            }
         } else {
             state.sources.insert(
                 file.source.clone(),

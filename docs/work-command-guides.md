@@ -35,6 +35,9 @@ their storage owner; this assigns no specialist role or authorship to that
 persona. Protected guide sources cannot be rewritten by personas. They consume
 ordinary existing storage and can be withheld by current source restrictions.
 Withdrawing a source cannot be undone by replaying installation.
+Guide source IDs are readable, such as `native-work-guide:put_artifact`. The
+separate revision hash still identifies the exact immutable file. Copy the
+complete reference returned by discovery; the source name alone exposes nothing.
 
 ## Existing roots
 
@@ -78,6 +81,9 @@ exact request replay returns its historical receipt without changing current
 sources or resources. A different request under the same ID is rejected.
 New guide definitions require a fresh installation request. A refresh uses a new
 profile directory, preserving old files, exact references and their restrictions.
+For a current named guide source, refresh appends an immutable revision and
+advances its head. It cannot overwrite an unrelated source or rewind an older
+revision. Historical sources with earlier opaque IDs remain retained too.
 Only the current registered guide revisions expose commands. Preserved selections
 of older guides may therefore need replacement through the persona's ordinary
 next-context choices. Installation refuses to replace withdrawn or restricted
