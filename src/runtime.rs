@@ -1530,6 +1530,12 @@ pub enum WorkAction {
         #[schemars(length(min = 1, max = 4096))]
         reason: String,
     },
+    /// Register a complete saved asset as an artifact candidate. For a new
+    /// artifact identity, use base:null. Only the existing artifact's owner may
+    /// revise that identity, using its exact current base. A peer's registered
+    /// artifact is already a candidate: use its exact artifact reference in
+    /// assessment or shared selection without re-registering it. Registration
+    /// does not establish result ownership, evidence, release or delivery.
     PutArtifact {
         artifact: String,
         base: Option<ArtifactKey>,
