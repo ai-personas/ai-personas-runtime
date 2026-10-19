@@ -144,6 +144,17 @@ enum Command {
     PersonaLifecycleSnapshot { persona: String },
     /// Inspect reserved population capacity and exact creation fences. No inference.
     PersonaBirthSnapshot { parent: String },
+    /// Inspect the exact fences for installing searchable native work-command guides.
+    WorkCommandGuidesSnapshot,
+    /// Install native guide assets and select future command definitions by actual guide supply.
+    /// Preserves grants, work, selections and resources; starts no inference.
+    InstallWorkCommandGuides {
+        file: PathBuf,
+        #[arg(long, required_unless_present = "apply", conflicts_with = "apply")]
+        preview: bool,
+        #[arg(long, required_unless_present = "preview", conflicts_with = "preview")]
+        apply: bool,
+    },
     /// Create a dormant identity from an exact accepted persona-authored asset proposal.
     /// Creates no work, commitment, model call or additional resources.
     CreatePersonaFromProposal {
@@ -982,6 +993,18 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         request.validate(operator)?;
         Some(request)
     } else { None };
+    let work_guides_request = if let Command::InstallWorkCommandGuides { file, preview, apply } = &cli.command {
+        if preview == apply { return Err(argument("exactly one of --preview or --apply")); }
+        let value: serde_json::Value = runtime::read_json_file(file, 16_384)?;
+        for path in ["", "/expected_runtime", "/expected_launch"] {
+            if !value.pointer(path).is_some_and(serde_json::Value::is_object) {
+                return Err(argument("native-guide installation request requires JSON objects"));
+            }
+        }
+        let request: launch::work_command_guides::Request = serde_json::from_value(value)?;
+        request.validate(operator)?;
+        Some(request)
+    } else { None };
     let birth_request = if let Command::CreatePersonaFromProposal { file, preview, apply } = &cli.command {
         if preview == apply { return Err(argument("exactly one of --preview or --apply")); }
         let value: serde_json::Value = runtime::read_json_file(file, 16_384)?;
@@ -1160,6 +1183,13 @@ async fn run(cli: Cli) -> runtime::Result<()> {
     // Its narrow launcher entry meters authority reads against existing Closeout
     // resources and performs no ordinary open recovery or model execution.
     match &cli.command {
+        Command::WorkCommandGuidesSnapshot => {
+            return emit(&launch::work_command_guides::snapshot_at(root, operator)?);
+        }
+        Command::InstallWorkCommandGuides { apply, .. } => {
+            return emit(&launch::work_command_guides::install_at(root,
+                work_guides_request.as_ref().expect("native-guide request checked"), *apply, runtime::unix_now()?)?);
+        }
         Command::PersonaBirthSnapshot { parent } => {
             return emit(&launch::persona_birth::snapshot_at(root, operator, parent)?);
         }
@@ -1262,6 +1292,9 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         }
         Command::PersonaLifecycleSnapshot { .. } | Command::ChangePersonaLifecycle { .. } => {
             unreachable!("lifecycle handled before ordinary open")
+        }
+        Command::WorkCommandGuidesSnapshot | Command::InstallWorkCommandGuides { .. } => {
+            unreachable!("native-guide installation handled before ordinary open")
         }
         Command::PersonaBirthSnapshot { .. } | Command::CreatePersonaFromProposal { .. } => {
             unreachable!("birth handled before ordinary open")

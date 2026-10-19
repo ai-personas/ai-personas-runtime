@@ -921,6 +921,8 @@ pub struct SettingsView {
     /// All lifetime slots, including future identities named in sharing policy.
     pub persona_capacity: usize,
     pub remaining_persona_slots: usize,
+    pub selective_work_commands: bool,
+    pub work_guide_directory: Option<String>,
     pub share_cohort: bool,
     pub http_origins: BTreeSet<String>,
     pub direct_provider_authorized: bool,
@@ -1094,6 +1096,8 @@ fn settings_view(state: &State, saved: &Saved, now: u64) -> SettingsView {
         cohort: saved.setup.cohort,
         persona_capacity: saved.setup.persona_capacity(),
         remaining_persona_slots: saved.setup.persona_capacity().saturating_sub(saved.setup.cohort),
+        selective_work_commands: state.work_guides.is_some(),
+        work_guide_directory: state.work_guides.as_ref().map(|catalog|work_guides::directory(catalog).into()),
         share_cohort: saved.setup.share_cohort,
         http_origins: saved.setup.http_origins.clone(),
         direct_provider_authorized: state.config.allow_direct_provider,

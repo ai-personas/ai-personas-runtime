@@ -71,9 +71,22 @@ pub(super) fn inspect(
             "metadata_only":true
         }));
     }
+    let native_work_interface = match &prepared.work_interface {
+        Some(interface) if control["work_capability"]["binding_revision"] == interface.binding_revision
+            && control["work_capability"]["inputs_schema"] == interface.inputs_schema => {
+            json!({"available":true,"capability_id":interface.capability_id,
+                "binding_revision":interface.binding_revision,
+                "selection_mode":if interface.selected_commands.is_some() {"selected_native_work_guides_v1"} else {"legacy_full_work_interface"},
+                "selected_commands":interface.selected_commands,
+                "schema_bytes":serde_json::to_vec(&interface.inputs_schema)?.len(),
+                "meaning":"Definition actually supplied in this admitted input; not work authority, execution or result correctness."})
+        }
+        _ => json!({"available":false}),
+    };
     let view = json!({
         "available":true,
         "supplied_supporting_resources":resources,
+        "supplied_native_work_interface":native_work_interface,
         "execution_intents_in_accepted_decision":proof.intent_ids.len(),
         "supplied_computation_interfaces":prepared.computation_interfaces,
         "supplied_http_fetch_interfaces":prepared.http_fetch_interfaces,

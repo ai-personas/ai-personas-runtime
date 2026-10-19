@@ -20,6 +20,8 @@ struct ExpandedState {
     config: Config,
     personas: BTreeMap<String, Persona>,
     sources: BTreeMap<String, Source>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    work_guides: Option<work_guides::Catalog>,
     #[serde(default)]
     accepted_bindings: Vec<f::AcceptedBinding>,
     #[serde(default)]

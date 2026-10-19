@@ -1,0 +1,100 @@
+# Selecting native work commands
+
+Fresh native setup and bootstrap install small, runtime-authored supporting
+files in a profile-specific directory under `runtime/work-commands/`. Personas discover them with the existing
+bounded file list and search operations, then read or select relevant exact
+UTF-8 revisions. There is no separate catalogue-fetch operation. The directory
+locator in `CONTROL.work_guide_discovery` supplies no command schemas or bodies.
+Related guide filenames provide search cues for prerequisites. An absent command
+definition is a reason to discover relevant guides before concluding that the
+capability is unavailable; source and work authority still need their own checks.
+If supplied guide bodies are from an older profile or are incomplete, the
+capability's `guide_supply` diagnostic identifies those paths and the correction
+needed. It does not change selections; preserving the same unavailable bodies
+and retrying cannot expose their commands.
+
+Only complete registered guide bodies actually supplied in an admission expose
+their command definitions in `CONTROL.work_capability.inputs_schema`. The
+runtime prunes definitions that the selected commands do not reference and seals
+the resulting interface in that admission. Discovery metadata, old receipts,
+permission ancestry and proposed next selections do not expose commands. A read
+or selection in one response takes effect only in a later admission; it cannot
+authorize another operation in the same response.
+
+`work_command.inputs.kind` must belong to the supplied interface. The legacy
+`effect` encoding additionally echoes that interface's exact `binding_revision`.
+Both encodings retain all existing work, evidence, source, consent and resource
+checks. Reading a guide does not grant responsibility, perform an operation or
+establish skill. Primitive file, communication and maintenance operations remain
+in the application decision schema. Initialization and selection repair do not
+offer work commands.
+
+The guide files have recorded author `ai-personas-runtime`, operator-import
+provenance and the launch's existing source policy. The first cohort identity is
+their storage owner; this assigns no specialist role or authorship to that
+persona. Protected guide sources cannot be rewritten by personas. They consume
+ordinary existing storage and can be withheld by current source restrictions.
+Withdrawing a source cannot be undone by replaying installation.
+
+## Existing roots
+
+Existing roots keep their complete legacy interface until the operator explicitly
+installs guides. Installation changes future definition supply without changing
+current selections, grants, resource limits, spent attempts or continuing work.
+It performs no inference. Use the updated native binaries for all operations
+after installation: older binaries cannot read the new catalogue state.
+
+```sh
+ai-personas --state-root /private/state --operator requester \
+  work-command-guides-snapshot
+```
+
+Copy the returned runtime and launch references into a request:
+
+```json
+{
+  "id": "install-native-work-guides-1",
+  "operator": "requester",
+  "expected_runtime": {"id": "runtime-state-v1", "revision": 1, "sha256": "COPY_FROM_SNAPSHOT"},
+  "expected_launch": {"id": "runtime-launch-v1", "revision": 1, "sha256": "COPY_FROM_SNAPSHOT"},
+  "authorization_reference": "The operator's actual authorization record",
+  "authorize_installation": true
+}
+```
+
+Use the actual snapshot revisions and complete digests. The request must fit
+16 KiB. Preview returns the proposed qualified guide bodies and reserves nothing.
+
+```sh
+ai-personas --state-root /private/state --operator requester \
+  install-work-command-guides installation.json --preview
+ai-personas --state-root /private/state --operator requester \
+  install-work-command-guides installation.json --apply
+```
+
+Apply requires unchanged fences, execution ownership and terminal invocations.
+The guide sources, catalogue, launch revision and receipt commit together. An
+exact request replay returns its historical receipt without changing current
+sources or resources. A different request under the same ID is rejected.
+New guide definitions require a fresh installation request. A refresh uses a new
+profile directory, preserving old files, exact references and their restrictions.
+Only the current registered guide revisions expose commands. Preserved selections
+of older guides may therefore need replacement through the persona's ordinary
+next-context choices. Installation refuses to replace withdrawn or restricted
+current guides. The host registry connects exact guide references to native definitions;
+an arbitrary authored file cannot add a command.
+
+## Inspect actual use
+
+Settings report `selective_work_commands` and `work_guide_directory`. For an
+accepted call, the development view's
+`resource_use.supplied_native_work_interface` reports the interface actually
+present in the retained input: its selection mode, selected command names,
+binding and serialized schema bytes. The supporting-resource entries show the
+exact guide bodies supplied through context or read observations. Compare this
+with the accepted operations and work result to establish application.
+
+Selective supply reduces the command catalogue included in an individual input
+when only a subset is needed. Finding and reading guides can require additional
+calls, and other required context remains. Schema size alone does not establish
+lower total work cost or successful delivery.

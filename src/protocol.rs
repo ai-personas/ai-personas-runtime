@@ -483,6 +483,9 @@ pub enum Operation {
     },
     /// Applies an offered internal work action. Commands run in listed order
     /// after staged file saves; this is not an external execution dependency.
+    /// Only kinds actually supplied in CONTROL.work_capability are available.
+    /// If it is disabled, first discover/read/select registered supporting guides;
+    /// a same-response read or future selection cannot expose a command now.
     WorkCommand {
         id: String,
         /// Match CONTROL.work_capability.inputs_schema exactly. Where that
@@ -756,7 +759,7 @@ fn retain_schema_variants(schema: &mut Value, name: &str, allowed: &[&str]) {
         });
 }
 
-fn retain_reachable_definitions(schema: &mut Value) {
+pub(crate) fn retain_reachable_definitions(schema: &mut Value) {
     // Keep every definition reachable from the complete response, including
     // fields outside operations. Unoffered operation-only definitions would
     // otherwise keep the discarded catalogue in a restricted request.

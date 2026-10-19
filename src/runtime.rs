@@ -17,6 +17,7 @@ mod discovery;
 mod failed_attempt;
 mod history;
 mod initialization;
+mod work_guides;
 mod intake;
 pub use intake::WorkAllocation;
 pub(crate) mod lifecycle;
@@ -813,6 +814,7 @@ pub struct State {
     pub config: Config,
     pub personas: BTreeMap<String, Persona>,
     pub sources: BTreeMap<String, Source>,
+    pub(crate) work_guides: Option<work_guides::Catalog>,
     pub accepted_bindings: Vec<f::AcceptedBinding>,
     /// Immutable warning authorship and append-only resolution history. The
     /// active files binding snapshot is a separately enforced projection.
@@ -1645,6 +1647,10 @@ pub struct WorkInterface {
     pub capability_id: String,
     pub binding_revision: String,
     pub inputs_schema: Value,
+    /// Absence preserves a legacy complete interface. A subset is sealed in
+    /// the admitted request; later file choices cannot expand that admission.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_commands: Option<BTreeSet<String>>,
 }
 impl WorkInterface {
     fn current() -> Result<Self> {
@@ -1653,6 +1659,16 @@ impl WorkInterface {
             capability_id: "work.command.v1".into(),
             binding_revision: s::sha256_bytes(&serde_json::to_vec(&inputs_schema)?),
             inputs_schema,
+            selected_commands: None,
+        })
+    }
+    fn selected(commands: BTreeSet<String>) -> Result<Self> {
+        let inputs_schema = work_guides::selected_schema(&commands)?;
+        Ok(Self {
+            capability_id: "work.command.v1".into(),
+            binding_revision: s::sha256_bytes(&serde_json::to_vec(&inputs_schema)?),
+            inputs_schema,
+            selected_commands: Some(commands),
         })
     }
 }
@@ -1665,7 +1681,10 @@ fn require_current_work_interface(prepared: &Prepared) -> Result<()> {
         )
     };
     let retained = prepared.work_interface.as_ref().ok_or_else(stale)?;
-    let current = WorkInterface::current()?;
+    let current = match &retained.selected_commands {
+        Some(commands) => WorkInterface::selected(commands.clone())?,
+        None => WorkInterface::current()?,
+    };
     let retained_schema = serde_json::to_vec(&retained.inputs_schema)?;
     require(
         prepared.request.mode == Mode::Ordinary
@@ -1675,6 +1694,13 @@ fn require_current_work_interface(prepared: &Prepared) -> Result<()> {
             && retained_schema == serde_json::to_vec(&current.inputs_schema)?,
         "admitted work interface is stale or unavailable",
     )
+}
+fn require_supplied_work_command(prepared: &Prepared, inputs: &Value) -> Result<()> {
+    require_current_work_interface(prepared)?;
+    let retained = prepared.work_interface.as_ref().unwrap();
+    require(retained.selected_commands.as_ref().is_none_or(|commands| {
+        inputs.get("kind").and_then(Value::as_str).is_some_and(|kind| commands.contains(kind))
+    }), "work command definition was not supplied; read or select its registered exact guide before a fresh admission")
 }
 // Resolving this selector grants no authority. Both consumers still apply their
 // existing request-only diagnostic or full current-state authorization checks.
@@ -1698,10 +1724,11 @@ fn resolved_work_operation<'a>(
             if capability_id == crate::computation::PROFILE || capability_id == crate::http_fetch::PROFILE {
                 return Ok(None);
             }
-            if capability_id != "work.command.v1" || binding_revision != &work_binding() {
+            if capability_id != "work.command.v1"
+                || !prepared.work_interface.as_ref().is_some_and(|interface| &interface.binding_revision == binding_revision) {
                 return Err(stale());
             }
-            require_current_work_interface(prepared)?;
+            require_supplied_work_command(prepared, inputs)?;
             Ok(Some((id, inputs, depends_on)))
         }
         p::Operation::WorkCommand {
@@ -1709,7 +1736,7 @@ fn resolved_work_operation<'a>(
             inputs,
             depends_on,
         } => {
-            require_current_work_interface(prepared)?;
+            require_supplied_work_command(prepared, inputs)?;
             Ok(Some((id, inputs, depends_on)))
         }
         _ => Ok(None),
@@ -2652,6 +2679,7 @@ fn initial_state(config: Config, operator: &str) -> State {
         config,
         personas: BTreeMap::new(),
         sources: BTreeMap::new(),
+        work_guides: None,
         accepted_bindings: Vec::new(),
         semantic_warnings: BTreeMap::new(),
         board: w::WorkBoard::default(),
@@ -7318,7 +7346,9 @@ fn render_mode_with_history(
     let repair_schema = repair_navigation
         .map(|_| serde_json::to_string(&p::selection_repair_schema()))
         .transpose()?;
-    let work_interface = WorkInterface::current()?;
+    let mut work_interface = if state.work_guides.is_none() {
+        Some(WorkInterface::current()?)
+    } else { None };
     let need_interface =
         need_proposals::interface(state, actor, work_id, now, ordinary_interfaces)?;
     if let Some(interface) = &need_interface {
@@ -7371,9 +7401,16 @@ fn render_mode_with_history(
         "work_capability":if initializing {
             json!({"enabled":false,"reason":"Initial character authorship only; the ordinary work interface is supplied after character acceptance and fresh admission."})
         } else {
-            json!({"id":work_interface.capability_id,"binding_revision":work_interface.binding_revision,"inputs_schema":work_interface.inputs_schema})
+            work_guides::capability(state, &supplied_bodies, work_interface.as_ref())?
         },
         "not_ready":["external effects","top-level Deliver without release binding"],"readiness_limits":readiness()});
+    if !initializing {
+        if let Some(discovery) = work_guides::control(state) {
+            growth_bytes = growth_bytes.checked_add(serde_json::to_vec(&discovery)?.len())
+                .ok_or_else(|| invalid("native work discovery accounting"))?;
+            core["work_guide_discovery"] = discovery;
+        }
+    }
     if ordinary_interfaces {
         if let Some(capacity) = state.config.persona_capacity {
             if state.personas.len() < capacity {
@@ -7450,15 +7487,10 @@ fn render_mode_with_history(
     let schema_bytes = serde_json::to_vec(&provider_schema())?.len();
     // Measure only the actual instruction/schema components, not dynamic
     // control fields, counters, invocation identifiers or resource formatting.
-    let fixed_contract_bytes = [
+    let mut fixed_contract_bytes = [
         duties.len(),
         arrangement_duties.len(),
         application_schema.len(),
-        if initializing {
-            0
-        } else {
-            serde_json::to_vec(&work_interface.inputs_schema)?.len()
-        },
         schema_bytes,
     ]
     .into_iter()
@@ -7527,6 +7559,12 @@ fn render_mode_with_history(
     // Corpus closure quotas still bound assembly. Request fit is checked after
     // exact text sharing, including the complete control and qualification data.
     let mandatory_context = render_bundle(&mandatory)?;
+    supplied_bodies.extend(mandatory.entries.iter().map(|e| e.reference.clone()));
+    if !initializing {
+        work_interface = work_guides::exposed(state, actor, &supplied_bodies, now)?;
+        core["work_capability"] = work_guides::capability(state, &supplied_bodies, work_interface.as_ref())?;
+    }
+    let mandatory_work_capability = core["work_capability"].clone();
     let (_, _, mut mandatory_total) = render_prompt(&core, &mandatory_context, false)?;
     if mandatory_total > state.config.context_bytes {
         return Err(f::FilesError::MandatoryOverflow {
@@ -7535,7 +7573,6 @@ fn render_mode_with_history(
         }
         .into());
     }
-    supplied_bodies.extend(mandatory.entries.iter().map(|e| e.reference.clone()));
     let assembly = f::assemble(
         &corpus,
         &character,
@@ -7553,6 +7590,21 @@ fn render_mode_with_history(
         0,
     )?;
     let ordinary_context = render_bundle(&assembly)?;
+    if !initializing {
+        let mut complete_bodies = supplied_bodies.clone();
+        complete_bodies.extend(assembly.entries.iter().map(|e| e.reference.clone()));
+        work_interface = work_guides::exposed(state, actor, &complete_bodies, now)?;
+        core["work_capability"] = work_guides::capability(state, &complete_bodies, work_interface.as_ref())?;
+        if let Some(diagnostic) = core["work_capability"].get("guide_supply") {
+            growth_bytes = growth_bytes.checked_add(serde_json::to_vec(diagnostic)?.len())
+                .ok_or_else(|| invalid("native guide supply diagnostic accounting"))?;
+        }
+        if let Some(interface) = &work_interface {
+            fixed_contract_bytes = fixed_contract_bytes.checked_add(
+                serde_json::to_vec(&interface.inputs_schema)?.len())
+                .ok_or_else(|| invalid("selected native schema accounting"))?;
+        }
+    }
     let (mut ordinary_prompt, mut ordinary_encoding, mut ordinary_total) =
         render_prompt(&core, &ordinary_context, false)?;
     let computation_interfaces = if ordinary_interfaces {
@@ -7646,6 +7698,14 @@ fn render_mode_with_history(
             }
         }
     }
+    if state.work_guides.is_some() && !initializing {
+        // Optional guide-dependent schemas belong to their selected bundles.
+        // Only guides in mandatory context/observations contribute to this
+        // mandatory fit baseline; no body or definition is silently dropped.
+        let mut mandatory_core = core.clone();
+        mandatory_core["work_capability"] = mandatory_work_capability;
+        mandatory_total = render_prompt(&mandatory_core, &mandatory_context, false)?.2;
+    }
     let mut repair_reads = Vec::new();
     let (prompt, prompt_encoding, total) = if let Some(navigation) = repair_navigation {
         let eligible: BTreeSet<_> = assembly
@@ -7689,6 +7749,7 @@ fn render_mode_with_history(
         core["mode"] = json!("selection_repair");
         core["reconsideration_interface"] = Value::Null;
         core["history_records_interface"] = Value::Null;
+        core.as_object_mut().unwrap().remove("work_guide_discovery");
         // Keep the ordinary contract above for ordinary fit accounting. The
         // actual repair request carries no inoperative work-command catalogue;
         // its complete response still goes through validate_selection_repair.
@@ -7731,7 +7792,7 @@ fn render_mode_with_history(
     Ok(Rendered {
         computation_interfaces,
         http_fetch_interfaces,
-        work_interface: ordinary_interfaces.then_some(work_interface),
+        work_interface: if ordinary_interfaces { work_interface } else { None },
         need_interface,
         withheld: assembly.withheld,
         prompt,

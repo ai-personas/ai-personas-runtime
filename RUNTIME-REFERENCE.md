@@ -133,8 +133,12 @@ Full UTF-8 text is matched to the retained file revision. It excludes discovery
 candidates, proposed next selections and nested history/message content from
 these supply claims. The complete view is unavailable if current permissions or
 its 256-entry/64-KiB limits cannot be satisfied. No extra model call or selection
-is made. Internal operations and retained execution intents remain distinct from
-external execution, which the native runtime does not currently support. Saved
+is made. `supplied_native_work_interface` records the actual command schema,
+selection mode and byte count. Fresh native setups install
+[selectable work-command guides](docs/work-command-guides.md); continuing roots
+retain their legacy interface until explicitly upgraded. Internal operations
+and retained execution intents remain distinct from completed computation or
+HTTPS execution, which have their own terminal receipts. Saved
 scripts and supplied skill guides do not establish execution or successful skill
 application. See [resource-use interpretation](docs/persona-development.md).
 

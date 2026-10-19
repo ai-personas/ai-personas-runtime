@@ -99,6 +99,13 @@ saved program or supplied guide does not prove that a skill was applied or a
 program ran. Compare the supplied instructions with the accepted response and
 the work's actual results to assess skill application.
 
+`supplied_native_work_interface` reports the actual internal command schema,
+including its byte count, exact binding and selected command names. With
+[native work guides](work-command-guides.md), only complete registered guide
+bodies supplied to that call expose commands. Legacy roots retain the full
+interface until explicitly upgraded. Definition supply and accepted command
+execution are separate evidence.
+
 The native runtime supports explicitly granted [bounded WebAssembly computation](computation.md)
 and [HTTPS source retrieval](https-retrieval.md), as well as its internal file,
 discovery, history and work operations. Shell commands and arbitrary installed

@@ -70,6 +70,8 @@ pub mod context_capacity;
 pub mod persona_lifecycle;
 #[path = "launch/persona_birth.rs"]
 pub mod persona_birth;
+#[path = "launch/work_command_guides.rs"]
+pub mod work_command_guides;
 #[path = "launch/transport_capacity.rs"]
 pub mod transport_capacity;
 pub use work_resource_grant::{
@@ -398,6 +400,7 @@ pub fn setup_with_seeds(
     let mut app = Runtime::create(&root, config, operator)?;
     save(&mut app, None, &saved)?;
     ensure_cohort(&mut app, &saved)?;
+    work_command_guides::install_fresh(&mut app, &saved)?;
     Ok(app)
 }
 pub fn open(root: &Path, operator: Option<&str>) -> Result<Runtime> {

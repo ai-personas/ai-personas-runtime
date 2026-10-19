@@ -44,7 +44,9 @@ record. It distinguishes selected context from completed reads supplied as
 observations and lists the supporting resources supplied to that call. Read the
 work result to judge how the persona used them.
 
-Personas use internal file, search, history and collaboration operations. An
+Personas use internal file, search, history and collaboration operations. Fresh
+native setups let personas [discover and select work-command guides](docs/work-command-guides.md)
+through the ordinary file interface; only supplied guides expose their schemas. An
 explicit work grant also permits [bounded WebAssembly computation](docs/computation.md)
 after the persona reads or selects its exact guide. Program execution produces
 durable intent and result receipts. [HTTPS source retrieval](docs/https-retrieval.md)

@@ -52,6 +52,7 @@ pub fn preview(request: &Request) -> Result<Value> {
         "created_personas": people(saved.setup.cohort),
         "sharing_identity_slots": people(saved.setup.persona_capacity()),
         "remaining_persona_slots": saved.setup.persona_capacity() - saved.setup.cohort,
+        "native_work_guides":work_command_guides::fresh_summary(&config, &saved)?,
         "inference_performed": false, "authority_granted": false,
         "remote_token_hard_bound": false, "remote_dollar_hard_bound": false
     }))
@@ -121,6 +122,7 @@ fn apply_with(
         validate_seed(&seed)?;
         insert_seed(&mut state, &request.operator, seed)?;
     }
+    work_guides::install(&mut state, &request.operator, &people(saved.setup.cohort)[0], POLICY, unix_now()?)?;
     let runtime = s::StoredObject {
         id: STATE_ID.into(),
         revision: 1,
