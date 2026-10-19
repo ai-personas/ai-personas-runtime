@@ -53,6 +53,17 @@ and gaps remain visible pending adoption. Saved `--owner` is legacy compatibilit
 new needs. Existing mandates are preserved. The generic creation material asserts
 no prior character or experience. The same cohort is reused on later needs.
 
+The initial character-authoring request supplies the complete Decision envelope
+with only `file_write` and `character_adopt` operation definitions and their
+reachable schema dependencies. It includes the initial trait/own-voice rules,
+current work facts, source restrictions and resource limits. Ordinary work,
+discovery, history, computation and need-proposal interfaces are withheld while
+the character fence makes those operations inoperative. After acceptance, the
+existing handover obtains the full ordinary interface in a fresh request. The
+same full response parser, source checks and character fence still apply. Before
+adoption, the resulting character and selections must fit that full ordinary
+request; the smaller initialization contract cannot bypass the fit check.
+
 For distinct starting characters, add `--persona-seeds /absolute/private/seeds.json`
 to `setup`. The file maps cohort IDs to `label`, `text`, and `provenance`:
 

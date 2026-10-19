@@ -16,6 +16,7 @@ mod delivery_evidence;
 mod discovery;
 mod failed_attempt;
 mod history;
+mod initialization;
 mod intake;
 pub use intake::WorkAllocation;
 mod need_proposals;
@@ -3824,9 +3825,9 @@ impl Runtime {
             prompt_sha256: s::sha256_bytes(rendered.prompt.as_bytes()),
             prompt: rendered.prompt,
             output_schema: provider_schema(),
-            reconsideration_interface: (request.mode == Mode::Ordinary)
+            reconsideration_interface: (request.mode == Mode::Ordinary && persona.character.is_some())
                 .then(|| RECONSIDERATION_INTERFACE.into()),
-            history_records_interface: (request.mode == Mode::Ordinary)
+            history_records_interface: (request.mode == Mode::Ordinary && persona.character.is_some())
                 .then(|| history::records::INTERFACE.into()),
             work_interface: rendered.work_interface,
             need_interface: rendered.need_interface,
@@ -6993,9 +6994,26 @@ fn render_mode_with_history(
         let mut remaining = meta.navigation_left;
         allocate_navigation(&mut remaining, state.config.navigation_per_call)
     });
+    let initializing = persona.character.is_none();
+    let ordinary_interfaces = !initializing && repair_navigation.is_none();
+    let duties = if initializing {
+        initialization::DUTIES
+    } else {
+        DUTIES
+    };
+    let arrangement_duties = if initializing {
+        ""
+    } else {
+        arrangements::DUTIES
+    };
+    let application_schema = serde_json::to_string(&if initializing {
+        p::initialization_schema()
+    } else {
+        p::decision_schema()
+    })?;
     let work_interface = WorkInterface::current()?;
     let need_interface =
-        need_proposals::interface(state, actor, work_id, now, repair_navigation.is_none())?;
+        need_proposals::interface(state, actor, work_id, now, ordinary_interfaces)?;
     if let Some(interface) = &need_interface {
         exposure.policies.push(scoped_policy(
             "intake-delegation",
@@ -7006,8 +7024,8 @@ fn render_mode_with_history(
     }
     let mut core = json!({"profile":"application-persona-request-v1","actor":actor,"work_id":work_id,
         "invocation_id":invocation,"epoch":epoch,"owner_epoch":persona.owner_epoch,"mode":"ordinary",
-        "context_at_unix":now,"reconsideration_interface":RECONSIDERATION_INTERFACE,
-        "history_records_interface":history::records::INTERFACE,
+        "context_at_unix":now,"reconsideration_interface":(!initializing).then_some(RECONSIDERATION_INTERFACE),
+        "history_records_interface":(!initializing).then_some(history::records::INTERFACE),
         "lifecycle_role":if persona.character.is_none() { "initialization" } else { "continuing_persona" },
         "seed":if persona.character.is_none() {
             json!({"text":persona.seed.text,"provenance":persona.seed.provenance,"supplied_by":persona.created_by,"body_supplied":true})
@@ -7043,7 +7061,11 @@ fn render_mode_with_history(
         "navigation_left_after_this_admission":meta.navigation_left,
         "context_bytes":state.config.context_bytes,"response_bytes":state.config.response_bytes,
         "storage":"logical retention only; physical/token/dollar hard bounds unsupported",
-        "work_capability":{"id":work_interface.capability_id,"binding_revision":work_interface.binding_revision,"inputs_schema":work_interface.inputs_schema},
+        "work_capability":if initializing {
+            json!({"enabled":false,"reason":"Initial character authorship only; the ordinary work interface is supplied after character acceptance and fresh admission."})
+        } else {
+            json!({"id":work_interface.capability_id,"binding_revision":work_interface.binding_revision,"inputs_schema":work_interface.inputs_schema})
+        },
         "not_ready":["external effects","top-level Deliver without release binding"],"readiness_limits":readiness()});
     if !prior_continuation.is_null() {
         core["previous_authored_continuation"] = prior_continuation;
@@ -7089,10 +7111,14 @@ fn render_mode_with_history(
     // Measure only the actual instruction/schema components, not dynamic
     // control fields, counters, invocation identifiers or resource formatting.
     let fixed_contract_bytes = [
-        DUTIES.len(),
-        arrangements::DUTIES.len(),
-        serde_json::to_vec(&p::decision_schema())?.len(),
-        serde_json::to_vec(&work_interface.inputs_schema)?.len(),
+        duties.len(),
+        arrangement_duties.len(),
+        application_schema.len(),
+        if initializing {
+            0
+        } else {
+            serde_json::to_vec(&work_interface.inputs_schema)?.len()
+        },
         schema_bytes,
     ]
     .into_iter()
@@ -7109,9 +7135,7 @@ fn render_mode_with_history(
             .ok_or_else(|| invalid("prompt size overflow"))
     };
     let mut prefix = format!(
-        "{DUTIES}\n{}\nAPPLICATION_DECISION_SCHEMA\n{}\nCONTROL\n{}\nQUALIFIED_CONTEXT\n",
-        arrangements::DUTIES,
-        serde_json::to_string(&p::decision_schema())?,
+        "{duties}\n{arrangement_duties}\nAPPLICATION_DECISION_SCHEMA\n{application_schema}\nCONTROL\n{}\nQUALIFIED_CONTEXT\n",
         serde_json::to_string(&core)?
     );
     let fixed = fixed_size(&prefix)?;
@@ -7180,7 +7204,7 @@ fn render_mode_with_history(
         state.config.output_reserve_bytes,
     )?;
     let (ordinary_context, mut ordinary_total) = render_bundle(&assembly)?;
-    let computation_interfaces = if repair_navigation.is_none() {
+    let computation_interfaces = if ordinary_interfaces {
         let mut complete_bodies = supplied_bodies.clone();
         complete_bodies.extend(assembly.entries.iter().map(|e| e.reference.clone()));
         tools::exposed(state, actor, work_id, &complete_bodies, now)?
@@ -7196,8 +7220,8 @@ fn render_mode_with_history(
             "input_bytes":crate::computation::INPUT_BYTES,"output_bytes":crate::computation::OUTPUT_BYTES,
             "fuel":crate::computation::FUEL,"linear_memory_bytes":crate::computation::MEMORY_BYTES,
             "rule":"Copy the supplied capability_id and binding_revision. Use the exact full WAT asset and input string under inputs. A same-response program save requires its proposal-op reference and depends_on. The host executes only after complete adoption and records a later computation_result observation. Interpret it in a fresh decision. Output is untrusted guest data; success proves execution only. This runner links no imports and grants no filesystem, network, clock, credential or model access. Guide supply and execution are separate facts."});
-        let candidate = format!("{DUTIES}\n{}\nAPPLICATION_DECISION_SCHEMA\n{}\nCONTROL\n{}\nQUALIFIED_CONTEXT\n",
-            arrangements::DUTIES, serde_json::to_string(&p::decision_schema())?, serde_json::to_string(&core)?);
+        let candidate = format!("{duties}\n{arrangement_duties}\nAPPLICATION_DECISION_SCHEMA\n{application_schema}\nCONTROL\n{}\nQUALIFIED_CONTEXT\n",
+            serde_json::to_string(&core)?);
         let extra = candidate.len().checked_sub(prefix.len()).ok_or_else(|| invalid("computation interface accounting"))?;
         prefix = candidate;
         ordinary_total += extra;
@@ -7221,8 +7245,7 @@ fn render_mode_with_history(
             candidate_core["retained_optional_fragments"] = metadata;
             let candidate_prefix =
                 format!(
-                "{DUTIES}\n{}\nAPPLICATION_DECISION_SCHEMA\n{}\nCONTROL\n{}\nQUALIFIED_CONTEXT\n",
-                arrangements::DUTIES, serde_json::to_string(&p::decision_schema())?,
+                "{duties}\n{arrangement_duties}\nAPPLICATION_DECISION_SCHEMA\n{application_schema}\nCONTROL\n{}\nQUALIFIED_CONTEXT\n",
                 serde_json::to_string(&candidate_core)?);
             let extra = candidate_prefix
                 .len()
@@ -7307,7 +7330,7 @@ fn render_mode_with_history(
             "selection_reductions":"whole exact entry subsets only; no range narrowing or lifetime renewal",
             "read_rule":"only listed exact body references; preserve both selections when requesting reads",
             "continuation_rule":"stop or pause; explicit resume and fresh admission required"});
-        let prefix = format!("{DUTIES}\n{}\n{REPAIR_DUTIES}\nAPPLICATION_DECISION_SCHEMA\n{}\nCONTROL\n{}\nQUALIFIED_CONTEXT\n", arrangements::DUTIES, serde_json::to_string(&p::decision_schema())?, serde_json::to_string(&core)?);
+        let prefix = format!("{duties}\n{arrangement_duties}\n{REPAIR_DUTIES}\nAPPLICATION_DECISION_SCHEMA\n{application_schema}\nCONTROL\n{}\nQUALIFIED_CONTEXT\n", serde_json::to_string(&core)?);
         let restricted = f::assemble(
             &corpus,
             &character,
@@ -7340,7 +7363,7 @@ fn render_mode_with_history(
     )?;
     Ok(Rendered {
         computation_interfaces,
-        work_interface: repair_navigation.is_none().then_some(work_interface),
+        work_interface: ordinary_interfaces.then_some(work_interface),
         need_interface,
         withheld: assembly.withheld,
         prompt,

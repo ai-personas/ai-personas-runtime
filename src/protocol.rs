@@ -667,6 +667,69 @@ pub fn decision_schema() -> Value {
     schema
 }
 
+/// Offer only the operations that can survive initial character adoption. The
+/// response still uses Decision and its complete parser; this is a presentation
+/// subset, not a second wire protocol or an authorization mechanism.
+pub(crate) fn initialization_schema() -> Value {
+    let mut schema = decision_schema();
+    schema["$defs"]["Operation"]["oneOf"]
+        .as_array_mut()
+        .expect("generated Operation schema is a tagged union")
+        .retain(|variant| {
+            matches!(
+                variant["properties"]["kind"]["const"].as_str(),
+                Some("file_write" | "character_adopt")
+            )
+        });
+
+    // Keep every definition reachable from the complete response, including
+    // fields outside operations. Unoffered operation-only definitions would
+    // otherwise keep the discarded catalogue in the initialization request.
+    fn references(value: &Value, pending: &mut BTreeSet<String>) {
+        match value {
+            Value::Object(object) => {
+                if let Some(name) = object
+                    .get("$ref")
+                    .and_then(Value::as_str)
+                    .and_then(|reference| reference.strip_prefix("#/$defs/"))
+                {
+                    pending.insert(name.replace("~1", "/").replace("~0", "~"));
+                }
+                for value in object.values() {
+                    references(value, pending);
+                }
+            }
+            Value::Array(array) => {
+                for value in array {
+                    references(value, pending);
+                }
+            }
+            _ => {}
+        }
+    }
+    let definitions = schema
+        .as_object_mut()
+        .expect("generated Decision schema is an object")
+        .remove("$defs")
+        .expect("generated Decision schema has definitions");
+    let mut pending = BTreeSet::new();
+    let mut retained = serde_json::Map::new();
+    references(&schema, &mut pending);
+    while let Some(name) = pending.pop_first() {
+        if retained.contains_key(&name) {
+            continue;
+        }
+        let definition = definitions
+            .get(&name)
+            .expect("generated local schema reference resolves")
+            .clone();
+        references(&definition, &mut pending);
+        retained.insert(name, definition);
+    }
+    schema["$defs"] = Value::Object(retained);
+    schema
+}
+
 /// Exact identifier for a same-response file proposal. Hashes the compact serde
 /// JSON of the complete FileWrite variant, including id, source, scope, path,
 /// base revision, content, qualifications, and policy. Field order and null
