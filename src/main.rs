@@ -132,6 +132,17 @@ enum Command {
     HumanIntakeSnapshot,
     /// Inspect structural Store limits and exact extension fences. No inference.
     StoreCapacitySnapshot,
+    /// Inspect assembled-context allocation within existing provider allowances.
+    ContextCapacitySnapshot,
+    /// Explicitly increase assembled context without changing provider limits,
+    /// selections, continuations, remaining resources or invocation history.
+    ExtendContextCapacity {
+        file: PathBuf,
+        #[arg(long, required_unless_present = "apply", conflicts_with = "apply")]
+        preview: bool,
+        #[arg(long, required_unless_present = "preview", conflicts_with = "preview")]
+        apply: bool,
+    },
     /// Explicitly grow snapshot bounds, protected retained space or storage-read
     /// funding. Preserves history, charges, uncertainty and work limits.
     ExtendStoreCapacity {
@@ -517,6 +528,7 @@ fn readable_result(value: &launch::Output) -> runtime::Result<String> {
             "held" | "held_or_unresolved_invocation" | "invalid_response" => "The latest response was not adopted. Inspect it before explicitly deciding what to do next.",
             "provider_preflight_or_transport_failed" => "The provider could not complete this attempt. Inspect its retained status before recovery.",
             "selection_overflow" => "Selected context exceeded the available space and requires repair.",
+            "mandatory_context_overflow" => "Mandatory context exceeds its allocation. Optional-selection repair cannot resolve it; inspect context-capacity-snapshot for explicit operator recovery within existing provider allowances.",
             "store_or_resource_limit" => "The saved state or remaining resources do not permit another step.",
             _ => "The next step is blocked or unresolved and needs explicit inspection.",
         };
@@ -809,6 +821,24 @@ async fn run(cli: Cli) -> runtime::Result<()> {
     } else {
         None
     };
+    let context_capacity_request = if let Command::ExtendContextCapacity {
+        file, preview, apply,
+    } = &cli.command {
+        if preview == apply {
+            return Err(argument("exactly one of --preview or --apply"));
+        }
+        let value: serde_json::Value = runtime::read_json_file(file, 16_384)?;
+        for path in ["", "/expected_runtime", "/expected_launch"] {
+            if !value.pointer(path).is_some_and(serde_json::Value::is_object) {
+                return Err(argument("context capacity request requires JSON objects"));
+            }
+        }
+        let request: launch::context_capacity::ContextCapacityRequest = serde_json::from_value(value)?;
+        request.validate(operator)?;
+        Some(request)
+    } else {
+        None
+    };
     let work_resource_grant_request = if let Command::GrantWorkResources {
         file,
         preview,
@@ -965,6 +995,17 @@ async fn run(cli: Cli) -> runtime::Result<()> {
     // Its narrow launcher entry meters authority reads against existing Closeout
     // resources and performs no ordinary open recovery or model execution.
     match &cli.command {
+        Command::ContextCapacitySnapshot => {
+            return emit(&launch::context_capacity::snapshot_at(root, operator)?);
+        }
+        Command::ExtendContextCapacity { apply, .. } => {
+            return emit(&launch::context_capacity::extend_at(
+                root,
+                context_capacity_request.as_ref().expect("context request validated"),
+                *apply,
+                runtime::unix_now()?,
+            )?);
+        }
         Command::StoreCapacitySnapshot => {
             return emit(&launch::store_capacity::snapshot_at(root, operator)?);
         }
@@ -1007,6 +1048,9 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             }
         }
         Command::HumanIntakeSnapshot => emit(&launch::human_intake_snapshot(&mut app, operator)?),
+        Command::ContextCapacitySnapshot | Command::ExtendContextCapacity { .. } => {
+            unreachable!("context capacity handled before ordinary open")
+        }
         Command::StoreCapacitySnapshot | Command::ExtendStoreCapacity { .. } => {
             unreachable!("capacity control handled before ordinary open")
         }

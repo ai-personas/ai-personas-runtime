@@ -1725,6 +1725,10 @@ class Dialogue:
         failure = terminal.get("driver_failure") or terminal.get("code")
         if failure:
             self.ui.say(f"Session stopped: {failure}. Review the saved state before another run.")
+            if failure == "mandatory_context_overflow":
+                self.ui.say("Mandatory context exceeds its allocation. Removing optional selections cannot fix this. "
+                            "Use the explicit context-capacity-snapshot / extend-context-capacity controls "
+                            "described in RUNTIME-REFERENCE.md to inspect recovery within existing provider allowances.")
         else:
             self.ui.say(f"Session finished: {terminal.get('stop')}; last recorded work call: {terminal.get('last_invocation')}.")
         self.output(work, summary=True, invocation=self.session_last_call(outcome))

@@ -344,6 +344,24 @@ configured byte counts. This also covers attribution added during assembly.
 Removing optional selections cannot resolve this failure; no repair invocation
 or provider request is admitted, and the blocked preparation grants no resources.
 
+`context-capacity-snapshot` inspects the launch-global assembled-context allocation
+and its explicit recovery ceiling. `extend-context-capacity REQUEST.json --preview`
+or `--apply` accepts `id`, `operator`, `reason`, `authorization_reference`,
+`authorize_extension: true`, the snapshot's `expected_runtime`, `expected_launch`
+and `expected_context_bytes`, and a strictly larger `new_context_bytes`. The new
+allocation cannot exceed the saved provider's prompt allowance plus the existing
+output reserve, or the runtime's 2 MiB limit. Assembly charges schema and safety
+margins as well, so this ceiling conservatively fits the existing provider prompt
+envelope. Provider limits, output reserves and model/account bindings are unchanged.
+
+Snapshot, preview and apply use metered reads without orphan recovery. A new
+extension requires exclusive execution ownership and terminal invocations, and
+atomically records exact state fences and an immutable receipt. It changes only
+the context allocation and its operator event: history, holds, selections,
+attempts, navigation and Stop/Pause dispositions remain intact. It does not resume
+any persona or prove that the next request will fit. Repeating the exact applied
+request returns its historical receipt; preview reserves no future capacity.
+
 The normal work menu offers an explicit targeted resume through
 `personas-session resume-participant REQUEST.json`. Its request contains `id`,
 `operator`, `work`, `persona`, `authorize_resume: true`, and the exact
@@ -787,6 +805,12 @@ Ordinary accepted file writes produce an actor-visible `accepted_file_write` obs
 Explicit failed-response recovery supplies the same persona with the terminal-bound adoption error, bounded to 180 UTF-8 bytes, only when its retained failure exposure is currently permitted. Planning retains restrictions outside the rolled-back candidate state, including the rendered context, earlier navigation and a failing inspection's consulted permitted view. Pure pre-planning syntax and immutable protocol errors retain their request exposure. The trusted rejection transaction stores an exact terminal-bound manifest within 4096 bytes and existing prepaid capacity; overflow, missing legacy provenance, malformed manifests and untracked ordinary/navigation/render failures are explicitly unknown and withheld from inference. A successful bounded inspection failure can therefore remain useful while permitted, but ordinary failure diagnostics without complete provenance may be unavailable. Quoted response-origin tokens in parser diagnostics are redacted; raw response bodies remain private. Recovery grants no replay, automatic retry, new funding, artifact-body supply or substantive adoption.
 
 ## Explicit work-record inspection
+
+Permission projection measures the union of reachable lineage once. Several
+roots sharing the same historical sources do not repeatedly consume the closure
+bound for that same material. Each distinct node and mode, its restrictions and
+outgoing references still count, and all current permission checks remain in
+force. The fixed navigation reservation is unchanged.
 
 A persona may request one page of accepted records from its current work:
 

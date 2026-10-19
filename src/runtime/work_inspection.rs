@@ -201,7 +201,6 @@ pub(super) struct Permissions<'a> {
     index: BTreeMap<(&'a str, &'a str), usize>,
     nodes: Vec<PermissionNode>,
     closures: Vec<Vec<u64>>,
-    bounds: Vec<(usize, usize)>,
     artifact_cache: std::cell::RefCell<BTreeMap<String, Option<Exposure>>>,
     evidence_cache: std::cell::RefCell<BTreeMap<String, Option<Exposure>>>,
 }
@@ -446,23 +445,6 @@ impl<'a> Permissions<'a> {
                 }
             }
         }
-        // Compute conservative closure bounds once per SCC, even for roots
-        // subsequently withheld. No hidden root triggers a later variable debit.
-        let bounds = closures
-            .iter()
-            .map(|closure| {
-                nodes
-                    .iter()
-                    .enumerate()
-                    .filter(|(i, _)| closure[i / 64] & (1 << (i % 64)) != 0)
-                    .fold((0_usize, 0_usize), |(refs, bytes), (_, node)| {
-                        (
-                            refs.saturating_add(node.references),
-                            bytes.saturating_add(node.bytes),
-                        )
-                    })
-            })
-            .collect();
         // One shared closure per SCC, never one expanded exposure per record.
         for (node, component) in nodes.iter_mut().zip(component) {
             node.edges = vec![component];
@@ -473,7 +455,6 @@ impl<'a> Permissions<'a> {
             index,
             nodes,
             closures,
-            bounds,
             artifact_cache: Default::default(),
             evidence_cache: Default::default(),
         })
@@ -503,18 +484,22 @@ impl<'a> Permissions<'a> {
                 return None;
             }
             let component = self.nodes[index].edges[0];
-            references = references.saturating_add(self.bounds[component].0);
-            bytes = bytes.saturating_add(self.bounds[component].1);
-            if references > maximum || bytes > INPUT_LIMIT {
-                return None;
-            }
             for (to, from) in reachable.iter_mut().zip(&self.closures[component]) {
                 *to |= from;
             }
         }
-        // Counting duplicate edges and both modes conservatively bounds exact
-        // references, pending edges and each expanded manifest. Unsupported
-        // closure size withholds only entries depending on that closure.
+        // Bound the union once. Several roots often inherit the same history;
+        // summing a complete closure for each root would charge that retained
+        // material repeatedly and incorrectly withhold an otherwise fitting
+        // permission projection. Every reachable node/mode, restriction and
+        // outgoing reference still contributes, including duplicate edges.
+        // The complete graph was already covered by the fixed reservation.
+        for (index, node) in self.nodes.iter().enumerate() {
+            if reachable[index / 64] & (1 << (index % 64)) != 0 {
+                references = references.saturating_add(node.references);
+                bytes = bytes.saturating_add(node.bytes);
+            }
+        }
         (references <= maximum && bytes <= INPUT_LIMIT).then_some(reachable)
     }
     pub(super) fn exposure(&self, input: &Exposure) -> Option<Exposure> {

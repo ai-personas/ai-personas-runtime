@@ -441,6 +441,7 @@ fn valid_stop(stop: &str) -> bool {
             | "held"
             | "consideration_bound"
             | "selection_overflow"
+            | "mandatory_context_overflow"
             | "provider_preflight_or_transport_failed"
             | "invalid_response"
             | "held_or_unresolved_invocation"

@@ -58,6 +58,8 @@ pub use repair_allocation::{
 };
 #[path = "launch/store_capacity.rs"]
 pub mod store_capacity;
+#[path = "launch/context_capacity.rs"]
+pub mod context_capacity;
 pub use work_resource_grant::{
     grant_work_resources, preview_work_resource_grant, work_resource_grant_snapshot,
     WorkResourceGrantFence, WorkResourceGrantOutcome, WorkResourceGrantReceipt,
