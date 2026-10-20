@@ -470,7 +470,7 @@ fn child_input(
         decision_rule: w::DecisionRule::PersonaArranged {
             eligible: grant.allowed_child_participants.iter().cloned().map(w::PersonaId).collect(), delegation,
         },
-        delivery_to: BTreeSet::from([grant.operator.clone()]), stakeholders: BTreeSet::new(),
+        delivery_to: BTreeSet::from([pending.author.clone()]), stakeholders: BTreeSet::new(),
         invitations: proposal.invitees.iter().enumerate().map(|(index, invitee)| Invitation {
             id: format!("{}-invite-{index:02}", request.child_work_id), to: invitee.persona.clone(),
             terms: w::CommitmentTerms { mandate_revision: 1, exact_terms: invitee.terms.clone(), outcomes: BTreeSet::new(), review_roles: BTreeSet::new() },

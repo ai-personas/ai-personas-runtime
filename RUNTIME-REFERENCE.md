@@ -526,6 +526,14 @@ parent admission, preserving atomic launch and episode accounting. See
 [persona-requested needs](docs/persona-needs.md) for grant, proposal and child
 admission steps.
 
+Persona-requested children retain the persona as requester and use that persona
+as the delivery target at new admission. Authorized child replies reach the
+requester's existing parent-work inbox while preserving the child attribution.
+Qualified local deliveries support existing persona recipients with the same
+communication checks and additional artifact-lineage checks. Their inbox notice
+contains exact references; it does not select artifact bodies, accept work or
+resume a stopped persona. Historical mandates and deliveries remain unchanged.
+
 Output contains accepted replies and complete currently permitted local delivery
 bundles. `--json` emits one structured result on stdout; progress and stopping
 diagnostics use stderr. `result` performs no inference. A delivered artifact can

@@ -97,9 +97,34 @@ can receive its initial consideration. They can accept, decline or stop under
 the ordinary work rules. The proposal, admission, execution, delivery and
 completion remain distinct retained facts.
 
-The current child mandate names the configured operator as its delivery target.
-An operator-visible note alone does not establish that the requesting persona
-received it; inspect the actual recipient and handoff separately.
+Newly admitted child mandates name the proposal's persona author as the delivery
+target. `CONTROL.requester` identifies the actual need origin separately from
+the operator who performed intake. Existing child mandates retain their original
+delivery targets; ordinary authorized communication can still return a note to
+their requester.
+
+An authorized child message to its requester is observed in the requester's
+parent-work inbox, with the original child work and message attribution retained.
+Qualified local release delivery also supports existing persona inboxes, subject
+to communication authority, audience, source lineage and the mandated recipient.
+Its notice supplies exact artifact references; artifact bodies remain subject to
+ordinary permitted retrieval and context selection.
+
+Depositing either kind of result does not resume the requester, add them as a
+child participant, or establish acceptance or completion. Continue the parent
+only through an existing eligible route or a separately authorized explicit
+resume. An operator-visible note alone does not establish that the requesting
+persona received it; inspect the actual recipient and handoff separately.
+
+For an active episode, explicit targeted reconsideration uses
+`ai-personas resume --persona PERSONA --work WORK` with the saved state root and
+operator. It rechecks the current episode and preserves remaining resources.
+The keyed `resume-participant` interface currently supports standalone work only.
+Operator `feedback` also supports a currently authorized intake episode, after
+checking its exact grant and work authority. It remains explicitly attributed to
+the intake operator and changes no mandate, persona-requester assent or
+continuation. It adds no resources; Store accounting still applies. A rejected
+feedback request supplies no input.
 
 Expiry or explicit `revoke-intake-delegation` stops further episode admissions;
 it does not erase history or refund spent resources. Inspection remains available

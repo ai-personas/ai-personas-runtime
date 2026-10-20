@@ -52,6 +52,7 @@ pub(super) fn control(focus: &Focus, supplied: &[String]) -> Value {
     json!({
         "interface":"requester-feedback-disposition-v1",
         "pending":pending,
+        "attribution":"Each item's sender identifies its author. Local operator input is attributed to the intake operator; CONTROL.requester identifies the need's requester, who may be a different persona. No item establishes that persona's assent or acceptance.",
         "rule":"The full permitted items are in actual_observations. For resolution copy pending[].observation exactly, including its full prefix; actual_observations[].payload.id is only the requester's input label, not an observation reference. These requester directions remain current across reads, waits and local stops automatically. For an unresolved item, omit resolve_requester_feedback entirely; pending is not a valid disposition for that action. Use it only when recording handled or declined with a reason. Feedback changes no mandate, authority or resources; a disposition is your attributed account, not proof of compliance or requester acceptance."
     })
 }

@@ -13,6 +13,7 @@ pub use arrangements::{
 mod closure_readiness;
 pub use closure_readiness::RecoverClosureAnchorRequest;
 mod delivery_evidence;
+mod requester_results;
 mod discovery;
 mod failed_attempt;
 mod history;
@@ -7391,7 +7392,8 @@ fn render_mode_with_history(
                 "status":"historical creation material retained; accepted current character governs continuation"})
         },
         "current_character":current_character,"transient_affect":Value::Null,
-        "original_need":meta.original,"work_version":work.version,"work_phase":work.phase,
+        "original_need":meta.original,"requester":requester_results::control(work, meta),
+        "work_version":work.version,"work_phase":work.phase,
         "mandate":work.mandate(),"own_pending_offers":offers,
         "own_acceptance":work.acceptance(&w::PersonaId(actor.into())),
         "arrangements":arrangement_control,
@@ -9529,7 +9531,6 @@ fn validate_messages(
     decision: &p::Decision,
     now: i64,
 ) -> Result<()> {
-    let grants = &state.personas[&prepared.request.persona].seed.grants;
     let mut recipients = Vec::new();
     for operation in &decision.operations {
         if let p::Operation::Communicate { recipient, .. } = operation {
@@ -9540,28 +9541,37 @@ fn validate_messages(
         recipients.extend(audience);
     }
     for recipient in recipients {
-        optional_activity::require_recipient(state, &prepared.request.work, recipient)?;
-        require(
-            grants.communicate_with.contains(recipient) && prepared.audience.contains(recipient),
-            "communication audience not granted or supplied",
-        )?;
-        require(
-            state.personas.contains_key(recipient)
-                || state.config.local_recipients.contains(recipient),
-            "recipient has no configured local inbox",
-        )?;
-        let mut recipient_admission = admission(&state.personas[&prepared.request.persona], now);
-        recipient_admission.audience = BTreeSet::from([recipient.clone()]);
-        if let Some(persona) = state.personas.get(recipient) {
-            recipient_admission.principal = persona.seed.id.clone();
-            recipient_admission.destination = persona.seed.destination.clone();
-        }
-        require(
-            exposure_permitted(state, prepared_exposure(prepared)?, &recipient_admission),
-            "communication would disclose restricted supplied material",
-        )?;
+        communication_recipient(state, prepared, recipient, now)?;
     }
     Ok(())
+}
+fn communication_recipient(
+    state: &State,
+    prepared: &Prepared,
+    recipient: &str,
+    now: i64,
+) -> Result<f::Admission> {
+    let grants = &state.personas[&prepared.request.persona].seed.grants;
+    optional_activity::require_recipient(state, &prepared.request.work, recipient)?;
+    require(
+        grants.communicate_with.contains(recipient) && prepared.audience.contains(recipient),
+        "communication audience not granted or supplied",
+    )?;
+    require(
+        state.personas.contains_key(recipient) || state.config.local_recipients.contains(recipient),
+        "recipient has no configured local inbox",
+    )?;
+    let mut recipient_admission = admission(&state.personas[&prepared.request.persona], now);
+    recipient_admission.audience = BTreeSet::from([recipient.to_owned()]);
+    if let Some(persona) = state.personas.get(recipient) {
+        recipient_admission.principal = persona.seed.id.clone();
+        recipient_admission.destination = persona.seed.destination.clone();
+    }
+    require(
+        exposure_permitted(state, prepared_exposure(prepared)?, &recipient_admission),
+        "communication would disclose restricted supplied material",
+    )?;
+    Ok(recipient_admission)
 }
 fn deposit_message(
     state: &mut State,
@@ -9595,17 +9605,20 @@ fn deposit_message(
         exposure: Some(prepared_exposure(prepared)?.clone()),
     };
     state.messages.insert(id.clone(), message.clone());
+    let receiving_work = requester_results::observation_work(state, &prepared.request.work, recipient)?;
     if let Some(persona) = state.personas.get_mut(recipient) {
-        // The original work scope survives pause/end. Deposit alone grants no participation or wake.
+        // Keep the original message scope. An exact child reply is observed in
+        // its requester's parent focus; deposit grants no participation or wake.
         let focus = persona
             .focus
-            .entry(prepared.request.work.clone())
+            .entry(receiving_work.clone())
             .or_default();
         focus.pending_observations.push(id.clone());
-        state.observations.insert(id.clone(), Observation { id, actor: recipient.into(), work: prepared.request.work.clone(),
-            invocation: Some(prepared.request.id.clone()), kind: "received_local_persona_message".into(), at_unix: now,
+        state.observations.insert(id.clone(), Observation { id, actor: recipient.into(), work: receiving_work.clone(),
+            invocation: Some(prepared.request.id.clone()),
+            kind: if receiving_work == prepared.request.work { "received_local_persona_message" } else { "received_child_work_message" }.into(), at_unix: now,
             payload: json!({"id":message.id,"sender":message.sender,"recipient":message.recipient,
-                "work":message.work,"invocation":message.invocation,"subject":message.subject,"text":message.text,
+                "work":message.work,"receiving_work":receiving_work,"invocation":message.invocation,"subject":message.subject,"text":message.text,
                 "local_deposit_only":true}), sources: prepared.sources.clone(),
             exposure: Some(prepared_exposure(prepared)?.clone()), qualified_roots: Vec::new(), qualification_sources: None });
     }
@@ -10564,6 +10577,15 @@ fn apply_work_actions(
                 .get(&digest(&key)?)
                 .ok_or_else(|| held("artifact source binding unavailable"))?;
             let reference_file = file_reference(subject)?;
+            for recipient in &recipients {
+                if state.personas.contains_key(recipient) {
+                    let receiving = communication_recipient(state, prepared, recipient, now)?;
+                    require(
+                        lineage_permitted(state, std::slice::from_ref(&reference_file), &receiving),
+                        "delivery artifact lineage unavailable to persona recipient",
+                    )?;
+                }
+            }
             let recipient_admission = f::Admission {
                 audience: recipients.clone(),
                 ..a.clone()
@@ -10611,7 +10633,8 @@ fn apply_work_actions(
         }
         for recipient in recipients {
             require(
-                state.config.local_recipients.contains(&recipient)
+                (state.config.local_recipients.contains(&recipient)
+                    || state.personas.contains_key(&recipient))
                     && allowed_recipients.contains(&recipient),
                 "only explicitly configured local recipient inboxes are supported",
             )?;
@@ -10641,7 +10664,7 @@ fn apply_work_actions(
                 w::RuntimeOperation::Delivered {
                     id: w::RecordId(id.clone()),
                     release: release.clone(),
-                    recipient,
+                    recipient: recipient.clone(),
                     receipt,
                 },
             )?;
@@ -10664,6 +10687,7 @@ fn apply_work_actions(
                 Vec::new(),
                 now,
             )?;
+            requester_results::delivery_notice(state, prepared, &recipient, &id, &release, &package, now)?;
         }
     }
     // Only first entry into the board grants an invitation admission. A local

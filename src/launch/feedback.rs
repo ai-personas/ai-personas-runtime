@@ -1,4 +1,4 @@
-//! Attributed requester feedback within an existing work, without a new need.
+//! Attributed intake-operator feedback within existing work, without a new need.
 use super::*;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -37,16 +37,20 @@ pub fn feedback(
     let (_, saved) = load(app)?;
     admission_extension::authorize(&state, &saved, operator)?;
     require(
-        saved.works.contains_key(&input.work) && !need_proposals::bound(&state, &input.work),
-        "feedback requires an existing standalone saved work",
+        saved.works.contains_key(&input.work),
+        "feedback requires an existing saved work",
     )?;
+    // Active delegated work retains its exact source grant and parent/child
+    // authority. Feedback is attributed to this operator; it grants no episode
+    // resources, persona-requester assent, mandate change or continuation.
+    need_proposals::check_work(app, &state, &input.work, now)?;
     let meta = state
         .work_meta
         .get(&input.work)
         .ok_or_else(|| held("work unavailable"))?;
     require(
         meta.intake_operator == operator,
-        "feedback requires the work's requester",
+        "feedback requires the work's intake operator",
     )?;
     let persona = state
         .personas
