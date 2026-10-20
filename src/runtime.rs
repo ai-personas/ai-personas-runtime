@@ -7638,9 +7638,9 @@ fn render_mode_with_history(
         0,
     )?;
     let ordinary_context = render_bundle(&assembly)?;
+    let mut complete_bodies = supplied_bodies.clone();
+    complete_bodies.extend(assembly.entries.iter().map(|e| e.reference.clone()));
     if !initializing {
-        let mut complete_bodies = supplied_bodies.clone();
-        complete_bodies.extend(assembly.entries.iter().map(|e| e.reference.clone()));
         work_interface = work_guides::exposed(state, actor, &complete_bodies, now)?;
         core["work_capability"] = work_guides::capability(state, &complete_bodies, work_interface.as_ref())?;
         if let Some(diagnostic) = core["work_capability"].get("guide_supply") {
@@ -7752,7 +7752,7 @@ fn render_mode_with_history(
     let mut input_file_choices = BTreeMap::new();
     if ordinary_interfaces && ordinary_total < state.config.context_bytes {
         if let Ok(Some((choices, references, inherited))) = input_files::offer(
-            state, &core, &ordinary_context, invocation, &a,
+            state, &core, &ordinary_context, &complete_bodies, invocation, &a,
             state.config.context_bytes - ordinary_total,
         ) {
             let choice_material_bytes = input_files::material_bytes(&choices)?;

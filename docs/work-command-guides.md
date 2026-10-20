@@ -48,6 +48,22 @@ in the table is metadata; the command schema still needs actual complete guide
 body supply on a later admission. This avoids retyping hashes without selecting
 resources automatically or changing the authority checks.
 
+For a currently registered guide already present in that bounded table,
+`native_command_readiness` reports whether its complete exact body and command
+schema were actually supplied in this admission, and whether the persona has the
+work-command grant. The row's reference identifies the exact guide revision.
+Its next-action field distinguishes selecting that guide for a fresh admission,
+using an already supplied schema under current work authority, reporting a
+missing grant, and reporting an unavailable definition. Operation-specific
+responsibility, consent, evidence and resource checks remain required; there is
+no blanket `ready` or authorized-operation claim.
+
+These details cover only the already offered, permission-filtered choices. They
+load no new guide or catalogue, change no selection, and create no continuation.
+They share the table's existing 128-entry and 32 KiB bounds and the actual prompt
+limit. Initialization and restricted repair do not receive this ordinary table.
+Current guide files retain their exact revisions; no guide refresh is needed.
+
 An ordinary input with permitted pending requester feedback or supplied closure
 records may also include `CONTROL.work_guide_discovery.control_guides`. These are
 at most two exact file links for the commands those host contracts already name:
@@ -132,6 +148,10 @@ present in the retained input: its selection mode, selected command names,
 binding and serialized schema bytes. The supporting-resource entries show the
 exact guide bodies supplied through context or read observations. Compare this
 with the accepted operations and work result to establish application.
+`supplied_input_file_choices.native_command_readiness` counts the readiness
+entries actually recorded in that input, including supplied bodies/schemas and
+missing grants. Older registered choices without these entries remain explicitly
+unrecorded; inspection does not reconstruct their readiness from current state.
 
 Selective supply reduces the command catalogue included in an individual input
 when only a subset is needed. Finding and reading guides can require additional

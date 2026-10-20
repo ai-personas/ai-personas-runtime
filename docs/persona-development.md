@@ -105,6 +105,11 @@ including its byte count, exact binding and selected command names. With
 bodies supplied to that call expose commands. Legacy roots retain the full
 interface until explicitly upgraded. Definition supply and accepted command
 execution are separate evidence.
+The bounded input-file choices also record readiness for visible current native
+guides. `supplied_input_file_choices.native_command_readiness` distinguishes
+recorded body/schema supply, missing work-command grants and historical entries
+without readiness metadata. These counts establish neither operation-specific
+authority nor successful use.
 
 The native runtime supports explicitly granted [bounded WebAssembly computation](computation.md)
 and [HTTPS source retrieval](https-retrieval.md), as well as its internal file,

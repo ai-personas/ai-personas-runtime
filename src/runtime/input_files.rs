@@ -7,7 +7,67 @@ const INTERFACE: &str = "input-file-choices-v1";
 const MAX_CHOICES: usize = 128;
 const MAX_BYTES: usize = 32_768;
 const MAX_CANDIDATES: usize = 4096;
-const RULE: &str = "For next_fragments or next_assets, prefer {kind: replace_from_input, reason: your reason, handles: [exact listed handles]} when the desired references are listed here. Each handle names the exact reference beside it in this admission only; copy the handle instead of retyping hashes or constructing source IDs from paths. Choose relevant entries yourself. The table contains metadata for files already identified in this input, not a corpus catalogue or file bodies. A currently_registered_native_command is registration metadata, not an exposed schema or work authority. Full guide bodies must still reach a later admission. Scope, permissions, context bounds, character fences and selection lifetimes still apply. Older handles are invalid; use ordinary file discovery for unlisted resources. Omission does not establish absence.";
+const RULE: &str = "For next_fragments or next_assets, prefer {kind: replace_from_input, reason: your reason, handles: [exact listed handles]} when the desired references are listed here. Each handle names the exact reference beside it in this admission only; copy the handle instead of retyping hashes or constructing source IDs from paths. Choose relevant entries yourself. The table contains metadata for files already identified in this input, not a corpus catalogue or file bodies. A currently_registered_native_command names the command registered to this exact guide reference. Its native_command_readiness separately reports complete guide body supply, actual schema exposure and the current work-command grant. Registration or a proposed selection alone exposes no schema. If the guide body is missing, select this handle under next_assets for a fresh admission; that requires existing authorized continuation and resources, and schedules nothing by itself. An already supplied schema permits direct use subject to current operation-specific authority, responsibility, consent, evidence and resource checks. No readiness entry grants authority or establishes successful execution. Scope, permissions, context bounds, character fences and selection lifetimes still apply. Older handles are invalid; use ordinary file discovery for unlisted resources. Omission does not establish absence.";
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum NextCommandAction {
+    SelectThisExactGuideForFreshAdmission,
+    UseSuppliedSchemaWithCurrentWorkAuthority,
+    ReportMissingWorkCommandGrant,
+    ReportUnavailableCommandDefinition,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum OperationAuthority {
+    RequiresCurrentOperationChecks,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NativeCommandReadiness {
+    guide_body_supplied: bool,
+    input_schema_supplied: bool,
+    work_command_grant: bool,
+    operation_authority: OperationAuthority,
+    next_action: NextCommandAction,
+}
+
+fn command_readiness(
+    command: &str,
+    reference: &f::Reference,
+    bodies: &BTreeSet<f::Reference>,
+    control: &Value,
+) -> Result<NativeCommandReadiness> {
+    let guide_body_supplied = bodies.contains(reference);
+    let input_schema_supplied = control["work_capability"]["inputs_schema"]["oneOf"]
+        .as_array()
+        .is_some_and(|variants| {
+            variants
+                .iter()
+                .any(|variant| variant["properties"]["kind"]["const"].as_str() == Some(command))
+        });
+    let work_command_grant = control["grants"]["work_commands"]
+        .as_bool()
+        .ok_or_else(|| invalid("work-command readiness grant unavailable"))?;
+    let next_action = if !work_command_grant {
+        NextCommandAction::ReportMissingWorkCommandGrant
+    } else if input_schema_supplied {
+        NextCommandAction::UseSuppliedSchemaWithCurrentWorkAuthority
+    } else if !guide_body_supplied {
+        NextCommandAction::SelectThisExactGuideForFreshAdmission
+    } else {
+        NextCommandAction::ReportUnavailableCommandDefinition
+    };
+    Ok(NativeCommandReadiness {
+        guide_body_supplied,
+        input_schema_supplied,
+        work_command_grant,
+        operation_authority: OperationAuthority::RequiresCurrentOperationChecks,
+        next_action,
+    })
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -18,6 +78,9 @@ struct Choice {
     path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     currently_registered_native_command: Option<String>,
+    /// Historical admissions retain their original, unknown readiness state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    native_command_readiness: Option<NativeCommandReadiness>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -124,6 +187,7 @@ pub(super) fn offer(
     state: &State,
     control: &Value,
     qualified: &Value,
+    supplied_bodies: &BTreeSet<f::Reference>,
     invocation: &str,
     audience: &f::Admission,
     available_bytes: usize,
@@ -158,12 +222,17 @@ pub(super) fn offer(
                     .map(|_| command.clone())
             })
         });
+        let native_command_readiness = command
+            .as_ref()
+            .map(|command| command_readiness(command, &exact, supplied_bodies, control))
+            .transpose()?;
         offered.choices.push(Choice {
             handle: format!("{invocation}:f{}", offered.choices.len() + 1),
             reference,
             scope: stored.record.scope,
             path: stored.record.path.clone(),
             currently_registered_native_command: command,
+            native_command_readiness,
         });
         if serde_json::to_vec(&offered)?.len() > byte_limit {
             offered.choices.pop();
@@ -275,7 +344,25 @@ pub(super) fn resolve(prepared: &Prepared, handles: &[String]) -> Result<Vec<p::
 
 pub(crate) fn inspect(prepared: &Prepared, control: &Value) -> Result<Value> {
     validate_control(prepared, control)?;
+    let choices: Vec<Choice> = if control["input_file_choices"].is_null() {
+        Vec::new()
+    } else {
+        serde_json::from_value(control["input_file_choices"]["choices"].clone())?
+    };
+    let readiness: Vec<_> = choices
+        .iter()
+        .filter_map(|choice| choice.native_command_readiness.as_ref())
+        .collect();
     Ok(json!({"available":!prepared.input_file_choices.is_empty(),
         "interface":INTERFACE,"count":prepared.input_file_choices.len(),
+        "native_command_readiness":{
+            "recorded_entries":readiness.len(),
+            "guide_body_supplied_entries":readiness.iter().filter(|entry|entry.guide_body_supplied).count(),
+            "input_schema_supplied_entries":readiness.iter().filter(|entry|entry.input_schema_supplied).count(),
+            "work_command_grant_missing_entries":readiness.iter().filter(|entry|!entry.work_command_grant).count(),
+            "registered_entries_without_readiness":choices.iter().filter(|choice|
+                choice.currently_registered_native_command.is_some() && choice.native_command_readiness.is_none()).count(),
+            "meaning":"Counts describe readiness metadata actually supplied in this retained input. Historical omissions stay unknown; no current state is substituted. A grant or supplied schema does not establish operation-specific authority, invocation or success."
+        },
         "meaning":"Exact reference metadata actually offered in this input. Handles are scoped to this admission; offering is not selection, body supply, command exposure or execution."}))
 }
