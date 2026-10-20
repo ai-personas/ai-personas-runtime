@@ -188,6 +188,10 @@ fn load(app: &mut Runtime) -> Result<(s::StoredObject, Saved)> {
         .store
         .read(ID)?
         .ok_or_else(|| invalid("run setup first"))?;
+    let saved = decode_saved(&object)?;
+    Ok((object, saved))
+}
+fn decode_saved(object: &s::StoredObject) -> Result<Saved> {
     require(object.kind == "foreground-launch", "launch object kind")?;
     let saved: Saved = serde_json::from_value(object.body.clone())?;
     require(
@@ -199,7 +203,7 @@ fn load(app: &mut Runtime) -> Result<(s::StoredObject, Saved)> {
                 && saved.research_opt_in.is_none()),
         "saved launch format and authorization metadata are invalid",
     )?;
-    Ok((object, saved))
+    Ok(saved)
 }
 fn save(app: &mut Runtime, old: Option<&s::StoredObject>, saved: &Saved) -> Result<()> {
     let (head, state) = app.load()?;

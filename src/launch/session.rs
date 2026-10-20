@@ -3,8 +3,9 @@
 //! All openings are nonrecovering. Inspection is bounded, metered, and metadata
 //! only except for the operator's own exact original need. Session claims are
 //! create-only before any driver activity. A missing terminal means unknown, not
-//! permission to retry. Receipts consume existing Ordinary Store capacity. Same
-//! OS-account integrity and the existing Store durability limits still apply.
+//! permission to retry. New claims prepay bounded receipt storage and one final
+//! metadata read from existing Ordinary capacity. Same OS-account integrity and
+//! the existing Store durability limits still apply.
 use super::*;
 #[path = "session_resume.rs"]
 mod participant_resume;
@@ -403,14 +404,21 @@ fn read_session(app: &mut Runtime, operator: &str, key: &str) -> BoundaryResult<
         .validate()
         .map_err(|_| BoundaryError::InvalidState)?;
     check(
-        claim.version == 1
+        matches!(claim.version, 1 | 2)
             && claim.request.operator == operator
             && claim.request.id == key
             && claim.request_sha256 == digest(&claim.request)?
             && claim.started_at_unix >= 0,
         BoundaryError::InvalidState,
     )?;
-    let Some(end) = app.store.read(&record_id(END_KIND, key))? else {
+    let terminal_id = record_id(END_KIND, key);
+    let end = if claim.version == 2 {
+        app.store
+            .read_launch_session_terminal(&object.exact_ref()?, &terminal_id)?
+    } else {
+        app.store.read(&terminal_id)?
+    };
+    let Some(end) = end else {
         return Ok(SessionView::OutcomeUnrecorded { claim });
     };
     check(
@@ -525,7 +533,7 @@ fn begin_with_launch(
     )?;
     app.store.require_terminal_invocations()?;
     let claim = SessionClaim {
-        version: 1,
+        version: 2,
         request: request.clone(),
         request_sha256: digest(request)?,
         runtime: runtime.exact_ref()?,
@@ -539,38 +547,56 @@ fn begin_with_launch(
         kind: CLAIM_KIND.into(),
         body: serde_json::to_value(&claim)?,
     };
-    app.store
-        .compare_and_swap_batch_requiring_terminal_invocations(vec![s::Change {
+    app.store.claim_launch_session(
+        s::Change {
             expected_revision: None,
             object: object.clone(),
             depends_on: vec![claim.runtime, claim.launch],
-        }])?;
+        },
+        &record_id(END_KIND, &request.id),
+    )?;
     Ok(Begin::New(Claimed { owner, object }))
 }
-fn finish(app: &mut Runtime, claim: &Claimed, end: SessionEnd) -> BoundaryResult<SessionView> {
+fn finish(
+    app: &mut Runtime,
+    claim: &Claimed,
+    result: Result<(Output, Option<BoundaryError>)>,
+) -> BoundaryResult<SessionView> {
     // All failures after the claim leave it consumed. No catch path removes it.
-    let write = || -> Result<(String, String)> {
+    let write = || -> Result<(SessionClaim, SessionTerminal)> {
         let retained: SessionClaim = serde_json::from_value(claim.object.body.clone())?;
-        let terminal = SessionTerminal {
-            version: 1,
-            claim: claim.object.exact_ref()?,
-            finished_at_unix: unix_now()?,
-            outcome: end,
-        };
-        app.store.compare_and_swap_batch(vec![s::Change {
-            expected_revision: None,
-            object: s::StoredObject {
-                id: record_id(END_KIND, &retained.request.id),
+        let reference = claim.object.exact_ref()?;
+        let terminal_id = record_id(END_KIND, &retained.request.id);
+        let finished_at_unix = unix_now()?;
+        let terminal = app.store.finish_launch_session(&reference, &terminal_id, |launch| {
+            let saved = decode_saved(launch)
+                .map_err(|_| s::StoreError::InvalidState("session closeout launch".into()))?;
+            if saved.operator != retained.request.operator
+                || !saved.works.contains_key(&retained.request.work)
+                || saved.steps < retained.steps_before
+            {
+                return Err(s::StoreError::InvalidState(
+                    "session closeout launch binding".into(),
+                ));
+            }
+            let outcome = end_of_run(&saved, &retained.request.work, result)
+                .map_err(|_| s::StoreError::InvalidState("session closeout outcome".into()))?;
+            Ok(s::StoredObject {
+                id: terminal_id.clone(),
                 revision: 1,
                 kind: END_KIND.into(),
-                body: serde_json::to_value(terminal)?,
-            },
-            depends_on: vec![claim.object.exact_ref()?],
-        }])?;
-        Ok((retained.request.operator, retained.request.id))
+                body: serde_json::to_value(SessionTerminal {
+                    version: 1,
+                    claim: reference.clone(),
+                    finished_at_unix,
+                    outcome,
+                })?,
+            })
+        })?;
+        Ok((retained, serde_json::from_value(terminal.body)?))
     };
-    let (operator, key) = write().map_err(|_| BoundaryError::TerminalUnconfirmed)?;
-    read_session(app, &operator, &key)
+    let (claim, terminal) = write().map_err(|_| BoundaryError::TerminalUnconfirmed)?;
+    Ok(SessionView::Finished { claim, terminal })
 }
 struct Tracked<'a, D> {
     driver: &'a mut D,
@@ -809,7 +835,7 @@ async fn execute_with_codex_transport(
     }
 }
 fn end_of_run(
-    app: &mut Runtime,
+    saved: &Saved,
     work: &str,
     result: Result<(Output, Option<BoundaryError>)>,
 ) -> BoundaryResult<SessionEnd> {
@@ -819,12 +845,15 @@ fn end_of_run(
                 output.stop.as_ref().is_none_or(|s| valid_stop(s)),
                 BoundaryError::InvalidState,
             )?;
-            let (_, saved) = load(app)?;
+            let last_invocation = saved.works.get(work).cloned().flatten();
+            if let Some(id) = &last_invocation {
+                valid_id(id).map_err(|_| BoundaryError::InvalidState)?;
+            }
             Ok(SessionEnd::Returned {
                 stop: output.stop,
                 driver_failure: failure,
                 steps_after: saved.steps,
-                last_invocation: saved.works.get(work).cloned().flatten(),
+                last_invocation,
             })
         }
         Err(error) => Ok(SessionEnd::Failed {
@@ -876,9 +905,7 @@ async fn run_session_bound(
         Begin::New(claim) => claim,
     };
     let result = execute(&mut app, request, &claim).await;
-    let end = end_of_run(&mut app, &request.work, result)
-        .map_err(|_| BoundaryError::TerminalUnconfirmed)?;
-    finish(&mut app, &claim, end)
+    finish(&mut app, &claim, result)
 }
 /// Fresh permission-filtered delivery view, not replay of cached private output.
 /// Session terminals deliberately retain no messages, artifact bodies or secrets.

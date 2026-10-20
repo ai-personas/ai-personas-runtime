@@ -513,6 +513,14 @@ new session to use the exact inspected launch reference. The claim's existing
 atomic dependencies protect that check through persistence. An already recorded
 session still returns its original metadata without another dispatch; callers
 must compare its retained request and launch before interpreting the receipt.
+New version-2 claims atomically prepay bounded terminal storage and one final
+metadata read from existing Ordinary capacity before driver construction. Closing
+the session fills that immutable slot without new allocation or admission, so
+ordinary exhaustion alone cannot prevent its receipt. Claims use their actual
+bounded size instead of a full runtime-snapshot allocation. Version-1 receipts
+remain readable; missing terminals are never reconstructed. Status reads still
+consume normal navigation capacity, and crashes or underlying storage failures
+can still leave an unknown outcome. See the [session receipt limits](docs/interactive-launch.md).
 The normal menu uses this guard for both native SIWC and saved Codex auth-only
 runtimes, retains the complete route in its private journal, and does not replace
 an uncertain session. Inspection reports `codex_auth_only_supported` only for the

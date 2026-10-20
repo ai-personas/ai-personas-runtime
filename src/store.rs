@@ -80,6 +80,7 @@ use thiserror::Error;
 
 mod archive_history;
 mod capacity;
+mod session_journal;
 pub use capacity::{CapacityExtensionRequest, MAX_RUNTIME_SNAPSHOT_BODY_BYTES};
 
 const SCHEMA_VERSION: u32 = 1;
@@ -3622,17 +3623,20 @@ impl<'a> Work<'a> {
             self.id(&object.id)?;
             self.id(&object.kind)?;
             self.body(&object.body)?;
-            if self.cell("terminal_evidence", &object.id)?.is_some() {
+            if self.cell("terminal_evidence", &object.id)?.is_some()
+                || self.cell(session_journal::NAMESPACE, &object.id)?.is_some()
+            {
                 return Err(StoreError::Conflict(object.id.clone()));
             }
             let current: Option<StoredObject> = self.get("object", &object.id)?;
-            // Work resource grants are permanent idempotency evidence. Immutable
-            // revision journals alone do not prevent generic CAS from replacing
-            // a receipt's current head, so this receipt kind is create-only.
-            if current
-                .as_ref()
-                .is_some_and(|current| current.kind == "work-resource-grant")
-            {
+            // Grants and session claims/receipts are permanent idempotency
+            // evidence. Their current heads must remain create-only too.
+            if current.as_ref().is_some_and(|current| {
+                matches!(
+                    current.kind.as_str(),
+                    "work-resource-grant" | "launch-session-claim-v1" | "launch-session-end-v1"
+                )
+            }) {
                 return Err(StoreError::Conflict(object.id.clone()));
             }
             let next = match (change.expected_revision, current.as_ref()) {
@@ -3693,10 +3697,14 @@ impl<'a> Work<'a> {
                 None => match self.runtime_control_revision(reference)? {
                     Some(object) => object,
                     None => {
-                        let slot: TerminalEvidenceSlot =
-                            self.required("terminal_evidence", &reference.id)?;
-                        slot.object
-                            .ok_or_else(|| StoreError::Missing(reference.id.clone()))?
+                        if let Some(object) = self.launch_session_terminal_exact(reference)? {
+                            object
+                        } else {
+                            let slot: TerminalEvidenceSlot =
+                                self.required("terminal_evidence", &reference.id)?;
+                            slot.object
+                                .ok_or_else(|| StoreError::Missing(reference.id.clone()))?
+                        }
                     }
                 },
             };
@@ -3766,6 +3774,7 @@ impl<'a> Work<'a> {
         }
         if self.cell("object", id)?.is_some()
             || self.cell("revision", &revision_key(id, 1))?.is_some()
+            || self.cell(session_journal::NAMESPACE, id)?.is_some()
         {
             return Err(StoreError::Conflict(id.into()));
         }
