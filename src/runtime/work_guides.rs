@@ -139,7 +139,8 @@ fn guide_text(variant: &Value) -> Result<String> {
         .map(|name| format!("{name}.md"))
         .collect::<Vec<_>>()
         .join(", ");
-    Ok(format!("# Native internal work command: {command}\n\n{description}\n\nInput field names for discovery: {}.\n\nRelated guide filenames in this directory: {links}. Use ordinary file discovery to locate relevant prerequisites and their exact current revisions. These are navigation cues, not required selections or an assigned workflow. If a needed command is absent from the current interface, discover its guide before treating the missing definition as an unavailable capability.\n\nThis runtime-authored supporting guide is not a persona's character, experience, grant or execution record. Read or select its complete exact UTF-8 revision through the ordinary file interface. Only an actually supplied registered guide exposes its current native input schema in CONTROL.work_capability on a fresh admission. Copy that admitted schema and current work references; the guide alone cannot authorize a command. Existing responsibility, consent, source, complete-response and resource checks still apply. No external software is invoked by this internal command.\n", names.join(", ")))
+    let command_rules = work_instructions::guide_text(command);
+    Ok(format!("# Native internal work command: {command}\n\n{description}\n\nInput field names for discovery: {}.\n\nRelated guide filenames in this directory: {links}. Use ordinary file discovery to locate relevant prerequisites and their exact current revisions. These are navigation cues, not required selections or an assigned workflow. If a needed command is absent from the current interface, discover its guide before treating the missing definition as an unavailable capability.\n\n{command_rules}This runtime-authored supporting guide is not a persona's character, experience, grant or execution record. Read or select its complete exact UTF-8 revision through the ordinary file interface. Only an actually supplied registered guide exposes its current native input schema in CONTROL.work_capability on a fresh admission. Copy that admitted schema and current work references; the guide alone cannot authorize a command. Existing responsibility, consent, source, complete-response and resource checks still apply. No external software is invoked by this internal command.\n", names.join(", ")))
 }
 
 fn records(
@@ -371,6 +372,11 @@ pub(super) fn capability(
         None => json!({"enabled":false,
             "reason":"No native work command is exposed in this admission. Discover relevant guides in the exact current CONTROL.work_guide_discovery.directory and read or select their complete UTF-8 revisions. Older profile revisions remain historical resources; merely preserving them or retrying cannot expose their commands. Missing definitions alone do not establish unavailable capabilities. Existing work-command grants and authority are still required."}),
     };
+    if let Some(interface) = interface {
+        if let Some(instructions) = work_instructions::for_interface(interface)? {
+            value["command_instructions"] = instructions;
+        }
+    }
     if let Some(catalog) = &state.work_guides {
         let registered = catalog
             .guides

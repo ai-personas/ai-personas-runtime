@@ -27,7 +27,9 @@ Both encodings retain all existing work, evidence, source, consent and resource
 checks. Reading a guide does not grant responsibility, perform an operation or
 establish skill. Primitive file, communication and maintenance operations remain
 in the application decision schema. Initialization and selection repair do not
-offer work commands.
+offer work commands. External tool execution uses its separate supplied interfaces
+and current source/work permissions and execution grants; the native work-command
+interface neither grants it nor establishes its absence.
 
 The guide files have recorded author `ai-personas-runtime`, operator-import
 provenance and the launch's existing source policy. The first cohort identity is
@@ -54,6 +56,21 @@ to the metadata. The links also qualify for current-input file handles, but the
 persona still selects relevant resources and their complete bodies must reach a
 later admission before any schema is exposed. This does not resolve feedback,
 close work, assign duties or add an unselected command catalogue.
+
+Detailed command instructions travel with the commands actually exposed in
+`CONTROL.work_capability.command_instructions`. A shared section appears once and
+names only exposed commands. For example, artifact-registration details accompany
+`put_artifact`, and closure receipt rules accompany `close_goal`. The common
+persona instructions retain shared authority, evidence, responsibility, character,
+maintenance and complete-response requirements. Freshly installed guide files
+also contain their applicable command rules.
+
+Legacy full interfaces retain every command section. An existing registered guide
+still exposes the current admitted interface and its current command instructions;
+refreshing guide files updates their retained prose separately. The development
+view reports `resource_use.supplied_native_work_instructions` from the saved input,
+including section scopes and byte counts. Older inputs keep their original prose
+and report no separately recorded command-instruction field.
 
 ## Existing roots
 

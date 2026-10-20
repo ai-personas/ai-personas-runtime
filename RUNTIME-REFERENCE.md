@@ -686,6 +686,16 @@ For a future-result wait, `register_pending_mock_dependency` binds a distinct ty
 
 ## Files and decisions
 
+Ordinary work interfaces include only their relevant detailed command instructions
+in `CONTROL.work_capability.command_instructions`. Common persona and protocol
+duties remain mandatory. A section shared by several exposed commands is supplied
+once; no command definition means no command-specific section. Legacy full work
+interfaces carry all sections. The actual instruction bytes enter prompt and
+fixed-contract accounting. Native inspection reads the saved input's section
+scopes and sizes through `resource_use.supplied_native_work_instructions`; it
+does not reconstruct historical instructions from current code. These explanations
+retain the existing authority, evidence and complete-response checks.
+
 Ordinary initialized admissions may offer `CONTROL.input_file_choices`: bounded
 metadata for exact references already identified in the current input. A persona
 can choose `next_assets` or `next_fragments` with `kind: replace_from_input`, a
