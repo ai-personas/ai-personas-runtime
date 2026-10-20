@@ -300,14 +300,21 @@ both existing accounts must still fit. Used, reserved and uncertain resources
 remain charged. No work, attempts, work-level navigation allowances, provider calls or
 persona continuations are created or reset.
 
-New runtime snapshots store repeated observation and message exposure manifests
-once in a versioned `retained_exposures` table. Exact digest references replace
-only those typed host fields. Loading verifies each complete manifest and restores
-the original source revisions, policies and array order before any permission or
-history operation. Authored content, payloads, historical evidence identities and
-old immutable snapshots are unchanged. No charged storage is refunded.
-Legacy expanded snapshots remain readable. Keep the updated helpers after a new
-snapshot is saved; older readers do not understand the compact representation.
+New runtime snapshots store repeated typed host exposure manifests once in a
+versioned `retained_exposures` table. Version 2 covers character and focus records,
+source revisions, work and arrangement origins, questions, feedback and maintenance
+accounts, warnings, local evidence bases, tool jobs and optional-activity records,
+as well as observation and message exposures. Exact digest references replace
+only the explicitly listed `Exposure` fields. Loading verifies each complete
+manifest and restores the original source revisions, policies and array order
+before any permission or history operation. Authored content, arbitrary payloads,
+delivery bundles, historical evidence identities and old immutable snapshots are
+unchanged. No charged storage is refunded and no history is deleted.
+Legacy expanded snapshots and version 1 pools remain readable; version 1 retains
+its original observation/message-only reference scope. Ordinary state saves use
+the new representation when sharing reduces size. Prepaid pause and ending controls
+preserve the existing pool and references. Keep the updated helpers after a version 2
+snapshot is saved; older readers reject that pool version.
 Stored record limits still apply. Ordinary saves allow up to 48 MiB of expanded
 JSON; decoding checks a 64 MiB bound before duplicating referenced manifests,
 leaving room for the existing prepaid pause and ending controls. These are
