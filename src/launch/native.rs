@@ -244,13 +244,14 @@ impl Driver for NativeDriver<'_> {
 }
 
 // Stage 1 uses the same fixed native driver under an already consumed session
-// claim. It must not reacquire ownership, perform orphan recovery or intake.
+// claim. It must not reacquire ownership, perform orphan recovery or create work.
 pub(super) async fn run_session_owned(
     app: &mut Runtime,
     operator: &str,
     work: &str,
     vault: &Path,
     owner: &s::ExecutionOwner,
+    intake_selection: Option<&p::need::GrantReference>,
 ) -> Result<(Output, Option<session::BoundaryError>)> {
     let (_, saved) = load(app)?;
     let (settings, config) = validate_saved(app, &saved, operator)?;
@@ -268,7 +269,7 @@ pub(super) async fn run_session_owned(
         provider,
         launch: binding(&saved)?,
         config,
-        intake_selection: None,
+        intake_selection: intake_selection.cloned(),
     };
     driver.before_step(app)?;
     session::drive(app, work, &mut driver).await

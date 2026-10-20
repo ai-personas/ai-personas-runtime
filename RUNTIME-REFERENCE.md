@@ -519,6 +519,13 @@ an uncertain session. Inspection reports `codex_auth_only_supported` only for th
 saved ephemeral ChatGPT credential-reference contract accepted by that route;
 this metadata does not establish live credential validity.
 
+`personas-session run --intake-delegation SELECTION.json` binds an exact existing
+intake grant to the session request on any supported provider route. It enables
+the separately authorized persona-need proposal interface during an eligible
+parent admission, preserving atomic launch and episode accounting. See
+[persona-requested needs](docs/persona-needs.md) for grant, proposal and child
+admission steps.
+
 Output contains accepted replies and complete currently permitted local delivery
 bundles. `--json` emits one structured result on stdout; progress and stopping
 diagnostics use stderr. `result` performs no inference. A delivered artifact can
@@ -886,7 +893,7 @@ Bounded warning views and exact receipt accompaniment survive restart and old-re
 
 ## Remaining coverage
 
-Ordinary scheduling is an explicitly invoked bounded local interface, with persisted fair consideration under its declared assumptions; it is not an unattended service and does not launch a live model. Events cover exact one-shot local dependency evidence. External watches, general host-process and authenticated remote adapters, exports, independent-review attestations and optional between-task exploration remain unsupported. The implemented external adapters are the explicit bounded computation and HTTPS retrieval profiles described above. The local warning lifecycle covers explicit primary-owned exact-revision judgments, with the protected-character and range limitations above. The sealed mock-effect fixture does not enable a native runtime capability. Logical allocation limits and prepaid closeout do not establish physical database, remote retention, token, or dollar bounds. A fixture or successful transport does not establish full runtime conformance.
+Ordinary scheduling persists fair consideration under its declared assumptions. Explicit foreground sessions drive bounded live execution; the runtime is not an unattended service. Events cover exact one-shot local dependency evidence. External watches, general host-process and authenticated remote adapters, exports and independent-review attestations remain unsupported. Optional between-task activity uses the explicit finite grants described in [optional activity](docs/optional-activity.md). The implemented external adapters are the bounded computation and HTTPS retrieval profiles described above. The local warning lifecycle covers explicit primary-owned exact-revision judgments, with the protected-character and range limitations above. Logical allocation limits and prepaid closeout do not establish physical database, remote retention, token, or dollar bounds. Successful transport does not establish full runtime conformance.
 
 For legacy roots, `provision-closeout` explicitly reserves the control capacity from existing resources while unfrozen. It returns an error if that existing capacity cannot support the reservation; it never increases the allowance. Its library equivalent is `Runtime::provision_closeout`.
 

@@ -295,12 +295,21 @@ pub struct SessionRequest {
     pub operator: String,
     pub work: String,
     pub route: SessionRoute,
+    /// Select an existing exact grant for an already enabled work opportunity.
+    /// Omission preserves the serialized request and digest of older claims.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intake_delegation: Option<p::need::GrantReference>,
 }
 impl SessionRequest {
     pub fn validate(&self) -> BoundaryResult<()> {
         valid_id(&self.id)?;
         valid_id(&self.operator)?;
         valid_id(&self.work)?;
+        if let Some(selection) = &self.intake_delegation {
+            selection
+                .validate()
+                .map_err(|_| BoundaryError::InvalidRequest)?;
+        }
         match &self.route {
             SessionRoute::NativeSiwc { vault } => {
                 check(
@@ -609,6 +618,7 @@ struct OwnedLive<'a> {
     provider: provider::DirectProvider,
     binding: Value,
     config: Value,
+    intake_selection: Option<p::need::GrantReference>,
 }
 fn execution_binding(saved: &Saved) -> Result<Value> {
     let mut fixed = saved.clone();
@@ -617,6 +627,10 @@ fn execution_binding(saved: &Saved) -> Result<Value> {
     Ok(serde_json::to_value(fixed)?)
 }
 impl Driver for OwnedLive<'_> {
+    fn prospective_intake(&self) -> bool {
+        self.intake_selection.is_some()
+    }
+
     fn before_step(&mut self, app: &mut Runtime) -> Result<()> {
         let (_, saved) = load(app)?;
         let (head, _) = app.load()?;
@@ -633,12 +647,13 @@ impl Driver for OwnedLive<'_> {
         now: i64,
     ) -> Result<AdoptionReport> {
         self.before_step(app)?;
-        app.step_with_owned_provider(
+        app.step_with_owned_provider_and_intake(
             request,
             &self.provider,
             provider::Cancellation::default(),
             self.owner,
             now,
+            self.intake_selection.take(),
         )
         .await
     }
@@ -716,13 +731,22 @@ async fn execute_with_codex_transport(
                 provider: saved.execution_provider()?.build(&state.config)?,
                 binding: execution_binding(&saved)?,
                 config: head.body["config"].clone(),
+                intake_selection: request.intake_delegation.clone(),
             };
             drive(app, &request.work, &mut driver).await
         }
         SessionRoute::NativeSiwc { vault } => {
             #[cfg(unix)]
             {
-                native::run_session_owned(app, &request.operator, &request.work, vault, owner).await
+                native::run_session_owned(
+                    app,
+                    &request.operator,
+                    &request.work,
+                    vault,
+                    owner,
+                    request.intake_delegation.as_ref(),
+                )
+                .await
             }
             #[cfg(not(unix))]
             {
@@ -769,6 +793,7 @@ async fn execute_with_codex_transport(
                     provider: build_codex_provider(&settings, &state.config, source, codex_transport.clone())?,
                     binding: execution_binding(&saved)?,
                     config: head.body["config"].clone(),
+                    intake_selection: request.intake_delegation.clone(),
                 };
                 drive(app, &request.work, &mut driver).await
             }
