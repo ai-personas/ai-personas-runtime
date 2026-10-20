@@ -141,15 +141,23 @@ pub(super) fn project(app: &mut Runtime, work_id: &str, saved: &Saved) -> Result
     if result.optional_activity_ending.is_some() {
         result.status = "optional-activity-ended-as-recorded".into();
     }
+    let mut left = 1024 * 1024 - 4096;
     let completion = closure_readiness::recorded_completion_for_recipient(
         &state,
         work_id,
         &saved.operator,
         now,
     )?;
+    let recorded_release = completion["release"].as_str().map(str::to_owned);
     if !completion.is_null() {
-        result.recorded_completion = Some(completion);
         result.status = "completed-as-recorded".into();
+        let size = serde_json::to_vec(&completion)?.len();
+        if size <= left {
+            left -= size;
+            result.recorded_completion = Some(completion);
+        } else {
+            result.truncated = true;
+        }
     }
     let mut permitted_deliveries: Vec<_> = work
         .deliveries
@@ -175,7 +183,6 @@ pub(super) fn project(app: &mut Runtime, work_id: &str, saved: &Saved) -> Result
             std::cmp::Reverse(receipt.release.clone()),
         )
     });
-    let mut left = 1024 * 1024 - 4096;
     let feedback = requester_feedback::project_for_recipient(
         &state, work_id, &saved.operator, now, left,
     )?;
@@ -205,10 +212,7 @@ pub(super) fn project(app: &mut Runtime, work_id: &str, saved: &Saved) -> Result
                 .as_array()
                 .is_some_and(|items| !items.is_empty())
         });
-        let recorded_for_focus = result
-            .recorded_completion
-            .as_ref()
-            .is_some_and(|record| record["release"] == receipt.release.0);
+        let recorded_for_focus = recorded_release.as_deref() == Some(receipt.release.0.as_str());
         result.status = if recorded_for_focus {
             "completed-as-recorded"
         } else if acceptance_unestablished {

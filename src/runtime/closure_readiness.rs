@@ -387,9 +387,20 @@ fn exact_recorded_completion(
     let Ok(inherited) = permitted else {
         return Ok(Value::Null);
     };
+    // Keep the completion tied to the exact released outcome versions. This is
+    // historical scope, not the current artifact inventory or a support check.
+    // The complete candidate's source permissions have already passed above.
+    let released_artifacts = release
+        .candidate
+        .artifacts
+        .iter()
+        .map(|(outcome, artifact)| (outcome.0.clone(), ArtifactKey::from_native(artifact)))
+        .collect::<BTreeMap<_, _>>();
     extend_exposure(exposure, &inherited);
     Ok(json!({
         "release":id,"by":by,"historical_only":true,"metadata_only":true,
+        "mandate_revision":release.candidate.mandate_revision,
+        "released_artifacts":released_artifacts,
         "current_support":"not_asserted","operational_phase_independent":true
     }))
 }

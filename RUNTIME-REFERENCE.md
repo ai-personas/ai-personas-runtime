@@ -547,9 +547,15 @@ bundles. `--json` emits one structured result on stdout; progress and stopping
 diagnostics use stderr. `result` performs no inference. A delivered artifact can
 remain without a completion judgment until a fresh persona decision records one.
 `recorded_completion` is the latest permitted historical completion of an exact
-release; `completed-as-recorded` describes that accepted judgment, independently
-of the work phase. `completion_supported: null` leaves current global support
-unestablished. The result view does not probe hidden evidence or consent
+release. Its `mandate_revision` identifies the mandate at release, and
+`released_artifacts` maps outcome IDs to the exact artifact IDs, revisions and
+digests covered by that judgment. The same
+permission-filtered scope is supplied in primary `CONTROL.recorded_completion`;
+it supplies no artifact bodies and does not transfer the judgment to newer
+versions or another participant's contribution. `completed-as-recorded`
+describes that accepted judgment, independently of the work phase.
+`completion_supported: null` leaves current global support unestablished.
+The result view does not probe hidden evidence or consent
 to recompute that predicate. `closure_evidence` contains only currently permitted
 partial facts. `recorded_phase` and `last_attempt` remain unset because this result
 view has no separate disclosure basis for current global state; use explicit
@@ -560,6 +566,8 @@ with exact release ID breaking same-transaction ties; an old redelivery cannot
 move focus backwards. `status_delivery` identifies its exact permitted receipt.
 This does not assert global release freshness. Status and foreground stop reasons
 are computed before output truncation.
+Exact completion metadata shares the bounded result budget with the other
+records; omitting an oversized record sets `truncated` without changing status.
 Local delivery and attributed model judgment do not establish
 independent quality.
 
