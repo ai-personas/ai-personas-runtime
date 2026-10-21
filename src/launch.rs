@@ -366,6 +366,13 @@ fn setup_parts(operator: &str, settings: Setup, opt_in: bool) -> Result<(Config,
     config.allow_direct_provider = true;
     config.max_work_attempts = settings.max_work_attempts;
     settings.provider.validate()?;
+    // The operator's validated provider settings define the possible transport
+    // output for each attempt. Reserve that exposure from the existing Store
+    // allowance instead of rejecting an otherwise valid fresh setup against a
+    // smaller default. This does not increase the controlling resource totals.
+    config.transport_output_reserve_bytes = config
+        .transport_output_reserve_bytes
+        .max(settings.provider.limits.max_stream_bytes as u64);
     require(
         settings.provider.limits.max_prompt_bytes <= config.context_bytes
             && settings.provider.limits.max_response_bytes <= config.response_bytes

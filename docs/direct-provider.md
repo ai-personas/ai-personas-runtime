@@ -32,6 +32,13 @@ Capability evidence binds the selected mode, immutable transport profile, model,
 
 Limits bound prompt/schema size and structure, encoded request size, observed stream/event bytes and count, response size and local transfer duration. Every required field must be supplied; an absent limit is not unlimited. Setup validates configuration without resolving credentials or building transport. Preparation resolves the explicitly selected source; dispatch rechecks grant, expiry and the prepared account binding. Environment secrets must be configured through a separately authorized operator action.
 
+Fresh setup sizes each attempt's transport-output reservation to cover the
+validated provider stream allowance, even when it exceeds the runtime's default
+reservation. Preview shows this reservation. The controlling Store output
+allowance is unchanged; every admitted attempt must still fit its remaining
+resources. Existing runtimes use the explicit transport-capacity operation below
+when their saved stream allowance needs to change.
+
 The completion event can contain a larger provider envelope than the authored
 Decision. Native onboarding allows a 512 KiB event within its 1 MiB total stream
 ceiling while retaining the 32 KiB response limit. Existing saved settings keep
