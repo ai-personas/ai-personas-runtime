@@ -147,10 +147,10 @@ dispatch. A changed launch is rejected before a new session claim is created.
 An interrupted session keeps that same identity and request. A confirmed
 unclaimed request whose launch has changed cannot be reused; the menu lets you
 review a fresh run separately. An unrecorded terminal outcome still blocks all
-replacement sessions. Old native-SIWC journal pointers remain readable with their
-original request identity.
+replacement sessions. Every launcher session records an explicit authentication
+route and the inspected launch reference.
 
-New native session claims use version 2. Admission atomically retains the bounded
+Native session claims use version 2. Admission atomically retains the bounded
 claim and prepays one 16 KiB terminal slot, its identity/history capacity, peak
 rewrite copy, and a bounded final metadata read from existing Ordinary resources.
 The final receipt needs no new storage allocation or ordinary read allowance,
@@ -158,12 +158,13 @@ including when work exhausts that allowance or freezes admission. The claim is
 limited to 64 KiB and the terminal to 8 KiB. This protects status recording; it
 does not provide additional model calls or guarantee successful work.
 
-Version-1 claims and their receipts remain readable without conversion. A missing
-legacy terminal stays unknown. A process crash, oversized/corrupt closeout data,
-or underlying storage failure can still leave a new terminal unconfirmed; the
-session identity remains consumed and never authorizes replay. Later status
-inspection spends its own normal read allowance. Prepayment is logical resource
-accounting, not a physical filesystem reservation or a durability guarantee.
+The first release accepts only the current session and launcher-journal formats;
+it includes no reader or migration for earlier development formats. A process
+crash, oversized/corrupt closeout data, or underlying storage failure can still
+leave a terminal unconfirmed; the session identity remains consumed and never
+authorizes replay. Later status inspection spends its own normal read allowance.
+Prepayment is logical resource accounting, not a physical filesystem reservation
+or a durability guarantee.
 
 After a session, or when reopening its journal, the menu shows currently permitted
 messages from that session's recorded call range, with their producing call IDs.

@@ -22,7 +22,7 @@ const MAX_PAGE: usize = 16;
 pub(super) const MAX_VIEW_BYTES: usize = 1_048_576;
 
 /// Static machine codes, never formatted provider/parser errors or secret values.
-/// These classify only this boundary, not the legacy CLI's errors.
+/// These classify only this boundary, not the main CLI's errors.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "snake_case")]
 pub enum BoundaryError {
@@ -315,7 +315,7 @@ pub struct SessionRequest {
     pub work: String,
     pub route: SessionRoute,
     /// Select an existing exact grant for an already enabled work opportunity.
-    /// Omission preserves the serialized request and digest of older claims.
+    /// Omit this field when no grant is selected.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub intake_delegation: Option<p::need::GrantReference>,
 }
@@ -444,7 +444,7 @@ fn read_session_with(
         .validate()
         .map_err(|_| BoundaryError::InvalidState)?;
     check(
-        matches!(claim.version, 1 | 2)
+        claim.version == 2
             && claim.request.operator == operator
             && claim.request.id == key
             && claim.request_sha256 == digest(&claim.request)?
@@ -452,11 +452,7 @@ fn read_session_with(
         BoundaryError::InvalidState,
     )?;
     let terminal_id = record_id(END_KIND, key);
-    let end = if claim.version == 2 {
-        read(&terminal_id, Some(&object.exact_ref()?))?
-    } else {
-        read(&terminal_id, None)?
-    };
+    let end = read(&terminal_id, Some(&object.exact_ref()?))?;
     let Some(end) = end else {
         return Ok(SessionView::OutcomeUnrecorded { claim });
     };

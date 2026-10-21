@@ -18,7 +18,7 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeSet,
-    ffi::{CString, OsStr, OsString},
+    ffi::{CString, OsStr},
     fs::{self, File, OpenOptions},
     future::Future,
     os::{
@@ -47,14 +47,13 @@ const CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
 const ISSUER: &str = "https://auth.openai.com";
 const DISCOVERY: &str = "https://auth.openai.com/.well-known/openid-configuration";
 const TOKEN_ENDPOINT: &str = "https://auth.openai.com/api/accounts/oauth/token";
-const EXEC_UNAVAILABLE: &str = "exec is unavailable: native execution-owner-bound exact saved-configuration handoff is not implemented";
 const MIGRATION_NOTICE: &str = "A separate explicit ai-personas migrate-provider is required when saved expiry, model, or account bindings differ. Refresh does not update saved runtime configuration.";
 
 #[derive(Parser)]
 #[command(
     name = "personas-auth",
     about = "Explicit host-side Personas SIWC sign-in, refresh, and status",
-    after_help = "Use an explicit absolute external --vault path. No credential discovery occurs. Open the authorization URL in a browser on the same host as this helper. Authentication establishes a grant, not model capability; no inference is performed by sign-in, refresh, or status. Capability digests are structural checks, not proof of actual capability. Native-run requires --authorize, an explicit absolute --state-root, --operator, and exactly one --need, --work, or --delegation. Optional --intake-delegation selects an exact grant only with --work and creates no opportunity. It performs only the fixed in-process execution-owner-bound exact saved-configuration handoff. Exec is unavailable; --allow-handoff cannot enable it. After refresh, use a separate explicit ai-personas migrate-provider when saved expiry, model, or account bindings differ. Native-run adds no grant, refresh, probe, migration, fallback or general resume."
+    after_help = "Use an explicit absolute external --vault path. No credential discovery occurs. Open the authorization URL in a browser on the same host as this helper. Authentication establishes a grant, not model capability; no inference is performed by sign-in, refresh, or status. Capability digests are structural checks, not proof of actual capability. Native-run requires --authorize, an explicit absolute --state-root, --operator, and exactly one --need, --work, or --delegation. Optional --intake-delegation selects an exact grant only with --work and creates no opportunity. It performs only the fixed in-process execution-owner-bound exact saved-configuration handoff. After refresh, use a separate explicit ai-personas migrate-provider when saved expiry, model, or account bindings differ. Native-run adds no grant, refresh, probe, migration, fallback or general resume."
 )]
 pub(crate) struct Cli {
     /// Selected external credential file; absolute, protected, and without symlinks.
@@ -99,21 +98,6 @@ enum Command {
         /// Retains the selected vault lock and direct in-process transport.
         #[arg(long, requires = "work", conflicts_with_all = ["need", "delegation"])]
         intake_delegation: Option<PathBuf>,
-    },
-    /// Unavailable: generic execution-owner-bound exact saved-configuration child handoff.
-    Exec {
-        /// Ignored compatibility flag; does not enable exec.
-        #[arg(long)]
-        allow_handoff: bool,
-        /// Ignored compatibility path; no configuration is opened.
-        #[arg(long)]
-        provider_config: Option<PathBuf>,
-        /// Ignored compatibility path; no executable is opened.
-        #[arg(long)]
-        runtime_bin: Option<PathBuf>,
-        /// Ignored compatibility arguments; no child is started.
-        #[arg(last = true, allow_hyphen_values = true)]
-        args: Vec<OsString>,
     },
 }
 
@@ -195,24 +179,6 @@ fn error_code(error: &AuthError) -> &'static str {
 
 pub(crate) async fn run(cli: Cli) -> Result<i32> {
     match cli.command {
-        Command::Exec {
-            allow_handoff: _allow_handoff,
-            provider_config: _provider_config,
-            runtime_bin: _runtime_bin,
-            args: _args,
-        } => {
-            // Compatibility inputs are ignored. Reject before resolving any
-            // vault path, acquiring a lock, reading files, or starting a child.
-            eprintln!(
-                "{}",
-                json!({
-                    "status": "error",
-                    "error": EXEC_UNAVAILABLE,
-                    "automatic_retry": false
-                })
-            );
-            return Ok(1);
-        }
         Command::NativeRun {
             authorize,
             state_root,

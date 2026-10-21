@@ -310,11 +310,6 @@ def valid_session_route(route):
             and valid_codex_paths({k: route[k] for k in ("executable", "host_home", "codex_home")}))
 
 
-def session_route(session):
-    # Interpret legacy pointers without changing the already-authorized request.
-    return session["route"] if "route" in session else {"kind": "native_siwc", "vault": session["vault"]}
-
-
 def new_progress():
     return {"version": 1, "operator": None, "installation": None, "runtime": None,
             "vault": None, "needs": [], "session": None, "probes": [],
@@ -324,11 +319,7 @@ def new_progress():
 
 def validate_progress(p):
     fields = set(new_progress())
-    optional = {"work_input", "codex_auth"}
-    require(isinstance(p, dict) and fields - optional <= set(p) <= fields and p["version"] == 1)
-    # Older journals gain no operation, credential or authorization.
-    for field in optional:
-        p.setdefault(field, None)
+    require(isinstance(p, dict) and set(p) == fields and p["version"] == 1)
     require(p["codex_auth"] is None or valid_codex_paths(p["codex_auth"]))
     require(type(p["setup_authorized"]) is bool)
     require(not p["setup_authorized"] or p["bootstrap"] is not None)
@@ -353,11 +344,10 @@ def validate_progress(p):
     if p["session"] is not None:
         s = p["session"]
         require(isinstance(s, dict)
-                and set(s) in ({"id", "work", "vault"}, {"id", "work", "route", "expected_launch"})
+                and set(s) == {"id", "work", "route", "expected_launch"}
                 and identifier(s["id"]) and identifier(s["work"]))
-        require(valid_session_route(session_route(s)))
-        if "expected_launch" in s:
-            require(valid_launch_reference(s["expected_launch"]))
+        require(valid_session_route(s["route"]))
+        require(valid_launch_reference(s["expected_launch"]))
     require(isinstance(p["probes"], list) and len(p["probes"]) <= 16)
     seen = set()
     for probe in p["probes"]:
@@ -1842,10 +1832,9 @@ class Dialogue:
             return
         claim = outcome.get("claim")
         expected = {"id": session["id"], "operator": self.p["operator"],
-                    "work": session["work"], "route": session_route(session)}
+                    "work": session["work"], "route": session["route"]}
         require(isinstance(claim, dict) and claim.get("request") == expected, "session_binding_changed")
-        if "expected_launch" in session:
-            require(claim.get("launch") == session["expected_launch"], "session_binding_changed")
+        require(claim.get("launch") == session["expected_launch"], "session_binding_changed")
 
     def session_output(self, session):
         view = self.session("session-messages", "--id", session["id"])
@@ -1871,7 +1860,7 @@ class Dialogue:
         if reuse:
             s = self.p["session"]
             require(s is not None and s["work"] == work, "session_binding_changed")
-            route = session_route(s)
+            route = s["route"]
         elif settings.get("mode") == "siwc_oauth":
             self.account(settings)
             route = {"kind": "native_siwc", "vault": self.p["vault"]}
@@ -1902,11 +1891,10 @@ class Dialogue:
                                  "route": route, "expected_launch": view["launch"]}
             self.j.save()
         s = self.p["session"]
-        require(s["work"] == work and session_route(s) == route, "session_binding_changed")
+        require(s["work"] == work and s["route"] == route, "session_binding_changed")
         args = ["run", "--id", s["id"], "--work", work, "--authorize-run"]
-        if "expected_launch" in s:
-            self.j.directory.write("session-launch.json", encoded(s["expected_launch"]))
-            args += ["--expected-launch", str(self.j.directory.path / "session-launch.json")]
+        self.j.directory.write("session-launch.json", encoded(s["expected_launch"]))
+        args += ["--expected-launch", str(self.j.directory.path / "session-launch.json")]
         if route["kind"] == "native_siwc":
             args += ["--vault", route["vault"], "--authorize-native"]
         else:
@@ -1941,7 +1929,7 @@ class Dialogue:
                         "Keep this progress and use the exact advanced evidence/recovery controls in RUNTIME-REFERENCE.md.")
             raise Blocked("session_outcome_unknown_no_replay")
         if status["status"] == "not_recorded":
-            if "expected_launch" in s and s["expected_launch"] != view["launch"]:
+            if s["expected_launch"] != view["launch"]:
                 self.ui.say("This unstarted session's saved launch has changed, so its exact request cannot run. "
                             "No session was started. Return to the work menu to review a fresh run.")
                 return

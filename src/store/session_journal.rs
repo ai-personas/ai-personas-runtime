@@ -139,7 +139,7 @@ impl Store {
     }
 
     /// Status/replay reads remain separately metered. An absent prepaid slot is
-    /// corruption for a version-2 claim, not a new admission or a legacy fallback.
+    /// corruption, not a new admission or an alternative terminal location.
     pub(crate) fn read_launch_session_terminal(
         &mut self,
         claim: &ObjectRef,

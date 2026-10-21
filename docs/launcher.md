@@ -138,5 +138,5 @@ describes continuing an existing compatible runtime from the work menu.
 
 [`RUNTIME-REFERENCE.md`](../RUNTIME-REFERENCE.md) is maintained alongside the
 implementation and documents the detailed native controls. The current design target is
-[design revision 083e949](https://github.com/ai-personas/ai-personas-design/tree/083e949836f285f97766708a04a9ffb72049bfd9).
+[design revision dddc451](https://github.com/ai-personas/ai-personas-design/tree/dddc451b2e4f854c3ceaaea600ba0c290d54b6c2).
 Historical records do not establish current conformance.
