@@ -8,12 +8,24 @@ impl Runtime {
     /// Other states, including adoption awaiting local completion, still block
     /// foreground mutations of the shared semantic epoch.
     pub(super) fn invocation_leases_terminal(&mut self, state: &State) -> Result<bool> {
+        self.invocation_leases_owned(state, &BTreeSet::new())
+    }
+
+    /// Only the foreground coordinator may supply the exact calls whose futures
+    /// it still owns. An orphan or a call owned elsewhere retains the old fence.
+    pub(super) fn invocation_leases_owned(
+        &mut self,
+        state: &State,
+        owned: &BTreeSet<String>,
+    ) -> Result<bool> {
         for (actor, persona) in &state.personas {
             let Some(id) = &persona.active_invocation else {
                 continue;
             };
             let invocation = self.store.trusted_host().invocation(id)?;
-            if invocation.state != s::InvocationState::Failed {
+            let pending = owned.contains(id)
+                && matches!(invocation.state, s::InvocationState::Dispatched | s::InvocationState::Responded);
+            if !pending && invocation.state != s::InvocationState::Failed {
                 return Ok(false);
             }
             let prepared = decode_prepared(&invocation)?;
@@ -22,8 +34,11 @@ impl Runtime {
                     && prepared.request.id == *id
                     && prepared.request.persona == *actor
                     && persona.owner_epoch == prepared.owner_epoch
-                    && persona.admission_serial == prepared.admission_serial,
-                "failed invocation lease binding changed",
+                    && persona.admission_serial == prepared.admission_serial
+                    && (!pending || (prepared.request.profile == Profile::Direct
+                        && prepared.intake_episode.is_none()
+                        && prepared.decision_scope.is_some())),
+                "invocation lease binding changed",
             )?;
         }
         Ok(true)

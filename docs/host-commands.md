@@ -70,9 +70,9 @@ a worker while other eligible personas can take a turn. Commands earlier in
 that decision still finish in authored order before the final command starts.
 The originating persona/work becomes eligible again after its result is
 published, subject to its accepted continuation. Results are published between
-primary decisions, preserving their existing freshness checks. Model calls
-remain sequential; the standalone one-step API and explicit tool recovery also
-remain synchronous.
+adoptions, with each pending decision checked against its relevant current state.
+Independent accepted personas can also have [primary calls in flight together](concurrent-decisions.md).
+The standalone one-step API and explicit tool recovery remain synchronous.
 
 If only running commands remain, the launcher waits for an actual completion
 without spending another model admission or repeatedly scanning Store. Every

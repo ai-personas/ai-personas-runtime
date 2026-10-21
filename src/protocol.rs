@@ -740,9 +740,13 @@ fn shape_error_with_hint(error: serde_json::Error, hint: ShapeHint) -> ProtocolE
 fn same_container_shapes(received: &Value, typed: &Value) -> bool {
     match (received, typed) {
         (Value::Object(received), Value::Object(typed)) => received.iter().all(|(key, value)| {
-            typed
-                .get(key)
-                .is_some_and(|field| same_container_shapes(value, field))
+            match typed.get(key) {
+                Some(field) => same_container_shapes(value, field),
+                // The typed decoder already rejects unknown fields. Optional
+                // handle lists serialize with Vec::is_empty; an explicitly
+                // supplied [] is the same legal value as their omitted default.
+                None => value.as_array().is_some_and(Vec::is_empty),
+            }
         }),
         (Value::Array(received), Value::Array(typed)) => {
             received.len() == typed.len()

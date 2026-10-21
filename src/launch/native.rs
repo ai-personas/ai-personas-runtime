@@ -201,6 +201,9 @@ struct NativeDriver<'a> {
 }
 
 impl Driver for NativeDriver<'_> {
+    fn concurrent(&self) -> bool {
+        true
+    }
     fn prospective_intake(&self) -> bool {
         self.intake_selection.is_some()
     }
@@ -219,19 +222,19 @@ impl Driver for NativeDriver<'_> {
         self.source.check().map_err(rejected)
     }
 
-    async fn step(
+    fn start(
         &mut self,
         app: &mut Runtime,
         request: PrepareRequest,
         saved: &Saved,
         now: i64,
-    ) -> Result<AdoptionReport> {
+    ) -> Result<provider_calls::Pending> {
         require(
             binding(saved)? == self.launch,
             "reserved launch binding changed",
         )?;
         self.before_step(app)?;
-        app.step_with_owned_provider_and_intake(
+        app.start_owned_provider_call(
             request,
             &self.provider,
             provider::Cancellation::default(),
@@ -239,7 +242,17 @@ impl Driver for NativeDriver<'_> {
             now,
             self.intake_selection.take(),
         )
-        .await
+    }
+
+    async fn step(
+        &mut self,
+        app: &mut Runtime,
+        request: PrepareRequest,
+        saved: &Saved,
+        now: i64,
+    ) -> Result<AdoptionReport> {
+        let pending = self.start(app, request, saved, now)?;
+        self.finish(app, pending.completion.await)
     }
 }
 

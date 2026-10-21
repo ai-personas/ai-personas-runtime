@@ -527,6 +527,16 @@ pub enum InvocationState {
     Uncertain,
 }
 
+pub(crate) const RUNTIME_DECISION_SCOPE: &str = "runtime-decision-scope-v1";
+
+fn scoped_runtime_invocation(record: &InvocationRecord) -> bool {
+    record.request.as_ref().is_some_and(|request| {
+        request["decision_scope"]["format"] == RUNTIME_DECISION_SCOPE
+            && request["request"]["profile"] == "direct"
+            && request.get("intake_episode").is_none_or(Value::is_null)
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InvocationSpec {
     pub id: String,
@@ -618,6 +628,10 @@ pub struct DecisionRecord {
     pub invocation_id: String,
     pub response_hash: String,
     pub decision_hash: String,
+    /// Original request nonce for scoped runtime adoption. Historical records
+    /// omit this field because their request and commit epochs were identical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prepared_epoch: Option<u64>,
     pub previous_epoch: u64,
     pub accepted_epoch: u64,
     pub objects: Vec<ObjectRef>,
@@ -910,7 +924,9 @@ impl TrustedHost<'_> {
             {
                 return Err(StoreError::Conflict(id.into()));
             }
-            work.epoch(record.prepared_epoch)?;
+            if !scoped_runtime_invocation(&record) {
+                work.epoch(record.prepared_epoch)?;
+            }
             if terminal.id != format!("terminal:{}", sha256_bytes(id.as_bytes()))
                 || terminal.revision != 1
             {
@@ -2636,15 +2652,19 @@ impl Store {
     /// Repeated identical decisions return the original receipt even after the
     /// global epoch advances. Changed data under an accepted identity conflicts.
     pub fn commit_decision(&mut self, decision: Decision) -> Result<DecisionRecord> {
-        self.commit_decision_with_runtime_usage(decision, false)
+        self.commit_decision_with_runtime_usage(decision, false, None)
     }
 
     /// Runtime adoption includes the Reserved-to-Uncertain usage disposition in
     /// the decision transaction. Any failure rolls back the entire adoption.
     /// Existing uncertainty or measurements are preserved. Generic callers keep
     /// commit_decision's separate settlement semantics.
-    pub(crate) fn commit_runtime_decision(&mut self, decision: Decision) -> Result<DecisionRecord> {
-        self.commit_decision_with_runtime_usage(decision, true)
+    pub(crate) fn commit_runtime_decision(
+        &mut self,
+        decision: Decision,
+        scoped_state: Option<ObjectRef>,
+    ) -> Result<DecisionRecord> {
+        self.commit_decision_with_runtime_usage(decision, true, scoped_state)
     }
 
     /// Finish interrupted legacy accounting after exact adopted-response replay
@@ -2662,6 +2682,7 @@ impl Store {
         &mut self,
         decision: Decision,
         runtime_unknown_usage: bool,
+        scoped_state: Option<ObjectRef>,
     ) -> Result<DecisionRecord> {
         self.transaction(|work| {
             work.id(&decision.invocation_id)?;
@@ -2699,7 +2720,19 @@ impl Store {
             let mut invocation: InvocationRecord =
                 work.required("invocation", &decision.invocation_id)?;
             live_invocation(&invocation)?;
-            if invocation.prepared_epoch != decision.expected_epoch {
+            if let Some(reference) = &scoped_state {
+                let state: StoredObject = work.required("object", RUNTIME_CONTROL_STATE_ID)?;
+                if !runtime_unknown_usage || !scoped_runtime_invocation(&invocation)
+                    || invocation.prepared_epoch > decision.expected_epoch
+                    || state.exact_ref()? != *reference
+                    || !decision.changes.iter().any(|change| {
+                        change.object.id == RUNTIME_CONTROL_STATE_ID
+                            && change.expected_revision == Some(reference.revision)
+                    })
+                {
+                    return Err(StoreError::Conflict(invocation.id.clone()));
+                }
+            } else if invocation.prepared_epoch != decision.expected_epoch {
                 return Err(StoreError::StaleEpoch {
                     expected: invocation.prepared_epoch,
                     actual: work.meta.epoch,
@@ -2764,6 +2797,7 @@ impl Store {
                 invocation_id: decision.invocation_id.clone(),
                 response_hash: decision.response_hash,
                 decision_hash,
+                prepared_epoch: scoped_state.as_ref().map(|_| invocation.prepared_epoch),
                 previous_epoch: decision.expected_epoch,
                 accepted_epoch: work.meta.epoch,
                 objects,

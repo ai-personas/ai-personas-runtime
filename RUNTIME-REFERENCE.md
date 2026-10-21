@@ -11,9 +11,9 @@ requirement; the earlier bounded-profile runs remain historical records.
 
 Native foreground runs and launcher sessions can advance an eligible peer while
 the final host command of another persona's decision runs. Results are published
-between primary decisions and drained before a normal session exit. Model calls
-remain sequential; see [host command execution](docs/host-commands.md) for ordering
-and recovery behavior.
+between adoptions and drained before a normal session exit. Independent accepted
+personas can also have [primary calls in flight together](docs/concurrent-decisions.md).
+See [host command execution](docs/host-commands.md) for command ordering and recovery.
 
 [Bounded WebAssembly computation](docs/computation.md) and
 [HTTPS source retrieval](docs/https-retrieval.md) use explicit persona/work grants,

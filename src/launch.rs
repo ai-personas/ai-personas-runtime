@@ -2,6 +2,8 @@
 use super::*;
 #[path = "launch/results.rs"]
 mod results;
+#[path = "launch/parallel.rs"]
+mod parallel;
 /// Operator-only Stage 1 launcher protocol; not a persona tool.
 #[path = "launch/session.rs"]
 pub mod session;
@@ -210,9 +212,17 @@ fn decode_saved(object: &s::StoredObject) -> Result<Saved> {
     Ok(saved)
 }
 fn save(app: &mut Runtime, old: Option<&s::StoredObject>, saved: &Saved) -> Result<()> {
+    save_owned(app, old, saved, &BTreeSet::new())
+}
+fn save_owned(
+    app: &mut Runtime,
+    old: Option<&s::StoredObject>,
+    saved: &Saved,
+    owned: &BTreeSet<String>,
+) -> Result<()> {
     let (head, state) = app.load()?;
     require(
-        app.invocation_leases_terminal(&state)?,
+        app.invocation_leases_owned(&state, owned)?,
         "unfinished invocation blocks launch writes",
     )?;
     app.store.compare_and_swap_batch(vec![s::Change {
@@ -645,11 +655,20 @@ fn start_owned_keyed(
 }
 type Pick = (usize, Option<String>);
 fn select(app: &mut Runtime, work: &str, limit: usize, now: i64) -> Result<Pick> {
+    select_owned(app, work, limit, now, &BTreeSet::new())
+}
+fn select_owned(
+    app: &mut Runtime,
+    work: &str,
+    limit: usize,
+    now: i64,
+    owned: &BTreeSet<String>,
+) -> Result<Pick> {
     scheduler_bound(limit)?;
     let time = u64::try_from(now).map_err(|_| invalid("negative scheduling time"))?;
     let (head, state) = app.load()?;
     require(
-        app.invocation_leases_terminal(&state)?,
+        app.invocation_leases_owned(&state, owned)?,
         "unfinished invocation requires completion or explicit recovery",
     )?;
     let (old, mut cursor) = app.load_scheduler()?;
@@ -697,6 +716,15 @@ fn reserve(
     persona: &str,
     prospective_intake: bool,
 ) -> Result<(PrepareRequest, Saved)> {
+    reserve_owned(app, work, persona, prospective_intake, &BTreeSet::new())
+}
+fn reserve_owned(
+    app: &mut Runtime,
+    work: &str,
+    persona: &str,
+    prospective_intake: bool,
+    owned: &BTreeSet<String>,
+) -> Result<(PrepareRequest, Saved)> {
     let (old, mut saved) = load(app)?;
     saved.execution_provider()?;
     require(
@@ -715,7 +743,7 @@ fn reserve(
     // A first explicit selection is not yet bound in State. Its preparation
     // must own this same debit, just as an already bound episode does.
     if !prospective_intake && !need_proposals::bound(&app.snapshot()?, work) {
-        save(app, Some(&old), &saved)?;
+        save_owned(app, Some(&old), &saved, owned)?;
     }
     Ok((
         PrepareRequest {
@@ -729,12 +757,31 @@ fn reserve(
     ))
 }
 trait Driver {
+    fn concurrent(&self) -> bool {
+        false
+    }
     // Trusted driver intent only. Serialized persona output cannot select this.
     fn prospective_intake(&self) -> bool {
         false
     }
     fn before_step(&mut self, _app: &mut Runtime) -> Result<()> {
         Ok(())
+    }
+    fn start(
+        &mut self,
+        _app: &mut Runtime,
+        _request: PrepareRequest,
+        _saved: &Saved,
+        _now: i64,
+    ) -> Result<provider_calls::Pending> {
+        Err(held("driver does not own concurrent transport"))
+    }
+    fn finish(
+        &mut self,
+        app: &mut Runtime,
+        completion: provider_calls::Completion,
+    ) -> Result<AdoptionReport> {
+        app.finish_provider_call(completion)
     }
     async fn step(
         &mut self,
@@ -795,7 +842,16 @@ async fn run_with_owned_commands<D: Driver>(
     owner: &s::ExecutionOwner,
 ) -> Result<Output> {
     let mut scope = app.background_host_commands(owner)?;
-    let outcome = run_with(&mut scope, work, driver).await;
+    let state = scope.snapshot()?;
+    let independent = driver.concurrent()
+        && !driver.prospective_intake()
+        && !need_proposals::bound(&state, work)
+        && state.board.work(&w::WorkId(work.into()))?.need.optional_activity.is_none();
+    let outcome = if independent {
+        parallel::run(&mut scope, work, driver).await
+    } else {
+        run_with(&mut scope, work, driver).await
+    };
     while scope.has_background_host_commands() {
         scope.wait_for_host_command().await?;
     }
@@ -899,20 +955,7 @@ async fn run_with_options<D: Driver>(
                 break;
             }
             Err(error) => {
-                stop = match error {
-                    RuntimeError::Files(f::FilesError::MandatoryOverflow { required, limit }) => {
-                        // Only trusted numeric assembly measurements enter stderr;
-                        // never echo provider text, private paths or parser errors.
-                        eprintln!("Mandatory context requires {required} bytes; configured limit is {limit}. Optional-selection repair cannot remove mandatory context.");
-                        "mandatory_context_overflow"
-                    }
-                    RuntimeError::SelectionOverflow { .. } => "selection_overflow",
-                    RuntimeError::Provider(_) => "provider_preflight_or_transport_failed",
-                    RuntimeError::Protocol(_) => "invalid_response",
-                    RuntimeError::Held(_) => "held_or_unresolved_invocation",
-                    RuntimeError::Store(_) => "store_or_resource_limit",
-                    _ => "blocked_or_unresolved_invocation",
-                };
+                stop = stop_for_error(&error);
                 break;
             }
         }
@@ -920,6 +963,21 @@ async fn run_with_options<D: Driver>(
     let mut view = result(app, work)?;
     view.stop = Some(stop.into());
     Ok(view)
+}
+fn stop_for_error(error: &RuntimeError) -> &'static str {
+    match error {
+        RuntimeError::Files(f::FilesError::MandatoryOverflow { required, limit }) => {
+            // Only trusted numeric assembly measurements enter stderr.
+            eprintln!("Mandatory context requires {required} bytes; configured limit is {limit}. Optional-selection repair cannot remove mandatory context.");
+            "mandatory_context_overflow"
+        }
+        RuntimeError::SelectionOverflow { .. } => "selection_overflow",
+        RuntimeError::Provider(_) => "provider_preflight_or_transport_failed",
+        RuntimeError::Protocol(_) => "invalid_response",
+        RuntimeError::Held(_) => "held_or_unresolved_invocation",
+        RuntimeError::Store(_) => "store_or_resource_limit",
+        _ => "blocked_or_unresolved_invocation",
+    }
 }
 pub fn result(app: &mut Runtime, work: &str) -> Result<Output> {
     let (_, saved) = load(app)?;
@@ -931,6 +989,10 @@ fn handover(app: &mut Runtime, work: &str) -> Result<bool> {
     let Some(id) = saved.works.get(work).and_then(Option::as_deref) else {
         return Ok(true);
     };
+    handover_invocation(app, work, id)
+}
+fn handover_invocation(app: &mut Runtime, work: &str, id: &str) -> Result<bool> {
+    let (_, saved) = load(app)?;
     let inv = match app.invocation(id) {
         Ok(inv) => inv,
         Err(RuntimeError::Store(s::StoreError::Missing(_))) => return Ok(true),
@@ -995,7 +1057,7 @@ pub(super) fn authorize_initial(
                 .character
                 .as_ref()
                 .is_some_and(|c| c.attribution == format!("persona:{persona}/invocation:{id}"))
-            && state.board.work(&w::WorkId(work.into()))?.version == prepared.work_version
+            && decision_scope::work_current(state, &prepared)?
             && matches!(
                 state.board.work(&w::WorkId(work.into()))?.phase,
                 w::Phase::Open

@@ -17,6 +17,8 @@ mod requester_results;
 mod discovery;
 mod failed_attempt;
 mod invocation_leases;
+mod decision_scope;
+mod provider_calls;
 mod rejected_continuation;
 mod history;
 mod initialization;
@@ -1311,6 +1313,10 @@ pub struct Prepared {
     pub host_command_interface: Option<HostCommandInterface>,
     pub request: PrepareRequest,
     pub epoch: u64,
+    /// Host-sealed dependencies; absence retains the historical global fence.
+    /// The response still echoes epoch exactly and cannot supply this scope.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision_scope: Option<decision_scope::Snapshot>,
     pub owner_epoch: u64,
     pub work_version: w::Version,
     pub character_revision: Option<String>,
@@ -4143,6 +4149,7 @@ impl Runtime {
             host_command_interface: rendered.host_command_interface,
             request: request.clone(),
             epoch,
+            decision_scope: None,
             owner_epoch,
             work_version,
             character_revision,
@@ -4181,6 +4188,7 @@ impl Runtime {
             let decoded = request_context::decode(&prepared)?;
             input_files::validate_control(&prepared, &decoded.control)?;
         }
+        prepared.decision_scope = decision_scope::seal(&state, &prepared)?;
         prepared.provider_preparation = hook(&prepared)?;
         optional_activity::seal_admission(&mut state, &prepared)?;
         let request_value = serde_json::to_value(&prepared)?;
@@ -4397,6 +4405,8 @@ impl Runtime {
         // Authenticated transport is already durable before this metered state
         // read or any current-authority/adoption checks can fail.
         let (old, state) = self.load()?;
+        let commit_epoch = self.store.epoch()?;
+        let accepted_epoch = increment(commit_epoch)?;
         let mut planning_exposure = PlanningExposure::new(prepared.exposure.as_ref());
         let plan = (|| {
             require(
@@ -4422,6 +4432,7 @@ impl Runtime {
                 &prepared,
                 &decision,
                 now,
+                accepted_epoch,
                 &mut planning_exposure,
                 &mut self.store,
             )?;
@@ -4461,7 +4472,7 @@ impl Runtime {
                 )
             }
         };
-        report.accepted_epoch = Some(increment(prepared.epoch)?);
+        report.accepted_epoch = Some(accepted_epoch);
         let archive = AdoptedResponse {
             actor: prepared.request.persona.clone(),
             work: prepared.request.work.clone(),
@@ -4505,13 +4516,14 @@ impl Runtime {
             pending.depends_on.push(accepted_response.clone());
             changes.push(pending);
         }
+        let scoped_state = prepared.decision_scope.as_ref().map(|_| old.exact_ref()).transpose()?;
         match self.store.commit_runtime_decision(s::Decision {
-            expected_epoch: prepared.epoch,
+            expected_epoch: commit_epoch,
             invocation_id: id.into(),
             response_hash,
             changes,
             intents,
-        }) {
+        }, scoped_state) {
             Ok(receipt) => {
                 require(
                     Some(receipt.accepted_epoch) == report.accepted_epoch,
@@ -4633,8 +4645,9 @@ impl Runtime {
             "prepared intake episode binding changed",
         )?;
         need_proposals::check_work(self, state, &prepared.request.work, now)?;
+        let scoped = decision_scope::require_current(state, prepared)?;
         require(
-            self.store.epoch()? == prepared.epoch,
+            scoped || self.store.epoch()? == prepared.epoch,
             "store epoch changed after preparation",
         )?;
         let persona = state
@@ -4654,7 +4667,7 @@ impl Runtime {
             .board
             .work(&w::WorkId(prepared.request.work.clone()))?;
         require(
-            work.version == prepared.work_version && matches!(work.phase, w::Phase::Open),
+            (scoped || work.version == prepared.work_version) && matches!(work.phase, w::Phase::Open),
             "work authority or lifecycle changed",
         )?;
         require(
@@ -5518,10 +5531,28 @@ impl Runtime {
         request: PrepareRequest,
         provider: &dyn provider::ModelProvider,
         cancellation: provider::Cancellation,
-        _execution_owner: &s::ExecutionOwner,
+        execution_owner: &s::ExecutionOwner,
         now: i64,
         intake_selection: Option<p::need::GrantReference>,
     ) -> Result<AdoptionReport> {
+        let pending = self.start_owned_provider_call(
+            request, provider, cancellation, execution_owner, now, intake_selection,
+        )?;
+        let completion = pending.completion.await;
+        self.finish_provider_call(completion)
+    }
+
+    /// Caller retains this Store's execution owner until every admitted
+    /// transport has its actual completion disposition or explicit recovery.
+    pub(in crate::runtime) fn start_owned_provider_call(
+        &mut self,
+        request: PrepareRequest,
+        provider: &dyn provider::ModelProvider,
+        cancellation: provider::Cancellation,
+        _execution_owner: &s::ExecutionOwner,
+        now: i64,
+        intake_selection: Option<p::need::GrantReference>,
+    ) -> Result<provider_calls::Pending> {
         let (_, state) = self.load()?;
         let persona = state
             .personas
@@ -5706,8 +5737,19 @@ impl Runtime {
             Some(deadline) => native.dispatch_with_intake_deadline(cancellation.clone(), deadline),
             None => native.dispatch(cancellation.clone()),
         };
-        let output = match dispatch
-            .await
+        Ok(provider_calls::pending(
+            prepared, native_audit, intent, cancellation, state.config.response_bytes, dispatch,
+        ))
+    }
+
+    pub(in crate::runtime) fn finish_provider_call(
+        &mut self,
+        completion: provider_calls::Completion,
+    ) -> Result<AdoptionReport> {
+        let provider_calls::Completion {
+            prepared, audit: native_audit, intent, cancellation, response_bytes, outcome,
+        } = completion;
+        let output = match outcome
             .and_then(|output| output.bound_to(&native_audit, &intent))
         {
             Ok(output) => output,
@@ -5752,7 +5794,7 @@ impl Runtime {
         // eligible here; provider streams, reasoning and stderr never enter it.
         let (bytes, parsed) = match inner {
             Ok(bytes) => {
-                let parsed = p::parse_decision(bytes.as_bytes(), state.config.response_bytes)
+                let parsed = p::parse_decision(bytes.as_bytes(), response_bytes)
                     .map_err(RuntimeError::from);
                 (bytes, parsed)
             }
@@ -5802,7 +5844,7 @@ impl Runtime {
                     inner_hash.as_deref().unwrap_or(&transport_hash),
                     metadata,
                     (bytes.len() <= intent.max_response_bytes
-                        && bytes.len() <= state.config.response_bytes)
+                        && bytes.len() <= response_bytes)
                         .then_some(bytes.as_str()),
                 )?;
                 self.hold_response(
@@ -8618,6 +8660,7 @@ fn plan_response(
     prepared: &Prepared,
     decision: &p::Decision,
     now: i64,
+    accepted_epoch: u64,
     planning_exposure: &mut PlanningExposure,
     store: &mut s::Store,
 ) -> Result<(State, AdoptionReport, BTreeMap<String, String>, Vec<s::Intent>)> {
@@ -8651,7 +8694,7 @@ fn plan_response(
     planning_exposure.unknown();
     if prepared.request.mode == Mode::SelectionRepair {
         let (state, report) =
-            plan_selection_repair(state, prepared, decision, now, &history_material)?;
+            plan_selection_repair(state, prepared, decision, now, accepted_epoch, &history_material)?;
         return Ok((state, report, BTreeMap::new(), Vec::new()));
     }
     let actor = &prepared.request.persona;
@@ -8872,7 +8915,7 @@ fn plan_response(
             actor,
             work_id,
             &prepared.request.id,
-            increment(prepared.epoch)?,
+            accepted_epoch,
             now,
             false,
             None,
@@ -9312,7 +9355,7 @@ fn plan_response(
         actor,
         work_id,
         &prepared.request.id,
-        increment(prepared.epoch)?,
+        accepted_epoch,
         now,
         false,
         None,
@@ -9406,6 +9449,7 @@ fn plan_selection_repair(
     prepared: &Prepared,
     decision: &p::Decision,
     now: i64,
+    accepted_epoch: u64,
     history_material: &history::records::Material,
 ) -> Result<(State, AdoptionReport)> {
     validate_selection_repair(prepared, decision)?;
@@ -9553,7 +9597,7 @@ fn plan_selection_repair(
         actor,
         work_id,
         &prepared.request.id,
-        increment(prepared.epoch)?,
+        accepted_epoch,
         now,
         false,
         Some(prepared.navigation),
@@ -9565,7 +9609,7 @@ fn plan_selection_repair(
         actor,
         work_id,
         &prepared.request.id,
-        increment(prepared.epoch)?,
+        accepted_epoch,
         now,
         false,
         None,

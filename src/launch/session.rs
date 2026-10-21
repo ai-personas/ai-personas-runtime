@@ -619,11 +619,38 @@ struct Tracked<'a, D> {
     failure: Option<BoundaryError>,
 }
 impl<D: Driver> Driver for Tracked<'_, D> {
+    fn concurrent(&self) -> bool {
+        self.driver.concurrent()
+    }
     fn prospective_intake(&self) -> bool {
         self.driver.prospective_intake()
     }
     fn before_step(&mut self, app: &mut Runtime) -> Result<()> {
         let value = self.driver.before_step(app);
+        if let Err(error) = &value {
+            self.failure = Some(error_code(error));
+        }
+        value
+    }
+    fn start(
+        &mut self,
+        app: &mut Runtime,
+        request: PrepareRequest,
+        saved: &Saved,
+        now: i64,
+    ) -> Result<provider_calls::Pending> {
+        let value = self.driver.start(app, request, saved, now);
+        if let Err(error) = &value {
+            self.failure = Some(error_code(error));
+        }
+        value
+    }
+    fn finish(
+        &mut self,
+        app: &mut Runtime,
+        completion: provider_calls::Completion,
+    ) -> Result<AdoptionReport> {
+        let value = self.driver.finish(app, completion);
         if let Err(error) = &value {
             self.failure = Some(error_code(error));
         }
@@ -670,6 +697,9 @@ fn execution_binding(saved: &Saved) -> Result<Value> {
     Ok(serde_json::to_value(fixed)?)
 }
 impl Driver for OwnedLive<'_> {
+    fn concurrent(&self) -> bool {
+        true
+    }
     fn prospective_intake(&self) -> bool {
         self.intake_selection.is_some()
     }
@@ -682,15 +712,15 @@ impl Driver for OwnedLive<'_> {
             "session binding changed",
         )
     }
-    async fn step(
+    fn start(
         &mut self,
         app: &mut Runtime,
         request: PrepareRequest,
         _saved: &Saved,
         now: i64,
-    ) -> Result<AdoptionReport> {
+    ) -> Result<provider_calls::Pending> {
         self.before_step(app)?;
-        app.step_with_owned_provider_and_intake(
+        app.start_owned_provider_call(
             request,
             &self.provider,
             provider::Cancellation::default(),
@@ -698,7 +728,16 @@ impl Driver for OwnedLive<'_> {
             now,
             self.intake_selection.take(),
         )
-        .await
+    }
+    async fn step(
+        &mut self,
+        app: &mut Runtime,
+        request: PrepareRequest,
+        saved: &Saved,
+        now: i64,
+    ) -> Result<AdoptionReport> {
+        let pending = self.start(app, request, saved, now)?;
+        self.finish(app, pending.completion.await)
     }
 }
 fn build_codex_provider(

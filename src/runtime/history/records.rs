@@ -227,7 +227,8 @@ fn decision_record(
     let archive: AdoptedResponse = serde_json::from_value(object.body.clone()).ok()?;
     if archive.actor != actor
         || archive.response.invocation_id != id
-        || archive.response.epoch != proof.previous_epoch
+        || archive.response.epoch != proof.prepared_epoch.unwrap_or(proof.previous_epoch)
+        || archive.response.epoch > proof.previous_epoch
         || archive.report.invocation_id != id
         || archive.report.accepted_epoch != Some(proof.accepted_epoch)
         || archive.response_hash != proof.response_hash

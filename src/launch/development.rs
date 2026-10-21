@@ -158,6 +158,7 @@ fn invocation_evidence(
         invocation.state == s::InvocationState::Adopted
             && prepared.request.id == invocation_id
             && prepared.request.persona == persona_id
+            && invocation.prepared_epoch == prepared.epoch
             && s::sha256_bytes(prepared.prompt.as_bytes()) == prepared.prompt_sha256
             && exposure_permitted(state, prepared_exposure(&prepared)?, audience)
             && exposure_permitted(
@@ -188,7 +189,9 @@ fn invocation_evidence(
             && archive.actor == persona_id
             && archive.work == prepared.request.work
             && archive.response.invocation_id == invocation_id
-            && archive.response.epoch == proof.previous_epoch
+            && archive.response.epoch == prepared.epoch
+            && proof.prepared_epoch.unwrap_or(proof.previous_epoch) == prepared.epoch
+            && prepared.epoch <= proof.previous_epoch
             && archive.report.invocation_id == invocation_id
             && archive.report.accepted_epoch == Some(proof.accepted_epoch)
             && matches!(

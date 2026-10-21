@@ -62,6 +62,11 @@ New launch metadata uses format 2. Format-1 historical launch records and their 
 
 Native admission retains execution ownership, exact prompt/response-contract binding, resource reservation and durable dispatch before transmission. Transport completion precedes whole-Decision acceptance. An invalid complete Decision is held with its bounded exact terminal body. Possible submission followed by timeout, cancellation or transport failure remains uncertain; neither replay nor remote cancellation is inferred. Time-limited live exposure remains rejected until a final egress expiry guard is available.
 
+Owned native foreground sessions can keep independent personas' direct calls in
+flight concurrently. Each call retains its own request, receipt and single-use
+authority; adoption remains sequential. See [concurrent decisions](concurrent-decisions.md)
+for freshness, accounting, compatibility and the paths that remain sequential.
+
 ## Wire and stream limits
 
 New persona admissions request the complete Decision directly with `text.format: {"type":"json_object"}`. The prompt supplies `APPLICATION_DECISION_SCHEMA`; the native parser validates the entire received object, including duplicate keys, required fields, tagged variants, bounds and cross-field rules, before any adoption. JSON mode alone does not establish application-schema validity. It removes the extra escaping layer that a JSON-string carrier imposed on scripts and other text.
