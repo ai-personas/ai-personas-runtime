@@ -92,6 +92,11 @@ pub(super) fn inspect(
         "execution_intents_in_accepted_decision":proof.intent_ids.len(),
         "supplied_computation_interfaces":prepared.computation_interfaces,
         "supplied_http_fetch_interfaces":prepared.http_fetch_interfaces,
+        "supplied_tool_allocation_metadata":{
+            "computation":control["computation_state"]["allocations"],
+            "http_fetch":control["http_fetch_state"]["allocations"],
+            "meaning":"Historical allocation metadata actually present in this admitted input. Null means no such metadata was recorded. These entries are not guide-body supply, callable definitions, current authority or execution evidence; later grant changes are not substituted."
+        },
         "current_runtime_computation":"explicitly granted import-free compute.wasm.v1; inspect actual intent and terminal receipts",
         "current_runtime_external_tool_execution":"explicitly granted unauthenticated https.get.v1; inspect actual intent and terminal receipts",
         "skill_application_established":false,

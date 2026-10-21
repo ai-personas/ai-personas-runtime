@@ -861,7 +861,34 @@ pub(super) fn control(
     work: &str,
     a: &f::Admission,
     exposure: &mut Exposure,
+    include_allocations: bool,
 ) -> Value {
+    // Only this actor/work's existing allocation, never a tool catalogue or
+    // an automatic selection. Metadata carries the current guide's lineage.
+    let mut allocations = Vec::new();
+    if include_allocations {
+        for grant in state.computation_grants.values().filter(|grant| {
+            grant.request.actor == actor && grant.request.work == work
+        }) {
+            let terms = grant.current_request();
+            if let (Ok(file), Ok(reference)) = (
+                full_asset(state, &terms.guide, a),
+                file_reference(&terms.guide),
+            ) {
+                exposure.sources.push(reference);
+                allocations.push(json!({
+                    "grant":terms.id,"guide":terms.guide,"guide_path":file.path,
+                    "attempts_left":terms.attempts.saturating_sub(grant.used),
+                    "ordinary_work_and_episode_attempts_left":
+                        need_proposals::ordinary_attempts_left(state, work, a.now_unix),
+                    "revoked":grant.revoked,
+                    "implementation_current":grant.current_revision() == c::engine_revision(),
+                    "allocation_available_before_guide_supply":available(state, grant, a.now_unix),
+                    "metadata_only":true
+                }));
+            }
+        }
+    }
     let mut results = Vec::new();
     for (id, job) in state.computation_jobs.iter().filter(|(_, job)| job.actor == actor && job.work == work) {
         if let Some(reference) = &job.result_source {
@@ -886,10 +913,11 @@ pub(super) fn control(
                 json!({"status":"withheld_unavailable","body_supplied":false,"automatic_replay":false})
             }
         }).collect();
-    if entries.is_empty() && results.is_empty() {
+    if entries.is_empty() && results.is_empty() && allocations.is_empty() {
         Value::Null
     } else {
-        json!({"unresolved":entries,"retained_results":results,
+        json!({"unresolved":entries,"retained_results":results,"allocations":allocations,
+            "guide_selection":"These are existing allocations for this persona/work whose exact current guide is readable, not callable definitions or execution authority. If a relevant allocation is available but absent from CONTROL.computation_capabilities, read or select its exact guide under next_assets for a fresh admission. Preserving an older guide cannot expose the updated binding. You choose whether to continue; this metadata selects nothing. Current work authority, input lineage and dispatch checks still apply. An omitted allocation does not prove that none was recorded.",
             "capability_scope":"CONTROL.work_capability describes internal work commands only. Computation uses separate CONTROL.computation_capabilities through effect when the exact guide is supplied and its allocation remains available. An absent computation callable does not prevent retrieving a retained result through its exact supporting-file reference. Previous blocked judgments do not establish current resource availability.",
             "retrieval":"Exact protected supporting files from this persona/work, metadata only. Read or select the source under next_assets to recover its inputs, output and terminal evidence with required qualifications. Selection can avoid a history scan and a read-result byte limit. Do not rerun a computation to recover a receipt. Files are host records, not current callable grants or persona-authored judgments. Inaccessible results are omitted.",
             "meaning":"No work completion is inferred. Uncertain computation requires host recovery; it is not replayed or treated as free, and blocks further computation for this persona/work."})

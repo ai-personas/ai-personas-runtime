@@ -89,6 +89,27 @@ the allocation's current interface.
 
 The persona must select the effective guide and actually receive its complete
 qualified body in a fresh admission before its updated callable can be exposed.
+Ordinary admissions include permission-filtered allocation metadata under
+`CONTROL.computation_state.allocations` and `CONTROL.http_fetch_state.allocations`.
+Each entry identifies an existing allocation for that persona/work, its exact
+current guide and path, remaining tool and work/episode attempts, and preliminary
+availability before guide supply. HTTPS entries also identify expiry. The guide's
+lineage restrictions follow this metadata into the admitted input. Unreadable
+guides are omitted; absence is not proof that no grant was recorded. Initialization
+and selection repair expose no allocation entries.
+
+These descriptions contain neither guide bodies nor callable schemas. They let
+the primary distinguish a missing current guide from a missing allocation and
+choose whether to read or select it for a later admission. They do not select
+context, renew a grant, establish complete input disclosure permission or waive
+any execution check. An old result remains historical even when the allocation
+can support another request.
+
+Native development inspection reports `supplied_tool_allocation_metadata` from
+the exact admitted input, separately from supplied supporting bodies, callable
+interfaces and execution receipts. It does not fill historical omissions from
+today's grant state or assert that the persona used the described tool.
+
 Exposure, invocation and dispatch each check current bindings and authority.
 Previously accepted executions retain their exact historical implementation,
 inputs, terminal evidence and qualifications; they are neither rerun nor

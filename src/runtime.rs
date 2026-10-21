@@ -7430,7 +7430,7 @@ fn render_mode_with_history(
         } else {
             work_guides::capability(state, &supplied_bodies, work_interface.as_ref())?
         },
-        "not_ready":["external effects","top-level Deliver without release binding"],"readiness_limits":readiness()});
+        "not_ready":["effects outside currently exposed capability bindings","top-level Deliver without release binding"],"readiness_limits":readiness()});
     if !initializing {
         if let Some(mut discovery) = work_guides::control(state) {
             if ordinary_interfaces {
@@ -7501,13 +7501,17 @@ fn render_mode_with_history(
     if !shared_questions.is_null() {
         core["shared_questions"] = shared_questions;
     }
-    let http_control = http_tools::control(state, actor, work_id, &a, &mut exposure);
+    let http_control = http_tools::control(
+        state, actor, work_id, &a, &mut exposure, ordinary_interfaces,
+    );
     if !http_control.is_null() {
         growth_bytes = growth_bytes.checked_add(serde_json::to_vec(&http_control)?.len())
             .ok_or_else(|| invalid("HTTPS control accounting"))?;
         core["http_fetch_state"] = http_control;
     }
-    let computation_control = tools::control(state, actor, work_id, &a, &mut exposure);
+    let computation_control = tools::control(
+        state, actor, work_id, &a, &mut exposure, ordinary_interfaces,
+    );
     if !computation_control.is_null() {
         growth_bytes = growth_bytes.checked_add(serde_json::to_vec(&computation_control)?.len())
             .ok_or_else(|| invalid("computation context growth overflow"))?;
