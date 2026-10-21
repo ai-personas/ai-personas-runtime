@@ -16,6 +16,7 @@ mod delivery_evidence;
 mod requester_results;
 mod discovery;
 mod failed_attempt;
+mod rejected_continuation;
 mod history;
 mod initialization;
 mod work_guides;

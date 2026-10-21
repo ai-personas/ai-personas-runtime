@@ -120,6 +120,11 @@ lower-level targeted `resume` or `resume-work` control. It does not wake a stopp
 persona, remove a hold, recover uncertainty, add funding, accept for a human,
 change a mandate, force a character edit, or bypass a fresh-decision fence.
 The existing narrow initial-character handover remains runtime behavior.
+During a running session, a complete rejected decision may release its failed
+invocation under an earlier accepted ordinary continuation. A fresh admission
+receives the actual failure and consumes the existing limits; no rejected action
+is replayed and no permission is created. A stop, consumed timed opportunity,
+cancelled completion or unknown provider outcome does not acquire this route.
 A successful process exit can still describe unfinished or held work; inspect
 the result rather than interpreting the exit code as goal completion.
 

@@ -66,7 +66,16 @@ Native admission retains execution ownership, exact prompt/response-contract bin
 
 New persona admissions request the complete Decision directly with `text.format: {"type":"json_object"}`. The prompt supplies `APPLICATION_DECISION_SCHEMA`; the native parser validates the entire received object, including duplicate keys, required fields, tagged variants, bounds and cross-field rules, before any adoption. JSON mode alone does not establish application-schema validity. It removes the extra escaping layer that a JSON-string carrier imposed on scripts and other text.
 
-The application permits operation-specific inputs and maps whose keys are authored at runtime. These are not closed objects suitable for a fixed strict response schema. [OpenAI's JSON-mode documentation](https://developers.openai.com/api/docs/guides/structured-outputs#json-mode) describes JSON-object transport and its application-validation requirement. Incomplete, invalid or refused output remains a retained failure, with no automatic retry or JSON repair.
+The application permits operation-specific inputs and maps whose keys are authored at runtime. These are not closed objects suitable for a fixed strict response schema. [OpenAI's JSON-mode documentation](https://developers.openai.com/api/docs/guides/structured-outputs#json-mode) describes JSON-object transport and its application-validation requirement. Incomplete, invalid or refused output remains a retained failure, with no transport retry or JSON repair.
+
+Within an authorized foreground session, a complete rejected ordinary decision
+can release its failed local invocation when the persona already has an accepted
+ordinary continuation. The runtime records the exact rejection and preserves that
+continuation unchanged. Normal selection may admit a new decision with the actual
+failure observations, using the remaining session, work and Store allowances.
+This is a new invocation and response, not replay of the rejected request or its
+proposed operations. It does not revive a stopped persona, repeat a consumed timed
+opportunity, recover an incomplete transport, or continue a cancelled response.
 
 The exact native prompt is a user input-text message. A fixed JSON-output instruction and exact requested reasoning effort are bound to the request. No tools, previous response, conversation, hidden agent history or remote output-token cap are added. The immutable wire profile fixes method, endpoint, non-secret header policy, message role and instructions. Traditional routing uses truthful application identity and its explicit beta header; mode-specific headers cannot leak into the public routes.
 

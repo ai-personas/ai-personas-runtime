@@ -226,7 +226,8 @@ CLI and thin-wrapper commands remain available.
 
 An unknown probe, malformed/uncertain transport or unrecorded session blocks
 further execution; quit and retain progress for exact evidence review. Work-wide
-pauses, complete rejected responses, failed holds, exhausted capacity and
+pauses, complete rejected responses without a remaining ordinary continuation,
+failed holds, exhausted capacity and
 uncertain usage require their existing supported advanced controls. The UI does
 not infer acceptance, release a hold, implicitly wake stopped personas, forgive usage or
 replenish budgets. [Runtime reference](../RUNTIME-REFERENCE.md) documents the

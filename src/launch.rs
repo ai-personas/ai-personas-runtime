@@ -806,8 +806,15 @@ async fn run_with_options<D: Driver>(
             };
             driver.before_step(app)?;
             let (request, current) = reserve(app, work, &persona, driver.prospective_intake())?;
+            let invocation_id = request.id.clone();
             let report = driver.step(app, request, &current, unix_now()?).await?;
             if report.status == AdoptionStatus::Held {
+                driver.before_step(app)?;
+                if app.retire_rejected_continuation(&invocation_id, unix_now()?)? {
+                    // A fresh admission uses the existing accepted continuation,
+                    // actual rejection observations and the remaining session bound.
+                    return Ok("continue");
+                }
                 return Ok("held");
             }
             if report.status == AdoptionStatus::CharacterOnly && !handover(app, work)? {

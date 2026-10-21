@@ -267,7 +267,7 @@ most 12 steps per command by default, within 32 attempts per work, 256 attempted
 foreground steps across all saved work IDs, and 32 work IDs. Setup flags can
 lower or change these finite bounds. Existing Store and runtime limits remain
 controlling. Resume never replenishes them. There is no daemon, polling loop,
-model substitution or automatic failed-response retry. Separately enabled
+model substitution or automatic provider-transport retry. Separately enabled
 [optional activity](docs/optional-activity.md) can admit finite episodes without
 an assigned topic or artifact. It has an exact opportunity, shared allocation,
 expiry, bounded explicit recurrence and foreground priority; nothing runs
@@ -283,7 +283,15 @@ The one initial character-adoption fence receives one explicit recorded host
 handover. Later character changes preserve an earlier accepted ordinary
 continuation as a route to a fresh decision under the new character. The changing
 response's new continuation and other ordinary operations remain fenced. Stops,
-pauses, unresolved transport and failures keep their existing control requirements.
+pauses and unresolved transport keep their existing control requirements.
+A complete rejected ordinary decision can retire its local invocation during the
+same foreground session when an earlier accepted ordinary continuation remains.
+The exact failure and structural correction, when available, become observations
+for a fresh decision. The original response and failure remain retained. This
+changes no continuation, one-shot permission, budget or accepted work state;
+normal selection and the session's existing limits still govern the next call.
+Cancellation, uncertain or incomplete transport, and failures without a retained
+ordinary continuation require their existing explicit recovery controls.
 A future wait returns to the shell and retains its existing eligibility conditions.
 
 An explicitly authorized operator can inspect `store-capacity-snapshot` and use

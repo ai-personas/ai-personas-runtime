@@ -1080,6 +1080,44 @@ impl TrustedHost<'_> {
         })
     }
 
+    /// Commit exact rejection observations and retire their failed lease together.
+    /// The Runtime preserves the prior continuation; this creates no allowance.
+    pub(crate) fn commit_runtime_rejected_continuation(
+        &mut self,
+        expected: &ObjectRef,
+        object: StoredObject,
+        invocation: &InvocationRecord,
+        evidence: &ObjectRef,
+    ) -> Result<BatchReceipt> {
+        self.store.transaction(|work| {
+            work.admission()?;
+            let current: StoredObject = work.required("object", RUNTIME_CONTROL_STATE_ID)?;
+            let record: InvocationRecord = work.required("invocation", &invocation.id)?;
+            let slot: TerminalEvidenceSlot = work.required("terminal_evidence", &evidence.id)?;
+            let terminal = slot.object.as_ref().ok_or_else(|| StoreError::Missing(evidence.id.clone()))?;
+            if current.exact_ref()? != *expected
+                || record != *invocation
+                || record.state != InvocationState::Failed
+                || slot.subject != EntityId::Invocation(record.id.clone())
+                || terminal.exact_ref()? != *evidence
+                || work.cell("decision", &record.id)?.is_some()
+                || object.id != current.id
+                || object.kind != current.kind
+            {
+                return Err(StoreError::Conflict(invocation.id.clone()));
+            }
+            live_invocation(&record)?;
+            let changes = vec![Change {
+                expected_revision: Some(current.revision), object, depends_on: Vec::new(),
+            }];
+            work.validate_changes(&changes)?;
+            work.mark_usage_unknown_if_open(&record.reservation)?;
+            work.bump_epoch()?;
+            let objects = work.apply_changes(&changes, BudgetClass::Ordinary)?;
+            Ok(BatchReceipt { epoch: work.meta.epoch, objects })
+        })
+    }
+
     /// Retain bounded failure provenance atomically with local rejection. The
     /// opaque context is not an authority token or a replacement terminal body.
     /// Oversized context becomes explicitly unknown; reserved capacity never grows.
