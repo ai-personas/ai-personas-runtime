@@ -71,8 +71,17 @@ live files; a command that leaves background processes may continue writing them
 The retained result itself remains an exact observation.
 
 Results are also available as exact supporting assets under `tools/results/`.
-`CONTROL.host_command_state.retained_results` lists their references, and the
-ordinary input-file handles can select or cite them. Selecting an old result
+`CONTROL.host_command_state.retained_results` lists up to eight of the most
+recently observed permitted result references. `retained_results_truncated`
+reports when older permitted references were omitted from this catalogue; those
+results remain stored and discoverable under `tools/results/`, and existing
+selections are unchanged. Unresolved jobs are listed independently of this limit.
+The result catalogue is optional and is supplied only when it fits alongside
+required context and the persona's selected files. It may be absent, or have
+`retained_results_included: false` when only unresolved jobs are shown. That does
+not establish that no older results exist. Current result observations, selected
+file bodies and required qualifications are unaffected by catalogue omission.
+The ordinary input-file handles can select or cite supplied references. Selecting an old result
 does not run its command again. `development PERSONA --invocation CALL` includes
 `host_command_execution` with dispatch and terminal receipts.
 

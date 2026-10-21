@@ -444,21 +444,50 @@ pub(super) fn control(
     work: &str,
     a: &f::Admission,
     exposure: &mut Exposure,
+    include_results: bool,
 ) -> Value {
+    const RESULT_CONTEXT_LIMIT: usize = 8;
     let mut results = Vec::new();
     let mut unresolved = Vec::new();
-    for (id, job) in state
+    let mut more_results = false;
+    let mut jobs: Vec<_> = state
         .host_command_jobs
         .iter()
         .filter(|(_, job)| job.actor == actor && job.work == work)
-    {
+        .collect();
+    jobs.sort_by_key(|(id, job)| {
+        (
+            job.observation
+                .as_ref()
+                .and_then(|id| state.observations.get(id))
+                .map_or(i64::MIN, |observation| observation.at_unix),
+            *id,
+        )
+    });
+    for (id, job) in jobs.into_iter().rev() {
         if !exposure_permitted(state, &job.exposure, a) {
             continue;
         }
-        extend_exposure(exposure, &job.exposure);
+        // Unresolved jobs are operational state, independent of the bounded
+        // catalogue of terminal results. Never hide one behind a history page.
+        if matches!(
+            job.state,
+            s::IntentState::Admitted | s::IntentState::Dispatched | s::IntentState::Uncertain
+        ) {
+            extend_exposure(exposure, &job.exposure);
+            unresolved.push(json!({"intent":id,"state":job.state,"automatic_replay":false}));
+        }
+        if !include_results {
+            continue;
+        }
         if let Some(reference) = &job.result_source {
             if let Ok(file) = file_reference(reference) {
                 if lineage_permitted(state, std::slice::from_ref(&file), a) {
+                    if results.len() == RESULT_CONTEXT_LIMIT {
+                        more_results = true;
+                        continue;
+                    }
+                    extend_exposure(exposure, &job.exposure);
                     exposure.sources.push(file);
                     results.push(
                         json!({"intent":id,"invocation":job.invocation,"operation":job.operation,
@@ -467,17 +496,14 @@ pub(super) fn control(
                 }
             }
         }
-        if matches!(
-            job.state,
-            s::IntentState::Admitted | s::IntentState::Dispatched | s::IntentState::Uncertain
-        ) {
-            unresolved.push(json!({"intent":id,"state":job.state,"automatic_replay":false}));
-        }
     }
     if results.is_empty() && unresolved.is_empty() {
         Value::Null
     } else {
-        json!({"retained_results":results,"unresolved":unresolved})
+        json!({"retained_results":results,"retained_results_limit":RESULT_CONTEXT_LIMIT,
+            "retained_results_included":include_results,
+            "retained_results_truncated":more_results,"unresolved":unresolved,
+            "scope":"Most recently observed permitted result references only. Older results remain stored under tools/results/ and can be discovered, read or selected by exact reference. Omission does not delete a result or change an existing selection. Unresolved jobs are not limited by this catalogue."})
     }
 }
 
