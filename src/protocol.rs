@@ -841,6 +841,24 @@ pub fn decision_schema() -> Value {
     schema
 }
 
+/// Present only implemented ordinary runtime operations. The generic protocol
+/// also describes Deliver, which has no release binding and cannot be adopted
+/// by this runtime. Need proposals require a separately offered intake interface.
+/// This is a presentation subset; current-state authorization still applies.
+pub(crate) fn ordinary_schema(need_proposals: bool) -> Value {
+    let mut schema = decision_schema();
+    schema["$defs"]["Operation"]["oneOf"]
+        .as_array_mut()
+        .expect("generated Operation schema is a tagged union")
+        .retain(|variant| match variant["properties"]["kind"]["const"].as_str() {
+            Some("deliver") => false,
+            Some("propose_need") => need_proposals,
+            _ => true,
+        });
+    retain_reachable_definitions(&mut schema);
+    schema
+}
+
 /// Offer only the operations that can survive initial character adoption. The
 /// response still uses Decision and its complete parser; this is a presentation
 /// subset, not a second wire protocol or an authorization mechanism.

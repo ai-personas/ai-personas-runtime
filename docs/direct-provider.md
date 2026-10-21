@@ -2,6 +2,18 @@
 
 Personas sends one bounded HTTPS Responses request per admitted step. Its runtime owns prompt assembly, tools, memory, decisions, collaboration, assessment, adoption, resource accounting and durable recovery. Codex CLI and app-server execution are absent from product runtime. Engineering tools are separate.
 
+Persona inputs contain the actual admitted capabilities, authority, remaining
+resources and observations. The operator's `readiness` diagnostic is separate;
+its descriptions of other transports and lower-level interfaces are not sent
+as persona instructions. The absence of provider-hosted tools does not remove
+the runtime's default host command access.
+
+The ordinary response schema omits the unsupported top-level `deliver`
+operation and offers `propose_need` only when an intake-delegation interface is
+supplied. Exact shared-work delivery uses the selected `deliver_release` work
+command. Schema exposure does not replace current permission, responsibility,
+release or evidence checks.
+
 ## Explicit access modes
 
 | Serialized mode | Transport profile | Route | Credential grant |

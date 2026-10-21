@@ -7572,17 +7572,17 @@ fn render_mode_with_history(
     } else {
         arrangements::DUTIES
     };
-    let application_schema = serde_json::to_string(&if initializing {
-        p::initialization_schema()
-    } else {
-        p::decision_schema()
-    })?;
     let repair_schema = repair_navigation
         .map(|_| serde_json::to_string(&p::selection_repair_schema()))
         .transpose()?;
     let mut work_interface = None;
     let need_interface =
         need_proposals::interface(state, actor, work_id, now, ordinary_interfaces)?;
+    let application_schema = serde_json::to_string(&if initializing {
+        p::initialization_schema()
+    } else {
+        p::ordinary_schema(need_interface.is_some())
+    })?;
     if let Some(interface) = &need_interface {
         exposure.policies.push(scoped_policy(
             "intake-delegation",
@@ -7642,7 +7642,7 @@ fn render_mode_with_history(
         } else {
             work_guides::capability(state, &supplied_bodies, work_interface.as_ref())?
         },
-        "not_ready":["effects outside currently exposed capability bindings","top-level Deliver without release binding"],"readiness_limits":readiness()});
+        "not_ready":["effects outside currently exposed capability bindings"]});
     if let Some(allowance) = launch_step_allowance {
         core["launch_step_allowance"] = allowance.control()?;
     }
@@ -11082,8 +11082,11 @@ impl provider::DirectSettings {
     }
 }
 pub fn readiness() -> Value {
-    json!({"strict_live_ready":false,"full_contract_conformance":false,"supported_profile":"bounded local transactional application",
-        "ordinary_scheduling":"explicit bounded local scheduler-prepare; durable cursor and fresh synthetic admission; no unattended service or live model launch",
+    // Operator-facing implementation diagnostics. Persona inputs carry their
+    // actual admitted interfaces, authority, counters and evidence instead of
+    // this catalogue of all transport profiles and implementation limitations.
+    json!({"strict_live_ready":false,"full_contract_conformance":false,"supported_profile":"bounded transactional persona runtime with direct-provider inference and default full host access",
+        "ordinary_scheduling":"explicit bounded foreground and retained-session runs launch direct-provider inference; independent accepted participants may overlap under one execution owner; fresh admissions and sequential adoption; no unattended timer service",
         "events":"exact-file and admitted pending-mock one-shot local dependencies; verified applied evidence ingestion, bounded retained observations and receipt-only replay; no external subscriptions or independent event authentication",
         "mock_effects":"sealed local Store fixture harness only; no external effects",
         "host_commands":"full host access by default through host.command.v1; install and run tools with the host account and inherited environment; no per-tool grant, approval, allowlist, sandbox, or default timeout; actual command output and exit status are retained",
@@ -11093,14 +11096,14 @@ pub fn readiness() -> Value {
         "protected_closeout":"prepaid per-work control snapshots support bounded pause and ending during logical admission freeze; physical storage failures remain possible",
         "qualification_bindings":"immutable file identities sealed before coherent exact-version bindings; persisted atomically",
         "synthetic":"explicit fixture transport only; no provider/model evidence",
-        "direct_provider":"explicit route/grant/account/model/effort/schema; one bounded HTTPS Responses request; no tools, retry or fallback",
+        "direct_provider":"explicit route/grant/account/model/effort/schema; one bounded HTTPS Responses request; runtime executes admitted tools locally; no provider-hosted tool calls, automatic transport retry or model fallback",
         "limits":["hard remote model context bounds unsupported","strict live guarantees are not established",
             "exact model availability requires verified operator configuration; no implicit model substitution","logical retention only; no physical hard bound",
             "tokens, billing, hidden provider inputs, remote retention and remote stop remain unverified",
             "selection repair is explicitly enabled only by a finite need-intake suballowance; whole-entry reductions and bounded exact reads only",
             "runtime admission, work debit, ownership, invocation and terminal capacity commit atomically; prior navigation preparation remains charged",
-            "explicit bounded local scheduler preparation with persisted round-robin consideration; no daemon, provider launch or automatic retries",
-            "scheduler progress requires successful persistence, finite queue, continuing eligibility and ordinary capacity; a global invocation lease blocks scheduler mutation",
+            "persisted bounded round-robin consideration; lower-level scheduler preparation alone launches no provider; foreground and session coordinators launch authorized direct calls",
+            "scheduler progress requires successful persistence, finite queue, continuing eligibility and ordinary capacity; one current invocation per persona; independent owned calls may overlap, while unknown or orphaned invocations require recovery",
             "exact-file and admitted pending-mock dependencies; local evidence requires explicit host lineage/policy attestation and applied Store terminal proof; no external subscriptions or independent authentication",
             "event observations cannot adopt or resolve applicability warnings",
             "external effects and exports remain unsupported by this scheduler/event interface",
