@@ -617,6 +617,12 @@ fn readable_result(value: &launch::Output) -> runtime::Result<String> {
     for message in &value.messages {
         lines.push(format!("{} says:", message.sender));
         lines.push(message.text.clone());
+        if !message.file_references.is_empty() {
+            lines.push("Attached exact file references (metadata, not supplied content):".into());
+            for reference in &message.file_references {
+                lines.push(serde_json::to_string(reference)?);
+            }
+        }
         lines.push(String::new());
     }
     if !value.human_decision_pointers.is_empty() {

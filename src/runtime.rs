@@ -658,6 +658,10 @@ pub struct Message {
     pub invocation: String,
     pub subject: String,
     pub text: String,
+    /// Exact references explicitly chosen through this admission's handle table.
+    /// These are citations, not supplied bodies or verified factual support.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub file_references: Vec<p::ExactRef>,
     pub lineage: Vec<f::Reference>,
     pub local_deposit_only: bool,
     #[serde(default)]
@@ -8131,16 +8135,20 @@ fn apply_writes(
             id,
             source,
             qualifications,
+            qualification_handles,
             ..
         } = operation
         else {
             unreachable!()
         };
         let revision = bindings[&format!("{}{}", p::PROPOSED_OPERATION_PREFIX, id)].clone();
-        let required = qualifications
+        let mut references = qualifications
             .iter()
-            .map(|r| file_reference(&resolve(r, &bindings)?))
+            .map(|r| resolve(r, &bindings))
             .collect::<Result<Vec<_>>>()?;
+        references.extend(input_files::resolve_output(prepared, qualification_handles)?);
+        p::validate_attached_references(&references)?;
+        let required = references.iter().map(file_reference).collect::<Result<Vec<_>>>()?;
         let mut lineage = prepared.sources.clone();
         lineage.extend(required.iter().cloned());
         lineage.sort();
@@ -9047,15 +9055,14 @@ fn plan_response(
                     recipient,
                     subject,
                     text,
-                } => deposit_message(
-                    &mut state,
-                    prepared,
-                    &composite_id("operation", &[id]),
-                    recipient,
-                    subject,
-                    text,
-                    now,
-                )?,
+                    reference_handles,
+                } => {
+                    let references = input_files::resolve_output(prepared, reference_handles)?;
+                    deposit_message(
+                        &mut state, prepared, &composite_id("operation", &[id]),
+                        recipient, subject, text, &references, now,
+                    )?;
+                }
                 _ => (),
             }
             if opaque_navigation && !navigation_observation_emitted {
@@ -9106,7 +9113,8 @@ fn plan_response(
                 planning_exposure.include(exposure);
             }
         }
-        if let p::ReplyDisposition::Authored { audience, text } = &decision.reply {
+        if let p::ReplyDisposition::Authored { audience, text, reference_handles } = &decision.reply {
+            let references = input_files::resolve_output(prepared, reference_handles)?;
             planning_exposure.unknown();
             for (index, recipient) in audience.iter().enumerate() {
                 deposit_message(
@@ -9116,6 +9124,7 @@ fn plan_response(
                     recipient,
                     "Authored reply",
                     text,
+                    &references,
                     now,
                 )?;
             }
@@ -9541,11 +9550,13 @@ fn validate_messages(
 ) -> Result<()> {
     let mut recipients = Vec::new();
     for operation in &decision.operations {
-        if let p::Operation::Communicate { recipient, .. } = operation {
+        if let p::Operation::Communicate { recipient, reference_handles, .. } = operation {
+            input_files::resolve_output(prepared, reference_handles)?;
             recipients.push(recipient);
         }
     }
-    if let p::ReplyDisposition::Authored { audience, .. } = &decision.reply {
+    if let p::ReplyDisposition::Authored { audience, reference_handles, .. } = &decision.reply {
+        input_files::resolve_output(prepared, reference_handles)?;
         recipients.extend(audience);
     }
     for recipient in recipients {
@@ -9588,8 +9599,28 @@ fn deposit_message(
     recipient: &str,
     subject: &str,
     body: &str,
+    references: &[p::ExactRef],
     now: i64,
 ) -> Result<()> {
+    let mut lineage = prepared.sources.clone();
+    let mut exposure = prepared_exposure(prepared)?.clone();
+    if !references.is_empty() {
+        // Explicit citations need current communication and source permission.
+        // Generated shared-question notifications have their own visibility
+        // checks and supply no citation handles.
+        let recipient_admission = communication_recipient(state, prepared, recipient, now)?;
+        let attached = references.iter().map(file_reference).collect::<Result<Vec<_>>>()?;
+        lineage.extend(attached.iter().cloned());
+        lineage.sort();
+        lineage.dedup();
+        exposure.sources.extend(attached);
+        exposure.sources.sort();
+        exposure.sources.dedup();
+        require(
+            exposure_permitted(state, &exposure, &recipient_admission),
+            "message references would disclose unavailable source material",
+        )?;
+    }
     let parts = [prepared.request.id.as_str(), suffix, recipient];
     let id = bounded_composite_id("message", &parts);
     let legacy = composite_id("message", &parts);
@@ -9608,9 +9639,10 @@ fn deposit_message(
         invocation: prepared.request.id.clone(),
         subject: subject.into(),
         text: body.into(),
-        lineage: prepared.sources.clone(),
+        file_references: references.to_vec(),
+        lineage,
         local_deposit_only: true,
-        exposure: Some(prepared_exposure(prepared)?.clone()),
+        exposure: Some(exposure),
     };
     state.messages.insert(id.clone(), message.clone());
     let receiving_work = requester_results::observation_work(state, &prepared.request.work, recipient)?;
@@ -9627,8 +9659,9 @@ fn deposit_message(
             kind: if receiving_work == prepared.request.work { "received_local_persona_message" } else { "received_child_work_message" }.into(), at_unix: now,
             payload: json!({"id":message.id,"sender":message.sender,"recipient":message.recipient,
                 "work":message.work,"receiving_work":receiving_work,"invocation":message.invocation,"subject":message.subject,"text":message.text,
-                "local_deposit_only":true}), sources: prepared.sources.clone(),
-            exposure: Some(prepared_exposure(prepared)?.clone()), qualified_roots: Vec::new(), qualification_sources: None });
+                "file_references":message.file_references,
+                "local_deposit_only":true}), sources: message.lineage.clone(),
+            exposure: message.exposure.clone(), qualified_roots: Vec::new(), qualification_sources: None });
     }
     satisfy_message_wait(state, &message, now)?;
     Ok(())

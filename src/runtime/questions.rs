@@ -555,6 +555,7 @@ pub(super) fn deliver_changes(
                     &recipient,
                     "Shared work clarification",
                     &body,
+                    &[],
                     now,
                 )?;
             }

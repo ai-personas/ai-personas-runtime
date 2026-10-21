@@ -235,7 +235,16 @@ pub enum Continuation {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ReplyDisposition {
     None { reason: String },
-    Authored { audience: Vec<String>, text: String },
+    Authored {
+        audience: Vec<String>,
+        text: String,
+        /// Optional exact handles from input-file-choices-v2. The host attaches
+        /// canonical file_references to each deposited message; no body is read.
+        /// Use these for exact citations instead of retyping hashes in prose.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[schemars(length(max = 32))]
+        reference_handles: Vec<String>,
+    },
 }
 
 /// Scope also uses an explicit object tag: {"kind":"fragments"} or
@@ -358,6 +367,9 @@ pub enum Operation {
     /// Create a new file source or revise a currently owned source. The source
     /// identity, not the path, determines whether this is a creation or revision.
     /// Reuse an exact saved reference when no content change is needed.
+    /// A supporting-file save does not require put_artifact, release, delivery
+    /// or a work-completion judgment. Register a work artifact only when that
+    /// separate work output is needed, not as a receipt for every file save.
     FileWrite {
         id: String,
         scope: Scope,
@@ -371,6 +383,14 @@ pub enum Operation {
         base_revision: Option<String>,
         text: String,
         qualifications: Vec<ExactRef>,
+        /// Additional required qualifications chosen by exact current-input
+        /// handles. Requires input-file-choices-v2; no lookup by path or head.
+        /// Prefer this field when the needed reference is listed in the table.
+        /// Canonical qualifications retain the exact source identifiers; refer
+        /// to those qualifications in text instead of retyping IDs and hashes.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[schemars(length(max = 256))]
+        qualification_handles: Vec<String>,
         policy_id: String,
     },
     FileRetire {
@@ -452,14 +472,20 @@ pub enum Operation {
         limit: usize,
         cursor: Option<String>,
     },
-    /// Local attributed message. Fields are exactly kind, id, recipient, subject
-    /// and text. This operation has no depends_on member; do not copy that field
-    /// from work_command or effect. Complete-response acceptance is still atomic.
+    /// Local attributed message with optional exact file citations. This operation
+    /// has no depends_on member; do not copy it from work_command or effect.
+    /// Complete-response acceptance is still atomic.
     Communicate {
         id: String,
         recipient: String,
         subject: String,
         text: String,
+        /// Exact handles from input-file-choices-v2, attached as canonical
+        /// file_references beside the unchanged authored text. No body is read
+        /// or supplied. Prefer handles to retyping source identities and hashes.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[schemars(length(max = 32))]
+        reference_handles: Vec<String>,
     },
     /// Accept or decline one exact supplied pending offer. Here id MUST equal
     /// the supplied offer id; terms_revision MUST copy its supplied revision.
@@ -1323,6 +1349,10 @@ pub(crate) fn validate_selected_references(references: &[ExactRef]) -> Result<()
     check_references(references, 1, true, "next_context.references")
 }
 
+pub(crate) fn validate_attached_references(references: &[ExactRef]) -> Result<(), ProtocolError> {
+    check_references(references, 0, false, "attached_file_references")
+}
+
 fn check_references(
     references: &[ExactRef],
     minimum: usize,
@@ -1450,21 +1480,22 @@ fn check_selection(selection: &SelectionIntent, path: &str) -> Result<(), Protoc
         }
         SelectionIntent::ReplaceFromInput { reason, handles } => {
             check_text(reason, MAX_REASON_BYTES, &format!("{path}.reason"))?;
-            check_count(handles.len(), 1, MAX_COLLECTION_ITEMS, &format!("{path}.handles"))?;
-            let mut seen = BTreeSet::new();
-            for handle in handles {
-                // The current invocation identity plus a short ordinal. This
-                // is larger than an ordinary ID only to retain the full binding.
-                check_text(handle, MAX_ID_BYTES + 16, &format!("{path}.handles"))?;
-                if handle.chars().any(|c| c.is_whitespace() || c.is_control())
-                    || !seen.insert(handle)
-                {
-                    return Err(invalid(&format!("{path}.handles"), "unique exact current-input handles required"));
-                }
-            }
-            Ok(())
+            check_handles(handles, 1, MAX_COLLECTION_ITEMS, &format!("{path}.handles"))
         }
     }
+}
+
+fn check_handles(handles: &[String], minimum: usize, maximum: usize, path: &str) -> Result<(), ProtocolError> {
+    check_count(handles.len(), minimum, maximum, path)?;
+    let mut seen = BTreeSet::new();
+    for handle in handles {
+        // Keep the complete invocation identity and bounded ordinal.
+        check_text(handle, MAX_ID_BYTES + 16, path)?;
+        if handle.chars().any(|c| c.is_whitespace() || c.is_control()) || !seen.insert(handle) {
+            return Err(invalid(path, "unique exact current-input handles required"));
+        }
+    }
+    Ok(())
 }
 
 fn check_continuation(continuation: &Continuation) -> Result<(), ProtocolError> {
@@ -1492,9 +1523,10 @@ fn check_continuation(continuation: &Continuation) -> Result<(), ProtocolError> 
 fn check_reply(reply: &ReplyDisposition) -> Result<(), ProtocolError> {
     match reply {
         ReplyDisposition::None { reason } => check_text(reason, MAX_REASON_BYTES, "reply.reason"),
-        ReplyDisposition::Authored { audience, text } => {
+        ReplyDisposition::Authored { audience, text, reference_handles } => {
             check_ids(audience, 1, "reply.audience")?;
-            check_text(text, MAX_TEXT_BYTES, "reply.text")
+            check_text(text, MAX_TEXT_BYTES, "reply.text")?;
+            check_handles(reference_handles, 0, 32, "reply.reference_handles")
         }
     }
 }
@@ -1665,6 +1697,7 @@ fn check_operation(
             base_revision,
             text,
             qualifications,
+            qualification_handles,
             policy_id,
             ..
         } => {
@@ -1679,6 +1712,9 @@ fn check_operation(
             check_base(base_revision, &format!("{path}.base_revision"))?;
             check_text(text, MAX_TEXT_BYTES, &format!("{path}.text"))?;
             check_references(qualifications, 0, false, &format!("{path}.qualifications"))?;
+            check_handles(qualification_handles, 0, MAX_COLLECTION_ITEMS, &format!("{path}.qualification_handles"))?;
+            check_count(qualifications.len() + qualification_handles.len(), 0,
+                MAX_COLLECTION_ITEMS, &format!("{path}.combined_qualifications"))?;
             check_id(policy_id, &format!("{path}.policy_id"))
         }
         Operation::FileRetire {
@@ -1882,11 +1918,13 @@ fn check_operation(
             recipient,
             subject,
             text,
+            reference_handles,
             ..
         } => {
             check_id(recipient, &format!("{path}.recipient"))?;
             check_text(subject, MAX_REASON_BYTES, &format!("{path}.subject"))?;
-            check_text(text, MAX_TEXT_BYTES, &format!("{path}.text"))
+            check_text(text, MAX_TEXT_BYTES, &format!("{path}.text"))?;
+            check_handles(reference_handles, 0, 32, &format!("{path}.reference_handles"))
         }
         Operation::Responsibility {
             work_id,

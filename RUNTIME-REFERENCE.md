@@ -746,6 +746,14 @@ that admission's sealed table. Older handles, unknown handles and absent tables
 are rejected. This never chooses a latest revision, searches for a substitute or
 repairs a malformed reference.
 
+The `input-file-choices-v2` interface also supports `file_write.qualification_handles`
+and `reference_handles` on communications and authored replies. These fields bind
+the exact supplied references without copying their hashes. Messages retain
+canonical `file_references` beside unchanged authored text; attachments supply
+no body and establish no factual support. Current disclosure checks still apply.
+Legacy v1 admissions retain only their original selection capability. See
+[exact input file references](docs/input-file-references.md) for bounds and usage.
+
 The table contains at most 128 entries and 32768 serialized bytes and is omitted
 when it cannot fit alongside required material. It derives candidates only from
 current host projections and qualified entries, not authored text or nested

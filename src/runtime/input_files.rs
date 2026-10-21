@@ -3,7 +3,9 @@
 //! and never substitutes a current head for the reference the persona chose.
 use super::*;
 
-const INTERFACE: &str = "input-file-choices-v1";
+const INTERFACE: &str = "input-file-choices-v2";
+const LEGACY_INTERFACE: &str = "input-file-choices-v1";
+const OUTPUT_RULE: &str = "This v2 table also supports file_write.qualification_handles, communicate.reference_handles and reference_handles on an authored reply. Choose the listed handles instead of copying source IDs or hashes. Qualifications join the exact literal qualifications under the same combined bound. The canonical qualifications already identify a file's exact supporting sources; refer to those qualifications in file prose instead of retyping their IDs or hashes. Message references are attached as canonical file_references beside the unchanged authored text; do not repeat their hashes in prose. For retained tool results, tool_result_origins identifies the actual tool family and producing invocation beside the handle. Match the requested invocation; table order does not identify the latest or required result. Provenance metadata supplies no body. A citation proves no reading and establishes no correctness or acceptance. Handles name only references offered in this admission, never a new same-response file. Existing permissions and complete-response validation still apply. Selection lifetimes do not become citation or qualification lifetimes. Earlier v1 tables permit next-context selection only.";
 const MAX_CHOICES: usize = 128;
 const MAX_BYTES: usize = 32_768;
 const MAX_CANDIDATES: usize = 4096;
@@ -32,6 +34,52 @@ struct NativeCommandReadiness {
     work_command_grant: bool,
     operation_authority: OperationAuthority,
     next_action: NextCommandAction,
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ToolResultFamily {
+    Computation,
+    HttpFetch,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ToolResultOrigin {
+    family: ToolResultFamily,
+    invocation: String,
+    operation: String,
+    intent: String,
+    state: String,
+}
+
+fn tool_result_origins(control: &Value, reference: &f::Reference) -> Result<Vec<ToolResultOrigin>> {
+    let mut origins = Vec::new();
+    for (field, family) in [
+        ("computation_state", ToolResultFamily::Computation),
+        ("http_fetch_state", ToolResultFamily::HttpFetch),
+    ] {
+        if let Some(results) = control[field]["retained_results"].as_array() {
+            for result in results {
+                let source = serde_json::from_value::<p::ExactRef>(result["source"].clone())?;
+                if file_reference(&source)? != *reference {
+                    continue;
+                }
+                let text = |key: &str| -> Result<String> {
+                    result[key].as_str().map(str::to_owned)
+                        .ok_or_else(|| invalid("retained tool result origin unavailable"))
+                };
+                origins.push(ToolResultOrigin {
+                    family,
+                    invocation: text("invocation")?,
+                    operation: text("operation")?,
+                    intent: text("intent")?,
+                    state: text("state")?,
+                });
+            }
+        }
+    }
+    Ok(origins)
 }
 
 fn command_readiness(
@@ -81,6 +129,10 @@ struct Choice {
     /// Historical admissions retain their original, unknown readiness state.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     native_command_readiness: Option<NativeCommandReadiness>,
+    /// Provenance already present in the current host tool-result projection.
+    /// Historical omissions are not reconstructed from current state.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    tool_result_origins: Vec<ToolResultOrigin>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -154,6 +206,10 @@ fn candidates(control: &Value, qualified: &Value) -> Result<Candidates> {
         "reference",
     )?;
     candidates.bundle(qualified)?;
+    for family in ["computation_state", "http_fetch_state"] {
+        candidates.entries(&control[family]["allocations"], "guide")?;
+        candidates.entries(&control[family]["retained_results"], "source")?;
+    }
     // Only current host projections have these contracts. Do not recursively
     // interpret documents, messages, nested histories or authored JSON as offers.
     if let Some(observations) = control["actual_observations"].as_array() {
@@ -170,6 +226,13 @@ fn candidates(control: &Value, qualified: &Value) -> Result<Candidates> {
                 Some("accepted_file_write") => candidates.add(&observation["payload"]["source"])?,
                 Some("qualified_read" | "selection_repair_read" | "local_dependency_event") => {
                     candidates.bundle(&observation["payload"]["result"])?;
+                }
+                Some("received_local_persona_message" | "received_child_work_message") => {
+                    if let Some(references) = observation["payload"]["file_references"].as_array() {
+                        for reference in references {
+                            candidates.add(reference)?;
+                        }
+                    }
                 }
                 _ => (),
             }
@@ -198,7 +261,7 @@ pub(super) fn offer(
         invocation_id: invocation.into(),
         choices: Vec::new(),
         truncated: candidates.truncated,
-        rule: RULE.into(),
+        rule: format!("{RULE} {OUTPUT_RULE}"),
     };
     // Reserve the enclosing CONTROL key too. Final prompt measurement remains
     // authoritative; this optional table may never displace required material.
@@ -226,6 +289,7 @@ pub(super) fn offer(
             .as_ref()
             .map(|command| command_readiness(command, &exact, supplied_bodies, control))
             .transpose()?;
+        let tool_result_origins = tool_result_origins(control, &exact)?;
         offered.choices.push(Choice {
             handle: format!("{invocation}:f{}", offered.choices.len() + 1),
             reference,
@@ -233,6 +297,7 @@ pub(super) fn offer(
             path: stored.record.path.clone(),
             currently_registered_native_command: command,
             native_command_readiness,
+            tool_result_origins,
         });
         if serde_json::to_vec(&offered)?.len() > byte_limit {
             offered.choices.pop();
@@ -276,11 +341,11 @@ pub(super) fn material_bytes(value: &Value) -> Result<usize> {
 }
 
 pub(super) fn contract_bytes() -> usize {
-    RULE.len() + INTERFACE.len()
+    RULE.len() + 1 + OUTPUT_RULE.len() + INTERFACE.len()
 }
 
-/// Compare the sealed map with what the provider actually received. A legacy
-/// input, omitted table or another admission's handle grants no resolution.
+/// Compare the sealed map with what the provider actually received. An input
+/// without a sealed table or another admission's handle grants no resolution.
 pub(super) fn validate_control(prepared: &Prepared, control: &Value) -> Result<()> {
     if prepared.input_file_choices.is_empty() {
         return require(
@@ -301,7 +366,7 @@ pub(super) fn validate_control(prepared: &Prepared, control: &Value) -> Result<(
     )?;
     let offered: Offered = serde_json::from_value(value.clone())?;
     require(
-        offered.interface == INTERFACE
+        matches!(offered.interface.as_str(), INTERFACE | LEGACY_INTERFACE)
             && offered.invocation_id == prepared.request.id
             && !offered.choices.is_empty()
             && offered.choices.len() <= MAX_CHOICES,
@@ -342,6 +407,29 @@ pub(super) fn resolve(prepared: &Prepared, handles: &[String]) -> Result<Vec<p::
     Ok(references)
 }
 
+/// Only v2 admissions can attach exact references to authored outputs. This
+/// resolves no current head and reads no body. Current disclosure/qualification
+/// checks still run when the complete response is staged.
+pub(super) fn resolve_output(prepared: &Prepared, handles: &[String]) -> Result<Vec<p::ExactRef>> {
+    if handles.is_empty() {
+        return Ok(Vec::new());
+    }
+    let decoded = request_context::decode(prepared)?;
+    validate_control(prepared, &decoded.control)?;
+    require(
+        decoded.control["input_file_choices"]["interface"] == INTERFACE,
+        "output reference handles were not offered in this admission",
+    )?;
+    let references = handles.iter().map(|handle| {
+        let reference = prepared.input_file_choices.get(handle)
+            .ok_or_else(|| held("output reference handle is not in the current admitted input"))?;
+        // Lifetime belongs to a context-selection use, not the file identity.
+        Ok(wire_reference(&file_reference(reference)?))
+    }).collect::<Result<Vec<_>>>()?;
+    p::validate_attached_references(&references)?;
+    Ok(references)
+}
+
 pub(crate) fn inspect(prepared: &Prepared, control: &Value) -> Result<Value> {
     validate_control(prepared, control)?;
     let choices: Vec<Choice> = if control["input_file_choices"].is_null() {
@@ -354,7 +442,10 @@ pub(crate) fn inspect(prepared: &Prepared, control: &Value) -> Result<Value> {
         .filter_map(|choice| choice.native_command_readiness.as_ref())
         .collect();
     Ok(json!({"available":!prepared.input_file_choices.is_empty(),
-        "interface":INTERFACE,"count":prepared.input_file_choices.len(),
+        "interface":control["input_file_choices"]["interface"],"count":prepared.input_file_choices.len(),
+        "output_reference_handles_supplied":control["input_file_choices"]["interface"] == INTERFACE,
+        "entries_with_supplied_tool_result_origins":choices.iter()
+            .filter(|choice| !choice.tool_result_origins.is_empty()).count(),
         "native_command_readiness":{
             "recorded_entries":readiness.len(),
             "guide_body_supplied_entries":readiness.iter().filter(|entry|entry.guide_body_supplied).count(),
