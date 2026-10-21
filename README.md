@@ -14,6 +14,9 @@ From this checkout:
 
 Follow the sign-in and permission prompts. You need Unix, Python 3.9+, eligible Sign in with ChatGPT access, a same-host browser and network. Builds also need Rust/Cargo 1.88+ and a native compiler/linker. Account usage may be charged.
 
+Choose each persona's name and starting traits during setup. Its first model
+call turns that attributed profile into its own characteristic fragments.
+
 [Launch help](docs/interactive-launch.md) · [Canonical design](https://github.com/ai-personas/ai-personas-design/tree/dddc451b2e4f854c3ceaaea600ba0c290d54b6c2) · [Developer details](RUNTIME-REFERENCE.md)
 
 Choose a saved work in the launcher to read results, give feedback, answer shared

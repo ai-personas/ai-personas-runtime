@@ -458,8 +458,9 @@ class Journal:
     def keep(self, kind, value, identity):
         name = kind + "-" + identity + ".json"
         raw = encoded(value)
-        require(len(raw) <= 65536, "configuration_too_large")
-        previous = self.directory.read(name, 65536)
+        maximum = 262144 if kind == "bootstrap" else 65536
+        require(len(raw) <= maximum, "configuration_too_large")
+        previous = self.directory.read(name, maximum)
         require(previous is None or previous == raw, "immutable_configuration_changed")
         self.directory.write(name, raw)
         ref = {"file": name, "sha256": hashlib.sha256(raw).hexdigest()}
@@ -470,7 +471,7 @@ class Journal:
     def document(self, kind):
         ref = self.data[kind]
         require(ref is not None)
-        raw = self.directory.read(ref["file"], 65536)
+        raw = self.directory.read(ref["file"], 262144 if kind == "bootstrap" else 65536)
         require(raw is not None and hashlib.sha256(raw).hexdigest() == ref["sha256"], "saved_configuration_changed")
         return str(self.directory.path / ref["file"]), decode(raw)
 
@@ -500,6 +501,15 @@ class Terminal:
             if raw.isdecimal() and low <= int(raw) <= high:
                 return int(raw)
             self.say(f"Enter {low}..{high}; no authorization has been granted.")
+        raise Halt()
+
+    def bounded_text(self, text, maximum, default=None):
+        for _ in range(3):
+            raw = self.ask(text + (f" [{default}]" if default is not None else "")).strip()
+            value = raw or default
+            if value and len(value.encode("utf-8")) <= maximum:
+                return value
+            self.say(f"Enter nonempty text of at most {maximum} UTF-8 bytes.")
         raise Halt()
 
 
@@ -1312,11 +1322,24 @@ class Dialogue:
             self.ui.say(f"Proposed local cohort: {cohort} continuing {noun} and you, without assigned owner/reviewer roles. "
                         "Grants permit their own fragments, assets, character proposals, work commands and cohort messages. "
                         "Host command access is enabled by default: personas can install and use tools with this host account and environment.")
+            self.ui.say("Give each persona a name and starting profile. Describe openness, conscientiousness, "
+                        "extraversion, agreeableness and sensitivity to stress (OCEAN), plus initial mood, "
+                        "energy and assertiveness (VAD). Use words; scores are optional. These are starting "
+                        "tendencies, not assigned jobs or claimed experience. The first model call authors "
+                        "that persona's own characteristic fragments.")
+            seeds = {}
+            for index in range(1, cohort + 1):
+                persona = f"persona-{index:04d}"
+                label = self.ui.bounded_text(f"Name for {persona}", 256, f"Persona {index}")
+                profile = self.ui.bounded_text(f"Starting profile for {label}:", 16384)
+                seeds[persona] = {"label": label, "text": profile,
+                                  "provenance": f"Starting profile supplied by {self.p['operator']} during setup; no prior experience asserted."}
             attempts = self.ui.number("Lifetime attempt allowance for each new work", 16, 1, 128)
             total = self.ui.number("Saved launch lifetime foreground-step ceiling (never auto-refilled)", 64, 1, 256)
             steps = self.ui.number("Maximum foreground attempts per explicitly authorized session", 4, 1, min(128, total))
             works = self.ui.number("Maximum saved work identities", 8, 1, 128)
             request = {"id": "bootstrap-" + uuid.uuid4().hex, "operator": self.p["operator"],
+                       "persona_seeds": seeds,
                        "allow_direct_provider": True, "setup": {"cohort": cohort, "owner": 1,
                        "destination": "openai-siwc", "provider": settings, "working_directory": str(self.checkout),
                        "share_cohort": True, "max_steps": steps, "max_considerations": 128,
@@ -1325,6 +1348,9 @@ class Dialogue:
         path, request = self.j.document("bootstrap")
         preview = self.session("bootstrap", path, "--preview")
         setup = request["setup"]
+        for persona, seed in preview["persona_seeds"].items():
+            self.ui.say(f"Starting profile — {seed['label']} ({persona}): {seed['text']}\n"
+                        f"Source: {seed['provenance']}")
         noun = "persona" if setup["cohort"] == 1 else "personas"
         self.ui.say(f"Runtime: {self.p['runtime']['path']}\n"
                     f"Operator: {self.p['operator']}; exact model/effort: {setup['provider']['model']} / {setup['provider']['effort']}\n"

@@ -7596,7 +7596,8 @@ fn render_mode_with_history(
         "attempts_left":"In an admitted input, this is the shared work allowance remaining after reserving the current decision. Zero does not prohibit operations in this already admitted response.",
         "multiple_operations":"One complete response may propose multiple currently available, authorized operations allowed by this mode. Work commands do not each spend another work attempt. Ordering, dependencies, required fresh receipts, complete response validation, maintenance accounting and separate navigation, execution, response and storage limits still apply. This description grants no resources or authority."
     });
-    let mut core = json!({"profile":"application-persona-request-v1","actor":actor,"work_id":work_id,
+    let mut core = json!({"profile":"application-persona-request-v1","actor":actor,
+        "persona_label":persona.seed.label,"work_id":work_id,
         "invocation_id":invocation,"epoch":epoch,"owner_epoch":persona.owner_epoch,"mode":"ordinary",
         "context_at_unix":now,"reconsideration_interface":(!initializing).then_some(RECONSIDERATION_INTERFACE),
         "history_records_interface":(!initializing).then_some(history::records::INTERFACE),

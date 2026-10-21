@@ -124,7 +124,12 @@ work menu. Other saved provider modes retain their explicit CLI paths; the menu
 does not convert provider modes or switch billing accounts.
 
 For a fresh runtime, choose between one and eight continuing personas before
-reviewing the sharing permissions and resource limits. One persona can work
+reviewing the sharing permissions and resource limits. Give each a name and
+starting profile describing its OCEAN tendencies and VAD affect in words or
+scores. Profiles describe character, not assigned jobs, competence or experience.
+The launcher retains your exact supplied profile with its attribution and shows
+it again before setup. The first model call authors the persona's own fragments;
+later work uses its accepted character. One persona can work
 directly with you. Larger groups choose their own contributions and arrangements.
 The chosen size is saved with the setup request and shown again on restart.
 
@@ -242,8 +247,16 @@ finite controlling Store and per-work/navigation/transport bounds, offers the
 full exact contract, and requires setup confirmation. Budget values are local
 policy proposals, not provider defaults, measured usage or reserved remote funds.
 
-`personas-session bootstrap` commits fresh Runtime state, control plan, the exact
-cohort, saved launch and bootstrap receipt in one transaction. A database schema
+`personas-session bootstrap` requires `persona_seeds`, a map from every cohort
+ID (`persona-0001`, and so on) to `label`, `text` and `provenance`. Preview shows
+those exact starting profiles without creating state or running inference.
+Labels are bounded to 256 UTF-8 bytes, profile text to 16 KiB and provenance to
+4096 bytes. Missing members, unknown IDs, empty or oversized fields are rejected
+before initialization. This sets creation material only; it cannot reseed an
+existing identity.
+
+Bootstrap commits fresh Runtime state, control plan, the exact
+cohort and profiles, saved launch and bootstrap receipt in one transaction. A database schema
 created before interruption can be initialized; an already initialized Store
 without the matching receipt is blocked, never repaired or reset. Reconciliation
 compares the exact approved request and retained runtime origins. Current heads,
@@ -337,7 +350,8 @@ blocked, never treated as permission to switch accounts. A historical completed
 probe is not proof for a new credential generation.
 
 The journal is bounded to 2 MiB, 32 pending/intake records and 16 probe identities.
-Generated settings/bootstrap requests are bounded immutable 64 KiB files. Only
+Generated settings are bounded immutable 64 KiB files; bootstrap requests allow
+256 KiB to retain the full cohort's starting profiles. Only
 the most recent session pointer is needed: replacement requires a known terminal
 or a confirmed unclaimed stale request, followed by new consent. The bounded
 `session-launch.json` transport file is reconstructed from the exact saved

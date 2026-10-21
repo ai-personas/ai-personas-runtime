@@ -178,7 +178,7 @@ async fn main() {
                     return Err(session::BoundaryError::InvalidRequest);
                 }
                 let request: ai_personas::launch::bootstrap::Request =
-                    ai_personas::runtime::read_json_file(&file, 65_536)?;
+                    ai_personas::runtime::read_json_file(&file, 262_144)?;
                 if request.operator != operator {
                     return Err(session::BoundaryError::Unauthorized);
                 }

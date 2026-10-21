@@ -404,16 +404,7 @@ pub fn setup_with_seeds(
     seeds: BTreeMap<String, PersonaSeed>,
 ) -> Result<Runtime> {
     let (config, mut saved) = setup_parts(operator, settings, opt_in)?;
-    let ids = people(saved.setup.cohort);
-    require(
-        seeds.len() <= ids.len() && seeds.keys().all(|id| ids.contains(id)),
-        "persona seed must name a member of this cohort",
-    )?;
-    saved.setup.persona_seeds = seeds;
-    let provider = saved.execution_provider()?;
-    for id in &ids {
-        validate_seed(&seed_for(&saved, &provider, id))?;
-    }
+    install_persona_seeds(&mut saved, seeds)?;
     let root = private_tree(root)?;
     require(
         !saved.working_directory.starts_with(&root) && !root.starts_with(&saved.working_directory),
@@ -424,6 +415,20 @@ pub fn setup_with_seeds(
     ensure_cohort(&mut app, &saved)?;
     work_command_guides::install_fresh(&mut app, &saved)?;
     Ok(app)
+}
+
+fn install_persona_seeds(saved: &mut Saved, seeds: BTreeMap<String, PersonaSeed>) -> Result<()> {
+    let ids = people(saved.setup.cohort);
+    require(
+        seeds.len() <= ids.len() && seeds.keys().all(|id| ids.contains(id)),
+        "persona seed must name a member of this cohort",
+    )?;
+    saved.setup.persona_seeds = seeds;
+    let provider = saved.execution_provider()?;
+    for id in &ids {
+        validate_seed(&seed_for(saved, &provider, id))?;
+    }
+    Ok(())
 }
 pub fn open(root: &Path, operator: Option<&str>) -> Result<Runtime> {
     let mut app = Runtime::open(root)?;

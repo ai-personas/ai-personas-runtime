@@ -10,6 +10,9 @@ pub struct Request {
     pub id: String,
     pub operator: String,
     pub setup: Setup,
+    /// Attributed starting profiles for every member of this fresh cohort.
+    /// They are creation input, never accepted character or prior experience.
+    pub persona_seeds: BTreeMap<String, PersonaSeed>,
     pub allow_direct_provider: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,11 +35,16 @@ pub struct Outcome {
 
 fn prepared(request: &Request) -> Result<(Config, Saved)> {
     identity(&request.id)?;
-    let (config, saved) = setup_parts(
+    let (config, mut saved) = setup_parts(
         &request.operator,
         request.setup.clone(),
         request.allow_direct_provider,
     )?;
+    require(
+        request.persona_seeds.len() == saved.setup.cohort,
+        "atomic setup requires a starting profile for every cohort member",
+    )?;
+    install_persona_seeds(&mut saved, request.persona_seeds.clone())?;
     config.validate()?;
     Ok((config, saved))
 }
@@ -48,6 +56,7 @@ pub fn preview(request: &Request) -> Result<Value> {
     Ok(json!({
         "request_sha256": digest(request)?, "runtime_config": config,
         "storage_limits": storage_limits(), "setup": request.setup,
+        "persona_seeds": saved.setup.persona_seeds,
         "seed_grants": seed_for(&saved, &provider, &people(saved.setup.cohort)[0]).grants,
         "created_personas": people(saved.setup.cohort),
         "sharing_identity_slots": people(saved.setup.persona_capacity()),
