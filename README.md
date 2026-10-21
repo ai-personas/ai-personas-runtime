@@ -14,7 +14,7 @@ From this checkout:
 
 Follow the sign-in and permission prompts. You need Unix, Python 3.9+, eligible Sign in with ChatGPT access, a same-host browser and network. Builds also need Rust/Cargo 1.88+ and a native compiler/linker. Account usage may be charged.
 
-[Launch help](docs/interactive-launch.md) · [Canonical design](https://github.com/ai-personas/ai-personas-design/tree/17f165b156ee5962e290a7e2326bba3f81ad2069) · [Developer details](RUNTIME-REFERENCE.md)
+[Launch help](docs/interactive-launch.md) · [Canonical design](https://github.com/ai-personas/ai-personas-design/tree/083e949836f285f97766708a04a9ffb72049bfd9) · [Developer details](RUNTIME-REFERENCE.md)
 
 Choose a saved work in the launcher to read results, give feedback, answer shared
 questions or inspect a persona's development. These actions do not start a model
