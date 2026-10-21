@@ -46,6 +46,12 @@ explicitly records a handled or declined disposition with a reason. Unresolved
 feedback remains pending. Exact replay queues nothing twice; conflicting reuse
 of the same identifier fails.
 
+Later inputs retain an explicit pending or none-pending state and bounded native
+receipts for recent handled or declined items. This lets the persona distinguish
+an accepted disposition from its earlier intention to record one. These receipts
+preserve their original permissions and identify the accepting call; they do not
+verify compliance with the feedback or establish requester acceptance.
+
 Feedback does not resume a stopped persona or replenish its resources. Continue
 through the existing foreground session, explicitly resuming a stopped
 participant when appropriate. The persona chooses whether the experience calls

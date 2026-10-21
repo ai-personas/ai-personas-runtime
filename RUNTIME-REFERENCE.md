@@ -197,6 +197,15 @@ refuses new feedback without dropping existing items. Current permission and
 context-size checks still apply. Previously consumed feedback is not retroactively
 declared pending, and replay does not revive a resolved item.
 
+After a disposition, `CONTROL.requester_feedback` continues to report the current
+`pending_state` (`pending` or `none_pending`) and pending queue. It also includes
+up to eight permitted `recent_dispositions`, newest first, within 4 KiB or one
+sixteenth of the context limit. Each receipt identifies the observation, accepting
+invocation, disposition and time; it supplies neither the feedback text nor the
+authored reason. Original observation and disposition restrictions are rechecked
+and inherited. `recent_dispositions_omitted` distinguishes bounded or unavailable
+history. These receipts establish accepted accounting, not compliance or assent.
+
 `CONTROL.previous_authored_continuation` carries the exact last accepted persona
 intention, its invocation and its original information lineage when still
 permitted. It is context for a fresh decision, not new authority or an instruction

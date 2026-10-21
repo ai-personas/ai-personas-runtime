@@ -7309,7 +7309,9 @@ fn render_mode_with_history(
                 .push(json!({"slot":slot,"status":"withheld_unavailable","body_supplied":false}));
         }
     }
-    let requester_feedback_control = requester_feedback::control(focus, &observation_ids);
+    let requester_feedback_control = requester_feedback::control(
+        state, work_id, focus, &a, &observation_ids, &mut exposure,
+    )?;
     let peer_feedback_control =
         peer_feedback::control(state, focus, &a, &observation_ids, &mut exposure)?;
     let shared_questions = questions::view(state, work_id, actor, &a, &mut exposure)?;

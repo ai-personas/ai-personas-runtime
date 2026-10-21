@@ -34,9 +34,16 @@ pub(super) fn check_capacity(focus: &Focus) -> Result<()> {
     )
 }
 
-pub(super) fn control(focus: &Focus, supplied: &[String]) -> Value {
-    if focus.pending_requester_feedback.is_empty() {
-        return Value::Null;
+pub(super) fn control(
+    state: &State,
+    work: &str,
+    focus: &Focus,
+    a: &f::Admission,
+    supplied: &[String],
+    exposure: &mut Exposure,
+) -> Result<Value> {
+    if focus.pending_requester_feedback.is_empty() && focus.feedback_dispositions.is_empty() {
+        return Ok(Value::Null);
     }
     let pending: Vec<Value> = focus
         .pending_requester_feedback
@@ -49,12 +56,60 @@ pub(super) fn control(focus: &Focus, supplied: &[String]) -> Value {
             }
         })
         .collect();
-    json!({
+    // Keep the accepted accounting visible after the last pending body leaves
+    // context. A previous authored plan to resolve it is not a success receipt.
+    // Only project bounded native metadata; reasons and feedback text remain in
+    // the retained records and do not become an unbounded history in every call.
+    let mut recent = Vec::new();
+    let mut omitted = false;
+    let maximum = 4096.min(state.config.context_bytes / 16);
+    for record in focus.feedback_dispositions.iter().rev() {
+        if recent.len() == MAX_PENDING {
+            omitted = true;
+            break;
+        }
+        let Some(observation) = state.observations.get(&record.observation) else {
+            omitted = true;
+            continue;
+        };
+        let Some(origin) = observation.exposure.as_ref() else {
+            omitted = true;
+            continue;
+        };
+        if observation.actor != a.principal
+            || observation.work != work
+            || observation.kind != "received_local_operator_feedback"
+            || observation.invocation.is_some()
+            || !digest(observation).is_ok_and(|hash| hash == record.observation_sha256)
+            || !exposure_permitted(state, origin, a)
+            || !exposure_permitted(state, &record.exposure, a)
+        {
+            omitted = true;
+            continue;
+        }
+        let value = json!({
+            "observation":record.observation,"invocation":record.invocation,
+            "disposition":record.disposition,"at_unix":record.at_unix
+        });
+        let mut candidate = recent.clone();
+        candidate.push(value);
+        if serde_json::to_vec(&candidate)?.len() > maximum {
+            omitted = true;
+            continue;
+        }
+        recent = candidate;
+        extend_exposure(exposure, origin);
+        extend_exposure(exposure, &record.exposure);
+    }
+    Ok(json!({
         "interface":"requester-feedback-disposition-v1",
         "pending":pending,
+        "pending_state":if focus.pending_requester_feedback.is_empty() { "none_pending" } else { "pending" },
+        "recent_dispositions":recent,"recent_dispositions_omitted":omitted,
+        "accounting":"pending is the current tracked queue for this actor and work. none_pending means no tracked item currently needs a disposition. recent_dispositions contains accepted native accounting receipts, newest first, with at most eight entries and 4 KiB; it omits the original feedback bodies and authored reasons. An item already disposed of is no longer pending and must not be resolved again. Omitted receipt history establishes no absence of other obligations. Handled records the persona's account, not verified compliance or requester acceptance.",
         "attribution":"Each item's sender identifies its author. Local operator input is attributed to the intake operator; CONTROL.requester identifies the need's requester, who may be a different persona. No item establishes that persona's assent or acceptance.",
         "rule":"The full permitted items are in actual_observations. For resolution copy pending[].observation exactly, including its full prefix; actual_observations[].payload.id is only the requester's input label, not an observation reference. These requester directions remain current across reads, waits and local stops automatically. For an unresolved item, omit resolve_requester_feedback entirely; pending is not a valid disposition for that action. Use it only when recording handled or declined with a reason. Feedback changes no mandate, authority or resources; a disposition is your attributed account, not proof of compliance or requester acceptance."
-    })
+    }))
 }
 
 pub(super) fn resolve(
