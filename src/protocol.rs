@@ -388,6 +388,9 @@ pub enum Operation {
         /// Use nonempty slash-separated components, with no leading/trailing
         /// slash, empty component, dot or dot-dot component, backslash, colon
         /// or control character.
+        /// Active sources within one persona and scope must have distinct paths.
+        /// Reuse the existing source identity for an update; a new source does
+        /// not overwrite an occupied path.
         path: String,
         /// For an existing source, copy its current accepted head revision
         /// exactly. Omitting this field or using null is valid only for a new

@@ -81,6 +81,9 @@ failure observations, using the remaining session, work and Store allowances.
 This is a new invocation and response, not replay of the rejected request or its
 proposed operations. It does not revive a stopped persona, repeat a consumed timed
 opportunity, recover an incomplete transport, or continue a cancelled response.
+New [native file write conflicts](native-file-conflicts.md), including occupied
+paths and stale base revisions, can supply exact conflicting source metadata to
+that fresh decision without adopting or rewriting the failed response.
 
 The exact native prompt is a user input-text message. A fixed JSON-output instruction and exact requested reasoning effort are bound to the request. No tools, previous response, conversation, hidden agent history or remote output-token cap are added. The immutable wire profile fixes method, endpoint, non-secret header policy, message role and instructions. Traditional routing uses truthful application identity and its explicit beta header; mode-specific headers cannot leak into the public routes.
 

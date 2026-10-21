@@ -44,6 +44,8 @@ pub use tool_authorization::{
     ToolGrantKind, ToolGrantUpdateFence, ToolGrantUpdateRequest, ToolGrantUpdateTerms,
 };
 mod context_fit_recovery;
+mod write_conflicts;
+pub use write_conflicts::NativeWriteConflict;
 pub use http_tools::{HttpFetchGrantRequest, HttpFetchInterface};
 pub use tools::{ComputationGrantRequest, ComputationInterface};
 pub mod warnings;
@@ -222,6 +224,8 @@ pub enum RuntimeError {
     NotReady(String),
     #[error("held without substantive adoption: {0}")]
     Held(String),
+    #[error("held without substantive adoption: {0}")]
+    NativeWriteConflict(Box<NativeWriteConflict>),
     // The missing-record fact depends only on the admitted prompt and response.
     // Other closure failures can depend on private current state.
     #[error("held without substantive adoption: exact closure evidence was not supplied")]
@@ -1028,6 +1032,13 @@ enum RetainedFailureContext {
         additional_exposure: Exposure,
         diagnostic: Option<ContextFitFailure>,
     },
+    #[serde(rename = "native_write_conflict_v1")]
+    NativeWriteConflict {
+        terminal_sha256: String,
+        request_sha256: String,
+        additional_exposure: Exposure,
+        conflict: write_conflicts::Diagnostic,
+    },
     Unknown,
     ProtocolCorrection {
         terminal_sha256: String,
@@ -1044,6 +1055,9 @@ fn recovery_correction_observation(
     prepared: &Prepared,
     now: i64,
 ) -> Result<Option<Observation>> {
+    if let Some(observation) = write_conflicts::observation(invocation, evidence, prepared, now)? {
+        return Ok(Some(observation));
+    }
     if let Some(observation) = context_fit_recovery::observation(invocation, evidence, prepared, now)? {
         return Ok(Some(observation));
     }
@@ -1255,6 +1269,8 @@ fn retained_failure_exposure(
             exposure,
         }) if terminal_sha256 == terminal_sha => Some(exposure),
         Some(RetainedFailureContext::KnownAdmitted {
+            terminal_sha256, request_sha256, additional_exposure, ..
+        }) | Some(RetainedFailureContext::NativeWriteConflict {
             terminal_sha256, request_sha256, additional_exposure, ..
         }) if terminal_sha256 == terminal_sha
             && prepared.request.id == invocation.id
@@ -4601,6 +4617,8 @@ impl Runtime {
         let context = if matches!(&error, RuntimeError::ClosureRecordNotSupplied) {
             json!({"kind":"protocol_correction","terminal_sha256":terminal_ref.sha256,
                 "code":ProtocolCorrection::CloseGoalRecordNotSupplied})
+        } else if let RuntimeError::NativeWriteConflict(conflict) = &error {
+            conflict.context(&terminal_ref.sha256, invocation, prepared)
         } else {
             let diagnostic = match &error {
                 RuntimeError::SelectionOverflow {
@@ -8178,6 +8196,7 @@ fn check_output_policy(
 }
 fn apply_writes(
     state: &mut State,
+    original: &State,
     prepared: &Prepared,
     decision: &p::Decision,
     allowed: &BTreeSet<String>,
@@ -8226,10 +8245,9 @@ fn apply_writes(
                 existing.owner == *actor && !existing.protected && !existing.retired,
                 "source ownership/protection conflict",
             )?;
-            require(
-                base_revision.as_ref() == Some(&existing.head),
-                "stale file base revision",
-            )?;
+            if base_revision.as_ref() != Some(&existing.head) {
+                return Err(write_conflicts::stale_base(original, state, prepared, operation));
+            }
             require(
                 existing
                     .revisions
@@ -8428,21 +8446,25 @@ fn apply_writes(
             entry.retired = true; // Immutable evidence bytes remain retained.
         }
     }
-    let mut paths = BTreeSet::new();
-    for source in state.sources.values().filter(|s| !s.retired) {
+    let mut paths = BTreeMap::new();
+    for (id, source) in state.sources.iter().filter(|(_, s)| !s.retired) {
         let head = source
             .revisions
             .iter()
             .find(|r| r.record.revision == source.head)
             .ok_or_else(|| held("head absent"))?;
-        require(
-            paths.insert((
+        if let Some(other) = paths.insert(
+            (
                 source.owner.clone(),
                 head.record.scope,
                 head.record.path.clone(),
-            )),
-            "active scoped path conflict",
-        )?;
+            ),
+            id.as_str(),
+        ) {
+            return Err(write_conflicts::rejection(
+                original, state, prepared, &writes, [other, id],
+            ));
+        }
     }
     validate_inventory(state)?;
     Ok(bindings)
@@ -8733,7 +8755,7 @@ fn plan_response(
             "character base conflict",
         )?;
         let necessary = necessary_character_writes(decision, own_voice)?;
-        proposals = apply_writes(&mut state, prepared, decision, &necessary, now)?;
+        proposals = apply_writes(&mut state, &original, prepared, decision, &necessary, now)?;
         let voice = own_voice
             .iter()
             .map(|r| resolve(r, &proposals))
@@ -8811,7 +8833,7 @@ fn plan_response(
     // Validate every admitted interface before navigation or any model communication.
     let actions = validate_operation_interfaces(&state, prepared, decision, &allowed, now)?;
     if !character_changed {
-        proposals = apply_writes(&mut state, prepared, decision, &allowed, now)?;
+        proposals = apply_writes(&mut state, &original, prepared, decision, &allowed, now)?;
         warnings::apply(&mut state, prepared, decision, now)?;
     }
     let mut intents = tools::stage(&mut state, prepared, decision, &allowed, &proposals, now)?;

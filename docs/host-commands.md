@@ -57,6 +57,8 @@ paths use nonempty slash-separated components and exclude leading or trailing
 slashes, `.` and `..` components, backslashes, colons and control characters.
 The decision schema describes this distinction, and validation reports an
 invalid native path at the corresponding operation's `path` field.
+Native paths must also be unique within the persona and scope; see
+[native file conflicts](native-file-conflicts.md) for revisions and recovery.
 
 The normal complete-decision adoption records the exact command before dispatch.
 Each observed terminal result is retained before the next command executes.
