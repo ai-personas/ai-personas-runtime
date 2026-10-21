@@ -92,53 +92,7 @@ pub(super) fn construct_host_need(
         "need identity already exists in the board or resource accounts",
     )?;
     let authority = work_ref(&input.id, "authority", &input.authorization)?;
-    let mandate = w::Mandate {
-        revision: 1,
-        terms: input.terms.clone(),
-        authority: authority.clone(),
-        assumptions: work_ref(&input.id, "assumptions", &input.assumptions)?,
-        outcomes: input
-            .outcomes
-            .iter()
-            .map(|(id, outcome)| {
-                Ok((
-                    w::OutcomeId(id.clone()),
-                    w::RequiredOutcome {
-                        description: outcome.description.clone(),
-                        criterion: work_ref(
-                            &input.id,
-                            &format!("criterion/{id}"),
-                            &outcome.criterion,
-                        )?,
-                        required_reviews: outcome
-                            .required_reviews
-                            .iter()
-                            .cloned()
-                            .map(w::RoleId)
-                            .collect(),
-                    },
-                ))
-            })
-            .collect::<Result<_>>()?,
-        review_roles: input
-            .review_roles
-            .iter()
-            .map(|(id, role)| {
-                Ok((
-                    w::RoleId(id.clone()),
-                    w::ReviewRole {
-                        terms: role.terms.clone(),
-                        funding: work_ref(&input.id, &format!("funding/{id}"), &role.funding)?,
-                        policy: work_ref(&input.id, &format!("review-policy/{id}"), &role.policy)?,
-                        independence: role.independence,
-                    },
-                ))
-            })
-            .collect::<Result<_>>()?,
-        decision_rule: input.decision_rule.clone(),
-        delivery_to: input.delivery_to.clone(),
-        stakeholders: input.stakeholders.clone(),
-    };
+    let mandate = mandate(input, 1, authority.clone())?;
     let context = w::RuntimeContext::from_runtime(
         wid,
         w::Version {
@@ -188,6 +142,7 @@ pub(super) fn construct_host_need(
         input.id.clone(),
         WorkMeta {
             original: input.clone(),
+            amendments: Vec::new(),
             intake_operator: operator.into(),
             attempts_left: allocation.attempts,
             navigation_left: allocation.navigation,
@@ -208,4 +163,59 @@ pub(super) fn construct_host_need(
     next.operator_events
         .push(json!({"kind":"need_intake","operator":operator,"work":input.id}));
     Ok(next)
+}
+
+/// Exact typed scope construction shared by initial intake and authorized
+/// amendments. Revision one preserves the original reference identities.
+pub(super) fn mandate(input: &NeedInput, revision: u64, authority: w::ExactRef) -> Result<w::Mandate> {
+    let reference = |label: &str, value: &str| -> Result<w::ExactRef> {
+        text(value, 32_768)?;
+        Ok(w::ExactRef::new(format!("{}/{label}", input.id), revision, value.as_bytes()))
+    };
+    Ok(w::Mandate {
+        revision,
+        terms: input.terms.clone(),
+        authority,
+        assumptions: reference("assumptions", &input.assumptions)?,
+        outcomes: input
+            .outcomes
+            .iter()
+            .map(|(id, outcome)| {
+                Ok((
+                    w::OutcomeId(id.clone()),
+                    w::RequiredOutcome {
+                        description: outcome.description.clone(),
+                        criterion: reference(
+                            &format!("criterion/{id}"),
+                            &outcome.criterion,
+                        )?,
+                        required_reviews: outcome
+                            .required_reviews
+                            .iter()
+                            .cloned()
+                            .map(w::RoleId)
+                            .collect(),
+                    },
+                ))
+            })
+            .collect::<Result<_>>()?,
+        review_roles: input
+            .review_roles
+            .iter()
+            .map(|(id, role)| {
+                Ok((
+                    w::RoleId(id.clone()),
+                    w::ReviewRole {
+                        terms: role.terms.clone(),
+                        funding: reference(&format!("funding/{id}"), &role.funding)?,
+                        policy: reference(&format!("review-policy/{id}"), &role.policy)?,
+                        independence: role.independence,
+                    },
+                ))
+            })
+            .collect::<Result<_>>()?,
+        decision_rule: input.decision_rule.clone(),
+        delivery_to: input.delivery_to.clone(),
+        stakeholders: input.stakeholders.clone(),
+    })
 }

@@ -397,6 +397,10 @@ enum Command {
         /// JSON object with id, work, persona and text. Text is at most 16384 bytes.
         file: PathBuf,
     },
+    /// Inspect current scope and exact references without recovering an execution owner.
+    AmendWorkSnapshot { work: String },
+    /// Save an explicit task amendment and request eligible resumption without inference.
+    AmendWork { file: PathBuf },
     /// Inspect current permitted shared questions, replies and owner decisions. No inference.
     Questions { work: String },
     /// Add a requester reply to an exact shared question. No implicit resume or consent.
@@ -879,6 +883,13 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             *limit,
             invocation.as_deref(),
         )?);
+    }
+    if let Command::AmendWorkSnapshot { work } = &cli.command {
+        return emit(&launch::task_amendment::snapshot(root, operator, work)?);
+    }
+    if let Command::AmendWork { file } = &cli.command {
+        let input = runtime::read_json_file(file, 262_144)?;
+        return emit(&launch::task_amendment::amend(root, operator, &input)?);
     }
     if let Command::Feedback { file } = &cli.command {
         let input: launch::FeedbackInput = runtime::read_json_file(file, 65_536)?;
@@ -1564,6 +1575,9 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             unreachable!("development inspection handled before recovery")
         }
         Command::Feedback { .. } => unreachable!("feedback handled before dispatch"),
+        Command::AmendWork { .. } | Command::AmendWorkSnapshot { .. } => {
+            unreachable!("amendment handled before execution-owner recovery")
+        }
         Command::Questions { .. } | Command::AnswerQuestion { .. } => {
             unreachable!("shared questions handled before dispatch")
         }

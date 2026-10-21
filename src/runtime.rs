@@ -813,6 +813,8 @@ fn formal_review_readiness<'a>(
 #[serde(deny_unknown_fields)]
 pub struct WorkMeta {
     pub original: NeedInput,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) amendments: Vec<launch::task_amendment::Record>,
     pub intake_operator: String,
     pub attempts_left: u64,
     pub navigation_left: f::NavigationLimits,
@@ -5692,6 +5694,7 @@ impl Runtime {
         };
         let native_audit = native.audit().clone();
         let mut intake_deadline = None;
+        let mut control_monitor = None;
         let authorization = (|| -> Result<()> {
             let (_, fresh) = self.load()?;
             self.current(&fresh, &prepared, unix_now()?)?;
@@ -5717,6 +5720,7 @@ impl Runtime {
                 let deadline = i64::try_from(deadline).map_err(|_| held("optional deadline unavailable"))?;
                 intake_deadline = Some(intake_deadline.map_or(deadline, |prior| prior.min(deadline)));
             }
+            control_monitor = Some((self.store.runtime_control_monitor()?, fresh.operator_events.len()));
             self.store.dispatch_invocation(&prepared.request.id)?;
             Ok(())
         })();
@@ -5755,8 +5759,10 @@ impl Runtime {
             Some(deadline) => native.dispatch_with_intake_deadline(cancellation.clone(), deadline),
             None => native.dispatch(cancellation.clone()),
         };
+        let (monitor, event_cursor) = control_monitor.expect("authorized transport control monitor");
         Ok(provider_calls::pending(
-            prepared, native_audit, intent, cancellation, state.config.response_bytes, dispatch,
+            prepared, native_audit, intent, cancellation, state.config.response_bytes,
+            monitor, event_cursor, dispatch,
         ))
     }
 
@@ -5765,14 +5771,15 @@ impl Runtime {
         completion: provider_calls::Completion,
     ) -> Result<AdoptionReport> {
         let provider_calls::Completion {
-            prepared, audit: native_audit, intent, cancellation, response_bytes, outcome,
+            prepared, audit: native_audit, intent, cancellation, response_bytes,
+            runtime_control_observation, outcome,
         } = completion;
         let output = match outcome
             .and_then(|output| output.bound_to(&native_audit, &intent))
         {
             Ok(output) => output,
             Err(error) => {
-                let receipt = match &error {
+                let mut receipt = match &error {
                     provider::ProviderError::Attempt { failure, receipt } => json!({
                         "kind":if receipt.dispatch_may_have_begun { "provider_attempt_failed" } else { "provider_prelaunch_rejection" },
                         "synthetic":false,"failure":failure,"attempt_receipt":receipt,
@@ -5785,6 +5792,9 @@ impl Runtime {
                         "kind":"provider_prelaunch_rejection","synthetic":false,
                         "failure":failure,"dispatch_may_have_begun":false,"replay_authorized":false}),
                 };
+                if let Some(observation) = runtime_control_observation {
+                    receipt["runtime_control_observation"] = observation;
+                }
                 let terminal = terminal_object(&prepared, receipt)?;
                 let evidence = self.persist_terminal(&prepared, terminal)?;
                 // Failed here means an observed local failure, never proof that
@@ -5826,7 +5836,7 @@ impl Runtime {
         } else {
             output.disposition
         };
-        let metadata = json!({"kind":"provider_complete","synthetic":false,
+        let mut metadata = json!({"kind":"provider_complete","synthetic":false,
             "transport_sha256":transport_hash,"inner_sha256":inner_hash,
             "response_encoding":if prepared.output_schema == provider::json_object_schema() {
                 "direct_decision_json_v1"
@@ -5840,6 +5850,9 @@ impl Runtime {
             "limitations":["remote stop unconfirmed","actual charges unknown",
                 "reported model and effort are provider reports, not independently verified served identity",
                 "remote token/context bounds unsupported","provider retention and hidden inputs unobserved"]});
+        if let Some(observation) = runtime_control_observation {
+            metadata["runtime_control_observation"] = observation;
+        }
         let parsed = match disposition {
             provider::CompletionDisposition::Ready => parsed,
             provider::CompletionDisposition::Cancelled => {
@@ -7636,6 +7649,11 @@ fn render_mode_with_history(
     }
     if !requester_feedback_control.is_null() {
         core["requester_feedback"] = requester_feedback_control;
+    }
+    if let Some(amendment) = launch::task_amendment::control(meta, work) {
+        growth_bytes = growth_bytes.checked_add(serde_json::to_vec(&amendment)?.len())
+            .ok_or_else(|| invalid("task amendment context accounting"))?;
+        core["task_amendment"] = amendment;
     }
     if !peer_feedback_control.is_null() {
         core["peer_feedback"] = peer_feedback_control;

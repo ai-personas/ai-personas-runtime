@@ -26,6 +26,8 @@ pub struct Output {
     /// Permission-filtered input/disposition history, never proof of compliance.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requester_feedback: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recorded_task_amendment: Option<Value>,
     /// Exact permitted receipt for the focus release; not global freshness.
     pub status_delivery: Option<String>,
     pub last_attempt: Option<Value>,
@@ -123,6 +125,7 @@ pub(super) fn project_state(state: &State, work_id: &str, saved: &Saved, now: i6
         recorded_completion: None,
         optional_activity_ending: None,
         requester_feedback: None,
+        recorded_task_amendment: None,
         status_delivery: None,
         last_attempt: None,
         messages: Vec::new(),
@@ -144,6 +147,17 @@ pub(super) fn project_state(state: &State, work_id: &str, saved: &Saved, now: i6
         result.status = "optional-activity-ended-as-recorded".into();
     }
     let mut left = 1024 * 1024 - 4096;
+    if let Some(amendment) = state.work_meta.get(work_id)
+        .and_then(|meta| task_amendment::recorded_for_operator(meta, &saved.operator))
+    {
+        let size = serde_json::to_vec(&amendment)?.len();
+        if size <= left {
+            left -= size;
+            result.recorded_task_amendment = Some(amendment);
+        } else {
+            result.truncated = true;
+        }
+    }
     let completion = closure_readiness::recorded_completion_for_recipient(
         &state,
         work_id,

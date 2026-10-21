@@ -158,6 +158,11 @@ HTTPS execution, which have their own terminal receipts. Saved
 scripts and supplied skill guides do not establish execution or successful skill
 application. See [resource-use interpretation](docs/persona-development.md).
 
+[Task amendments](docs/task-amendments.md) change an open or paused saved task
+after acceptance. `amend-work-snapshot WORK_ID` supplies current scope and exact
+references; `amend-work FILE` atomically saves the successor mandate and requests
+eligible resumption without starting inference or replenishing resources.
+
 Requester feedback can stay in the existing work. Run `ai-personas --state-root
 /private/state --operator requester feedback feedback.json`, where the JSON object
 contains `id`, `work`, `persona` and `text` (at most 16 KiB). The saved requester can

@@ -110,6 +110,10 @@ enum Command {
     },
     /// Deposit exact attributed requester feedback; replay creates no duplicate.
     Feedback { file: PathBuf },
+    /// Inspect the current scope and exact references for an operator task amendment.
+    AmendWorkSnapshot { work: String },
+    /// Adopt an explicit keyed task amendment and request resumption. No inference.
+    AmendWork { file: PathBuf },
     /// Reply to an exact shared question without inference or an explicit resume.
     AnswerQuestion { file: PathBuf },
     /// Explicitly permit one participant to continue under the existing allowances.
@@ -291,6 +295,13 @@ async fn main() {
         Command::Feedback { file } => emit((|| -> session::BoundaryResult<serde_json::Value> {
             let input = ai_personas::runtime::read_json_file(&file, 65_536)?;
             session::submit_feedback(&root, &operator, &input)
+        })()),
+        Command::AmendWorkSnapshot { work } => emit(
+            ai_personas::launch::task_amendment::snapshot(&root, &operator, &work).map_err(Into::into)
+        ),
+        Command::AmendWork { file } => emit((|| -> session::BoundaryResult<serde_json::Value> {
+            let input = ai_personas::runtime::read_json_file(&file, 262_144)?;
+            Ok(ai_personas::launch::task_amendment::amend(&root, &operator, &input)?)
         })()),
         Command::AnswerQuestion { file } => {
             emit((|| -> session::BoundaryResult<serde_json::Value> {

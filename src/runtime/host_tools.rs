@@ -208,7 +208,7 @@ impl Runtime {
         }
         let mut retained = self.store.trusted_host().intent(id)?;
         let job: Job = serde_json::from_value(retained.intent.body.clone())?;
-        let state = self.snapshot()?;
+        let (head, state) = self.load()?;
         let marker = state
             .host_command_jobs
             .get(id)
@@ -231,6 +231,8 @@ impl Runtime {
             if job.interface.runner_revision != h::revision() {
                 self.store
                     .cancel_intent(id, "host runner changed before dispatch")?;
+            } else if !retained.intent.depends_on.contains(&head.exact_ref()?) {
+                self.store.cancel_intent(id, "accepted runtime state changed; command never dispatched")?;
             } else {
                 self.store.trusted_host().reserve_terminal_evidence(
                     &subject,

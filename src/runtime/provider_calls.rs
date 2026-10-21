@@ -13,7 +13,52 @@ pub(in crate::runtime) struct Completion {
     pub intent: provider::ProviderIntent,
     pub cancellation: provider::Cancellation,
     pub response_bytes: usize,
+    pub runtime_control_observation: Option<Value>,
     pub outcome: std::result::Result<provider::ProviderOutput, provider::ProviderError>,
+}
+
+fn observe_stop(
+    monitor: &mut s::RuntimeControlMonitor,
+    event_cursor: &mut usize,
+    request: &PrepareRequest,
+) -> Result<Option<Value>> {
+    let Some(object) = monitor.changed()? else {
+        return Ok(None);
+    };
+    require(
+        object.kind == "runtime-state" && object.body["format"] == 1,
+        "transport control state unavailable",
+    )?;
+    let phase: w::Phase =
+        serde_json::from_value(object.body["board"]["works"][&request.work]["phase"].clone())?;
+    let events = object.body["operator_events"]
+        .as_array()
+        .ok_or_else(|| held("transport control history unavailable"))?;
+    require(
+        *event_cursor <= events.len(),
+        "transport control history was shortened",
+    )?;
+    let explicit_stop = events[*event_cursor..].iter().any(|event| {
+        (event["work"] == request.work
+            && matches!(event["kind"].as_str(), Some("pause" | "closeout")))
+            || (event["persona"] == request.persona
+                && event["kind"] == "persona_lifecycle_control"
+                && matches!(
+                    event["notice"]["action"].as_str(),
+                    Some("pause" | "quarantine")
+                ))
+    });
+    *event_cursor = events.len();
+    if explicit_stop || !matches!(phase, w::Phase::Open) {
+        Ok(Some(
+            json!({"kind":"runtime_stop_observed", "work":request.work,
+            "persona":request.persona, "runtime_revision":object.revision,
+            "explicit_stop_observed":explicit_stop, "phase":phase,
+            "local_cancellation_requested":true, "remote_stop_confirmed":false}),
+        ))
+    } else {
+        Ok(None)
+    }
 }
 
 struct CancelOnDrop(Option<provider::Cancellation>);
@@ -36,7 +81,9 @@ pub(super) fn pending(
     intent: provider::ProviderIntent,
     cancellation: provider::Cancellation,
     response_bytes: usize,
-    transport: BoxFuture<
+    mut monitor: s::RuntimeControlMonitor,
+    mut event_cursor: usize,
+    mut transport: BoxFuture<
         'static,
         std::result::Result<provider::ProviderOutput, provider::ProviderError>,
     >,
@@ -48,7 +95,33 @@ pub(super) fn pending(
     Pending {
         request,
         completion: Box::pin(async move {
-            let outcome = transport.await;
+            let mut runtime_control_observation = None;
+            let mut interval = tokio::time::interval(std::time::Duration::from_millis(250));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            let mut check = || {
+                let observation = observe_stop(&mut monitor, &mut event_cursor, &prepared.request)
+                    .unwrap_or_else(|_| {
+                        Some(json!({"kind":"runtime_control_monitor_unavailable",
+                        "local_cancellation_requested":true,"remote_stop_confirmed":false}))
+                    });
+                if observation.is_some() {
+                    cancellation.cancel();
+                }
+                observation
+            };
+            let outcome = loop {
+                tokio::select! {
+                    outcome = &mut transport => {
+                        if runtime_control_observation.is_none() {
+                            runtime_control_observation = check();
+                        }
+                        break outcome;
+                    }
+                    _ = interval.tick(), if runtime_control_observation.is_none() => {
+                        runtime_control_observation = check();
+                    }
+                }
+            };
             guard.disarm();
             Completion {
                 prepared,
@@ -56,6 +129,7 @@ pub(super) fn pending(
                 intent,
                 cancellation,
                 response_bytes,
+                runtime_control_observation,
                 outcome,
             }
         }),

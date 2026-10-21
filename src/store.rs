@@ -1361,6 +1361,29 @@ impl TrustedHost<'_> {
         work_id: &str,
         recovery: Option<(String, Option<InvocationRecord>)>,
     ) -> Result<BatchReceipt> {
+        self.commit_runtime_resume_bound(expected, object, work_id, recovery, &[])
+    }
+
+    /// Operator scope changes share resume's existing accounting and control-slot
+    /// renewal. Pending invocations are preserved for actual terminal settlement.
+    pub(crate) fn commit_runtime_amendment(
+        &mut self,
+        expected: &ObjectRef,
+        object: StoredObject,
+        work_id: &str,
+        launch: &ObjectRef,
+    ) -> Result<BatchReceipt> {
+        self.commit_runtime_resume_bound(expected, object, work_id, None, std::slice::from_ref(launch))
+    }
+
+    fn commit_runtime_resume_bound(
+        &mut self,
+        expected: &ObjectRef,
+        object: StoredObject,
+        work_id: &str,
+        recovery: Option<(String, Option<InvocationRecord>)>,
+        dependencies: &[ObjectRef],
+    ) -> Result<BatchReceipt> {
         self.store.transaction(|work| {
             work.admission()?;
             work.id(work_id)?;
@@ -1376,7 +1399,8 @@ impl TrustedHost<'_> {
                 object: object.clone(),
                 depends_on: Vec::new(),
             }];
-            work.validate_changes(&changes)?;
+            let candidates = work.validate_changes(&changes)?;
+            work.dependencies(dependencies, &candidates)?;
             let previous = crate::runtime::runtime_control_requirements(&current)?
                 .into_iter()
                 .find(|requirement| requirement.work == work_id)
@@ -1969,7 +1993,47 @@ pub struct Store {
     limits: Limits,
 }
 
+/// A transport's host control observation. This connection cannot write, recover
+/// execution ownership or consume persona navigation. Only changed runtime
+/// state is read; control polling is host overhead, not a model operation.
+pub(crate) struct RuntimeControlMonitor {
+    connection: Connection,
+    epoch: Option<u64>,
+    max_record_bytes: u64,
+}
+
+impl RuntimeControlMonitor {
+    pub(crate) fn changed(&mut self) -> Result<Option<StoredObject>> {
+        let transaction = self.connection.transaction()?;
+        let epoch = load_meta(&transaction)?.epoch;
+        if self.epoch == Some(epoch) {
+            return Ok(None);
+        }
+        let bytes: Vec<u8> = transaction.query_row(
+            "SELECT data FROM store_cells WHERE ns='object' AND k=?1",
+            [RUNTIME_CONTROL_STATE_ID], |row| row.get(0),
+        )?;
+        if bytes.len() as u64 > self.max_record_bytes {
+            return Err(StoreError::TooLarge);
+        }
+        let object = serde_json::from_slice(&bytes)?;
+        transaction.commit()?;
+        self.epoch = Some(epoch);
+        Ok(Some(object))
+    }
+}
+
 impl Store {
+    pub(crate) fn runtime_control_monitor(&self) -> Result<RuntimeControlMonitor> {
+        let connection = Connection::open_with_flags(
+            secure_database_path(&self.path)?, OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )?;
+        connection.busy_timeout(Duration::from_millis(self.limits.busy_timeout_ms))?;
+        Ok(RuntimeControlMonitor {
+            connection, epoch: None, max_record_bytes: self.limits.max_record_bytes,
+        })
+    }
+
     /// Select only in trusted host code after establishing the applicable
     /// authority. Neither deserialized input nor model output grants authority.
     pub fn trusted_host(&mut self) -> TrustedHost<'_> {

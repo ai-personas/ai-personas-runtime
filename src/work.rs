@@ -24,8 +24,9 @@
 //!
 //! Deliberate limits: one active commitment per persona/work; exclusive outcome and
 //! reviewer-role ownership; whole-commitment handoffs; artifact-bearing mandates.
-//! Live mandate amendments after any acceptance are rejected. Exact voluntary duty
-//! changes use arrangement proposals within the immutable authorization envelope.
+//! Authenticated operator mandate amendments preserve prior records and invalidate
+//! old acceptance and decision authority. Exact voluntary duty changes use
+//! arrangement proposals within the current authorization envelope.
 //! Legacy governing rules remain fixed. Automatic retries, arbitrary
 //! imports, effect dispatch, and semantic correctness verification are unsupported.
 
@@ -751,6 +752,9 @@ pub enum RuntimeOperation {
         terms: CommitmentTerms,
     },
     ReviseUnacceptedMandate(Mandate),
+    /// An explicit operator amendment, distinct from persona arrangement changes.
+    /// Current responsibilities must be accepted again under the new mandate.
+    AmendMandate(Mandate),
     Pause {
         reason: String,
     },
@@ -1164,6 +1168,29 @@ impl WorkBoard {
                     w.current_mandate = m.revision;
                     w.mandates.insert(m.revision, m);
                     w.version.epoch = increment(w.version.epoch)?;
+                }
+                RuntimeOperation::AmendMandate(m) => {
+                    require(
+                        matches!(w.phase, Phase::Open | Phase::Paused { .. }),
+                        "mandate amendment requires live work",
+                    )?;
+                    validate_mandate(&m, &personas, w.need.optional_activity.as_ref())?;
+                    arrangements::validate_delegation(&ctx.work, &w.need, &m, &ctx.principal)?;
+                    require(
+                        m.revision == increment(w.current_mandate)? && m.authority == ctx.authority,
+                        "mandate successor",
+                    )?;
+                    w.current_mandate = m.revision;
+                    w.mandates.insert(m.revision, m);
+                    // Old agreements, acceptances and resulting records stay
+                    // historical. No result rule or responsibility silently moves
+                    // to different mandate terms.
+                    w.current_arrangement = None;
+                    for participant in w.participants.values_mut() {
+                        participant.wake = None;
+                    }
+                    w.version.epoch = increment(w.version.epoch)?;
+                    w.phase = Phase::Open;
                 }
                 RuntimeOperation::Pause { reason } => {
                     open(w)?;

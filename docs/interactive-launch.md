@@ -23,6 +23,11 @@ allowances. For a stopped or individually paused participant, first choose
 **u: resume participant**, then **c**. Resume grants that participant permission
 to continue; it starts no inference and does not lift a work-wide pause.
 
+**m: amend task** saves a complete replacement request for a standard task,
+preserves the original request, and requests eligible resumption under a new
+mandate. The remaining resources still apply. Custom outcomes and review terms
+use the [full task amendment commands](task-amendments.md).
+
 For direct inspection, use the sibling `personas-session` helper. Every operation
 requires the runtime's state directory and saved operator; the launcher journal
 is a different directory:

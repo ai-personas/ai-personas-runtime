@@ -14,11 +14,16 @@ impl Runtime {
         let prepared = decode_prepared(&invocation)?;
         if prepared.request.id != id
             || prepared.request.profile != Profile::Direct
-            || prepared.request.mode != Mode::Ordinary
         {
             return Ok(false);
         }
         let (head, mut state) = self.load()?;
+        if launch::task_amendment::retire_completed(self, &invocation, &prepared, &head, &state, now)? {
+            return Ok(true);
+        }
+        if prepared.request.mode != Mode::Ordinary {
+            return Ok(false);
+        }
         let actor = &prepared.request.persona;
         let work = &prepared.request.work;
         let Some(persona) = state.personas.get(actor) else {

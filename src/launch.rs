@@ -32,6 +32,8 @@ pub use migration::{
 mod admission_extension;
 #[path = "launch/inspection.rs"]
 mod inspection;
+#[path = "launch/task_amendment.rs"]
+pub mod task_amendment;
 pub use admission_extension::{
     extend_launch_admission, launch_admission_snapshot, preview_launch_admission_extension,
     LaunchAdmissionExtensionOutcome, LaunchAdmissionExtensionReceipt,

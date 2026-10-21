@@ -40,7 +40,7 @@ impl Origins {
 
     fn validate_bounds(&self) -> Result<()> {
         require(
-            self.delegations.len() <= 1
+            self.delegations.len() <= launch::task_amendment::MAX_AMENDMENTS + 1
                 && self.proposals.len() <= MAX_PROPOSALS
                 && self.responses.len() <= MAX_RESPONSE_ORIGINS
                 && self.activations.len() <= MAX_PROPOSALS
@@ -65,6 +65,17 @@ impl Origins {
         result.validate_bounds()?;
         Ok(result)
     }
+}
+
+pub(super) fn retain_amendment_origin(state: &mut State, work_id: &str, inherited: &Exposure) -> Result<()> {
+    let current = Origins::for_need(state, work_id, inherited)?;
+    let origins = &mut state.work_meta.get_mut(work_id)
+        .ok_or_else(|| held("work metadata absent"))?.arrangement_origins;
+    for (key, exposure) in current.delegations {
+        require(!origins.delegations.contains_key(&key), "amendment delegation origin already exists")?;
+        origins.delegations.insert(key, exposure);
+    }
+    origins.validate_bounds()
 }
 
 fn delegation_key(work: &str, exact: &w::ExactRef) -> Result<String> {

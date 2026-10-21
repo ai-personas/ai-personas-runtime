@@ -386,7 +386,7 @@ def validate_progress(p):
     item = p["work_input"]
     if item is not None:
         require(isinstance(item, dict) and set(item) == {"kind", "request", "delivered"}
-                and item["kind"] in ("feedback", "answer-question", "resume-participant")
+                and item["kind"] in ("feedback", "answer-question", "resume-participant", "amend-work")
                 and type(item["delivered"]) is bool)
         request = item["request"]
         require(isinstance(request, dict) and identifier(request.get("work")))
@@ -401,6 +401,22 @@ def validate_progress(p):
                     and identifier(reply["id"]) and safe_text(reply["question"], 256)
                     and re.fullmatch(r"[a-f0-9]{64}", reply["question_revision"]) is not None
                     and safe_text(reply["text"], 8192) and safe_text(reply["basis"], 4096))
+        elif item["kind"] == "amend-work":
+            require(set(request) == {"id", "operator", "work", "scope", "invitations", "resume",
+                                     "expected_runtime", "expected_launch", "authorize_amend"}
+                    and identifier(request["id"]) and request["operator"] == p["operator"]
+                    and request["authorize_amend"] is True
+                    and isinstance(request["scope"], dict)
+                    and safe_text(request["scope"].get("request"), 32768)
+                    and isinstance(request["invitations"], list)
+                    and isinstance(request["resume"], list)
+                    and all(identifier(actor) for actor in request["resume"]))
+            for key, name in (("expected_runtime", "runtime-state-v1"),
+                              ("expected_launch", "runtime-launch-v1")):
+                ref = request[key]
+                require(isinstance(ref, dict) and set(ref) == {"id", "revision", "sha256"}
+                        and ref["id"] == name and type(ref["revision"]) is int and ref["revision"] > 0
+                        and re.fullmatch(r"[a-f0-9]{64}", ref["sha256"]) is not None)
         else:
             require(set(request) == {"id", "operator", "work", "persona", "expected_runtime",
                                      "expected_launch", "authorize_resume"}
@@ -412,7 +428,7 @@ def validate_progress(p):
                 require(isinstance(ref, dict) and set(ref) == {"id", "revision", "sha256"}
                         and ref["id"] == name and type(ref["revision"]) is int and ref["revision"] > 0
                         and re.fullmatch(r"[a-f0-9]{64}", ref["sha256"]) is not None)
-        require(len(encoded(request)) <= 65536)
+        require(len(encoded(request)) <= (262144 if item["kind"] == "amend-work" else 65536))
     require(len(encoded(p)) <= MAX_JOURNAL)
 
 
@@ -1354,6 +1370,11 @@ class Dialogue:
 
     def output(self, work, receipt_json=False):
         result = self.session("result", work)
+        amendment = result.get("recorded_task_amendment")
+        if amendment:
+            self.ui.say(f"Saved amended request (mandate {amendment['mandate_revision']}): "
+                        + amendment["saved_scope"]["request"])
+            self.ui.say("Earlier replies and deliveries may predate this amendment.")
         if result.get("optional_activity_ending"):
             self.ui.say(f"Work {work}: the optional activity ended as recorded. "
                         "No artifact or later benefit was required or established.")
@@ -1404,6 +1425,24 @@ class Dialogue:
         # A new identity may replace the pointer only after confirmed delivery.
         self.j.directory.write("work-input.json", encoded(request))
         receipt = self.session(item["kind"], str(self.j.directory.path / "work-input.json"))
+        if item["kind"] == "amend-work":
+            require(receipt.get("work") == request["work"] and receipt.get("id") == request["id"]
+                    and type(receipt.get("scope_saved")) is bool
+                    and receipt.get("snapshot_changed") is (not receipt["scope_saved"])
+                    and receipt.get("inference_performed") is False
+                    and receipt.get("budget_reset") is False, "amendment_receipt_mismatch")
+            item["delivered"] = True
+            self.j.save()
+            if receipt["scope_saved"]:
+                self.ui.say(f"Amended request saved as mandate {receipt['mandate_revision']}.")
+                for persona, status in receipt["resumptions_at_save"].items():
+                    self.ui.say(f"{persona}: {status.replace('_', ' ')}")
+                self.ui.say("Choose Continue to start eligible work using the remaining resources.")
+                if receipt.get("replayed"):
+                    self.ui.say("This is the earlier receipt; no new resumption was requested.")
+            else:
+                self.ui.say("The task changed before the amendment was saved. Choose Amend task again to use its current state.")
+            return
         if item["kind"] == "resume-participant":
             require(receipt.get("work") == request["work"]
                     and receipt.get("persona") == request["persona"]
@@ -1487,6 +1526,35 @@ class Dialogue:
             "operator": self.p["operator"], "work": work["id"], "persona": persona,
             "expected_runtime": view["runtime"], "expected_launch": view["launch"],
             "authorize_resume": True})
+
+    def amend_work(self, work):
+        if self.pending_work_input() is not None:
+            self.ui.say("An earlier work action still needs confirmation. Return to the work list and choose i to finish it.")
+            return
+        view = self.session("amend-work-snapshot", work["id"])
+        scope = view["current_scope"]
+        if (scope["outcomes"] != {"result": {"description": scope["request"],
+                "criterion": scope["request"], "required_reviews": []}} or scope["review_roles"]):
+            self.ui.say("This task has custom outcome or review terms. Use the full amendment command described in docs/task-amendments.md.")
+            return
+        self.ui.say("Current request: " + scope["request"])
+        text = self.ui.ask("New complete request (saves the amendment and requests eligible resumption; Enter to cancel):")
+        if not text.strip():
+            return
+        require(safe_text(text, 32768), "amendment_too_large")
+        scope["request"] = text
+        scope["outcomes"]["result"]["description"] = text
+        scope["outcomes"]["result"]["criterion"] = text
+        key = "amend-" + uuid.uuid4().hex
+        invitations = [{"id": f"{key}-{i}", "to": actor, "terms": {
+            "mandate_revision": view["next_mandate_revision"],
+            "exact_terms": "Invitation to consider the amended mandate voluntarily; any responsibility or decision arrangement requires fresh persona acceptance.",
+            "outcomes": [], "review_roles": []}}
+            for i, actor in enumerate(view["participants"])]
+        self.queue_work_input("amend-work", {"id": key, "operator": self.p["operator"],
+            "work": work["id"], "scope": scope, "invitations": invitations,
+            "resume": view["participants"], "expected_runtime": view["runtime"],
+            "expected_launch": view["launch"], "authorize_amend": True})
 
     def feedback(self, work):
         if self.pending_work_input() is not None:
@@ -1705,10 +1773,12 @@ class Dialogue:
             self.ui.say(accounting["scope"])
 
     def work_menu(self, work, after):
-        self.ui.say(f"Work {work['id']}: {work['need']}")
+        self.ui.say(f"Work {work['id']} — original request: {work['need']}")
+        if work.get("task_amendment"):
+            self.ui.say("Current amended request: " + work["task_amendment"]["current_scope"]["request"])
         for _ in range(16):
             self.ui.say("r: results; j: delivery receipt JSON; q: questions and answers; f: feedback; d: persona development; "
-                        "u: resume participant; c: continue; a: Codex auth source; b: back")
+                        "m: amend task; u: resume participant; c: continue; a: Codex auth source; b: back")
             choice = self.ui.ask("Work action:").strip().lower()
             if choice in ("", "b"):
                 return
@@ -1720,6 +1790,8 @@ class Dialogue:
                 self.questions(work["id"])
             elif choice == "f":
                 self.feedback(work)
+            elif choice == "m":
+                self.amend_work(work)
             elif choice == "d":
                 self.development(work)
             elif choice == "u":
@@ -1950,6 +2022,9 @@ class Dialogue:
                 if saved_input["kind"] == "resume-participant":
                     self.ui.say(f"Saved explicit resume for {request['persona']} in {request['work']} awaiting confirmation.")
                     self.ui.say("i: finish this same resume request; an earlier receipt cannot resume anyone again")
+                elif saved_input["kind"] == "amend-work":
+                    self.ui.say(f"Saved amendment for {request['work']} awaiting confirmation:\n{request['scope']['request']}")
+                    self.ui.say("i: finish this same amendment; its identity and scope will be reused")
                 else:
                     content = request if saved_input["kind"] == "feedback" else request["reply"]
                     self.ui.say(f"Saved {saved_input['kind']} for {request['work']} awaiting confirmation:\n{content['text']}")

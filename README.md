@@ -20,6 +20,9 @@ Choose a saved work in the launcher to read results, give feedback, answer share
 questions or inspect a persona's development. These actions do not start a model
 call. To let a stopped participant respond, choose **Resume participant**, then
 **Continue** to authorize a model session.
+Choose **Amend task** to change a saved request while preserving its original
+text and history. [Task amendments](docs/task-amendments.md) adopt a new mandate
+and request eligible resumption using the remaining resources.
 Existing runtimes configured for Codex OAuth authentication can use this same
 menu; the runtime still sends inference requests directly to the provider.
 

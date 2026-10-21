@@ -1170,6 +1170,9 @@ pub struct WorkView {
     pub phase: WorkPhase,
     pub need: String,
     pub need_sha256: String,
+    pub mandate_revision: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task_amendment: Option<Value>,
     pub attempts_left: u64,
     pub repair_attempts_left: u64,
     pub navigation_left: f::NavigationLimits,
@@ -1394,6 +1397,8 @@ fn inspect_opened(
             phase,
             need: meta.original.request.clone(),
             need_sha256: s::sha256_bytes(meta.original.request.as_bytes()),
+            mandate_revision: work.current_mandate,
+            task_amendment: task_amendment::control(meta, work),
             attempts_left: meta.attempts_left,
             repair_attempts_left: meta.repair_attempts_left,
             navigation_left: meta.navigation_left,
