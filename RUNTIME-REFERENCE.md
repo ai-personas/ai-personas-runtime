@@ -305,6 +305,11 @@ normal selection and the session's existing limits still govern the next call.
 Cancellation, uncertain or incomplete transport, and failures without a retained
 ordinary continuation require their existing explicit recovery controls.
 A future wait returns to the shell and retains its existing eligibility conditions.
+`step_limit` means the foreground session reached its bound;
+`lifetime_step_limit` means the saved launch's shared lifetime allowance is spent.
+The latter is not a rejected response or an unresolved invocation, and opening
+another session does not replenish it. Both serial and concurrent drivers retain
+admitted results and drain their workers before returning.
 
 A locally failed invocation holds its own persona while eligible peers can
 continue in the current bounded session or a newly authorized session. Foreground
@@ -315,11 +320,11 @@ supported recovery or accepted-continuation retirement. Several failed personas
 can be acknowledged and resumed individually. No peer action authorizes replay
 or renews another persona's permission.
 
-The native foreground driver still executes one invocation at a time under its
-Store execution owner. Prepared, dispatched, uncertain, responded or incompletely
-applied invocations block shared-epoch changes. A failure without an authoritative
-local terminal record also blocks further foreground execution. Runtime/provider
-configuration, identity changes and resource grants retain their separate guards.
+Native foreground sessions hold one Store execution owner. Independent ordinary
+model calls can overlap; adoption is sequential and checks each admission's sealed
+decision scope. Delegated and optional-activity work retain serial execution.
+Runtime/provider configuration, identity changes and resource grants retain their
+separate guards.
 Session inspection reports every active lease while computing eligibility per
 participant; a retained failed lease alone does not disable the work menu.
 
@@ -1142,6 +1147,23 @@ current complete response from proposing multiple permitted operations. Each wor
 command does not spend another work attempt; ordering, fresh-receipt requirements,
 mode restrictions and separate operation limits still apply. This explanation is
 counted as fixed contract text and does not create resources or authority.
+
+`CONTROL.launch_step_allowance` supplies the saved launch's exact admission-time
+reference, spent lifetime steps including this admission, configured lifetime
+limit and remaining steps. This balance is shared across every persona and work
+in that launch and can be smaller than `attempts_left`. It promises no personal
+next turn; other admissions can spend it and a foreground session can end sooner.
+Zero leaves the current admitted response and its available operations valid,
+but funds no later model input. Personas use the actual allowance when judging
+useful further work, delivery and limitations; the host does not choose their
+continuation or manufacture a result. A generic Runtime admission without a
+matching saved-launch reservation has no such field.
+
+The snapshot is captured after the launch debit, including episode preparation,
+and fenced at admission. Response validation and selection-fit projections use
+the admitted snapshot, so a peer's later reservation does not rewrite it. The
+development view returns `resource_use.supplied_launch_step_allowance` from the
+actual retained input. Historical absence is null, not today's counter.
 
 `CONTROL.command_resource_accounting.close_goal.navigation_charge` is `none`:
 zero invocation navigation alone does not prevent proposing this command.

@@ -689,6 +689,7 @@ fn readable_result(value: &launch::Output) -> runtime::Result<String> {
             "legacy_completion_requires_explicit_resume" => "The historical completion is retained. Targeted explicit resume is required before this legacy work can be reconsidered.",
             "paused" | "ended" | "unavailable" | "intake_incomplete" => "No foreground step was taken at this boundary.",
             "step_limit" | "consideration_bound" | "idle_or_consideration_bound" => "This foreground session reached its bound or has no eligible participant. Use run --resume with the work ID to continue eligible work.",
+            "lifetime_step_limit" => "The saved launch has exhausted its lifetime model-step allowance. Accepted work and command results remain retained; starting another session does not replenish that allowance.",
             "no_eligible_route" => "The foreground session stopped without selecting another step. Inspect current status if reconsideration is needed.",
             "character_fence" => "An accepted character change requires its next authorized handover.",
             "held" | "held_or_unresolved_invocation" | "invalid_response" => "The latest response was not adopted. Inspect it before explicitly deciding what to do next.",

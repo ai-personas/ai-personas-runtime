@@ -1470,10 +1470,7 @@ pub(in crate::runtime) fn commit_episode_preparation(
         "episode checkpoint authority or invocation slot changed",
     )?;
     let (launch_head, mut saved) = load(app)?;
-    require(
-        saved.steps < saved.setup.max_total_steps,
-        "lifetime step limit reached",
-    )?;
+    step_accounting::require_capacity(&saved)?;
     let last = saved
         .works
         .get_mut(&request.work)

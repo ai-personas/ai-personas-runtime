@@ -4,6 +4,8 @@ use super::*;
 mod results;
 #[path = "launch/parallel.rs"]
 mod parallel;
+#[path = "launch/step_accounting.rs"]
+pub(crate) mod step_accounting;
 /// Operator-only Stage 1 launcher protocol; not a persona tool.
 #[path = "launch/session.rs"]
 pub mod session;
@@ -729,10 +731,7 @@ fn reserve_owned(
 ) -> Result<(PrepareRequest, Saved)> {
     let (old, mut saved) = load(app)?;
     saved.execution_provider()?;
-    require(
-        saved.steps < saved.setup.max_total_steps,
-        "lifetime step limit reached",
-    )?;
+    step_accounting::require_capacity(&saved)?;
     saved.steps = increment(saved.steps)?;
     let id = format!("call-{:08}", saved.steps);
     *saved
@@ -962,6 +961,9 @@ async fn run_with_options<D: Driver>(
             }
         }
     }
+    if stop == "step_limit" {
+        stop = step_accounting::bound_stop(app)?;
+    }
     let mut view = result(app, work)?;
     view.stop = Some(stop.into());
     Ok(view)
@@ -976,6 +978,7 @@ fn stop_for_error(error: &RuntimeError) -> &'static str {
         RuntimeError::SelectionOverflow { .. } => "selection_overflow",
         RuntimeError::Provider(_) => "provider_preflight_or_transport_failed",
         RuntimeError::Protocol(_) => "invalid_response",
+        RuntimeError::LifetimeStepLimit => "lifetime_step_limit",
         RuntimeError::Held(_) => "held_or_unresolved_invocation",
         RuntimeError::Store(_) => "store_or_resource_limit",
         _ => "blocked_or_unresolved_invocation",

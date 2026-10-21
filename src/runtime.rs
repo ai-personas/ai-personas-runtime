@@ -34,6 +34,7 @@ mod optional_activity;
 pub use need_proposals::{IntakeEpisodeSnapshot, NeedInterface, PendingNeedProposal};
 #[path = "launch.rs"]
 pub mod launch;
+pub use launch::step_accounting::LaunchStepAllowance;
 mod stakeholder;
 mod state_storage;
 mod tools;
@@ -223,6 +224,8 @@ pub enum RuntimeError {
     Invalid(String),
     #[error("not ready: {0}")]
     NotReady(String),
+    #[error("lifetime step limit reached")]
+    LifetimeStepLimit,
     #[error("held without substantive adoption: {0}")]
     Held(String),
     #[error("held without substantive adoption: {0}")]
@@ -1331,6 +1334,10 @@ pub struct Prepared {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_command_interface: Option<HostCommandInterface>,
     pub request: PrepareRequest,
+    /// Actual saved-launch debit at this admission, absent for an unbound
+    /// Runtime request. Historical inputs do not acquire current accounting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_step_allowance: Option<LaunchStepAllowance>,
     pub epoch: u64,
     /// Host-sealed dependencies; absence retains the historical global fence.
     /// The response still echoes epoch exactly and cannot supply this scope.
@@ -4084,6 +4091,7 @@ impl Runtime {
         }
         optional_activity::record_admission(&mut state, &request, now)?;
         let epoch = increment(start_epoch)?;
+        let launch_step_allowance = launch::step_accounting::capture(self, &request)?;
         let history_material = history::records::Material::pending(
             &mut self.store,
             &state,
@@ -4103,6 +4111,7 @@ impl Runtime {
                 true,
                 Some(navigation),
                 Some(navigation),
+                launch_step_allowance.as_ref(),
             )
         } else {
             render_with_history(
@@ -4115,6 +4124,7 @@ impl Runtime {
                 now,
                 true,
                 Some(navigation),
+                launch_step_allowance.as_ref(),
             )
         };
         let rendered = match rendering {
@@ -4192,6 +4202,7 @@ impl Runtime {
             http_fetch_interfaces: rendered.http_fetch_interfaces,
             host_command_interface: rendered.host_command_interface,
             request: request.clone(),
+            launch_step_allowance,
             epoch,
             decision_scope: None,
             owner_epoch,
@@ -4247,7 +4258,8 @@ impl Runtime {
         let mut changes = vec![s::Change {
             expected_revision: Some(old.revision),
             object: state_object(&old, &state)?,
-            depends_on: Vec::new(),
+            depends_on: prepared.launch_step_allowance.as_ref()
+                .map(|allowance| allowance.launch.clone()).into_iter().collect(),
         }];
         if let Some(admission) = scheduler {
             changes.push(admission.change);
@@ -4787,6 +4799,7 @@ impl Runtime {
                 true,
                 Some(prepared.navigation),
                 Some(prepared.navigation),
+                prepared.launch_step_allowance.as_ref(),
             )?;
             require(
                 s::sha256_bytes(prepared.prompt.as_bytes()) == prepared.prompt_sha256
@@ -7052,6 +7065,7 @@ fn render_with_history(
     now: i64,
     admitted: bool,
     navigation: Option<f::NavigationLimits>,
+    launch_step_allowance: Option<&LaunchStepAllowance>,
 ) -> Result<Rendered> {
     let rendered = render_mode_with_history(
         state,
@@ -7064,6 +7078,7 @@ fn render_with_history(
         admitted,
         None,
         navigation,
+        launch_step_allowance,
     )?;
     require_render_fit(&rendered, state.config.context_bytes)?;
     Ok(rendered)
@@ -7094,6 +7109,7 @@ fn render_mode_with_history(
     admitted: bool,
     repair_navigation: Option<f::NavigationLimits>,
     navigation: Option<f::NavigationLimits>,
+    launch_step_allowance: Option<&LaunchStepAllowance>,
 ) -> Result<Rendered> {
     let persona = state
         .personas
@@ -7598,6 +7614,9 @@ fn render_mode_with_history(
             work_guides::capability(state, &supplied_bodies, work_interface.as_ref())?
         },
         "not_ready":["effects outside currently exposed capability bindings","top-level Deliver without release binding"],"readiness_limits":readiness()});
+    if let Some(allowance) = launch_step_allowance {
+        core["launch_step_allowance"] = allowance.control()?;
+    }
     if !initializing {
         if let Some(mut discovery) = work_guides::control(state) {
             if ordinary_interfaces {
@@ -7726,6 +7745,7 @@ fn render_mode_with_history(
         application_schema.len(),
         schema_bytes,
         serde_json::to_vec(&work_attempt_accounting)?.len(),
+        launch_step_allowance.map_or(0, |_| launch::step_accounting::RULE.len()),
     ]
     .into_iter()
     .try_fold(0usize, |total, bytes| {
@@ -8973,6 +8993,7 @@ fn plan_response(
             false,
             None,
             Some(prepared.navigation),
+            prepared.launch_step_allowance.as_ref(),
         )?;
         *planning_exposure = admitted_exposure;
         planning_exposure.include(&navigation_context_base.exposure);
@@ -9413,6 +9434,7 @@ fn plan_response(
         false,
         None,
         None,
+        prepared.launch_step_allowance.as_ref(),
     )?;
     *planning_exposure = before_final_render;
     planning_exposure.include(&fitted.exposure);
@@ -9588,6 +9610,7 @@ fn plan_selection_repair(
                     false,
                     Some(prepared.navigation),
                     Some(prepared.navigation),
+                    prepared.launch_step_allowance.as_ref(),
                 )
                 .is_ok_and(|r| {
                     r.total
@@ -9655,6 +9678,7 @@ fn plan_selection_repair(
         false,
         Some(prepared.navigation),
         Some(prepared.navigation),
+        prepared.launch_step_allowance.as_ref(),
     )?;
     let reason = match render_with_history(
         &state,
@@ -9666,6 +9690,7 @@ fn plan_selection_repair(
         now,
         false,
         None,
+        prepared.launch_step_allowance.as_ref(),
     ) {
         Ok(fitted) => {
             let focus = state

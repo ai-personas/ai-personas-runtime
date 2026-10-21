@@ -85,6 +85,7 @@ pub(super) fn inspect(
     };
     let view = json!({
         "available":true,
+        "supplied_launch_step_allowance":control["launch_step_allowance"],
         "supplied_supporting_resources":resources,
         "supplied_native_work_interface":native_work_interface,
         "supplied_native_work_instructions":work_instructions::inspect(prepared, control)?,

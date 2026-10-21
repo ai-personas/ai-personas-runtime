@@ -165,7 +165,10 @@ pub(super) async fn run<D: Driver>(
         }
         if stop.is_none() {
             if steps >= saved.setup.max_steps {
-                stop = Some("step_limit");
+                stop = Some(match step_accounting::bound_stop(app) {
+                    Ok(reason) => reason,
+                    Err(error) => stop_for_error(&error),
+                });
             } else if remaining == 0 {
                 stop = Some("consideration_bound");
             }

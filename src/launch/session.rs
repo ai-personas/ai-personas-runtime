@@ -502,6 +502,7 @@ fn valid_stop(stop: &str) -> bool {
     matches!(
         stop,
         "step_limit"
+            | "lifetime_step_limit"
             | "no_eligible_route"
             | "character_fence"
             | "held"
