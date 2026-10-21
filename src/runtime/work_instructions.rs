@@ -95,20 +95,17 @@ struct Supplied {
 }
 
 /// A section shared by several commands is supplied once, naming only the
-/// commands actually offered. A legacy full interface retains all sections.
+/// commands actually offered by the selected interface.
 pub(super) fn for_interface(interface: &WorkInterface) -> Result<Option<Value>> {
+    let commands = interface.selected_commands.as_ref()
+        .ok_or_else(|| invalid("native work instructions require selected command definitions"))?;
     let mut sections = Vec::new();
     for section in SECTIONS {
         let applies_to: Vec<String> = section
             .commands
             .iter()
             .copied()
-            .filter(|command| {
-                interface
-                    .selected_commands
-                    .as_ref()
-                    .is_none_or(|commands| commands.contains(*command))
-            })
+            .filter(|command| commands.contains(*command))
             .map(str::to_owned)
             .collect();
         if !applies_to.is_empty() {

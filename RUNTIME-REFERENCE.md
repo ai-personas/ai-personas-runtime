@@ -151,8 +151,9 @@ these supply claims. The complete view is unavailable if current permissions or
 its 256-entry/64-KiB limits cannot be satisfied. No extra model call or selection
 is made. `supplied_native_work_interface` records the actual command schema,
 selection mode and byte count. Fresh native setups install
-[selectable work-command guides](docs/work-command-guides.md); continuing roots
-retain their legacy interface until explicitly upgraded. Internal operations
+[selectable work-command guides](docs/work-command-guides.md). A runtime without
+registered guides exposes no native work-command schema; there is no complete
+catalogue fallback. Full host-command access is unaffected. Internal operations
 and retained execution intents remain distinct from completed computation or
 HTTPS execution, which have their own terminal receipts. Saved
 scripts and supplied skill guides do not establish execution or successful skill

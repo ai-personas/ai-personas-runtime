@@ -123,7 +123,7 @@ pub fn snapshot_at(root: &Path, operator: &str) -> Result<Value> {
     Ok(
         json!({"operator":operator,"expected_runtime":head.exact_ref()?,
         "expected_launch":launch.exact_ref()?,
-        "current_profile":if state.work_guides.is_some() {"selected_native_work_guides_v1"} else {"legacy_full_work_interface"},
+        "current_profile":if state.work_guides.is_some() {"selected_native_work_guides_v1"} else {"native_work_guides_not_installed"},
         "proposed":work_guides::installation_summary(&state, &people(saved.setup.cohort)[0], POLICY)?,
         "inference_performed":false,"capacity_reserved":false,
         "scope":"Installation changes future ordinary command-definition supply. It adds native supporting files within existing storage, preserves current selections and all grants/limits/spending, and starts no work or model call."}),

@@ -369,6 +369,9 @@ pub(super) fn capability(
     let mut value = match interface {
         Some(interface) => json!({"id":interface.capability_id,
             "binding_revision":interface.binding_revision,"inputs_schema":interface.inputs_schema}),
+        None if state.work_guides.is_none() => json!({"enabled":false,
+            "guide_catalogue_registered":false,
+            "reason":"Native work guides are not registered in this runtime. Fresh native setup installs them; the operator can install the runtime's guides with the native guide-registration operation. No work-command catalogue is supplied as a fallback. Host commands and tool installation remain available through their own supplied interface."}),
         None => json!({"enabled":false,
             "reason":"No native work command is exposed in this admission. Discover relevant guides in the exact current CONTROL.work_guide_discovery.directory and read or select their complete UTF-8 revisions. Older profile revisions remain historical resources; merely preserving them or retrying cannot expose their commands. Missing definitions alone do not establish unavailable capabilities. Existing work-command grants and authority are still required."}),
     };
@@ -429,7 +432,7 @@ pub(super) fn exposed(
     now: i64,
 ) -> Result<Option<WorkInterface>> {
     let Some(catalog) = &state.work_guides else {
-        return Ok(Some(WorkInterface::current()?));
+        return Ok(None);
     };
     validate_catalog(catalog)?;
     let persona = state

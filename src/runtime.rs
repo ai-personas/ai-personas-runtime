@@ -1726,21 +1726,12 @@ pub struct WorkInterface {
     pub capability_id: String,
     pub binding_revision: String,
     pub inputs_schema: Value,
-    /// Absence preserves a legacy complete interface. A subset is sealed in
-    /// the admitted request; later file choices cannot expand that admission.
+    /// A subset is sealed in the admitted request; later file choices cannot
+    /// expand it. Older full-interface records remain historical evidence only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_commands: Option<BTreeSet<String>>,
 }
 impl WorkInterface {
-    fn current() -> Result<Self> {
-        let inputs_schema = work_schema();
-        Ok(Self {
-            capability_id: "work.command.v1".into(),
-            binding_revision: s::sha256_bytes(&serde_json::to_vec(&inputs_schema)?),
-            inputs_schema,
-            selected_commands: None,
-        })
-    }
     fn selected(commands: BTreeSet<String>) -> Result<Self> {
         let inputs_schema = work_guides::selected_schema(&commands)?;
         Ok(Self {
@@ -1760,10 +1751,8 @@ fn require_current_work_interface(prepared: &Prepared) -> Result<()> {
         )
     };
     let retained = prepared.work_interface.as_ref().ok_or_else(stale)?;
-    let current = match &retained.selected_commands {
-        Some(commands) => WorkInterface::selected(commands.clone())?,
-        None => WorkInterface::current()?,
-    };
+    let commands = retained.selected_commands.as_ref().ok_or_else(stale)?;
+    let current = WorkInterface::selected(commands.clone())?;
     let retained_schema = serde_json::to_vec(&retained.inputs_schema)?;
     require(
         prepared.request.mode == Mode::Ordinary
@@ -1777,7 +1766,7 @@ fn require_current_work_interface(prepared: &Prepared) -> Result<()> {
 fn require_supplied_work_command(prepared: &Prepared, inputs: &Value) -> Result<()> {
     require_current_work_interface(prepared)?;
     let retained = prepared.work_interface.as_ref().unwrap();
-    require(retained.selected_commands.as_ref().is_none_or(|commands| {
+    require(retained.selected_commands.as_ref().is_some_and(|commands| {
         inputs.get("kind").and_then(Value::as_str).is_some_and(|kind| commands.contains(kind))
     }), "work command definition was not supplied; read or select its registered exact guide before a fresh admission")
 }
@@ -7546,9 +7535,7 @@ fn render_mode_with_history(
     let repair_schema = repair_navigation
         .map(|_| serde_json::to_string(&p::selection_repair_schema()))
         .transpose()?;
-    let mut work_interface = if state.work_guides.is_none() {
-        Some(WorkInterface::current()?)
-    } else { None };
+    let mut work_interface = None;
     let need_interface =
         need_proposals::interface(state, actor, work_id, now, ordinary_interfaces)?;
     if let Some(interface) = &need_interface {

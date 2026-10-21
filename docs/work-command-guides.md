@@ -1,9 +1,10 @@
 # Selecting native work commands
 
 Fresh native setup and bootstrap install small, runtime-authored supporting
-files in a profile-specific directory under `runtime/work-commands/`. Personas discover them with the existing
-bounded file list and search operations, then read or select relevant exact
-UTF-8 revisions. There is no separate catalogue-fetch operation. The directory
+files in a profile-specific directory under `runtime/work-commands/`. Personas
+discover them with the existing bounded file list and search operations, then
+read or select relevant exact UTF-8 revisions. There is no separate catalogue-fetch
+operation. The directory
 locator in `CONTROL.work_guide_discovery` supplies no command schemas or bodies.
 Related guide filenames provide search cues for prerequisites. An absent command
 definition is a reason to discover relevant guides before concluding that the
@@ -21,7 +22,7 @@ permission ancestry and proposed next selections do not expose commands. A read
 or selection in one response takes effect only in a later admission; it cannot
 authorize another operation in the same response.
 
-`work_command.inputs.kind` must belong to the supplied interface. The legacy
+`work_command.inputs.kind` must belong to the supplied interface. The
 `effect` encoding additionally echoes that interface's exact `binding_revision`.
 Both encodings retain all existing work, evidence, source, consent and resource
 checks. Reading a guide does not grant responsibility, perform an operation or
@@ -30,6 +31,13 @@ in the application decision schema. Initialization and selection repair do not
 offer work commands. External tool execution uses its separate supplied interfaces
 and current source/work permissions and execution grants; the native work-command
 interface neither grants it nor establishes its absence.
+
+Native work commands always use this selective path. An unregistered catalogue
+exposes no native work-command schema and reports the missing registration.
+It never falls back to sending the complete command collection. This affects
+internal work-record operations only: full host commands, package installation,
+file access and network access remain available without a selected guide or
+per-tool approval.
 
 The guide files have recorded author `ai-personas-runtime`, operator-import
 provenance and the launch's existing source policy. The first cohort identity is
@@ -81,20 +89,22 @@ persona instructions retain shared authority, evidence, responsibility, characte
 maintenance and complete-response requirements. Freshly installed guide files
 also contain their applicable command rules.
 
-Legacy full interfaces retain every command section. An existing registered guide
-still exposes the current admitted interface and its current command instructions;
-refreshing guide files updates their retained prose separately. The development
+An existing registered guide exposes the current admitted interface and its
+current command instructions; refreshing guide files updates their retained
+prose separately. The development
 view reports `resource_use.supplied_native_work_instructions` from the saved input,
 including section scopes and byte counts. Older inputs keep their original prose
 and report no separately recorded command-instruction field.
 
 ## Existing roots
 
-Existing roots keep their complete legacy interface until the operator explicitly
-installs guides. Installation changes future definition supply without changing
-current selections, grants, resource limits, spent attempts or continuing work.
-It performs no inference. Use the updated native binaries for all operations
-after installation: older binaries cannot read the new catalogue state.
+For a runtime without registered guides, install them before using native work
+commands. Earlier full-interface admissions are historical records and cannot
+authorize new work operations in the first release. Installation changes future
+definition supply without changing current selections, grants, resource limits,
+spent attempts or continuing work. It performs no inference and is not required
+for host-command access. Fresh native
+setup performs this registration automatically before persona work begins.
 
 ```sh
 ai-personas --state-root /private/state --operator requester \
