@@ -382,6 +382,12 @@ pub enum Operation {
         id: String,
         scope: Scope,
         source: String,
+        /// Relative path in the native fragment or asset store, for example
+        /// notes/review.md. This does not write to the host filesystem. Use
+        /// host.command.v1 for host files, including absolute workspace paths.
+        /// Use nonempty slash-separated components, with no leading/trailing
+        /// slash, empty component, dot or dot-dot component, backslash, colon
+        /// or control character.
         path: String,
         /// For an existing source, copy its current accepted head revision
         /// exactly. Omitting this field or using null is valid only for a new
@@ -1715,10 +1721,10 @@ fn check_operation(
         } => {
             check_id(source, &format!("{path}.source"))?;
             check_text(target, MAX_REASON_BYTES, &format!("{path}.path"))?;
-            if target.chars().any(char::is_control) {
+            if !crate::files::canonical_relative_path(target) {
                 return Err(invalid(
                     &format!("{path}.path"),
-                    "path contains a control character",
+                    "expected a canonical relative native-store path; use host.command.v1 for host filesystem writes",
                 ));
             }
             check_base(base_revision, &format!("{path}.base_revision"))?;

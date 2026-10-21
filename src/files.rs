@@ -1058,7 +1058,7 @@ fn valid_digest(value: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-fn canonical_relative_path(path: &str) -> bool {
+pub(crate) fn canonical_relative_path(path: &str) -> bool {
     !path.is_empty()
         && !path
             .chars()

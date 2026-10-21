@@ -50,6 +50,14 @@ Shell environment changes last for that command; persist reusable settings in
 host files or source them in later commands. Native supporting assets remain
 separate from host filesystem files.
 
+`file_write.path` names a relative path inside the native fragment or asset
+store, such as `notes/review.md`; it does not save a host file. Use
+`host.command.v1` to write a file at an absolute host workspace path. Native
+paths use nonempty slash-separated components and exclude leading or trailing
+slashes, `.` and `..` components, backslashes, colons and control characters.
+The decision schema describes this distinction, and validation reports an
+invalid native path at the corresponding operation's `path` field.
+
 The normal complete-decision adoption records the exact command before dispatch.
 There is no separate tool attempt allocation or additional model-call charge.
 Input and retained-output bytes use the existing Store accounting. A shell
