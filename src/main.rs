@@ -319,6 +319,20 @@ enum Command {
     RevokeHttpFetch { grant: String },
     /// Settle HTTPS retrieval; never replay a dispatched request.
     RecoverHttpFetches,
+    /// Inspect an existing tool allocation and exact fences for an explicit update.
+    ToolGrantSnapshot {
+        #[arg(long, value_parser = ["computation", "http_fetch"])]
+        kind: String,
+        grant: String,
+    },
+    /// Update tool authority without resetting spending, selecting context or running work.
+    UpdateToolGrant {
+        file: PathBuf,
+        #[arg(long, conflicts_with = "apply", required_unless_present = "apply")]
+        preview: bool,
+        #[arg(long, conflicts_with = "preview", required_unless_present = "preview")]
+        apply: bool,
+    },
     AddNeed {
         file: PathBuf,
     },
@@ -889,6 +903,21 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         let mut app = launch::open(root, Some(operator))?;
         let count = app.recover_http_fetches(runtime::unix_now()?)?;
         return emit(&serde_json::json!({"visited_jobs":count,"dispatched_replayed":false}));
+    }
+    if let Command::ToolGrantSnapshot { kind, grant } = &cli.command {
+        let kind = match kind.as_str() {
+            "computation" => runtime::ToolGrantKind::Computation,
+            "http_fetch" => runtime::ToolGrantKind::HttpFetch,
+            _ => unreachable!(),
+        };
+        let mut app = launch::open(root, Some(operator))?;
+        return emit(&app.tool_grant_update_snapshot(operator, kind, grant, runtime::unix_now()?)?);
+    }
+    if let Command::UpdateToolGrant { file, apply, .. } = &cli.command {
+        let request: runtime::ToolGrantUpdateRequest = runtime::read_json_file(file, 16_384)?;
+        request.validate(operator)?;
+        let mut app = launch::open(root, Some(operator))?;
+        return emit(&app.update_tool_grant(operator, request, *apply, runtime::unix_now()?)?);
     }
     if let Command::InitState { config } = &cli.command {
         let config: Config = runtime::read_json_file(config, 4 * 1024 * 1024)?;
@@ -1593,6 +1622,8 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         | Command::RevokeHttpFetch { .. }
         | Command::RecoverHttpFetches
         | Command::RecoverComputations
+        | Command::ToolGrantSnapshot { .. }
+        | Command::UpdateToolGrant { .. }
         | Command::InitState { .. }
         | Command::DispatchSynthetic { .. }
         | Command::ProviderReadiness

@@ -17,6 +17,7 @@ pub fn engine_revision() -> String {
     sha256_bytes(
         &[
             include_bytes!("computation.rs").as_slice(),
+            include_bytes!("../Cargo.toml").as_slice(),
             include_bytes!("../Cargo.lock").as_slice(),
         ]
         .concat(),

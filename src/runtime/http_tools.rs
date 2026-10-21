@@ -2,7 +2,7 @@
 //! Guides remain assets. Reading one supplies no grant; a grant supplies no body.
 use super::*;
 use crate::http_fetch as c;
-const MAX_GRANT_SECONDS: i64 = 7 * 24 * 60 * 60;
+pub(super) const MAX_GRANT_SECONDS: i64 = 7 * 24 * 60 * 60;
 
 const RESULT_CAPACITY: u64 = 128 * 1024;
 
@@ -27,6 +27,18 @@ pub struct Grant {
     pub client_revision: String,
     pub used: u32,
     pub revoked: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub updates: Vec<tool_authorization::GrantUpdate<HttpFetchGrantRequest>>,
+}
+
+impl Grant {
+    pub(super) fn current_request(&self) -> &HttpFetchGrantRequest {
+        self.updates.last().map_or(&self.request, |update| &update.effective_request)
+    }
+
+    pub(super) fn current_revision(&self) -> &str {
+        self.updates.last().map_or(&self.client_revision, |update| &update.implementation_revision)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -77,22 +89,29 @@ struct Terminal {
     outcome: c::Outcome,
 }
 
-fn interface(grant: &Grant) -> Result<HttpFetchInterface> {
+pub(super) fn interface(grant: &Grant) -> Result<HttpFetchInterface> {
+    interface_for(grant.current_request(), grant.current_revision())
+}
+
+pub(super) fn interface_for(
+    request: &HttpFetchGrantRequest,
+    client_revision: &str,
+) -> Result<HttpFetchInterface> {
     let schema = serde_json::to_value(schemars::schema_for!(Inputs))?;
     Ok(HttpFetchInterface {
         capability_id: c::PROFILE.into(),
-        binding_revision: digest(&(c::PROFILE, &grant.request, &grant.client_revision, &schema))?,
-        grant: grant.request.id.clone(),
-        guide: grant.request.guide.clone(),
+        binding_revision: digest(&(c::PROFILE, request, client_revision, &schema))?,
+        grant: request.id.clone(),
+        guide: request.guide.clone(),
         inputs_schema: schema,
-        client_revision: grant.client_revision.clone(),
-        attempt_limit: grant.request.attempts,
-        origins: grant.request.origins.clone(),
-        expires_at_unix: grant.request.expires_at_unix,
+        client_revision: client_revision.into(),
+        attempt_limit: request.attempts,
+        origins: request.origins.clone(),
+        expires_at_unix: request.expires_at_unix,
     })
 }
 
-fn full_asset<'a>(
+pub(super) fn full_asset<'a>(
     state: &'a State,
     reference: &p::ExactRef,
     a: &f::Admission,
@@ -139,13 +158,10 @@ fn outbound_permitted(state: &State, exposure: &Exposure, a: &f::Admission, url:
 
 fn available(state: &State, grant: &Grant, now: i64) -> bool {
     !grant.revoked
-        && now < grant.request.expires_at_unix
-        && grant.used < grant.request.attempts
-        && grant.client_revision == c::client_revision()
-        && state
-            .work_meta
-            .get(&grant.request.work)
-            .is_some_and(|meta| meta.attempts_left > meta.repair_attempts_left)
+        && now < grant.current_request().expires_at_unix
+        && grant.used < grant.current_request().attempts
+        && grant.current_revision() == c::client_revision()
+        && need_proposals::ordinary_attempts_left(state, &grant.request.work, now) > 0
         && state
             .board
             .work(&w::WorkId(grant.request.work.clone()))
@@ -154,7 +170,7 @@ fn available(state: &State, grant: &Grant, now: i64) -> bool {
             .personas
             .get(&grant.request.actor)
             .is_some_and(|persona| {
-                full_asset(state, &grant.request.guide, &admission(persona, now)).is_ok()
+                full_asset(state, &grant.current_request().guide, &admission(persona, now)).is_ok()
             })
         && !state.http_fetch_jobs.values().any(|job| {
             job.actor == grant.request.actor
@@ -179,7 +195,7 @@ pub(super) fn exposed(
             g.request.actor == actor
                 && g.request.work == work
                 && available(state, g, now)
-                && file_reference(&g.request.guide).is_ok_and(|r| bodies.contains(&r))
+                && file_reference(&g.current_request().guide).is_ok_and(|r| bodies.contains(&r))
         })
         .map(interface)
         .collect()
@@ -327,12 +343,9 @@ pub(super) fn stage(
             .used += 1;
         // One http_fetch consumes one existing ordinary work attempt in addition
         // to the inference admission. The repair suballowance is preserved.
-        let meta = state.work_meta.get_mut(&prepared.request.work).unwrap();
-        require(
-            meta.attempts_left > meta.repair_attempts_left,
-            "http_fetch has no ordinary work allowance",
+        need_proposals::debit_execution(
+            state, &prepared.request.work, &prepared.request.id, &intent_id, now,
         )?;
-        meta.attempts_left -= 1;
         require(
             state
                 .http_fetch_jobs
@@ -398,14 +411,10 @@ impl Runtime {
             .personas
             .get(&request.actor)
             .ok_or_else(|| held("persona absent"))?;
-        let meta = state
-            .work_meta
-            .get(&request.work)
-            .ok_or_else(|| held("work allocation absent"))?;
         require(
             u64::from(request.attempts)
-                <= meta.attempts_left.saturating_sub(meta.repair_attempts_left),
-            "http_fetch cap exceeds the existing ordinary work allowance",
+                <= need_proposals::ordinary_attempts_left(&state, &request.work, now),
+            "http_fetch cap exceeds the existing ordinary work/episode allowance",
         )?;
         require(
             persona.focus.contains_key(&request.work) && persona.active_invocation.is_none(),
@@ -429,6 +438,7 @@ impl Runtime {
             client_revision: c::client_revision(),
             used: 0,
             revoked: false,
+            updates: Vec::new(),
         };
         let result = interface(&grant)?;
         state
@@ -506,16 +516,17 @@ impl Runtime {
             let authorized = (|| -> Result<()> {
                 lifecycle::require_active(&state, &job.actor)?;
                 optional_activity::require_current(&state, &job.work, &job.actor, now)?;
+                need_proposals::check_work(self, &state, &job.work, now)?;
                 let grant = state
                     .http_fetch_grants
                     .get(&job.interface.grant)
                     .ok_or_else(|| held("grant absent"))?;
                 require(
                     !grant.revoked
-                        && now < grant.request.expires_at_unix
-                        && grant.client_revision == c::client_revision()
+                        && now < grant.current_request().expires_at_unix
+                        && grant.current_revision() == c::client_revision()
                         && interface(grant)? == job.interface
-                        && grant.used <= grant.request.attempts,
+                        && grant.used <= grant.current_request().attempts,
                     "http_fetch authorization changed",
                 )?;
                 require(

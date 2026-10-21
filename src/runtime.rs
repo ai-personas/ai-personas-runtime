@@ -33,6 +33,10 @@ mod stakeholder;
 mod state_storage;
 mod tools;
 mod http_tools;
+mod tool_authorization;
+pub use tool_authorization::{
+    ToolGrantKind, ToolGrantUpdateFence, ToolGrantUpdateRequest, ToolGrantUpdateTerms,
+};
 mod context_fit_recovery;
 pub use http_tools::{HttpFetchGrantRequest, HttpFetchInterface};
 pub use tools::{ComputationGrantRequest, ComputationInterface};
@@ -7667,7 +7671,7 @@ fn render_mode_with_history(
         core["computation_capabilities"] = serde_json::to_value(&computation_interfaces)?;
         core["computation_allowance"] = json!(computation_interfaces.iter().map(|interface| {
             let grant = &state.computation_grants[&interface.grant];
-            json!({"grant":interface.grant,"attempts_left":grant.request.attempts - grant.used,
+            json!({"grant":interface.grant,"attempts_left":grant.current_request().attempts - grant.used,
                 "funding":"Each computation also consumes one existing ordinary work attempt and root Store allowance; no refill."})
         }).collect::<Vec<_>>());
         core["computation_rules"] = json!({"operation":"effect", "maximum_external_executions_per_decision":1,
@@ -7691,7 +7695,7 @@ fn render_mode_with_history(
         core["http_fetch_capabilities"] = serde_json::to_value(&http_fetch_interfaces)?;
         core["http_fetch_allowance"] = json!(http_fetch_interfaces.iter().map(|interface| {
             let grant = &state.http_fetch_grants[&interface.grant];
-            json!({"grant":interface.grant,"attempts_left":grant.request.attempts - grant.used,
+            json!({"grant":interface.grant,"attempts_left":grant.current_request().attempts - grant.used,
                 "funding":"Each HTTPS request also consumes one existing ordinary work attempt and root Store allowance; no refill."})
         }).collect::<Vec<_>>());
         core["http_fetch_rules"] = json!({"operation":"effect", "maximum_external_executions_per_decision":1,

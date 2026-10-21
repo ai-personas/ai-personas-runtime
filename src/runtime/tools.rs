@@ -25,6 +25,18 @@ pub struct Grant {
     pub engine_revision: String,
     pub used: u32,
     pub revoked: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub updates: Vec<tool_authorization::GrantUpdate<ComputationGrantRequest>>,
+}
+
+impl Grant {
+    pub(super) fn current_request(&self) -> &ComputationGrantRequest {
+        self.updates.last().map_or(&self.request, |update| &update.effective_request)
+    }
+
+    pub(super) fn current_revision(&self) -> &str {
+        self.updates.last().map_or(&self.engine_revision, |update| &update.implementation_revision)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -90,20 +102,27 @@ struct Terminal {
     outcome: c::Outcome,
 }
 
-fn interface(grant: &Grant) -> Result<ComputationInterface> {
+pub(super) fn interface(grant: &Grant) -> Result<ComputationInterface> {
+    interface_for(grant.current_request(), grant.current_revision())
+}
+
+pub(super) fn interface_for(
+    request: &ComputationGrantRequest,
+    engine_revision: &str,
+) -> Result<ComputationInterface> {
     let schema = serde_json::to_value(schemars::schema_for!(Inputs))?;
     Ok(ComputationInterface {
         capability_id: c::PROFILE.into(),
-        binding_revision: digest(&(c::PROFILE, &grant.request, &grant.engine_revision, &schema))?,
-        grant: grant.request.id.clone(),
-        guide: grant.request.guide.clone(),
+        binding_revision: digest(&(c::PROFILE, request, engine_revision, &schema))?,
+        grant: request.id.clone(),
+        guide: request.guide.clone(),
         inputs_schema: schema,
-        engine_revision: grant.engine_revision.clone(),
-        attempt_limit: grant.request.attempts,
+        engine_revision: engine_revision.into(),
+        attempt_limit: request.attempts,
     })
 }
 
-fn full_asset<'a>(
+pub(super) fn full_asset<'a>(
     state: &'a State,
     reference: &p::ExactRef,
     a: &f::Admission,
@@ -141,12 +160,9 @@ fn full_asset<'a>(
 
 fn available(state: &State, grant: &Grant, now: i64) -> bool {
     !grant.revoked
-        && grant.used < grant.request.attempts
-        && grant.engine_revision == c::engine_revision()
-        && state
-            .work_meta
-            .get(&grant.request.work)
-            .is_some_and(|meta| meta.attempts_left > meta.repair_attempts_left)
+        && grant.used < grant.current_request().attempts
+        && grant.current_revision() == c::engine_revision()
+        && need_proposals::ordinary_attempts_left(state, &grant.request.work, now) > 0
         && state
             .board
             .work(&w::WorkId(grant.request.work.clone()))
@@ -155,7 +171,7 @@ fn available(state: &State, grant: &Grant, now: i64) -> bool {
             .personas
             .get(&grant.request.actor)
             .is_some_and(|persona| {
-                full_asset(state, &grant.request.guide, &admission(persona, now)).is_ok()
+                full_asset(state, &grant.current_request().guide, &admission(persona, now)).is_ok()
             })
         && !state.computation_jobs.values().any(|job| {
             job.actor == grant.request.actor
@@ -180,7 +196,7 @@ pub(super) fn exposed(
             g.request.actor == actor
                 && g.request.work == work
                 && available(state, g, now)
-                && file_reference(&g.request.guide).is_ok_and(|r| bodies.contains(&r))
+                && file_reference(&g.current_request().guide).is_ok_and(|r| bodies.contains(&r))
         })
         .map(interface)
         .collect()
@@ -370,12 +386,9 @@ pub(super) fn stage(
             .used += 1;
         // One computation consumes one existing ordinary work attempt in addition
         // to the inference admission. The repair suballowance is preserved.
-        let meta = state.work_meta.get_mut(&prepared.request.work).unwrap();
-        require(
-            meta.attempts_left > meta.repair_attempts_left,
-            "computation has no ordinary work allowance",
+        need_proposals::debit_execution(
+            state, &prepared.request.work, &prepared.request.id, &intent_id, now,
         )?;
-        meta.attempts_left -= 1;
         require(
             state
                 .computation_jobs
@@ -435,14 +448,10 @@ impl Runtime {
             .personas
             .get(&request.actor)
             .ok_or_else(|| held("persona absent"))?;
-        let meta = state
-            .work_meta
-            .get(&request.work)
-            .ok_or_else(|| held("work allocation absent"))?;
         require(
             u64::from(request.attempts)
-                <= meta.attempts_left.saturating_sub(meta.repair_attempts_left),
-            "computation cap exceeds the existing ordinary work allowance",
+                <= need_proposals::ordinary_attempts_left(&state, &request.work, now),
+            "computation cap exceeds the existing ordinary work/episode allowance",
         )?;
         require(
             persona.focus.contains_key(&request.work) && persona.active_invocation.is_none(),
@@ -455,6 +464,7 @@ impl Runtime {
             engine_revision: c::engine_revision(),
             used: 0,
             revoked: false,
+            updates: Vec::new(),
         };
         let result = interface(&grant)?;
         state
@@ -532,15 +542,16 @@ impl Runtime {
             let authorized = (|| -> Result<()> {
                 lifecycle::require_active(&state, &job.actor)?;
                 optional_activity::require_current(&state, &job.work, &job.actor, now)?;
+                need_proposals::check_work(self, &state, &job.work, now)?;
                 let grant = state
                     .computation_grants
                     .get(&job.interface.grant)
                     .ok_or_else(|| held("grant absent"))?;
                 require(
                     !grant.revoked
-                        && grant.engine_revision == c::engine_revision()
+                        && grant.current_revision() == c::engine_revision()
                         && interface(grant)? == job.interface
-                        && grant.used <= grant.request.attempts,
+                        && grant.used <= grant.current_request().attempts,
                     "computation authorization changed",
                 )?;
                 require(

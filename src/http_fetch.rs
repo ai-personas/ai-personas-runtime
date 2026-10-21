@@ -11,6 +11,7 @@ pub const TIMEOUT_SECONDS: u64 = 20;
 
 pub fn client_revision() -> String {
     let mut bytes = include_bytes!("http_fetch.rs").to_vec();
+    bytes.extend_from_slice(include_bytes!("../Cargo.toml"));
     bytes.extend_from_slice(include_bytes!("../Cargo.lock"));
     crate::store::sha256_bytes(&bytes)
 }

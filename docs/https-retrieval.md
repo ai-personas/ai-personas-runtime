@@ -74,6 +74,10 @@ Each admitted request consumes an existing ordinary work attempt and reserves
 an attempt plus URL/body allowances in the root Store ledger. It preserves the
 repair suballowance. Failed and canceled admissions do not refill the work or
 grant cap. A second grant cannot reset that allocation; revocation is permanent.
+An explicit [tool authorization update](tool-authorizations.md) can revise the
+guide/client binding, approve a finite cap increase, or set new origins and
+expiry while preserving spending and execution history. It adds no work or
+Store funds. Attached intake episodes also constrain and pay for execution.
 Expiry, source permissions and the exact client binding are checked again before
 dispatch. A grant starts no inference and does not resume a stopped persona.
 
@@ -102,7 +106,7 @@ requires a later decision.
 ## Transport and result evidence
 
 The host uses the pinned Reqwest 0.12.28 client and locked TLS dependencies. The
-runner source and lockfile hash form its client revision; grants bind that exact
+runner source, dependency manifest and lockfile form its client revision; grants bind that exact
 revision. DNS resolution is checked before connection and pinned into the client.
 At most 32 resolved addresses are accepted, and every address must pass the
 conservative public-address filter. TLS verification keeps the original host.

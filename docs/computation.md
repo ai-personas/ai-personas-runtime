@@ -48,7 +48,10 @@ repair suballowance, and reserves an attempt/input/output allowance in the same
 root Store ledger used by inference. Canceled and failed admissions do not refill
 the work cap. A second grant cannot reset an existing persona/work allocation.
 Revocation is permanent. Engine or dependency changes invalidate old bindings;
-there is no implicit migration to a different executable environment.
+there is no implicit migration to a different executable environment. Use an
+explicit [tool authorization update](tool-authorizations.md) to bind a current
+guide or implementation, or to approve a finite cap increase without resetting
+spent attempts. Attached intake episodes also constrain and pay for execution.
 
 A callable definition appears in `CONTROL.computation_capabilities` only when
 this request actually supplies the exact complete guide body, with its qualified

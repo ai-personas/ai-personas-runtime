@@ -32,6 +32,7 @@ pub(crate) struct EpisodeCharge {
     /// Missing historical values name the episode's original parent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub work: Option<String>,
+    /// Admission or tool-authoring invocation; the charge key distinguishes them.
     pub invocation: Option<String>,
     pub allocation: WorkAllocation,
     pub at_unix: i64,
@@ -489,6 +490,59 @@ pub(super) fn debit_preparation(
         requested,
         now,
     )
+}
+
+/// Ordinary work capacity, additionally limited by an attached intake episode.
+/// A tool allocation is a cap on this funding, never a separate balance.
+pub(super) fn ordinary_attempts_left(state: &State, work: &str, now: i64) -> u64 {
+    let Some(meta) = state.work_meta.get(work) else {
+        return 0;
+    };
+    let work_left = meta.attempts_left.saturating_sub(meta.repair_attempts_left);
+    let Some(episode) = episode(state, work) else {
+        return work_left;
+    };
+    if episode.revoked_at_unix.is_some() || !episode.grant.active_at(now) {
+        return 0;
+    }
+    work_left.min(
+        episode.remaining.attempts.saturating_sub(episode.remaining.repair_attempts),
+    )
+}
+
+/// Staged with the complete decision and durable intent. The same execution
+/// debits work and its episode once; it creates no second physical reservation.
+pub(super) fn debit_execution(
+    state: &mut State,
+    work: &str,
+    invocation: &str,
+    intent: &str,
+    now: i64,
+) -> Result<()> {
+    require(
+        ordinary_attempts_left(state, work, now) > 0,
+        "external execution has no ordinary work/episode allowance",
+    )?;
+    if bound(state, work) {
+        charge(
+            state,
+            work,
+            bounded_composite_id("execution", &[intent]),
+            Some(invocation),
+            false,
+            f::NavigationLimits {
+                calls: 0,
+                scanned_bytes: 0,
+                inspected_revisions: 0,
+                matches: 0,
+                result_bytes: 0,
+            },
+            now,
+        )?;
+    } else {
+        state.work_meta.get_mut(work).unwrap().attempts_left -= 1;
+    }
+    Ok(())
 }
 
 /// Called inside the existing event/evidence reservation path. This adds a

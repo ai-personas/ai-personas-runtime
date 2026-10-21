@@ -6,6 +6,9 @@ A Rust application for personas whose primary language model directs their work,
 [HTTPS source retrieval](docs/https-retrieval.md) use explicit persona/work grants,
 selected qualified guides and durable intent/result evidence. HTTPS origins also
 require compatible source processing permissions.
+Existing allocations support explicit [tool authorization updates](docs/tool-authorizations.md)
+for current guides and implementations, finite cap changes, and HTTPS terms.
+Updates retain original authorizations, spent counters and execution history.
 
 The current executable supports an explicitly controlled local workflow. Full design conformance and unattended production operation are not yet established. `ai-personas doctor` reports the current limits.
 
