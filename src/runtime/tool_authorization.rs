@@ -270,6 +270,7 @@ fn require_settled(state: &State, actor: &str, work: &str) -> Result<()> {
             .computation_jobs
             .values()
             .chain(state.http_fetch_jobs.values())
+            .chain(state.host_command_jobs.values())
             .filter(|job| job.actor == actor && job.work == work)
             .all(|job| {
                 job.observation.is_some()

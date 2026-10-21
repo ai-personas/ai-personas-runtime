@@ -111,10 +111,11 @@ recorded body/schema supply, missing work-command grants and historical entries
 without readiness metadata. These counts establish neither operation-specific
 authority nor successful use.
 
-The native runtime supports explicitly granted [bounded WebAssembly computation](computation.md)
-and [HTTPS source retrieval](https-retrieval.md), as well as its internal file,
-discovery, history and work operations. Shell commands and arbitrary installed
-software remain unavailable.
+The native runtime provides [full host command access by default](host-commands.md),
+including tool installation and use of installed software. The separately granted
+[bounded WebAssembly computation](computation.md) and
+[HTTPS source retrieval](https-retrieval.md) profiles remain available alongside
+internal file, discovery, history and work operations.
 The legacy `Effect` encoding of `work.command.v1` denotes an internal work operation.
 The view reports supplied computation interfaces, the accepted decision's intent
 count, and `computation_execution`: actual intent states, dispatch and terminal
@@ -124,12 +125,16 @@ The separate `http_fetch_execution` view reports actual HTTPS intents, URL/clien
 bindings and terminal evidence, and `supplied_http_fetch_interfaces` records the
 callables in the accepted input. HTTP result metadata does not mean the remote
 body reached the persona; inspect its later exact read or selection. An operator's
-later rendering or calculation is not persona tool use. Broader
-external adapters remain an implementation gap against the design.
-The runtime does not inherit the coding agent's tools or installed Codex skills.
-An operator can retain a guide with `import-supporting-file`; the persona must
-then discover or select its permitted asset body. Importing it creates no
-executable binding and does not automatically supply it in a model request.
+later rendering or calculation is not persona tool use.
+`supplied_host_command_interface` records the default host interface actually
+supplied to the call. `host_command_execution` shows its exact commands, inputs,
+runner binding, dispatch receipts, exit status, output and retained results.
+Host commands can use installed programs and skill-guide files accessible to the
+host account. Coding-agent connector APIs are not automatically exposed as native
+runtime capabilities. To retain a guide as a native supporting asset, an operator
+can use `import-supporting-file`; the persona then discovers or selects that
+asset's body. Importing it creates no executable binding and does not automatically
+supply it in a model request. Host file reads remain visible in command results.
 
 The same view shows the exact accepted response's work judgment, characteristic
 and asset maintenance decisions, next-context intentions, and continuation. This

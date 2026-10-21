@@ -2,6 +2,13 @@
 
 A Rust application for personas whose primary language model directs their work, character, behavior, voice, supporting assets, and next-context selection. The application implements a bounded local subset of [design revision 67894561](https://github.com/ai-personas/ai-personas-design/tree/67894561fa88a8f734e8f536bcbafda271b18c63). [Revision 294d5c6](https://github.com/ai-personas/ai-personas-design/tree/294d5c6bf29b6d5fe597c40b4c9c33e9da3bc03c) is its later editorial and illustrated restatement, with the same substantive obligations.
 
+[Full host command access](docs/host-commands.md) is enabled by default for ordinary
+persona decisions, including tool installation, filesystem/network use and
+installed software. No application sandbox, allowlist, per-tool approval or
+installation grant is required. The native path records the exact command,
+actual process status and output. This follows the user's current full-access
+requirement; the earlier bounded-profile runs remain historical records.
+
 [Bounded WebAssembly computation](docs/computation.md) and
 [HTTPS source retrieval](docs/https-retrieval.md) use explicit persona/work grants,
 selected qualified guides and durable intent/result evidence. HTTPS origins also

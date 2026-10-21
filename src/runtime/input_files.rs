@@ -41,6 +41,7 @@ struct NativeCommandReadiness {
 enum ToolResultFamily {
     Computation,
     HttpFetch,
+    HostCommand,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -58,6 +59,7 @@ fn tool_result_origins(control: &Value, reference: &f::Reference) -> Result<Vec<
     for (field, family) in [
         ("computation_state", ToolResultFamily::Computation),
         ("http_fetch_state", ToolResultFamily::HttpFetch),
+        ("host_command_state", ToolResultFamily::HostCommand),
     ] {
         if let Some(results) = control[field]["retained_results"].as_array() {
             for result in results {
@@ -206,7 +208,7 @@ fn candidates(control: &Value, qualified: &Value) -> Result<Candidates> {
         "reference",
     )?;
     candidates.bundle(qualified)?;
-    for family in ["computation_state", "http_fetch_state"] {
+    for family in ["computation_state", "http_fetch_state", "host_command_state"] {
         candidates.entries(&control[family]["allocations"], "guide")?;
         candidates.entries(&control[family]["retained_results"], "source")?;
     }

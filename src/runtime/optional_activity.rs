@@ -426,6 +426,7 @@ pub(crate) fn finish_if_stopped(state: &mut State, prepared: &Prepared, now: i64
         .computation_jobs
         .values()
         .chain(state.http_fetch_jobs.values())
+        .chain(state.host_command_jobs.values())
         .any(|job| {
             &job.work == work_id
                 && (!matches!(
@@ -442,6 +443,7 @@ pub(crate) fn finish_if_stopped(state: &mut State, prepared: &Prepared, now: i64
         .computation_jobs
         .values()
         .chain(state.http_fetch_jobs.values())
+        .chain(state.host_command_jobs.values())
     {
         if &job.work == work_id {
             extend_exposure(&mut exposure, &job.exposure);

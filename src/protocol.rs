@@ -551,6 +551,8 @@ pub enum Operation {
         /// fresh decision receives the actual observation.
         depends_on: Vec<String>,
     },
+    /// Invoke a supplied external capability. host.command.v1 provides default
+    /// host shell access, including installing and running tools, without a grant.
     Effect {
         id: String,
         capability_id: String,

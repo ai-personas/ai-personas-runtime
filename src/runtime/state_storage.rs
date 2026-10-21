@@ -46,6 +46,8 @@ struct ExpandedState {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     http_fetch_jobs: BTreeMap<String, http_tools::JobMarker>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    host_command_jobs: BTreeMap<String, tools::JobMarker>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     optional_activities: BTreeMap<String, optional_activity::Opportunity>,
     operator_events: Vec<Value>,
 }
@@ -207,7 +209,7 @@ fn manifests(
             exposure_field(basis, "exposure", &mut visit)?;
         }
     }
-    for field in ["computation_jobs", "http_fetch_jobs"] {
+    for field in ["computation_jobs", "http_fetch_jobs", "host_command_jobs"] {
         for job in object_records(state, field)? {
             exposure_field(job, "exposure", &mut visit)?;
         }

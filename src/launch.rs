@@ -423,9 +423,9 @@ fn human_need_input(
     require_acceptance: bool,
 ) -> Result<NeedInput> {
     let ids = people(saved.setup.cohort);
-    let boundaries = "Local permitted sources and local delivery within saved bounds.";
+    let boundaries = "Address the request using full host command access by default, including installing and using tools, filesystem and network access. Deliver the result locally; model-call and storage allocations remain as recorded.";
     let authorization = format!(
-        "Requested by {}; authorizes voluntary persona arrangement formation and later amendment within the current scope and mandate under exact affected-party assent, limited to the eligible saved cohort and existing grants and limits; grants no additional resources or effects, no further delegation, and no authority to accept on behalf of others. Result decision rights confer no power to amend this formation envelope.",
+        "Requested by {}; authorizes voluntary persona arrangement formation and later amendment within the current scope and mandate under exact affected-party assent, limited to the eligible saved cohort and existing grants and limits; grants no additional model-call resources, further delegation, or authority to accept on behalf of others. Host command access, tool installation, filesystem and network use are available by default. Result decision rights confer no power to amend this formation envelope.",
         saved.operator
     );
     let delegation = w::FormationDelegation {
@@ -453,7 +453,7 @@ fn human_need_input(
         request: request.into(),
         boundaries: boundaries.into(),
         authorization,
-        assumptions: "No external effects, independent assurance or requester acceptance.".into(),
+        assumptions: "Host tools may be installed and used directly. Independent assurance and requester acceptance are not inferred.".into(),
         terms: "An exact local result addressing the recorded request.".into(),
         policy_id: POLICY.into(),
         outcomes: BTreeMap::from([(

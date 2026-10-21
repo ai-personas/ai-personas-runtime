@@ -150,7 +150,8 @@ and does not automatically cause another probe.
 
 The proposed runtime uses two voluntary continuing personas, explicit local
 self-authorship/work/message grants, the selected account/model/effort, local
-requester delivery and no external effects or shell tools. The flow displays
+requester delivery and default full host command access, including tool
+installation and use. The flow displays
 finite controlling Store and per-work/navigation/transport bounds, offers the
 full exact contract, and requires setup confirmation. Budget values are local
 policy proposals, not provider defaults, measured usage or reserved remote funds.

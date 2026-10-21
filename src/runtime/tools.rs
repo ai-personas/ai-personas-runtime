@@ -832,7 +832,7 @@ pub(super) fn result_bindings(state: &State, files: &[f::FileRevision]) -> Resul
     let mut bindings = Vec::new();
     for file in files {
         let stored = record(state, &file.reference(f::Representation::Utf8))?;
-        if !matches!(&stored.origin, Some(RevisionOrigin::ComputationResult { .. } | RevisionOrigin::HttpFetchResult { .. })) {
+        if !matches!(&stored.origin, Some(RevisionOrigin::ComputationResult { .. } | RevisionOrigin::HttpFetchResult { .. } | RevisionOrigin::HostCommandResult { .. })) {
             continue;
         }
         let required: Vec<_> = qualifications(state, stored.qualification_sources.as_deref().unwrap_or(&stored.lineage)).into_iter()

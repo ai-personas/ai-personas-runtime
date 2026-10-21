@@ -1288,7 +1288,7 @@ class Dialogue:
             noun = "persona" if cohort == 1 else "personas"
             self.ui.say(f"Proposed local cohort: {cohort} continuing {noun} and you, without assigned owner/reviewer roles. "
                         "Grants permit their own fragments, assets, character proposals, work commands and cohort messages. "
-                        "This grants NO host shell/tools, external effects, automatic retries or background work.")
+                        "Host command access is enabled by default: personas can install and use tools with this host account and environment.")
             attempts = self.ui.number("Lifetime attempt allowance for each new work", 16, 1, 128)
             total = self.ui.number("Saved launch lifetime foreground-step ceiling (never auto-refilled)", 64, 1, 256)
             steps = self.ui.number("Maximum foreground attempts per explicitly authorized session", 4, 1, min(128, total))

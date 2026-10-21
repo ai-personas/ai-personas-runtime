@@ -319,6 +319,8 @@ enum Command {
     RevokeHttpFetch { grant: String },
     /// Settle HTTPS retrieval; never replay a dispatched request.
     RecoverHttpFetches,
+    /// Settle native host commands without repeating a dispatched command.
+    RecoverHostCommands,
     /// Inspect an existing tool allocation and exact fences for an explicit update.
     ToolGrantSnapshot {
         #[arg(long, value_parser = ["computation", "http_fetch"])]
@@ -947,6 +949,11 @@ async fn run(cli: Cli) -> runtime::Result<()> {
     if let Command::RecoverHttpFetches = &cli.command {
         let mut app = launch::open(root, Some(operator))?;
         let count = app.recover_http_fetches(runtime::unix_now()?)?;
+        return emit(&serde_json::json!({"visited_jobs":count,"dispatched_replayed":false}));
+    }
+    if let Command::RecoverHostCommands = &cli.command {
+        let mut app = launch::open(root, Some(operator))?;
+        let count = app.recover_host_commands(runtime::unix_now()?)?;
         return emit(&serde_json::json!({"visited_jobs":count,"dispatched_replayed":false}));
     }
     if let Command::ToolGrantSnapshot { kind, grant } = &cli.command {
@@ -1666,6 +1673,7 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         | Command::GrantHttpFetch { .. }
         | Command::RevokeHttpFetch { .. }
         | Command::RecoverHttpFetches
+        | Command::RecoverHostCommands
         | Command::RecoverComputations
         | Command::ToolGrantSnapshot { .. }
         | Command::UpdateToolGrant { .. }

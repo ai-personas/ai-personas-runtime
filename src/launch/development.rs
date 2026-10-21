@@ -290,6 +290,7 @@ fn invocation_evidence(
         "resource_use":resource_use::inspect(state, audience, &prepared, &control, &qualified, &proof)?,
         "computation_execution":tools::inspect(app, state, audience, &proof)?,
         "http_fetch_execution":http_tools::inspect(app, state, audience, &proof)?,
+        "host_command_execution":host_tools::inspect(app, state, audience, &proof)?,
         "accepted_decision":accepted_decision_view(state, audience, &prepared, &archive)?,
         "input_accounting":{
             "prompt_utf8_bytes":prepared.prompt.len(),

@@ -295,6 +295,7 @@ pub(crate) fn retirement_blockers(
         .computation_jobs
         .values()
         .chain(state.http_fetch_jobs.values())
+        .chain(state.host_command_jobs.values())
     {
         if job.actor == actor
             && (!matches!(

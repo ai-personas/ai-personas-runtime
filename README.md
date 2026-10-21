@@ -44,14 +44,20 @@ record. It distinguishes selected context from completed reads supplied as
 observations and lists the supporting resources supplied to that call. Read the
 work result to judge how the persona used them.
 
-Personas use internal file, search, history and collaboration operations. Fresh
+Personas have [full host command access by default](docs/host-commands.md). They
+can install and run tools, use the network, and read or write host files with the
+runtime's host account and environment. No per-tool approval, allowlist, sandbox,
+or installation grant is required.
+
+Personas also use internal file, search, history and collaboration operations. Fresh
 native setups let personas [discover and select work-command guides](docs/work-command-guides.md)
 through the ordinary file interface; only supplied guides expose their schemas. An
 explicit work grant also permits [bounded WebAssembly computation](docs/computation.md)
 after the persona reads or selects its exact guide. Program execution produces
 durable intent and result receipts. [HTTPS source retrieval](docs/https-retrieval.md)
 is available with an expiring work grant, exact permitted origins and compatible
-source policies. Shell commands and arbitrary installed software remain unavailable. A supplied skill guide alone does not
+source policies. These separate profiles do not restrict default host command access.
+A supplied skill guide alone does not
 establish execution or skill application.
 
 [Inspect persona development](docs/persona-development.md) explains requester

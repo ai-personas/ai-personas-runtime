@@ -464,7 +464,7 @@ fn child_input(
         id: request.child_work_id.clone(),
         origin: NeedOrigin::PersonaResponse { invocation_id: pending.invocation_id.clone(), operation_id: Some(pending.operation_id.clone()) },
         request: proposal.request.clone(), boundaries: grant.boundaries.clone(), authorization,
-        assumptions: "No external effects, further intake delegation, independent assurance, or inferred acceptance.".into(),
+        assumptions: "Host command access and tool installation are available by default. Further intake delegation, independent assurance and acceptance are not inferred.".into(),
         terms: "Address the exact adopted request and listed outcomes within the recorded delegation boundaries. Participation and arrangements require personal assent.".into(),
         policy_id: grant.policy.id.clone(), outcomes, review_roles: BTreeMap::new(),
         decision_rule: w::DecisionRule::PersonaArranged {

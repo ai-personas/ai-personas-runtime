@@ -7,9 +7,10 @@ create a right to another person's attention. An artifact, characteristic edit
 or later productivity benefit is optional.
 
 This interface is disabled until explicitly granted. It uses the existing local
-environment, source policies and resource ceilings. It supplies no shell,
-external contact permission, tool grant, new participant or automatic funding.
-WebAssembly and HTTPS still require their own exact work grants and supplied
+environment, source policies and resource ceilings. Ordinary decisions include
+the default [full host command interface](host-commands.md), including tool
+installation. Enabling an optional episode creates no new participant or model
+funding. The separate WebAssembly and HTTPS profiles require their own work grants and supplied
 guides, and their attempts also debit the episode's shared work account.
 
 ## Enable and start an opportunity
