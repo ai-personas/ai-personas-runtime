@@ -128,6 +128,12 @@ terminal evidence and command inputs are unchanged. Legacy observations without
 an available retained-result reference keep their original pending projection.
 
 Results are also available as exact supporting assets under `tools/results/`.
+These are runtime asset paths, not files beneath the host working directory.
+Read or select the exact result reference through the runtime file interface.
+The result body can identify the original command's actual host output paths;
+use those exact paths when revising an output. The `stdout_log` and `stderr_log`
+paths refer to host files directly.
+
 `CONTROL.host_command_state.retained_results` lists up to eight of the most
 recently observed permitted result references. `retained_results_truncated`
 reports when older permitted references were omitted from this catalogue; those
