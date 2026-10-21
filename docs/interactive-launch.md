@@ -113,6 +113,13 @@ unrecognized or inconsistent packages keep their original JSON presentation.
 Choose **j** for the original delivery receipt JSON. Both choices request a fresh
 permission-projected result and retain the native result's bounded contents.
 
+Messages show their attached exact file references as metadata beside the
+authored text. Those references supply no file body. Repeated copies from the
+same attributed decision and disclosure scope appear together with the recorded
+count and distinct subjects; each underlying message remains in the native JSON.
+The last-call summary applies its invocation filter before this formatting, so
+older replies and their references do not stand in for a failed or silent call.
+
 ### Fresh native SIWC setup
 
 The selected Personas vault uses the existing auth helper's browser sign-in,

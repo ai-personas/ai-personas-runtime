@@ -80,6 +80,47 @@ def terminal_text(value):
     return "".join(c if c in "\n\t" or (c.isprintable() and c != "\x1b") else "�" for c in str(value))
 
 
+def readable_messages(messages):
+    """Render already-permitted messages, preserving citations and copy counts.
+
+    Group exact copies only within an attributed decision. Keep every distinct
+    subject; references identify files without supplying their bodies.
+    """
+    groups, positions = [], {}
+    for message in messages:
+        # Retain every supplied scope field, including any future metadata.
+        # Empty citations were omitted by historical/native serialization.
+        scope = {key: value for key, value in message.items() if key not in ("id", "subject")}
+        scope.setdefault("file_references", [])
+        attributed = all(isinstance(message.get(field), str) and message[field]
+                         for field in ("sender", "recipient", "work", "invocation"))
+        key = encoded(scope) if attributed else None
+        index = positions.get(key) if key is not None else None
+        subject = message.get("subject", "")
+        if index is None:
+            if key is not None:
+                positions[key] = len(groups)
+            groups.append({"message": message, "count": 1, "subjects": [subject]})
+        else:
+            group = groups[index]
+            group["count"] += 1
+            if subject not in group["subjects"]:
+                group["subjects"].append(subject)
+    parts = []
+    for group in groups:
+        message = group["message"]
+        parts.append(f"{message.get('sender', 'unknown author')}: {message.get('text', '')}")
+        if group["count"] > 1:
+            parts.append(f"Recorded {group['count']} times in the same decision.")
+            parts.extend(f"Subject: {subject}" for subject in group["subjects"])
+        references = message.get("file_references", [])
+        if references:
+            parts.append("Attached exact file references (metadata, not supplied content):")
+            parts.extend(json.dumps(reference, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                         for reference in references)
+    return parts
+
+
 def readable_delivery(delivery):
     """Display complete qualified text, omitting only verified duplicate bytes.
 
@@ -1328,8 +1369,8 @@ class Dialogue:
                 self.ui.say(f"Reply from the session's last reserved call, {invocation}:" if messages else
                             f"No permitted reply from {invocation} is available in this bounded result view.")
             self.ui.say("Choose r in the work menu for the full reply history and complete qualified deliveries.")
-        for msg in messages:
-            self.ui.say(f"{msg.get('sender', 'unknown author')}: {msg.get('text', '')}")
+        for part in readable_messages(messages):
+            self.ui.say(part)
         for delivery in ([] if summary else deliveries):
             self.ui.say("Permission-projected local delivery (including required qualifications):")
             parts = None if receipt_json else readable_delivery(delivery)
