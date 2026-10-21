@@ -152,12 +152,6 @@ fn authorize_snapshot(state: &State, saved: &Saved, operator: &str) -> BoundaryR
     }
     Ok(())
 }
-fn open_view(root: &Path, operator: &str) -> BoundaryResult<(Runtime, inspection::Snapshot)> {
-    valid_id(operator)?;
-    let (app, snapshot) = inspection::Snapshot::open(root)?;
-    authorize_snapshot(&snapshot.state, &snapshot.saved, operator)?;
-    Ok((app, snapshot))
-}
 fn project_view<T: Serialize>(
     root: &Path,
     operator: &str,
@@ -415,7 +409,29 @@ pub enum SessionView {
     },
 }
 fn read_session(app: &mut Runtime, operator: &str, key: &str) -> BoundaryResult<SessionView> {
-    let Some(object) = app.store.read(&record_id(CLAIM_KIND, key))? else {
+    read_session_with(operator, key, |id, claim| match claim {
+        Some(claim) => app.store.read_launch_session_terminal(claim, id),
+        None => app.store.read(id),
+    })
+}
+fn project_session(
+    records: &s::RuntimeInspection<'_, '_>,
+    operator: &str,
+    key: &str,
+) -> BoundaryResult<SessionView> {
+    read_session_with(operator, key, |id, claim| match claim {
+        Some(claim) => records.session_terminal(claim, id),
+        None => records.object(id),
+    })
+}
+// Mutation/replay callers keep metered Store reads; operator projections use
+// the same validation over transaction-bound read-only records.
+fn read_session_with(
+    operator: &str,
+    key: &str,
+    mut read: impl FnMut(&str, Option<&s::ObjectRef>) -> s::Result<Option<s::StoredObject>>,
+) -> BoundaryResult<SessionView> {
+    let Some(object) = read(&record_id(CLAIM_KIND, key), None)? else {
         return Ok(SessionView::NotRecorded);
     };
     check(
@@ -437,10 +453,9 @@ fn read_session(app: &mut Runtime, operator: &str, key: &str) -> BoundaryResult<
     )?;
     let terminal_id = record_id(END_KIND, key);
     let end = if claim.version == 2 {
-        app.store
-            .read_launch_session_terminal(&object.exact_ref()?, &terminal_id)?
+        read(&terminal_id, Some(&object.exact_ref()?))?
     } else {
-        app.store.read(&terminal_id)?
+        read(&terminal_id, None)?
     };
     let Some(end) = end else {
         return Ok(SessionView::OutcomeUnrecorded { claim });
@@ -493,10 +508,7 @@ fn valid_stop(stop: &str) -> bool {
 /// No owner acquisition, recovery, credential read, or provider construction.
 pub fn session_status(root: &Path, operator: &str, key: &str) -> BoundaryResult<SessionView> {
     valid_id(key)?;
-    let (mut app, snapshot) = open_view(root, operator)?;
-    let result = read_session(&mut app, operator, key)?;
-    snapshot.unchanged(&app)?;
-    Ok(result)
+    project_view(root, operator, |_, records| project_session(records, operator, key))
 }
 fn check_replay(view: &SessionView, request: &SessionRequest) -> BoundaryResult<bool> {
     match view {

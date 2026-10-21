@@ -25,14 +25,13 @@ pub struct SessionMessages {
 /// cannot be reconstructed from later launch state or timestamps.
 pub fn session_messages(root: &Path, operator: &str, key: &str) -> BoundaryResult<SessionMessages> {
     valid_id(key)?;
-    let (mut app, snapshot) = open_view(root, operator)?;
-    let result = project(&mut app, &snapshot.state, operator, key)?;
-    snapshot.unchanged(&app)?;
-    Ok(result)
+    project_view(root, operator, |snapshot, records| {
+        let session = project_session(records, operator, key)?;
+        project(&snapshot.state, operator, session)
+    })
 }
 
-fn project(app: &mut Runtime, state: &State, operator: &str, key: &str) -> BoundaryResult<SessionMessages> {
-    let session = read_session(app, operator, key)?;
+fn project(state: &State, operator: &str, session: SessionView) -> BoundaryResult<SessionMessages> {
     let scope = match &session {
         SessionView::Finished { claim, terminal } => match &terminal.outcome {
             SessionEnd::Returned { steps_after, .. } => {

@@ -53,10 +53,16 @@ without returning whole internal runtime, launch or invocation records. The
 ordinary `ai-personas result` and `questions` commands use the same projection
 path. Inspection starts no owner recovery, credential lookup or inference.
 
-Session-status, session-message and development views still reuse a fresh
-runtime/launch snapshot within each request. A semantic epoch change during those
-views returns `snapshot_changed`. All views preserve previous spending and
-uncertain usage; a result larger than the remaining allowance is still blocked.
+Session-status and session-message views also project within one transaction,
+including exact claim/terminal validation and current message permissions. They
+charge only the returned view. Missing terminal evidence still means an unknown
+outcome; failed sessions without a retained call range expose no session message
+scope. Inspection grants no retry or new session.
+
+Development views still reuse a fresh runtime/launch snapshot within each
+request. A semantic epoch change during those views returns `snapshot_changed`.
+All views preserve previous spending and uncertain usage; a result larger than
+the remaining allowance is still blocked.
 
 ## First use
 

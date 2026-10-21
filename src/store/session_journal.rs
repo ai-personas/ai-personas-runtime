@@ -146,12 +146,9 @@ impl Store {
         terminal_id: &str,
     ) -> Result<Option<StoredObject>> {
         self.transaction(|work| {
-            let slot = work.launch_session_slot(terminal_id)?;
-            if slot.claim != *claim {
-                return Err(StoreError::Conflict(terminal_id.into()));
-            }
-            work.returned(&slot.object, END_BYTES, BudgetClass::Ordinary)?;
-            Ok(slot.object)
+            let object = work.launch_session_terminal(claim, terminal_id)?;
+            work.returned(&object, END_BYTES, BudgetClass::Ordinary)?;
+            Ok(object)
         })
     }
 }
@@ -170,6 +167,18 @@ fn validate_terminal(object: &StoredObject, id: &str, claim: &ObjectRef) -> Resu
 }
 
 impl Work<'_> {
+    pub(super) fn launch_session_terminal(
+        &self,
+        claim: &ObjectRef,
+        terminal_id: &str,
+    ) -> Result<Option<StoredObject>> {
+        let slot = self.launch_session_slot(terminal_id)?;
+        if slot.claim != *claim {
+            return Err(StoreError::Conflict(terminal_id.into()));
+        }
+        Ok(slot.object)
+    }
+
     fn launch_session_slot(&self, id: &str) -> Result<SessionTerminalSlot> {
         self.id(id)?;
         let cell = self

@@ -26,6 +26,19 @@ impl RuntimeInspection<'_, '_> {
         self.work.id(&id.id)?;
         self.work.required("reservation", &id.key())
     }
+
+    pub(crate) fn object(&self, id: &str) -> Result<Option<StoredObject>> {
+        self.work.id(id)?;
+        self.work.get("object", id)
+    }
+
+    pub(crate) fn session_terminal(
+        &self,
+        claim: &ObjectRef,
+        terminal_id: &str,
+    ) -> Result<Option<StoredObject>> {
+        self.work.launch_session_terminal(claim, terminal_id)
+    }
 }
 
 impl TrustedHost<'_> {
