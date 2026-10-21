@@ -109,7 +109,11 @@ pub(super) fn decode(control: &mut Value) -> Result<Option<Accounting>> {
     )?;
     let allowed: BTreeSet<_> = paths(control).into_iter().collect();
     let encoded = size(control)?;
-    let mut expanded = encoded;
+    // The marker is not part of the decoded representation. Remove it before
+    // accounting so a valid expansion at the limit is not charged for encoding
+    // metadata. No strings are expanded until this bound is checked.
+    control.as_object_mut().unwrap().remove(FIELD);
+    let mut expanded = size(control)?;
     let mut replacements = Vec::new();
     let mut anchors = BTreeSet::new();
     for path in &allowed {
@@ -157,10 +161,9 @@ pub(super) fn decode(control: &mut Value) -> Result<Option<Accounting>> {
         let text = control.pointer(&anchor).unwrap().clone();
         *control.pointer_mut(&path).unwrap() = text;
     }
-    control.as_object_mut().unwrap().remove(FIELD);
     require(
-        size(control)? > encoded,
-        "control text sharing does not reduce input",
+        size(control)? == expanded && expanded > encoded,
+        "control text sharing accounting mismatch",
     )?;
     Ok(Some(accounting))
 }
