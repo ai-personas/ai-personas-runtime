@@ -198,6 +198,7 @@ pub(crate) fn foreground_eligible(state: &State, now: i64) -> Result<bool> {
                 || need_proposals::actor_reason(state, &id.0, &actor.0).is_some()
                 || tools::require_settled(state, &actor.0, &id.0).is_err()
                 || http_tools::require_settled(state, &actor.0, &id.0).is_err()
+                || host_tools::require_settled(state, &actor.0, &id.0).is_err()
             {
                 continue;
             }
@@ -464,6 +465,7 @@ pub(crate) fn finish_if_stopped(state: &mut State, prepared: &Prepared, now: i64
             || !matches!(authored.value, p::Continuation::Stop { .. })
             || tools::require_settled(state, &participant.0, work_id).is_err()
             || http_tools::require_settled(state, &participant.0, work_id).is_err()
+            || host_tools::require_settled(state, &participant.0, work_id).is_err()
         {
             return Ok(());
         }

@@ -59,6 +59,12 @@ The decision schema describes this distinction, and validation reports an
 invalid native path at the corresponding operation's `path` field.
 
 The normal complete-decision adoption records the exact command before dispatch.
+Each observed terminal result is retained before the next command executes.
+Result observations and supporting assets are published after the decision's
+execution pass, so publishing one result does not invalidate another command's
+accepted prerequisites. This also applies to decisions mixing host commands
+with the optional WebAssembly or HTTPS profiles. Foreground execution remains
+sequential; long commands still delay other personas in that session.
 There is no separate tool attempt allocation or additional model-call charge.
 Input and retained-output bytes use the existing Store accounting. A shell
 installation changes the actual host environment; it is not simulated.
@@ -102,6 +108,9 @@ ai-personas --state-root /absolute/private/state --operator local-operator recov
 Recovery never repeats a dispatched command. If the host lost its terminal
 observation, the result remains uncertain. Native records distinguish that case
 from a successful process exit or an installation failure.
+For commands still awaiting first dispatch, recovery preserves their order in
+the accepted decision and checks the existing prerequisites. Recovery also
+completes its execution pass before publishing result observations.
 
 After saving host-command records, use helpers that understand this profile.
 Older helpers do not recognize the new job and result-origin fields.

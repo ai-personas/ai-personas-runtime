@@ -61,6 +61,15 @@ struct Inputs {
     input: String,
 }
 
+/// Keep the accepted runtime head current until every command in a decision
+/// has had its dispatch opportunity. Terminal evidence is durable during
+/// Execute; publishing observations and result assets belongs to Settle.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ExecutionPhase {
+    Execute,
+    Settle,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct JobMarker {
@@ -73,6 +82,38 @@ pub struct JobMarker {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result_source: Option<p::ExactRef>,
     pub exposure: Exposure,
+}
+
+/// A hashed intent ID does not retain the author's command order. Recovery
+/// uses the accepted operation sequence, including when only a suffix remains.
+pub(super) fn pending_job_ids(
+    app: &mut Runtime,
+    jobs: &BTreeMap<String, JobMarker>,
+) -> Result<Vec<String>> {
+    let mut by_invocation: BTreeMap<&str, Vec<(&str, &JobMarker)>> = BTreeMap::new();
+    for (id, job) in jobs {
+        if job.observation.is_none() || job.result_source.is_none() {
+            by_invocation.entry(&job.invocation).or_default().push((id, job));
+        }
+    }
+    let mut ids = Vec::new();
+    for (invocation, pending) in by_invocation {
+        let accepted = app.adopted(invocation)?;
+        let mut ordered = Vec::new();
+        for (id, job) in pending {
+            require(
+                accepted.actor == job.actor && accepted.work == job.work,
+                "tool recovery admission mismatch",
+            )?;
+            let position = accepted.response.operations.iter()
+                .position(|operation| operation.id() == job.operation)
+                .ok_or_else(|| held("tool recovery operation absent from accepted decision"))?;
+            ordered.push((position, id.to_owned()));
+        }
+        ordered.sort();
+        ids.extend(ordered.into_iter().map(|(_, id)| id));
+    }
+    Ok(ids)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -498,20 +539,22 @@ impl Runtime {
     /// remains unknown and blocks further computation in that actor/work scope.
     pub fn recover_computations(&mut self, now: i64) -> Result<usize> {
         let _owner = self.store.acquire_execution_owner()?;
-        let ids: Vec<_> = self
-            .snapshot()?
-            .computation_jobs
-            .iter()
-            .filter(|(_, j)| j.observation.is_none() || j.result_source.is_none())
-            .map(|(id, _)| id.clone())
-            .collect();
-        for id in &ids {
-            self.finish_computation(id, now)?;
+        let state = self.snapshot()?;
+        let ids = pending_job_ids(self, &state.computation_jobs)?;
+        for phase in [ExecutionPhase::Execute, ExecutionPhase::Settle] {
+            for id in &ids {
+                self.advance_computation(id, now, phase)?;
+            }
         }
         Ok(ids.len())
     }
 
-    pub(super) fn finish_computation(&mut self, id: &str, now: i64) -> Result<()> {
+    pub(super) fn advance_computation(
+        &mut self,
+        id: &str,
+        now: i64,
+        phase: ExecutionPhase,
+    ) -> Result<()> {
         let mut retained = self.store.trusted_host().intent(id)?;
         let job: Job = serde_json::from_value(retained.intent.body.clone())?;
         let (old, state) = self.load()?;
@@ -538,7 +581,7 @@ impl Runtime {
         )?;
         let subject = s::EntityId::Intent(id.into());
         let slot_id = composite_id("computation-result", &[id]);
-        if retained.state == s::IntentState::Admitted {
+        if phase == ExecutionPhase::Execute && retained.state == s::IntentState::Admitted {
             let authorized = (|| -> Result<()> {
                 lifecycle::require_active(&state, &job.actor)?;
                 optional_activity::require_current(&state, &job.work, &job.actor, now)?;
@@ -615,6 +658,13 @@ impl Runtime {
             }
             retained = self.store.trusted_host().intent(id)?;
         }
+        if phase == ExecutionPhase::Execute {
+            return Ok(());
+        }
+        require(
+            retained.state != s::IntentState::Admitted,
+            "computation must dispatch or cancel before settlement",
+        )?;
         let evidence = if retained.state == s::IntentState::Canceled {
             None
         } else {

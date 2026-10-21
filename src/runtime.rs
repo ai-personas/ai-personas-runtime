@@ -4509,13 +4509,19 @@ impl Runtime {
                     Some(receipt.accepted_epoch) == report.accepted_epoch,
                     "unexpected adoption epoch",
                 )?;
-                // Dispatch follows the complete atomic adoption. An error here
-                // cannot undo adoption or authorize replay; the durable pending
-                // job blocks another admission until host recovery settles it.
-                for (id, http, host) in execution_ids {
-                    if host { self.finish_host_command(&id, now)?; }
-                    else if http { self.finish_http_fetch(&id, now)?; }
-                    else { self.finish_computation(&id, now)?; }
+                // Dispatch follows complete atomic adoption. Each execution
+                // retains its terminal evidence before the next command starts.
+                // Publish results only after the entire batch's dispatch pass:
+                // an earlier result must not replace the runtime prerequisite
+                // still needed by another command from this same decision.
+                // Errors cannot undo adoption or authorize replay; retained
+                // pending jobs still require explicit host recovery.
+                for phase in [tools::ExecutionPhase::Execute, tools::ExecutionPhase::Settle] {
+                    for (id, http, host) in &execution_ids {
+                        if *host { self.advance_host_command(id, now, phase)?; }
+                        else if *http { self.advance_http_fetch(id, now, phase)?; }
+                        else { self.advance_computation(id, now, phase)?; }
+                    }
                 }
                 Ok(report)
             }

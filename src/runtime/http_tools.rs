@@ -472,20 +472,22 @@ impl Runtime {
     /// remains unknown and blocks further http_fetch in that actor/work scope.
     pub fn recover_http_fetches(&mut self, now: i64) -> Result<usize> {
         let _owner = self.store.acquire_execution_owner()?;
-        let ids: Vec<_> = self
-            .snapshot()?
-            .http_fetch_jobs
-            .iter()
-            .filter(|(_, j)| j.observation.is_none() || j.result_source.is_none())
-            .map(|(id, _)| id.clone())
-            .collect();
-        for id in &ids {
-            self.finish_http_fetch(id, now)?;
+        let state = self.snapshot()?;
+        let ids = tools::pending_job_ids(self, &state.http_fetch_jobs)?;
+        for phase in [tools::ExecutionPhase::Execute, tools::ExecutionPhase::Settle] {
+            for id in &ids {
+                self.advance_http_fetch(id, now, phase)?;
+            }
         }
         Ok(ids.len())
     }
 
-    pub(super) fn finish_http_fetch(&mut self, id: &str, now: i64) -> Result<()> {
+    pub(super) fn advance_http_fetch(
+        &mut self,
+        id: &str,
+        now: i64,
+        phase: tools::ExecutionPhase,
+    ) -> Result<()> {
         let mut retained = self.store.trusted_host().intent(id)?;
         let job: Job = serde_json::from_value(retained.intent.body.clone())?;
         let (old, state) = self.load()?;
@@ -512,7 +514,7 @@ impl Runtime {
         )?;
         let subject = s::EntityId::Intent(id.into());
         let slot_id = composite_id("http_fetch-result", &[id]);
-        if retained.state == s::IntentState::Admitted {
+        if phase == tools::ExecutionPhase::Execute && retained.state == s::IntentState::Admitted {
             let authorized = (|| -> Result<()> {
                 lifecycle::require_active(&state, &job.actor)?;
                 optional_activity::require_current(&state, &job.work, &job.actor, now)?;
@@ -588,6 +590,13 @@ impl Runtime {
             }
             retained = self.store.trusted_host().intent(id)?;
         }
+        if phase == tools::ExecutionPhase::Execute {
+            return Ok(());
+        }
+        require(
+            retained.state != s::IntentState::Admitted,
+            "http_fetch must dispatch or cancel before settlement",
+        )?;
         let evidence = if retained.state == s::IntentState::Canceled {
             None
         } else {

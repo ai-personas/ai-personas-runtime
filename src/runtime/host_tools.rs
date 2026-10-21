@@ -169,20 +169,22 @@ impl Runtime {
     /// Settle retained execution records. A dispatched command is never rerun.
     pub fn recover_host_commands(&mut self, now: i64) -> Result<usize> {
         let _owner = self.store.acquire_execution_owner()?;
-        let ids: Vec<_> = self
-            .snapshot()?
-            .host_command_jobs
-            .iter()
-            .filter(|(_, job)| job.observation.is_none() || job.result_source.is_none())
-            .map(|(id, _)| id.clone())
-            .collect();
-        for id in &ids {
-            self.finish_host_command(id, now)?;
+        let state = self.snapshot()?;
+        let ids = tools::pending_job_ids(self, &state.host_command_jobs)?;
+        for phase in [tools::ExecutionPhase::Execute, tools::ExecutionPhase::Settle] {
+            for id in &ids {
+                self.advance_host_command(id, now, phase)?;
+            }
         }
         Ok(ids.len())
     }
 
-    pub(super) fn finish_host_command(&mut self, id: &str, now: i64) -> Result<()> {
+    pub(super) fn advance_host_command(
+        &mut self,
+        id: &str,
+        now: i64,
+        phase: tools::ExecutionPhase,
+    ) -> Result<()> {
         let mut retained = self.store.trusted_host().intent(id)?;
         let job: Job = serde_json::from_value(retained.intent.body.clone())?;
         let state = self.snapshot()?;
@@ -204,7 +206,7 @@ impl Runtime {
         let prepared = decode_prepared(&self.store.trusted_host().invocation(&job.invocation)?)?;
         let subject = s::EntityId::Intent(id.into());
         let slot_id = composite_id("host-command-result", &[id]);
-        if retained.state == s::IntentState::Admitted {
+        if phase == tools::ExecutionPhase::Execute && retained.state == s::IntentState::Admitted {
             if job.interface.runner_revision != h::revision() {
                 self.store
                     .cancel_intent(id, "host runner changed before dispatch")?;
@@ -241,6 +243,13 @@ impl Runtime {
             }
             retained = self.store.trusted_host().intent(id)?;
         }
+        if phase == tools::ExecutionPhase::Execute {
+            return Ok(());
+        }
+        require(
+            retained.state != s::IntentState::Admitted,
+            "host command must dispatch or cancel before settlement",
+        )?;
         let evidence = if retained.state == s::IntentState::Canceled {
             None
         } else {
