@@ -169,12 +169,15 @@ remain controlling.
 
 Per-call accounting separates the retained prompt's instructions/schema, work
 controls, qualified context and separators, alongside the reserved assembly size.
-When identical qualified text is shared inside a request, `qualified_text_sharing`
-reports the number of shared bodies and references, actual encoded section bytes,
-and the section size with those bodies repeated inline. Supply inspection resolves
-each reference to its complete included text and preserves each entry's own roles,
-attribution, restrictions and qualifications. The difference in serialized bytes
-is a representation saving for that request, not a measured token or charge saving.
+`exact_text_sharing` reports separate counts for shared qualified bodies and
+repeated work text, actual encoded section bytes, and the section size with all
+text restored inline. The original request stays complete and inline; repeated
+need, mandate, invitation or commitment fields may point to an identical inline
+string in the same input. Supply inspection resolves each reference to its exact
+included text while preserving field roles, record identities, attribution,
+restrictions and qualifications. Equal wording does not merge commitments or
+establish consent. The difference in serialized bytes is a representation saving
+for that request, not a measured token or charge saving.
 Provider-reported usage and transport size are shown only for a matching completed
 provider input. They remain distinct from Store reservation accounting, which may
 still be uncertain. These figures describe one call, not total episode cost or
