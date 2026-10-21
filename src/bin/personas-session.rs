@@ -85,6 +85,11 @@ enum Command {
         #[arg(long)]
         id: String,
     },
+    /// Fresh permitted messages from a retained session's exact call range. No inference.
+    SessionMessages {
+        #[arg(long)]
+        id: String,
+    },
     /// Current permission-filtered retained result; no cached private output replay.
     Result { work: String },
     /// Current permitted shared questions, replies and conclusions; no inference.
@@ -258,6 +263,7 @@ async fn main() {
             }
         }
         Command::SessionStatus { id } => emit(session::session_status(&root, &operator, &id)),
+        Command::SessionMessages { id } => emit(session::session_messages(&root, &operator, &id)),
         Command::Result { work } => emit(session::result_view(&root, &operator, &work)),
         Command::Questions { work } => emit(session::questions_view(&root, &operator, &work)),
         Command::Development {

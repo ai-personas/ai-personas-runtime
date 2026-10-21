@@ -47,6 +47,11 @@ build scripts, only after confirmation. The build produces optimized release
 helpers using one job, no incremental compilation and no debug symbols, storing
 artifacts under the private UI root. Initial compilation can take longer than a
 development build; normal work and inspection use the optimized helpers.
+To select an updated installation for an existing journal, start the launcher
+with `PERSONAS_BIN=/absolute/helper-directory/ai-personas ./personas`. The explicit
+directory takes precedence over the saved installation and uses the same review
+of all four helper hashes. The journal's runtime, pending inputs and session
+identities remain intact.
 Cargo caches, native toolchains and physical disk are not hard-bounded by the UI.
 The shell launcher selects the first available Python 3.9+ from supported versioned names, then checks Linux memfd sealing and procfs descriptor support before starting the UI. If none qualifies, it prints an actionable host-prerequisite message; it does not install software or fall back to pathname execution. Missing Rust 1.88+, Cargo, compiler/linker or host approval requires operator installation/approval; no sudo, arbitrary installer, privilege bypass, Codex CLI or coding-agent fallback is used.
 
@@ -102,10 +107,13 @@ session identity remains consumed and never authorizes replay. Later status
 inspection spends its own normal read allowance. Prepayment is logical resource
 accounting, not a physical filesystem reservation or a durability guarantee.
 
-After a session, or when reopening its journal, the menu shows replies from the
-exact last reserved call and counts the available replies and deliveries. An older
-reply is never presented as the result of a failed or silent call. Choose **r** in
-the work menu for the full permitted reply history and complete delivery packages,
+After a session, or when reopening its journal, the menu shows currently permitted
+messages from that session's recorded call range, with their producing call IDs.
+A final bookkeeping call without a reply no longer hides an earlier result from
+the same session. Messages from earlier sessions remain in the full work history.
+If the terminal metadata does not establish a complete call range, the menu says
+so and does not infer one from later activity. Choose **r** in the work menu for
+the full permitted reply history, feedback accounts and complete delivery packages,
 including their required qualifications. Qualified UTF-8 packages show their full
 document text, metadata and source attribution without a duplicate numeric byte
 array. The display verifies the package digest and matching artifact text first;
@@ -117,8 +125,19 @@ Messages show their attached exact file references as metadata beside the
 authored text. Those references supply no file body. Repeated copies from the
 same attributed decision and disclosure scope appear together with the recorded
 count and distinct subjects; each underlying message remains in the native JSON.
-The last-call summary applies its invocation filter before this formatting, so
-older replies and their references do not stand in for a failed or silent call.
+The session view applies its call-range and current permission checks before its
+output bound and this formatting. It retains the most recent whole records that
+fit, displays them in call order and marks truncation. Each message keeps its own
+attribution; an earlier successful reply does not become a later call's result.
+
+The native `personas-session session-messages --id SESSION_ID` command provides
+this view without inference, recovery or resume. It derives at most 128 canonical
+call IDs from the immutable claim and terminal counters, then selects only that
+work's messages addressed and currently permitted to the saved operator. It
+returns at most 128 complete messages within a 1 MiB response envelope. Session
+metadata grants no additional disclosure rights or completion judgment. Missing
+terminals and failed outcomes without final counters return no attributed messages;
+the ordinary `result WORK` interface remains available for permitted history.
 
 ### Fresh native SIWC setup
 

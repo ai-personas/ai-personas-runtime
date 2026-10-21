@@ -10,6 +10,9 @@ use super::*;
 #[path = "session_resume.rs"]
 mod participant_resume;
 pub use participant_resume::{resume_participant, ParticipantResumeRequest};
+#[path = "session_messages.rs"]
+mod messages;
+pub use messages::{session_messages, SessionMessages};
 
 pub type BoundaryResult<T> = std::result::Result<T, BoundaryError>;
 const NEED_KIND: &str = "launch-keyed-need-v1";

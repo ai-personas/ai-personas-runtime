@@ -80,7 +80,7 @@ def terminal_text(value):
     return "".join(c if c in "\n\t" or (c.isprintable() and c != "\x1b") else "�" for c in str(value))
 
 
-def readable_messages(messages):
+def readable_messages(messages, show_invocation=False):
     """Render already-permitted messages, preserving citations and copy counts.
 
     Group exact copies only within an attributed decision. Keep every distinct
@@ -109,7 +109,10 @@ def readable_messages(messages):
     parts = []
     for group in groups:
         message = group["message"]
-        parts.append(f"{message.get('sender', 'unknown author')}: {message.get('text', '')}")
+        author = message.get('sender', 'unknown author')
+        if show_invocation:
+            author += f" ({message.get('invocation', 'unavailable call')})"
+        parts.append(f"{author}: {message.get('text', '')}")
         if group["count"] > 1:
             parts.append(f"Recorded {group['count']} times in the same decision.")
             parts.extend(f"Subject: {subject}" for subject in group["subjects"])
@@ -917,6 +920,17 @@ class Helpers:
         self.j.save()
 
     def install(self):
+        explicit = os.environ.get("PERSONAS_BIN")
+        if explicit is not None:
+            require(path_text(explicit), "invalid_explicit_installation")
+            selected = Path(explicit).parent.resolve(strict=True)
+            installed = self.j.data["installation"]
+            if installed is not None and Path(installed["ai-personas"]["path"]).parent != selected:
+                # An explicit installation choice also applies to a saved
+                # journal. Keep its runtime and pending operation identities.
+                self.ui.say(f"PERSONAS_BIN selects native helpers in {selected}.")
+                self.adopt(selected)
+                return
         if self.j.data["installation"] is not None:
             try:
                 for item in self.j.data["installation"].values():
@@ -1338,7 +1352,7 @@ class Dialogue:
             args += ["--after", after]
         return self.session(*args)
 
-    def output(self, work, summary=False, invocation=None, receipt_json=False):
+    def output(self, work, receipt_json=False):
         result = self.session("result", work)
         if result.get("optional_activity_ending"):
             self.ui.say(f"Work {work}: the optional activity ended as recorded. "
@@ -1353,28 +1367,18 @@ class Dialogue:
             pending = sum(item.get("status") == "pending" for item in feedback)
             self.ui.say(f"Visible requester feedback: {pending} pending, {len(feedback) - pending} with a recorded or unavailable disposition. "
                         "A persona's account does not establish that a requested artifact change was made.")
-            if not summary:
-                for item in feedback:
-                    status = {"pending": "has not yet accounted for this feedback",
-                              "handled": "marked this feedback handled",
-                              "declined": "declined this feedback"}.get(item.get("status"), "has no currently available feedback disposition")
-                    self.ui.say(f"{item['label']} {status}.")
-                    if item.get("feedback_body_supplied"):
-                        self.ui.say("Your feedback: " + item["feedback_text"])
-                    if item.get("account"):
-                        self.ui.say(item["label"] + "'s account: " + item["account"]["reason"])
-        if summary:
-            self.ui.say(f"Available in this view: {len(messages)} replies; {len(deliveries)} local deliveries.")
-            # Only an exact retained call can label the session's reply. Never
-            # mistake older history for a response from a failed or silent run.
-            messages = [msg for msg in messages if invocation is not None and msg.get("invocation") == invocation]
-            if invocation:
-                self.ui.say(f"Reply from the session's last reserved call, {invocation}:" if messages else
-                            f"No permitted reply from {invocation} is available in this bounded result view.")
-            self.ui.say("Choose r in the work menu for the full reply history and complete qualified deliveries.")
+            for item in feedback:
+                status = {"pending": "has not yet accounted for this feedback",
+                          "handled": "marked this feedback handled",
+                          "declined": "declined this feedback"}.get(item.get("status"), "has no currently available feedback disposition")
+                self.ui.say(f"{item['label']} {status}.")
+                if item.get("feedback_body_supplied"):
+                    self.ui.say("Your feedback: " + item["feedback_text"])
+                if item.get("account"):
+                    self.ui.say(item["label"] + "'s account: " + item["account"]["reason"])
         for part in readable_messages(messages):
             self.ui.say(part)
-        for delivery in ([] if summary else deliveries):
+        for delivery in deliveries:
             self.ui.say("Permission-projected local delivery (including required qualifications):")
             parts = None if receipt_json else readable_delivery(delivery)
             if parts is None:
@@ -1771,14 +1775,24 @@ class Dialogue:
         if "expected_launch" in session:
             require(claim.get("launch") == session["expected_launch"], "session_binding_changed")
 
-    @staticmethod
-    def session_last_call(outcome):
-        terminal = outcome.get("terminal", {}).get("outcome", {})
-        before = outcome.get("claim", {}).get("steps_before")
-        after = terminal.get("steps_after")
-        if type(before) is int and type(after) is int and after > before:
-            return terminal.get("last_invocation")
-        return None
+    def session_output(self, session):
+        view = self.session("session-messages", "--id", session["id"])
+        outcome = view["session"]
+        self.session_binding(outcome, session)
+        scope = view.get("message_scope")
+        if scope is None:
+            self.ui.say("A complete call range is unavailable for this session. "
+                        "Choose r in the work menu to inspect the permitted work history.")
+            return outcome
+        require(scope.get("work") == session["work"], "session_binding_changed")
+        messages = view["messages"]
+        self.ui.say(f"Messages from session {session['id']}: {len(messages)} available.")
+        for part in readable_messages(messages, show_invocation=True):
+            self.ui.say(part)
+        if view.get("truncated"):
+            self.ui.say("This view contains the most recent whole messages that fit its output limit.")
+        self.ui.say("Choose r in the work menu for the full reply history, feedback accounts and qualified deliveries.")
+        return outcome
 
     def run_work(self, work, view, reuse=False):
         settings = view["settings"]
@@ -1842,16 +1856,14 @@ class Dialogue:
                             "described in RUNTIME-REFERENCE.md to inspect recovery within existing provider allowances.")
         else:
             self.ui.say(f"Session finished: {terminal.get('stop')}; last recorded work call: {terminal.get('last_invocation')}.")
-        self.output(work, summary=True, invocation=self.session_last_call(outcome))
+        self.session_output(s)
 
     def recover_session(self, view):
         s = self.p["session"]
         if s is None:
             return
-        status = self.session("session-status", "--id", s["id"])
-        self.session_binding(status, s)
+        status = self.session_output(s)
         self.ui.say(f"Previous session {s['id']}: {status['status']}")
-        self.output(s["work"], summary=True, invocation=self.session_last_call(status))
         if status["status"] == "outcome_unrecorded":
             self.ui.say("No terminal outcome is retained. No new session or replay will be started. "
                         "Keep this progress and use the exact advanced evidence/recovery controls in RUNTIME-REFERENCE.md.")

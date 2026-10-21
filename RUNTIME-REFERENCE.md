@@ -609,6 +609,16 @@ match. It shows the recorded count and distinct subjects. Each stored message
 and JSON record retains its own identity; grouping establishes no new receipt,
 attention or agreement.
 
+`personas-session session-messages --id SESSION_ID` reads currently permitted
+requester messages from that exact session's retained call range. The launcher
+uses it after running and when reopening a session, so a final bookkeeping call
+does not hide a useful reply sent earlier in the same session. Each message keeps
+its producing invocation, attachments and disclosure scope. Filtering precedes
+the bounded output selection; the most recent whole messages that fit are shown
+in call order. Missing terminal counters establish no session range. This view
+performs no inference, recovery or resume and makes no completion claim. Ordinary
+`result WORK` retains its existing permission-filtered historical semantics.
+
 `recorded_completion` is the latest permitted historical completion of an exact
 release. Its `mandate_revision` identifies the mandate at release, and
 `released_artifacts` maps outcome IDs to the exact artifact IDs, revisions and
