@@ -85,6 +85,15 @@ New [native file write conflicts](native-file-conflicts.md), including occupied
 paths and stale base revisions, can supply exact conflicting source metadata to
 that fresh decision without adopting or rewriting the failed response.
 
+Ordinary work-command inputs are parsed and validated against the admitted
+interface before checks of current state. A complete rejection for malformed
+inputs therefore retains its request-bound diagnostic, which the existing
+continuation can receive in a fresh decision. Current work authority, source and
+Board failures retain their own provenance checks. Decisions proposing character
+adoption skip this preflight and retain the existing character fence before work
+commands are validated. Complete Decision structural validation and previously
+retained failures are unchanged.
+
 The exact native prompt is a user input-text message. A fixed JSON-output instruction and exact requested reasoning effort are bound to the request. No tools, previous response, conversation, hidden agent history or remote output-token cap are added. The immutable wire profile fixes method, endpoint, non-secret header policy, message role and instructions. Traditional routing uses truthful application identity and its explicit beta header; mode-specific headers cannot leak into the public routes.
 
 The saved `output_schema` is `{"type":"object"}` for direct Decision transport. Its audit digest identifies that response contract; the serialized provider request binds the actual JSON mode. Historical admissions and the isolated onboarding echo retain the strict `{"decision_json":"..."}` carrier. Response decoding follows the exact admitted format, never a guessed fallback. Direct responses retain their original UTF-8 bytes without reserialization; historical carriers are decoded once. Completion receipts identify `direct_decision_json_v1` or `decision_json_string_v1`, and the exact application bytes still receive the same complete parser.

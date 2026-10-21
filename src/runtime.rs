@@ -1823,6 +1823,29 @@ fn resolved_work_operation<'a>(
 // This preflight reads only the exact admitted prompt and authored response. It
 // must run before current-state checks: arbitrary Board failures still have
 // unknown provenance and must never inherit this request-only diagnostic scope.
+fn check_supplied_work_command_inputs(prepared: &Prepared, decision: &p::Decision) -> Result<()> {
+    if prepared.request.mode != Mode::Ordinary
+        || decision
+            .operations
+            .iter()
+            .any(|operation| matches!(operation, p::Operation::CharacterAdopt { .. }))
+    {
+        // Character adoption must establish its fence before considering other
+        // actions. Malformed fenced inputs cannot reject that character unit.
+        return Ok(());
+    }
+    for operation in &decision.operations {
+        if let Some((_, inputs, _)) = resolved_work_operation(prepared, operation)? {
+            // Parsing and input validation consult no current Board or source
+            // state. Keep their rejection bound to the admitted request, so an
+            // existing continuation can receive it without an operator resume.
+            action(inputs)?;
+        }
+    }
+    Ok(())
+}
+
+// Citation identities also depend only on the exact admitted input and response.
 fn check_supplied_citation_namespace(prepared: &Prepared, decision: &p::Decision) -> Result<()> {
     let mismatch = (|| -> Option<bool> {
         let control = request_context::decode(prepared).ok()?.control;
@@ -4432,6 +4455,7 @@ impl Runtime {
                 "response invocation identity mismatch",
             )?;
             require(decision.epoch == prepared.epoch, "response epoch mismatch")?;
+            check_supplied_work_command_inputs(&prepared, &decision)?;
             check_supplied_citation_namespace(&prepared, &decision)?;
             require(
                 bytes.len() <= state.config.response_bytes,
