@@ -529,9 +529,10 @@ fn begin_with_launch(
                 .is_some_and(|m| m.intake_operator == request.operator),
         BoundaryError::Unavailable,
     )?;
-    // A fresh key is not a recovery action. Even an orphaned owner stays untouched.
+    // A fresh key is not recovery. Failed actors retain their exact leases;
+    // eligible peers may proceed once every invocation is locally terminal.
     check(
-        active_invocations(&state).is_empty(),
+        app.invocation_leases_terminal(&state)?,
         BoundaryError::Blocked,
     )?;
     app.store.require_terminal_invocations()?;
@@ -1213,6 +1214,7 @@ fn inspect_opened(
     let settings = settings_view(&state, &saved, time);
     let frozen = app.store.ledger()?.frozen;
     let active = !active_invocations(&state).is_empty();
+    let leases_terminal = app.invocation_leases_terminal(&state)?;
     let keys: Vec<_> = saved
         .works
         .keys()
@@ -1270,7 +1272,8 @@ fn inspect_opened(
                 now,
             )?;
             let eligible_candidate = !frozen
-                && !active
+                && leases_terminal
+                && persona.active_invocation.is_none()
                 && persona.failed_attempt_hold.is_none()
                 && settings.compatible_for_execution
                 && settings.credential_status != CredentialStatus::SavedExpiryElapsed
@@ -1285,8 +1288,9 @@ fn inspect_opened(
                 .map(|id| attempt_view(app, id))
                 .transpose()?
                 .flatten();
-            let resume_candidate =
-                !frozen && participant_resume::candidate(&state, &saved, id, &actor);
+            let resume_candidate = !frozen
+                && leases_terminal
+                && participant_resume::candidate(&state, &saved, id, &actor);
             participants.push(ParticipantView {
                 label: persona.seed.label.clone(),
                 lifecycle: lifecycle::projection(persona),

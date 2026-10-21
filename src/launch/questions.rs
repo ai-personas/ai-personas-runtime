@@ -41,8 +41,8 @@ pub fn answer_question(
     let (old, mut state) = app.load()?;
     admission_extension::authorize(&state, &saved, operator)?;
     require(
-        active_invocations(&state).is_empty(),
-        "active invocation blocks question reply",
+        app.invocation_leases_terminal(&state)?,
+        "unfinished invocation blocks question reply",
     )?;
     app.store.require_terminal_invocations()?;
     let events_before = state

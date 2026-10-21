@@ -16,6 +16,7 @@ mod delivery_evidence;
 mod requester_results;
 mod discovery;
 mod failed_attempt;
+mod invocation_leases;
 mod rejected_continuation;
 mod history;
 mod initialization;
@@ -2410,7 +2411,7 @@ fn continuation_permit(state: &State, actor: &str, work: &str) -> bool {
     if state
         .personas
         .get(actor)
-        .is_some_and(|p| p.failed_attempt_hold.is_some())
+        .is_some_and(|p| p.active_invocation.is_some() || p.failed_attempt_hold.is_some())
     {
         return false;
     }
@@ -3928,8 +3929,8 @@ impl Runtime {
             need_proposals::attach(self, &mut state, &request, intake_selection.as_ref(), now)?;
         let navigation = if episode_admission {
             require(
-                active_invocations(&state).is_empty(),
-                "episode admission requires the global invocation slot",
+                self.invocation_leases_terminal(&state)?,
+                "unfinished invocation blocks episode admission",
             )?;
             let navigation = need_proposals::debit_preparation(&mut state, &request, now)?;
             let charged_object = state_object(&old, &state)?;

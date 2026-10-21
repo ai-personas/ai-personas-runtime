@@ -1466,7 +1466,7 @@ pub(in crate::runtime) fn commit_episode_preparation(
                 == episode.child.as_ref().map(|child| &child.binding)
             && authority.registry == episode.last_preparation_registry
             && authority.launch_binding_sha256 == episode.launch_binding_sha256
-            && active_invocations(state).is_empty(),
+            && app.invocation_leases_terminal(state)?,
         "episode checkpoint authority or invocation slot changed",
     )?;
     let (launch_head, mut saved) = load(app)?;

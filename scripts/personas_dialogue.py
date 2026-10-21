@@ -1743,7 +1743,7 @@ class Dialogue:
 
     @staticmethod
     def eligible(view, work):
-        return (not view["frozen"] and not view["active_invocations_present"]
+        return (not view["frozen"]
                 and work["phase"] == "open" and work["attempts_left"] > 0
                 and any(p["eligible_candidate"] for p in work["participants"]))
 

@@ -294,6 +294,23 @@ Cancellation, uncertain or incomplete transport, and failures without a retained
 ordinary continuation require their existing explicit recovery controls.
 A future wait returns to the shell and retains its existing eligibility conditions.
 
+A locally failed invocation holds its own persona while eligible peers can
+continue in the current bounded session or a newly authorized session. Foreground
+selection, intake, feedback, question replies and targeted peer resume distinguish
+those terminal failed records from unfinished invocations. Each failed persona
+keeps its exact lease, response, uncertainty and resource accounting until its own
+supported recovery or accepted-continuation retirement. Several failed personas
+can be acknowledged and resumed individually. No peer action authorizes replay
+or renews another persona's permission.
+
+The native foreground driver still executes one invocation at a time under its
+Store execution owner. Prepared, dispatched, uncertain, responded or incompletely
+applied invocations block shared-epoch changes. A failure without an authoritative
+local terminal record also blocks further foreground execution. Runtime/provider
+configuration, identity changes and resource grants retain their separate guards.
+Session inspection reports every active lease while computing eligibility per
+participant; a retained failed lease alone does not disable the work menu.
+
 Fresh Stores use schema 2. Ordinary object heads reserve their actual encoded
 size, including the existing peak-rewrite charge, and acquire additional space
 atomically when they grow. A small response archive no longer reserves the

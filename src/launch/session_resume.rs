@@ -72,7 +72,7 @@ pub(super) fn candidate(state: &State, saved: &Saved, work: &str, persona: &str)
         && board
             .participants
             .contains_key(&w::PersonaId(persona.into()))
-        && active_invocations(state).is_empty()
+        && actor.active_invocation.is_none()
         && actor.failed_attempt_hold.is_none()
         && !focus.permit
         && !focus.ordinary_continuation
@@ -148,7 +148,9 @@ pub fn resume_participant(
         return Ok(outcome(request, None, false));
     }
     check(
-        !app.store.ledger()?.frozen && candidate(&state, &saved, &request.work, &request.persona),
+        !app.store.ledger()?.frozen
+            && app.invocation_leases_terminal(&state)?
+            && candidate(&state, &saved, &request.work, &request.persona),
         BoundaryError::Blocked,
     )?;
     check(

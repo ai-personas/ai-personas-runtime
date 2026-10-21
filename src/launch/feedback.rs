@@ -87,8 +87,8 @@ pub fn feedback(
         true
     } else {
         require(
-            active_invocations(&state).is_empty(),
-            "active invocation blocks feedback",
+            app.invocation_leases_terminal(&state)?,
+            "unfinished invocation blocks feedback",
         )?;
         requester_feedback::check_capacity(&state.personas[&input.persona].focus[&input.work])?;
         app.store.require_terminal_invocations()?;

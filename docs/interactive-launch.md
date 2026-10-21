@@ -277,13 +277,21 @@ The machine boundary exposes these actions as `personas-session questions`,
 execution owners, and errors remain static machine codes. The explicit native
 CLI and thin-wrapper commands remain available.
 
-An unknown probe, malformed/uncertain transport or unrecorded session blocks
-further execution; quit and retain progress for exact evidence review. Work-wide
-pauses, complete rejected responses without a remaining ordinary continuation,
-failed holds, exhausted capacity and
-uncertain usage require their existing supported advanced controls. The UI does
-not infer acceptance, release a hold, implicitly wake stopped personas, forgive usage or
-replenish budgets. [Runtime reference](../RUNTIME-REFERENCE.md) documents the
+An unknown probe, unfinished invocation or unrecorded session blocks further
+execution; retain progress for exact evidence review. A call with a recorded
+local failure holds its own persona. Eligible peers can continue within the
+current session's remaining allowance or a newly authorized session. The menu
+uses each participant's current eligibility, even when a peer still has a failed
+invocation. Requester feedback, question replies and a targeted resume of an
+otherwise eligible stopped peer remain available after local execution ends.
+
+Work-wide pauses, failed-persona recovery and exhausted capacity use their
+existing supported controls. A local network failure can still have unknown
+remote outcome and usage. Peer progress neither reconciles that failure nor
+releases its actor, repeats its request or replenishes resources. Complete
+rejected responses can retain an already accepted ordinary continuation under
+the [foreground continuation rules](../RUNTIME-REFERENCE.md#foreground-cohort-workflow).
+[Runtime reference](../RUNTIME-REFERENCE.md) documents the
 operator controls; [provider onboarding](provider-onboarding.md) describes probe
 limits and [activation](activation.md) covers same-account renewal/migration.
 

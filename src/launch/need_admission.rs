@@ -872,8 +872,8 @@ pub(in crate::runtime) fn admitted_child_for_run(
     admission_extension::authorize(&state, &saved, operator)?;
     admission_extension::validate_saved(&state, &saved)?;
     require(
-        active_invocations(&state).is_empty(),
-        "active invocation blocks delegated continuation",
+        app.invocation_leases_terminal(&state)?,
+        "unfinished invocation blocks delegated continuation",
     )?;
     app.store.require_terminal_invocations()?;
     let episode = state

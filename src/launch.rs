@@ -210,8 +210,8 @@ fn decode_saved(object: &s::StoredObject) -> Result<Saved> {
 fn save(app: &mut Runtime, old: Option<&s::StoredObject>, saved: &Saved) -> Result<()> {
     let (head, state) = app.load()?;
     require(
-        active_invocations(&state).is_empty(),
-        "active invocation blocks launch writes",
+        app.invocation_leases_terminal(&state)?,
+        "unfinished invocation blocks launch writes",
     )?;
     app.store.compare_and_swap_batch(vec![s::Change {
         expected_revision: old.map(|o| o.revision),
@@ -539,8 +539,8 @@ fn start_owned_keyed(
     admission_extension::authorize(&state, &saved, &saved.operator)?;
     admission_extension::validate_saved(&state, &saved)?;
     require(
-        active_invocations(&state).is_empty(),
-        "active invocation blocks launch intake",
+        app.invocation_leases_terminal(&state)?,
+        "unfinished invocation blocks launch intake",
     )?;
     app.store.require_terminal_invocations()?;
     let work_count =
@@ -647,8 +647,8 @@ fn select(app: &mut Runtime, work: &str, limit: usize, now: i64) -> Result<Pick>
     let time = u64::try_from(now).map_err(|_| invalid("negative scheduling time"))?;
     let (head, state) = app.load()?;
     require(
-        active_invocations(&state).is_empty(),
-        "active invocation requires explicit recovery",
+        app.invocation_leases_terminal(&state)?,
+        "unfinished invocation requires completion or explicit recovery",
     )?;
     let (old, mut cursor) = app.load_scheduler()?;
     let page = state
@@ -769,6 +769,18 @@ pub async fn run(app: &mut Runtime, work: &str) -> Result<Output> {
 pub async fn continue_run(app: &mut Runtime, work: &str) -> Result<Output> {
     run_with_options(app, work, &mut Live, true).await
 }
+fn failed_call_allows_peer_progress(app: &mut Runtime, id: &str) -> Result<bool> {
+    let invocation = match app.invocation(id) {
+        Ok(invocation) => invocation,
+        Err(RuntimeError::Store(s::StoreError::Missing(_))) => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    if invocation.state != s::InvocationState::Failed {
+        return Ok(false);
+    }
+    let state = app.snapshot()?;
+    app.invocation_leases_terminal(&state)
+}
 async fn run_with<D: Driver>(app: &mut Runtime, work: &str, driver: &mut D) -> Result<Output> {
     run_with_options(app, work, driver, false).await
 }
@@ -804,12 +816,27 @@ async fn run_with_options<D: Driver>(
             let (count, selected) = select(app, work, remaining, unix_now()?)?;
             remaining -= count;
             let Some(persona) = selected else {
-                return Ok("no_eligible_route");
+                return Ok(if active_invocations(&app.snapshot()?).is_empty() {
+                    "no_eligible_route"
+                } else {
+                    "held"
+                });
             };
             driver.before_step(app)?;
             let (request, current) = reserve(app, work, &persona, driver.prospective_intake())?;
             let invocation_id = request.id.clone();
-            let report = driver.step(app, request, &current, unix_now()?).await?;
+            let report = match driver.step(app, request, &current, unix_now()?).await {
+                Ok(report) => report,
+                Err(error) => {
+                    // Only an actually recorded terminal failure permits peer
+                    // consideration. The failed actor retains its lease and
+                    // cannot be selected again; nothing is retried or refunded.
+                    if failed_call_allows_peer_progress(app, &invocation_id)? {
+                        return Ok("continue");
+                    }
+                    return Err(error);
+                }
+            };
             if report.status == AdoptionStatus::Held {
                 driver.before_step(app)?;
                 if app.retire_rejected_continuation(&invocation_id, unix_now()?)? {
@@ -817,7 +844,11 @@ async fn run_with_options<D: Driver>(
                     // actual rejection observations and the remaining session bound.
                     return Ok("continue");
                 }
-                return Ok("held");
+                return Ok(if failed_call_allows_peer_progress(app, &invocation_id)? {
+                    "continue"
+                } else {
+                    "held"
+                });
             }
             if report.status == AdoptionStatus::CharacterOnly && !handover(app, work)? {
                 return Ok("character_fence");
@@ -916,7 +947,8 @@ pub(super) fn authorize_initial(
         .ok_or_else(|| held("persona absent"))?;
     require(
         !handed_over(state, persona)
-            && active_invocations(state).is_empty()
+            && actor.active_invocation.is_none()
+            && app.invocation_leases_terminal(state)?
             && inv.state == s::InvocationState::Adopted
             && prepared.character_revision.is_none()
             && prepared.request.persona == persona
