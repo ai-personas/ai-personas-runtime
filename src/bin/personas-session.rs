@@ -11,8 +11,10 @@ use std::path::PathBuf;
     about = "Operator-only saved-launch inspection, keyed intake and single-use sessions"
 )]
 struct Cli {
+    /// Required for every operation: absolute runtime state directory, not the launcher journal.
     #[arg(long, global = true)]
     state_root: Option<PathBuf>,
+    /// Required for every operation: operator attribution matching the runtime or bootstrap request.
     #[arg(long, global = true)]
     operator: Option<String>,
     #[command(subcommand)]
@@ -47,7 +49,11 @@ enum Command {
         require_acceptance: bool,
         need: String,
     },
-    /// Consume an ID before one bounded foreground run. Repetition never dispatches.
+    /// Run currently eligible participants within the existing work and runtime allowances.
+    ///
+    /// A fresh session consumes a new ID; it grants no resources or participant resume.
+    /// A stopped or individually paused participant needs an explicit resume first.
+    /// Repeating a recorded session ID returns its retained outcome without dispatching.
     Run {
         #[arg(long)]
         id: String,
@@ -85,7 +91,7 @@ enum Command {
         #[arg(long)]
         id: String,
     },
-    /// Fresh permitted messages from a retained session's exact call range. No inference.
+    /// Bounded currently permitted messages from a retained session's exact call range. No inference.
     SessionMessages {
         #[arg(long)]
         id: String,
@@ -106,7 +112,12 @@ enum Command {
     Feedback { file: PathBuf },
     /// Reply to an exact shared question without inference or an explicit resume.
     AnswerQuestion { file: PathBuf },
-    /// One exact explicit participant resume; no inference, pause lift or recovery.
+    /// Explicitly permit one participant to continue under the existing allowances.
+    ///
+    /// The file contains the exact participant, work and inspected state references.
+    /// This starts no inference, lifts no work-wide pause and recovers no failed attempt.
+    /// Use a new run session afterward to consider eligible participants. Replaying an
+    /// already applied resume request does not resume a participant again.
     ResumeParticipant { file: PathBuf },
 }
 fn emit<T: Serialize>(result: session::BoundaryResult<T>) -> bool {

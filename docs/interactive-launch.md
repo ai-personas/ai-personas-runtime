@@ -6,6 +6,40 @@ authentication, atomic setup, intake, execution, permissions and accounting.
 Explicit argument-based wrapper commands retain their earlier behavior; see
 [the explicit CLI guide](launcher.md).
 
+## Reopen an existing journal
+
+Select the journal and helper installation explicitly when needed:
+
+```sh
+PERSONAS_LAUNCHER_HOME=/absolute/private/journal \
+PERSONAS_BIN=/absolute/helpers/ai-personas ./personas
+```
+
+The launcher opens the runtime saved in that journal and shows the previous
+session's currently permitted messages with their producing call IDs. In a work
+menu, **r: results** shows permitted work history and qualified deliveries.
+**c: continue** requests a fresh bounded session using existing work and runtime
+allowances. For a stopped or individually paused participant, first choose
+**u: resume participant**, then **c**. Resume grants that participant permission
+to continue; it starts no inference and does not lift a work-wide pause.
+
+For direct inspection, use the sibling `personas-session` helper. Every operation
+requires the runtime's state directory and saved operator; the launcher journal
+is a different directory:
+
+```sh
+/absolute/helpers/personas-session --state-root /absolute/private/runtime \
+  --operator local-operator session-messages --id SESSION_ID
+/absolute/helpers/personas-session --state-root /absolute/private/runtime \
+  --operator local-operator result WORK_ID
+```
+
+Both views are bounded and apply current disclosure permissions. A session view
+does not establish that the work is complete. `ai-personas` and `personas-session`
+have different command sets; `session-messages` and `resume-participant` belong
+to `personas-session`. Their absence from `ai-personas --help` does not indicate
+an outdated installation.
+
 ## First use
 
 The dialogue first selects a standard private progress location and asks permission
