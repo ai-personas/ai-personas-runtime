@@ -55,9 +55,11 @@ path. Inspection starts no owner recovery, credential lookup or inference.
 
 Session-status and session-message views also project within one transaction,
 including exact claim/terminal validation and current message permissions. They
-charge only the returned view. Missing terminal evidence still means an unknown
-outcome; failed sessions without a retained call range expose no session message
-scope. Inspection grants no retry or new session.
+charge only the returned view. Both returned and failed sessions retain the final
+call counter and last recorded work invocation, so a later failure does not hide
+messages from earlier calls in that session. Missing terminal evidence still
+means an unknown outcome and no session message scope. Inspection grants no retry
+or new session.
 
 Development views still reuse a fresh runtime/launch snapshot within each
 request. A semantic epoch change during those views returns `snapshot_changed`.
@@ -170,8 +172,13 @@ After a session, or when reopening its journal, the menu shows currently permitt
 messages from that session's recorded call range, with their producing call IDs.
 A final bookkeeping call without a reply no longer hides an earlier result from
 the same session. Messages from earlier sessions remain in the full work history.
-If the terminal metadata does not establish a complete call range, the menu says
-so and does not infer one from later activity. Choose **r** in the work menu for
+The original session owner records the final counters during prepaid closeout,
+including when execution fails or exhausts ordinary capacity. The range can
+include unsuccessful calls; it establishes attribution, not successful adoption
+or completion. A session that fails before its first call has an empty range.
+If no terminal was recorded, the menu does not infer a range from later activity.
+Earlier development failure receipts that omitted these counters are unsupported
+by the first-release reader and are not converted. Choose **r** in the work menu for
 the full permitted reply history, feedback accounts and complete delivery packages,
 including their required qualifications. Qualified UTF-8 packages show their full
 document text, metadata and source attribution without a duplicate numeric byte

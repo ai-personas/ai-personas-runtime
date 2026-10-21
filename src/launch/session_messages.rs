@@ -33,17 +33,11 @@ pub fn session_messages(root: &Path, operator: &str, key: &str) -> BoundaryResul
 
 fn project(state: &State, operator: &str, session: SessionView) -> BoundaryResult<SessionMessages> {
     let scope = match &session {
-        SessionView::Finished { claim, terminal } => match &terminal.outcome {
-            SessionEnd::Returned { steps_after, .. } => {
-                // Every retained native foreground setup limits one session to
-                // at most 128 reservations, including unsuccessful admissions.
-                check(steps_after.checked_sub(claim.steps_before).is_some_and(|n| n <= 128),
-                    BoundaryError::InvalidState)?;
-                Some(SessionMessageScope { work: claim.request.work.clone(),
-                    steps_before: claim.steps_before, steps_after: *steps_after })
-            }
-            SessionEnd::Failed { .. } => None,
-        },
+        SessionView::Finished { claim, terminal } => Some(SessionMessageScope {
+            work: claim.request.work.clone(),
+            steps_before: claim.steps_before,
+            steps_after: terminal.outcome.progress().0,
+        }),
         SessionView::NotRecorded | SessionView::OutcomeUnrecorded { .. } => None,
     };
     let mut result = SessionMessages { session, message_scope: scope, messages: Vec::new(),

@@ -385,7 +385,35 @@ pub enum SessionEnd {
     },
     Failed {
         code: BoundaryError,
+        steps_after: u64,
+        last_invocation: Option<String>,
     },
+}
+impl SessionEnd {
+    fn progress(&self) -> (u64, Option<&str>) {
+        match self {
+            Self::Returned { steps_after, last_invocation, .. }
+            | Self::Failed { steps_after, last_invocation, .. } => {
+                (*steps_after, last_invocation.as_deref())
+            }
+        }
+    }
+
+    fn validate(&self, steps_before: u64) -> BoundaryResult<()> {
+        let (steps_after, last_invocation) = self.progress();
+        // A foreground session admits at most 128 calls, including failed ones.
+        check(
+            steps_after.checked_sub(steps_before).is_some_and(|n| n <= 128),
+            BoundaryError::InvalidState,
+        )?;
+        if let Some(id) = last_invocation {
+            valid_id(id).map_err(|_| BoundaryError::InvalidState)?;
+        }
+        if let Self::Returned { stop, .. } = self {
+            check(stop.as_ref().is_none_or(|s| valid_stop(s)), BoundaryError::InvalidState)?;
+        }
+        Ok(())
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -467,21 +495,7 @@ fn read_session_with(
             && terminal.finished_at_unix >= 0,
         BoundaryError::InvalidState,
     )?;
-    if let SessionEnd::Returned {
-        stop,
-        last_invocation,
-        steps_after,
-        ..
-    } = &terminal.outcome
-    {
-        check(
-            *steps_after >= claim.steps_before && stop.as_ref().is_none_or(|s| valid_stop(s)),
-            BoundaryError::InvalidState,
-        )?;
-        if let Some(id) = last_invocation {
-            valid_id(id).map_err(|_| BoundaryError::InvalidState)?;
-        }
-    }
+    terminal.outcome.validate(claim.steps_before)?;
     Ok(SessionView::Finished { claim, terminal })
 }
 fn valid_stop(stop: &str) -> bool {
@@ -614,7 +628,8 @@ fn finish(
                     "session closeout launch binding".into(),
                 ));
             }
-            let outcome = end_of_run(&saved, &retained.request.work, result)
+            let outcome = end_of_run(&saved, &retained.request.work, result);
+            outcome.validate(retained.steps_before)
                 .map_err(|_| s::StoreError::InvalidState("session closeout outcome".into()))?;
             Ok(s::StoredObject {
                 id: terminal_id.clone(),
@@ -913,27 +928,22 @@ fn end_of_run(
     saved: &Saved,
     work: &str,
     result: Result<(Output, Option<BoundaryError>)>,
-) -> BoundaryResult<SessionEnd> {
+) -> SessionEnd {
+    // Both returned and failed runs observe the same final saved counters while
+    // the original session owner still holds execution ownership.
+    let last_invocation = saved.works.get(work).cloned().flatten();
     match result {
-        Ok((output, failure)) => {
-            check(
-                output.stop.as_ref().is_none_or(|s| valid_stop(s)),
-                BoundaryError::InvalidState,
-            )?;
-            let last_invocation = saved.works.get(work).cloned().flatten();
-            if let Some(id) = &last_invocation {
-                valid_id(id).map_err(|_| BoundaryError::InvalidState)?;
-            }
-            Ok(SessionEnd::Returned {
-                stop: output.stop,
-                driver_failure: failure,
-                steps_after: saved.steps,
-                last_invocation,
-            })
-        }
-        Err(error) => Ok(SessionEnd::Failed {
+        Ok((output, failure)) => SessionEnd::Returned {
+            stop: output.stop,
+            driver_failure: failure,
+            steps_after: saved.steps,
+            last_invocation,
+        },
+        Err(error) => SessionEnd::Failed {
             code: error_code(&error),
-        }),
+            steps_after: saved.steps,
+            last_invocation,
+        },
     }
 }
 /// Explicitly spend ONE session identity before invoking the ordinary bounded
