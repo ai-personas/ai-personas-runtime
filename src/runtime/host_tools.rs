@@ -2,7 +2,9 @@
 use super::*;
 use crate::host_command as h;
 mod background;
+mod context;
 pub(super) use background::Background;
+pub(super) use context::{pending_projection, pending_text_limit};
 
 const RESULT_CAPACITY: u64 = 256 * 1024;
 

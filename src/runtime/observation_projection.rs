@@ -1,6 +1,34 @@
-//! The same current-permission and qualification projection serves pending and
-//! selectively retrieved observations. Retained payloads remain immutable.
+//! Current-permission and qualification projection for exact observations.
+//! Pending host results may add explicit excerpts; retained and selectively
+//! retrieved payloads remain complete and immutable.
 use super::*;
+
+pub(super) fn project_pending(
+    state: &State,
+    observation: &Observation,
+    a: &f::Admission,
+    observation_corpus: &f::Corpus,
+    host_text_limit: usize,
+) -> Result<(Value, Exposure, Vec<f::Reference>, Vec<f::Reference>)> {
+    let (mut value, mut inherited, exact) = project(state, observation, a, observation_corpus)?;
+    let mut metadata = Vec::new();
+    if let Some(reference) = host_tools::pending_projection(
+        state,
+        observation,
+        a,
+        &mut value["payload"],
+        host_text_limit,
+    )? {
+        inherited.sources.push(reference.clone());
+        metadata.push(reference);
+    }
+    Ok((
+        value,
+        expanded_exposure(state, &inherited)?,
+        exact,
+        metadata,
+    ))
+}
 
 pub(super) fn project(
     state: &State,
@@ -28,16 +56,32 @@ pub(super) fn project(
     let mut qualifications = Vec::new();
     let mut exact = Vec::new();
     let mut roots = observation.qualified_roots.clone();
-    if matches!(observation.kind.as_str(), "computation_result" | "http_fetch_result" | "host_command_result") {
-        roots.extend(tools::qualifications(state, observation.qualification_sources.as_deref().unwrap_or(&observation.sources)));
+    if matches!(
+        observation.kind.as_str(),
+        "computation_result" | "http_fetch_result" | "host_command_result"
+    ) {
+        roots.extend(tools::qualifications(
+            state,
+            observation
+                .qualification_sources
+                .as_deref()
+                .unwrap_or(&observation.sources),
+        ));
         roots.sort();
         roots.dedup();
     }
     // Full permission ancestry stays above. Operative source roots can require
     // the same documents; assemble their union once so overlapping qualification
     // closures do not multiply the next prompt.
-    let groups: Vec<&[f::Reference]> = if matches!(observation.kind.as_str(), "computation_result" | "http_fetch_result" | "host_command_result") {
-        if roots.is_empty() { Vec::new() } else { vec![roots.as_slice()] }
+    let groups: Vec<&[f::Reference]> = if matches!(
+        observation.kind.as_str(),
+        "computation_result" | "http_fetch_result" | "host_command_result"
+    ) {
+        if roots.is_empty() {
+            Vec::new()
+        } else {
+            vec![roots.as_slice()]
+        }
     } else {
         roots.iter().map(std::slice::from_ref).collect()
     };
@@ -85,7 +129,10 @@ pub(super) fn project(
     } else {
         observation.payload.clone()
     };
-    if matches!(observation.kind.as_str(), "computation_result" | "http_fetch_result" | "host_command_result") {
+    if matches!(
+        observation.kind.as_str(),
+        "computation_result" | "http_fetch_result" | "host_command_result"
+    ) {
         // The immutable receipt retains the executed interface. A result needs
         // its binding, not another copy of the input schema; current callable
         // definitions are supplied separately under CONTROL.

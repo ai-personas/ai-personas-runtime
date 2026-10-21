@@ -96,10 +96,10 @@ installation changes the actual host environment; it is not simulated.
 
 ## Results and inspection
 
-The next decision receives a `host_command_result` with the command input,
-execution status, exit code or terminating signal, optional timeout/failure,
-stdout, stderr, elapsed time, and observed byte counts. The current runner and
-shell artifact hashes, effective user ID, and a digest of the inherited
+The next decision receives a `host_command_result` with execution status, exit
+code or terminating signal, optional timeout/failure, elapsed time, observed byte
+counts and excerpts of the command input, stdout and stderr. The current runner
+and shell artifact hashes, effective user ID, and a digest of the inherited
 environment identify the observed execution without copying environment values.
 
 Each stream contributes up to 16 KiB of bytes to the retained text excerpt.
@@ -108,6 +108,24 @@ identify full host log files, which the persona can inspect with another command
 The truncation flags and byte counts describe the observation. Host log paths are
 live files; a command that leaves background processes may continue writing them.
 The retained result itself remains an exact observation.
+
+Pending host results share an 8 KiB text allowance in the next context. Each
+`context_projection` identifies its format, original UTF-8 string hashes and byte
+counts, supplied byte ranges, and whether each field is complete. Command/stdin
+excerpts keep the beginning; stdout/stderr excerpts keep the end. Execution
+metadata and required qualifications are preserved. The original capture
+truncation flags still describe the runner's capture; the separate projection
+metadata describes what this input actually supplied.
+
+Each projected result includes its exact, currently permitted retained-result
+reference, available for ordinary file reads and selection, with an input-file
+handle when that interface fits the context. This reference is metadata, not
+supplied result-file content or an implicit selection. Read it, select it for a
+later input, or inspect the host logs when the omitted text is needed. Explicit
+historical observation reads and operator development views
+retain their complete result projections. Original observations, result assets,
+terminal evidence and command inputs are unchanged. Legacy observations without
+an available retained-result reference keep their original pending projection.
 
 Results are also available as exact supporting assets under `tools/results/`.
 `CONTROL.host_command_state.retained_results` lists up to eight of the most

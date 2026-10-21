@@ -7195,6 +7195,7 @@ fn render_mode_with_history(
             observation_queue.push(id);
         }
     }
+    let host_result_text_limit = host_tools::pending_text_limit(state, &observation_queue);
     for (slot, id) in observation_queue.iter().enumerate() {
         let observation = state
             .observations
@@ -7221,18 +7222,22 @@ fn render_mode_with_history(
                         permissions,
                     )
                 })
+                .map(|(value, inherited, exact, roots)| (value, inherited, exact, roots, Vec::new()))
         } else {
-            observation_projection::project(state, observation, &a, &observation_corpus)
-                .map(|(value, inherited, exact)| (value, inherited, exact, Vec::new()))
+            observation_projection::project_pending(
+                state, observation, &a, &observation_corpus, host_result_text_limit,
+            ).map(|(value, inherited, exact, metadata)| (value, inherited, exact, Vec::new(), metadata))
         };
-        if let Ok((value, inherited, exact, historical_roots)) = supplied {
+        if let Ok((value, inherited, exact, historical_roots, metadata)) = supplied {
             observability::observation_references(observation, &mut visible_files)?;
             visible_files.extend(exact.iter().cloned());
+            visible_files.extend(metadata.iter().cloned());
             observations.push(value);
             observation_roots.extend(historical_roots);
             extend_exposure(&mut exposure, &inherited);
             sources.extend(observation.sources.iter().cloned());
             sources.extend(exact.iter().cloned());
+            sources.extend(metadata);
             // Count only bodies actually projected after access checks. Reads
             // render the fresh bundle alone; old accompaniment remains lineage,
             // not supplied content. Events likewise use their current rechecked bundle.
