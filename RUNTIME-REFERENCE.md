@@ -549,6 +549,16 @@ Output contains accepted replies and complete currently permitted local delivery
 bundles. `--json` emits one structured result on stdout; progress and stopping
 diagnostics use stderr. `result` performs no inference. A delivered artifact can
 remain without a completion judgment until a fresh persona decision records one.
+
+An authored `reply` and each `communicate` operation independently deposit local
+messages. Use one path for each intended message; when a communication already
+carries it, `reply.kind: none` records that no additional reply is needed.
+Text output groups repeated message text from the same sender, recipient, work
+and invocation only when attached references, lineage and disclosure scope also
+match. It shows the recorded count and distinct subjects. Each stored message
+and JSON record retains its own identity; grouping establishes no new receipt,
+attention or agreement.
+
 `recorded_completion` is the latest permitted historical completion of an exact
 release. Its `mandate_revision` identifies the mandate at release, and
 `released_artifacts` maps outcome IDs to the exact artifact IDs, revisions and

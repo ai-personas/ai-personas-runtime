@@ -56,6 +56,8 @@ pub struct Decision {
     pub next_fragments: SelectionIntent,
     pub next_assets: SelectionIntent,
     pub continuation: Continuation,
+    /// Explicit communication disposition. Use none when no additional reply
+    /// is needed, including when communicate already carries the message.
     pub reply: ReplyDisposition,
     pub operations: Vec<Operation>,
 }
@@ -235,6 +237,10 @@ pub enum Continuation {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ReplyDisposition {
     None { reason: String },
+    /// Deposits one local message per audience member. For one message, choose
+    /// either this field or a communicate operation. If communicate already
+    /// carries that message, use reply.kind=none with a reason. Distinct
+    /// messages may use both paths.
     Authored {
         audience: Vec<String>,
         text: String,
@@ -475,6 +481,8 @@ pub enum Operation {
     /// Local attributed message with optional exact file citations. This operation
     /// has no depends_on member; do not copy it from work_command or effect.
     /// Complete-response acceptance is still atomic.
+    /// Each operation deposits its own message independently of an authored
+    /// reply. Choose one of those paths for each intended message.
     Communicate {
         id: String,
         recipient: String,

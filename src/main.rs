@@ -500,6 +500,55 @@ fn human_status(status: &str) -> &str {
         _ => "Current work state is not established by this result view.",
     }
 }
+/// Group only already-disclosed copies from one exact decision and disclosure
+/// scope. Retain their subjects and count; stored messages and JSON stay exact.
+fn append_messages(lines: &mut Vec<String>, messages: &[runtime::Message]) -> runtime::Result<()> {
+    let mut positions: std::collections::BTreeMap<Vec<u8>, usize> =
+        std::collections::BTreeMap::new();
+    let mut groups: Vec<(&runtime::Message, usize, Vec<&str>)> = Vec::new();
+    for message in messages {
+        let key = serde_json::to_vec(&(
+            &message.sender,
+            &message.recipient,
+            &message.work,
+            &message.invocation,
+            &message.text,
+            &message.file_references,
+            &message.lineage,
+            &message.exposure,
+            message.local_deposit_only,
+        ))?;
+        if let Some(&index) = positions.get(&key) {
+            let (_, count, subjects) = &mut groups[index];
+            *count += 1;
+            if !subjects.contains(&message.subject.as_str()) {
+                subjects.push(message.subject.as_str());
+            }
+        } else {
+            positions.insert(key, groups.len());
+            groups.push((message, 1, vec![message.subject.as_str()]));
+        }
+    }
+    for (message, count, subjects) in groups {
+        lines.push(format!("{} says:", message.sender));
+        lines.push(message.text.clone());
+        if count > 1 {
+            lines.push(format!("Recorded {count} times in the same decision."));
+            for subject in subjects {
+                lines.push(format!("Subject: {subject}"));
+            }
+        }
+        if !message.file_references.is_empty() {
+            lines.push("Attached exact file references (metadata, not supplied content):".into());
+            for reference in &message.file_references {
+                lines.push(serde_json::to_string(reference)?);
+            }
+        }
+        lines.push(String::new());
+    }
+    Ok(())
+}
+
 fn readable_result(value: &launch::Output) -> runtime::Result<String> {
     let mut lines = vec![
         format!("Work {}", value.work_id),
@@ -614,17 +663,7 @@ fn readable_result(value: &launch::Output) -> runtime::Result<String> {
             }
         }
     }
-    for message in &value.messages {
-        lines.push(format!("{} says:", message.sender));
-        lines.push(message.text.clone());
-        if !message.file_references.is_empty() {
-            lines.push("Attached exact file references (metadata, not supplied content):".into());
-            for reference in &message.file_references {
-                lines.push(serde_json::to_string(reference)?);
-            }
-        }
-        lines.push(String::new());
-    }
+    append_messages(&mut lines, &value.messages)?;
     if !value.human_decision_pointers.is_empty() {
         lines.push("A separate explicit human decision can be recorded with stakeholder-decision. Historical delivery pointers are available with result --json; current authority requires explicit operator inspection.".into());
     }
