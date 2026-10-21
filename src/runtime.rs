@@ -2299,6 +2299,7 @@ pub(crate) fn runtime_opportunity(
         || need_proposals::route_reason(state, &work.0, now_unix).is_some()
         || need_proposals::actor_reason(state, &work.0, &actor.0).is_some()
         || optional_activity::route_reason(state, &work.0, &actor.0, now_unix).is_some()
+        || host_tools::require_settled(state, &actor.0, &work.0).is_err()
     {
         return None;
     }
@@ -2397,6 +2398,7 @@ fn active_invocations(state: &State) -> BTreeMap<String, String> {
 }
 fn continuation_permit(state: &State, actor: &str, work: &str) -> bool {
     if lifecycle::reason(state, actor).is_some() { return false; }
+    if host_tools::require_settled(state, actor, work).is_err() { return false; }
     if optional_activity::route_reason(state, work, actor, unix_now().unwrap_or(-1)).is_some() {
         return false;
     }
@@ -2476,6 +2478,8 @@ fn scheduler_entry(
         Some(reason)
     } else if let Some(reason) = need_proposals::route_reason(state, &work.0, now) {
         Some(reason)
+    } else if host_tools::require_settled(state, &persona.0, &work.0).is_err() {
+        Some("host command awaiting result publication")
     } else if opportunity.is_none() {
         None
     } else if let Some(actor) = state.personas.get(&persona.0) {
@@ -2670,6 +2674,7 @@ pub struct Runtime {
     store: s::Store,
     root: PathBuf,
     synthetic_owner: Option<(String, s::ExecutionOwner)>,
+    host_command_background: Option<host_tools::Background>,
 }
 
 /// Explicit trusted-host closeout access. This handle exposes no preparation,
@@ -2776,6 +2781,7 @@ impl Runtime {
             store,
             root,
             synthetic_owner: None,
+            host_command_background: None,
         })
     }
     pub fn open(root: &Path) -> Result<Self> {
@@ -2803,6 +2809,7 @@ impl Runtime {
             store: s::Store::open_runtime(&root.join("state.sqlite3"), storage_limits(), false)?,
             root,
             synthetic_owner: None,
+            host_command_background: None,
         };
         let epoch = app.store.epoch()?;
         let (head, state) = app.load()?;
@@ -2829,6 +2836,7 @@ impl Runtime {
             store: s::Store::open_runtime(&root.join("state.sqlite3"), storage_limits(), true)?,
             root,
             synthetic_owner: None,
+            host_command_background: None,
         };
         let (_, state) = runtime.load_in_class(class)?;
         state.config.validate()?;
@@ -4509,16 +4517,21 @@ impl Runtime {
                     Some(receipt.accepted_epoch) == report.accepted_epoch,
                     "unexpected adoption epoch",
                 )?;
-                // Dispatch follows complete atomic adoption. Each execution
-                // retains its terminal evidence before the next command starts.
-                // Publish results only after the entire batch's dispatch pass:
-                // an earlier result must not replace the runtime prerequisite
-                // still needed by another command from this same decision.
+                // Dispatch follows complete atomic adoption, in authored order.
+                // Under a foreground owner, the final host command can overlap
+                // a peer's decision. Earlier commands retain terminal evidence
+                // before the next starts. All dispatches precede publication.
                 // Errors cannot undo adoption or authorize replay; retained
                 // pending jobs still require explicit host recovery.
                 for phase in [tools::ExecutionPhase::Execute, tools::ExecutionPhase::Settle] {
-                    for (id, http, host) in &execution_ids {
-                        if *host { self.advance_host_command(id, now, phase)?; }
+                    for (index, (id, http, host)) in execution_ids.iter().enumerate() {
+                        if *host && phase == tools::ExecutionPhase::Execute
+                            && index + 1 == execution_ids.len()
+                            && self.host_command_background.is_some()
+                        {
+                            self.advance_host_command_in_background(id, now)?;
+                        }
+                        else if *host { self.advance_host_command(id, now, phase)?; }
                         else if *http { self.advance_http_fetch(id, now, phase)?; }
                         else { self.advance_computation(id, now, phase)?; }
                     }

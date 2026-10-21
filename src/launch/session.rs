@@ -647,12 +647,13 @@ pub(super) async fn drive<D: Driver>(
     app: &mut Runtime,
     work: &str,
     driver: &mut D,
+    owner: &s::ExecutionOwner,
 ) -> Result<(Output, Option<BoundaryError>)> {
     let mut tracked = Tracked {
         driver,
         failure: None,
     };
-    let output = run_with(app, work, &mut tracked).await?;
+    let output = run_with_owned_commands(app, work, &mut tracked, owner).await?;
     Ok((output, tracked.failure))
 }
 struct OwnedLive<'a> {
@@ -775,7 +776,7 @@ async fn execute_with_codex_transport(
                 config: head.body["config"].clone(),
                 intake_selection: request.intake_delegation.clone(),
             };
-            drive(app, &request.work, &mut driver).await
+            drive(app, &request.work, &mut driver, owner).await
         }
         SessionRoute::NativeSiwc { vault } => {
             #[cfg(unix)]
@@ -837,7 +838,7 @@ async fn execute_with_codex_transport(
                     config: head.body["config"].clone(),
                     intake_selection: request.intake_delegation.clone(),
                 };
-                drive(app, &request.work, &mut driver).await
+                drive(app, &request.work, &mut driver, owner).await
             }
             #[cfg(not(unix))]
             {

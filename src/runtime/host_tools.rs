@@ -1,6 +1,8 @@
 //! Default host execution, available without an operator grant or selected guide.
 use super::*;
 use crate::host_command as h;
+mod background;
+pub(super) use background::Background;
 
 const RESULT_CAPACITY: u64 = 256 * 1024;
 
@@ -185,6 +187,25 @@ impl Runtime {
         now: i64,
         phase: tools::ExecutionPhase,
     ) -> Result<()> {
+        self.advance_host_command_mode(id, now, phase, false)
+    }
+
+    pub(super) fn advance_host_command_in_background(&mut self, id: &str, now: i64) -> Result<()> {
+        self.advance_host_command_mode(id, now, tools::ExecutionPhase::Execute, true)
+    }
+
+    fn advance_host_command_mode(
+        &mut self,
+        id: &str,
+        now: i64,
+        phase: tools::ExecutionPhase,
+        background: bool,
+    ) -> Result<()> {
+        // A live worker has not lost its outcome. Only the owning coordinator
+        // may publish it; recovery must not classify it as an orphan.
+        if self.host_command_background.as_ref().is_some_and(|jobs| jobs.contains(id)) {
+            return Ok(());
+        }
         let mut retained = self.store.trusted_host().intent(id)?;
         let job: Job = serde_json::from_value(retained.intent.body.clone())?;
         let state = self.snapshot()?;
@@ -218,28 +239,24 @@ impl Runtime {
                     s::BudgetClass::Ordinary,
                 )?;
                 self.store.dispatch_intent(id, self.store.epoch()?)?;
-                let terminal = Terminal {
-                    intent: id.into(),
-                    request_sha256: digest(&retained.intent.body)?,
-                    runner_revision: h::revision(),
-                    outcome: h::execute(&job.input, &job.directory),
+                let request_sha256 = digest(&retained.intent.body)?;
+                let intent_id = id.to_owned();
+                let runner_revision = h::revision();
+                let input = job.input.clone();
+                let directory = job.directory.clone();
+                let execute = move || Terminal {
+                    intent: intent_id,
+                    request_sha256,
+                    runner_revision,
+                    outcome: h::execute(&input, &directory),
                 };
-                let object = s::StoredObject {
-                    id: slot_id.clone(),
-                    revision: 1,
-                    kind: "host-command-terminal".into(),
-                    body: serde_json::to_value(&terminal)?,
-                };
-                let exact = object.clone();
-                self.store
-                    .trusted_host()
-                    .record_terminal_evidence(object, |owner, value| {
-                        if owner == &subject && value == &exact {
-                            Ok(())
-                        } else {
-                            Err(s::StoreError::Conflict(id.into()))
-                        }
-                    })?;
+                if background {
+                    self.host_command_background.as_mut()
+                        .ok_or_else(|| held("host command execution scope absent"))?
+                        .spawn(id, execute)?;
+                    return Ok(());
+                }
+                self.record_host_command_terminal(&execute())?;
             }
             retained = self.store.trusted_host().intent(id)?;
         }
@@ -374,6 +391,26 @@ impl Runtime {
         marker.result_source = Some(result_source);
         optional_activity::finish_if_stopped(&mut state, &prepared, now)?;
         self.save(&old, &state)?;
+        Ok(())
+    }
+
+    fn record_host_command_terminal(&mut self, terminal: &Terminal) -> Result<()> {
+        let id = &terminal.intent;
+        let subject = s::EntityId::Intent(id.clone());
+        let object = s::StoredObject {
+            id: composite_id("host-command-result", &[id]),
+            revision: 1,
+            kind: "host-command-terminal".into(),
+            body: serde_json::to_value(terminal)?,
+        };
+        let exact = object.clone();
+        self.store.trusted_host().record_terminal_evidence(object, |owner, value| {
+            if owner == &subject && value == &exact {
+                Ok(())
+            } else {
+                Err(s::StoreError::Conflict(id.clone()))
+            }
+        })?;
         Ok(())
     }
 }

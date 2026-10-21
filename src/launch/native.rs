@@ -185,7 +185,7 @@ async fn run_opened(
             delegated_work.ok_or_else(|| held("admitted delegated child absent"))?
         }
     };
-    let result = run_with(app, &work, &mut driver).await;
+    let result = run_with_owned_commands(app, &work, &mut driver, &owner).await;
     drop(driver);
     drop(owner);
     result
@@ -272,5 +272,5 @@ pub(super) async fn run_session_owned(
         intake_selection: intake_selection.cloned(),
     };
     driver.before_step(app)?;
-    session::drive(app, work, &mut driver).await
+    session::drive(app, work, &mut driver, owner).await
 }

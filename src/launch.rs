@@ -786,6 +786,25 @@ fn failed_call_allows_peer_progress(app: &mut Runtime, id: &str) -> Result<bool>
 async fn run_with<D: Driver>(app: &mut Runtime, work: &str, driver: &mut D) -> Result<Output> {
     run_with_options(app, work, driver, false).await
 }
+/// Hold the command scope inside the already acquired execution owner. Both
+/// successful and failed runs drain admitted workers before their final view.
+async fn run_with_owned_commands<D: Driver>(
+    app: &mut Runtime,
+    work: &str,
+    driver: &mut D,
+    owner: &s::ExecutionOwner,
+) -> Result<Output> {
+    let mut scope = app.background_host_commands(owner)?;
+    let outcome = run_with(&mut scope, work, driver).await;
+    while scope.has_background_host_commands() {
+        scope.wait_for_host_command().await?;
+    }
+    let output = outcome?;
+    let mut final_view = result(&mut scope, work)?;
+    final_view.stop = output.stop;
+    Ok(final_view)
+}
+
 async fn run_with_options<D: Driver>(
     app: &mut Runtime,
     work: &str,
@@ -797,7 +816,9 @@ async fn run_with_options<D: Driver>(
     require(saved.works.contains_key(work), "unknown launch work")?;
     let mut remaining = saved.setup.max_considerations;
     let mut stop = "step_limit";
-    for _ in 0..saved.setup.max_steps {
+    let mut steps = 0;
+    while steps < saved.setup.max_steps {
+        app.publish_completed_host_commands(unix_now()?)?;
         let mut view = result(app, work)?;
         // Scheduling uses trusted current state, never a permission-filtered
         // historical result view or an inferred disclosure principal.
@@ -818,6 +839,13 @@ async fn run_with_options<D: Driver>(
             let (count, selected) = select(app, work, remaining, unix_now()?)?;
             remaining -= count;
             let Some(persona) = selected else {
+                if app.has_background_host_commands() {
+                    if remaining == 0 {
+                        return Ok("consideration_bound");
+                    }
+                    app.wait_for_host_command().await?;
+                    return Ok("jobs_completed");
+                }
                 return Ok(if active_invocations(&app.snapshot()?).is_empty() {
                     "no_eligible_route"
                 } else {
@@ -825,6 +853,7 @@ async fn run_with_options<D: Driver>(
                 });
             };
             driver.before_step(app)?;
+            steps += 1;
             let (request, current) = reserve(app, work, &persona, driver.prospective_intake())?;
             let invocation_id = request.id.clone();
             let report = match driver.step(app, request, &current, unix_now()?).await {
@@ -859,6 +888,7 @@ async fn run_with_options<D: Driver>(
         }
         .await;
         match attempt {
+            Ok("jobs_completed") => (),
             Ok("continue") if remaining > 0 => (),
             Ok("continue") => {
                 stop = "consideration_bound";

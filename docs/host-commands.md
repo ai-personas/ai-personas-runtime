@@ -63,8 +63,23 @@ Each observed terminal result is retained before the next command executes.
 Result observations and supporting assets are published after the decision's
 execution pass, so publishing one result does not invalidate another command's
 accepted prerequisites. This also applies to decisions mixing host commands
-with the optional WebAssembly or HTTPS profiles. Foreground execution remains
-sequential; long commands still delay other personas in that session.
+with the optional WebAssembly or HTTPS profiles.
+
+In native foreground runs and launcher sessions, a final host command runs on
+a worker while other eligible personas can take a turn. Commands earlier in
+that decision still finish in authored order before the final command starts.
+The originating persona/work becomes eligible again after its result is
+published, subject to its accepted continuation. Results are published between
+primary decisions, preserving their existing freshness checks. Model calls
+remain sequential; the standalone one-step API and explicit tool recovery also
+remain synchronous.
+
+If only running commands remain, the launcher waits for an actual completion
+without spending another model admission or repeatedly scanning Store. Every
+normal run exit drains its workers and records their outcomes before returning
+the final view. Cancellation joins workers before releasing execution ownership;
+an outcome that was not durably recorded still requires explicit recovery and
+is never inferred or rerun. There is no added timeout.
 There is no separate tool attempt allocation or additional model-call charge.
 Input and retained-output bytes use the existing Store accounting. A shell
 installation changes the actual host environment; it is not simulated.
