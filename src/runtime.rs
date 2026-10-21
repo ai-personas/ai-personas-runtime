@@ -76,6 +76,7 @@ mod requester_wait;
 pub use requester_feedback::Disposition as RequesterFeedbackDisposition;
 mod peer_feedback;
 mod collaborators;
+pub(crate) mod affect;
 pub use peer_feedback::Disposition as PeerFeedbackDisposition;
 pub(crate) mod questions;
 pub use questions::{
@@ -583,6 +584,10 @@ pub struct Persona {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) lifecycle: Option<lifecycle::Record>,
     pub character: Option<Character>,
+    /// Latest primary-authored contextual state receipt. Older receipts remain
+    /// immutable observations; absence establishes no measured affect state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) transient_affect: Option<String>,
     pub owner_epoch: u64,
     pub admission_serial: u64,
     pub active_invocation: Option<String>,
@@ -6349,6 +6354,7 @@ fn insert_seed(state: &mut State, operator: &str, seed: Seed) -> Result<()> {
             birth: None,
             lifecycle: None,
             character: None,
+            transient_affect: None,
             owner_epoch: 0,
             admission_serial: 0,
             active_invocation: None,
@@ -7296,7 +7302,7 @@ fn render_mode_with_history(
             ) && observation
                 .payload
                 .get("result")
-                .is_some_and(Value::is_object)) || matches!(observation.kind.as_str(), "computation_result" | "http_fetch_result" | "host_command_result")
+                .is_some_and(Value::is_object)) || matches!(observation.kind.as_str(), "computation_result" | "http_fetch_result" | "host_command_result" | "affect_update")
             {
                 supplied_bodies.extend(exact);
             }
@@ -7312,6 +7318,21 @@ fn render_mode_with_history(
     let requester_feedback_control = requester_feedback::control(
         state, work_id, focus, &a, &observation_ids, &mut exposure,
     )?;
+    let affect = affect::project(state, actor, &a, &observation_corpus)?;
+    extend_exposure(&mut exposure, &affect.exposure);
+    if let Some(value) = &affect.observation {
+        let id = value["id"].as_str().ok_or_else(|| held("affect observation identity absent"))?;
+        if !observation_ids.iter().any(|supplied| supplied == id) {
+            observations.push(value.clone());
+            observation_ids.push(id.to_owned());
+        }
+        visible_files.extend(affect.references.iter().cloned());
+        supplied_bodies.extend(affect.references.iter().cloned());
+        sources.extend(affect.references.iter().cloned());
+        if !affect.qualified_roots.is_empty() {
+            observation_roots.push(affect.qualified_roots.clone());
+        }
+    }
     let peer_feedback_control =
         peer_feedback::control(state, focus, &a, &observation_ids, &mut exposure)?;
     let shared_questions = questions::view(state, work_id, actor, &a, &mut exposure)?;
@@ -7611,7 +7632,7 @@ fn render_mode_with_history(
             json!({"provenance":persona.seed.provenance,"supplied_by":persona.created_by,"body_supplied":false,
                 "status":"historical creation material retained; accepted current character governs continuation"})
         },
-        "current_character":current_character,"transient_affect":Value::Null,
+        "current_character":current_character,"transient_affect":affect.control,
         "original_need":meta.original,"requester":requester_results::control(work, meta),
         "work_version":work.version,"work_phase":work.phase,
         "mandate":work.mandate(),"own_pending_offers":offers,
@@ -7649,6 +7670,9 @@ fn render_mode_with_history(
         "not_ready":["effects outside currently exposed capability bindings"]});
     if let Some(allowance) = launch_step_allowance {
         core["launch_step_allowance"] = allowance.control()?;
+    }
+    if ordinary_interfaces {
+        core["affect_interface"] = affect::interface(now)?;
     }
     if !initializing {
         if let Some(mut discovery) = work_guides::control(state) {
@@ -8794,7 +8818,7 @@ fn validate_operation_interfaces(
             p::Operation::FileWrite { qualifications, .. } | p::Operation::FileImport { qualifications, .. } => { for r in qualifications { file_reference(r)?; } }
             p::Operation::CharacterAdopt { own_voice, .. } => { for r in own_voice { file_reference(r)?; } }
             p::Operation::Search { .. } | p::Operation::Discover { .. } | p::Operation::InspectWork { .. } | p::Operation::HistoryQuery { .. } | p::Operation::HistoryRead { .. } | p::Operation::Communicate { .. } | p::Operation::Responsibility { .. } | p::Operation::FileRetire { .. }
-            | p::Operation::WarningAdopt { .. } | p::Operation::WarningResolve { .. } | p::Operation::MaintenanceDispose { .. } => (),
+            | p::Operation::WarningAdopt { .. } | p::Operation::WarningResolve { .. } | p::Operation::MaintenanceDispose { .. } | p::Operation::AffectUpdate { .. } => (),
         }
     }
     Ok(actions)
@@ -9041,6 +9065,7 @@ fn plan_response(
         }
     }
     if !character_changed {
+        affect::apply(&mut state, prepared, decision, now)?;
         maintenance::apply(&mut state, prepared, decision, &actions, now)?;
         maintenance::retain_outcomes(&mut state, prepared, decision, now)?;
         observability::accepted_writes(&mut state, prepared, decision, &allowed, &proposals, now)?;

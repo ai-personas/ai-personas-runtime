@@ -130,16 +130,18 @@ fn supplied_entries<'a>(
         for observation in observations {
             if (observation["kind"] != "qualified_read"
                 && observation["kind"] != "computation_result"
-                && observation["kind"] != "http_fetch_result")
+                && observation["kind"] != "http_fetch_result"
+                && observation["kind"] != "host_command_result"
+                && observation["kind"] != "affect_update")
                 || observation["actor"] != persona
-                || observation["work"] != work
+                || (observation["work"] != work && observation["kind"] != "affect_update")
                 || !observation["id"]
                     .as_str()
                     .is_some_and(|id| supplied_observations.iter().any(|supplied| supplied == id))
             {
                 continue;
             }
-            if observation["kind"] == "computation_result" || observation["kind"] == "http_fetch_result" {
+            if matches!(observation["kind"].as_str(), Some("computation_result" | "http_fetch_result" | "host_command_result" | "affect_update")) {
                 for bundle in observation["current_required_qualifications"]
                     .as_array()
                     .into_iter()

@@ -1671,8 +1671,13 @@ class Dialogue:
         if character:
             self.ui.say(f"Current character revision: {character['revision']}")
             for scope in ("ocean", "vad"):
+                self.ui.say("Stable OCEAN tendencies:" if scope == "ocean" else "Baseline VAD:")
                 for name, value in character[scope].items():
                     self.ui.say(f"{name}: {value}")
+        affect = result.get("transient_affect")
+        if affect:
+            self.development_affect(affect["context"], [affect["observation"]] if affect.get("observation") else [],
+                                    "Current modeled affect")
         for revision in result["characteristic_revisions"]:
             self.ui.say(f"{revision['source']} @ {revision['revision']} "
                         f"({'current' if revision['current'] else 'historical'})")
@@ -1691,11 +1696,23 @@ class Dialogue:
                             "route: " + json.dumps(revision["supply_routes"], ensure_ascii=False))
             if not supplied:
                 self.ui.say("None of the characteristic revisions in this view was supplied in full to this call.")
+            if evidence.get("supplied_transient_affect") is not None:
+                self.development_affect(evidence["supplied_transient_affect"],
+                                        evidence.get("supplied_affect_observations", []),
+                                        "Modeled affect supplied to this accepted call")
             self.development_decision(evidence)
             self.resource_use(evidence)
         if result.get("truncated"):
             self.ui.say("This bounded view omits additional revisions. Use an exact source ID to narrow it.")
         self.ui.say("Retained guidance and actual input supply do not by themselves establish improved behavior. Review the work and its consequences.")
+
+    def development_affect(self, context, observations, label):
+        self.ui.say(f"{label}: {context.get('status', 'unavailable')}.")
+        self.ui.say("Authored contextual interpretation, separate from baseline character; no psychological measurement.")
+        self.ui.say(json.dumps(context, ensure_ascii=False, indent=2))
+        for observation in observations:
+            # Preserve attribution and complete required qualifications together.
+            self.ui.say(json.dumps(observation, ensure_ascii=False, indent=2))
 
     def resource_use(self, evidence):
         resources = evidence.get("resource_use")

@@ -336,9 +336,34 @@ pub enum HistoryRecordReference {
     },
 }
 
+/// Optional current modeled affect, separate from stable traits and baseline VAD.
+/// These are authored interpretations, not measurements or changes of authority.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum AffectChange {
+    Set {
+        /// Exactly valence, activation (arousal), and control (perceived control).
+        /// Describe the present situation in words; each value is at most 512 bytes.
+        vad: BTreeMap<String, String>,
+        /// The persona's interpretation of its current circumstances, at most 2048 bytes.
+        interpretation: String,
+        /// Exact observation IDs actually supplied in this input, or [] for a
+        /// stated interpretation without an observation basis. Never invent evidence.
+        observations: Vec<String>,
+        /// Absolute UTC Unix seconds, after adoption and no later than the
+        /// supplied affect interface's maximum expiry. Expiry creates no wake.
+        expires_at_unix: i64,
+    },
+    Clear { reason: String },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Operation {
+    /// Replace or clear your own transient modeled affect in an ordinary
+    /// decision. This does not edit character, fragments, baseline VAD, grants
+    /// or continuation. Fragment/asset maintenance remain separately required.
+    AffectUpdate { id: String, change: AffectChange },
     WarningAdopt {
         id: String,
         warning_id: String,
@@ -648,7 +673,8 @@ impl Operation {
 
     pub fn id(&self) -> &str {
         match self {
-            Self::WarningAdopt { id, .. }
+            Self::AffectUpdate { id, .. }
+            | Self::WarningAdopt { id, .. }
             | Self::WarningResolve { id, .. }
             | Self::MaintenanceDispose { id, .. }
             | Self::FileWrite { id, .. }
@@ -1742,6 +1768,22 @@ fn check_operation(
     let path = format!("operations[{index}]");
     check_id(operation.id(), &format!("{path}.id"))?;
     match operation {
+        Operation::AffectUpdate { change, .. } => match change {
+            AffectChange::Set { vad, interpretation, observations, expires_at_unix } => {
+                check_profile(vad, &["valence", "activation", "control"], &format!("{path}.change.vad"))?;
+                for text in vad.values() {
+                    check_text(text, 512, &format!("{path}.change.vad"))?;
+                }
+                check_text(interpretation, 2048, &format!("{path}.change.interpretation"))?;
+                check_count(observations.len(), 0, 16, &format!("{path}.change.observations"))?;
+                check_ids(observations, 0, &format!("{path}.change.observations"))?;
+                if *expires_at_unix <= 0 {
+                    return Err(invalid(&format!("{path}.change.expires_at_unix"), "positive UTC Unix seconds required"));
+                }
+                Ok(())
+            }
+            AffectChange::Clear { reason } => check_text(reason, 2048, &format!("{path}.change.reason")),
+        },
         Operation::WarningAdopt {
             warning_id,
             targets,
@@ -2245,6 +2287,7 @@ pub fn validate_decision(
     let mut warning_ids = BTreeSet::new();
     let mut write_paths = BTreeSet::new();
     let mut characters = 0;
+    let mut affects = 0;
     let mut input_nodes = 0;
     for (index, operation) in decision.operations.iter().enumerate() {
         check_operation(operation, index, &mut input_nodes)?;
@@ -2252,6 +2295,12 @@ pub fn validate_decision(
             return Err(invalid("operations", "duplicate operation identifier"));
         }
         match operation {
+            Operation::AffectUpdate { .. } => {
+                affects += 1;
+                if affects > 1 {
+                    return Err(invalid("operations", "at most one transient affect update is allowed"));
+                }
+            }
             Operation::WarningAdopt { warning_id, .. }
             | Operation::WarningResolve { warning_id, .. }
                 if !warning_ids.insert(warning_id.as_str()) =>

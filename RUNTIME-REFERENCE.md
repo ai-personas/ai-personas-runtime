@@ -1079,6 +1079,11 @@ Bounded warning views and exact receipt accompaniment survive restart and old-re
 
 ## Remaining coverage
 
+[Current modeled affect](docs/transient-affect.md) is an optional primary-authored
+contextual state with explicit expiry and retained observations. It remains
+separate from accepted character and baseline VAD. Exact state supply and recorded
+updates do not establish psychological measurement or behavioral improvement.
+
 Ordinary scheduling persists fair consideration under its declared assumptions.
 Explicit foreground sessions drive bounded live execution; the runtime is not an
 unattended service. Events cover exact one-shot local dependency evidence.

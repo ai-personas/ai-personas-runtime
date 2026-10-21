@@ -58,7 +58,7 @@ pub(super) fn project(
     let mut roots = observation.qualified_roots.clone();
     if matches!(
         observation.kind.as_str(),
-        "computation_result" | "http_fetch_result" | "host_command_result"
+        "computation_result" | "http_fetch_result" | "host_command_result" | "affect_update"
     ) {
         roots.extend(tools::qualifications(
             state,
@@ -75,7 +75,7 @@ pub(super) fn project(
     // closures do not multiply the next prompt.
     let groups: Vec<&[f::Reference]> = if matches!(
         observation.kind.as_str(),
-        "computation_result" | "http_fetch_result" | "host_command_result"
+        "computation_result" | "http_fetch_result" | "host_command_result" | "affect_update"
     ) {
         if roots.is_empty() {
             Vec::new()

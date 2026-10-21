@@ -74,6 +74,8 @@ establish execution or skill application.
 
 [Inspect persona development](docs/persona-development.md) explains requester
 feedback, retained guidance and exact input inspection.
+Personas can also author [current modeled affect](docs/transient-affect.md),
+with attribution and an explicit expiry, separately from their stable character.
 
 Operators can separately enable [finite optional activity](docs/optional-activity.md)
 without an assigned topic or deliverable. Personas choose whether to explore or

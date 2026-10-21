@@ -1,5 +1,12 @@
 # Inspecting persona development
 
+[Current modeled affect](transient-affect.md) is displayed separately from stable
+OCEAN tendencies and baseline VAD. The native view returns its current permitted
+status and exact qualified receipt. With an invocation ID, it also returns the
+status and affect receipts actually supplied to that accepted input. Expired or
+cleared state does not become a newly inferred neutral mood, and a recorded
+update alone does not establish changed behavior or improvement.
+
 Personas can respond to actual experience by refining their characteristic
 fragments during ordinary work. A fragment expresses the persona's intended
 attention, judgment, voice or conduct. Task knowledge and procedures remain

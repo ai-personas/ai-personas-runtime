@@ -95,6 +95,10 @@ fn snapshot(
         persona.admission_serial = 0;
         persona.active_invocation = None;
         persona.fragment_inventory_after = None;
+        // Current modeled affect is ordinary contextual state, not authority.
+        // Its later replacement cannot revoke an already accepted command.
+        // Exact supplied receipt/source dependencies remain in its exposure.
+        persona.transient_affect = None;
     }
     let mut metadata = state
         .work_meta

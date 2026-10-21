@@ -71,6 +71,7 @@ fn project(
             .is_ok_and(|exposure| exposure_permitted(&state, &exposure, &audience))
     });
     let corpus = corpus(&state, &audience)?;
+    let affect = affect::project(state, persona_id, &audience, &corpus)?;
     let mut navigation = f::NavigationBudget::new(state.config.navigation_per_call);
     let mut revisions = Vec::new();
     let mut truncated = false;
@@ -129,6 +130,7 @@ fn project(
         "persona":persona_id, "label":persona.seed.label,
         "lifecycle":lifecycle::projection(persona),
         "character":character, "characteristic_revisions":revisions,
+        "transient_affect":{"context":affect.control,"observation":affect.observation},
         "truncated":truncated, "inference_performed":false,
         "scope":"currently permitted accepted characteristic revisions; supporting assets are separate",
         "behavioral_improvement_established":false
@@ -302,6 +304,11 @@ fn invocation_evidence(
         "adopted_response":exact, "response_sha256":archive.response_hash,
         "provider_completed_with_matching_input":provider_completed,
         "supplied_characteristic_revisions":supplied,
+        "supplied_transient_affect":control["transient_affect"],
+        "supplied_affect_observations":control["actual_observations"].as_array()
+            .map(|observations| observations.iter().filter(|observation|
+                observation["kind"] == "affect_update").cloned().collect::<Vec<_>>())
+            .unwrap_or_default(),
         "resource_use":resource_use::inspect(state, audience, &prepared, &control, &qualified, &proof)?,
         "computation_execution":tools::inspect(records, state, audience, &proof)?,
         "http_fetch_execution":http_tools::inspect(records, state, audience, &proof)?,
