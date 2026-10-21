@@ -585,10 +585,11 @@ pub enum Operation {
         /// action permits an earlier local record, cite its inner record ID.
         inputs: Value,
         /// Only file_write/file_import operation IDs whose proposed revisions this command
-        /// consumes. Use [] otherwise; never name another work_command here.
+        /// consumes. Defaults to [] when omitted; never name another work_command here.
         /// Ordered local commands need no command-to-command depends_on edge.
         /// Reading or executing something does not supply its result until a
         /// fresh decision receives the actual observation.
+        #[serde(default)]
         depends_on: Vec<String>,
     },
     /// Invoke a supplied external capability. host.command.v1 provides default
@@ -601,6 +602,9 @@ pub enum Operation {
         /// Follow this capability's supplied dependency contract. For
         /// work.command.v1, name only consumed file_write/file_import proposals; use [] for
         /// ordered local commands that consume no same-response file save.
+        /// Defaults to [] when omitted. Actual consumed save prerequisites must
+        /// still be named explicitly; no dependency is inferred from list order.
+        #[serde(default)]
         depends_on: Vec<String>,
     },
 }

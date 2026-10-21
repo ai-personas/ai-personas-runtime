@@ -32,6 +32,12 @@ Use an `effect` operation with the supplied capability ID and binding revision:
 }
 ```
 
+For `effect` and `work_command`, omitting the operation's `depends_on` means
+an empty prerequisite list. Put it beside `inputs`, not inside the command
+inputs. Consuming a file saved in the same response still requires naming that
+save explicitly. Omission does not infer a dependency or make a missing result
+available.
+
 `command` is a Bash script. The command inherits the host environment, including
 `PATH`; it can invoke package managers and other installed software directly.
 The interactive launcher preserves that environment when starting native helpers,
