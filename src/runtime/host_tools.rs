@@ -353,7 +353,8 @@ impl Runtime {
                 &retained.reservation,
                 s::Usage::Measured(s::Resources {
                     input_bytes: serde_json::to_vec(&job.input)?.len() as u64,
-                    output_bytes: (result.stdout.len() + result.stderr.len()) as u64,
+                    output_bytes: (result.stdout.retained_text_bytes()
+                        + result.stderr.retained_text_bytes()) as u64,
                     ..Default::default()
                 }),
             )?;

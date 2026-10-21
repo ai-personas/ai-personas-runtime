@@ -102,20 +102,36 @@ counts and excerpts of the command input, stdout and stderr. The current runner
 and shell artifact hashes, effective user ID, and a digest of the inherited
 environment identify the observed execution without copying environment values.
 
-Each stream contributes up to 16 KiB of bytes to the retained text excerpt.
-This bounds context capture, not command execution. `stdout_log` and `stderr_log`
-identify full host log files, which the persona can inspect with another command.
-The truncation flags and byte counts describe the observation. Host log paths are
-live files; a command that leaves background processes may continue writing them.
-The retained result itself remains an exact observation.
+`stdout` and `stderr` are capture objects with `bytes_observed`,
+`capture_complete`, `log_path` and `segments`. A stream of at most 16 KiB is
+captured in full. For a larger stream, the runner retains its first and last
+8 KiB as separate segments. Each segment records raw log byte offsets and a
+SHA-256 digest, decoded `text`, and `lossy_utf8`. That flag identifies replacement
+of invalid UTF-8, including a character split at a capture boundary. It does not
+claim that decoded text preserves arbitrary binary bytes.
 
-Pending host results share an 8 KiB text allowance in the next context. Each
-`context_projection` identifies its format, original UTF-8 string hashes and byte
-counts, supplied byte ranges, and whether each field is complete. Command/stdin
-excerpts keep the beginning; stdout/stderr excerpts keep the end. Execution
-metadata and required qualifications are preserved. The original capture
-truncation flags still describe the runner's capture; the separate projection
-metadata describes what this input actually supplied.
+The segment ranges make omitted middle output explicit; they are never joined
+into a fabricated contiguous string. A null `bytes_observed` means capture was
+unavailable, whereas zero means an observed empty stream. These bounds limit
+retention, not command execution. `stdout.log_path` and `stderr.log_path`
+identify full host files the persona can inspect with another command. Log paths
+are live files; background processes may continue writing after the observed
+length was read. Captured segments and their metadata remain immutable evidence.
+
+Pending host results share an 8 KiB text allowance in the next context.
+Command/stdin excerpts keep prefixes; unused input and stream space can serve
+the other stream. Stream segments replace `text` with explicit `text_excerpts`
+from the beginning and end, preserving useful starts and actual endings. Even a
+single complete captured stream can have separate context excerpts with a gap.
+
+`context_projection` identifies `host-command-pending-segments-v2` and records
+each original text field's UTF-8 length, digest and completeness. Excerpt offsets
+refer to the retained segment's decoded UTF-8 text; the enclosing segment's raw
+offsets and digest still refer to its captured log bytes. These coordinates can
+differ when decoding was lossy. `capture_complete` describes the runner capture,
+while projection `fields.complete` describes the text supplied in this input.
+Execution metadata and required qualifications are preserved. Neither a complete
+capture nor a successful exit establishes that omitted context text was read.
 
 Each projected result includes its exact, currently permitted retained-result
 reference, available for ordinary file reads and selection, with an input-file
@@ -124,14 +140,16 @@ supplied result-file content or an implicit selection. Read it, select it for a
 later input, or inspect the host logs when the omitted text is needed. Explicit
 historical observation reads and operator development views
 retain their complete result projections. Original observations, result assets,
-terminal evidence and command inputs are unchanged. Legacy observations without
-an available retained-result reference keep their original pending projection.
+terminal evidence and command inputs are unchanged. Historical string-format
+results remain stored and readable as evidence; they are not converted into
+new captures or accepted by the current segment projection. New executions use
+the current runner binding and capture format.
 
 Results are also available as exact supporting assets under `tools/results/`.
 These are runtime asset paths, not files beneath the host working directory.
 Read or select the exact result reference through the runtime file interface.
 The result body can identify the original command's actual host output paths;
-use those exact paths when revising an output. The `stdout_log` and `stderr_log`
+use those exact paths when revising an output. The `stdout.log_path` and `stderr.log_path`
 paths refer to host files directly.
 
 `CONTROL.host_command_state.retained_results` lists up to eight of the most

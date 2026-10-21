@@ -35,6 +35,45 @@ pub struct Inputs {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct OutputSegment {
+    /// Offsets in the observed host log, not in the decoded text.
+    pub start_byte: u64,
+    pub end_byte: u64,
+    pub raw_sha256: String,
+    pub text: String,
+    /// Invalid UTF-8, including a character cut at a capture boundary, is
+    /// replaced in text. The raw range and digest still describe the log bytes.
+    pub lossy_utf8: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OutputCapture {
+    /// None means capture was unavailable; it is not an observed empty stream.
+    pub bytes_observed: Option<u64>,
+    pub capture_complete: bool,
+    pub segments: Vec<OutputSegment>,
+    /// A live host path, not an immutable retained asset reference.
+    pub log_path: Option<String>,
+}
+
+impl OutputCapture {
+    fn unavailable() -> Self {
+        Self {
+            bytes_observed: None,
+            capture_complete: false,
+            segments: Vec::new(),
+            log_path: None,
+        }
+    }
+
+    pub fn retained_text_bytes(&self) -> usize {
+        self.segments.iter().map(|segment| segment.text.len()).sum()
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Outcome {
     pub succeeded: bool,
     pub process_started: bool,
@@ -42,15 +81,8 @@ pub struct Outcome {
     pub signal: Option<i32>,
     pub timed_out: bool,
     pub failure: Option<String>,
-    pub stdout: String,
-    pub stderr: String,
-    pub stdout_bytes_observed: u64,
-    pub stderr_bytes_observed: u64,
-    pub stdout_truncated: bool,
-    pub stderr_truncated: bool,
-    /// Full host files. These are live paths, not immutable retained asset references.
-    pub stdout_log: Option<String>,
-    pub stderr_log: Option<String>,
+    pub stdout: OutputCapture,
+    pub stderr: OutputCapture,
     pub working_directory: String,
     pub shell: String,
     pub shell_sha256: Option<String>,
@@ -86,16 +118,41 @@ fn file_hash(path: &Path) -> Option<String> {
     Some(hex::encode(hash.finalize()))
 }
 
-fn captured(path: &Path) -> std::io::Result<(String, u64, bool)> {
-    let file = File::open(path)?;
+fn captured(path: &Path) -> std::io::Result<OutputCapture> {
+    let mut file = File::open(path)?;
     let length = file.metadata()?.len();
-    let mut bytes = Vec::new();
-    file.take(OUTPUT_BYTES as u64).read_to_end(&mut bytes)?;
-    Ok((
-        String::from_utf8_lossy(&bytes).into_owned(),
-        length,
-        length > bytes.len() as u64,
-    ))
+    let ranges = if length == 0 {
+        Vec::new()
+    } else if length <= OUTPUT_BYTES as u64 {
+        vec![(0, length)]
+    } else {
+        let half = (OUTPUT_BYTES / 2) as u64;
+        vec![(0, half), (length - half, length)]
+    };
+    let mut segments = Vec::with_capacity(ranges.len());
+    for (start, end) in ranges {
+        file.seek(SeekFrom::Start(start))?;
+        let mut bytes = vec![0; (end - start) as usize];
+        // Bound each read by the observed length even if a background writer
+        // appends more output. A shortened file fails capture instead of
+        // claiming that an unobserved range was read.
+        file.read_exact(&mut bytes)?;
+        let text = String::from_utf8_lossy(&bytes);
+        let lossy_utf8 = matches!(&text, std::borrow::Cow::Owned(_));
+        segments.push(OutputSegment {
+            start_byte: start,
+            end_byte: end,
+            raw_sha256: sha256_bytes(&bytes),
+            text: text.into_owned(),
+            lossy_utf8,
+        });
+    }
+    Ok(OutputCapture {
+        bytes_observed: Some(length),
+        capture_complete: length <= OUTPUT_BYTES as u64,
+        segments,
+        log_path: Some(path.to_string_lossy().into_owned()),
+    })
 }
 
 /// Run once, after native intent dispatch. Output capture limits the retained
@@ -120,14 +177,8 @@ pub fn execute(input: &Inputs, directory: &Path) -> Outcome {
         signal: None,
         timed_out: false,
         failure: None,
-        stdout: String::new(),
-        stderr: String::new(),
-        stdout_bytes_observed: 0,
-        stderr_bytes_observed: 0,
-        stdout_truncated: false,
-        stderr_truncated: false,
-        stdout_log: None,
-        stderr_log: None,
+        stdout: OutputCapture::unavailable(),
+        stderr: OutputCapture::unavailable(),
         working_directory: directory.to_string_lossy().into_owned(),
         shell: SHELL.into(),
         shell_sha256: file_hash(Path::new(SHELL)),
@@ -149,8 +200,8 @@ pub fn execute(input: &Inputs, directory: &Path) -> Outcome {
         let output = |path: &PathBuf| OpenOptions::new().write(true).create_new(true).open(path);
         let stdout = output(&stdout_path)?;
         let stderr = output(&stderr_path)?;
-        outcome.stdout_log = Some(stdout_path.to_string_lossy().into_owned());
-        outcome.stderr_log = Some(stderr_path.to_string_lossy().into_owned());
+        outcome.stdout.log_path = Some(stdout_path.to_string_lossy().into_owned());
+        outcome.stderr.log_path = Some(stderr_path.to_string_lossy().into_owned());
         let mut stdin = tempfile::tempfile()?;
         stdin.write_all(input.stdin.as_deref().unwrap_or("").as_bytes())?;
         stdin.seek(SeekFrom::Start(0))?;
@@ -186,14 +237,8 @@ pub fn execute(input: &Inputs, directory: &Path) -> Outcome {
         outcome.exit_code = status.code();
         outcome.signal = status.signal();
         outcome.succeeded = status.success() && !outcome.timed_out;
-        let (text, count, truncated) = captured(&stdout_path)?;
-        outcome.stdout = text;
-        outcome.stdout_bytes_observed = count;
-        outcome.stdout_truncated = truncated;
-        let (text, count, truncated) = captured(&stderr_path)?;
-        outcome.stderr = text;
-        outcome.stderr_bytes_observed = count;
-        outcome.stderr_truncated = truncated;
+        outcome.stdout = captured(&stdout_path)?;
+        outcome.stderr = captured(&stderr_path)?;
         Ok(())
     })();
     if let Err(error) = run {
