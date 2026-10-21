@@ -20,7 +20,10 @@ pub fn shared_questions(app: &mut Runtime, operator: &str, work: &str, now: i64)
     identity(work)?;
     let (_, saved) = load(app)?;
     let (_, state) = app.load()?;
-    admission_extension::authorize(&state, &saved, operator)?;
+    project(&state, &saved, operator, work, now)
+}
+pub(super) fn project(state: &State, saved: &Saved, operator: &str, work: &str, now: i64) -> Result<Value> {
+    admission_extension::authorize(state, saved, operator)?;
     Ok(
         json!({"work":work,"shared_questions":questions::operator_view(&state,operator,work,now)?,
         "inference_performed":false,"persona_resumed":false}),

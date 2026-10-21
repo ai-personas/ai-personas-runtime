@@ -34,9 +34,9 @@ pub fn development_at(
     }
     require((1..=16).contains(&limit), "revision limit must be 1..=16")?;
     // Do not recover or interrupt a live invocation merely to inspect development.
-    let mut app = Runtime::open_for_launch_inspection(root)?;
-    let (_, saved) = load(&mut app)?;
-    let state = app.snapshot()?;
+    let (mut app, snapshot) = inspection::Snapshot::open(root)?;
+    let saved = &snapshot.saved;
+    let state = &snapshot.state;
     require(
         saved.operator == operator && state.config.local_recipients.contains(operator),
         "development inspection requires the saved requester",
@@ -136,6 +136,7 @@ pub fn development_at(
             &mut app, &state, &audience, persona_id, invocation, &revisions,
         )?;
     }
+    snapshot.unchanged(&app)?;
     Ok(output)
 }
 

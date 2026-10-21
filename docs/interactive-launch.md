@@ -40,6 +40,14 @@ have different command sets; `session-messages` and `resume-participant` belong
 to `personas-session`. Their absence from `ai-personas --help` does not indicate
 an outdated installation.
 
+Status, result, question, session-message and development views each read one
+fresh runtime/launch snapshot and reuse it within that request. Repeated
+references to an invocation in status output reuse its attempt projection.
+These reads still spend the existing navigation allowance. If the runtime's
+semantic epoch changes during a view, it returns `snapshot_changed`; a later
+request reads the current state again.
+Previously spent or uncertain usage remains charged.
+
 ## First use
 
 The dialogue first selects a standard private progress location and asks permission

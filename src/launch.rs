@@ -28,6 +28,8 @@ pub use migration::{
 };
 #[path = "launch/admission_extension.rs"]
 mod admission_extension;
+#[path = "launch/inspection.rs"]
+mod inspection;
 pub use admission_extension::{
     extend_launch_admission, launch_admission_snapshot, preview_launch_admission_extension,
     LaunchAdmissionExtensionOutcome, LaunchAdmissionExtensionReceipt,

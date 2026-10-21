@@ -25,8 +25,14 @@ pub struct SessionMessages {
 /// cannot be reconstructed from later launch state or timestamps.
 pub fn session_messages(root: &Path, operator: &str, key: &str) -> BoundaryResult<SessionMessages> {
     valid_id(key)?;
-    let mut app = open(root, operator)?;
-    let session = read_session(&mut app, operator, key)?;
+    let (mut app, snapshot) = open_view(root, operator)?;
+    let result = project(&mut app, &snapshot.state, operator, key)?;
+    snapshot.unchanged(&app)?;
+    Ok(result)
+}
+
+fn project(app: &mut Runtime, state: &State, operator: &str, key: &str) -> BoundaryResult<SessionMessages> {
+    let session = read_session(app, operator, key)?;
     let scope = match &session {
         SessionView::Finished { claim, terminal } => match &terminal.outcome {
             SessionEnd::Returned { steps_after, .. } => {
@@ -47,7 +53,6 @@ pub fn session_messages(root: &Path, operator: &str, key: &str) -> BoundaryResul
     if scope.steps_before == scope.steps_after { return Ok(result); }
     let calls: BTreeMap<_, _> = (scope.steps_before + 1..=scope.steps_after)
         .map(|step| (format!("call-{step:08}"), step)).collect();
-    let state = app.snapshot()?;
     let now = unix_now()?;
     let mut candidates: Vec<_> = state.messages.values().filter_map(|message| {
         let step = calls.get(&message.invocation)?;

@@ -2785,6 +2785,15 @@ impl Runtime {
     /// ordinary open, neither this open nor its validation recovers an owner.
     /// Reads still spend the existing Ordinary Store navigation allowance.
     pub(crate) fn open_for_launch_inspection(root: &Path) -> Result<Self> {
+        Ok(Self::open_for_launch_snapshot(root)?.0)
+    }
+
+    /// Return the state already read for connection validation. Read-only
+    /// projections may reuse it within this one view, checking the returned
+    /// epoch before disclosure. Mutations still load their own current state.
+    pub(crate) fn open_for_launch_snapshot(
+        root: &Path,
+    ) -> Result<(Self, s::StoredObject, State, u64)> {
         let root = secure_state_root(root, false)?;
         require(
             root.join("state.sqlite3").is_file(),
@@ -2795,10 +2804,11 @@ impl Runtime {
             root,
             synthetic_owner: None,
         };
-        let (_, state) = app.load()?;
+        let epoch = app.store.epoch()?;
+        let (head, state) = app.load()?;
         state.config.validate()?;
         require(state.format == 1, "unsupported runtime state version")?;
-        Ok(app)
+        Ok((app, head, state, epoch))
     }
 
     /// Select only after the trusted host authorizes terminal inspection,

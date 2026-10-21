@@ -109,9 +109,11 @@ fn delivery(
     Ok(a)
 }
 pub(super) fn project(app: &mut Runtime, work_id: &str, saved: &Saved) -> Result<Output> {
-    let messages = app.inbox(&saved.operator, work_id)?;
     let state = app.snapshot()?;
-    let now = unix_now()?;
+    project_state(&state, work_id, saved, unix_now()?)
+}
+pub(super) fn project_state(state: &State, work_id: &str, saved: &Saved, now: i64) -> Result<Output> {
+    require(saved.works.contains_key(work_id), "unknown launch work")?;
     let mut result = Output {
         work_id: work_id.into(),
         status: "intake-incomplete".into(),
@@ -259,7 +261,9 @@ pub(super) fn project(app: &mut Runtime, work_id: &str, saved: &Saved) -> Result
         debug_assert_eq!(body["release"], receipt.release.0);
         result.local_deliveries.push(body.clone());
     }
-    for message in messages {
+    for message in state.messages.values()
+        .filter(|m| m.recipient == saved.operator && m.work == work_id)
+    {
         if !message_permitted(&state, &message, now) {
             continue;
         }
@@ -269,7 +273,7 @@ pub(super) fn project(app: &mut Runtime, work_id: &str, saved: &Saved) -> Result
             break;
         }
         left -= size;
-        result.messages.push(message);
+        result.messages.push(message.clone());
     }
     Ok(result)
 }

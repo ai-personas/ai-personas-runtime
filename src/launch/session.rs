@@ -129,6 +129,10 @@ fn authorized(
     valid_id(operator)?;
     let (runtime, state) = app.load()?;
     let (launch, saved) = load(app)?;
+    authorize_snapshot(&state, &saved, operator)?;
+    Ok((runtime, state, launch, saved))
+}
+fn authorize_snapshot(state: &State, saved: &Saved, operator: &str) -> BoundaryResult<()> {
     check(
         saved.operator == operator && state.config.local_recipients.contains(operator),
         BoundaryError::Unauthorized,
@@ -146,7 +150,13 @@ fn authorized(
             BoundaryError::Unauthorized,
         )?;
     }
-    Ok((runtime, state, launch, saved))
+    Ok(())
+}
+fn open_view(root: &Path, operator: &str) -> BoundaryResult<(Runtime, inspection::Snapshot)> {
+    valid_id(operator)?;
+    let (app, snapshot) = inspection::Snapshot::open(root)?;
+    authorize_snapshot(&snapshot.state, &snapshot.saved, operator)?;
+    Ok((app, snapshot))
 }
 fn open(root: &Path, operator: &str) -> BoundaryResult<Runtime> {
     valid_id(operator)?;
@@ -472,8 +482,10 @@ fn valid_stop(stop: &str) -> bool {
 /// No owner acquisition, recovery, credential read, or provider construction.
 pub fn session_status(root: &Path, operator: &str, key: &str) -> BoundaryResult<SessionView> {
     valid_id(key)?;
-    let mut app = open(root, operator)?;
-    read_session(&mut app, operator, key)
+    let (mut app, snapshot) = open_view(root, operator)?;
+    let result = read_session(&mut app, operator, key)?;
+    snapshot.unchanged(&app)?;
+    Ok(result)
 }
 fn check_replay(view: &SessionView, request: &SessionRequest) -> BoundaryResult<bool> {
     match view {
@@ -915,15 +927,19 @@ async fn run_session_bound(
 /// Session terminals deliberately retain no messages, artifact bodies or secrets.
 pub fn result_view(root: &Path, operator: &str, work: &str) -> BoundaryResult<Output> {
     valid_id(work)?;
-    let mut app = open(root, operator)?;
-    Ok(result(&mut app, work)?)
+    let (app, snapshot) = open_view(root, operator)?;
+    let result = results::project_state(&snapshot.state, work, &snapshot.saved, unix_now()?)?;
+    snapshot.unchanged(&app)?;
+    Ok(result)
 }
 
 /// Current permitted content only; never an inspection of cached UI output.
 pub fn questions_view(root: &Path, operator: &str, work: &str) -> BoundaryResult<Value> {
     valid_id(work)?;
-    let mut app = open(root, operator)?;
-    Ok(shared_questions(&mut app, operator, work, unix_now()?)?)
+    let (app, snapshot) = open_view(root, operator)?;
+    let result = question_commands::project(&snapshot.state, &snapshot.saved, operator, work, unix_now()?)?;
+    snapshot.unchanged(&app)?;
+    Ok(result)
 }
 
 pub fn development_view(
@@ -1061,6 +1077,18 @@ fn attempt_view(app: &mut Runtime, id: &str) -> BoundaryResult<Option<AttemptVie
         measured: reservation.measured,
     }))
 }
+fn retained_attempt(
+    app: &mut Runtime,
+    attempts: &mut BTreeMap<String, Option<AttemptView>>,
+    id: &str,
+) -> BoundaryResult<Option<AttemptView>> {
+    if let Some(value) = attempts.get(id) {
+        return Ok(value.clone());
+    }
+    let value = attempt_view(app, id)?;
+    attempts.insert(id.into(), value.clone());
+    Ok(value)
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkPhase {
@@ -1194,11 +1222,12 @@ pub fn inspect(
     if let Some(after) = after {
         valid_id(after)?;
     }
-    let mut app = open(root, operator)?;
-    inspect_opened(&mut app, operator, after, limit)
+    let (mut app, snapshot) = open_view(root, operator)?;
+    inspect_opened(&mut app, &snapshot, operator, after, limit)
 }
 fn inspect_opened(
     app: &mut Runtime,
+    snapshot: &inspection::Snapshot,
     operator: &str,
     after: Option<&str>,
     limit: usize,
@@ -1207,8 +1236,7 @@ fn inspect_opened(
         (1..=MAX_PAGE).contains(&limit),
         BoundaryError::InvalidRequest,
     )?;
-    let epoch = app.store.epoch()?;
-    let (runtime, state, launch, saved) = authorized(app, operator)?;
+    let inspection::Snapshot { runtime, state, launch, saved, epoch } = snapshot;
     let now = unix_now()?;
     let time = u64::try_from(now).map_err(|_| BoundaryError::InvalidState)?;
     let settings = settings_view(&state, &saved, time);
@@ -1223,6 +1251,9 @@ fn inspect_opened(
         .cloned()
         .collect();
     let mut works = Vec::new();
+    // One invocation can appear as an actor's active call in several works,
+    // and as a work's latest call. Reuse its projection only within this view.
+    let mut attempts = BTreeMap::new();
     for id in keys.iter().take(limit) {
         valid_id(id).map_err(|_| BoundaryError::InvalidState)?;
         let meta = state.work_meta.get(id).ok_or(BoundaryError::InvalidState)?;
@@ -1285,7 +1316,7 @@ fn inspect_opened(
             let active_invocation = persona
                 .active_invocation
                 .as_deref()
-                .map(|id| attempt_view(app, id))
+                .map(|id| retained_attempt(app, &mut attempts, id))
                 .transpose()?
                 .flatten();
             let resume_candidate = !frozen
@@ -1314,7 +1345,7 @@ fn inspect_opened(
         let last = saved.works.get(id).cloned().flatten();
         let last_attempt = last
             .as_deref()
-            .map(|id| attempt_view(app, id))
+            .map(|id| retained_attempt(app, &mut attempts, id))
             .transpose()?
             .flatten();
         works.push(WorkView {
@@ -1332,11 +1363,11 @@ fn inspect_opened(
         });
     }
     // Semantic/lifecycle mutations cannot be presented as one coherent snapshot.
-    check(app.store.epoch()? == epoch, BoundaryError::SnapshotChanged)?;
+    snapshot.unchanged(app)?;
     let result = Inspection {
         runtime: runtime.exact_ref()?,
         launch: launch.exact_ref()?,
-        epoch,
+        epoch: *epoch,
         inspected_at_unix: now,
         snapshot_atomic: false,
         settings,
