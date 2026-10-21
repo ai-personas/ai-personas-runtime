@@ -34,6 +34,8 @@ Use an `effect` operation with the supplied capability ID and binding revision:
 
 `command` is a Bash script. The command inherits the host environment, including
 `PATH`; it can invoke package managers and other installed software directly.
+The interactive launcher preserves that environment when starting native helpers,
+including package-manager, proxy and tool settings.
 `working_directory` defaults to the native process directory displayed in the
 interface. Relative paths resolve against that directory. `stdin` optionally
 supplies UTF-8 input. A persona may choose `timeout_seconds`; omission or `null`

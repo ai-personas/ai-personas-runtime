@@ -988,9 +988,10 @@ class Helpers:
 
     @staticmethod
     def environment():
-        # Helpers use an explicit vault or auth-only route, not inherited secrets.
-        return {k: os.environ[k] for k in ("HOME", "PATH", "LANG", "LC_ALL", "TMPDIR")
-                if k in os.environ}
+        # Default host commands need the actual launch environment, including
+        # package-manager, proxy and tool settings. Model authentication still
+        # uses the explicitly selected vault or auth-only route.
+        return dict(os.environ)
 
     @staticmethod
     def stop(proc):
