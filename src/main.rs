@@ -824,8 +824,7 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         }
         Command::Result { work, json } => {
             let root = launch::state_root(cli.state_root.as_deref())?;
-            let mut app = launch::open(&root, cli.operator.as_deref())?;
-            return emit_result(&launch::result(&mut app, work)?, *json);
+            return emit_result(&launch::result_at(&root, cli.operator.as_deref(), work)?, *json);
         }
         Command::Schema => {
             return emit(&serde_json::json!({"decision":protocol::decision_schema(),
@@ -903,9 +902,8 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         )?);
     }
     if let Command::Questions { work } = &cli.command {
-        let mut app = launch::open(root, Some(operator))?;
-        return emit(&launch::shared_questions(
-            &mut app,
+        return emit(&launch::shared_questions_at(
+            root,
             operator,
             work,
             runtime::unix_now()?,

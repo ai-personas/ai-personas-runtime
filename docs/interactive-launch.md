@@ -45,13 +45,18 @@ have different command sets; `session-messages` and `resume-participant` belong
 to `personas-session`. Their absence from `ai-personas --help` does not indicate
 an outdated installation.
 
-Status, result, question, session-message and development views each read one
-fresh runtime/launch snapshot and reuse it within that request. Repeated
-references to an invocation in status output reuse its attempt projection.
-These reads still spend the existing navigation allowance. If the runtime's
-semantic epoch changes during a view, it returns `snapshot_changed`; a later
-request reads the current state again.
-Previously spent or uncertain usage remains charged.
+Saved-work status, result and question views project their output inside one
+Store transaction. Permission checks and status invocation/reservation lookups
+use the same state; status reports `snapshot_atomic: true`. These views charge
+their bounded returned output to the existing Ordinary navigation allowance,
+without returning whole internal runtime, launch or invocation records. The
+ordinary `ai-personas result` and `questions` commands use the same projection
+path. Inspection starts no owner recovery, credential lookup or inference.
+
+Session-status, session-message and development views still reuse a fresh
+runtime/launch snapshot within each request. A semantic epoch change during those
+views returns `snapshot_changed`. All views preserve previous spending and
+uncertain usage; a result larger than the remaining allowance is still blocked.
 
 ## First use
 

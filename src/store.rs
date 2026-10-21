@@ -86,11 +86,13 @@ use thiserror::Error;
 mod archive_history;
 mod capacity;
 mod head_compaction;
+mod operator_inspection;
 mod provider_prelaunch;
 mod session_journal;
 mod terminal_inspection;
 pub use capacity::{CapacityExtensionRequest, MAX_RUNTIME_SNAPSHOT_BODY_BYTES};
 pub use head_compaction::HeadCompactionRequest;
+pub(crate) use operator_inspection::RuntimeInspection;
 
 const SCHEMA_VERSION: u32 = 2;
 fn supported_schema(version: u32) -> bool {

@@ -19,7 +19,7 @@ const NEED_KIND: &str = "launch-keyed-need-v1";
 const CLAIM_KIND: &str = "launch-session-claim-v1";
 const END_KIND: &str = "launch-session-end-v1";
 const MAX_PAGE: usize = 16;
-const MAX_VIEW_BYTES: usize = 1_048_576;
+pub(super) const MAX_VIEW_BYTES: usize = 1_048_576;
 
 /// Static machine codes, never formatted provider/parser errors or secret values.
 /// These classify only this boundary, not the legacy CLI's errors.
@@ -157,6 +157,17 @@ fn open_view(root: &Path, operator: &str) -> BoundaryResult<(Runtime, inspection
     let (app, snapshot) = inspection::Snapshot::open(root)?;
     authorize_snapshot(&snapshot.state, &snapshot.saved, operator)?;
     Ok((app, snapshot))
+}
+fn project_view<T: Serialize>(
+    root: &Path,
+    operator: &str,
+    project: impl FnOnce(&inspection::Snapshot, &s::RuntimeInspection<'_, '_>) -> BoundaryResult<T>,
+) -> BoundaryResult<T> {
+    valid_id(operator)?;
+    inspection::project(root, |snapshot, records| {
+        authorize_snapshot(&snapshot.state, &snapshot.saved, operator)?;
+        project(snapshot, records)
+    })
 }
 fn open(root: &Path, operator: &str) -> BoundaryResult<Runtime> {
     valid_id(operator)?;
@@ -967,19 +978,17 @@ async fn run_session_bound(
 /// Session terminals deliberately retain no messages, artifact bodies or secrets.
 pub fn result_view(root: &Path, operator: &str, work: &str) -> BoundaryResult<Output> {
     valid_id(work)?;
-    let (app, snapshot) = open_view(root, operator)?;
-    let result = results::project_state(&snapshot.state, work, &snapshot.saved, unix_now()?)?;
-    snapshot.unchanged(&app)?;
-    Ok(result)
+    project_view(root, operator, |snapshot, _| {
+        Ok(results::project_state(&snapshot.state, work, &snapshot.saved, unix_now()?)?)
+    })
 }
 
 /// Current permitted content only; never an inspection of cached UI output.
 pub fn questions_view(root: &Path, operator: &str, work: &str) -> BoundaryResult<Value> {
     valid_id(work)?;
-    let (app, snapshot) = open_view(root, operator)?;
-    let result = question_commands::project(&snapshot.state, &snapshot.saved, operator, work, unix_now()?)?;
-    snapshot.unchanged(&app)?;
-    Ok(result)
+    project_view(root, operator, |snapshot, _| {
+        Ok(question_commands::project(&snapshot.state, &snapshot.saved, operator, work, unix_now()?)?)
+    })
 }
 
 pub fn development_view(
@@ -1080,15 +1089,11 @@ pub struct AttemptView {
     pub reserved: s::Resources,
     pub measured: Option<s::Resources>,
 }
-fn attempt_view(app: &mut Runtime, id: &str) -> BoundaryResult<Option<AttemptView>> {
+fn attempt_view(records: &s::RuntimeInspection<'_, '_>, id: &str) -> BoundaryResult<Option<AttemptView>> {
     valid_id(id).map_err(|_| BoundaryError::InvalidState)?;
-    let inv = match app.store.invocation(id) {
-        Ok(inv) => inv,
-        // A launch step can be reserved before Runtime preparation is admitted.
-        Err(s::StoreError::Missing(_)) => return Ok(None),
-        Err(error) => return Err(error.into()),
-    };
-    let reservation = app.store.reservation(&inv.reservation)?;
+    // A launch step can be reserved before Runtime preparation is admitted.
+    let Some(inv) = records.invocation(id)? else { return Ok(None) };
+    let reservation = records.reservation(&inv.reservation)?;
     let responded = inv
         .history
         .iter()
@@ -1118,14 +1123,14 @@ fn attempt_view(app: &mut Runtime, id: &str) -> BoundaryResult<Option<AttemptVie
     }))
 }
 fn retained_attempt(
-    app: &mut Runtime,
+    records: &s::RuntimeInspection<'_, '_>,
     attempts: &mut BTreeMap<String, Option<AttemptView>>,
     id: &str,
 ) -> BoundaryResult<Option<AttemptView>> {
     if let Some(value) = attempts.get(id) {
         return Ok(value.clone());
     }
-    let value = attempt_view(app, id)?;
+    let value = attempt_view(records, id)?;
     attempts.insert(id.into(), value.clone());
     Ok(value)
 }
@@ -1186,8 +1191,8 @@ pub struct Inspection {
     pub launch: s::ObjectRef,
     pub epoch: u64,
     pub inspected_at_unix: i64,
-    /// Runtime/launch semantic changes are fenced by epoch. Individual terminal
-    /// observations and ledger reads are exact but not one SQLite read snapshot.
+    /// Runtime, launch, invocation, reservation and ledger observations share
+    /// the same Store transaction, including its permission checks.
     pub snapshot_atomic: bool,
     pub settings: SettingsView,
     pub frozen: bool,
@@ -1265,11 +1270,12 @@ pub fn inspect(
     if let Some(after) = after {
         valid_id(after)?;
     }
-    let (mut app, snapshot) = open_view(root, operator)?;
-    inspect_opened(&mut app, &snapshot, operator, after, limit)
+    project_view(root, operator, |snapshot, records| {
+        inspect_snapshot(records, snapshot, operator, after, limit)
+    })
 }
-fn inspect_opened(
-    app: &mut Runtime,
+fn inspect_snapshot(
+    records: &s::RuntimeInspection<'_, '_>,
     snapshot: &inspection::Snapshot,
     operator: &str,
     after: Option<&str>,
@@ -1283,9 +1289,13 @@ fn inspect_opened(
     let now = unix_now()?;
     let time = u64::try_from(now).map_err(|_| BoundaryError::InvalidState)?;
     let settings = settings_view(&state, &saved, time);
-    let frozen = app.store.ledger()?.frozen;
+    let frozen = records.frozen();
     let active = !active_invocations(&state).is_empty();
-    let leases_terminal = app.invocation_leases_terminal(&state)?;
+    let leases_terminal = crate::runtime::check_invocation_leases(
+        state, &BTreeSet::new(), |id| {
+            Ok(records.invocation(id)?.ok_or_else(|| s::StoreError::Missing(id.into()))?)
+        },
+    )?;
     let keys: Vec<_> = saved
         .works
         .keys()
@@ -1359,7 +1369,7 @@ fn inspect_opened(
             let active_invocation = persona
                 .active_invocation
                 .as_deref()
-                .map(|id| retained_attempt(app, &mut attempts, id))
+                .map(|id| retained_attempt(records, &mut attempts, id))
                 .transpose()?
                 .flatten();
             let resume_candidate = !frozen
@@ -1388,7 +1398,7 @@ fn inspect_opened(
         let last = saved.works.get(id).cloned().flatten();
         let last_attempt = last
             .as_deref()
-            .map(|id| retained_attempt(app, &mut attempts, id))
+            .map(|id| retained_attempt(records, &mut attempts, id))
             .transpose()?
             .flatten();
         works.push(WorkView {
@@ -1407,14 +1417,12 @@ fn inspect_opened(
             participants,
         });
     }
-    // Semantic/lifecycle mutations cannot be presented as one coherent snapshot.
-    snapshot.unchanged(app)?;
     let result = Inspection {
         runtime: runtime.exact_ref()?,
         launch: launch.exact_ref()?,
         epoch: *epoch,
         inspected_at_unix: now,
-        snapshot_atomic: false,
+        snapshot_atomic: true,
         settings,
         frozen,
         active_invocations_present: active,

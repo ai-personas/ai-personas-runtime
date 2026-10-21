@@ -2,6 +2,30 @@
 //! This is not a cross-request cache or an alternative mutation admission path.
 use super::*;
 
+/// A bounded view, including its permission checks and lifecycle lookups, is
+/// built inside one Store transaction. Only its final public output is charged.
+pub(super) fn project<T: Serialize, E: From<RuntimeError> + From<s::StoreError>>(
+    root: &Path,
+    projection: impl FnOnce(&Snapshot, &s::RuntimeInspection<'_, '_>) -> std::result::Result<T, E>,
+) -> std::result::Result<T, E> {
+    let mut store = Runtime::inspection_store(root)?;
+    store.trusted_host().runtime_projection(
+        session::MAX_VIEW_BYTES as u64,
+        |runtime, launch, records| {
+            let state = Runtime::decode_inspection_state(&runtime)?;
+            let saved = decode_saved(&launch)?;
+            let snapshot = Snapshot {
+                runtime,
+                state,
+                launch,
+                saved,
+                epoch: records.epoch(),
+            };
+            projection(&snapshot, records)
+        },
+    )?
+}
+
 pub(super) struct Snapshot {
     pub runtime: s::StoredObject,
     pub state: State,
@@ -14,7 +38,13 @@ impl Snapshot {
     pub fn open(root: &Path) -> Result<(Runtime, Self)> {
         let (mut app, runtime, state, epoch) = Runtime::open_for_launch_snapshot(root)?;
         let (launch, saved) = load(&mut app)?;
-        let snapshot = Self { runtime, state, launch, saved, epoch };
+        let snapshot = Self {
+            runtime,
+            state,
+            launch,
+            saved,
+            epoch,
+        };
         snapshot.unchanged(&app)?;
         Ok((app, snapshot))
     }
@@ -25,7 +55,11 @@ impl Snapshot {
     pub fn unchanged(&self, app: &Runtime) -> Result<()> {
         let actual = app.store.epoch()?;
         if actual != self.epoch {
-            return Err(s::StoreError::StaleEpoch { expected: self.epoch, actual }.into());
+            return Err(s::StoreError::StaleEpoch {
+                expected: self.epoch,
+                actual,
+            }
+            .into());
         }
         Ok(())
     }

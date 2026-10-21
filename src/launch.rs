@@ -16,7 +16,7 @@ mod feedback;
 pub use feedback::{feedback, FeedbackInput};
 #[path = "launch/questions.rs"]
 mod question_commands;
-pub use question_commands::{answer_question, shared_questions, QuestionAnswerInput};
+pub use question_commands::{answer_question, shared_questions, shared_questions_at, QuestionAnswerInput};
 #[cfg(unix)]
 #[path = "launch/native.rs"]
 mod native;
@@ -981,6 +981,15 @@ fn stop_for_error(error: &RuntimeError) -> &'static str {
         _ => "blocked_or_unresolved_invocation",
     }
 }
+/// Fresh bounded result projection; opening performs no owner recovery.
+pub fn result_at(root: &Path, operator: Option<&str>, work: &str) -> Result<Output> {
+    identity(work)?;
+    inspection::project(root, |snapshot, _| {
+        require(operator.is_none_or(|value| value == snapshot.saved.operator), "saved operator mismatch")?;
+        results::project_state(&snapshot.state, work, &snapshot.saved, unix_now()?)
+    })
+}
+
 pub fn result(app: &mut Runtime, work: &str) -> Result<Output> {
     let (_, saved) = load(app)?;
     require(saved.works.contains_key(work), "unknown launch work")?;

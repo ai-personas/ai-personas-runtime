@@ -22,6 +22,11 @@ pub fn shared_questions(app: &mut Runtime, operator: &str, work: &str, now: i64)
     let (_, state) = app.load()?;
     project(&state, &saved, operator, work, now)
 }
+pub fn shared_questions_at(root: &Path, operator: &str, work: &str, now: i64) -> Result<Value> {
+    identity(operator)?;
+    identity(work)?;
+    inspection::project(root, |snapshot, _| project(&snapshot.state, &snapshot.saved, operator, work, now))
+}
 pub(super) fn project(state: &State, saved: &Saved, operator: &str, work: &str, now: i64) -> Result<Value> {
     admission_extension::authorize(state, saved, operator)?;
     Ok(

@@ -17,6 +17,7 @@ mod requester_results;
 mod discovery;
 mod failed_attempt;
 mod invocation_leases;
+pub(crate) use invocation_leases::check_invocation_leases;
 mod decision_scope;
 mod provider_calls;
 mod rejected_continuation;
@@ -2833,6 +2834,19 @@ impl Runtime {
     }
     pub fn open(root: &Path) -> Result<Self> {
         Self::open_in_class(root, s::BudgetClass::Ordinary)
+    }
+    /// Existing-root inspection connection only. No recovery or state export.
+    pub(crate) fn inspection_store(root: &Path) -> Result<s::Store> {
+        let root = secure_state_root(root, false)?;
+        require(root.join("state.sqlite3").is_file(), "state database is missing")?;
+        Ok(s::Store::open_runtime(&root.join("state.sqlite3"), storage_limits(), false)?)
+    }
+    pub(crate) fn decode_inspection_state(object: &s::StoredObject) -> Result<State> {
+        let state: State = serde_json::from_value(object.body.clone())?;
+        need_proposals::validate_state(&state)?;
+        state.config.validate()?;
+        require(state.format == 1, "unsupported runtime state version")?;
+        Ok(state)
     }
     /// Private launcher connection path. Existing protected state only; unlike
     /// ordinary open, neither this open nor its validation recovers an owner.
