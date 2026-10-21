@@ -177,8 +177,12 @@ are live files; background processes may continue writing after the observed
 length was read. Captured segments and their metadata remain immutable evidence.
 
 Pending host results share an 8 KiB text allowance in the next context.
-Command/stdin excerpts keep prefixes; unused input and stream space can serve
-the other stream. Stream segments replace `text` with explicit `text_excerpts`
+Command/stdin excerpts keep prefixes. Each initially receives up to one eighth
+of its result's text allowance; output receives the remainder. When the captured
+output is shorter, its unused space extends the input prefixes, retaining the
+complete command or stdin when it fits. This never reduces the output allowance
+or increases the total text bound. Unused stream space serves the other stream.
+Stream segments replace `text` with explicit `text_excerpts`
 from the beginning and end, preserving useful starts and actual endings. Even a
 single complete captured stream can have separate context excerpts with a gap.
 

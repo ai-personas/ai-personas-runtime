@@ -1079,7 +1079,27 @@ Bounded warning views and exact receipt accompaniment survive restart and old-re
 
 ## Remaining coverage
 
-Ordinary scheduling persists fair consideration under its declared assumptions. Explicit foreground sessions drive bounded live execution; the runtime is not an unattended service. Events cover exact one-shot local dependency evidence. External watches, general host-process and authenticated remote adapters, exports and independent-review attestations remain unsupported. Optional between-task activity uses the explicit finite grants described in [optional activity](docs/optional-activity.md). The implemented external adapters are the bounded computation and HTTPS retrieval profiles described above. The local warning lifecycle covers explicit primary-owned exact-revision judgments, with the protected-character and range limitations above. Logical allocation limits and prepaid closeout do not establish physical database, remote retention, token, or dollar bounds. Successful transport does not establish full runtime conformance.
+Ordinary scheduling persists fair consideration under its declared assumptions.
+Explicit foreground sessions drive bounded live execution; the runtime is not an
+unattended service. Events cover exact one-shot local dependency evidence.
+Optional between-task activity uses the explicit finite grants described in
+[optional activity](docs/optional-activity.md).
+
+[Host commands](docs/host-commands.md) run installed tools, install packages,
+access the network and read or write host files by default. Exact native assets
+can be supplied as stdin, including for export to a host file. The separate
+WebAssembly and HTTPS retrieval profiles retain their explicit grant contracts.
+General external subscriptions and independently authenticated remote-effect or
+review attestations remain unsupported by the native evidence contract; using a
+networked host program does not create those guarantees.
+
+The local warning lifecycle covers explicit primary-owned exact-revision
+judgments, with the protected-character and range limitations above. Prepaid
+closeout supports bounded host status preservation, pause and ending. It does not
+reserve later persona decisions for work-specific review or repair; the current
+work and launch attempt limits still govern those calls. Logical allocation
+limits do not establish physical database, remote retention, token, or dollar
+bounds. Successful transport does not establish full runtime conformance.
 
 For legacy roots, `provision-closeout` explicitly reserves the control capacity from existing resources while unfrozen. It returns an error if that existing capacity cannot support the reservation; it never increases the allowance. Its library equivalent is `Runtime::provision_closeout`.
 

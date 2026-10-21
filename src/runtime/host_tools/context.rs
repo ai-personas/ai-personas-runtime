@@ -138,22 +138,42 @@ pub(in crate::runtime) fn pending_projection(
         lineage_permitted(state, std::slice::from_ref(&reference), audience),
         "pending host result source unavailable",
     )?;
+    let captures = payload
+        .get("result")
+        .and_then(Value::as_object)
+        .map(|result| -> Result<(h::OutputCapture, h::OutputCapture)> {
+            Ok((
+                serde_json::from_value(result["stdout"].clone())?,
+                serde_json::from_value(result["stderr"].clone())?,
+            ))
+        })
+        .transpose()?;
+    let command_bytes = payload["inputs"]["command"].as_str().map_or(0, str::len);
+    let stdin_bytes = payload["inputs"]["stdin"].as_str().map_or(0, str::len);
+    let minimum_inputs = command_bytes.min(text_limit / 8) + stdin_bytes.min(text_limit / 8);
+    let output_bytes = captures.as_ref().map_or(0, |(stdout, stderr)| {
+        stdout
+            .retained_text_bytes()
+            .saturating_add(stderr.retained_text_bytes())
+    });
+    // Preserve the existing output allowance. Only space the captured streams
+    // cannot use extends command/stdin prefixes, which may now fit in full.
+    let input_limit = text_limit - output_bytes.min(text_limit - minimum_inputs);
+    let (command_limit, stdin_limit) = split_budget(input_limit, command_bytes, stdin_bytes);
     let mut fields = serde_json::Map::new();
-    let input_limit = text_limit / 8;
     let mut input_bytes = 0;
     if let Some(inputs) = payload.get_mut("inputs").and_then(Value::as_object_mut) {
-        for name in ["command", "stdin"] {
+        for (name, limit) in [("command", command_limit), ("stdin", stdin_limit)] {
             if let Some(value) = inputs.get_mut(name) {
-                if let Some((metadata, bytes)) = prefix(value, input_limit) {
+                if let Some((metadata, bytes)) = prefix(value, limit) {
                     input_bytes += bytes;
                     fields.insert(format!("inputs.{name}"), metadata);
                 }
             }
         }
     }
-    if let Some(result) = payload.get_mut("result").and_then(Value::as_object_mut) {
-        let stdout: h::OutputCapture = serde_json::from_value(result["stdout"].clone())?;
-        let stderr: h::OutputCapture = serde_json::from_value(result["stderr"].clone())?;
+    if let Some((stdout, stderr)) = captures {
+        let result = payload["result"].as_object_mut().unwrap();
         let (out_limit, err_limit) = split_budget(
             text_limit - input_bytes,
             stdout.retained_text_bytes(),
@@ -172,7 +192,7 @@ pub(in crate::runtime) fn pending_projection(
         "format":FORMAT,"fields":fields,"text_limit_bytes":text_limit,
         "retained_observation_payload_sha256":digest(&observation.payload)?,
         "retained_result":{"source":source,"body_supplied":false},
-        "meaning":"Execution status and metadata are observed. Command/stdin keep prefixes. Each stdout/stderr segment retains its raw log offsets, digest and lossy_utf8 flag; text_excerpts give separately bounded beginning/end text with offsets within that segment's retained decoded UTF-8 text. Gaps are omitted output: never concatenate excerpts as if contiguous or complete. capture_complete describes the runner's captured ranges, while fields.complete describes text supplied here. bytes_observed=null means capture was unavailable. Read the exact retained result for its captured segments or stdout.log_path/stderr.log_path for more host output; reading a result never repeats the command."
+        "meaning":"Execution status and metadata are observed. Command/stdin keep prefixes, using spare text space when captured output is short. Each stdout/stderr segment retains its raw log offsets, digest and lossy_utf8 flag; text_excerpts give separately bounded beginning/end text with offsets within that segment's retained decoded UTF-8 text. Gaps are omitted output: never concatenate excerpts as if contiguous or complete. capture_complete describes the runner's captured ranges, while fields.complete describes text supplied here. bytes_observed=null means capture was unavailable. Read the exact retained result for its captured segments or stdout.log_path/stderr.log_path for more host output; reading a result never repeats the command."
     });
     Ok(Some(reference))
 }
