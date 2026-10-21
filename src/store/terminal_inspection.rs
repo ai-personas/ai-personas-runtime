@@ -1,6 +1,21 @@
 //! Return terminal evidence without exporting unrelated invocation payloads.
 use super::*;
 
+impl Work<'_> {
+    pub(super) fn terminal_evidence(
+        &self,
+        subject: &EntityId,
+        id: &str,
+    ) -> Result<Option<StoredObject>> {
+        self.id(id)?;
+        let slot: TerminalEvidenceSlot = self.required("terminal_evidence", id)?;
+        if slot.subject != *subject {
+            return Err(StoreError::Conflict(id.into()));
+        }
+        Ok(slot.object)
+    }
+}
+
 impl TrustedHost<'_> {
     /// Resolve the existing history/archive reference or fixed subject-bound
     /// slot inside one transaction. Only the returned evidence spends Closeout

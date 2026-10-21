@@ -917,7 +917,7 @@ pub(super) fn control(
 /// Authenticated accepted-call inspection. Source restrictions also cover the
 /// result and identities; unavailable inputs cannot be bypassed via receipts.
 pub(super) fn inspect(
-    app: &mut Runtime,
+    records: &s::RuntimeInspection<'_, '_>,
     state: &State,
     audience: &f::Admission,
     proof: &s::DecisionRecord,
@@ -928,7 +928,7 @@ pub(super) fn inspect(
         .iter()
         .filter(|id| state.http_fetch_jobs.contains_key(*id))
     {
-        let retained = app.store.trusted_host().intent(id)?;
+        let retained = records.intent(id)?;
         let job: Job = serde_json::from_value(retained.intent.body.clone())?;
         require(
             retained.invocation_id == proof.invocation_id
@@ -946,7 +946,7 @@ pub(super) fn inspect(
         ) {
             None
         } else {
-            app.store.trusted_host().read_terminal_evidence(
+            records.terminal_evidence(
                 &s::EntityId::Intent(id.clone()),
                 &composite_id("http_fetch-result", &[id]),
             )?
@@ -982,7 +982,7 @@ pub(super) fn inspect(
             "url_sha256":s::sha256_bytes(job.url.as_bytes()),
             "receipts":retained.history,"terminal":terminal,
             "current_required_qualifications":accompaniment,
-            "reservation":app.store.reservation(&retained.reservation)?,
+            "reservation":records.reservation(&retained.reservation)?,
             "execution_is_not_correctness_or_skill_application":true}));
     }
     let view = json!({"available":true,"executions":results});

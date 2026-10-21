@@ -563,7 +563,7 @@ pub(super) fn control(
 }
 
 pub(super) fn inspect(
-    app: &mut Runtime,
+    records: &s::RuntimeInspection<'_, '_>,
     state: &State,
     audience: &f::Admission,
     proof: &s::DecisionRecord,
@@ -574,7 +574,7 @@ pub(super) fn inspect(
         .iter()
         .filter(|id| state.host_command_jobs.contains_key(*id))
     {
-        let retained = app.store.trusted_host().intent(id)?;
+        let retained = records.intent(id)?;
         let job: Job = serde_json::from_value(retained.intent.body.clone())?;
         require(
             retained.invocation_id == proof.invocation_id
@@ -592,7 +592,7 @@ pub(super) fn inspect(
         ) {
             None
         } else {
-            app.store.trusted_host().read_terminal_evidence(
+            records.terminal_evidence(
                 &s::EntityId::Intent(id.clone()),
                 &composite_id("host-command-result", &[id]),
             )?
@@ -626,7 +626,7 @@ pub(super) fn inspect(
             "inputs":job.input,"directory":job.directory,"binding":job.interface,
             "result_source":state.host_command_jobs[id].result_source,"receipts":retained.history,
             "terminal":terminal,"current_required_qualifications":accompaniment,
-            "reservation":app.store.reservation(&retained.reservation)?}),
+            "reservation":records.reservation(&retained.reservation)?}),
         );
     }
     Ok(json!({"available":true,"executions":results}))

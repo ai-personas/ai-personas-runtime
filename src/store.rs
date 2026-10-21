@@ -1809,17 +1809,13 @@ impl TrustedHost<'_> {
         id: &str,
     ) -> Result<Option<StoredObject>> {
         self.store.transaction(|work| {
-            work.id(id)?;
-            let slot: TerminalEvidenceSlot = work.required("terminal_evidence", id)?;
-            if slot.subject != *subject {
-                return Err(StoreError::Conflict(id.into()));
-            }
+            let object = work.terminal_evidence(subject, id)?;
             work.returned(
-                &slot.object,
+                &object,
                 work.limits.max_read_bytes,
                 BudgetClass::Closeout,
             )?;
-            Ok(slot.object)
+            Ok(object)
         })
     }
 

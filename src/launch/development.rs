@@ -34,7 +34,20 @@ pub fn development_at(
     }
     require((1..=16).contains(&limit), "revision limit must be 1..=16")?;
     // Do not recover or interrupt a live invocation merely to inspect development.
-    let (mut app, snapshot) = inspection::Snapshot::open(root)?;
+    inspection::project(root, |snapshot, records| {
+        project(snapshot, records, operator, persona_id, source_id, limit, invocation_id)
+    })
+}
+
+fn project(
+    snapshot: &inspection::Snapshot,
+    records: &s::RuntimeInspection<'_, '_>,
+    operator: &str,
+    persona_id: &str,
+    source_id: Option<&str>,
+    limit: usize,
+    invocation_id: Option<&str>,
+) -> Result<Value> {
     let saved = &snapshot.saved;
     let state = &snapshot.state;
     require(
@@ -133,22 +146,22 @@ pub fn development_at(
     }
     if let Some(invocation) = invocation_id {
         output["invocation_evidence"] = invocation_evidence(
-            &mut app, &state, &audience, persona_id, invocation, &revisions,
+            records, &state, &audience, persona_id, invocation, &revisions,
         )?;
     }
-    snapshot.unchanged(&app)?;
     Ok(output)
 }
 
 fn invocation_evidence(
-    app: &mut Runtime,
+    records: &s::RuntimeInspection<'_, '_>,
     state: &State,
     audience: &f::Admission,
     persona_id: &str,
     invocation_id: &str,
     revisions: &[Value],
 ) -> Result<Value> {
-    let invocation = app.invocation(invocation_id)?;
+    let invocation = records.invocation(invocation_id)?
+        .ok_or_else(|| s::StoreError::Missing(invocation_id.into()))?;
     let prepared: Prepared = serde_json::from_value(
         invocation
             .request
@@ -168,10 +181,8 @@ fn invocation_evidence(
             ),
         "invocation evidence unavailable",
     )?;
-    let proof = app.store.retained_decision(invocation_id)?;
-    let object = app
-        .store
-        .read(&archive_id(invocation_id))?
+    let proof = records.decision(invocation_id)?;
+    let object = records.object(&archive_id(invocation_id))?
         .ok_or_else(|| held("invocation evidence unavailable"))?;
     let exact = object.exact_ref()?;
     let archive: AdoptedResponse = serde_json::from_value(object.body.clone())?;
@@ -292,9 +303,9 @@ fn invocation_evidence(
         "provider_completed_with_matching_input":provider_completed,
         "supplied_characteristic_revisions":supplied,
         "resource_use":resource_use::inspect(state, audience, &prepared, &control, &qualified, &proof)?,
-        "computation_execution":tools::inspect(app, state, audience, &proof)?,
-        "http_fetch_execution":http_tools::inspect(app, state, audience, &proof)?,
-        "host_command_execution":host_tools::inspect(app, state, audience, &proof)?,
+        "computation_execution":tools::inspect(records, state, audience, &proof)?,
+        "http_fetch_execution":http_tools::inspect(records, state, audience, &proof)?,
+        "host_command_execution":host_tools::inspect(records, state, audience, &proof)?,
         "accepted_decision":accepted_decision_view(state, audience, &prepared, &archive)?,
         "input_accounting":{
             "prompt_utf8_bytes":prepared.prompt.len(),

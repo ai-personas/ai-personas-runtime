@@ -61,10 +61,11 @@ messages from earlier calls in that session. Missing terminal evidence still
 means an unknown outcome and no session message scope. Inspection grants no retry
 or new session.
 
-Development views still reuse a fresh runtime/launch snapshot within each
-request. A semantic epoch change during those views returns `snapshot_changed`.
-All views preserve previous spending and uncertain usage; a result larger than
-the remaining allowance is still blocked.
+Development views use the same transaction for accepted character revisions,
+exact invocation inputs and decisions, supplied resources, and tool execution
+receipts. They retain the existing source and audience checks and charge only
+the returned view, bounded to 1 MiB. All views preserve previous spending and
+uncertain usage; a result larger than the remaining allowance is still blocked.
 
 ## First use
 

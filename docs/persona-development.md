@@ -70,6 +70,13 @@ ai-personas --state-root /private/personas-state --operator requester \
   development PERSONA_ID
 ```
 
+Character, invocation, decision and tool-result evidence are projected from one
+Store transaction under the current audience and source permissions. Only the
+returned view spends Ordinary navigation; internal runtime, request and archive
+records are not separately returned or charged. The complete view must fit 1 MiB
+and the remaining allowance. Inspection does not recover an owner, select future
+context, rerun a tool or start inference.
+
 To inspect one retained source and a later accepted invocation:
 
 ```sh

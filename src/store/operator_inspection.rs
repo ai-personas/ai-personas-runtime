@@ -32,6 +32,24 @@ impl RuntimeInspection<'_, '_> {
         self.work.get("object", id)
     }
 
+    pub(crate) fn decision(&self, id: &str) -> Result<DecisionRecord> {
+        self.work.id(id)?;
+        self.work.required("decision", id)
+    }
+
+    pub(crate) fn intent(&self, id: &str) -> Result<IntentRecord> {
+        self.work.id(id)?;
+        self.work.required("intent", id)
+    }
+
+    pub(crate) fn terminal_evidence(
+        &self,
+        subject: &EntityId,
+        id: &str,
+    ) -> Result<Option<StoredObject>> {
+        self.work.terminal_evidence(subject, id)
+    }
+
     pub(crate) fn session_terminal(
         &self,
         claim: &ObjectRef,
