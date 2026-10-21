@@ -15,6 +15,20 @@ Intake-delegation and optional-activity episodes use the existing sequential loo
 The plain one-step API and foreground path without a retained execution owner
 remain sequential. This is not a background scheduler across works or roots.
 
+Ordinary inputs can include `CONTROL.collaborators`: up to eight other current
+work participants, their labels and current acceptance IDs, and their latest
+accepted continuation with its authoring invocation. Each intention retains its
+original source restrictions. Withheld or omitted records establish neither
+absence nor permission. The snapshot is limited to 4 KiB and spare input space;
+it cannot displace selected context, current observations or available tools.
+
+These intentions help personas choose contributions and communicate about shared
+edits. They are snapshots at admission, and can change while inference runs.
+An intention does not establish current execution, availability, successful work,
+agreement, a new commitment or permission to edit a peer's files. The runtime
+assigns no role or task from this projection. Other tasks, private context and
+in-flight requests are excluded. Initialization and restricted repair omit it.
+
 ## Freshness and evidence
 
 New direct admissions outside delegated and optional episodes retain a host-only

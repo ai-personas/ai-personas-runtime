@@ -75,6 +75,7 @@ mod requester_feedback;
 mod requester_wait;
 pub use requester_feedback::Disposition as RequesterFeedbackDisposition;
 mod peer_feedback;
+mod collaborators;
 pub use peer_feedback::Disposition as PeerFeedbackDisposition;
 pub(crate) mod questions;
 pub use questions::{
@@ -7962,6 +7963,38 @@ fn render_mode_with_history(
         growth_bytes = growth_bytes.checked_add(extra).ok_or_else(|| invalid("host command interface accounting"))?;
         fixed_contract_bytes = fixed_contract_bytes.checked_add(serde_json::to_vec(interface)?.len())
             .ok_or_else(|| invalid("host command interface accounting"))?;
+    }
+    // Current-work peer intentions are optional metadata. They cannot displace
+    // character, selected bodies, current observations or callable interfaces.
+    if ordinary_interfaces && ordinary_total < state.config.context_bytes {
+        let mut peer_exposure = Exposure::default();
+        if let Ok(Some(metadata)) =
+            collaborators::context(state, work_id, actor, &a, &mut peer_exposure)
+        {
+            let mut candidate_core = core.clone();
+            candidate_core["collaborators"] = metadata;
+            let (candidate_prompt, candidate_encoding, candidate_total) =
+                render_prompt(&candidate_core, &ordinary_context, false)?;
+            let mut combined = exposure.clone();
+            extend_exposure(&mut combined, &peer_exposure);
+            combined.sources.extend(sources.iter().cloned());
+            combined.sources.extend(assembly.entries.iter().map(|entry| entry.reference.clone()));
+            if candidate_total <= state.config.context_bytes
+                && expanded_exposure(state, &combined)
+                    .is_ok_and(|value| exposure_permitted(state, &value, &a))
+            {
+                let extra = candidate_total.checked_sub(ordinary_total)
+                    .ok_or_else(|| invalid("collaborator context accounting"))?;
+                ordinary_prompt = candidate_prompt;
+                ordinary_encoding = candidate_encoding;
+                ordinary_total = candidate_total;
+                mandatory_total = render_prompt(&candidate_core, &mandatory_context, false)?.2;
+                core = candidate_core;
+                growth_bytes = growth_bytes.checked_add(extra)
+                    .ok_or_else(|| invalid("collaborator context accounting"))?;
+                extend_exposure(&mut exposure, &peer_exposure);
+            }
+        }
     }
     // Historical result discovery is optional. Current observations, selected
     // files and unresolved jobs have already been assembled above; a catalogue
