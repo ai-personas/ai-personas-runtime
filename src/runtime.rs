@@ -4934,61 +4934,35 @@ impl Runtime {
                 Ok(())
             })?)
     }
+    /// Inspect one retained transport from an existing root without loading the
+    /// runtime state or performing owner-loss recovery. Only terminal evidence
+    /// is returned and charged; this entry point cannot resume or execute work.
+    pub fn terminal_evidence_at(root: &Path, id: &str) -> Result<s::StoredObject> {
+        identity(id)?;
+        let root = secure_state_root(root, false)?;
+        require(root.join("state.sqlite3").is_file(), "state database is missing")?;
+        let mut app = Self {
+            store: s::Store::open_runtime(&root.join("state.sqlite3"), storage_limits(), false)?,
+            root,
+            synthetic_owner: None,
+            host_command_background: None,
+        };
+        app.terminal_evidence(id)
+    }
     /// Trusted operator inspection, including failed attempts. Never a persona tool.
     pub fn terminal_evidence(&mut self, id: &str) -> Result<s::StoredObject> {
-        let inv = self.store.trusted_host().invocation(id)?;
-        let mut reference = inv.history.iter().rev().find_map(|r| r.evidence.clone());
-        if reference.is_none() {
-            reference = inv
-                .history
-                .iter()
-                .rev()
-                .filter_map(|r| r.detail.as_deref())
-                .find_map(|detail| {
-                    let hash = detail
-                        .strip_prefix("terminal:")?
-                        .split_whitespace()
-                        .next()?;
-                    Some(s::ObjectRef {
-                        id: terminal_id(id),
-                        revision: 1,
-                        sha256: hash.into(),
-                    })
-                });
-        }
-        if reference.is_none() && inv.state == s::InvocationState::Adopted {
-            // This archive lookup is necessary terminal inspection, so it must
-            // use the same protected navigation class as the other evidence reads.
-            let object = self
-                .store
-                .trusted_host()
-                .read(&archive_id(id))?
-                .ok_or_else(|| held("adoption record unavailable"))?;
-            let adopted: AdoptedResponse = serde_json::from_value(object.body)?;
-            reference = adopted
-                .provider_observation
-                .as_ref()
-                .and_then(|v| v.get("terminal_evidence"))
-                .map(|v| serde_json::from_value(v.clone()))
-                .transpose()?;
-        }
-        let reference = match reference {
-            Some(reference) => reference,
-            None => {
-                // The receipt can commit before the digest or any history/archive
-                // reference. Inspect only this invocation's already bound slot.
-                return self
-                    .store
-                    .trusted_host()
-                    .read_terminal_evidence(&s::EntityId::Invocation(id.into()), &terminal_id(id))?
-                    .ok_or_else(|| held("terminal evidence unavailable"));
-            }
-        };
-        require(
-            reference.id == terminal_id(id) && reference.revision == 1,
-            "terminal evidence identity mismatch",
-        )?;
-        Ok(self.store.trusted_host().read_exact(&reference)?)
+        self.store.trusted_host().invocation_terminal_evidence(
+            id,
+            &terminal_id(id),
+            &archive_id(id),
+            |object| {
+                let adopted: AdoptedResponse = serde_json::from_value(object.body)?;
+                Ok(adopted.provider_observation.as_ref()
+                    .and_then(|value| value.get("terminal_evidence"))
+                    .map(|value| serde_json::from_value(value.clone()))
+                    .transpose()?)
+            },
+        )?.ok_or_else(|| held("terminal evidence unavailable"))
     }
     /// Acknowledge an actual retained complete response after interruption. This
     /// rejects the local decision, preserves unknown usage, and grants no replay.

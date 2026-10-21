@@ -88,6 +88,7 @@ mod capacity;
 mod head_compaction;
 mod provider_prelaunch;
 mod session_journal;
+mod terminal_inspection;
 pub use capacity::{CapacityExtensionRequest, MAX_RUNTIME_SNAPSHOT_BODY_BYTES};
 pub use head_compaction::HeadCompactionRequest;
 

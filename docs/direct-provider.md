@@ -71,6 +71,14 @@ or different evidence untouched, preserves the receipt and all resource holds,
 and does not resume the persona or send another request. Inspection-only opening
 does not perform this recovery.
 
+To inspect an existing invocation's exact transport receipt, use
+`ai-personas --state-root /private/state --operator requester terminal-evidence CALL_ID`.
+This host inspection charges the canonical returned evidence bytes to Closeout
+navigation. It resolves retained references internally without returning the full
+runtime state, prepared request or adoption archive. The command performs no
+owner recovery or inference. Historical reference and expiry checks still apply,
+and a receipt larger than the remaining allowance remains unavailable.
+
 Owned native foreground sessions can keep independent personas' direct calls in
 flight concurrently. Each call retains its own request, receipt and single-use
 authority; adoption remains sequential. See [concurrent decisions](concurrent-decisions.md)

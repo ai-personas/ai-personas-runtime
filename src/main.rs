@@ -375,7 +375,7 @@ enum Command {
         invocation: String,
         file: PathBuf,
     },
-    /// Inspect an actual retained local transport receipt.
+    /// Inspect one retained transport receipt without owner recovery or full-state reads.
     TerminalEvidence {
         invocation: String,
     },
@@ -1241,12 +1241,14 @@ async fn run(cli: Cli) -> runtime::Result<()> {
     } else {
         None
     };
+    if let Command::TerminalEvidence { invocation } = &cli.command {
+        return emit(&Runtime::terminal_evidence_at(root, invocation)?);
+    }
     // Only explicit host closeout commands may select protected control reads
     // and writes. The restricted handle cannot prepare, resume, or adopt work.
     if matches!(
         &cli.command,
-        Command::TerminalEvidence { .. }
-            | Command::AcknowledgeCompleteRejection { .. }
+        Command::AcknowledgeCompleteRejection { .. }
             | Command::Pause { .. }
             | Command::PausePersona { .. }
             | Command::QuarantinePersona { .. }
@@ -1254,7 +1256,6 @@ async fn run(cli: Cli) -> runtime::Result<()> {
     ) {
         let mut app = Runtime::open_for_closeout(root)?;
         return match &cli.command {
-            Command::TerminalEvidence { invocation } => emit(&app.terminal_evidence(invocation)?),
             Command::AcknowledgeCompleteRejection {
                 invocation,
                 reference,
