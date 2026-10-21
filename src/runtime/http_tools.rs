@@ -77,6 +77,8 @@ struct Job {
     exposure: Exposure,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     qualification_sources: Option<Vec<f::Reference>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dispatch_scope: Option<decision_scope::Snapshot>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -329,6 +331,7 @@ pub(super) fn stage(
             qualification_sources: Some(tools::qualification_inputs(prepared, &[
                 file_reference(&offered.guide)?,
             ])?),
+            dispatch_scope: None,
         };
         let reservation = s::Resources {
             attempts: 1,
@@ -541,9 +544,8 @@ impl Runtime {
                     "http_fetch lineage unavailable",
                 )?;
                 full_asset(&state, &job.interface.guide, &a)?;
-                require(
-                    retained.intent.depends_on.contains(&old.exact_ref()?),
-                    "admitted runtime state changed before dispatch",
+                decision_scope::require_intent_current(
+                    &state, &prepared, job.dispatch_scope.as_ref(), &retained, &old,
                 )?;
                 Ok(())
             })();
@@ -559,7 +561,7 @@ impl Runtime {
                     RESULT_CAPACITY,
                     s::BudgetClass::Ordinary,
                 )?;
-                self.store.dispatch_intent(id, self.store.epoch()?)?;
+                self.dispatch_effect_intent(&retained, &old)?;
                 if let Some(outcome) = c::execute(&job.url) {
                     let terminal = Terminal {
                         intent: id.into(),

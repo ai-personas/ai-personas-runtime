@@ -4490,6 +4490,12 @@ impl Runtime {
                 )
             }
         };
+        if let Err(error) = decision_scope::seal_intents(&next, &prepared, &decision, &mut intents) {
+            return self.hold_response_at(
+                &prepared, &invocation, error, &terminal_ref,
+                &PlanningExposure::new(None), Some(AdoptionFailureStage::Planning),
+            );
+        }
         report.accepted_epoch = Some(accepted_epoch);
         let archive = AdoptedResponse {
             actor: prepared.request.persona.clone(),

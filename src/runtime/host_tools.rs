@@ -29,6 +29,8 @@ struct Job {
     directory: PathBuf,
     exposure: Exposure,
     qualification_sources: Vec<f::Reference>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dispatch_scope: Option<decision_scope::Snapshot>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -144,6 +146,7 @@ pub(super) fn stage(
             directory,
             exposure,
             qualification_sources: tools::qualification_inputs(prepared, &[])?,
+            dispatch_scope: None,
         };
         require(
             state
@@ -231,8 +234,10 @@ impl Runtime {
             if job.interface.runner_revision != h::revision() {
                 self.store
                     .cancel_intent(id, "host runner changed before dispatch")?;
-            } else if !retained.intent.depends_on.contains(&head.exact_ref()?) {
-                self.store.cancel_intent(id, "accepted runtime state changed; command never dispatched")?;
+            } else if decision_scope::require_intent_current(
+                &state, &prepared, job.dispatch_scope.as_ref(), &retained, &head,
+            ).is_err() {
+                self.store.cancel_intent(id, "accepted action authority or prerequisites changed; command never dispatched")?;
             } else {
                 self.store.trusted_host().reserve_terminal_evidence(
                     &subject,
@@ -240,7 +245,7 @@ impl Runtime {
                     RESULT_CAPACITY,
                     s::BudgetClass::Ordinary,
                 )?;
-                self.store.dispatch_intent(id, self.store.epoch()?)?;
+                self.dispatch_effect_intent(&retained, &head)?;
                 let request_sha256 = digest(&retained.intent.body)?;
                 let intent_id = id.to_owned();
                 let runner_revision = h::revision();

@@ -529,6 +529,7 @@ pub enum InvocationState {
 
 pub(crate) const RUNTIME_DECISION_SCOPE_V1: &str = "runtime-decision-scope-v1";
 pub(crate) const RUNTIME_DECISION_SCOPE: &str = "runtime-decision-scope-v2";
+pub(crate) const RUNTIME_INTENT_SCOPE: &str = "runtime-intent-scope-v1";
 
 pub(crate) fn runtime_decision_scope_supported(format: &str) -> bool {
     matches!(format, RUNTIME_DECISION_SCOPE_V1 | RUNTIME_DECISION_SCOPE)
@@ -1846,6 +1847,19 @@ impl TrustedHost<'_> {
         self.store.intent_in_class(id, BudgetClass::Closeout)
     }
 
+    /// Runtime has validated the accepted action's scoped dependencies against
+    /// this exact state. Compare both inside the dispatch transaction; retain
+    /// the original dependency list and all immutable adoption evidence.
+    pub(crate) fn dispatch_runtime_intent(
+        &mut self,
+        intent: &IntentRecord,
+        current_runtime: &ObjectRef,
+    ) -> Result<Receipt> {
+        self.store.dispatch_intent_inner(
+            &intent.intent.id, None, Some((intent, current_runtime)),
+        )
+    }
+
     pub fn reservation(&mut self, id: &ReservationId) -> Result<ReservationRecord> {
         self.store.reservation_in_class(id, BudgetClass::Closeout)
     }
@@ -2899,9 +2913,20 @@ impl Store {
     }
 
     pub fn dispatch_intent(&mut self, id: &str, expected_epoch: u64) -> Result<Receipt> {
+        self.dispatch_intent_inner(id, Some(expected_epoch), None)
+    }
+
+    fn dispatch_intent_inner(
+        &mut self,
+        id: &str,
+        expected_epoch: Option<u64>,
+        scoped: Option<(&IntentRecord, &ObjectRef)>,
+    ) -> Result<Receipt> {
         self.transaction(|work| {
             work.admission()?;
-            work.epoch(expected_epoch)?;
+            if let Some(epoch) = expected_epoch {
+                work.epoch(epoch)?;
+            }
             let mut record: IntentRecord = work.required("intent", id)?;
             match record.state {
                 IntentState::Dispatched => return Err(StoreError::AlreadyDispatched),
@@ -2909,7 +2934,36 @@ impl Store {
                 IntentState::Admitted => {}
                 _ => return Err(StoreError::InvalidState(id.into())),
             }
-            work.dependencies(&record.intent.depends_on, &BTreeMap::new())?;
+            if let Some((expected, head)) = scoped {
+                let current: StoredObject = work.required("object", RUNTIME_CONTROL_STATE_ID)?;
+                let invocation: InvocationRecord = work.required("invocation", &record.invocation_id)?;
+                let decision: DecisionRecord = work.required("decision", &record.invocation_id)?;
+                let runtime_dependencies: Vec<_> = record.intent.depends_on.iter()
+                    .filter(|reference| reference.id == RUNTIME_CONTROL_STATE_ID).collect();
+                if record != *expected
+                    || head.id != RUNTIME_CONTROL_STATE_ID
+                    || current.exact_ref()? != *head
+                    || invocation.state != InvocationState::Adopted
+                    || !scoped_runtime_invocation(&invocation)
+                    || invocation.request.as_ref().is_none_or(|request|
+                        request["decision_scope"]["format"] != RUNTIME_DECISION_SCOPE)
+                    || record.intent.body["dispatch_scope"]["format"] != RUNTIME_INTENT_SCOPE
+                    || record.intent.body["invocation"] != record.invocation_id
+                    || !decision.intent_ids.contains(&record.intent.id)
+                    || runtime_dependencies.len() != 1
+                    || !decision.objects.contains(runtime_dependencies[0])
+                {
+                    return Err(StoreError::Conflict(id.into()));
+                }
+                let dependencies: Vec<_> = record.intent.depends_on.iter()
+                    .filter(|reference| reference.id != RUNTIME_CONTROL_STATE_ID)
+                    .cloned().collect();
+                work.dependencies(&dependencies, &BTreeMap::new())?;
+            } else {
+                // Public/generic dispatch and legacy runtime jobs retain exact
+                // head and epoch checks; scoped authority is never inferred.
+                work.dependencies(&record.intent.depends_on, &BTreeMap::new())?;
+            }
             work.reservation_ready(&record.reservation)?;
             work.bump_epoch()?;
             record.state = IntentState::Dispatched;

@@ -67,6 +67,14 @@ execution pass, so publishing one result does not invalidate another command's
 accepted prerequisites. This also applies to decisions mixing host commands
 with the optional WebAssembly or HTTPS profiles.
 
+New task-scoped Direct decisions also retain the command's relevant dispatch
+dependencies. A change in another task does not cancel an accepted command
+before it starts. Changes to its own task, character, lifecycle or saved
+prerequisites still matter, and pause/resume does not revive an earlier command.
+The final check and dispatch record are atomic. Older accepted commands retain
+their original exact runtime-head prerequisite. See
+[accepted command dispatch](concurrent-decisions.md#accepted-command-dispatch).
+
 In native foreground runs and launcher sessions, a final host command runs on
 a worker while other eligible personas can take a turn. Commands earlier in
 that decision still finish in authored order before the final command starts.

@@ -54,6 +54,33 @@ Historical records omit the new field and retain their original interpretation.
 Use updated helpers for new scoped requests; old requests gain no scoped authority.
 The generic Store decision API keeps its original global epoch requirement.
 
+## Accepted command dispatch
+
+New commands accepted from task-scoped v2 Direct calls retain a separate
+`runtime-intent-scope-v1` snapshot of the resulting persona and task state.
+Another task's controls or an unrelated persona's progress do not cancel an
+undispatched command. The accepted intent has its own durable identity; changes
+to the primary-call ownership counter or another task's focus do not replace it.
+
+Dispatch still checks character, lifecycle, failure holds, the originating task's
+focus, authority and shared state, relevant control history, configuration and
+supplied lineage. Explicit same-response file-save prerequisites retain their
+accepted source and binding hashes. A pause followed by resume cannot revive a
+command admitted before that pause. Existing computation and HTTPS checks for
+grants, expiry, inputs and implementation versions remain in effect; default
+host commands continue to require no per-tool grant.
+
+The runtime checks these dependencies, then Store atomically compares that exact
+current head and intent before recording dispatch. The accepted response and all
+other object prerequisites remain exact. The original dependency list is never
+rewritten. A concurrent change during this final check leaves the command
+undispatched for explicit recovery; it does not authorize replay.
+
+Older intents without a dispatch snapshot retain their complete runtime-head
+dependency. Generic Store dispatch retains its epoch and exact-reference checks.
+Dispatched commands, uncertain outcomes and settlement keep their existing
+rules, irrespective of whether a newer unrelated task is running.
+
 ## Completion and interruption
 
 Only exact pending calls owned by this coordinator may coexist during selection.
