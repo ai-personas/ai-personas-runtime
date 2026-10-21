@@ -13,6 +13,10 @@ pub struct Snapshot {
     work_sha256: String,
     metadata_sha256: String,
     supplied_lineage_sha256: String,
+    /// New admissions may queue ordinary peer messages for their next input.
+    /// Absence retains the exact fence of an already admitted older request.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    defer_incoming_peer_messages: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     control_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -31,7 +35,8 @@ pub(super) fn seal(state: &State, prepared: &Prepared) -> Result<Option<Snapshot
     {
         return Ok(None);
     }
-    Ok(Some(snapshot(state, prepared, FORMAT)?))
+    Ok(Some(snapshot(state, prepared, FORMAT,
+        prepared.request.mode == Mode::Ordinary)?))
 }
 
 /// Only new admissions declare task-local focus dependencies. An older pending
@@ -45,7 +50,12 @@ pub(super) fn isolates_other_work(prepared: &Prepared) -> bool {
             .is_some_and(|scope| scope.format == FORMAT)
 }
 
-fn snapshot(state: &State, prepared: &Prepared, format: &str) -> Result<Snapshot> {
+fn snapshot(
+    state: &State,
+    prepared: &Prepared,
+    format: &str,
+    defer_incoming_peer_messages: bool,
+) -> Result<Snapshot> {
     let actor = &prepared.request.persona;
     let work_id = &prepared.request.work;
     let mut persona = state
@@ -59,6 +69,24 @@ fn snapshot(state: &State, prepared: &Prepared, format: &str) -> Result<Snapshot
         // for other tasks. Global identity, character, lifecycle, ownership,
         // admission serial and failure holds still belong to this snapshot.
         persona.focus.retain(|id, _| id == work_id);
+    }
+    if defer_incoming_peer_messages {
+        require(
+            (format == FORMAT || format == INTENT_FORMAT)
+                && prepared.request.mode == Mode::Ordinary,
+            "unsupported peer message deferral scope",
+        )?;
+        if let Some(focus) = persona.focus.get_mut(work_id) {
+            // Only an ordinary, unsupplied message from another current-work
+            // persona is independent of this admitted decision. Adoption keeps
+            // the actual queue and consumes only supplied observations. User
+            // feedback, shared questions, wait events and all other focus and
+            // work changes retain their existing freshness checks.
+            focus.pending_observations.retain(|id| {
+                prepared.supplied_observations.contains(id)
+                    || !deferrable_peer_message(state, actor, work_id, id)
+            });
+        }
     }
     if format == INTENT_FORMAT {
         // An accepted action owns its durable intent, not a still-pending
@@ -103,6 +131,7 @@ fn snapshot(state: &State, prepared: &Prepared, format: &str) -> Result<Snapshot
         work_sha256: work_hash(state, prepared)?,
         metadata_sha256: digest(&metadata)?,
         supplied_lineage_sha256: digest(&(exposure, bindings))?,
+        defer_incoming_peer_messages,
         // Retain relevant control history as well as current state: a rapid
         // pause/resume must not revive an earlier undispatched action.
         control_sha256: if format == INTENT_FORMAT {
@@ -122,6 +151,27 @@ fn snapshot(state: &State, prepared: &Prepared, format: &str) -> Result<Snapshot
         },
         saved_sources: BTreeMap::new(),
     })
+}
+
+fn deferrable_peer_message(state: &State, actor: &str, work: &str, id: &str) -> bool {
+    let (Some(observation), Some(message)) =
+        (state.observations.get(id), state.messages.get(id))
+    else { return false };
+    observation.id == id
+        && observation.actor == actor
+        && observation.work == work
+        && observation.kind == "received_local_persona_message"
+        && observation.invocation.as_ref() == Some(&message.invocation)
+        && message.id == id
+        && message.recipient == actor
+        && message.work == work
+        && message.sender != actor
+        && state.board.work(&w::WorkId(work.into())).is_ok_and(|current| {
+            current.participants.contains_key(&w::PersonaId(message.sender.clone()))
+        })
+        && observation.payload["sender"] == message.sender
+        && observation.payload["text"] == message.text
+        && message.local_deposit_only
 }
 
 fn saved_source_hash(state: &State, source: &str) -> Result<String> {
@@ -148,7 +198,8 @@ pub(super) fn seal_intents(
     if intents.is_empty() || !isolates_other_work(prepared) {
         return Ok(());
     }
-    let common = snapshot(state, prepared, INTENT_FORMAT)?;
+    let common = snapshot(state, prepared, INTENT_FORMAT,
+        prepared.decision_scope.as_ref().is_some_and(|scope| scope.defer_incoming_peer_messages))?;
     for intent in intents {
         let operation = intent.body["operation"]
             .as_str()
@@ -202,7 +253,7 @@ pub(super) fn require_intent_current(
         isolates_other_work(prepared) && admitted.format == INTENT_FORMAT,
         "unsupported scoped intent admission",
     )?;
-    let mut current = snapshot(state, prepared, INTENT_FORMAT)?;
+    let mut current = snapshot(state, prepared, INTENT_FORMAT, admitted.defer_incoming_peer_messages)?;
     for source in admitted.saved_sources.keys() {
         current
             .saved_sources
@@ -294,7 +345,7 @@ pub(super) fn require_current(state: &State, prepared: &Prepared) -> Result<bool
         "unsupported scoped decision admission",
     )?;
     require(
-        *admitted == snapshot(state, prepared, &admitted.format)?,
+        *admitted == snapshot(state, prepared, &admitted.format, admitted.defer_incoming_peer_messages)?,
         "decision authority or supplied lineage changed",
     )?;
     Ok(true)

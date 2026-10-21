@@ -52,9 +52,18 @@ Retained `runtime-decision-scope-v1` requests keep their complete actor dependen
 They are not upgraded retrospectively. A pending v1 or globally scoped call in
 another task must settle before the amendment interface can change its focus.
 
+New ordinary admissions also seal `defer_incoming_peer_messages: true`. An
+ordinary local message from another participant in the same work, whose body
+was not supplied to this input, can remain queued while the current decision
+finishes. Adoption preserves the actual queue and consumes only observations
+that were supplied. The next eligible admission receives the queued message
+under its normal permission and context checks. Message arrival neither wakes
+a stopped persona nor establishes that the recipient has read it. An existing
+admission without this sealed flag keeps its original fence.
+
 Membership, acceptance, mandate, phase, shared artifacts, evidence, questions,
-messages affecting the recipient and changed supplied lineage can invalidate a
-pending response. Its original complete response remains terminal evidence.
+requester feedback, message-wait events and changed supplied lineage can still
+invalidate a pending response. Its original complete response remains terminal evidence.
 An unchanged accepted continuation may allow a fresh, charged admission after
 the rejected lease is retired under the existing rules. No response is rewritten,
 retried, refunded or treated as adopted merely because transport completed.
@@ -83,6 +92,10 @@ accepted source and binding hashes. A pause followed by resume cannot revive a
 command admitted before that pause. Existing computation and HTTPS checks for
 grants, expiry, inputs and implementation versions remain in effect; default
 host commands continue to require no per-tool grant.
+
+An intent from a new admission retains its sealed peer-message deferral rule.
+An ordinary unsupplied peer message alone does not cancel the accepted command;
+all other originating-task controls and prerequisites still apply.
 
 The runtime checks these dependencies, then Store atomically compares that exact
 current head and intent before recording dispatch. The accepted response and all
