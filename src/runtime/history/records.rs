@@ -3,6 +3,18 @@
 use super::*;
 
 pub(crate) const INTERFACE: &str = "retained-record-history-v1";
+const DECISION_PROJECTION: &str = "authored-decision-qualifications-v2";
+
+fn query_identity(record_kind: p::HistoryRecordKind, mode: &f::SearchMode) -> Result<String> {
+    match record_kind {
+        // The matched Decision body no longer replays permission ancestry.
+        // A cursor from that older projection must start a fresh traversal.
+        p::HistoryRecordKind::AdoptedDecision => {
+            digest(&(INTERFACE, DECISION_PROJECTION, record_kind, mode))
+        }
+        p::HistoryRecordKind::Observation => digest(&(INTERFACE, record_kind, mode)),
+    }
+}
 
 #[derive(Default)]
 pub(crate) struct Material {
@@ -248,9 +260,17 @@ fn decision_record(
         "record_type":"adopted_authored_decision", "operation_dispositions":"unavailable_original_disclosure_provenance"});
     // Prepared exposure covers authored content, not arbitrary later host/provider
     // diagnostics. Do not promote authored intentions to executed operations.
-    let mut roots = archive.exposure.as_ref()?.sources.clone();
-    roots.sort();
-    roots.dedup();
+    // Original source ancestry continues to govern permissions above. It does
+    // not request every ancestor's body. Only its explicit required caveats
+    // accompany the exact authored Decision, with transitive closure and
+    // current bindings still enforced by assemble. No archive is rewritten.
+    // A metadata-only descriptor keeps the original references for reservation;
+    // resolve qualification metadata only after reserve_projection succeeds.
+    let roots = if full {
+        corpus.required_qualifications(&archive.exposure.as_ref()?.sources)?
+    } else {
+        archive.exposure.as_ref()?.sources.clone()
+    };
     let body = if full {
         let accompaniment = if roots.is_empty() {
             Value::Null
@@ -279,6 +299,7 @@ fn decision_record(
             context
         };
         json!({"actor":archive.actor,"work":archive.work,"invocation":id,
+            "projection_profile":DECISION_PROJECTION,
             "authored_json":authored,"current_accompaniment":accompaniment,
             "accompaniment_proves_original_supply_or_use":false,
             "operation_dispositions":"unavailable_original_disclosure_provenance",
@@ -354,6 +375,10 @@ fn reserve_projection(
     descriptor: &Record,
     navigation: &mut f::NavigationBudget,
 ) -> bool {
+    let qualification_sources = match descriptor.reference {
+        p::HistoryRecordReference::AdoptedDecision { .. } => descriptor.roots.len(),
+        p::HistoryRecordReference::Observation { .. } => 0,
+    };
     let assemblies = match descriptor.reference {
         p::HistoryRecordReference::Observation { .. } => descriptor.roots.len(),
         p::HistoryRecordReference::AdoptedDecision { .. } => {
@@ -365,7 +390,9 @@ fn reserve_projection(
             .config
             .corpus
             .max_closure_bytes
-            .saturating_mul(assemblies)
+            // Metadata lookup has its own bounded scan before assembly. Plain
+            // listing never performs it; full reads and body searches do.
+            .saturating_mul(assemblies + usize::from(qualification_sources != 0))
             .saturating_add(descriptor.body_bytes.saturating_mul(2))
             .saturating_add(CONTROL_BYTES),
         inspected_revisions: state
@@ -374,6 +401,7 @@ fn reserve_projection(
             .max_closure_references
             .saturating_add(state.config.corpus.max_closure_edges)
             .saturating_mul(assemblies)
+            .saturating_add(qualification_sources)
             .saturating_add(1),
         ..Default::default()
     })
@@ -499,7 +527,7 @@ fn query(
     let actor = &prepared.request.persona;
     let work = &prepared.request.work;
     let focus = &state.personas[actor].focus[work];
-    let query_hash = digest(&(INTERFACE, record_kind, mode))?;
+    let query_hash = query_identity(record_kind, mode)?;
     let Ok(matcher) = f::compile_search_mode(mode, &state.config.corpus) else {
         return Ok(status("invalid_query"));
     };
@@ -831,7 +859,7 @@ pub(crate) fn apply(
                     mode,
                     ..
                 } => {
-                    let expected_query = digest(&(INTERFACE, record_kind, mode))?;
+                    let expected_query = query_identity(*record_kind, mode)?;
                     let cursors = &state.personas[&prepared.request.persona].focus
                         [&prepared.request.work]
                         .history_cursors;

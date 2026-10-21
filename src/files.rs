@@ -602,6 +602,48 @@ impl Corpus {
         &self.limits
     }
 
+    /// Bounded metadata lookup, not a body read or permission grant. The caller
+    /// checks complete source ancestry first; assemble still checks and expands
+    /// every returned qualification. Use this corpus's binding snapshot so
+    /// derived tool-result qualifications are not lost.
+    pub(crate) fn required_qualifications(&self, sources: &[Reference]) -> Option<Vec<Reference>> {
+        if sources.len() > self.limits.max_closure_references {
+            return None;
+        }
+        let mut bytes = serialized_len(sources, self.limits.max_closure_bytes).ok()?;
+        let mut edges = 0usize;
+        let mut required = BTreeSet::new();
+        for source in sources {
+            if !source.structurally_valid() {
+                return None;
+            }
+            let stored = self.records.get(&(source.source.clone(), source.revision.clone()))?;
+            let groups = std::iter::once(stored.record.qualifications.as_slice()).chain(
+                self.bindings_for(&stored.record).iter().filter_map(|binding| {
+                    match &binding.disposition {
+                        BindingDisposition::Qualify { required } => Some(required.as_slice()),
+                        _ => None,
+                    }
+                }),
+            );
+            for group in groups {
+                edges = edges.checked_add(group.len())?;
+                if edges > self.limits.max_closure_edges {
+                    return None;
+                }
+                bytes = bytes.checked_add(serialized_len(
+                    group,
+                    self.limits.max_closure_bytes.checked_sub(bytes)?,
+                ).ok()?)?;
+                required.extend(group.iter().cloned());
+                if required.len() > self.limits.max_closure_references {
+                    return None;
+                }
+            }
+        }
+        Some(required.into_iter().collect())
+    }
+
     /// Replace only the authoritative access view. Immutable file bytes, policies,
     /// identities, and qualifications remain unchanged. The host authenticates
     /// this replacement and prevents rollback to an obsolete authority snapshot.
