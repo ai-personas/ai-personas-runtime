@@ -1031,10 +1031,12 @@ class Helpers:
                 poll.register(proc.stdout, selectors.EVENT_READ, out)
                 if proc.stderr:
                     poll.register(proc.stderr, selectors.EVENT_READ, err)
-                deadline = time.monotonic() + timeout
+                deadline = None if timeout is None else time.monotonic() + timeout
                 while poll.get_map():
-                    require(time.monotonic() < deadline, "helper_outcome_unknown")
-                    for key, _ in poll.select(min(0.2, max(0, deadline - time.monotonic()))):
+                    if deadline is not None:
+                        require(time.monotonic() < deadline, "helper_outcome_unknown")
+                    interval = 0.2 if deadline is None else min(0.2, max(0, deadline - time.monotonic()))
+                    for key, _ in poll.select(interval):
                         part = os.read(key.fd, 8192)
                         if not part:
                             poll.unregister(key.fileobj)
@@ -1042,7 +1044,7 @@ class Helpers:
                             key.data.extend(part)
                             require(len(key.data) <= (MAX_OUTPUT if key.data is out else 262144),
                                     "helper_output_bound_unknown")
-                code = proc.wait(timeout=max(0.1, deadline - time.monotonic()))
+                code = proc.wait(timeout=None if deadline is None else max(0.1, deadline - time.monotonic()))
             if code != 0:
                 try:
                     # The session CLI may precede its static JSON error with
@@ -1825,7 +1827,9 @@ class Dialogue:
             args += ["--codex-executable", route["executable"], "--host-home", route["host_home"],
                      "--codex-home", route["codex_home"], "--authorize-codex-auth-only"]
         self.ui.say(f"Submitting {s['id']}. Waiting for its recorded native outcome.")
-        outcome = self.session(*args, timeout=settings["max_steps"] * 300 + 60)
+        # Host commands have no default duration limit. Wait for the native
+        # session's outcome; explicit interruption still stops this helper.
+        outcome = self.session(*args, timeout=None)
         self.session_binding(outcome, s)
         require(outcome.get("status") == "finished", "session_outcome_unknown_no_replay")
         terminal = outcome["terminal"]["outcome"]

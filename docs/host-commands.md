@@ -40,6 +40,9 @@ including package-manager, proxy and tool settings.
 interface. Relative paths resolve against that directory. `stdin` optionally
 supplies UTF-8 input. A persona may choose `timeout_seconds`; omission or `null`
 means no timeout. A chosen timeout stops that command's process group.
+The interactive launcher waits for the native foreground session without adding
+a wall-clock limit to installations or other host commands. Model-call limits
+and explicit user interruption still apply.
 
 Combine dependent shell steps in a single script. Multiple independent command
 operations may be submitted in one decision and execute in their listed order.
