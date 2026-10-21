@@ -62,6 +62,14 @@ pub(crate) struct SupersededCall {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct OtherTaskCall {
+    pub work: String,
+    pub state_at_save: s::InvocationState,
+    pub binding: SupersededCall,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct Record {
     pub request: Request,
     pub request_sha256: String,
@@ -71,6 +79,10 @@ pub(crate) struct Record {
     /// Exact effective authored input. The original intake record is unchanged.
     pub input: NeedInput,
     pub superseded_calls: BTreeMap<String, SupersededCall>,
+    /// Observed competing ownership, not superseded authority or permission to
+    /// retire another task's invocation. The resumption waits for that owner.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub other_task_calls: BTreeMap<String, OtherTaskCall>,
     pub resumptions: BTreeMap<String, String>,
     pub exposure: Exposure,
 }
@@ -131,6 +143,7 @@ fn outcome(record: &Record, replayed: bool) -> Value {
         "mandate_revision":record.mandate_revision,"scope_saved":true,"replayed":replayed,
         "resumption_requested":record.request.resume,"resumptions_at_save":record.resumptions,
         "superseded_invocations":record.superseded_calls.keys().collect::<Vec<_>>(),
+        "other_task_invocations":record.other_task_calls.keys().collect::<Vec<_>>(),
         "snapshot_changed":false,
         "current_status":"Inspect current state; replay does not renew resumption.",
         "original_request_preserved":true,"old_acceptances_are_current":false,
@@ -200,6 +213,7 @@ pub fn amend(root: &Path, operator: &str, request: &Request) -> Result<Value> {
     let now = unix_now()?;
     let inherited = work_exposure(&snapshot.state, &request.work)?;
     let mut superseded_calls = BTreeMap::new();
+    let mut other_task_calls = BTreeMap::new();
     for id in &participants {
         let persona = &snapshot.state.personas[id];
         require(
@@ -210,9 +224,35 @@ pub fn amend(root: &Path, operator: &str, request: &Request) -> Result<Value> {
             let invocation = app.store.trusted_host().invocation(call)?;
             let prepared = decode_prepared(&invocation)?;
             require(
-                prepared.request.work == request.work,
-                "participant has an invocation in another task; retry amendment after it settles",
+                prepared.request.id == *call
+                    && prepared.request.persona == *id
+                    && prepared.owner_epoch == persona.owner_epoch
+                    && prepared.admission_serial == persona.admission_serial,
+                "amendment invocation lease mismatch",
             )?;
+            let binding = SupersededCall {
+                persona: id.clone(),
+                owner_epoch: persona.owner_epoch,
+                prepare_hash: invocation.prepare_hash.clone(),
+                request_sha256: digest(&invocation.request)?,
+            };
+            if prepared.request.work != request.work {
+                require(
+                    !matches!(invocation.state, s::InvocationState::Prepared
+                        | s::InvocationState::Dispatched | s::InvocationState::Responded)
+                        || decision_scope::isolates_other_work(&prepared),
+                    "older or globally scoped invocation in another task must settle before amendment",
+                )?;
+                other_task_calls.insert(
+                    call.clone(),
+                    OtherTaskCall {
+                        work: prepared.request.work.clone(),
+                        state_at_save: invocation.state.clone(),
+                        binding,
+                    },
+                );
+                continue;
+            }
             if matches!(
                 invocation.state,
                 s::InvocationState::Prepared
@@ -220,19 +260,7 @@ pub fn amend(root: &Path, operator: &str, request: &Request) -> Result<Value> {
                     | s::InvocationState::Responded
                     | s::InvocationState::Failed
             ) {
-                require(
-                    prepared.request.persona == *id && prepared.owner_epoch == persona.owner_epoch,
-                    "amendment invocation lease mismatch",
-                )?;
-                superseded_calls.insert(
-                    call.clone(),
-                    SupersededCall {
-                        persona: id.clone(),
-                        owner_epoch: persona.owner_epoch,
-                        prepare_hash: invocation.prepare_hash.clone(),
-                        request_sha256: digest(&invocation.request)?,
-                    },
-                );
+                superseded_calls.insert(call.clone(), binding);
             }
         }
     }
@@ -299,10 +327,9 @@ pub fn amend(root: &Path, operator: &str, request: &Request) -> Result<Value> {
         let lifecycle_blocked = lifecycle::reason(&next, id).is_some();
         let persona = next.personas.get_mut(id).unwrap();
         let failed = persona.failed_attempt_hold.is_some()
-            || persona
-                .active_invocation
-                .as_ref()
-                .is_some_and(|call| !superseded_calls.contains_key(call));
+            || persona.active_invocation.as_ref().is_some_and(|call| {
+                !superseded_calls.contains_key(call) && !other_task_calls.contains_key(call)
+            });
         let focus = persona
             .focus
             .get_mut(&request.work)
@@ -324,6 +351,18 @@ pub fn amend(root: &Path, operator: &str, request: &Request) -> Result<Value> {
                 || snapshot.saved.steps >= snapshot.saved.setup.max_total_steps
             {
                 "blocked_existing_attempt_limit"
+            } else if let Some(other) = persona
+                .active_invocation
+                .as_ref()
+                .and_then(|call| other_task_calls.get(call))
+            {
+                match other.state_at_save {
+                    s::InvocationState::Failed | s::InvocationState::Uncertain => {
+                        "awaiting_other_task_recovery"
+                    }
+                    s::InvocationState::Adopted => "awaiting_other_task_handover",
+                    _ => "awaiting_other_task_invocation",
+                }
             } else if persona.active_invocation.is_some() {
                 "awaiting_old_scope_disposition"
             } else {
@@ -343,6 +382,7 @@ pub fn amend(root: &Path, operator: &str, request: &Request) -> Result<Value> {
         mandate_revision: revision,
         input,
         superseded_calls,
+        other_task_calls,
         resumptions,
         exposure: inherited,
     };

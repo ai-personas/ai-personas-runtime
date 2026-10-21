@@ -18,14 +18,25 @@ remain sequential. This is not a background scheduler across works or roots.
 ## Freshness and evidence
 
 New direct admissions outside delegated and optional episodes retain a host-only
-`runtime-decision-scope-v1` snapshot. It binds the complete actor state and
-configuration, work authority and shared semantic state, work metadata, and the
+`runtime-decision-scope-v2` snapshot. It binds global persona state, that task's
+focus, configuration, work authority and shared semantic state, metadata, and the
 expanded supplied-source lineage with its accepted bindings. Ordinary calls ignore
 only another participant's private continuation, wake, activity and observed-event
 bookkeeping, the work revision counter and appended applied-invocation IDs. They
 also exclude remaining shared spend counters: each request has already paid its
 own admission and reserved its resources. Current capacity is still checked at
 commit, and adoption preserves concurrent spending.
+
+Another task's focus is separate: pausing that task or queuing an operator
+amendment's resumption does not invalidate this call. Identity, character,
+lifecycle, ownership, admission serial and failure holds remain global. The
+response is applied to the current state and changes its own task's focus;
+queued permissions and context for other tasks are preserved. An amended task
+waits for the persona's existing invocation to settle before it can run.
+
+Retained `runtime-decision-scope-v1` requests keep their complete actor dependency.
+They are not upgraded retrospectively. A pending v1 or globally scoped call in
+another task must settle before the amendment interface can change its focus.
 
 Membership, acceptance, mandate, phase, shared artifacts, evidence, questions,
 messages affecting the recipient and changed supplied lineage can invalidate a

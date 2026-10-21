@@ -88,8 +88,17 @@ and failed-attempt holds remain effective. Full host command access and tool
 installation remain available by default.
 
 This interface covers saved operator tasks. Parent-delegated child tasks and
-optional activity retain separate controls. A participant currently running a
-call in another task must finish that call before an amendment here can save.
+optional activity retain separate controls. With current task-scoped Direct
+admissions, an amendment can save while a participant has a call in another
+task. The existing call retains its authority; the amendment queues resumption
+and reports `awaiting_other_task_invocation`. It starts no second simultaneous
+decision for that persona. Existing failed or uncertain calls still require
+their own recovery, and character handovers retain their normal conditions.
+The amendment does not retire, cancel or replay those other-task calls.
+
+Older v1 or globally scoped pending calls include every task's focus in their
+original admission. Those must settle before an amendment can change another
+task's focus; their recorded authority is not silently reinterpreted.
 
 `inspect` includes the immutable original `need` and current `task_amendment`.
 New persona inputs supply `CONTROL.task_amendment`. Results expose the author's

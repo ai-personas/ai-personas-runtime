@@ -26,16 +26,35 @@ pub(super) fn seal(state: &State, prepared: &Prepared) -> Result<Option<Snapshot
     {
         return Ok(None);
     }
-    Ok(Some(snapshot(state, prepared)?))
+    Ok(Some(snapshot(state, prepared, FORMAT)?))
 }
 
-fn snapshot(state: &State, prepared: &Prepared) -> Result<Snapshot> {
+/// Only new admissions declare task-local focus dependencies. An older pending
+/// request retains the complete actor snapshot it actually admitted against.
+pub(super) fn isolates_other_work(prepared: &Prepared) -> bool {
+    prepared.request.profile == Profile::Direct
+        && prepared.intake_episode.is_none()
+        && prepared
+            .decision_scope
+            .as_ref()
+            .is_some_and(|scope| scope.format == FORMAT)
+}
+
+fn snapshot(state: &State, prepared: &Prepared, format: &str) -> Result<Snapshot> {
     let actor = &prepared.request.persona;
     let work_id = &prepared.request.work;
-    let persona = state
+    let mut persona = state
         .personas
         .get(actor)
-        .ok_or_else(|| held("scope persona absent"))?;
+        .ok_or_else(|| held("scope persona absent"))?
+        .clone();
+    if format == FORMAT {
+        // A response reads and changes its own task's focus. Adoption starts
+        // from current State and updates that focus, preserving changes queued
+        // for other tasks. Global identity, character, lifecycle, ownership,
+        // admission serial and failure holds still belong to this snapshot.
+        persona.focus.retain(|id, _| id == work_id);
+    }
     let mut metadata = state
         .work_meta
         .get(work_id)
@@ -65,8 +84,8 @@ fn snapshot(state: &State, prepared: &Prepared) -> Result<Snapshot> {
         })
         .collect();
     Ok(Snapshot {
-        format: FORMAT.into(),
-        actor_sha256: digest(persona)?,
+        format: format.into(),
+        actor_sha256: digest(&persona)?,
         config_sha256: digest(&state.config)?,
         work_sha256: work_hash(state, prepared)?,
         metadata_sha256: digest(&metadata)?,
@@ -102,9 +121,8 @@ fn work_hash(state: &State, prepared: &Prepared) -> Result<String> {
 /// character and successor ownership. A peer's handover need not invalidate it.
 pub(super) fn work_current(state: &State, prepared: &Prepared) -> Result<bool> {
     match &prepared.decision_scope {
-        Some(scope) => {
-            Ok(scope.format == FORMAT && scope.work_sha256 == work_hash(state, prepared)?)
-        }
+        Some(scope) => Ok(s::runtime_decision_scope_supported(&scope.format)
+            && scope.work_sha256 == work_hash(state, prepared)?),
         None => Ok(state
             .board
             .work(&w::WorkId(prepared.request.work.clone()))?
@@ -126,11 +144,11 @@ pub(super) fn require_current(state: &State, prepared: &Prepared) -> Result<bool
                 .need
                 .optional_activity
                 .is_none()
-            && admitted.format == FORMAT,
+            && s::runtime_decision_scope_supported(&admitted.format),
         "unsupported scoped decision admission",
     )?;
     require(
-        *admitted == snapshot(state, prepared)?,
+        *admitted == snapshot(state, prepared, &admitted.format)?,
         "decision authority or supplied lineage changed",
     )?;
     Ok(true)
