@@ -62,6 +62,15 @@ New launch metadata uses format 2. Format-1 historical launch records and their 
 
 Native admission retains execution ownership, exact prompt/response-contract binding, resource reservation and durable dispatch before transmission. Transport completion precedes whole-Decision acceptance. An invalid complete Decision is held with its bounded exact terminal body. Possible submission followed by timeout, cancellation or transport failure remains uncertain; neither replay nor remote cancellation is inferred. Time-limited live exposure remains rejected until a final egress expiry guard is available.
 
+When runtime authorization rejects a prepared request before dispatch, its actual
+no-launch receipt, Failed invocation status and unknown-usage hold commit together
+using prepaid records. Cleanup does not need navigation capacity to return the
+full invocation. Normal execution-owner recovery also finishes older Prepared
+records with that exact retained runtime-authorization receipt. It leaves missing
+or different evidence untouched, preserves the receipt and all resource holds,
+and does not resume the persona or send another request. Inspection-only opening
+does not perform this recovery.
+
 Owned native foreground sessions can keep independent personas' direct calls in
 flight concurrently. Each call retains its own request, receipt and single-use
 authority; adoption remains sequential. See [concurrent decisions](concurrent-decisions.md)

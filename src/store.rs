@@ -23,7 +23,8 @@
 //!
 //! Connection setup and owner-loss recovery are separate. open_for_inspection()
 //! performs no recovery. open() recovers only while holding exclusive OS execution
-//! ownership; an existing owner's dispatched operations remain intact. Trusted
+//! ownership, including Prepared calls with a retained runtime no-launch receipt;
+//! an existing owner's dispatched operations remain intact. Trusted
 //! dispatchers must retain acquire_execution_owner() through transport, response
 //! handling, and terminal disposition. Ownership uses one fixed, empty, private
 //! execution.lock file beside the database. Never unlink or replace that file
@@ -85,6 +86,7 @@ use thiserror::Error;
 mod archive_history;
 mod capacity;
 mod head_compaction;
+mod provider_prelaunch;
 mod session_journal;
 pub use capacity::{CapacityExtensionRequest, MAX_RUNTIME_SNAPSHOT_BODY_BYTES};
 pub use head_compaction::HeadCompactionRequest;
@@ -2180,7 +2182,8 @@ impl Store {
     }
 
     /// Acquire without waiting, then recover any dispatch whose previous owner
-    /// disappeared. Recovery and subsequent dispatch share the same guard, so
+    /// disappeared and finish retained runtime prelaunch rejections. Recovery
+    /// and subsequent dispatch share the same guard, so
     /// another owner cannot enter between them. Contention grants no dispatch.
     pub fn acquire_execution_owner(&mut self) -> Result<ExecutionOwner> {
         let owner = ExecutionOwner::try_acquire(&self.path)?.ok_or_else(|| {
@@ -3316,6 +3319,8 @@ impl Store {
                 let record: InvocationRecord = work.required("invocation", &id)?;
                 if record.state == InvocationState::Dispatched {
                     invocations.push(id);
+                } else if record.state == InvocationState::Prepared {
+                    work.finish_recorded_runtime_prelaunch(&record)?;
                 }
             }
             for id in work.keys("intent")? {

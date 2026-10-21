@@ -5767,21 +5767,23 @@ impl Runtime {
                 },
                 "provider_usage":"unknown","replay_authorized":false
             });
-            // This is an actual prelaunch observation, not a complete response or
-            // a launched attempt. Retain it even when preparation cleanup failed.
-            let evidence =
-                self.persist_terminal(&prepared, terminal_object(&prepared, receipt)?)?;
-            let inv = self.store.trusted_host().invocation(&prepared.request.id)?;
-            if inv.state == s::InvocationState::Prepared {
-                let detail = format!(
-                    "terminal:{} {}",
-                    evidence.sha256,
-                    bounded_detail(&error.to_string(), 180)
-                );
-                self.store
-                    .reject_invocation(&prepared.request.id, &detail)?;
-                self.store.settle(&inv.reservation, s::Usage::Unknown)?;
-            }
+            // This actual no-launch observation and its terminal disposition
+            // use prepaid records together, even if navigation is exhausted.
+            let object = terminal_object(&prepared, receipt)?;
+            let expected = object.clone();
+            let expected_request = serde_json::to_value(&prepared)?;
+            self.store.trusted_host().reject_runtime_prelaunch(
+                &prepared.request.id,
+                object,
+                move |bound, value| {
+                    if bound.request.as_ref() != Some(&expected_request) || value != &expected {
+                        return Err(s::StoreError::Invalid(
+                            "prelaunch admission or host observation mismatch".into(),
+                        ));
+                    }
+                    Ok(())
+                },
+            )?;
             cancellation?;
             return Err(error);
         }
