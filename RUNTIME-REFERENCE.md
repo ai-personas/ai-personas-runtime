@@ -294,6 +294,41 @@ Cancellation, uncertain or incomplete transport, and failures without a retained
 ordinary continuation require their existing explicit recovery controls.
 A future wait returns to the shell and retains its existing eligibility conditions.
 
+Fresh Stores use schema 2. Ordinary object heads reserve their actual encoded
+size, including the existing peak-rewrite charge, and acquire additional space
+atomically when they grow. A small response archive no longer reserves the
+maximum record size. Immutable revisions remain separately charged. The runtime
+state head, protected cells and event slots retain their prepaid capacity.
+Existing schema-1 Stores remain readable and keep their original allocation
+policy until explicitly migrated.
+
+To reclaim unused ordinary head allocation in an existing Store, inspect
+`store-capacity-snapshot`, then use
+`compact-store-heads REQUEST.json --preview` followed by `--apply`. The request
+copies `expected_epoch`, `expected_runtime`, `expected_launch` and
+`expected_limits` from that snapshot and supplies `id`, `operator`, `reason`,
+`authorization_reference` and `authorize_compaction: true`. Both modes require
+execution ownership, the current saved operator, exact fences, an unfrozen Store
+and terminal invocations. A failed invocation may remain retained; compaction
+does not acknowledge, replay or resume it.
+
+One transaction reduces only unused Ordinary object-head capacity, preserves
+every existing data byte, and enables schema-2 allocation for subsequent writes.
+It records an immutable receipt with the reclaimed logical allocation, receipt
+cost and digest of the scanned heads. The scan is limited to 4,096 current heads
+and 64 MiB of head data, and spends existing navigation funding. Limits, model
+allowances, reservations, uncertain usage, identities and history slots are not
+reset; the receipt itself consumes a new identity and retained allocation. No
+revision or history is deleted. Preview retains no candidate allocation or read
+charge. Repeating the exact request returns its receipt without reclaiming twice;
+a different request under that identity fails. Later explicit compaction may
+reclaim space left by ordinary heads that have shrunk.
+
+After apply, use schema-2-aware versions of all native helpers; older versions
+reject the Store. This operation reclaims logical allocation, does not guarantee
+a smaller SQLite file and does not provide indefinite retention. Required control
+prepayment and accumulated immutable history continue to consume finite capacity.
+
 An explicitly authorized operator can inspect `store-capacity-snapshot` and use
 `extend-store-capacity REQUEST.json --preview` or `--apply` when a retained runtime
 snapshot, retained history or cumulative storage reads reach their capacity. The request copies `expected_epoch`,

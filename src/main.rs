@@ -180,6 +180,14 @@ enum Command {
     RevokeOptionalActivity { file: PathBuf },
     /// Inspect structural Store limits and exact extension fences. No inference.
     StoreCapacitySnapshot,
+    /// Reclaim unused ordinary object-head allocation without deleting data or increasing limits.
+    CompactStoreHeads {
+        file: PathBuf,
+        #[arg(long, required_unless_present = "apply", conflicts_with = "apply")]
+        preview: bool,
+        #[arg(long, required_unless_present = "preview", conflicts_with = "preview")]
+        apply: bool,
+    },
     /// Inspect assembled-context allocation within existing provider allowances.
     ContextCapacitySnapshot,
     /// Inspect exact local provider transport allowances and their reservation.
@@ -1014,6 +1022,14 @@ async fn run(cli: Cli) -> runtime::Result<()> {
     } else {
         None
     };
+    let head_compaction_request = if let Command::CompactStoreHeads {
+        file, preview, apply,
+    } = &cli.command {
+        if preview == apply { return Err(argument("exactly one of --preview or --apply")); }
+        let request: ai_personas::store::HeadCompactionRequest = runtime::read_json_file(file, 16_384)?;
+        launch::head_compaction::validate(&request, operator)?;
+        Some(request)
+    } else { None };
     let store_capacity_request = if let Command::ExtendStoreCapacity {
         file, preview, apply,
     } = &cli.command {
@@ -1316,6 +1332,10 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         Command::StoreCapacitySnapshot => {
             return emit(&launch::store_capacity::snapshot_at(root, operator)?);
         }
+        Command::CompactStoreHeads { apply, .. } => {
+            return emit(&launch::head_compaction::compact_at(root,
+                head_compaction_request.as_ref().expect("head compaction request checked"), *apply)?);
+        }
         Command::ExtendStoreCapacity { apply, .. } => {
             return emit(&launch::store_capacity::extend_at(
                 root,
@@ -1388,6 +1408,9 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         }
         Command::StoreCapacitySnapshot | Command::ExtendStoreCapacity { .. } => {
             unreachable!("capacity control handled before ordinary open")
+        }
+        Command::CompactStoreHeads { .. } => {
+            unreachable!("head compaction handled before ordinary open")
         }
         Command::WorkRepairSnapshot { .. } | Command::AllocateWorkRepair { .. } => {
             unreachable!("repair allocation handled before ordinary open")

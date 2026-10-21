@@ -19,7 +19,7 @@ fn authorized(store: &mut s::Store, operator: &str) -> Result<(s::StoredObject, 
     Ok((runtime, launch))
 }
 
-fn authorize_heads(runtime: &s::StoredObject, launch: &s::StoredObject, operator: &str) -> Result<()> {
+pub(super) fn authorize_heads(runtime: &s::StoredObject, launch: &s::StoredObject, operator: &str) -> Result<()> {
     let state: State = serde_json::from_value(runtime.body.clone())?;
     let saved: Saved = serde_json::from_value(launch.body.clone())?;
     require(

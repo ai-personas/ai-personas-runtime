@@ -16,6 +16,10 @@
 //! an envelope, and a second copy for peak rewrites. Mutable lifecycle cells reserve
 //! their bounded closeout history at creation. Database, WAL, and SHM sizes are
 //! separately observable. External copies must be accounted for by the caller.
+//! Schema 2 ordinary object heads start at their actual encoded size and pay
+//! for later growth atomically. The runtime state head retains its full prepaid
+//! allocation for protected controls. Explicit head compaction preserves every
+//! data byte while reclaiming unused ordinary payload capacity.
 //!
 //! Connection setup and owner-loss recovery are separate. open_for_inspection()
 //! performs no recovery. open() recovers only while holding exclusive OS execution
@@ -33,8 +37,8 @@
 //! quota; admission stops when that quota is exhausted.
 //!
 //! Ordinary admission preserves a rounded-up sixteenth of the identity and
-//! history ceilings for Closeout. Existing allocations made by older writers
-//! are not reclaimed; cooperating writers must use the same admission rules.
+//! history ceilings for Closeout. Existing identity and history allocations made
+//! by older writers are not reclaimed; cooperating writers use the same rules.
 //! These shares protect capacity, not unconditional completion: an operation
 //! must still fit every applicable aggregate and class ceiling.
 //!
@@ -80,10 +84,15 @@ use thiserror::Error;
 
 mod archive_history;
 mod capacity;
+mod head_compaction;
 mod session_journal;
 pub use capacity::{CapacityExtensionRequest, MAX_RUNTIME_SNAPSHOT_BODY_BYTES};
+pub use head_compaction::HeadCompactionRequest;
 
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
+fn supported_schema(version: u32) -> bool {
+    matches!(version, 1 | SCHEMA_VERSION)
+}
 const META_CAPACITY: u64 = 16 * 1024;
 const CONTROL_HEADROOM: u64 = 16 * 1024;
 const CELL_ENVELOPE: u64 = 128;
@@ -2013,6 +2022,9 @@ impl Store {
                  CREATE TRIGGER IF NOT EXISTS immutable_capacity_extension
                  BEFORE UPDATE ON store_cells WHEN OLD.ns='capacity_extension'
                  BEGIN SELECT RAISE(ABORT,'immutable capacity extension'); END;
+                 CREATE TRIGGER IF NOT EXISTS immutable_head_compaction
+                 BEFORE UPDATE ON store_cells WHEN OLD.ns='head_compaction'
+                 BEGIN SELECT RAISE(ABORT,'immutable head compaction'); END;
                  CREATE TRIGGER IF NOT EXISTS immutable_runtime_control
                  BEFORE UPDATE ON store_cells
                  WHEN OLD.ns='runtime_control'
@@ -2044,7 +2056,7 @@ impl Store {
             } else {
                 let bytes = existing.ok_or(StoreError::TooLarge)?;
                 let meta: Meta = serde_json::from_slice(&bytes)?;
-                if meta.schema_version != SCHEMA_VERSION {
+                if !supported_schema(meta.schema_version) {
                     return Err(StoreError::Unsupported("database schema version"));
                 }
                 if meta.limits != limits {
@@ -3433,14 +3445,33 @@ impl<'a> Work<'a> {
     fn update<T: Serialize>(&mut self, ns: &str, key: &str, value: &T) -> Result<()> {
         if matches!(
             ns,
-            "revision" | "decision" | "runtime_control_plan" | "capacity_extension"
+            "revision" | "decision" | "runtime_control_plan" | "capacity_extension" | "head_compaction"
         ) {
             return Err(StoreError::Conflict(key.into()));
         }
         let mut cell = self
             .cell(ns, key)?
             .ok_or_else(|| StoreError::Missing(key.into()))?;
-        cell.data = encode(value, cell.capacity)?;
+        let adaptive = self.meta.schema_version >= 2
+            && ns == "object"
+            && key != RUNTIME_CONTROL_STATE_ID
+            && cell.class == BudgetClass::Ordinary
+            && cell.slots == 0;
+        let data = encode(value, if adaptive { self.limits.max_record_bytes } else { cell.capacity })?;
+        if data.len() as u64 > cell.capacity {
+            // Only ordinary, non-control heads may acquire more allocation.
+            // Frozen closeout still writes solely within its prepaid cells.
+            self.admission()?;
+            let before = cell.charge(ns, key)?;
+            cell.capacity = data.len() as u64;
+            let growth = cell.charge(ns, key)?.checked_sub(before)
+                .ok_or(StoreError::Overflow("object head growth"))?;
+            self.meta.ordinary.consumed.retained_bytes = self.meta.ordinary.consumed
+                .retained_bytes.checked_add(growth)
+                .ok_or(StoreError::Overflow("object head allocation"))?;
+            self.meta.check_dimension(Resource::RetainedBytes, BudgetClass::Ordinary)?;
+        }
+        cell.data = data;
         self.pending.insert((ns.into(), key.into()), cell);
         Ok(())
     }
@@ -4212,7 +4243,10 @@ impl<'a> Work<'a> {
                     "object",
                     &object.id,
                     object,
-                    Some(self.limits.max_record_bytes),
+                    if self.meta.schema_version >= 2
+                        && object.id != RUNTIME_CONTROL_STATE_ID
+                        && class == BudgetClass::Ordinary
+                    { None } else { Some(self.limits.max_record_bytes) },
                     class,
                     0,
                 )?;
@@ -4508,7 +4542,7 @@ fn load_meta(connection: &Connection) -> Result<Meta> {
         [META_CAPACITY as i64], |row| row.get(0),
     )?;
     let meta: Meta = serde_json::from_slice(&bytes.ok_or(StoreError::TooLarge)?)?;
-    if meta.schema_version != SCHEMA_VERSION {
+    if !supported_schema(meta.schema_version) {
         return Err(StoreError::Unsupported("database schema version"));
     }
     Ok(meta)

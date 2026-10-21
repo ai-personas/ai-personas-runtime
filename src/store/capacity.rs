@@ -145,7 +145,7 @@ fn approved_limits(path: &Path, base: &Limits) -> Result<Limits> {
     let path = secure_database_path(path)?;
     let db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let meta = load_meta(&db)?;
-    if meta.schema_version != SCHEMA_VERSION {
+    if !supported_schema(meta.schema_version) {
         return Err(StoreError::Unsupported("database schema version"));
     }
     meta.limits.validate()?;

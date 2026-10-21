@@ -64,6 +64,8 @@ pub use repair_allocation::{
 };
 #[path = "launch/store_capacity.rs"]
 pub mod store_capacity;
+#[path = "launch/head_compaction.rs"]
+pub mod head_compaction;
 #[path = "launch/context_capacity.rs"]
 pub mod context_capacity;
 #[path = "launch/persona_lifecycle.rs"]
