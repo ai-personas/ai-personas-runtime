@@ -1,10 +1,12 @@
-//! Lossless sharing of repeated exact qualified text within one model request.
-//! Only host-rendered file entries participate. Roles, source attribution,
+//! Lossless sharing of exact work text and qualified bodies in one request.
+//! Only known host-rendered fields participate. Roles, source attribution,
 //! restrictions, qualification edges and observation identities stay in place.
 use super::*;
 use std::borrow::Cow;
+mod control_text;
 
 pub(super) const ENCODING: &str = "shared-qualified-text-v1";
+const WORK_ENCODING: &str = "shared-request-text-v2";
 const POOL: &str = "shared_texts";
 const RULE: &str = "For each qualified entry with text_ref, its complete text is shared_texts.bodies[text_ref] in this QUALIFIED_CONTEXT. That text is supplied here, not a retrieval request. Keep that entry's exact reference, roles, attribution, policies and required qualifications; sharing text merges none of those records. Other entries supply text inline.";
 // The encoded request remains subject to its normal much smaller allowance.
@@ -159,6 +161,19 @@ pub(super) struct Encoded<'a> {
     pub encoding: Option<String>,
 }
 pub(super) fn encode<'a>(control: &'a Value, qualified: &'a Value) -> Result<Encoded<'a>> {
+    sections_size(control, qualified)?;
+    if let Some(compact) = control_text::encode(control)? {
+        let encoded = encode_qualified(&compact, qualified)?;
+        return Ok(Encoded {
+            control: Cow::Owned(encoded.control.into_owned()),
+            qualified: Cow::Owned(encoded.qualified.into_owned()),
+            encoding: Some(WORK_ENCODING.into()),
+        });
+    }
+    encode_qualified(control, qualified)
+}
+
+fn encode_qualified<'a>(control: &'a Value, qualified: &'a Value) -> Result<Encoded<'a>> {
     require(
         qualified.get(POOL).is_none(),
         "request context is already encoded",
@@ -217,6 +232,8 @@ pub(super) fn encode<'a>(control: &'a Value, qualified: &'a Value) -> Result<Enc
 pub(super) struct Accounting {
     pub shared_bodies: usize,
     pub body_references: usize,
+    pub shared_work_texts: usize,
+    pub work_text_references: usize,
     pub encoded_sections_utf8_bytes: usize,
     pub expanded_sections_utf8_bytes: usize,
     pub serialized_bytes_saved: usize,
@@ -301,8 +318,13 @@ pub(super) fn decode(prepared: &Prepared) -> Result<Decoded<'_>> {
         .ok_or_else(|| held("control input evidence unavailable"))?;
     let mut control: Value = serde_json::from_str(control_text)?;
     let mut qualified: Value = serde_json::from_str(qualified_text)?;
-    let paths = bundle_paths(&control);
     let encoded_bytes = sections_size(&control, &qualified)?;
+    let work_sharing = control_text::decode(&mut control)?;
+    require(
+        work_sharing.is_some() == (prepared.prompt_encoding.as_deref() == Some(WORK_ENCODING)),
+        "retained work text encoding mismatch",
+    )?;
+    let paths = bundle_paths(&control);
     let mut accounting = Accounting {
         encoded_sections_utf8_bytes: encoded_bytes,
         expanded_sections_utf8_bytes: encoded_bytes,
@@ -314,12 +336,12 @@ pub(super) fn decode(prepared: &Prepared) -> Result<Decoded<'_>> {
         .remove(POOL);
     match pool {
         None => require(
-            prepared.prompt_encoding.is_none(),
+            prepared.prompt_encoding.is_none() || work_sharing.is_some(),
             "retained prompt encoding mismatch",
         )?,
         Some(pool) => {
             require(
-                prepared.prompt_encoding.as_deref() == Some(ENCODING)
+                (prepared.prompt_encoding.as_deref() == Some(ENCODING) || work_sharing.is_some())
                     && pool["profile"] == ENCODING
                     && pool["rule"] == RULE
                     && pool.as_object().is_some_and(|object| object.len() == 3),
@@ -368,8 +390,17 @@ pub(super) fn decode(prepared: &Prepared) -> Result<Decoded<'_>> {
                 encoded_sections_utf8_bytes: encoded_bytes,
                 expanded_sections_utf8_bytes: expanded,
                 serialized_bytes_saved: expanded - encoded_bytes,
+                ..Accounting::default()
             };
         }
+    }
+    if let Some(work) = work_sharing {
+        accounting.shared_work_texts = work.shared_texts;
+        accounting.work_text_references = work.references;
+        accounting.expanded_sections_utf8_bytes = sections_size(&control, &qualified)?;
+        accounting.serialized_bytes_saved = accounting.expanded_sections_utf8_bytes
+            .checked_sub(encoded_bytes)
+            .ok_or_else(|| held("work text sharing accounting mismatch"))?;
     }
     // A missing pool cannot turn a dangling pointer into a supplied-body claim.
     for bundle in std::iter::once(&qualified)

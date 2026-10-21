@@ -938,16 +938,29 @@ require another retrieval. Different revisions, representations or ranges are
 not combined. Authored prose, messages and historical records are not rewritten.
 Sharing is used only when it reduces the complete serialized sections.
 
+Known work-text fields can also share identical strings within `CONTROL`.
+`original_need.request` stays inline in full. A repeated need, mandate, invitation
+or commitment string may become `{"text_at":"/original_need/request"}`, or a
+pointer to another inline string in the declared work fields. The accompanying
+`control_text_sharing` contract explains that this is complete text already in
+the same input. Field roles, record identities, revisions and authority remain
+separate. Arbitrary prose, observations, history and tool payloads are untouched.
+Pointers cannot form chains or cycles, and sharing is omitted unless the complete
+control section becomes smaller. Host checks restore the exact strings before
+validating any supplied-work or consent evidence.
+
 Admission measures the actual encoded prompt, provider schema, output reserve
 and existing margin. Required and eligible selected bundles remain complete;
 sharing does not change source eligibility or closure quotas. Validation and
 development inspection expand the same hash-bound bodies before checking supply
 evidence. Expansion is bounded to 64 MiB, separately from the smaller configured
 request allowance. The retained prompt digest always identifies the actual
-encoded input. `shared-qualified-text-v1` is recorded in `Prepared.prompt_encoding`
-only when sharing occurs. Current helpers read both plain and shared requests;
-older helpers reject the unfamiliar field and must be upgraded before inspecting
-or continuing these invocations.
+encoded input. `Prepared.prompt_encoding` records `shared-qualified-text-v1` for
+qualified-body sharing alone, or `shared-request-text-v2` when work text is shared
+with or without qualified bodies. Native development inspection reports
+`input_accounting.exact_text_sharing`, including separate work-text and qualified
+body reference counts, encoded/expanded section sizes and serialized bytes saved.
+These are actual rendering measurements, not token, billing or behavioral savings.
 
 Fragments and supporting assets remain separate. Bounded file discovery and exact reads produce observations; they do not silently select future context. The primary model explicitly preserves, clears, or replaces selections, including their exact revisions, representations, ranges, and lifetimes. Selection-repair receipts account for independently supplied permitted local-event bodies and their qualifications, including partial range coverage; registration metadata or withheld observations do not become supplied-body claims. A `next_call` selection is not renewed by preserving it. Proposed replacements must also fit the combined closure allocation across mandatory character, fragments and assets. Adding selected roots cannot displace a previously admissible preserved bundle under the same final authority and mandatory context. Refusal rolls back the whole response; preserving an already unavailable old selection remains permitted.
 

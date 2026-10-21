@@ -312,7 +312,7 @@ fn invocation_evidence(
             "instructions_and_application_schema_utf8_bytes":instructions.len(),
             "control_utf8_bytes":control_bytes,
             "qualified_context_utf8_bytes":qualified_bytes,
-            "qualified_text_sharing":decoded.accounting,
+            "exact_text_sharing":decoded.accounting,
             "section_separator_utf8_bytes":"\nCONTROL\n\nQUALIFIED_CONTEXT\n".len(),
             "assembled_bytes_with_reserve":prepared.assembled_bytes_with_reserve,
             "provider_reported_usage":if provider_completed { receipt.and_then(|r| r.get("usage")) } else { None },
