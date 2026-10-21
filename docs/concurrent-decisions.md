@@ -17,8 +17,8 @@ remain sequential. This is not a background scheduler across works or roots.
 
 Ordinary inputs can include `CONTROL.collaborators`: up to eight other current
 work participants, their labels and current acceptance IDs, and their latest
-accepted continuation with its authoring invocation. Each intention retains its
-original source restrictions. Withheld or omitted records establish neither
+accepted continuation with its authoring invocation. Persona-proposed labels and
+each intention retain their original source restrictions. Withheld or omitted records establish neither
 absence nor permission. The snapshot is limited to 4 KiB and spare input space;
 it cannot displace selected context, current observations or available tools.
 

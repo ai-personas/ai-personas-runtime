@@ -39,6 +39,15 @@ pub(super) fn context(
             continue;
         };
         let mut inherited = Exposure::default();
+        // A persona-proposed identity can carry creation-source restrictions,
+        // including on its label, before it has authored any continuation.
+        if let Some(origin) = &persona.birth {
+            if !exposure_permitted(state, &origin.exposure, a) {
+                projection["records_omitted"] = json!(true);
+                continue;
+            }
+            extend_exposure(&mut inherited, &origin.exposure);
+        }
         let acceptance = work.acceptance(peer).map(|(id, _)| id);
         if let Some(id) = acceptance {
             match arrangements::retained_acceptance_origin(state, work_id, id, a) {
