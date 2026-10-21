@@ -1,6 +1,6 @@
 # Native file write conflicts
 
-`file_write.source` identifies a native file. Its `path` is unique among the
+`file_write.source` or `file_import.source` identifies a native file. Its `path` is unique among the
 active sources belonging to that persona in the same scope. Creating a different
 source at an occupied path does not overwrite the existing file. To revise a
 file, reuse its source and exact current `base_revision`. To create a separate

@@ -498,8 +498,12 @@ schema definitions and the disabled work-command input catalogue are omitted;
 current character, permissions, observations, obligations and qualifications
 remain supplied. `ai-personas schema` exposes this presentation as
 `selection_repair_decision`. The full response parser and runtime repair checks
-remain authoritative. Ordinary-context fit still uses the full ordinary contract,
-so a smaller repair request does not establish that ordinary work fits or grant
+remain authoritative. Ordinary-context fit uses a separate rendering of the full
+ordinary contract, including its tool interfaces and current discovery controls.
+The repair input's omitted interfaces do not reduce that measurement or erase
+the material growth that triggered repair. Both renderings use the same current
+state and admission; the projection makes no additional model call or allocation.
+A smaller repair request does not establish that ordinary work fits or grant
 another admission. Historical requests and receipts remain unchanged.
 
 `CONTROL.mode` describes the current admission. Historical repair receipts,
@@ -850,7 +854,8 @@ that admission's sealed table. Older handles, unknown handles and absent tables
 are rejected. This never chooses a latest revision, searches for a substitute or
 repairs a malformed reference.
 
-The `input-file-choices-v2` interface also supports `file_write.qualification_handles`
+The `input-file-choices-v2` interface also supports `file_write.qualification_handles`,
+`file_import.qualification_handles`
 and `reference_handles` on communications and authored replies. These fields bind
 the exact supplied references without copying their hashes. Messages retain
 canonical `file_references` beside unchanged authored text; attachments supply
@@ -882,11 +887,20 @@ for an accepted handle selection, `accepted_decision.resolved_input_selections`.
 The original authored choice remains retained alongside the sealed input mapping.
 These are metadata and selection evidence, not evidence of later body supply.
 
-`file_write` identifies an existing file by `source`, not by its path. Revising
+`file_write` and `file_import` identify an existing file by `source`, not by its path. Revising
 that source requires its exact current head in `base_revision`; null or omission
 means creation and cannot revise an existing source. The admitted schema explains
 this distinction. Registration or reuse of unchanged content needs its saved
 reference, without another file write.
+
+[`file_import`](docs/host-file-imports.md) retains an existing regular UTF-8 host
+file as a supporting asset without rewriting its bytes through the model. Its
+origin records the importing persona, exact invocation and operation, host path,
+byte length and digest. Import is included in asset maintenance and uses the
+same native paths, base revisions, qualifications, proposal references and later
+selection/discovery as other asset saves. The receipt supplies metadata; the
+persona chooses whether to load the saved body in a later input. Imported
+content is not attributed as persona-authored character or proof of skill use.
 
 Structural response errors identify a schema-owned response section, or an
 operation index when available, and the allowed fields of a known object variant.
@@ -959,7 +973,7 @@ runtime cannot execute. Exact local delivery uses `work_command` with
 `deliver_release` after a release exists. Historical wire responses remain readable;
 attempting the unsupported legacy operation still refuses the whole response.
 
-`work_command.depends_on` names only `file_write` proposals whose revisions the
+`work_command.depends_on` names only `file_write` or `file_import` proposals whose revisions the
 command consumes. Use `[]` otherwise. Local work commands run in their listed
 order; an action that permits an earlier record uses its inner record ID in
 `inputs`, without a command-to-command dependency edge. The supplied schema

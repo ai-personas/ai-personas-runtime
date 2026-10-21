@@ -307,7 +307,7 @@ pub(super) fn validate(
             decision
                 .operations
                 .iter()
-                .any(|o| o.id() == dep && matches!(o, p::Operation::FileWrite { .. })),
+                .any(|o| o.id() == dep && o.file_save().is_some()),
             "computation dependencies must be exact local saves; results require a fresh decision",
         )?;
     }

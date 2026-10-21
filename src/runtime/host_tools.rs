@@ -92,7 +92,7 @@ pub(super) fn validate(
         "host command is empty or contains NUL",
     )?;
     for dependency in depends_on {
-        require(decision.operations.iter().any(|o| o.id() == dependency && matches!(o, p::Operation::FileWrite { .. })),
+        require(decision.operations.iter().any(|o| o.id() == dependency && o.file_save().is_some()),
             "host command dependencies name accepted local saves; combine shell steps in one script")?;
     }
     Ok(())

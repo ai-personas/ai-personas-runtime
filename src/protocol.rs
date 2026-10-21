@@ -52,7 +52,7 @@ pub struct Decision {
     /// response with change.operation_ids, including edits made for this task.
     pub fragment_maintenance: Maintenance,
     /// Account for every supporting-asset mutation in this response, including
-    /// task deliverable edits. Each file_write with scope assets belongs in
+    /// task deliverable edits. Each file_import and each file_write with scope assets belongs in
     /// change.operation_ids; revising an existing file is still a change.
     pub asset_maintenance: Maintenance,
     pub next_fragments: SelectionIntent,
@@ -410,6 +410,30 @@ pub enum Operation {
         qualification_handles: Vec<String>,
         policy_id: String,
     },
+    /// Copy an existing regular UTF-8 host file into a native supporting asset without
+    /// rewriting its contents. This is asset maintenance, never a character
+    /// fragment or a claim that you authored the imported bytes. Reads happen
+    /// during adoption before host commands run; use a fresh decision for a
+    /// file produced by a command. Select proposal-op:<id> under next_assets to
+    /// receive the saved revision in a later input, or discover it later.
+    FileImport {
+        id: String,
+        source: String,
+        /// Relative native asset-store destination, with the same path rules
+        /// as file_write. This does not move or modify the host file.
+        path: String,
+        base_revision: Option<String>,
+        /// Host path; relative paths use the offered host working directory.
+        host_path: String,
+        /// Optional expected SHA-256 of the raw file bytes. A mismatch rejects
+        /// this save; omission retains the actual bytes read at adoption.
+        expected_sha256: Option<String>,
+        qualifications: Vec<ExactRef>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[schemars(length(max = 256))]
+        qualification_handles: Vec<String>,
+        policy_id: String,
+    },
     FileRetire {
         id: String,
         scope: Scope,
@@ -560,7 +584,7 @@ pub enum Operation {
         /// Match CONTROL.work_capability.inputs_schema exactly. Where that
         /// action permits an earlier local record, cite its inner record ID.
         inputs: Value,
-        /// Only file_write operation IDs whose proposed revisions this command
+        /// Only file_write/file_import operation IDs whose proposed revisions this command
         /// consumes. Use [] otherwise; never name another work_command here.
         /// Ordered local commands need no command-to-command depends_on edge.
         /// Reading or executing something does not supply its result until a
@@ -575,19 +599,56 @@ pub enum Operation {
         binding_revision: String,
         inputs: Value,
         /// Follow this capability's supplied dependency contract. For
-        /// work.command.v1, name only consumed file_write proposals; use [] for
+        /// work.command.v1, name only consumed file_write/file_import proposals; use [] for
         /// ordered local commands that consume no same-response file save.
         depends_on: Vec<String>,
     },
 }
 
+pub(crate) enum FileContent<'a> {
+    Authored(&'a str),
+    Host { path: &'a str, expected_sha256: Option<&'a str> },
+}
+
+/// Shared save metadata; this view never rewrites the authored operation.
+pub(crate) struct FileSave<'a> {
+    pub id: &'a String,
+    pub scope: Scope,
+    pub source: &'a String,
+    pub path: &'a String,
+    pub base_revision: &'a Option<String>,
+    pub content: FileContent<'a>,
+    pub qualifications: &'a [ExactRef],
+    pub qualification_handles: &'a [String],
+    pub policy_id: &'a String,
+}
+
 impl Operation {
+    pub(crate) fn file_save(&self) -> Option<FileSave<'_>> {
+        match self {
+            Self::FileWrite { id, scope, source, path, base_revision, text,
+                qualifications, qualification_handles, policy_id } => Some(FileSave {
+                    id, scope:*scope, source, path, base_revision,
+                    content:FileContent::Authored(text), qualifications,
+                    qualification_handles, policy_id,
+                }),
+            Self::FileImport { id, source, path, base_revision, host_path, expected_sha256,
+                qualifications, qualification_handles, policy_id } => Some(FileSave {
+                    id, scope:Scope::Assets {}, source, path, base_revision,
+                    content:FileContent::Host { path:host_path, expected_sha256:expected_sha256.as_deref() },
+                    qualifications, qualification_handles, policy_id,
+                }),
+            _ => None,
+        }
+    }
+
     pub fn id(&self) -> &str {
         match self {
             Self::WarningAdopt { id, .. }
             | Self::WarningResolve { id, .. }
             | Self::MaintenanceDispose { id, .. }
             | Self::FileWrite { id, .. }
+            | Self::FileImport { id, .. }
             | Self::FileRetire { id, .. }
             | Self::CharacterAdopt { id, .. }
             | Self::Read { id, .. }
@@ -618,13 +679,14 @@ impl Operation {
             | Self::WarningResolve { scope, .. }
             | Self::MaintenanceDispose { scope, .. } => Some(*scope),
             Self::CharacterAdopt { .. } => Some(Scope::Fragments {}),
+            Self::FileImport { .. } => Some(Scope::Assets {}),
             _ => None,
         }
     }
 
     fn references(&self) -> (&[ExactRef], Option<Scope>, &'static str) {
         match self {
-            Self::FileWrite { qualifications, .. } => (qualifications, None, "qualifications"),
+            Self::FileWrite { qualifications, .. } | Self::FileImport { qualifications, .. } => (qualifications, None, "qualifications"),
             Self::CharacterAdopt { own_voice, .. } => {
                 (own_voice, Some(Scope::Fragments {}), "own_voice")
             }
@@ -885,20 +947,20 @@ pub(crate) fn retain_reachable_definitions(schema: &mut Value) {
 }
 
 /// Exact identifier for a same-response file proposal. Hashes the compact serde
-/// JSON of the complete FileWrite variant, including id, source, scope, path,
-/// base revision, content, qualifications, and policy. Field order and null
+/// JSON of the complete file save variant, including its requested content
+/// or host-file location, qualifications, and policy. Field order and null
 /// serialization are part of protocol version 1. This is not a save receipt.
 ///
 /// Including the complete proposal prevents equal text with different policy
 /// or qualifications from being treated as the same proposed revision.
 pub fn proposed_file_revision(operation: &Operation) -> Option<String> {
-    if !matches!(operation, Operation::FileWrite { .. }) {
+    if operation.file_save().is_none() {
         return None;
     }
-    // FileWrite has no floating-point values, custom serializers, or map keys
+    // File saves have no floating-point values, custom serializers, or map keys
     // of unsupported types. Its derived JSON serialization is infallible.
     let bytes = serde_json::to_vec(operation)
-        .expect("FileWrite contains only infallibly JSON-serializable fields");
+        .expect("file saves contain only infallibly JSON-serializable fields");
     Some(format!(
         "{}{}",
         PROPOSED_REVISION_PREFIX,
@@ -1721,16 +1783,9 @@ fn check_operation(
             check_text(reason, MAX_REASON_BYTES, &format!("{path}.reason"))?;
             check_maintenance_evidence(evidence, &format!("{path}.evidence"))
         }
-        Operation::FileWrite {
-            source,
-            path: target,
-            base_revision,
-            text,
-            qualifications,
-            qualification_handles,
-            policy_id,
-            ..
-        } => {
+        Operation::FileWrite { .. } | Operation::FileImport { .. } => {
+            let FileSave { source, path:target, base_revision, content,
+                qualifications, qualification_handles, policy_id, .. } = operation.file_save().unwrap();
             check_id(source, &format!("{path}.source"))?;
             check_text(target, MAX_REASON_BYTES, &format!("{path}.path"))?;
             if !crate::files::canonical_relative_path(target) {
@@ -1740,7 +1795,15 @@ fn check_operation(
                 ));
             }
             check_base(base_revision, &format!("{path}.base_revision"))?;
-            check_text(text, MAX_TEXT_BYTES, &format!("{path}.text"))?;
+            match content {
+                FileContent::Authored(text) => check_text(text, MAX_TEXT_BYTES, &format!("{path}.text"))?,
+                FileContent::Host { path:host_path, expected_sha256 } => {
+                    check_text(host_path, MAX_REASON_BYTES, &format!("{path}.host_path"))?;
+                    if let Some(hash) = expected_sha256 {
+                        check_accepted_revision(hash, &format!("{path}.expected_sha256"))?;
+                    }
+                }
+            }
             check_references(qualifications, 0, false, &format!("{path}.qualifications"))?;
             check_handles(qualification_handles, 0, MAX_COLLECTION_ITEMS, &format!("{path}.qualification_handles"))?;
             check_count(qualifications.len() + qualification_handles.len(), 0,
@@ -2077,14 +2140,14 @@ fn link_reference(
             "derived reference has no exact file proposal in this response",
         )
     })?;
-    if let Operation::FileWrite { source, scope, .. } = &operations[index] {
+    if let Some(FileSave { source, scope, .. }) = operations[index].file_save() {
         if reference.source != *source {
             return Err(invalid(
                 path,
                 "derived reference source does not match its exact file proposal",
             ));
         }
-        if expected_scope.is_some_and(|expected| expected != *scope) {
+        if expected_scope.is_some_and(|expected| expected != scope) {
             return Err(invalid(
                 path,
                 "derived reference targets a proposal in the wrong scope",
@@ -2176,19 +2239,15 @@ pub fn validate_decision(
                     "multiple transitions name the same warning identity",
                 ));
             }
-            Operation::FileWrite {
-                source,
-                scope,
-                path,
-                ..
-            } => {
+            Operation::FileWrite { .. } | Operation::FileImport { .. } => {
+                let FileSave { source, scope, path, .. } = operation.file_save().unwrap();
                 if !mutation_sources.insert(source.as_str()) {
                     return Err(invalid(
                         "operations",
                         "multiple file mutations target the same source",
                     ));
                 }
-                if !write_paths.insert((*scope, path.as_str())) {
+                if !write_paths.insert((scope, path.as_str())) {
                     return Err(invalid(
                         "operations",
                         "multiple file writes target the same scoped path",
@@ -2275,7 +2334,7 @@ pub fn validate_decision(
             )? {
                 // Qualification references are atomic content bindings, not execution dependencies.
                 // Mutually qualifying file proposals can be accepted together without an action cycle.
-                if !matches!(operation, Operation::FileWrite { .. }) {
+                if operation.file_save().is_none() {
                     graph[index].insert(prerequisite);
                 }
             }
@@ -2300,20 +2359,17 @@ pub fn validate_decision(
                     ));
                 }
                 if matches!(operation, Operation::WorkCommand { .. })
-                    && !matches!(decision.operations[prerequisite], Operation::FileWrite { .. })
+                    && decision.operations[prerequisite].file_save().is_none()
                 {
                     return Err(invalid(
                         &format!("operations[{index}].depends_on"),
-                        "work command prerequisites may name file_write operations only; local commands run in listed order without command-to-command dependencies",
+                        "work command prerequisites may name file_write or file_import operations only; local commands run in listed order without command-to-command dependencies",
                     ));
                 }
                 if matches!(
                     operation,
                     Operation::WarningAdopt { .. } | Operation::WarningResolve { .. }
-                ) && !matches!(
-                    decision.operations[prerequisite],
-                    Operation::FileWrite { .. }
-                ) {
+                ) && decision.operations[prerequisite].file_save().is_none() {
                     return Err(invalid(
                         &format!("operations[{index}].depends_on"),
                         "warning prerequisites may name local saves only; new observations require a fresh decision",

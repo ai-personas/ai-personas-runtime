@@ -49,12 +49,12 @@ pub(super) fn stale_base(
 ) -> RuntimeError {
     let failure = (|| {
         prepared.exposure.as_ref()?;
-        let p::Operation::FileWrite {
+        let Some(p::FileSave {
             id,
             source,
             base_revision,
             ..
-        } = operation
+        }) = operation.file_save()
         else {
             return None;
         };
@@ -133,22 +133,16 @@ fn diagnose(
             return None;
         }
         path = Some(location);
-        let mut matching = writes.iter().filter_map(|op| match op {
-            p::Operation::FileWrite {
-                id: operation,
-                source,
-                scope: requested,
-                path,
-                ..
-            } if source == id => Some((operation, requested, path)),
-            _ => None,
+        let mut matching = writes.iter().filter_map(|op| {
+            let p::FileSave { id:operation, source, scope:requested, path, .. } = op.file_save()?;
+            (source == id).then_some((operation, requested, path))
         });
         let operation = matching.next();
         if matching.next().is_some() {
             return None;
         }
         if let Some((_, requested, path)) = operation {
-            if scope(*requested) != head.record.scope || *path != head.record.path {
+            if scope(requested) != head.record.scope || *path != head.record.path {
                 return None;
             }
         }
@@ -302,7 +296,7 @@ pub(super) fn observation(
         ),
         Diagnostic::StaleBase { .. } => (
             "native_file_base_conflict_v1",
-            "The file_write targeted an existing source without its exact accepted head as base_revision. Null means a new source, not use the latest revision. Check the current source before revising it, and supply its exact accepted base revision. If you intend a separate file, choose a new source and an unused scoped path.",
+            "The file save targeted an existing source without its exact accepted head as base_revision. Null means a new source, not use the latest revision. Check the current source before revising it, and supply its exact accepted base revision. If you intend a separate file, choose a new source and an unused scoped path.",
         ),
     };
     Ok(Some(Observation {

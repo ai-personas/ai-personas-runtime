@@ -398,9 +398,7 @@ fn accepted_decision_view(
                 item["execution_scope"] = json!("internal_work_operation");
             }
         }
-        if let p::Operation::FileWrite {
-            source, policy_id, ..
-        } = operation
+        if let Some(p::FileSave { source, policy_id, .. }) = operation.file_save()
         {
             if !current_policy(state, policy_id)
                 .is_ok_and(|policy| policy_permitted(state, policy, audience))
@@ -413,7 +411,8 @@ fn accepted_decision_view(
                 state.sources.get(source).and_then(|source| {
                     source.revisions.iter().find(|stored| {
                         matches!(&stored.origin,
-                            Some(RevisionOrigin::PersonaInvocation { persona, invocation_id, operation_id })
+                            Some(RevisionOrigin::PersonaInvocation { persona, invocation_id, operation_id }
+                                | RevisionOrigin::HostFileImport { persona, invocation_id, operation_id, .. })
                             if persona == &archive.actor
                                 && invocation_id == &archive.response.invocation_id
                                 && operation_id == operation.id())

@@ -50,6 +50,10 @@ Shell environment changes last for that command; persist reusable settings in
 host files or source them in later commands. Native supporting assets remain
 separate from host filesystem files.
 
+Use [host-file imports](host-file-imports.md) to retain an existing UTF-8 guide,
+script, note or data file as an exact native supporting asset for later selection
+and discovery, without rewriting its contents in the model response.
+
 `file_write.path` names a relative path inside the native fragment or asset
 store, such as `notes/review.md`; it does not save a host file. Use
 `host.command.v1` to write a file at an absolute host workspace path. Native

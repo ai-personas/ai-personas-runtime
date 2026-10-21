@@ -25,7 +25,7 @@ const SECTIONS: &[Section] = &[
     Section {
         id: "artifact_registration",
         commands: &["put_artifact"],
-        text: "put_artifact registers a complete UTF-8 supporting asset: its subject must name an assets source, with no range. For a same-response save, copy FileWrite.source, use revision=proposal-op:<FileWrite.id>, and include that FileWrite.id in depends_on. Artifact base: null for creation; exact current ArtifactKey for update.",
+        text: "put_artifact registers a complete UTF-8 supporting asset: its subject must name an assets source, with no range. For a same-response save, copy the FileWrite or FileImport source, use revision=proposal-op:<FileWrite.id>, and include that FileWrite.id in depends_on. Artifact base: null for creation; exact current ArtifactKey for update.",
     },
     Section {
         id: "model_evidence",

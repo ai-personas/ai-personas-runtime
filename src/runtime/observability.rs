@@ -127,7 +127,7 @@ pub(super) fn accepted_writes(
     now: i64,
 ) -> Result<()> {
     for operation in &decision.operations {
-        let p::Operation::FileWrite { id, source, .. } = operation else {
+        let Some(p::FileSave { id, source, .. }) = operation.file_save() else {
             continue;
         };
         if !allowed.contains(id) {
@@ -144,6 +144,7 @@ pub(super) fn accepted_writes(
             "source_owner":entry.owner,
             "source_protected":entry.protected,
             "accepted_head":revision,
+            "origin":stored.origin,
             "metadata_only":true,
             "selection_changed_by_receipt":false
         });

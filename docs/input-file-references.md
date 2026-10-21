@@ -12,6 +12,7 @@ The `input-file-choices-v2` interface supports these uses:
 |---|---|
 | `next_assets` or `next_fragments`, with `kind: replace_from_input` and `handles` | Select the exact references for later context under the normal scope, lifetime and admission checks. |
 | `file_write.qualification_handles` | Add the chosen exact references to the write's literal `qualifications`. |
+| `file_import.qualification_handles` | Add the chosen exact references to an imported asset's literal `qualifications`. |
 | `communicate.reference_handles` | Attach canonical `file_references` to the deposited message. |
 | An authored `reply.reference_handles` | Attach the same chosen references to each authorized local reply recipient. |
 

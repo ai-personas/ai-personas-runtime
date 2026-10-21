@@ -663,7 +663,7 @@ pub(super) fn validate_operation(
     for dependency in depends_on {
         require(
             decision.operations.iter().any(|operation| operation.id() == dependency
-                && matches!(operation, p::Operation::FileWrite { .. })),
+                && operation.file_save().is_some()),
             "ProposeNeed dependencies may name local saves only; observations require a fresh decision",
         )?;
     }
@@ -742,8 +742,8 @@ pub(super) fn stage_pending(
             .iter()
             .find(|operation| operation.id() == dependency.as_str())
             .ok_or_else(|| held("proposal prerequisite operation is absent"))?;
-        let p::Operation::FileWrite { source, .. } = write else {
-            return Err(held("proposal prerequisite is not an accepted FileWrite"));
+        let Some(p::FileSave { source, .. }) = write.file_save() else {
+            return Err(held("proposal prerequisite is not an accepted file save"));
         };
         let revision = accepted_writes
             .get(&format!("{}{}", p::PROPOSED_OPERATION_PREFIX, dependency))

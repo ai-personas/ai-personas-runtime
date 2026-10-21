@@ -167,7 +167,8 @@ pub(super) fn seal_intents(
                 .operations
                 .iter()
                 .find_map(|candidate| match candidate {
-                    p::Operation::FileWrite { id, source, .. } if id == dependency => Some(source),
+                    p::Operation::FileWrite { id, source, .. }
+                    | p::Operation::FileImport { id, source, .. } if id == dependency => Some(source),
                     _ => None,
                 })
                 .ok_or_else(|| held("intent save dependency absent"))?;

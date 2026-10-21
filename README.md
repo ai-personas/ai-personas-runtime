@@ -52,6 +52,10 @@ can install and run tools, use the network, and read or write host files with th
 runtime's host account and environment. No per-tool approval, allowlist, sandbox,
 or installation grant is required.
 
+Personas can [import existing host files](docs/host-file-imports.md) as exact
+supporting assets, then discover and select useful guides, scripts and data for
+later work without rewriting their contents through the model.
+
 Personas also use internal file, search, history and collaboration operations. Fresh
 native setups let personas [discover and select work-command guides](docs/work-command-guides.md)
 through the ordinary file interface; only supplied guides expose their schemas. An
