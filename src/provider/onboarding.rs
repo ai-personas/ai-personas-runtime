@@ -151,8 +151,10 @@ pub(crate) fn request(
     if prompt.len() > bounds.max_prompt_bytes {
         return Err(Failure::Limit);
     }
-    // Deliberately identical serializer, instructions, route and carrier schema
-    // to native SIWC. max_output_tokens is NOT supported by the SIWC preview.
+    // The shared serializer, instructions and route preserve this historical
+    // strict-carrier probe. Native persona calls now request direct JSON objects.
+    // This probe establishes only its own response shape and reported effort.
+    // max_output_tokens is NOT supported by the SIWC preview.
     encoded(
         &response_only_body(
             &AccessMode::SiwcOAuth.wire_profile(),

@@ -786,8 +786,18 @@ impl ProviderOutput {
 
 pub struct ProviderRequest {
     pub prompt: String,
+    /// The unconstrained object schema selects JSON-object transport. Other
+    /// schemas use strict structured output. The application validates its
+    /// complete response in either case.
     pub output_schema: Value,
     pub invocation_id: String,
+}
+
+/// A complete application JSON object, without an encoded JSON-string carrier.
+/// Open-ended operation inputs remain governed by the application's schema and
+/// parser; they cannot be expressed as closed objects in strict output schemas.
+pub fn json_object_schema() -> Value {
+    json!({"type":"object"})
 }
 #[derive(Clone, Debug)]
 pub struct ProviderIntent {
@@ -1154,11 +1164,16 @@ fn response_only_body(
     prompt: &str,
     schema: &Value,
 ) -> Value {
+    let format = if schema == &json_object_schema() {
+        json!({"type":"json_object"})
+    } else {
+        json!({"type":"json_schema","name":"persona_decision","strict":true,"schema":schema})
+    };
     json!({"model":model,"store":false,"stream":true,
         "instructions":profile.instructions,
         "input":[{"role":profile.input_role,"content":[{"type":"input_text","text":prompt}]}],
         "reasoning":{"effort":effort},
-        "text":{"format":{"type":"json_schema","name":"persona_decision","strict":true,"schema":schema}}})
+        "text":{"format":format}})
 }
 
 /// Verify the exact immutable response-only wire contract without credentials or I/O.

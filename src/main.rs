@@ -1,5 +1,5 @@
 use ai_personas::{
-    files, launch, protocol,
+    files, launch, protocol, provider,
     runtime::{
         self, Config, DirectProviderSettings, Mode, NeedInput, PersonaImport, PrepareRequest,
         Profile, Runtime, Seed,
@@ -818,7 +818,10 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         Command::Schema => {
             return emit(&serde_json::json!({"decision":protocol::decision_schema(),
             "selection_repair_decision":protocol::selection_repair_schema(),
-            "provider_transport":runtime::provider_schema(),"adopt_response_input":"complete raw Decision JSON",
+            "provider_transport":provider::json_object_schema(),
+            "provider_text_format":{"type":"json_object"},
+            "legacy_provider_transport":runtime::provider_schema(),
+            "adopt_response_input":"complete raw Decision JSON",
             "work_capability":{"id":"work.command.v1","binding_revision":runtime::work_binding(),"inputs":runtime::work_schema()}}))
         }
         Command::ValidateResponse { file, max_bytes } => {
