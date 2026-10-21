@@ -503,6 +503,10 @@ fn query(
     let Ok(matcher) = f::compile_search_mode(mode, &state.config.corpus) else {
         return Ok(status("invalid_query"));
     };
+    let parameters = json!({"kind":"history_records_query","record_kind":record_kind,"mode":mode});
+    let Some(item_limit) = query_item_limit(&parameters, result_limit) else {
+        return Ok(status("exhausted"));
+    };
     let previous = match token {
         None => None,
         Some(token) => {
@@ -615,6 +619,7 @@ fn query(
         None => (0, false, false),
     };
     let mut output = status("incomplete");
+    output.payload["query"] = parameters;
     output.consumed = token.map(str::to_owned);
     let mut hits = Vec::new();
     let mut retry = None;
@@ -687,7 +692,7 @@ fn query(
             break;
         }
         hits.push(candidate.metadata.clone());
-        if bounded(&hits, result_limit.saturating_sub(CONTROL_BYTES)).is_none() {
+        if bounded(&hits, item_limit).is_none() {
             hits.pop();
             if hits.is_empty() {
                 output.payload["omitted"] =

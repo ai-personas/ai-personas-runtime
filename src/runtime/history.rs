@@ -35,8 +35,17 @@ pub(super) fn resource_accounting(available: f::NavigationLimits) -> Value {
             "adopted_decision":"Original authored choices and reasoning; not proof that every proposed operation executed.",
             "observation":"Original runtime receipt; a metadata-only receipt remains metadata-only after reading it. Reading a history-query receipt does not read the records it lists.",
             "message":"Original attributed exchange text through history_query and history_read."
-        }
+        },
+        "cursor_rule":"To use next_cursor or retry_cursor, repeat the returned query.kind, query.mode and query.record_kind when present. A changed query starts with cursor:null. The page limit may change within its existing bound."
     })
+}
+
+/// Returning a cursor without its exact query would require the next primary
+/// decision to reconstruct unsupplied parameters. Reserve their serialized
+/// size before fitting hits, including JSON escaping in literal/regex text.
+fn query_item_limit(parameters: &Value, result_limit: usize) -> Option<usize> {
+    let controls = bounded(parameters, result_limit)?.len().checked_add(CONTROL_BYTES)?;
+    result_limit.checked_sub(controls).filter(|bytes| *bytes >= 2)
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -420,6 +429,10 @@ fn query(
     let Ok(matcher) = f::compile_search_mode(mode, &state.config.corpus) else {
         return Ok(Output::status("invalid_query"));
     };
+    let parameters = json!({"kind":"history_query","mode":mode});
+    let Some(item_limit) = query_item_limit(&parameters, result_limit) else {
+        return Ok(Output::status("exhausted"));
+    };
     let query = digest(&("history-query-v1", mode))?;
     let actor = &prepared.request.persona;
     let work = &prepared.request.work;
@@ -541,11 +554,11 @@ fn query(
         }
     };
     let mut output = Output::status("incomplete");
+    output.payload["query"] = parameters;
     output.consumed = token.map(str::to_owned);
     let mut hits = Vec::new();
     let mut retry = None;
     let mut exhausted = false;
-    let item_limit = result_limit.saturating_sub(CONTROL_BYTES);
     while position < records.len() && hits.len() < limit {
         let message = records[position];
         let sha256 = &members.0[position].1;

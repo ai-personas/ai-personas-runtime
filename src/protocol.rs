@@ -434,8 +434,10 @@ pub enum Operation {
     /// Check CONTROL.command_resource_accounting.history before batching retrievals.
     HistoryQuery {
         id: String,
+        /// With a cursor, copy query.mode from its supplied result exactly.
         mode: crate::files::SearchMode,
         limit: usize,
+        /// Copy next_cursor or retry_cursor. To change the query, use null.
         cursor: Option<String>,
     },
     /// Exact original message identity and history-message-record-v1 digest.
@@ -452,9 +454,12 @@ pub enum Operation {
     /// before batching retrievals; exhausted does not establish missing history.
     HistoryRecordsQuery {
         id: String,
+        /// With a cursor, copy query.record_kind from its supplied result.
         record_kind: HistoryRecordKind,
+        /// With a cursor, copy query.mode from its supplied result exactly.
         mode: crate::files::SearchMode,
         limit: usize,
+        /// Copy next_cursor or retry_cursor. To change the query, use null.
         cursor: Option<String>,
     },
     /// Exact typed identity from a permitted query; later fresh supply rechecks access.
