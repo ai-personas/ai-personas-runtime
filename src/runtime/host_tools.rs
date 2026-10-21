@@ -3,6 +3,7 @@ use super::*;
 use crate::host_command as h;
 mod background;
 mod context;
+mod input;
 pub(super) use background::Background;
 pub(super) use context::{pending_projection, pending_text_limit};
 
@@ -28,6 +29,7 @@ struct Job {
     invocation: String,
     operation: String,
     input: h::Inputs,
+    stdin_asset: Option<input::Receipt>,
     directory: PathBuf,
     exposure: Exposure,
     qualification_sources: Vec<f::Reference>,
@@ -45,7 +47,7 @@ struct Terminal {
 }
 
 pub(super) fn interface() -> Result<HostCommandInterface> {
-    let schema = serde_json::to_value(schemars::schema_for!(h::Inputs))?;
+    let schema = serde_json::to_value(schemars::schema_for!(input::Inputs))?;
     let runner_revision = h::revision();
     let directory = std::env::current_dir()?.to_string_lossy().into_owned();
     Ok(HostCommandInterface {
@@ -86,7 +88,7 @@ pub(super) fn validate(
             && *offered == interface()?,
         "host command interface changed",
     )?;
-    let input: h::Inputs = serde_json::from_value(inputs.clone())?;
+    let input: input::Inputs = serde_json::from_value(inputs.clone())?;
     require(
         !input.command.is_empty() && !input.command.contains('\0'),
         "host command is empty or contains NUL",
@@ -95,6 +97,7 @@ pub(super) fn validate(
         require(decision.operations.iter().any(|o| o.id() == dependency && o.file_save().is_some()),
             "host command dependencies name accepted local saves; combine shell steps in one script")?;
     }
+    input.validate(prepared, decision, depends_on)?;
     Ok(())
 }
 
@@ -103,6 +106,8 @@ pub(super) fn stage(
     prepared: &Prepared,
     decision: &p::Decision,
     allowed: &BTreeSet<String>,
+    proposals: &BTreeMap<String, String>,
+    now: i64,
 ) -> Result<Vec<s::Intent>> {
     let mut intents = Vec::new();
     for operation in decision
@@ -115,7 +120,8 @@ pub(super) fn stage(
             unreachable!()
         };
         let offered = prepared.host_command_interface.as_ref().unwrap().clone();
-        let input: h::Inputs = serde_json::from_value(inputs.clone())?;
+        let authored: input::Inputs = serde_json::from_value(inputs.clone())?;
+        let (input, stdin_asset) = authored.materialize(state, prepared, proposals, now)?;
         let requested = input
             .working_directory
             .as_deref()
@@ -126,7 +132,14 @@ pub(super) fn stage(
         } else {
             PathBuf::from(&offered.default_working_directory).join(requested)
         };
-        let exposure = prepared_exposure(prepared)?.clone();
+        let input_sources = stdin_asset.as_ref().map(|receipt| file_reference(&receipt.reference))
+            .transpose()?.into_iter().collect::<Vec<_>>();
+        let mut exposure = prepared_exposure(prepared)?.clone();
+        exposure.sources.extend(input_sources.iter().cloned());
+        let exposure = expanded_exposure(state, &exposure)?;
+        require(exposure_permitted(state, &exposure,
+            &admission(&state.personas[&prepared.request.persona], now)),
+            "host command input lineage unavailable")?;
         let intent_id = composite_id("host-command", &[&prepared.request.id, id]);
         let marker = tools::JobMarker {
             actor: prepared.request.persona.clone(),
@@ -145,9 +158,10 @@ pub(super) fn stage(
             invocation: marker.invocation.clone(),
             operation: id.clone(),
             input,
+            stdin_asset,
             directory,
             exposure,
-            qualification_sources: tools::qualification_inputs(prepared, &[])?,
+            qualification_sources: tools::qualification_inputs(prepared, &input_sources)?,
             dispatch_scope: None,
         };
         require(
@@ -236,6 +250,8 @@ impl Runtime {
             if job.interface.runner_revision != h::revision() {
                 self.store
                     .cancel_intent(id, "host runner changed before dispatch")?;
+            } else if input::require_current(&state, &job, now).is_err() {
+                self.store.cancel_intent(id, "native stdin input changed before dispatch; command never dispatched")?;
             } else if decision_scope::require_intent_current(
                 &state, &prepared, job.dispatch_scope.as_ref(), &retained, &head,
             ).is_err() {
@@ -366,7 +382,7 @@ impl Runtime {
         }
         let (old, mut state) = self.load()?;
         let payload = json!({"intent":id,"operation":job.operation,"capability":job.interface,
-            "inputs":job.input,"state":retained.state,"result":outcome,
+            "inputs":input::observed(&job)?,"state":retained.state,"result":outcome,
             "terminal_evidence":evidence_ref,"automatic_retry":false});
         let observation_id = observation_id(&job.invocation, "host_command_result", &job.operation);
         if let Some(existing) = state.host_command_jobs[id].observation.as_ref() {
@@ -624,7 +640,7 @@ pub(super) fn inspect(
         };
         results.push(
             json!({"intent":id,"state":retained.state,"operation":job.operation,
-            "inputs":job.input,"directory":job.directory,"binding":job.interface,
+            "inputs":input::observed(&job)?,"directory":job.directory,"binding":job.interface,
             "result_source":state.host_command_jobs[id].result_source,"receipts":retained.history,
             "terminal":terminal,"current_required_qualifications":accompaniment,
             "reservation":records.reservation(&retained.reservation)?}),

@@ -64,6 +64,54 @@ invalid native path at the corresponding operation's `path` field.
 Native paths must also be unique within the persona and scope; see
 [native file conflicts](native-file-conflicts.md) for revisions and recovery.
 
+## Use a retained asset as standard input
+
+`stdin_asset` supplies an exact full UTF-8 supporting asset to the command
+without copying its content through the model response. Use either a literal
+`stdin` string or `stdin_asset`; supplying both is rejected.
+
+For a handle offered in the current input, the command inputs can be:
+
+```json
+{
+  "command": "cat > /workspace/retained-helper.py",
+  "stdin_asset": {"kind": "input_file", "handle": "COPY_A_CURRENT_INPUT_HANDLE"}
+}
+```
+
+Alternatively use `{"kind":"reference","reference":EXACT_FILE_REFERENCE}`
+with the asset's source, revision and `utf8` representation. The reference must
+name the whole file, with no byte range. A same-response `file_write` or
+`file_import` may be consumed through its `proposal-op:<id>` revision when
+`depends_on` names that exact save ID. A current-input handle always names an
+already retained revision. No current head or similarly named host file is
+substituted for the chosen revision.
+
+The shell receives the exact saved bytes on standard input. `cat > path` writes
+a host copy; `python3 -` runs Python source directly, with arguments after `-`.
+Choose a host file when the program expects `__file__`, nearby resources, or
+separate stdin for its own data. Dependencies and environment still belong to
+the actual host command. A command that never reads stdin may ignore it.
+
+Native inputs are resolved while staging the complete decision, before any
+command executes. The accepted intent retains the materialized bytes and their
+source revision, byte count and SHA-256. Dispatch rechecks that exact source and
+its bindings; it never rereads an original host path or rebuilds the bytes from
+model text. The existing command reservation accounts for the materialized
+input. Importing and immediately using a file does not skip its maintenance or
+complete-decision checks.
+
+The result's `inputs.stdin_asset` records the exact source, size and digest;
+`inputs.stdin` is omitted for this case. The body is retained in the accepted
+intent and native asset, not repeated in result context. This receipt proves
+which bytes were supplied as stdin, not that the process consumed them, that the
+script succeeded, or that a skill was applied. Inspect the actual command result.
+Source qualifications remain attached to the result. Passing an asset to the
+runner does not select it for model context or claim that its body was supplied
+to the model; code and bulk data can stay outside the prompt.
+
+## Execution and observations
+
 The normal complete-decision adoption records the exact command before dispatch.
 Each observed terminal result is retained before the next command executes.
 Result observations and supporting assets are published after the decision's

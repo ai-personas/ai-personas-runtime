@@ -55,6 +55,8 @@ or installation grant is required.
 Personas can [import existing host files](docs/host-file-imports.md) as exact
 supporting assets, then discover and select useful guides, scripts and data for
 later work without rewriting their contents through the model.
+Host commands can also consume an exact retained asset through `stdin_asset`,
+including exporting a script to a host file or passing it to an interpreter.
 
 Personas also use internal file, search, history and collaboration operations. Fresh
 native setups let personas [discover and select work-command guides](docs/work-command-guides.md)

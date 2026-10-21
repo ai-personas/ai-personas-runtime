@@ -66,10 +66,11 @@ Ordinary discovery can find its native path and content across later work.
 Import does not select the asset implicitly or load a directory or tool catalogue.
 The saved revision is independent of later changes to the live host file.
 
-The native destination is not a host filesystem path. Retention and later model
-context supply do not install the script or create an executable host copy.
-Host execution needs an actual host file and its dependencies; importing the
-file alone does not establish that this later execution is possible.
+The native destination is not a host filesystem path. To create a host copy or
+run the saved content, pass its exact reference or current-input handle through
+[host-command `stdin_asset`](host-commands.md#use-a-retained-asset-as-standard-input).
+The command receives the stored bytes directly. Retention and later model
+context supply alone do not install dependencies or establish execution.
 
 An imported asset can also be registered as a work artifact through the usual
 selected `put_artifact` command. Its dependency names the exact import operation.

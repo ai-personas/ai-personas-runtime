@@ -9,6 +9,13 @@ installation grant is required. The native path records the exact command,
 actual process status and output. This follows the user's current full-access
 requirement; the earlier bounded-profile runs remain historical records.
 
+Host commands accept [exact native assets as standard input](docs/host-commands.md#use-a-retained-asset-as-standard-input)
+through `stdin_asset`. A persona can export retained code or data to a host file,
+or pass it directly to an interpreter, without copying the body through its
+response. The accepted intent retains the actual bytes; result metadata names
+their source revision and digest. This supports the design's later resource reuse
+without treating storage, model context supply and execution as the same event.
+
 Native foreground runs and launcher sessions can advance an eligible peer while
 the final host command of another persona's decision runs. Results are published
 between adoptions and drained before a normal session exit. Independent accepted
