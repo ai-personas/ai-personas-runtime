@@ -305,9 +305,20 @@ chosen decision holders. Actual acceptance, existing Stop/Pause choices, identit
 bindings and unfinished invocation ownership remain. Child allocation metadata
 can also exceed its historical original allocation without invalidating its origin.
 
+Admitted children can now author further needs through their inherited intake
+episode without a nesting-depth quota or a further-delegation permission. The
+explicit grant-issue command needs no second activation boolean; old activation
+and further-delegation declarations are optional metadata. Each
+new descendant records its immediate authoring parent and retains exact pending
+proof, source-grant identity and per-work charges. Replies and delivery notices
+route to that immediate parent. Snapshot parent mappings expose the complete
+lineage; cycle detection preserves identities without a depth ceiling. Historical
+children retain their actual original parent, and explicit revocation remains
+effective for the inherited episode.
+
 Removal is still incomplete. Remaining
-application enforcement includes delegated intake authority and nesting
-constraints; explicit optional opportunity and birth workflows; remaining typed protocol and
+application enforcement includes operator child admission and single-episode
+binding constraints; explicit optional opportunity and birth workflows; remaining typed protocol and
 tool-input limits; and additional specialized control limits. These are implementation gaps under the
 new requirement, not exceptions granted by the user. Some earlier documents still
 describe them because those paths remain implemented. They must be removed or

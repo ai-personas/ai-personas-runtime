@@ -653,7 +653,11 @@ proposal to a distinct child. Episode snapshots expose all `pending_proposals`
 and `child_work_ids`. The original issued grant hash remains the source identity
 through later admissions; registry and episode fences identify their current
 state. Child replies and result delivery route through the matching child to its
-requester's parent-work inbox.
+requester's parent-work inbox. Bound children can use the inherited proposal
+interface for further requests without a nesting-depth quota. Each descendant
+records its immediate authoring parent; `child_parents` exposes that mapping and
+results return to the matching parent focus. The saved further-delegation flag
+is metadata. Exact pending proof and separate child admission still apply.
 
 The grant's requester, child-participant and initial-recipient lists are historical
 metadata, including empty lists. Any existing persona may be invited, and a new

@@ -69,6 +69,13 @@ impl IntakeEpisode {
     pub(crate) fn child_for(&self, work: &str) -> Option<&AdmittedChild> {
         self.children().find(|child| child.binding.work == work)
     }
+    pub(crate) fn work_binding(&self, work: &str) -> Option<(&w::ExactRef, u64)> {
+        if self.work == work {
+            Some((&self.authority, self.work_epoch))
+        } else {
+            self.child_for(work).map(|child| (&child.authority, child.work_epoch))
+        }
+    }
     pub(crate) fn children_match(&self, grant: &g::IntakeDelegation) -> bool {
         grant
             .consumed_children()
@@ -126,6 +133,7 @@ pub struct IntakeEpisodeSnapshot {
     pub capacity_reserved_by_snapshot: bool,
     pub child_admitted: bool,
     pub child_work_ids: Vec<String>,
+    pub child_parents: BTreeMap<String, String>,
 }
 
 /// Decrease historical remaining metadata without making it an admission quota.
@@ -262,14 +270,8 @@ pub(super) fn check_work(app: &mut Runtime, state: &State, work: &str, now: i64)
     )?;
     let current = g::episode_authority(app, state, &episode.grant.request.id, now)?;
     let current_work = state.board.work(&w::WorkId(work.into()))?;
-    let (authority, epoch) = if episode.work == work {
-        (&episode.authority, episode.work_epoch)
-    } else {
-        let child = episode
-            .child_for(work)
-            .ok_or_else(|| held("admitted child binding absent"))?;
-        (&child.authority, child.work_epoch)
-    };
+    let (authority, epoch) = episode.work_binding(work)
+        .ok_or_else(|| held("episode work binding absent"))?;
     require(
         current.grant.source_sha256()? == episode.grant_sha256
             && episode.children_match(&current.grant)
@@ -513,7 +515,6 @@ pub(super) fn interface(
         return Ok(None);
     };
     if !ordinary
-        || episode.work != work
         || episode.revoked_at_unix.is_some()
         || !episode.grant.active_at(now)
     {
@@ -652,6 +653,7 @@ fn stage_pending_operation(
     require(
         episode.charges.iter().any(|charge| {
             charge.invocation.as_deref() == Some(prepared.request.id.as_str())
+                && charge.work.as_deref().unwrap_or(&episode.work) == prepared.request.work
                 && charge.allocation.attempts == 1
         }),
         "proposal authoring admission was not charged to this episode",
@@ -724,12 +726,15 @@ fn stage_pending_operation(
             "proposal exposure is unavailable to an intended invitee",
         )?;
     }
+    let (parent_authority, parent_epoch) = episode.work_binding(&prepared.request.work)
+        .ok_or_else(|| held("proposal parent is not bound to this episode"))?;
+    require(prepared.work_version.epoch == parent_epoch, "proposal parent epoch changed")?;
     let pending = PendingNeedProposal {
         version: 1,
         author: prepared.request.persona.clone(),
         parent_work: prepared.request.work.clone(),
         parent_version_at_preparation: prepared.work_version,
-        parent_authority: episode.authority.clone(),
+        parent_authority: parent_authority.clone(),
         invocation_id: prepared.request.id.clone(),
         operation_id: id.clone(),
         operation: operation.clone(),
@@ -809,7 +814,7 @@ impl Runtime {
             let pending: PendingNeedProposal = serde_json::from_value(object.body)?;
             require(
                 pending.version == 1
-                    && pending.parent_work == episode.work
+                    && episode.work_binding(&pending.parent_work) == Some((&pending.parent_authority, pending.parent_version_at_preparation.epoch))
                     && pending.grant_sha256 == episode.grant_sha256,
                 "pending need episode mismatch",
             )?;
@@ -819,6 +824,9 @@ impl Runtime {
             .children()
             .map(|child| child.binding.work.clone())
             .collect();
+        let child_parents = episode.children().map(|child| {
+            (child.binding.work.clone(), child.parent_work(episode).to_owned())
+        }).collect();
         Ok(IntakeEpisodeSnapshot {
             operator: operator.into(),
             work: work.into(),
@@ -829,6 +837,7 @@ impl Runtime {
             capacity_reserved_by_snapshot: false,
             child_admitted: !child_work_ids.is_empty(),
             child_work_ids,
+            child_parents,
         })
     }
 }

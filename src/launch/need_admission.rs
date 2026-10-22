@@ -213,9 +213,7 @@ fn proof(
     require(
         pending.version == 1
             && expected_id == object.id
-            && pending.parent_work == episode.work
-            && pending.parent_authority == episode.authority
-            && pending.parent_version_at_preparation.epoch == episode.work_epoch
+            && episode.work_binding(&pending.parent_work) == Some((&pending.parent_authority, pending.parent_version_at_preparation.epoch))
             && pending.grant == episode.grant
             && pending.grant_sha256 == episode.grant_sha256
             && pending.grant_sha256 == request.grant.sha256
@@ -231,6 +229,7 @@ fn proof(
             && episode.pending_proposals().any(|pending| pending == &request.pending)
             && episode.charges.iter().any(|charge| {
                 charge.invocation.as_deref() == Some(pending.invocation_id.as_str())
+                    && charge.work.as_deref().unwrap_or(&episode.work) == pending.parent_work
                     && charge.allocation.attempts == 1
             }),
         "pending proposal identity, hashes, source grant or charged episode differ",
@@ -403,7 +402,8 @@ fn child_input(
         "historical_allowed_participants":grant.allowed_child_participants,
         "historical_initial_consideration_recipients":grant.initial_consideration_recipients,
         "participant_quotas_enforced":false,
-        "further_intake_delegation":false,"acceptance_inferred":false
+        "parent_work":pending.parent_work,"intake_episode_inherited":true,
+        "further_intake_delegation":true,"acceptance_inferred":false
     }))?;
     let origin = w::Origin::Persona(w::PersonaId(pending.author.clone()));
     let need = w::Need {
@@ -441,7 +441,7 @@ fn child_input(
         id: request.child_work_id.clone(),
         origin: NeedOrigin::PersonaResponse { invocation_id: pending.invocation_id.clone(), operation_id: Some(pending.operation_id.clone()) },
         request: proposal.request.clone(), boundaries: grant.boundaries.clone(), authorization,
-        assumptions: "Host command access and tool installation are available by default. Further intake delegation, independent assurance and acceptance are not inferred.".into(),
+        assumptions: "Host command access and tool installation are available by default. Further needs use the same recorded intake episode without a nesting quota or a second delegation permission. Independent assurance and acceptance are not inferred.".into(),
         terms: "Address the exact adopted request and listed outcomes within the recorded delegation boundaries. Participation and arrangements require personal assent.".into(),
         policy_id: grant.policy.id.clone(), outcomes, review_roles: BTreeMap::new(),
         decision_rule: w::DecisionRule::PersonaArranged {
@@ -509,14 +509,14 @@ fn plan(
     // Receipts and authored origins name the immutable issued grant. Later
     // admissions append to the separately fenced current registry.
     let grant = episode.grant.clone();
-    need_proposals::check_work(app, &state, &episode.work, now)?;
-    let parent = state.board.work(&w::WorkId(episode.work.clone()))?;
+    let proof = proof(app, &state, episode, request, now)?;
+    let pending = &proof.pending;
+    need_proposals::check_work(app, &state, &pending.parent_work, now)?;
+    let parent = state.board.work(&w::WorkId(pending.parent_work.clone()))?;
     require(
         matches!(parent.phase, w::Phase::Open),
         "parent work is not open; an individual Stop remains valid",
     )?;
-    let proof = proof(app, &state, episode, request, now)?;
-    let pending = &proof.pending;
     let proposal = match &pending.operation {
         p::Operation::ProposeNeed { proposal, .. } => proposal,
         _ => return Err(held("closed pending proposal absent")),
@@ -608,7 +608,8 @@ fn plan(
         w::Origin::Persona(w::PersonaId(pending.author.clone())),
         exposure,
         Some(json!({"kind":"admitted_need_proposal","source_grant":grant,
-            "pending":request.pending,"adopted_response":proof.archive,
+            "pending":request.pending,"parent_work":pending.parent_work,
+            "adopted_response":proof.archive,
             "invocation_id":pending.invocation_id,"operation_id":pending.operation_id,
             "response_sha256":pending.response_sha256,"proposal_sha256":pending.proposal_sha256,
             "request_sha256":pending.request_sha256,"receipt_id":binding.receipt_id,
@@ -629,6 +630,7 @@ fn plan(
         binding: binding.clone(),
         authority: child.mandate().authority.clone(),
         work_epoch: child.version.epoch,
+        parent_work: Some(pending.parent_work.clone()),
     };
     next.intake_episodes
         .get_mut(&request.grant.id)

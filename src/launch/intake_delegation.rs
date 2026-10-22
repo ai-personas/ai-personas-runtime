@@ -128,6 +128,8 @@ pub struct IntakeDelegationRequest {
     pub operator: String,
     pub purpose: String,
     pub boundaries: String,
+    /// Historical activation declaration; the explicit issue command creates the grant.
+    #[serde(default)]
     pub activate: bool,
     pub expected: IntakeDelegationFence,
     pub expected_cohort: BTreeSet<String>,
@@ -145,6 +147,8 @@ pub struct IntakeDelegationRequest {
     pub expires_at_unix: i64,
     /// Historical request metadata, not a child-count quota.
     pub creation_rights: u8,
+    /// Historical declaration; bound children may author further needs.
+    #[serde(default)]
     pub allow_further_delegation: bool,
     /// Aggregate across proposal authoring and all participating personas and
     /// child attempts. Repair attempts are a subset, never extra attempts.
@@ -187,10 +191,8 @@ impl IntakeDelegationRequest {
         identities(&self.policy.processing_destinations, 1, 16)?;
         validate_ceiling(self.episode_ceiling)?;
         require(
-            self.activate
-                && !self.allow_further_delegation
-                && self.expires_at_unix >= 0,
-            "explicit activation, valid historical expiry and no further delegation are required",
+            self.expires_at_unix >= 0,
+            "historical expiry must be a nonnegative timestamp",
         )?;
         match &self.funding {
             IntakeFundingBasis::ExistingParentTransfer {
@@ -810,7 +812,7 @@ fn issue_availability(
             "optional activity has no nested intake delegation; it cannot create foreground funding or priority")?;
         require(
             !need_proposals::is_child(state, id),
-            "delegated children have no further intake delegation authority",
+            "a child inherits its existing intake episode; selecting a separate episode is not yet supported",
         )?;
         require(
             saved.works.contains_key(id) && state.work_meta.contains_key(id),

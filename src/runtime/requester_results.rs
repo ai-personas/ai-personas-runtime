@@ -14,9 +14,10 @@ pub(super) fn observation_work(state: &State, work: &str, recipient: &str) -> Re
     let Some(episode) = need_proposals::episode(state, work) else {
         return Ok(work.into());
     };
-    if episode.child_for(work).is_none() {
+    let Some(child) = episode.child_for(work) else {
         return Ok(work.into());
-    }
+    };
+    let parent = child.parent_work(episode);
     let current = state.board.work(&w::WorkId(work.into()))?;
     if !matches!(&current.need.origin, w::Origin::Persona(requester) if requester.0 == recipient) {
         return Ok(work.into());
@@ -27,10 +28,10 @@ pub(super) fn observation_work(state: &State, work: &str, recipient: &str) -> Re
         state
             .personas
             .get(recipient)
-            .is_some_and(|persona| persona.focus.contains_key(&episode.work)),
+            .is_some_and(|persona| persona.focus.contains_key(parent)),
         "persona requester parent focus unavailable",
     )?;
-    Ok(episode.work.clone())
+    Ok(parent.to_owned())
 }
 
 pub(super) fn delivery_notice(

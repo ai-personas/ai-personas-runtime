@@ -31,7 +31,9 @@ Construct `grant.json` from the exact current snapshot. Its
 purpose, boundaries, expiry, policy, existing parent works, historical proposer,
 participant and initial-recipient lists, and allocation metadata. The three persona
 lists may be empty; they do not restrict who can propose, be invited or consider
-an invitation. Listed identities still refer to the observed cohort.
+an invitation. Listed identities still refer to the observed cohort. The old
+`activate` and `allow_further_delegation` booleans are optional metadata; the
+explicit issue command activates the recorded grant.
 The funding record names an exact parent transfer or operator tranche. Saved
 launch ceilings and token attestations are observational; they neither limit
 admission nor establish actual provider usage. Neither a preview nor a grant
@@ -70,6 +72,30 @@ funding during preparation. The launch admission and episode charge commit
 together. Subsequent calls on the bound work retain the episode restrictions even
 when the option is omitted from a fresh session. Selecting another grant cannot
 replace an existing binding. No eligible opportunity means no model invocation.
+
+## Further requests from child work
+
+An admitted child receives the same proposal interface during ordinary work and
+can request further help. Descendants inherit the original episode and issued
+grant identity. There is no nesting-depth quota, and the saved
+`allow_further_delegation` declaration does not restrict this interface. Each
+adopted request still needs its own exact operator admission through the current
+API; automatic child creation remains an implementation gap.
+
+Every new child records the work on which its request was actually authored.
+Episode snapshots expose `child_parents` alongside the complete `child_work_ids`
+list, including descendants. Pending proof uses that immediate parent's authority,
+epoch and adopted invocation. Replies and delivery notices return to that parent
+focus, without resuming it or assigning the requester a new responsibility.
+Original direct children with no explicit parent field retain the original
+episode work as their parent. An ancestry cycle is invalid identity data, rather
+than a depth limit.
+
+Accounting records the exact work of every call and navigation charge. A grant
+whose historical funding names a parent transfer continues to name that original
+funding account; nesting does not invent a different transfer source. Explicit
+episode revocation applies to the inherited episode and retains every descendant.
+Selecting a separate new episode on already bound work is still unsupported.
 
 ## Inspect and admit an authored proposal
 
@@ -153,7 +179,8 @@ erasing history. Saved expiry no longer stops preparation or provider dispatch.
 There are no fixed episode, charge, proposal-byte or registry quotas. Existing
 exact evidence, record binding and identity checks remain.
 
-Explicit operator admission and further-delegation restrictions remain
-implementation gaps under the no-limits requirement. Removing
+Explicit operator admission, selecting a different episode for already bound
+work, parent-phase coupling and broad coordination checks remain implementation
+gaps under the no-limits requirement. Removing
 proposal and child count limits does not complete the authority and workflow
 changes listed in [execution resources](execution-resources.md).
