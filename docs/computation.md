@@ -51,8 +51,8 @@ correctness or work acceptance.
 `CONTROL.computation_state.retained_results` identify retained result assets
 under `tools/results/`. Read or select the exact source to obtain its body.
 Metadata alone does not supply output text. Source attribution, required
-qualifications and prior immutable evidence remain attached. File-corpus and
-context restrictions are still being removed; see [execution resources](execution-resources.md).
+qualifications and prior immutable evidence remain attached. File-corpus and context byte/count quotas are removed; see
+[execution resources](execution-resources.md) for remaining work.
 
 `recover-computations` publishes existing terminal evidence or dispatches an
 admitted job whose prerequisites still match. It never replays a dispatched job.

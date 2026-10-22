@@ -9,18 +9,13 @@ pub(super) const ENCODING: &str = "shared-qualified-text-v1";
 const WORK_ENCODING: &str = "shared-request-text-v2";
 const POOL: &str = "shared_texts";
 const RULE: &str = "For each qualified entry with text_ref, its complete text is shared_texts.bodies[text_ref] in this QUALIFIED_CONTEXT. That text is supplied here, not a retrieval request. Keep that entry's exact reference, roles, attribution, policies and required qualifications; sharing text merges none of those records. Other entries supply text inline.";
-// The encoded request remains subject to its normal much smaller allowance.
-// Also bound the host's expanded representation before accepting or decoding it.
-const EXPANDED_LIMIT: usize = 64 * 1024 * 1024;
-
 struct Counter(usize);
 impl std::io::Write for Counter {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.0 = self
             .0
             .checked_add(bytes.len())
-            .filter(|size| *size <= EXPANDED_LIMIT)
-            .ok_or_else(|| std::io::Error::other("expanded request context limit"))?;
+            .ok_or_else(|| std::io::Error::other("expanded request context overflow"))?;
         Ok(bytes.len())
     }
     fn flush(&mut self) -> std::io::Result<()> {
@@ -35,8 +30,7 @@ fn size(value: &Value) -> Result<usize> {
 fn sections_size(control: &Value, qualified: &Value) -> Result<usize> {
     size(control)?
         .checked_add(size(qualified)?)
-        .filter(|size| *size <= EXPANDED_LIMIT)
-        .ok_or_else(|| held("expanded request context exceeds its bound"))
+        .ok_or_else(|| held("expanded request context size overflow"))
 }
 fn identity(reference: &Value, text: &str) -> Result<String> {
     digest(&(ENCODING, reference, text))
@@ -269,8 +263,7 @@ fn expansion(
         *expanded = expanded
             .checked_add(added)
             .and_then(|bytes| bytes.checked_sub(removed))
-            .filter(|bytes| *bytes <= EXPANDED_LIMIT)
-            .ok_or_else(|| held("expanded request context exceeds its bound"))?;
+            .ok_or_else(|| held("expanded request context size overflow"))?;
         *used.entry(key.into()).or_default() += 1;
     }
     Ok(())
@@ -301,10 +294,6 @@ pub(super) struct Decoded<'a> {
     pub accounting: Accounting,
 }
 pub(super) fn decode(prepared: &Prepared) -> Result<Decoded<'_>> {
-    require(
-        prepared.prompt.len() <= INPUT_LIMIT,
-        "retained request exceeds its input bound",
-    )?;
     require(
         s::sha256_bytes(prepared.prompt.as_bytes()) == prepared.prompt_sha256,
         "retained prompt hash mismatch",

@@ -1,4 +1,4 @@
-//! Immutable, bounded, in-memory file discovery, qualified reads, and context assembly.
+//! Immutable in-memory file discovery, qualified reads and context assembly without quotas.
 //!
 //! This module performs no filesystem, network, inference, persistence, or selection
 //! mutation. Callers must supply an authoritative current PolicySnapshot and a fresh
@@ -94,22 +94,8 @@ impl Reference {
         }
     }
 
-    fn request_bytes(&self, limit: usize) -> Result<usize, FilesError> {
-        let representation_bytes = match &self.representation {
-            Representation::Utf8 => 0,
-            Representation::JsonString { pointer } => pointer.len(),
-            Representation::Unsupported { name } => name.len(),
-        };
-        if self
-            .source
-            .len()
-            .checked_add(self.revision.len())
-            .and_then(|bytes| bytes.checked_add(representation_bytes))
-            .is_none_or(|bytes| bytes > limit)
-        {
-            return Err(FilesError::RequestLimit("reference bytes"));
-        }
-        serialized_len(self, limit).map_err(|_| FilesError::RequestLimit("reference bytes"))
+    fn request_bytes(&self, historical_limit: usize) -> Result<usize, FilesError> {
+        serialized_len(self, historical_limit).map_err(|_| FilesError::ArithmeticOverflow)
     }
 
     fn structurally_valid(&self) -> bool {
@@ -204,18 +190,6 @@ pub struct Admission {
 
 impl Admission {
     fn validate(&self, byte_limit: usize) -> Result<usize, FilesError> {
-        if self.audience.len() > byte_limit {
-            return Err(FilesError::RequestLimit("admission bytes"));
-        }
-        let mut remaining = byte_limit;
-        for value in std::iter::once(&self.principal)
-            .chain(std::iter::once(&self.destination))
-            .chain(self.audience.iter())
-        {
-            remaining = remaining
-                .checked_sub(value.len())
-                .ok_or(FilesError::RequestLimit("admission bytes"))?;
-        }
         let bytes = serialized_len(self, byte_limit)
             .map_err(|_| FilesError::RequestLimit("admission bytes"))?;
         if !valid_identifier(&self.principal)
@@ -278,18 +252,13 @@ impl FileRevision {
 #[serde(deny_unknown_fields)]
 pub struct JsonLimits {
     pub max_source_bytes: usize,
-    /// Between 1 and 64; the root value has depth 1.
+    /// Historical depth setting; parsing does not enforce a configured depth.
     pub max_depth: usize,
     pub max_nodes: usize,
     /// Sum of decoded UTF-8 bytes in string values AND object member names.
     pub max_decoded_bytes: usize,
 }
 
-impl JsonLimits {
-    fn valid(&self) -> bool {
-        (1..=64).contains(&self.max_depth) && self.max_nodes > 0
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -307,10 +276,8 @@ pub struct CorpusLimits {
     pub max_policy_entries: usize,
     pub max_qualifications_per_revision: usize,
     pub max_selection_references: usize,
-    /// These closure bounds are cumulative across ALL roots in one assembly,
-    /// including failed optional bundles and repeated work across bundles.
-    /// Each root receives floor(bound / public request root count) independently.
-    /// Unused quota is never transferred; incomplete closures remain unavailable.
+    /// Historical closure estimates. Current traversal expands the complete
+    /// graph and detects repeated references without a resource quota.
     pub max_closure_references: usize,
     pub max_closure_edges: usize,
     pub max_closure_bytes: usize,
@@ -320,26 +287,15 @@ pub struct CorpusLimits {
 }
 
 impl CorpusLimits {
-    fn closure_quota(&self, roots: usize) -> Self {
-        let count = roots.max(1);
-        Self {
-            max_closure_references: self.max_closure_references / count,
-            max_closure_edges: self.max_closure_edges / count,
-            max_closure_bytes: self.max_closure_bytes / count,
-            ..self.clone()
-        }
+    fn closure_quota(&self, _roots: usize) -> Self {
+        self.clone()
     }
 
     fn validate(&self) -> Result<(), FilesError> {
-        if !self.json.valid()
-            || self.max_record_bytes == 0
-            || self.max_total_record_bytes == 0
-            || self.max_regex_size_bytes == 0
-        {
-            return Err(FilesError::InvalidLimits);
-        }
+        // Saved numeric settings are historical metadata, not admission gates.
         Ok(())
     }
+
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -525,9 +481,6 @@ impl Corpus {
         let mut total_payload = 0usize;
         let mut total_encoded = policy.encoded_bytes;
         for (index, record) in revisions.into_iter().enumerate() {
-            if index >= limits.max_revisions {
-                return Err(FilesError::CorpusLimit("input revisions"));
-            }
             let encoded_bytes = serialized_len(&record, limits.max_record_bytes)
                 .map_err(|_| FilesError::CorpusLimit("record bytes"))?;
             let key = (record.source.clone(), record.revision.clone());
@@ -553,12 +506,6 @@ impl Corpus {
                     reason: "noncanonical relative path",
                 });
             }
-            if record.bytes.len() > limits.max_file_bytes {
-                return Err(FilesError::CorpusLimit("file bytes"));
-            }
-            if record.qualifications.len() > limits.max_qualifications_per_revision {
-                return Err(FilesError::CorpusLimit("direct qualifications"));
-            }
             if !record
                 .qualifications
                 .iter()
@@ -571,12 +518,6 @@ impl Corpus {
             }
             total_payload = checked_add(total_payload, record.bytes.len())?;
             total_encoded = checked_add(total_encoded, encoded_bytes)?;
-            if total_payload > limits.max_total_bytes {
-                return Err(FilesError::CorpusLimit("total payload bytes"));
-            }
-            if total_encoded > limits.max_total_record_bytes {
-                return Err(FilesError::CorpusLimit("total record bytes"));
-            }
             register_policy(&mut known_policies, &record.policy)?;
             if record.computed_revision()? != record.revision {
                 return Err(FilesError::DigestMismatch { index });
@@ -598,6 +539,13 @@ impl Corpus {
         })
     }
 
+    fn material_bytes(&self) -> Result<usize, FilesError> {
+        self.records.values().try_fold(
+            checked_add(self.policy.encoded_bytes, self.binding_bytes)?,
+            |total, stored| checked_add(total, stored.encoded_bytes),
+        )
+    }
+
     pub fn limits(&self) -> &CorpusLimits {
         &self.limits
     }
@@ -607,11 +555,6 @@ impl Corpus {
     /// every returned qualification. Use this corpus's binding snapshot so
     /// derived tool-result qualifications are not lost.
     pub(crate) fn required_qualifications(&self, sources: &[Reference]) -> Option<Vec<Reference>> {
-        if sources.len() > self.limits.max_closure_references {
-            return None;
-        }
-        let mut bytes = serialized_len(sources, self.limits.max_closure_bytes).ok()?;
-        let mut edges = 0usize;
         let mut required = BTreeSet::new();
         for source in sources {
             if !source.structurally_valid() {
@@ -627,18 +570,7 @@ impl Corpus {
                 }),
             );
             for group in groups {
-                edges = edges.checked_add(group.len())?;
-                if edges > self.limits.max_closure_edges {
-                    return None;
-                }
-                bytes = bytes.checked_add(serialized_len(
-                    group,
-                    self.limits.max_closure_bytes.checked_sub(bytes)?,
-                ).ok()?)?;
                 required.extend(group.iter().cloned());
-                if required.len() > self.limits.max_closure_references {
-                    return None;
-                }
             }
         }
         Some(required.into_iter().collect())
@@ -668,9 +600,6 @@ impl Corpus {
         for stored in self.records.values() {
             total = checked_add(total, stored.encoded_bytes)?;
         }
-        if total > self.limits.max_total_record_bytes {
-            return Err(FilesError::CorpusLimit("total record bytes"));
-        }
         self.policy = next;
         Ok(self)
     }
@@ -680,9 +609,6 @@ impl Corpus {
     /// The caller must persist/authenticate every adoption or justified resolution
     /// and fence stale snapshots. This method supplies no authoring authority.
     pub fn with_bindings(mut self, bindings: Vec<AcceptedBinding>) -> Result<Self, FilesError> {
-        if bindings.len() > self.limits.max_revisions {
-            return Err(FilesError::CorpusLimit("accepted bindings"));
-        }
         let mut by_subject: BTreeMap<(String, String), Vec<AcceptedBinding>> = BTreeMap::new();
         let mut identities = BTreeSet::new();
         let mut bytes = 0;
@@ -716,7 +642,6 @@ impl Corpus {
             match &binding.disposition {
                 BindingDisposition::Qualify { required } => {
                     if required.is_empty()
-                        || required.len() > self.limits.max_qualifications_per_revision
                         || !required.iter().all(Reference::structurally_valid)
                     {
                         return Err(FilesError::InvalidRecord {
@@ -736,7 +661,7 @@ impl Corpus {
                 }
                 BindingDisposition::Retired { reason }
                 | BindingDisposition::Ineligible { reason } => {
-                    if reason.trim().is_empty() || reason.len() > self.limits.max_file_bytes {
+                    if reason.trim().is_empty() {
                         return Err(FilesError::InvalidRecord {
                             index,
                             reason: "invalid disposition reason",
@@ -755,9 +680,6 @@ impl Corpus {
         for stored in self.records.values() {
             total = checked_add(total, stored.encoded_bytes)?;
         }
-        if total > self.limits.max_total_record_bytes {
-            return Err(FilesError::CorpusLimit("total record bytes"));
-        }
         for (key, values) in &by_subject {
             let mut count = self
                 .records
@@ -774,9 +696,6 @@ impl Corpus {
                     }
                     format = Some(next);
                 }
-            }
-            if count > self.limits.max_qualifications_per_revision {
-                return Err(FilesError::CorpusLimit("direct qualifications"));
             }
         }
         self.bindings = by_subject;
@@ -953,9 +872,8 @@ impl Corpus {
 
     /// Exact, qualified observation; does not select anything. Retired records may
     /// be observed as labeled history, but cannot enter generative assembly.
-    /// A read reserves the configured worst-case closure scan/inspection allowance
-    /// before resolving any private dependency, including on failure. This avoids
-    /// revealing inaccessible dependency counts through public budget accounting.
+    /// A read accounts for the complete corpus material used to resolve it,
+    /// including an unsuccessful read. These quantities are not resource quotas.
     pub fn read(
         &self,
         reference: &Reference,
@@ -968,10 +886,10 @@ impl Corpus {
         navigation.begin_call()?;
         if !navigation.charge(NavigationUsage {
             scanned_bytes: checked_add(
-                self.limits.max_closure_bytes,
+                self.material_bytes()?,
                 checked_add(admission_bytes, reference_bytes)?,
             )?,
-            inspected_revisions: self.limits.max_closure_references,
+            inspected_revisions: self.records.len(),
             ..NavigationUsage::default()
         }) {
             return Err(FilesError::NavigationExhausted);
@@ -994,12 +912,6 @@ impl Corpus {
             },
         );
         let context_bytes = context_length(&entries, &[])?;
-        if context_bytes > byte_limit {
-            return Err(FilesError::ReadOverflow {
-                required: context_bytes,
-                limit: byte_limit,
-            });
-        }
         if !navigation.charge(NavigationUsage {
             result_bytes: context_bytes,
             ..NavigationUsage::default()
@@ -1027,13 +939,6 @@ fn build_policy_view(
     snapshot: PolicySnapshot,
     limits: &CorpusLimits,
 ) -> Result<PolicyView, FilesError> {
-    let count = checked_add(
-        snapshot.active_policies.len(),
-        snapshot.revoked_policies.len(),
-    )?;
-    if count > limits.max_policy_entries {
-        return Err(FilesError::CorpusLimit("policy entries"));
-    }
     let encoded_bytes = serialized_len(&snapshot, limits.max_total_record_bytes)
         .map_err(|_| FilesError::CorpusLimit("policy bytes"))?;
     let mut current: BTreeMap<String, Policy> = BTreeMap::new();
@@ -1139,11 +1044,8 @@ fn walk_qualifications<F>(
 where
     F: FnMut(&Reference) -> Result<(Vec<Reference>, usize), ResolveError>,
 {
-    fn charge(value: &mut usize, amount: usize, limit: usize) -> Result<(), ResolveError> {
+    fn charge(value: &mut usize, amount: usize, _historical_limit: usize) -> Result<(), ResolveError> {
         let next = value.checked_add(amount).ok_or(ResolveError::Limit)?;
-        if next > limit {
-            return Err(ResolveError::Limit);
-        }
         *value = next;
         Ok(())
     }
@@ -1313,7 +1215,7 @@ fn render_context(
 }
 
 /// No selection is mutated. An ineligible optional bundle is withheld atomically.
-/// Any eligible selected material that does not fit causes SelectedOverflow.
+/// Every eligible selected bundle is supplied without a byte ceiling.
 /// Qualification traversal is breadth-first in declared reference order; exact
 /// references are deduplicated without conflating ranges, representations, source
 /// roles, policy restrictions, or distinct incoming qualification conditions.
@@ -1333,12 +1235,6 @@ pub fn assemble(
         checked_add(mandatory.len(), selected_fragments.len())?,
         selected_assets.len(),
     )?;
-    if roots > corpus.limits.max_selection_references {
-        return Err(FilesError::SelectionLimit);
-    }
-    if request_bytes > corpus.limits.max_total_record_bytes {
-        return Err(FilesError::RequestLimit("assembly request bytes"));
-    }
     for reference in mandatory
         .iter()
         .chain(selected_fragments.iter())
@@ -1346,15 +1242,13 @@ pub fn assemble(
     {
         request_bytes = request_bytes
             .checked_add(reference.request_bytes(corpus.limits.max_record_bytes)?)
-            .filter(|bytes| *bytes <= corpus.limits.max_total_record_bytes)
             .ok_or(FilesError::RequestLimit("assembly request bytes"))?;
     }
     let fixed = checked_add(fixed_overhead_bytes, output_reserve_bytes)?;
     let mut entries = Vec::new();
     let mut index = BTreeMap::new();
     let mut withheld = Vec::new();
-    // Reserve independent shares from public request shape, never private work.
-    // Across all roots, each dimension sums to at most its configured bound.
+    // Expand complete qualification graphs without an application closure quota.
     let closure_limits = corpus.limits.closure_quota(roots);
     for (position, reference) in mandatory.iter().enumerate() {
         let bundle = corpus
@@ -1378,13 +1272,6 @@ pub fn assemble(
                 index: position,
             },
         );
-    }
-    let mandatory_bytes = checked_add(fixed, context_length(&entries, &[])?)?;
-    if mandatory_bytes > byte_limit {
-        return Err(FilesError::MandatoryOverflow {
-            required: mandatory_bytes,
-            limit: byte_limit,
-        });
     }
     for (references, kind, scope) in [
         (
@@ -1422,12 +1309,6 @@ pub fn assemble(
     }
     let context_bytes = context_length(&entries, &withheld)?;
     let total_bytes = checked_add(fixed, context_bytes)?;
-    if total_bytes > byte_limit {
-        return Err(FilesError::SelectedOverflow {
-            required: total_bytes,
-            limit: byte_limit,
-        });
-    }
     let rendered_context = render_context(&entries, &withheld)?;
     let manifest_sha256 = hash_json(&(
         "exact-assembly-manifest-v1",
@@ -1783,12 +1664,12 @@ fn compile_matcher<'a>(
 /// exact search serialization, permissions, identities and continuation state.
 pub(crate) fn compile_search_mode<'a>(
     mode: &'a SearchMode,
-    limits: &CorpusLimits,
+    _historical_limits: &CorpusLimits,
 ) -> Result<Matcher<'a>, FilesError> {
     match mode {
         SearchMode::Listing => Ok(Matcher::Listing),
         SearchMode::Literal { needle } => {
-            if needle.is_empty() || needle.len() > limits.max_pattern_bytes {
+            if needle.is_empty() {
                 return Err(FilesError::InvalidQuery);
             }
             Ok(Matcher::Literal(needle))
@@ -1797,13 +1678,10 @@ pub(crate) fn compile_search_mode<'a>(
             if !matches!(dialect, RegexDialect::RustRegex1) {
                 return Err(FilesError::Unsupported);
             }
-            if pattern.len() > limits.max_pattern_bytes {
-                return Err(FilesError::InvalidPattern);
-            }
             RegexBuilder::new(pattern)
-                .size_limit(limits.max_regex_size_bytes)
-                .dfa_size_limit(limits.max_regex_size_bytes)
-                .nest_limit(64)
+                .size_limit(usize::MAX)
+                .dfa_size_limit(usize::MAX)
+                .nest_limit(u32::MAX)
                 .build()
                 .map(Matcher::Regex)
                 .map_err(|_| FilesError::InvalidPattern)
@@ -1812,10 +1690,8 @@ pub(crate) fn compile_search_mode<'a>(
 }
 
 impl Corpus {
-    /// Every call conservatively charges max_total_record_bytes scan bytes and
-    /// max_revisions inspections for authorization/view construction, regardless
-    /// of how many inaccessible records exist. This is deliberately conservative
-    /// and avoids uncharged inventory work or private-count budget side channels.
+    /// Every call accounts for the complete retained corpus used to construct
+    /// the view. Saved numeric limits do not constrain scans or result bytes.
     /// Subject scans, query bytes, candidate matches, and returned bytes are
     /// additional cumulative charges. No automatic continuation occurs.
     pub fn discover(
@@ -1827,8 +1703,8 @@ impl Corpus {
         cursor: Option<&PageCursor>,
     ) -> Result<SearchPage, FilesError> {
         let admission_bytes = admission.validate(self.limits.max_record_bytes)?;
-        if limits.result_bytes < DISCOVERY_CONTROL_BYTES {
-            return Err(FilesError::InvalidLimits);
+        if limits.results == 0 {
+            return Err(FilesError::InvalidQuery);
         }
         navigation.begin_call()?;
         if !navigation.charge(NavigationUsage {
@@ -1848,17 +1724,13 @@ impl Corpus {
         };
         let query_bytes = serialized_len(request, self.limits.max_record_bytes)
             .map_err(|_| FilesError::InvalidQuery)?;
-        let mut scanned = checked_add(
-            self.limits.max_total_record_bytes,
+        let scanned = checked_add(
+            self.material_bytes()?,
             checked_add(query_bytes, admission_bytes)?,
         )?;
-        if scanned > limits.scan_bytes {
-            page.stop = Some(DiscoveryStop::PageScanLimit);
-            return Ok(page);
-        }
         if !navigation.charge(NavigationUsage {
             scanned_bytes: scanned,
-            inspected_revisions: self.limits.max_revisions,
+            inspected_revisions: self.records.len(),
             ..NavigationUsage::default()
         }) {
             page.status = SearchStatus::Exhausted;
@@ -1935,7 +1807,6 @@ impl Corpus {
             (0, false, false)
         };
         page.snapshot = Some(snapshot.clone());
-        let mut matched = 0usize;
         while position < visible.len() {
             if page.hits.len() >= limits.results {
                 page.stop = Some(DiscoveryStop::PageCountLimit);
@@ -1945,15 +1816,8 @@ impl Corpus {
             let record = &stored.record;
             let cost = match &request.surface {
                 SearchSurface::Path => record.path.len(),
-                SearchSurface::Text {
-                    representation: Representation::JsonString { .. },
-                } => checked_add(record.bytes.len(), self.limits.json.max_decoded_bytes)?,
                 SearchSurface::Text { .. } => record.bytes.len(),
             };
-            if cost > limits.scan_bytes - scanned {
-                page.stop = Some(DiscoveryStop::PageScanLimit);
-                break;
-            }
             if !navigation.charge(NavigationUsage {
                 scanned_bytes: cost,
                 inspected_revisions: 1,
@@ -1963,7 +1827,6 @@ impl Corpus {
                 page.stop = Some(DiscoveryStop::Navigation);
                 break;
             }
-            scanned += cost;
             let representation = match &request.surface {
                 SearchSurface::Path => Representation::Utf8,
                 SearchSurface::Text { representation } => representation.clone(),
@@ -1986,10 +1849,6 @@ impl Corpus {
                 }
             };
             if let Some(matched_range) = matcher.first_match(&text) {
-                if matched >= limits.matches {
-                    page.stop = Some(DiscoveryStop::PageMatchLimit);
-                    break;
-                }
                 if !navigation.charge(NavigationUsage {
                     matches: 1,
                     ..NavigationUsage::default()
@@ -1998,7 +1857,6 @@ impl Corpus {
                     page.stop = Some(DiscoveryStop::Navigation);
                     break;
                 }
-                matched += 1;
                 let hit = DiscoveryHit {
                     reference,
                     path: record.path.clone(),
@@ -2011,10 +1869,6 @@ impl Corpus {
                     serialized_len(&hit, usize::MAX).map_err(|_| FilesError::Serialization)?,
                     1,
                 )?;
-                if bytes > limits.result_bytes - page.charged_result_bytes {
-                    page.stop = Some(DiscoveryStop::PageResultLimit);
-                    break;
-                }
                 if !navigation.charge(NavigationUsage {
                     result_bytes: bytes,
                     ..NavigationUsage::default()
@@ -2301,7 +2155,6 @@ fn checked_add(left: usize, right: usize) -> Result<usize, FilesError> {
 
 struct LengthWriter {
     written: usize,
-    limit: usize,
 }
 
 impl Write for LengthWriter {
@@ -2309,8 +2162,7 @@ impl Write for LengthWriter {
         let next = self
             .written
             .checked_add(bytes.len())
-            .filter(|next| *next <= self.limit)
-            .ok_or_else(|| io::Error::other("serialized size bound"))?;
+            .ok_or_else(|| io::Error::other("serialized size overflow"))?;
         self.written = next;
         Ok(bytes.len())
     }
@@ -2320,8 +2172,8 @@ impl Write for LengthWriter {
     }
 }
 
-fn serialized_len<T: Serialize + ?Sized>(value: &T, limit: usize) -> Result<usize, ()> {
-    let mut writer = LengthWriter { written: 0, limit };
+fn serialized_len<T: Serialize + ?Sized>(value: &T, _historical_limit: usize) -> Result<usize, ()> {
+    let mut writer = LengthWriter { written: 0 };
     serde_json::to_writer(&mut writer, value).map_err(|_| ())?;
     Ok(writer.written)
 }

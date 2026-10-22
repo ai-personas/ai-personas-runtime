@@ -142,10 +142,9 @@ pub(super) fn decode(control: &mut Value) -> Result<Option<Accounting>> {
         )?;
         expanded = expanded
             .checked_add(text_bytes - reference_bytes)
-            .filter(|bytes| *bytes <= EXPANDED_LIMIT)
-            .ok_or_else(|| held("expanded control text exceeds its bound"))?;
-        // Allocate only after the aggregate bound is known. Anchors cannot be
-        // references, so chained expansion and cycles are never accepted.
+            .ok_or_else(|| held("expanded control text size overflow"))?;
+        // Anchors cannot be references, so chained expansion and cycles are
+        // never accepted. The full expanded size is recorded without a quota.
         replacements.push((path.clone(), anchor.to_owned()));
         anchors.insert(anchor.to_owned());
     }

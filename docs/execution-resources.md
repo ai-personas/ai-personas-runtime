@@ -13,8 +13,8 @@ An explicit Stop, Pause or cancellation remains effective; this change does not
 resume a stopped actor or replay a failed or uncertain invocation.
 
 Native navigation records use without enforcing its saved call, scan, match,
-revision or result-byte allocation. Requested page sizes and model-input fitting
-still decide which results are supplied. The history adapter no longer rejects
+revision or result-byte allocation. Requested page sizes decide which results are supplied; there is no application
+model-input fitting quota. The history adapter no longer rejects
 an entire runtime merely because unrelated retained state exceeds4MiB.
 
 Store accounting retains consumed, reserved and uncertain quantities without
@@ -46,13 +46,13 @@ prompt/schema/request, response, stream/event or output-item quotas. Whole-respo
 JSON validation and Store decoding have no configured byte, node, nesting or
 string ceiling. Protocol text and collection maxima no longer reject otherwise
 valid Decisions. Exact identities, duplicate keys, complete JSON and cross-field
-consistency are still checked. Model-input construction has further caps below.
+consistency are still checked. Model-input construction now retains complete selected material without a byte quota.
 
 New host commands retain their complete observed stdout/stderr. Pending results
 supply the complete retained command, stdin and output, and result-reference
 catalogues have no fixed entry cap. Native host-file import reads the complete
-regular UTF-8 file without its former import byte cap; the file-corpus layer still
-has limits pending removal. Historical incomplete captures are not rewritten.
+regular UTF-8 file without its former import byte cap. File-corpus byte and
+count quotas are also removed. Historical incomplete captures are not rewritten.
 
 Store archive reads have no fixed inventory count, exact-ID count or aggregate
 body-byte ceiling. Accounting records the inspected proof/archive bytes and keys
@@ -82,8 +82,7 @@ The embedded WebAssembly runner has no application program, input, output, fuel,
 memory, table or stack quota. HTTP(S) retrieval has no application URL, body,
 header-value, address, origin, port, DNS-count or local-duration quota; redirects
 and environment proxies are supported. Actual ABI, module, protocol and host
-resource failures are still reported. Tool result and model-context layers have
-further limits listed below.
+resource failures are still reported. Tool-result inspections retain complete execution records.
 
 An uncertain response holds its own persona, without blocking eligible peers.
 Its lease, outcome, evidence and uncertain usage remain unchanged. Active local
@@ -91,13 +90,28 @@ transports and unfinished adoption still require their exact owner. Starting an
 independent session or resuming a stopped peer does not replay or reconcile the
 uncertain call.
 
+Model-input construction no longer enforces saved context or response byte
+settings. Mandatory and selected qualified bodies, full pending results, input
+reference tables, eligible own-fragment metadata and peer intentions are supplied
+without application byte/count caps. Expanded request-text decoding and failure
+provenance have no configured size ceiling. Actual provider context failures are
+reported as external outcomes, without silently truncating an input.
+
+File-corpus construction, qualification traversal and assembly no longer impose
+record, source, aggregate, policy, selection or closure quotas. Exact record
+hashes, qualification references and cycle handling remain. Discovery respects
+the requested page size without scan, match or result-byte budgets. Regex engine
+size/depth settings use machine representability, not smaller application caps.
+History cursor retention, archive material and complete native record projections
+have no fixed count or byte quota. Native navigation still records use.
+
 ## Remaining work
 
 Removal is still incomplete. Remaining
 application enforcement includes delegated intake and optional-activity ceilings;
 persona population constraints; source ownership, protection and ineligibility
 gates; extra operator authorization fields; remaining typed protocol and tool-input
-limits; and history, file-corpus, context and projection limits. These are implementation gaps under the
+limits; and additional specialized control/projection limits. These are implementation gaps under the
 new requirement, not exceptions granted by the user. Some earlier documents still
 describe them because those paths remain implemented. They must be removed or
 reworked without relabeling lost data, malformed records or unknown execution as

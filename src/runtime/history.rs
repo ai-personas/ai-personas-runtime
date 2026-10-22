@@ -6,11 +6,9 @@ use super::work_inspection::{bounded, Permissions, PROJECTION_BYTES, PROJECTION_
 use super::*;
 pub(super) mod records;
 
-const MAX_CURSORS: usize = 128;
 // Per focus, including duplicate memberships in separate handles. The byte
 // cap covers the complete serialized handle map, not just member identities.
 const MAX_CURSOR_BYTES: usize = 262_144;
-const MAX_CURSOR_MEMBERS: usize = 4096;
 // Covers the observation envelope, controls, two handles and one omission,
 // including the bounded canonical legacy message identity. Results are also
 // checked exactly before emission and by the final transactional render.
@@ -27,13 +25,13 @@ pub(super) fn resource_accounting(_historical_limits: f::NavigationLimits) -> Va
         },
         "limits_enforced":false,
         "maximum_operations_before_additional_costs":null,
-        "meaning":"Navigation use is recorded without a cumulative quota. Page size and available input context determine which complete results can be supplied. Query metadata is not a record body; wait for fresh supply before using an exact reference or claiming to have read its body. An exhausted or omitted result establishes no absence of history.",
+        "meaning":"Navigation use is recorded without a cumulative quota. Requested page size determines which complete results are supplied; context and byte quotas are not enforced. Query metadata is not a record body; wait for fresh supply before using an exact reference or claiming to have read its body. An exhausted or omitted result establishes no absence of history.",
         "record_bodies":{
             "adopted_decision":"Original authored choices and reasoning; not proof that every proposed operation executed.",
             "observation":"Original runtime receipt; a metadata-only receipt remains metadata-only after reading it. Reading a history-query receipt does not read the records it lists.",
             "message":"Original attributed exchange text through history_query and history_read."
         },
-        "cursor_rule":"To use next_cursor or retry_cursor, repeat the returned query.kind, query.mode and query.record_kind when present. A changed query starts with cursor:null. The page limit may change within its existing bound."
+        "cursor_rule":"To use next_cursor or retry_cursor, repeat the returned query.kind, query.mode and query.record_kind when present. A changed query starts with cursor:null. The requested page size may change."
     })
 }
 
@@ -53,8 +51,7 @@ impl Membership {
     // serialized_bytes starts at two for the array brackets. Never retain a
     // partial membership as a usable traversal or allocate an unbounded list.
     fn push(&mut self, member: (String, String), serialized_bytes: &mut usize) -> bool {
-        if self.0.len() >= MAX_CURSOR_MEMBERS
-            || p::check_history_message_id(&member.0, "history.message_id").is_err()
+        if p::check_history_message_id(&member.0, "history.message_id").is_err()
             || member.1.len() != 64
             || !member
                 .1
@@ -73,9 +70,6 @@ impl Membership {
         let total = (*serialized_bytes)
             .saturating_add(encoded.len())
             .saturating_add(usize::from(!self.0.is_empty()));
-        if total > MAX_CURSOR_BYTES {
-            return false;
-        }
         self.0.push(member);
         *serialized_bytes = total;
         true
@@ -92,7 +86,7 @@ impl<'de> Deserialize<'de> for Membership {
             type Value = Membership;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("bounded ordered history message identities and digests")
+                formatter.write_str("ordered history message identities and digests")
             }
 
             fn visit_seq<A>(self, mut sequence: A) -> std::result::Result<Self::Value, A::Error>
@@ -107,7 +101,7 @@ impl<'de> Deserialize<'de> for Membership {
                 while let Some(member) = sequence.next_element::<(String, String)>()? {
                     if !members.push(member, &mut bytes) {
                         return Err(serde::de::Error::custom(
-                            "history cursor membership exceeds bounds or has invalid identities",
+                            "history cursor membership has invalid identities or ordering",
                         ));
                     }
                 }
@@ -140,9 +134,6 @@ fn retention_fits<'a>(entries: impl IntoIterator<Item = (&'a String, &'a Cursor)
     let mut cursors = BTreeMap::new();
     let mut members = 0_usize;
     for (handle, cursor) in entries {
-        if cursors.len() >= MAX_CURSORS {
-            return false;
-        }
         if cursor.members.is_some() && cursor.records.is_some() {
             return false;
         }
@@ -156,7 +147,7 @@ fn retention_fits<'a>(entries: impl IntoIterator<Item = (&'a String, &'a Cursor)
         members = members
             .saturating_add(cursor.members.as_ref().map_or(0, |m| m.0.len()))
             .saturating_add(cursor.records.as_ref().map_or(0, Vec::len));
-        if members > MAX_CURSOR_MEMBERS || cursors.insert(handle, cursor).is_some() {
+        if cursors.insert(handle, cursor).is_some() {
             return false;
         }
     }
@@ -751,7 +742,7 @@ pub(super) fn apply(
     prepared: &Prepared,
     operation: &p::Operation,
     navigation: &mut f::NavigationBudget,
-    context_base_bytes: usize,
+    _historical_context_base_bytes: usize,
     context_exposure: &Exposure,
     planning_exposure: &mut PlanningExposure,
     now: i64,
@@ -762,19 +753,7 @@ pub(super) fn apply(
         _ => return Err(held("history operation required")),
     };
     let id = operation.id();
-    let result_limit = navigation
-        .remaining()
-        .result_bytes
-        .min(state.config.response_bytes)
-        .min(
-            state
-                .config
-                .context_bytes
-                .saturating_sub(context_base_bytes)
-                .saturating_sub(navigation.used().result_bytes)
-                .saturating_sub(PROMPT_MARGIN),
-        )
-        .min(storage_limits().max_body_bytes as usize);
+    let result_limit = navigation.remaining().result_bytes;
     let mut output = Output::status("exhausted");
     let mut consulted = context_exposure.clone();
     // Even the generic fallback must fit. No permission or mailbox traversal
@@ -790,7 +769,6 @@ pub(super) fn apply(
     }
     if navigation.begin_call().is_ok()
         && result_limit > CONTROL_BYTES
-        && state.config.corpus.max_revisions <= PROJECTION_REVISIONS
         && navigation.charge(f::NavigationUsage {
             scanned_bytes: PROJECTION_BYTES,
             inspected_revisions: PROJECTION_REVISIONS * 2 + 1,

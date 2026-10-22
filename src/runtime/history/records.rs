@@ -26,7 +26,7 @@ impl Material {
         for (proof, object) in entries {
             next.insert(proof.invocation_id.clone(), (proof, object));
         }
-        if next.len() > MAX_CURSOR_MEMBERS || bounded(&next, INPUT_LIMIT).is_none() {
+        if bounded(&next, INPUT_LIMIT).is_none() {
             return false;
         }
         self.archives = next;
@@ -77,9 +77,8 @@ impl Material {
                 matches!(reference, p::HistoryRecordReference::AdoptedDecision { .. })
                     .then_some(reference)
             })
-            .take(MAX_CURSORS + 1)
             .collect();
-        if references.is_empty() || references.len() > MAX_CURSORS {
+        if references.is_empty() {
             return material;
         }
         let ids = references
@@ -604,9 +603,6 @@ fn query(
         }
         candidates.sort_by_key(|entry| key(&entry.reference));
     }
-    if candidates.len() > MAX_CURSOR_MEMBERS {
-        return Ok(status("cursor_retention_unavailable"));
-    }
     let members = candidates
         .iter()
         .map(|r| r.reference.clone())
@@ -800,7 +796,7 @@ pub(crate) fn apply(
     prepared: &Prepared,
     operation: &p::Operation,
     navigation: &mut f::NavigationBudget,
-    context_base_bytes: usize,
+    _historical_context_base_bytes: usize,
     context_exposure: &Exposure,
     planning_exposure: &mut PlanningExposure,
     now: i64,
@@ -817,19 +813,7 @@ pub(crate) fn apply(
         _ => return Err(held("history record operation required")),
     };
     let id = operation.id();
-    let result_limit = navigation
-        .remaining()
-        .result_bytes
-        .min(state.config.response_bytes)
-        .min(
-            state
-                .config
-                .context_bytes
-                .saturating_sub(context_base_bytes)
-                .saturating_sub(navigation.used().result_bytes)
-                .saturating_sub(PROMPT_MARGIN),
-        )
-        .min(storage_limits().max_body_bytes as usize);
+    let result_limit = navigation.remaining().result_bytes;
     let mut output = status("exhausted");
     let mut consulted = context_exposure.clone();
     if bounded(
@@ -843,7 +827,6 @@ pub(crate) fn apply(
     }
     if navigation.begin_call().is_ok()
         && result_limit > CONTROL_BYTES
-        && state.config.corpus.max_revisions <= PROJECTION_REVISIONS
         && navigation.charge(f::NavigationUsage {
             scanned_bytes: PROJECTION_BYTES,
             inspected_revisions: PROJECTION_REVISIONS * 2 + 1,
@@ -929,7 +912,6 @@ pub(crate) fn apply(
             let archive_ready = if !cursor_authorized {
                 false
             } else if let Some(ids) = archive_ids {
-                let ids = ids.filter(|ids| ids.len() <= MAX_CURSORS);
                 match store.history_archives(ids.as_deref()) {
                     Ok(Some(entries)) => {
                         archive_batch = Some(Material {

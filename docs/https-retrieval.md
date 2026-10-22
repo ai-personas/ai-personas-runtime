@@ -37,8 +37,8 @@ A later `http_fetch_result` observation and
 `tools/http-results/`. Read or select the exact reference to receive the body;
 URL, status and digest metadata are not the response text. Retrieving a retained
 body does not make another request. Required source qualifications and original
-execution evidence remain attached. Some file-corpus and context limits remain
-pending removal, as documented in [execution resources](execution-resources.md).
+execution evidence remain attached. File-corpus and context byte/count quotas are removed; remaining specialized
+restrictions are documented in [execution resources](execution-resources.md).
 
 `recover-http-fetches` publishes an existing terminal result or dispatches a
 still-admitted job with matching prerequisites. Already dispatched requests are

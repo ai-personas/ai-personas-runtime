@@ -893,10 +893,5 @@ pub(super) fn inspect(
             "execution_is_not_correctness_or_skill_application":true}));
     }
     let view = json!({"available":true,"executions":results});
-    if serde_json::to_vec(&view)?.len() > 65_536 {
-        return Ok(
-            json!({"available":false,"reason":"HttpFetch evidence exceeds the bounded inspection view."}),
-        );
-    }
     Ok(view)
 }

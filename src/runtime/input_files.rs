@@ -5,10 +5,7 @@ use super::*;
 
 const INTERFACE: &str = "input-file-choices-v2";
 const LEGACY_INTERFACE: &str = "input-file-choices-v1";
-const OUTPUT_RULE: &str = "Host-command inputs.stdin_asset may use {kind:input_file,handle:CURRENT_HANDLE} to pass a full UTF-8 supporting asset directly as command stdin without copying its body. This consumes the asset as execution input, not as model context. This v2 table also supports file_write.qualification_handles, file_import.qualification_handles, communicate.reference_handles and reference_handles on an authored reply. Choose the listed handles instead of copying source IDs or hashes. Qualifications join the exact literal qualifications under the same combined bound. The canonical qualifications already identify a file's exact supporting sources; refer to those qualifications in file prose instead of retyping their IDs or hashes. Message references are attached as canonical file_references beside the unchanged authored text; do not repeat their hashes in prose. For retained tool results, tool_result_origins identifies the actual tool family and producing invocation beside the handle. Match the requested invocation; table order does not identify the latest or required result. Provenance metadata supplies no body. A citation proves no reading and establishes no correctness or acceptance. Handles name only references offered in this admission, never a new same-response file. Existing permissions and complete-response validation still apply. Selection lifetimes do not become citation or qualification lifetimes. Earlier v1 tables permit next-context selection only.";
-const MAX_CHOICES: usize = 128;
-const MAX_BYTES: usize = 32_768;
-const MAX_CANDIDATES: usize = 4096;
+const OUTPUT_RULE: &str = "Host-command inputs.stdin_asset may use {kind:input_file,handle:CURRENT_HANDLE} to pass a full UTF-8 supporting asset directly as command stdin without copying its body. This consumes the asset as execution input, not as model context. This v2 table also supports file_write.qualification_handles, file_import.qualification_handles, communicate.reference_handles and reference_handles on an authored reply. Choose the listed handles instead of copying source IDs or hashes. Qualifications join the exact literal qualifications. The canonical qualifications already identify a file's exact supporting sources; refer to those qualifications in file prose instead of retyping their IDs or hashes. Message references are attached as canonical file_references beside the unchanged authored text; do not repeat their hashes in prose. For retained tool results, tool_result_origins identifies the actual tool family and producing invocation beside the handle. Match the requested invocation; table order does not identify the latest or required result. Provenance metadata supplies no body. A citation proves no reading and establishes no correctness or acceptance. Handles name only references offered in this admission, never a new same-response file. Existing permissions and complete-response validation still apply. Selection lifetimes do not become citation or qualification lifetimes. Earlier v1 tables permit next-context selection only.";
 const RULE: &str = "For next_fragments or next_assets, prefer {kind: replace_from_input, reason: your reason, handles: [exact listed handles]} when the desired references are listed here. Each handle names the exact reference beside it in this admission only. Choose relevant entries yourself. This table is file metadata, not a corpus catalogue or supplied bodies. A registered native-command guide is optional supporting material: current work-command schemas are supplied without a guide-selection or work-command-grant gate. Use the exact admitted schema and work references. Reading a guide does not perform a command or establish successful execution. Older handles are invalid; use file discovery for unlisted resources. Omission does not establish absence.";
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -167,11 +164,7 @@ impl Candidates {
         if self.exact.contains_key(&key) {
             return Ok(());
         }
-        if self.exact.len() == MAX_CANDIDATES {
-            self.truncated = true;
-        } else {
-            self.exact.insert(key, reference);
-        }
+        self.exact.insert(key, reference);
         Ok(())
     }
 
@@ -258,7 +251,7 @@ pub(super) fn offer(
     supplied_bodies: &BTreeSet<f::Reference>,
     invocation: &str,
     audience: &f::Admission,
-    available_bytes: usize,
+    _historical_available_bytes: usize,
 ) -> Result<Option<(Value, BTreeMap<String, p::ExactRef>, Exposure)>> {
     let candidates = candidates(control, qualified)?;
     let mut offered = Offered {
@@ -268,18 +261,11 @@ pub(super) fn offer(
         truncated: candidates.truncated,
         rule: format!("{RULE} {OUTPUT_RULE}"),
     };
-    // Reserve the enclosing CONTROL key too. Final prompt measurement remains
-    // authoritative; this optional table may never displace required material.
-    let byte_limit = available_bytes.saturating_sub(64).min(MAX_BYTES);
     let mut exposure = Exposure::default();
     for reference in candidates.exact.into_values() {
         let exact = file_reference(&reference)?;
         if !lineage_permitted(state, std::slice::from_ref(&exact), audience) {
             continue;
-        }
-        if offered.choices.len() == MAX_CHOICES {
-            offered.truncated = true;
-            break;
         }
         let stored = record(state, &exact)?;
         let command = state.work_guides.as_ref().and_then(|catalog| {
@@ -304,11 +290,6 @@ pub(super) fn offer(
             native_command_readiness,
             tool_result_origins,
         });
-        if serde_json::to_vec(&offered)?.len() > byte_limit {
-            offered.choices.pop();
-            offered.truncated = true;
-            break;
-        }
         exposure.sources.push(exact);
     }
     if offered.choices.is_empty() {
@@ -360,21 +341,15 @@ pub(super) fn validate_control(prepared: &Prepared, control: &Value) -> Result<(
     }
     require(
         prepared.request.mode == Mode::Ordinary
-            && prepared.character_revision.is_some()
-            && prepared.input_file_choices.len() <= MAX_CHOICES,
+            && prepared.character_revision.is_some(),
         "input file choices were not offered in this mode",
     )?;
     let value = &control["input_file_choices"];
-    require(
-        serde_json::to_vec(value)?.len() <= MAX_BYTES,
-        "input file choice byte bound",
-    )?;
     let offered: Offered = serde_json::from_value(value.clone())?;
     require(
         matches!(offered.interface.as_str(), INTERFACE | LEGACY_INTERFACE)
             && offered.invocation_id == prepared.request.id
-            && !offered.choices.is_empty()
-            && offered.choices.len() <= MAX_CHOICES,
+            && !offered.choices.is_empty(),
         "input file choice admission mismatch",
     )?;
     let mut references = BTreeMap::new();

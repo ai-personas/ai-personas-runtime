@@ -2,8 +2,6 @@
 //! This snapshot supplies neither another persona's context nor execution state.
 use super::*;
 
-const MAX_RECORDS: usize = 8;
-const MAX_BYTES: usize = 4096;
 
 pub(super) fn context(
     state: &State,
@@ -18,22 +16,14 @@ pub(super) fn context(
     }
     // The caller already checked this work's policy and complete core lineage.
     // Never inspect other tasks, private selections, prompts or in-flight calls.
-    let maximum = MAX_BYTES.min(state.config.context_bytes / 16);
     let mut projection = json!({
         "profile":"current-work-collaborators-v1",
         "records":[],
         "records_omitted":false,
         "meaning":"Snapshot at this input's context_at_unix. Each last_authored_continuation is that peer's accepted intention, not observed execution, results, readiness, agreement or a new commitment. It may change while your call runs. Choose your own contribution and whether to communicate or agree on shared edits. This supplies no peer file body or mutation authority. Omitted entries establish neither absence nor permission."
     });
-    if work_inspection::bounded(&projection, maximum).is_none() {
-        return Ok(None);
-    }
     let mut records = Vec::new();
     for peer in work.participants.keys().filter(|peer| peer.0 != actor) {
-        if records.len() == MAX_RECORDS {
-            projection["records_omitted"] = json!(true);
-            break;
-        }
         let Some(persona) = state.personas.get(&peer.0) else {
             projection["records_omitted"] = json!(true);
             continue;
@@ -81,17 +71,9 @@ pub(super) fn context(
         }
         // Keep each authored intention whole. Do not paraphrase or truncate it
         // into a host-written task assignment or claim of current activity.
-        let mut candidate = projection.clone();
-        let mut candidate_records = records.clone();
-        candidate_records.push(value);
-        candidate["records"] = json!(candidate_records);
-        if work_inspection::bounded(&candidate, maximum).is_some() {
-            records = candidate_records;
-            projection = candidate;
-            extend_exposure(exposure, &inherited);
-        } else {
-            projection["records_omitted"] = json!(true);
-        }
+        records.push(value);
+        extend_exposure(exposure, &inherited);
     }
+    projection["records"] = json!(records);
     Ok(Some(projection))
 }

@@ -135,16 +135,13 @@ fn entries(work: &w::Work, collection: p::WorkCollection) -> Vec<Entry<'_>> {
     entries
 }
 
-/// A bounded writer also avoids allocating oversized serialized record copies.
+/// Serialize the complete projection, reporting actual allocation failure.
 struct BoundedBytes {
     bytes: Vec<u8>,
-    maximum: usize,
 }
 impl Write for BoundedBytes {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        if bytes.len() > self.maximum.saturating_sub(self.bytes.len()) {
-            return Err(io::Error::other("inspection serialization bound"));
-        }
+        self.bytes.try_reserve(bytes.len()).map_err(io::Error::other)?;
         self.bytes.extend_from_slice(bytes);
         Ok(bytes.len())
     }
@@ -152,10 +149,9 @@ impl Write for BoundedBytes {
         Ok(())
     }
 }
-pub(super) fn bounded<T: Serialize>(value: &T, maximum: usize) -> Option<Vec<u8>> {
+pub(super) fn bounded<T: Serialize>(value: &T, _historical_maximum: usize) -> Option<Vec<u8>> {
     let mut writer = BoundedBytes {
         bytes: Vec::new(),
-        maximum,
     };
     serde_json::to_writer(&mut writer, value).ok()?;
     Some(writer.bytes)
@@ -206,10 +202,6 @@ pub(super) struct Permissions<'a> {
 }
 impl<'a> Permissions<'a> {
     pub(super) fn new(state: &'a State, admission: &'a f::Admission) -> Result<Self> {
-        require(
-            state.config.corpus.max_revisions <= PROJECTION_REVISIONS,
-            "work inspection projection configuration unsupported",
-        )?;
         let mut index = BTreeMap::new();
         let mut revisions = Vec::new();
         for (name, source) in &state.sources {
@@ -221,10 +213,6 @@ impl<'a> Permissions<'a> {
                 revisions.push((name.as_str(), source, revision));
             }
         }
-        require(
-            revisions.len() <= state.config.corpus.max_revisions,
-            "work inspection source envelope exceeds admitted revision bound",
-        )?;
         let mut nodes: Vec<PermissionNode> = (0..revisions.len() * 2)
             .map(|_| PermissionNode::default())
             .collect();
@@ -439,14 +427,6 @@ impl<'a> Permissions<'a> {
         {
             return None;
         }
-        let maximum = self
-            .state
-            .config
-            .corpus
-            .max_revisions
-            .saturating_add(self.state.config.corpus.max_closure_references);
-        let mut references = input.sources.len();
-        let mut bytes = serde_json::to_vec(input).ok()?.len();
         let mut reachable = vec![0_u64; self.nodes.len().div_ceil(64)];
         for reference in &input.sources {
             let index = *self
@@ -460,19 +440,7 @@ impl<'a> Permissions<'a> {
                 *to |= from;
             }
         }
-        // Bound the union once. Several roots often inherit the same history;
-        // summing a complete closure for each root would charge that retained
-        // material repeatedly and incorrectly withhold an otherwise fitting
-        // permission projection. Every reachable node/mode, restriction and
-        // outgoing reference still contributes, including duplicate edges.
-        // The complete graph was already covered by the fixed reservation.
-        for (index, node) in self.nodes.iter().enumerate() {
-            if reachable[index / 64] & (1 << (index % 64)) != 0 {
-                references = references.saturating_add(node.references);
-                bytes = bytes.saturating_add(node.bytes);
-            }
-        }
-        (references <= maximum && bytes <= INPUT_LIMIT).then_some(reachable)
+        Some(reachable)
     }
     pub(super) fn exposure(&self, input: &Exposure) -> Option<Exposure> {
         self.reachable(input).map(|_| input.clone())
@@ -652,7 +620,7 @@ pub(super) fn apply(
     limit: usize,
     token: Option<&str>,
     navigation: &mut f::NavigationBudget,
-    context_base_bytes: usize,
+    _historical_context_base_bytes: usize,
     context_exposure: &Exposure,
     planning_exposure: &mut PlanningExposure,
     now: i64,
@@ -662,18 +630,7 @@ pub(super) fn apply(
     // precedes the call and fixed state-projection reservation below.
     // The caller's final transactional render remains the authoritative exact
     // context fit check; this conservative local cap never expands its allowance.
-    let result_limit = navigation
-        .remaining()
-        .result_bytes
-        .min(
-            state
-                .config
-                .context_bytes
-                .saturating_sub(context_base_bytes)
-                .saturating_sub(navigation.used().result_bytes)
-                .saturating_sub(PROMPT_MARGIN),
-        )
-        .min(storage_limits().max_body_bytes as usize);
+    let result_limit = navigation.remaining().result_bytes;
     // Pagination and budget statuses depend on the available context after
     // ordinary selection changes. Keep its permission lineage without claiming
     // that those selected bodies were supplied by this inspection.
@@ -684,7 +641,7 @@ pub(super) fn apply(
     if navigation.charge(f::NavigationUsage {
         calls: 1,
         ..Default::default()
-    }) && state.config.corpus.max_revisions <= PROJECTION_REVISIONS
+    })
         && navigation.charge(f::NavigationUsage {
             scanned_bytes: PROJECTION_BYTES,
             inspected_revisions: PROJECTION_REVISIONS * 2 + 1,

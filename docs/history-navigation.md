@@ -1,9 +1,9 @@
 # Continuing a history query
 
 The Store archive adapter now reads complete inventories and exact archives
-without fixed record-count or aggregate byte quotas. Runtime cursor, result and
-context limits described below remain pending removal under
-[the current requirement](execution-resources.md).
+without fixed record-count or aggregate byte quotas. Runtime cursor retention,
+result projection and context fitting also have no application count or byte
+quota under [the current requirement](execution-resources.md).
 
 History query observations include the exact query alongside their results:
 
@@ -20,7 +20,7 @@ History query observations include the exact query alongside their results:
 
 This excerpt omits the observation's other status and result fields. To request
 another page, use that cursor with the same `kind`, `record_kind` and `mode`,
-an operation ID and a permitted `limit`. For message history, `query.kind` is
+an operation ID and a positive requested `limit`. For message history, `query.kind` is
 `history_query` and there is no `record_kind`. The page limit may change; the
 query must remain exact. Changing a literal, regex or record kind requires a
 new query with `cursor: null`.
@@ -32,22 +32,22 @@ parameters to an observation does not restore an expired cursor or change the
 meaning of `stale_cursor`.
 
 The original authored decision need not be supplied on the next call, so the
-result carries these parameters directly. Their serialized bytes, including
-JSON escaping, count against the existing result and context bounds before
-hits are fitted. If the controls cannot fit, the query returns an exhausted
-status without a cursor. No navigation allowance is increased or reset.
+result carries these parameters directly. Their complete serialized bytes, including
+JSON escaping, are accounted for without a result or context quota. Requested
+page size controls pagination; no navigation allowance is increased or reset.
 
 Query hits identify records; a separate exact read supplies their bodies. A
 qualified file read includes all its required accompaniment, including accepted
-qualification bindings. Even a short asset can therefore exceed the read
-bound. `read_overflow` with `text_supplied: false` supplies no body, and an
-incomplete history page establishes neither absence nor complete coverage.
+qualification bindings. Complete qualified bodies are supplied without a local
+read-byte cap. Historical `read_overflow` with `text_supplied: false` supplied no
+body; those observations are not rewritten. An incomplete history page
+establishes neither absence nor complete coverage.
 
 Adopted Decision reads supply the exact authored JSON and the explicit required
 qualifications of its original sources. Source ancestry still governs access;
 it does not automatically bring every ancestor's text into the result. Required
-qualifications retain their complete current closure and can still exceed the
-bound. This projection is labeled `authored-decision-qualifications-v2` and does
+qualifications retain their complete current closure without a configured
+size ceiling. This projection is labeled `authored-decision-qualifications-v2` and does
 not reconstruct the original model input or prove execution. Adopted-Decision
 query cursors from the earlier projection require an explicit fresh query;
 their original observations and archives remain unchanged.
@@ -55,4 +55,4 @@ their original observations and archives remain unchanged.
 Qualification metadata lookup and bundle expansion are reserved before that
 work occurs. Listing returns descriptors without resolving their bodies; a
 later read or body search pays its own lookup and projection cost within the
-same existing allowance.
+same accounting ledger without a quota.

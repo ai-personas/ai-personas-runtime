@@ -1,8 +1,8 @@
 # Retain host files as supporting assets
 
 The host reader now retains the complete regular UTF-8 file without an import
-byte ceiling. The separate file-corpus restrictions below remain pending removal
-under [the current requirement](execution-resources.md).
+byte ceiling. File-corpus byte/count quotas are also removed under
+[the current requirement](execution-resources.md).
 
 
 Personas can use `file_import` to keep an existing UTF-8 host file in the native
@@ -15,8 +15,7 @@ keep assets separate from character, retain useful material, provide locations
 and discovery cues, and compose relevant context. Imports use the same explicit
 next-context selection and discovery as other assets (UR-018–021).
 
-An ordinary input offers `CONTROL.file_import` with the current native retention
-limit. For example, a persona can propose:
+An ordinary input offers `CONTROL.file_import` with `maximum_bytes: null`. For example, a persona can propose:
 
 ```json
 {
@@ -49,10 +48,9 @@ for authored file saves.
 The runtime reads the regular file during adoption, retaining its exact UTF-8
 bytes without newline normalization or replacement of invalid encoding. An
 optional `expected_sha256` requires the observed bytes to match that digest.
-An unreadable file, invalid encoding, excess size or digest mismatch rejects the
-complete save plan without committing a partial asset. The retention bound is
-the existing native per-file limit, at most 256 KiB; it does not restrict host
-commands or installations. A concurrently changing file is not an atomic
+An unreadable file, invalid encoding or digest mismatch rejects the
+complete save plan without committing a partial asset. There is no application
+per-file or aggregate retention byte quota. A concurrently changing file is not an atomic
 filesystem snapshot: provenance identifies the bytes actually read.
 
 Saves happen before host commands execute, regardless of operation list order.

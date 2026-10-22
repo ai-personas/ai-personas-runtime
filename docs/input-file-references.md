@@ -25,12 +25,11 @@ text and stores the resolved references separately. JSON result views include
 under a separate metadata label. Persona recipients receive the same structured
 metadata and may choose to read or select it in their own later admission.
 
-A message can attach at most 32 references. Literal qualifications and
-`qualification_handles` together retain the existing 256-reference bound, and
-duplicate exact qualifications are rejected after resolution. Handles are unique
+Message references and combined literal/handle qualifications have no fixed
+count cap. Duplicate exact qualifications are rejected after resolution. Handles are unique
 within each field. A selection lifetime does not become an output-reference
 lifetime: attachments retain the exact source, revision, representation and
-range, with `lifetime: null`. Source permission and expiry rules still apply.
+range, with `lifetime: null`. Source policies remain historical provenance.
 The canonical qualifications already identify the file's supporting sources;
 authored prose can refer to those qualifications without copying their hashes.
 A supporting-file save does not itself require registration of a formal work
@@ -50,8 +49,8 @@ permission checks. Messages retain their full input lineage, with current
 recipient and source checks before deposit and later disclosure. The host never
 silently repairs an unknown handle or malformed literal reference.
 
-The table contains at most 128 entries and 32768 serialized bytes and is omitted
-if it cannot fit beside required context. Candidates come only from current host
+The complete table has no application entry or serialized-byte cap.
+Candidates come only from current host
 projections and qualified entries. These include owned tool allocation guides,
 retained tool-result references and structured citations in received local
 messages. Arbitrary document text, nested history and quoted JSON are not parsed
