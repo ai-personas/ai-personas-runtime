@@ -755,7 +755,9 @@ fn readable_result(value: &launch::Output) -> runtime::Result<String> {
             "lifetime_step_limit" => "This retained session reached a historical model-step limit. Current execution records usage without enforcing that quota; explicit Stop/Pause and unresolved calls remain effective.",
             "no_eligible_route" => "The foreground session stopped without selecting another step. Inspect current status if reconsideration is needed.",
             "character_fence" => "An accepted character change requires its next authorized handover.",
-            "held" | "held_or_unresolved_invocation" | "invalid_response" => "The latest response was not adopted. Inspect it before explicitly deciding what to do next.",
+            // A hold may concern an earlier invocation or another work.
+            "held" | "held_or_unresolved_invocation" => "The session is held. Inspect current work and invocation status before continuing.",
+            "invalid_response" => "The latest response was not adopted. Inspect it before explicitly deciding what to do next.",
             "provider_preflight_or_transport_failed" => "The provider could not complete this attempt. Inspect its retained status before recovery.",
             "selection_overflow" => "A retained selection overflow was recorded. Current ordinary assembly has no application byte quota; inspect its exact diagnostic and current selections before continuing.",
             "mandatory_context_overflow" => "Context construction failed with a retained overflow diagnostic. Current ordinary assembly has no application byte quota; inspect the exact diagnostic and source binding before continuing.",
