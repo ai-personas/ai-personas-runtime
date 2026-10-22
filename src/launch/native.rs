@@ -33,10 +33,6 @@ pub async fn native_run(
     vault: &Path,
     input: NativeInput<'_>,
 ) -> Result<Output> {
-    require(
-        root.is_absolute() && vault.is_absolute(),
-        "explicit absolute paths required",
-    )?;
     identity(operator)?;
     match &input {
         NativeInput::Need(request) => text(request, 32_768)?,

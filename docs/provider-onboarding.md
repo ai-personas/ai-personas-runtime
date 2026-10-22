@@ -40,11 +40,13 @@ a proof for every schema, payload size, future call or account entitlement.
 
 ## Library boundary
 
-`auth::onboarding::Backend::open(&vault_path)` selects an existing, absolute,
-protected Personas vault outside repositories. It retains the existing account
-lock. Opening does not sign in, refresh, perform inference or create a credential.
-The parent must already exist with mode 0700. The caller selects sign-in or renewal and drops each backend handle before a
-renewal operation. These commands need no second authorization flag.
+`auth::onboarding::Backend::open(&vault_path)` selects a Personas vault through
+the shared canonical path resolver. Relative paths and existing aliases select
+the actual account file and its lock. Repository placement, ownership and mode
+bits impose no application restriction. The parent must already exist. Opening
+does not sign in, refresh, perform inference or create a credential. The caller
+selects sign-in or renewal and drops each backend handle before renewal. These
+commands need no second authorization flag.
 
 | Method | Effect and result |
 | --- | --- |
@@ -144,11 +146,12 @@ values. Malformed carrier or known secret echoes are withheld with a digest and
 byte count, never promoted to proof. Machine output contains no carrier bodies.
 
 Publication uses the vault's descriptor-anchored mode-0600 staging, file fsync,
-atomic replacement and directory fsync under its account lock. Symlinks,
-multiply-linked files, wrong ownership/permissions, repository ancestry and
-malformed saved fields are refused. No production credential format is
-changed. The `.onboarding` filename suffix is now reserved against credential-path
-selection to prevent namespace collisions.
+atomic replacement and directory fsync under its account lock. The selected
+credential path is canonicalized before opening its parent. Transaction
+sidecars must retain one regular-file identity, and saved fields must remain
+valid. Existing ownership and mode bits are unchanged. The `.onboarding`
+filename suffix is reserved against credential-path selection to prevent
+namespace collisions.
 
 A claim is saved before possible dispatch. An identical repeated ID returns its
 existing plan/status; changed contents or plan digest conflict. A lost response,

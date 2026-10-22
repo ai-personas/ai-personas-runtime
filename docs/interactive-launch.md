@@ -375,11 +375,11 @@ malformed/missing progress with retained files is reported without resetting it.
 Stale write files are not silently removed. Physical disk and outside copies are
 not bounded by the launcher.
 
-If the selected standard state location is rejected by the native vault helper,
-the dialogue stops with `native_vault_location_unsupported`; it does not prompt
-for arbitrary filesystem paths or switch to ephemeral credential storage. Native
-SIWC credential storage still requires the Rust vault's own ownership, locking,
-account-binding, expiry and refresh-uncertainty checks to pass. The launcher does
-not import Codex CLI credentials or use CLI/app-server inference. Root and hostile
-same-UID processes remain trusted; do not put persistent state in synchronized or
-repository directories.
+The native vault resolves the selected location before deriving its account lock
+and transaction sidecars. Repository placement, ownership and permission bits
+impose no application restriction. New directories and files use private creation
+defaults; existing modes are unchanged. An inaccessible path or invalid
+transaction file stops with `native_vault_location_unsupported` without selecting
+another location. Account bindings, expiry, atomic refresh records and actual
+lock identity still apply. The launcher does not import Codex CLI credentials or
+use CLI/app-server inference.

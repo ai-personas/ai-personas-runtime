@@ -11,7 +11,7 @@ Build the binaries with `cargo build --locked`. Help is available without a vaul
 ./target/debug/ai-personas migrate-provider --help
 ```
 
-Select an access action with an explicit credential path outside repositories:
+Select an access action with an explicit credential path:
 
 ```sh
 personas-auth --vault /absolute/private/personas-account.json sign-in
@@ -19,7 +19,13 @@ personas-auth --vault /absolute/private/personas-account.json status
 personas-auth --vault /absolute/private/personas-account.json refresh
 ```
 
-These are access operations, not offline validation commands. The helper may create the final missing protected parent directory during explicitly authorized sign-in; its ancestors must already exist.
+Relative paths and existing directory or credential-file aliases resolve to the
+actual account location before its lock and sidecars are selected. Repository
+placement, ownership and permission bits impose no application restriction;
+ordinary filesystem access still applies. Sign-in creates missing parent
+directories with mode 0700, and new credential and transaction files use mode
+0600. Existing modes are not changed. Status, refresh and provider configuration
+require the selected parent to exist and never create another account location.
 
 For an existing Store, inspect current migration references, then preview and apply an explicit request:
 
@@ -53,7 +59,12 @@ The callback listener binds to `127.0.0.1`, with the same `/auth/callback` path 
 
 The helper uses fresh state, nonce and PKCE S256 values, validates the ID-token signature against the issuer's keys and checks issuer, issued-client audience, expiry, nonce and subject. The token response must grant direct plan usage. Returning sign-in must preserve the selected registration and account identity.
 
-Only an explicitly selected Personas credential vault is opened. Credential records, pending registration receipts and the stable host identifier use protected local files. A new grant is stored only after validation. Status remains metadata-only and never constructs an HTTP adapter. A credential-free receipt reports `registration_present: true`, `account_verified: false` and `grant_connected: false`, without exposing receipt values or credentials. Credential status uses the library's current handoff checks, including expiry, refresh fences and stale-record rejection. Diagnostics contain metadata and fingerprints, never access, refresh or ID tokens.
+Only an explicitly selected Personas credential vault is opened. Credential records, pending registration receipts and the stable host identifier use local files with private creation defaults. A new grant is stored only after validation. Status remains metadata-only and never constructs an HTTP adapter. A credential-free receipt reports `registration_present: true`, `account_verified: false` and `grant_connected: false`, without exposing receipt values or credentials. Credential status uses the library's current handoff checks, including expiry, refresh fences and stale-record rejection. Diagnostics contain metadata and fingerprints, never access, refresh or ID tokens.
+
+The canonical credential file and transaction sidecars retain one regular-file
+identity for atomic replacement. Reserved host-ID, staging and sidecar names
+cannot also name an account file. Account locks retain their actual inode binding;
+aliases share that lock and the same host ID and refresh journal.
 
 Account binding is the fixed-size string `personas-siwc-account-v1:<sha256>`, where `<sha256>` is the 64-character lowercase SHA-256 digest of the canonical JSON tuple `[issuer, subject, client_id]`. Email is not part of this binding. The status `account_sha256` and provider evidence hash the exact full binding string again.
 

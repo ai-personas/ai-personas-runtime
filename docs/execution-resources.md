@@ -38,8 +38,15 @@ and files keep private creation defaults; existing permissions are not changed.
 Store resolves a database symlink before deriving its journal and execution-lock
 paths. SQLite files retain one regular-file identity: hard-link aliases and
 separately aliased sidecars would split its journaling. The execution lock still
-binds the opened file's actual device and inode. Native SIWC vault and installed
-helper validation are separate interfaces with their own current path checks.
+binds the opened file's actual device and inode.
+
+Native SIWC vault selection likewise accepts host-accessible relative paths,
+parent components and existing aliases without repository, ownership or mode
+policies. One canonical account path determines its lock, host identity and
+refresh/registration/onboarding sidecars. Sign-in can create missing parent
+directories; other account operations use the selected existing parent. Atomic
+replacement, actual account bindings and unresolved refresh outcomes retain their
+meaning. Installed helper selection remains a separate path interface.
 
 An earlier accounting overrun remains recorded but no longer freezes admission.
 Ledger inspection reports `resource_quotas_enforced: false`, `frozen: false` and

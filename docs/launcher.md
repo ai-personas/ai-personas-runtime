@@ -72,8 +72,9 @@ vault, start a native foreground run:
 ```
 
 These commands map only to `personas-auth native-run --need` or `--work`.
-An absolute vault path, an absolute state root and the existing operator identify
-the selected run. `--authorize` is optional historical metadata. The runtime/helper
+The selected vault path, state root and existing operator identify the run.
+Relative paths, parent components and existing aliases resolve to their actual
+locations. `--authorize` is optional historical metadata. The runtime/helper
 owns the execution lock, vault lock, current credential checks and exact saved
 account/model/effort bindings.
 The launcher does not open the vault, copy tokens, change access mode, grant

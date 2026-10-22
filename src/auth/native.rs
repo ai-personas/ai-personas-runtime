@@ -43,9 +43,6 @@ impl VaultCredentialSource {
         if SystemClock.now_unix() >= expires_at_unix {
             return Err(p::Failure::CredentialExpired);
         }
-        if !path.is_absolute() {
-            return Err(p::Failure::Configuration);
-        }
         let guard = Vault::open(path)
             .and_then(|vault| vault.lock())
             .map_err(|_| p::Failure::CredentialMissing)?;

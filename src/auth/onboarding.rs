@@ -523,7 +523,7 @@ pub struct Backend {
 opaque_debug!(Backend);
 impl Backend {
     pub fn open(path: &Path) -> Result<Self> {
-        let vault = Vault::open_for_onboarding(path)
+        let vault = Vault::open(path)
             .and_then(|v| v.lock())
             .map_err(auth_code)?;
         let backend = Self {

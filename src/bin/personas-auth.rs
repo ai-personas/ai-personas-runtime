@@ -18,17 +18,8 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeSet,
-    ffi::{CString, OsStr},
-    fs::{self, File, OpenOptions},
     future::Future,
-    os::{
-        fd::{AsRawFd, FromRawFd},
-        unix::{
-            ffi::OsStrExt,
-            fs::{MetadataExt, OpenOptionsExt},
-        },
-    },
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
     pin::Pin,
 };
 use tokio::{
@@ -47,10 +38,10 @@ const MIGRATION_NOTICE: &str = "A separate explicit ai-personas migrate-provider
 #[command(
     name = "personas-auth",
     about = "Explicit host-side Personas SIWC sign-in, refresh, and status",
-    after_help = "Use an explicit absolute external --vault path. No credential discovery occurs. Open the authorization URL in a browser on the same host as this helper. Authentication establishes a grant, not model capability; no inference is performed by sign-in, refresh, or status. Capability digests are structural checks, not proof of actual capability. Native-run requires an explicit absolute --state-root, --operator, and exactly one --need, --work, or --delegation. Optional --intake-delegation selects an exact grant only with --work and creates no opportunity. It performs only the fixed in-process execution-owner-bound exact saved-configuration handoff. After refresh, use a separate explicit ai-personas migrate-provider when saved expiry, model, or account bindings differ. Native-run adds no grant, refresh, probe, migration, fallback or general resume."
+    after_help = "Select an explicit --vault path. Relative paths and existing aliases resolve to the same account location and lock. No credential discovery occurs. Open the authorization URL in a browser on the same host as this helper. Authentication establishes a grant, not model capability; no inference is performed by sign-in, refresh, or status. Capability digests are structural checks, not proof of actual capability. Native-run requires an explicit --state-root, --operator, and exactly one --need, --work, or --delegation. Optional --intake-delegation selects an exact grant only with --work and creates no opportunity. It performs only the fixed in-process execution-owner-bound exact saved-configuration handoff. After refresh, use a separate explicit ai-personas migrate-provider when saved expiry, model, or account bindings differ. Native-run adds no grant, refresh, probe, migration, fallback or general resume."
 )]
 pub(crate) struct Cli {
-    /// Selected external credential file; absolute, protected, and without symlinks.
+    /// Selected credential file; relative paths and existing aliases are accepted.
     #[arg(long, global = true)]
     vault: Option<PathBuf>,
     #[command(subcommand)]
@@ -145,9 +136,7 @@ fn error_message(error: &AuthError) -> &'static str {
         AuthError::Scope => "required grant scope is unavailable",
         AuthError::Expired => "credential expired; explicit renewal is required",
         AuthError::Binding => "selected credential or configuration binding mismatch",
-        AuthError::Vault => {
-            "explicit absolute external vault with protected ownership and no symlinks is required"
-        }
+        AuthError::Vault => "selected vault or its transaction files are unavailable or invalid",
         AuthError::Busy => "selected vault is busy",
         AuthError::TooEarly => "credential renewal is too early",
         AuthError::CommitUncertain => "credential commit outcome is unknown; do not retry",
@@ -188,9 +177,6 @@ pub(crate) async fn run(cli: Cli) -> Result<i32> {
             child_work,
             intake_delegation,
         } => {
-            if !absolute_path(&state_root) {
-                return Err(AuthError::State);
-            }
             // Parse and validate before opening the selected vault or Runtime.
             let selection = intake_delegation
                 .as_ref()
@@ -222,7 +208,6 @@ pub(crate) async fn run(cli: Cli) -> Result<i32> {
                 _ => return Err(AuthError::State),
             };
             let vault = cli.vault.ok_or(AuthError::Vault)?;
-            prepare_vault_path(&vault, false)?;
             match ai_personas::launch::native_run(&state_root, &operator, &vault, input).await {
                 Ok(output) => emit(serde_json::to_value(output).map_err(|_| AuthError::Protocol)?)?,
                 Err(_) => {
@@ -240,11 +225,10 @@ pub(crate) async fn run(cli: Cli) -> Result<i32> {
         }
         Command::Status => {
             let vault = cli.vault.ok_or(AuthError::Vault)?;
-            prepare_vault_path(&vault, false)?;
             // A protected registration can exist without a credential file.
             // Read both completely under the selected vault lock.
             // Status neither creates a host identity nor constructs HTTP adapters.
-            let guard = open_locked(&vault).await?;
+            let guard = open_locked(&vault, false).await?;
             let record = guard.load()?;
             let registration_present = guard.pending_registration()?.is_some();
             match record {
@@ -287,10 +271,14 @@ async fn cancellable<T>(operation: impl Future<Output = Result<T>>) -> Result<T>
     }
 }
 
-async fn open_locked(path: &Path) -> Result<LockedVault> {
+async fn open_locked(path: &Path, create_parent: bool) -> Result<LockedVault> {
     let path = path.to_owned();
     let task = tokio::task::spawn_blocking(move || {
-        let vault = Vault::open(&path)?;
+        let vault = if create_parent {
+            Vault::open_for_sign_in(&path)?
+        } else {
+            Vault::open(&path)?
+        };
         vault.lock()
     });
     task.await.map_err(|_| AuthError::Vault)?
@@ -383,8 +371,7 @@ impl SignInAttempt {
 }
 
 async fn sign_in(path: &Path, port: u16) -> Result<()> {
-    prepare_vault_path(path, true)?;
-    let guard = open_locked(path).await?;
+    let guard = open_locked(path, true).await?;
     let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))
         .await
         .map_err(|_| AuthError::Transport)?;
@@ -412,8 +399,7 @@ async fn sign_in(path: &Path, port: u16) -> Result<()> {
 }
 
 async fn refresh(path: &Path) -> Result<()> {
-    prepare_vault_path(path, false)?;
-    let mut guard = open_locked(path).await?;
+    let mut guard = open_locked(path, false).await?;
     let previous = guard.load()?.ok_or(AuthError::Vault)?;
     let host_id = guard.host_id(&mut OsEntropy)?;
     check_host(&previous, &host_id)?;
@@ -475,128 +461,6 @@ fn emit(value: serde_json::Value) -> Result<()> {
         .map_err(|_| AuthError::Protocol)?;
     output.write_all(b"\n").map_err(|_| AuthError::Protocol)?;
     output.flush().map_err(|_| AuthError::Protocol)
-}
-
-fn absolute_path(path: &Path) -> bool {
-    let bytes = path.as_os_str().as_bytes();
-    path.is_absolute()
-        && !bytes.contains(&0)
-        && !bytes.ends_with(b"/")
-        && !bytes
-            .split(|b| *b == b'/')
-            .any(|part| part == b"." || part == b"..")
-        && path
-            .components()
-            .all(|part| matches!(part, Component::RootDir | Component::Normal(_)))
-}
-
-fn trusted_directory(directory: &File) -> Result<()> {
-    let metadata = directory.metadata().map_err(|_| AuthError::Vault)?;
-    if !trusted_directory_metadata(metadata.is_dir(), metadata.uid(), metadata.mode()) {
-        return Err(AuthError::Vault);
-    }
-    // Intermediate directories may be owned by a mapped container UID. The
-    // descriptor walk below anchors traversal and rejects symlinks; group/other
-    // writable ancestors are rejected except root-owned sticky directories.
-    // Same-UID processes/root and ancestor-owner availability attacks remain
-    // trusted host boundaries. The final vault parent and credential file are
-    // still required to be effective-UID-owned and private.
-    Ok(())
-}
-
-fn trusted_directory_metadata(is_dir: bool, owner_uid: u32, mode: u32) -> bool {
-    is_dir && (mode & 0o022 == 0 || (owner_uid == 0 && mode & 0o1000 != 0))
-}
-
-fn open_directory_at(parent: &File, name: &OsStr, create: bool) -> Result<File> {
-    let name = CString::new(name.as_bytes()).map_err(|_| AuthError::Vault)?;
-    let flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
-    // SAFETY: parent owns its fd and name is a valid, single-component C string.
-    let mut fd = unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), flags) };
-    if fd < 0 && create && std::io::Error::last_os_error().kind() == std::io::ErrorKind::NotFound {
-        // Only the final protected parent may be created, under an already
-        // checked directory descriptor. Existing directories are never chmodded.
-        // SAFETY: the descriptor and C string remain valid.
-        let result = unsafe { libc::mkdirat(parent.as_raw_fd(), name.as_ptr(), 0o700) };
-        if result != 0
-            && std::io::Error::last_os_error().kind() != std::io::ErrorKind::AlreadyExists
-        {
-            return Err(AuthError::Vault);
-        }
-        // SAFETY: as for the preceding openat; O_NOFOLLOW rejects a racing symlink.
-        fd = unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), flags) };
-    }
-    if fd < 0 {
-        return Err(AuthError::Vault);
-    }
-    // SAFETY: openat returned a new owned descriptor.
-    Ok(unsafe { File::from_raw_fd(fd) })
-}
-
-/// Validate without discovering any credentials. Only authorized sign-in may
-/// create the final missing parent. Vault subsequently repeats its own protected
-/// path and no-follow checks for all credential and shared host-identity I/O.
-pub(crate) fn prepare_vault_path(path: &Path, create: bool) -> Result<bool> {
-    if !absolute_path(path) || path.starts_with(env!("CARGO_MANIFEST_DIR")) {
-        return Err(AuthError::Vault);
-    }
-    if let Ok(source) = fs::canonicalize(env!("CARGO_MANIFEST_DIR")) {
-        if path.starts_with(source) {
-            return Err(AuthError::Vault);
-        }
-    }
-    let parent = path.parent().ok_or(AuthError::Vault)?;
-    let components: Vec<_> = parent
-        .components()
-        .filter_map(|part| match part {
-            Component::Normal(name) => Some(name),
-            _ => None,
-        })
-        .collect();
-    let mut directory = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open("/")
-        .map_err(|_| AuthError::Vault)?;
-    trusted_directory(&directory)?;
-    for (index, name) in components.iter().enumerate() {
-        directory = open_directory_at(&directory, name, create && index + 1 == components.len())?;
-        trusted_directory(&directory)?;
-    }
-    let metadata = directory.metadata().map_err(|_| AuthError::Vault)?;
-    // SAFETY: geteuid has no arguments or memory preconditions.
-    if metadata.uid() != unsafe { libc::geteuid() } || metadata.mode() & 0o7777 != 0o700 {
-        return Err(AuthError::Vault);
-    }
-    let name = CString::new(path.file_name().ok_or(AuthError::Vault)?.as_bytes())
-        .map_err(|_| AuthError::Vault)?;
-    // SAFETY: directory owns its live fd and name is a valid C string.
-    let fd = unsafe {
-        libc::openat(
-            directory.as_raw_fd(),
-            name.as_ptr(),
-            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK,
-        )
-    };
-    if fd < 0 {
-        return if std::io::Error::last_os_error().kind() == std::io::ErrorKind::NotFound {
-            Ok(false)
-        } else {
-            Err(AuthError::Vault)
-        };
-    }
-    // SAFETY: openat returned a new owned descriptor.
-    let file = unsafe { File::from_raw_fd(fd) };
-    let metadata = file.metadata().map_err(|_| AuthError::Vault)?;
-    // SAFETY: geteuid has no arguments or memory preconditions.
-    if !metadata.is_file()
-        || metadata.uid() != unsafe { libc::geteuid() }
-        || metadata.mode() & 0o7777 != 0o600
-        || metadata.nlink() != 1
-    {
-        return Err(AuthError::Vault);
-    }
-    Ok(true)
 }
 
 pub(crate) struct HttpsTransport {

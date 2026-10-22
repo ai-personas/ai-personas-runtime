@@ -331,13 +331,10 @@ impl SessionRequest {
         match &self.route {
             SessionRoute::NativeSiwc { vault } => {
                 check(
-                    vault.is_absolute()
+                    !vault.as_os_str().is_empty()
                         && vault
                             .to_str()
-                            .is_some_and(|p| !p.chars().any(char::is_control))
-                        && vault
-                            .components()
-                            .all(|c| matches!(c, Component::RootDir | Component::Normal(_))),
+                            .is_some_and(|p| !p.contains('\0')),
                     BoundaryError::InvalidRequest,
                 )?;
             }

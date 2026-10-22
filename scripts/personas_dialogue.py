@@ -1065,9 +1065,6 @@ class Dialogue:
             # This does not import CLI credentials or authorize inference.
             path = str(self.j.directory.path / "personas-account.json")
             self.ui.say(f"Native Personas credential vault location: {path}")
-            self.ui.consent("Use this private location for explicit native SIWC sign-in and credential refresh? "
-                            "The Rust auth helper validates ownership, permissions, account binding and expiry. "
-                            "No Codex credentials are imported and no inference is authorized by sign-in.")
             self.p["vault"] = path
             self.j.save()
         while True:

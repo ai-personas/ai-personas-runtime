@@ -139,8 +139,7 @@ if [ -n "$vault" ]; then
         result|development|feedback|questions|answer-question) fail 'This operation uses no vault; omit --vault and --authorize.' ;;
     esac
     [ "$acceptance" = false ] || fail 'Native SIWC does not expose --require-acceptance; no requirement was discarded.'
-    case "$vault" in /*) ;; *) fail 'Native SIWC requires an absolute --vault path.' ;; esac
-    case "$state_root" in /*) ;; *) fail 'Native SIWC requires an explicit absolute --state-root.' ;; esac
+    [ -n "$state_root" ] || fail 'Native SIWC requires an explicit --state-root.'
     [ -n "$operator" ] || fail 'Native SIWC requires the existing --operator.'
 fi
 

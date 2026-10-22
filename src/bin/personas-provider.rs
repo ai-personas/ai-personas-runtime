@@ -10,7 +10,7 @@ mod cli {
     #[derive(Parser)]
     #[command(name = "personas-provider", about = "Explicit SIWC settings and optional capability checks", after_help = backend::COST_NOTICE)]
     struct Cli {
-        /// Required for operations: selected vault, absolute, private and outside repositories.
+        /// Selected vault; relative paths and existing aliases are accepted.
         #[arg(long, global = true)]
         vault: Option<PathBuf>,
         #[command(subcommand)]

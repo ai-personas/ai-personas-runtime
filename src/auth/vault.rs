@@ -1,6 +1,7 @@
-//! Unix vault operations are anchored to validated directory descriptors.
-//! The immediate parent must already exist, be owned by the effective UID,
-//! and have mode 0700. Lock files persist and must not be removed by callers.
+//! Unix vault operations are anchored to the selected canonical directory.
+//! Existing aliases resolve before deriving account locks and sidecar names.
+//! New directories and files use private creation modes; existing modes and
+//! ownership do not restrict selection. Lock files persist across replacements.
 //! Cooperative writers hold the account lock through refresh and replacement.
 //! A process with the same UID can already read or alter these credentials;
 //! this vault is not a security boundary against that process or root.
@@ -13,13 +14,16 @@ use super::{
 use std::{
     ffi::{CStr, CString},
     fmt,
-    fs::{File, Metadata},
+    fs::{self, File, Metadata},
     io::{self, Read, Write},
     os::{
         fd::{AsRawFd, FromRawFd},
-        unix::{ffi::OsStrExt, fs::MetadataExt},
+        unix::{
+            ffi::OsStrExt,
+            fs::{DirBuilderExt, MetadataExt},
+        },
     },
-    path::{Component, Path},
+    path::{Component, Path, PathBuf},
 };
 
 const HOST_NAME: &str = ".personas-host-id";
@@ -74,45 +78,28 @@ enum CommitPhase {
 }
 
 impl Vault {
-    /// Explicit absolute app-owned file path only. This function does not create
-    /// directories, inspect environment variables, or discover existing accounts.
+    /// Open the selected credential location, resolving relative paths and aliases.
+    /// This does not create directories or discover other accounts.
     pub fn open(path: &Path) -> Result<Self, AuthError> {
-        Self::open_checked(path)
+        Self::open_canonical(&canonical_path(path, false)?)
     }
 
-    // Onboarding excludes the active source checkout itself. Repository markers
-    // in unrelated ancestors (for example a platform workspace mount) are not
-    // treated as proof that this private leaf is exported by that repository.
-    pub(super) fn open_for_onboarding(path: &Path) -> Result<Self, AuthError> {
-        if path.starts_with(env!("CARGO_MANIFEST_DIR")) {
-            return Err(AuthError::Vault);
-        }
-        Self::open_checked(path)
+    /// Open for selected sign-in, creating missing parent directories with mode
+    /// 0700. Existing directories and their permissions are left unchanged.
+    pub fn open_for_sign_in(path: &Path) -> Result<Self, AuthError> {
+        Self::open_canonical(&canonical_path(path, true)?)
     }
 
-    fn open_checked(path: &Path) -> Result<Self, AuthError> {
-        if !path.is_absolute()
-            || path.as_os_str().as_bytes().last() == Some(&b'/')
-            || path
-                .components()
-                .any(|part| matches!(part, Component::ParentDir | Component::CurDir))
-        {
-            return Err(AuthError::Vault);
-        }
-        let name = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .ok_or(AuthError::Vault)?;
+    fn open_canonical(path: &Path) -> Result<Self, AuthError> {
+        let name = path.file_name().ok_or(AuthError::Vault)?.as_bytes();
+        // These names are occupied by the vault's actual transaction sidecars.
         if name.is_empty()
-            || name == HOST_NAME
-            || name.ends_with(LOCK_SUFFIX)
-            || name.ends_with(REGISTRATION_SUFFIX)
-            || name.ends_with(REFRESH_SUFFIX)
-            || name.ends_with(ONBOARDING_SUFFIX)
-            || name.starts_with(TEMP_PREFIX)
-            || !name
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+            || name == HOST_NAME.as_bytes()
+            || name.ends_with(LOCK_SUFFIX.as_bytes())
+            || name.ends_with(REGISTRATION_SUFFIX.as_bytes())
+            || name.ends_with(REFRESH_SUFFIX.as_bytes())
+            || name.ends_with(ONBOARDING_SUFFIX.as_bytes())
+            || name.starts_with(TEMP_PREFIX.as_bytes())
         {
             return Err(AuthError::Vault);
         }
@@ -177,7 +164,7 @@ impl LockedVault {
 
     pub(super) fn write_onboarding(&self, bytes: &[u8]) -> Result<(), AuthError> {
         let name = self.onboarding_name()?;
-        // Do not overwrite an unprotected file, symlink, or multiply linked file.
+        // A sidecar must retain one regular-file identity for atomic replacement.
         drop(open_optional(&self.directory, &name)?);
         Staged::stage(&self.directory, bytes)?.replace(&name)
     }
@@ -571,9 +558,31 @@ fn remove_at(directory: &File, name: &CStr) -> Result<(), AuthError> {
     Ok(())
 }
 
-fn effective_uid() -> u32 {
-    // SAFETY: geteuid has no arguments or memory-safety preconditions.
-    unsafe { libc::geteuid() }
+fn canonical_path(path: &Path, create_parent: bool) -> Result<PathBuf, AuthError> {
+    match fs::canonicalize(path) {
+        Ok(path) => Ok(path),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            // A trailing separator names a directory, not a new account file.
+            if path.as_os_str().as_bytes().last() == Some(&b'/') {
+                return Err(AuthError::Vault);
+            }
+            let name = path.file_name().ok_or(AuthError::Vault)?;
+            let parent = path
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."));
+            if create_parent {
+                fs::DirBuilder::new()
+                    .recursive(true)
+                    .mode(0o700)
+                    .create(parent)
+                    .map_err(|_| AuthError::Vault)?;
+            }
+            let parent = fs::canonicalize(parent).map_err(|_| AuthError::Vault)?;
+            Ok(parent.join(name))
+        }
+        Err(_) => Err(AuthError::Vault),
+    }
 }
 
 fn open_at(
@@ -604,7 +613,7 @@ fn open_parent_checked(parent: &Path) -> Result<File, AuthError> {
     }
     // SAFETY: fd is fresh and ownership is transferred exactly once.
     let mut directory = unsafe { File::from_raw_fd(fd) };
-    check_directory(&directory, false)?;
+    check_directory(&directory)?;
     for component in parent.components() {
         match component {
             Component::RootDir => {}
@@ -617,48 +626,26 @@ fn open_parent_checked(parent: &Path) -> Result<File, AuthError> {
                     0,
                 )
                 .map_err(|_| AuthError::Vault)?;
-                check_directory(&next, false)?;
+                check_directory(&next)?;
                 directory = next;
             }
             _ => return Err(AuthError::Vault),
         }
     }
-    check_directory(&directory, true)?;
     Ok(directory)
 }
 
-fn check_directory(directory: &File, immediate: bool) -> Result<(), AuthError> {
+fn check_directory(directory: &File) -> Result<(), AuthError> {
     let metadata = directory.metadata().map_err(|_| AuthError::Vault)?;
     if !metadata.is_dir() {
         return Err(AuthError::Vault);
     }
-    if immediate {
-        if metadata.uid() != effective_uid() || metadata.mode() & 0o7777 != 0o700 {
-            return Err(AuthError::Vault);
-        }
-    } else {
-        // Descriptor-relative traversal avoids pathname re-resolution. A mapped
-        // owner is allowed for ancestors only when group/other cannot write them;
-        // that owner can still disrupt availability by renaming/chmodding paths.
-        // The private leaf below remains strictly owned and mode 0700.
-        if !ancestor_directory_permitted(metadata.uid(), metadata.mode()) {
-            return Err(AuthError::Vault);
-        }
-    }
     Ok(())
-}
-
-fn ancestor_directory_permitted(owner_uid: u32, mode: u32) -> bool {
-    mode & 0o022 == 0 || (owner_uid == 0 && mode & 0o1000 != 0)
 }
 
 fn check_file(file: &File) -> Result<Metadata, AuthError> {
     let metadata = file.metadata().map_err(|_| AuthError::Vault)?;
-    if !metadata.is_file()
-        || metadata.uid() != effective_uid()
-        || metadata.mode() & 0o7777 != 0o600
-        || metadata.nlink() != 1
-    {
+    if !metadata.is_file() || metadata.nlink() != 1 {
         return Err(AuthError::Vault);
     }
     Ok(metadata)
@@ -696,10 +683,7 @@ fn read_host(directory: &File) -> Result<Option<String>, AuthError> {
             Err(_) => return Err(AuthError::Vault),
         };
         let metadata = file.metadata().map_err(|_| AuthError::Vault)?;
-        if !metadata.is_file()
-            || metadata.uid() != effective_uid()
-            || metadata.mode() & 0o7777 != 0o600
-        {
+        if !metadata.is_file() {
             return Err(AuthError::Vault);
         }
         if metadata.nlink() == 2 {
