@@ -330,7 +330,6 @@ fn setup_parts(operator: &str, settings: Setup, opt_in: bool) -> Result<(Config,
         settings.cohort > 0 && (1..=settings.cohort).contains(&settings.owner),
         "cohort must be nonempty and owner must name a cohort position",
     )?;
-    require(settings.max_considerations > 0, "scheduler page size must be positive")?;
     let capacity = settings.persona_capacity.unwrap_or(settings.cohort).max(settings.cohort);
     let ids = people(capacity);
     require(
@@ -443,9 +442,9 @@ fn human_need_input(
     require_acceptance: bool,
 ) -> Result<NeedInput> {
     let ids = people(saved.setup.cohort);
-    let boundaries = "Address the request using full host command access by default, including installing and using tools, filesystem and network access. Deliver the result locally; model-call and storage allocations remain as recorded.";
+    let boundaries = "Address the request using full host command access by default, including installing and using tools, filesystem and network access. Deliver the result locally. Resource settings and recorded allocations are accounting metadata, not execution quotas.";
     let authorization = format!(
-        "Requested by {}; authorizes voluntary persona arrangement formation and later amendment within the current scope and mandate under exact affected-party assent, limited to the eligible saved cohort and existing grants and limits; grants no additional model-call resources, further delegation, or authority to accept on behalf of others. Host command access, tool installation, filesystem and network use are available by default. Result decision rights confer no power to amend this formation envelope.",
+        "Requested by {}. Personas may organize, collaborate, request further work from existing personas, and amend their arrangements within the current task mandate. Each affected persona chooses whether to accept its exact commitments. Host commands, tool installation, filesystem and network access are available by default. Historical resource settings and participant declarations impose no application quotas or additional delegation permission. Invitations and result decision rights do not accept responsibility for another persona or change the requester's task mandate.",
         saved.operator
     );
     let delegation = w::FormationDelegation {

@@ -34,7 +34,7 @@ usage() {
 No arguments: integrated first-run/returning interaction (see docs/interactive-launch.md).
 Explicit options below use the existing installation and saved configuration. No automatic
 setup, sign-in, refresh, build, state reset, recovery, or model substitution.
-A run can use paid inference within the saved authorization and finite limits.
+A run uses the selected provider account without application call quotas.
 
 Options (values are separate arguments):
   --state-root PATH       Existing private state; otherwise runtime defaults
@@ -49,7 +49,7 @@ Options (values are separate arguments):
   --questions WORK       Read shared questions, replies and owner conclusions
   --answer-question FILE.json  Add a requester reply; no inference or resume
   --vault PATH           Explicit existing SIWC vault; never auto-discovered
-  --authorize            Required with --vault, for this one native run only
+  --authorize            Historical metadata; not required with --vault
   --                     Treat the next single argument as the exact need
   -h, --help             Show this help without opening state or credentials
 
@@ -58,13 +58,13 @@ Binary selection: an explicit absolute PERSONAS_BIN (or PERSONAS_AUTH_BIN for
 A bad explicit path fails; no fallback. Nothing is installed automatically.
 
 Missing setup or access? See docs/launcher.md and docs/direct-provider.md.
-Prepare real verified DirectSettings and separately authorize credential access,
+Prepare DirectSettings with the selected account, access route, model and effort,
 then explicitly run ai-personas --operator OP setup --provider-config FILE
---working-directory DIR --destination DEST --share-cohort --allow-direct-provider.
+--working-directory DIR --destination DEST.
 Keep state and secrets outside repositories. For existing SIWC accounts use
---vault, --authorize, an absolute --state-root and --operator; see docs/activation.md.
-Sign-in alone does not create verified provider settings. No defaults or evidence
-are invented. Held, stopped or uncertain work needs its existing explicit controls.'
+--vault, an absolute --state-root and --operator; see docs/activation.md.
+Sign-in alone does not create saved provider settings. Capability observations
+are optional. Held, stopped or uncertain work needs its existing explicit controls.'
 }
 
 fail() {
@@ -138,13 +138,10 @@ if [ -n "$vault" ]; then
     case "$mode" in
         result|development|feedback|questions|answer-question) fail 'This operation uses no vault; omit --vault and --authorize.' ;;
     esac
-    [ "$authorize" = true ] || fail '--vault requires explicit --authorize for this one native run.'
     [ "$acceptance" = false ] || fail 'Native SIWC does not expose --require-acceptance; no requirement was discarded.'
     case "$vault" in /*) ;; *) fail 'Native SIWC requires an absolute --vault path.' ;; esac
     case "$state_root" in /*) ;; *) fail 'Native SIWC requires an explicit absolute --state-root.' ;; esac
     [ -n "$operator" ] || fail 'Native SIWC requires the existing --operator.'
-else
-    [ "$authorize" = false ] || fail '--authorize is only for an explicit --vault run.'
 fi
 
 # Resolve only executable locations. Never read a Store, vault, .env or settings.
@@ -194,7 +191,8 @@ if [ "$mode" = need ]; then
 fi
 
 if [ -n "$vault" ]; then
-    set -- "--vault=$vault" native-run --authorize "--state-root=$state_root" "--operator=$operator"
+    set -- "--vault=$vault" native-run "--state-root=$state_root" "--operator=$operator"
+    [ "$authorize" = false ] || set -- "$@" --authorize
     if [ "$mode" = need ]; then
         set -- "$@" "--need=$need"
     else

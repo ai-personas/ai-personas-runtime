@@ -360,6 +360,14 @@ optional work may request ordinary child work through this same path. Source
 creation does not make an actor eligible; existing continuation rules still
 govern each call, including opportunities made ready by later host results.
 
+Fresh setup also accepts zero-valued historical consideration metadata; ordinary
+foreground scheduling still scans the complete participant set. The explicit
+SIWC shell wrapper selects the requested vault and run without requiring an
+additional `--authorize` flag. New human-task authority text describes available
+peer delegation and unrestricted resource accounting instead of asserting the
+removed cohort, funding and further-delegation restrictions. Earlier task records
+retain their original text.
+
 Removal is still incomplete. Remaining application enforcement includes
 single-episode binding constraints; explicit optional opportunity and birth workflows; and
 additional specialized control and workflow gates. These are implementation gaps under the

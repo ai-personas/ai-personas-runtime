@@ -2,8 +2,8 @@
 
 With **no arguments**, `./personas` now opens [integrated first-run and returning-work interaction](interactive-launch.md). The manual setup and thin-wrapper behavior below describe **explicit argument-based commands**, not the no-argument journey.
 
-From the checkout, `./personas` asks for one need, then replaces itself with the
-selected installed executable. `./personas "Your exact need"` skips the prompt.
+With explicit arguments, `./personas "Your exact need"` replaces itself with the
+selected installed executable. Options without a need prompt on terminal input.
 This is a convenience entry point, not an interactive agent, daemon, new runtime,
 or background scheduler. The existing runtime still assembles context, admits
 work, spends resources, validates complete responses, and retains evidence.
@@ -33,7 +33,7 @@ argument; use `-- "--leading-dash need"` when necessary. Options take separate,
 nonempty values that do not start with a dash. With no need, only terminal input
 is prompted; redirected or piped input is not consumed implicitly. Blank input
 or EOF starts no work. Multiline needs can be supplied as one argument; the
-runtime retains its existing input bounds.
+runtime retains the complete request without an application text quota.
 
 The supported wrapper options are shown by `./personas --help`, which requires
 no binary, state or credentials. Unrecognized flags are rejected rather than
@@ -60,21 +60,22 @@ model/effort settings, provider config, or shell command evaluation.
 ## Existing SIWC vault
 
 For an already configured Store and an explicitly selected existing Personas
-vault, authorize exactly one native foreground run:
+vault, start a native foreground run:
 
 ```sh
-./personas --vault /absolute/private/personas-account.json --authorize \
+./personas --vault /absolute/private/personas-account.json \
   --state-root /absolute/private/state --operator local-operator "Your need"
 
-./personas --vault /absolute/private/personas-account.json --authorize \
+./personas --vault /absolute/private/personas-account.json \
   --state-root /absolute/private/state --operator local-operator \
   --resume work-00000001
 ```
 
 These commands map only to `personas-auth native-run --need` or `--work`.
-`--authorize`, an absolute vault path, an absolute state root and the existing
-operator are required. The runtime/helper owns the execution lock, vault lock,
-current grant checks and exact saved account/model/effort/evidence bindings.
+An absolute vault path, an absolute state root and the existing operator identify
+the selected run. `--authorize` is optional historical metadata. The runtime/helper
+owns the execution lock, vault lock, current credential checks and exact saved
+account/model/effort bindings.
 The launcher does not open the vault, copy tokens, change access mode, grant
 persistent rights, refresh, probe, migrate, or try an alternate billing route.
 Native output is always JSON; `--json` is redundant on this path.
@@ -92,18 +93,19 @@ stops with installation guidance. To build explicitly, run
 installation happens during launch.
 
 For an unconfigured Store, follow the explicit `setup` command in the
-[root README](../README.md#first-setup-only-when-needed). The required
+[command-line quickstart](QUICKSTART.md#explicit-command-line-setup). The required
 [`DirectSettings`](../src/provider.rs) file must name one access mode, real
-credential references, the exact selected model/effort, account/route capability
-evidence and finite limits. [Direct provider configuration](direct-provider.md)
+credential references, the exact selected model/effort and account/route
+bindings. Capability observations are optional and saved limits are metadata.
+[Direct provider configuration](direct-provider.md)
 describes this contract. Setup validates settings without resolving credentials
 or making model requests; it cannot prove that live access works. The launcher
 does not fabricate a sample configuration that appears verified.
 
 For SIWC, use the separately authorized [activation flow](activation.md).
 Sign-in establishes a grant, not capability evidence or a saved runtime setup.
-Catalog/capability checks require their own authorization and are not launcher
-preflight. After renewal or changed provider bindings, use the
+Catalog/capability observations are optional and are not launcher preflight.
+After renewal or changed provider bindings, use the
 existing explicit migration operation; do not rerun setup over a continuing
 cohort or create replacement personas to escape a failed binding.
 
@@ -141,5 +143,5 @@ describes continuing an existing compatible runtime from the work menu.
 
 [`RUNTIME-REFERENCE.md`](../RUNTIME-REFERENCE.md) is maintained alongside the
 implementation and documents the detailed native controls. The current design target is
-[design revision dddc451](https://github.com/ai-personas/ai-personas-design/tree/dddc451b2e4f854c3ceaaea600ba0c290d54b6c2).
+[design revision cdb82bf](https://github.com/ai-personas/ai-personas-design/tree/cdb82bf).
 Historical records do not establish current conformance.
