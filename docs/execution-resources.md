@@ -432,8 +432,14 @@ peer delegation and unrestricted resource accounting instead of asserting the
 removed cohort, funding and further-delegation restrictions. Earlier task records
 retain their original text.
 
+Optional activity now has a direct native and terminal-launcher entry point,
+without hand-written opportunity, allocation or start files. Invitations resolve
+the selected participants once and retain the keyed request. Participant holds
+and lifecycle states are checked at invocation scheduling, so one unavailable
+invitee does not block the others. Existing work and unknown calls remain unchanged.
+
 Removal is still incomplete. Remaining application enforcement includes
-single-episode binding constraints; explicit optional opportunity and birth workflows; and
+single-episode binding constraints; operator-mediated birth workflows; and
 additional specialized control and workflow gates. These are implementation gaps under the
 new requirement, not exceptions granted by the user. Some earlier documents still
 describe them because those paths remain implemented. They must be removed or

@@ -4,6 +4,7 @@ use super::super::optional_activity as a;
 use super::*;
 
 pub use a::OpportunityRequest as OptionalActivityRequest;
+pub use a::OpenRequest as OptionalActivityOpen;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -87,6 +88,7 @@ pub fn optional_activity_snapshot(app: &mut Runtime, operator: &str, now: i64) -
         }
         opportunities.push(
             json!({"reference":opportunity.reference,"request":opportunity.request,
+            "native_open":opportunity.native_open,
             "remaining":opportunity.remaining,"revoked_at_unix":opportunity.revoked_at_unix,
             "environment_currently_enabled":opportunity.revoked_at_unix.is_none()
                 && opportunity.request.not_before_unix <= now,
@@ -111,13 +113,22 @@ pub fn grant_optional_activity(
     request: &OptionalActivityRequest,
     now: i64,
 ) -> Result<Value> {
+    let _owner = app.store.acquire_execution_owner()?;
+    grant_owned(app, request, None, now)
+}
+
+fn grant_owned(
+    app: &mut Runtime,
+    request: &OptionalActivityRequest,
+    native_open: Option<&OptionalActivityOpen>,
+    now: i64,
+) -> Result<Value> {
     request.validate()?;
     require(now >= 0, "negative optional opportunity time")?;
-    let _owner = app.store.acquire_execution_owner()?;
     let (head, mut state, _, saved) = authorized(app, &request.operator)?;
     if let Some(existing) = state.optional_activities.get(&request.id) {
         require(
-            existing.request == *request,
+            existing.request == *request && existing.native_open.as_ref() == native_open,
             "optional opportunity identity conflict",
         )?;
         require(
@@ -167,7 +178,6 @@ pub fn grant_optional_activity(
         "optional participants must belong to the saved cohort",
     )?;
     for id in &request.participants {
-        lifecycle::require_active(&state, id)?;
         let persona = state
             .personas
             .get(id)
@@ -184,6 +194,7 @@ pub fn grant_optional_activity(
     let reference = request.reference()?;
     let opportunity = a::Opportunity {
         request: request.clone(),
+        native_open: native_open.cloned(),
         reference: reference.clone(),
         exposure,
         remaining: request.allocation,
@@ -224,13 +235,88 @@ pub fn optional_activity_snapshot_at(root: &Path, operator: &str, now: i64) -> R
     optional_activity_snapshot(&mut app, operator, now)
 }
 
+/// One keyed native action, without a hand-written grant, allocation or start
+/// file. Registration may survive a failed start; repetition reuses its exact
+/// opportunity and episode instead of creating another work or resuming anyone.
+pub fn open_optional_activity_at(
+    root: &Path,
+    request: &OptionalActivityOpen,
+    now: i64,
+) -> Result<Value> {
+    identity(&request.id)?;
+    identity(&request.operator)?;
+    for participant in &request.participants {
+        identity(participant)?;
+    }
+    require(now >= 0, "negative optional opportunity time")?;
+    let mut app = Runtime::open_for_launch_inspection(root)?;
+    let _owner = app.store.try_execution_owner_without_recovery()?
+        .ok_or_else(|| held("execution owner busy"))?;
+    let (_, state, _, saved) = authorized(&mut app, &request.operator)?;
+    let opportunity_id = format!("native-optional:{}", s::sha256_bytes(request.id.as_bytes()));
+    let reference = if let Some(existing) = state.optional_activities.get(&opportunity_id) {
+        require(existing.native_open.as_ref() == Some(request),
+            "optional activity identity conflicts with its retained request")?;
+        existing.reference.clone()
+    } else {
+        let provider = saved.execution_provider()?;
+        let participants = if request.participants.is_empty() {
+            people(saved.setup.cohort).into_iter().collect()
+        } else {
+            request.participants.clone()
+        };
+        let allocation = WorkAllocation {
+            attempts: 0,
+            repair_attempts: 0,
+            navigation: f::NavigationLimits {
+                calls: 0,
+                scanned_bytes: 0,
+                inspected_revisions: 0,
+                matches: 0,
+                result_bytes: 0,
+            },
+        };
+        let opportunity = OptionalActivityRequest {
+            id: opportunity_id.clone(),
+            operator: request.operator.clone(),
+            authorization_reference: format!("native optional-activity request {}", request.id),
+            authorize_optional_activity: false,
+            participants,
+            policy_id: POLICY.into(),
+            sources: Vec::new(),
+            not_before_unix: 0,
+            expires_at_unix: 0,
+            episode_seconds: 0,
+            minimum_interval_seconds: 0,
+            max_episodes: 0,
+            allocation,
+            per_episode: allocation,
+            model: provider.model,
+            effort: provider.effort,
+            destination: saved.setup.destination.clone(),
+        };
+        grant_owned(&mut app, &opportunity, Some(request), now)?;
+        opportunity.reference()?
+    };
+    let mut outcome = start_owned(&mut app, &OptionalActivityStart {
+        id: request.id.clone(),
+        operator: request.operator.clone(),
+        opportunity: reference.clone(),
+    }, now)?;
+    outcome["opportunity"] = serde_json::to_value(reference)?;
+    outcome["request"] = serde_json::to_value(request)?;
+    outcome["participants"] = serde_json::to_value(
+        &app.snapshot()?.optional_activities[&opportunity_id].request.participants)?;
+    Ok(outcome)
+}
+
 fn input(
     saved: &Saved,
     request: &OptionalActivityRequest,
     activity: &w::OptionalActivity,
     id: &str,
 ) -> Result<NeedInput> {
-    let prose = "An optional opportunity is available. Choose whether to engage in self-directed exploration, reflection or social exchange, what to pursue, whom to approach among eligible participants, and when to stop. There is no assigned topic, artifact, review, delivery or productivity requirement. Other personas may decline or remain silent. Existing character, source policies and permissions remain controlling.";
+    let prose = "An optional opportunity is available. Choose whether to engage in self-directed exploration, reflection or social exchange, what to pursue, whom to approach, and when to stop. There is no assigned topic, artifact, review, delivery or productivity requirement. Other personas may decline or remain silent. Continue from your accepted character and actual experience. Source policies retain provenance without restricting access or sharing.";
     let boundaries = "Voluntary activity under its exact opportunity and participant binding. Calls, tools and navigation have no application quota, expiry or foreground-priority gate. Explicit Stop, Pause and revocation remain effective. No recurrence is scheduled by this admission.";
     let authorization = serde_json::to_string(&json!({"kind":"authorized_optional_episode",
         "opportunity":activity.opportunity,"episode":activity.episode,"expires_at_unix":activity.expires_at_unix,
@@ -317,13 +403,21 @@ pub fn start_optional_activity(
     request: &OptionalActivityStart,
     now: i64,
 ) -> Result<Value> {
+    let _owner = app.store.acquire_execution_owner()?;
+    start_owned(app, request, now)
+}
+
+fn start_owned(
+    app: &mut Runtime,
+    request: &OptionalActivityStart,
+    now: i64,
+) -> Result<Value> {
     identity(&request.id)?;
     identity(&request.operator)?;
     require(
         now >= 0,
         "optional trigger identity or clock invalid",
     )?;
-    let _owner = app.store.acquire_execution_owner()?;
     let (head, mut state, launch_head, mut saved) = authorized(app, &request.operator)?;
     let opportunity_id = state
         .optional_activities
@@ -359,21 +453,22 @@ pub fn start_optional_activity(
             "optional inference binding changed",
         )?;
         for id in &grant.participants {
-            lifecycle::require_active(&state, id)?;
             let persona = state
                 .personas
                 .get(id)
                 .ok_or_else(|| held("optional participant unavailable"))?;
             require(
-                persona.failed_attempt_hold.is_none()
-                    && persona.active_invocation.is_none()
-                    && persona.seed.requested_model == grant.model
+                persona.seed.requested_model == grant.model
                     && persona.seed.requested_effort == grant.effort
                     && persona.seed.destination == grant.destination
                     && exposure_permitted(&state, &opportunity.exposure, &admission(persona, now)),
-                "optional participant is held, busy or lacks current permission",
+                "optional participant inference or source binding changed",
             )?;
         }
+        // Invitations do not acquire a persona's invocation lease or resume an
+        // existing focus. Each actor's lifecycle, hold and readiness are checked
+        // when it is considered for a call, so one unavailable peer cannot veto
+        // voluntary activity by the others.
         Ok(())
     })()
     .err();

@@ -46,6 +46,15 @@ enum Command {
         require_acceptance: bool,
         need: String,
     },
+    /// Open voluntary exploration or conversation without an assigned task.
+    /// Records one activity per ID; starts no model call and never resumes a participant.
+    OptionalActivity {
+        #[arg(long)]
+        id: String,
+        /// Invite these existing personas; omit to invite the current cohort.
+        #[arg(long = "persona")]
+        personas: Vec<String>,
+    },
     /// Run eligible participants and automatically admitted descendants without a call quota.
     ///
     /// A fresh session records a new identity and preserves participant Stop/Pause.
@@ -203,6 +212,14 @@ async fn main() {
                 require_acceptance,
             },
         )),
+        Command::OptionalActivity { id, personas } => emit((|| -> session::BoundaryResult<serde_json::Value> {
+            Ok(ai_personas::launch::open_optional_activity_at(&root,
+                &ai_personas::launch::OptionalActivityOpen {
+                    id,
+                    operator,
+                    participants: personas.into_iter().collect(),
+                }, ai_personas::runtime::unix_now()?)?)
+        })()),
         Command::Run {
             id,
             work,

@@ -33,6 +33,12 @@ preserves the original request, and requests eligible resumption under a new
 mandate. Recorded resource usage remains attributable. Custom outcomes and review terms
 use the [full task amendment commands](task-amendments.md).
 
+Choose **o: optional activity** in the work list for voluntary exploration and
+conversation without an assigned task. The launcher records an activity and
+runs eligible participants using the saved provider. Each persona decides what
+to do and when to stop. Held or paused invitees do not block the others. See
+[optional activity](optional-activity.md) for the keyed native command.
+
 For direct inspection, use the sibling `personas-session` helper. Every operation
 requires the runtime's state directory and saved operator; the launcher journal
 is a different directory:
@@ -75,8 +81,8 @@ spending and uncertain usage.
 ## First use
 
 The dialogue selects a standard private progress location, creates a new journal
-when needed, and asks for your need. It saves the exact request
-before the next prompt. The default location is
+when needed, and offers a task, optional activity or existing work. It saves an
+entered task or selected activity before the next prompt. The default location is
 `$XDG_STATE_HOME/ai-personas-launcher` or `$HOME/.local/state/ai-personas-launcher`.
 `PERSONAS_LAUNCHER_HOME` selects another host-accessible location, including a
 relative path, directory alias or repository directory. The launcher resolves it

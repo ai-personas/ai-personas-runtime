@@ -299,6 +299,12 @@ def validate_progress(p):
     require(isinstance(p["needs"], list))
     seen = set()
     for n in p["needs"]:
+        if isinstance(n, dict) and n.get("kind") == "optional_activity":
+            require(set(n) == {"id", "kind", "work"}
+                    and identifier(n["id"]) and n["id"] not in seen
+                    and (n["work"] is None or identifier(n["work"])))
+            seen.add(n["id"])
+            continue
         require(isinstance(n, dict) and set(n) == {"id", "text", "require_acceptance", "shared", "work"})
         require(identifier(n["id"]) and n["id"] not in seen and safe_text(n["text"])
                 and type(n["require_acceptance"]) is bool and type(n["shared"]) is bool
@@ -985,6 +991,12 @@ class Dialogue:
         self.p["needs"].append(n)
         self.j.save()
         self.ui.say("Your request is saved privately. It has not been shared or submitted.")
+
+    def capture_optional_activity(self):
+        activity = {"id": "activity-" + uuid.uuid4().hex, "kind": "optional_activity", "work": None}
+        self.p["needs"].append(activity)
+        self.j.save()
+        return activity
 
     def choose_runtime(self):
         if self.p["runtime"] is not None:
@@ -1848,6 +1860,15 @@ class Dialogue:
         # action may request a distinct session through current eligible routes.
 
     def submit_pending(self, need):
+        if need.get("kind") == "optional_activity":
+            result = self.session("optional-activity", "--id", need["id"])
+            require(result.get("status") in ("episode_admitted", "already_admitted"),
+                    "optional_activity_unavailable")
+            need["work"] = result["work"]
+            self.j.save()
+            self.ui.say(f"Optional activity {need['work']}: the personas choose what to explore or discuss, "
+                        "whether to participate and when to stop.")
+            return need["work"]
         self.ui.say("Exact pending need:\n" + need["text"])
         if not need["shared"]:
             need["require_acceptance"] = self.ui.ask("Require your explicit acceptance of the eventual exact release? [yes/NO]").strip().lower() == "yes"
@@ -1866,7 +1887,11 @@ class Dialogue:
 
     def run(self):
         if not self.p["needs"] and self.p["runtime"] is None:
-            self.capture_need()
+            choice = self.ui.ask("Start with a task [t], optional exploration and conversation [o], or existing work [Enter]:").strip().lower()
+            if choice == "o":
+                self.capture_optional_activity()
+            elif choice == "t":
+                self.capture_need()
         if self.p["operator"] is None:
             operator = self.ui.ask("Local operator attribution [local-operator]:").strip() or "local-operator"
             require(identifier(operator), "invalid_operator")
@@ -1926,13 +1951,17 @@ class Dialogue:
                     if "basis" in content:
                         self.ui.say("Basis: " + content["basis"])
                     self.ui.say("i: deliver this same saved input; its identity and text will be reused")
-            self.ui.say(f"{len(pending)} private pending need(s). p: submit first pending; n: new need; "
+            self.ui.say(f"{len(pending)} pending request(s). p: submit first pending; n: new need; o: optional activity; "
                         "work number: open work actions; more: next saved page; q: leave")
             choice = self.ui.ask("Choose:").strip().lower()
             if choice == "q" or not choice:
                 return
             if choice == "n":
                 self.capture_need()
+            elif choice == "o":
+                work_id = self.submit_pending(self.capture_optional_activity())
+                after = None
+                self.run_work(work_id, self.inspect())
             elif choice == "i" and saved_input:
                 self.deliver_work_input()
             elif choice == "p" and pending:

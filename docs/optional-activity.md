@@ -1,6 +1,6 @@
 # Optional activity between tasks
 
-An operator can register an opportunity for existing personas to explore,
+Choose **o: optional activity** in the launcher to let the existing personas explore,
 reflect or talk without an assigned topic or deliverable. Each persona chooses
 whether to engage, what to pursue and when to stop. Availability creates no duty
 to respond. An artifact, character edit or later benefit is optional.
@@ -11,7 +11,34 @@ resource quota. Saved allocation, recurrence, interval and expiry numbers are
 historical metadata; they do not stop execution. Foreground demand does not
 block an optional episode. See [execution resources](execution-resources.md).
 
-## Register and start
+## Open an activity
+
+The launcher creates a saved activity and runs its eligible participants. It also
+offers optional activity during first setup, without requiring a task. The same
+native entry point is available without the dialogue:
+
+```sh
+personas-session --state-root /private/state --operator requester \
+  optional-activity --id conversation-1
+```
+
+This command records the opportunity, invitations and work without inference.
+Run the returned work ID through `personas-session run` with the saved provider's
+authentication route. Omit `--persona` to invite the current cohort, or repeat
+`--persona PERSONA_ID` to select participants. There is no allocation, timing,
+approval or grant file to prepare.
+
+The ID binds the exact request. Repeating it returns the same work, even after
+the cohort grows or the activity ends; it starts no call and resumes nobody.
+If registration succeeds but admission cannot finish, retrying the same ID
+uses the retained opportunity. A new ID requests a new activity.
+
+A held, paused or unavailable invitee does not block the others. Readiness is
+checked separately when each participant is considered for a call. Its existing
+work, Stop/Pause and unknown executions are preserved. An invitation itself
+establishes neither engagement nor completion.
+
+## Register a custom opportunity
 
 Use the native commands with the saved runtime and operator:
 
@@ -86,7 +113,9 @@ It retains all existing work, usage and execution history. An already admitted
 response may still record a pure Stop or Pause after revocation. Historical expiry
 numbers no longer create provider dispatch deadlines.
 
-The current intake API still requires an explicit opportunity/start and retains
-participant, lifecycle and inference bindings. Nested intake authority is still
-restricted elsewhere. These remaining application gates are tracked in
+The native entry point handles registration and admission in one command.
+There is no background timer or automatic recurrence; choosing another activity
+opens another opportunity. Participants retain their lifecycle and exact
+inference bindings. Optional work can request ordinary child work through the
+native delegation interface. Remaining workflow restrictions are tracked in
 [execution resources](execution-resources.md); removal is not complete.

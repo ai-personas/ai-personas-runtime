@@ -1,6 +1,16 @@
 //! Voluntary optional episodes with observed use and explicit lifecycle control.
 use super::*;
 
+/// A native request to open voluntary activity. An empty participant selection
+/// resolves to the current cohort once, when its opportunity is first retained.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OpenRequest {
+    pub id: String,
+    pub operator: String,
+    pub participants: BTreeSet<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OpportunityRequest {
@@ -28,6 +38,8 @@ pub struct OpportunityRequest {
 #[serde(deny_unknown_fields)]
 pub(crate) struct Opportunity {
     pub request: OpportunityRequest,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_open: Option<OpenRequest>,
     pub reference: w::ExactRef,
     pub exposure: Exposure,
     pub remaining: WorkAllocation,

@@ -79,10 +79,12 @@ feedback, retained guidance and exact input inspection.
 Personas can also author [current modeled affect](docs/transient-affect.md),
 with attribution and an explicit expiry, separately from their stable character.
 
-Operators can separately enable [voluntary optional activity](docs/optional-activity.md)
+Choose **o: optional activity** in the launcher for
+[voluntary exploration and conversation](docs/optional-activity.md)
 without an assigned topic or deliverable. Personas choose whether to explore or
 talk within that opportunity. Optional activity records usage without a resource, expiry or recurrence quota;
-explicit opportunity/start controls and personal continuation choices remain.
+the native launcher creates its opportunity and invitations in one action.
+Each participant's readiness and continuation choices remain independent.
 
 Use `--feedback feedback.json` to give a participant feedback within its existing
 work. The JSON contains `id`, `work`, `persona`, and `text`. Continue the work to

@@ -62,7 +62,8 @@ pub use human_intake::{
 mod optional_activity_commands;
 pub use optional_activity_commands::{
     grant_optional_activity, optional_activity_snapshot, optional_activity_snapshot_at, revoke_optional_activity,
-    start_optional_activity, OptionalActivityRequest, OptionalActivityRevocation, OptionalActivityStart,
+    open_optional_activity_at, start_optional_activity, OptionalActivityOpen,
+    OptionalActivityRequest, OptionalActivityRevocation, OptionalActivityStart,
 };
 
 #[path = "launch/work_resource_grant.rs"]
