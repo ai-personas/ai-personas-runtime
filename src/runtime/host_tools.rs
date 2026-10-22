@@ -520,14 +520,21 @@ pub(super) fn control(
     work: &str,
     a: &f::Admission,
     exposure: &mut Exposure,
-    include_results: bool,
+    context: &observability::ResourceContext<'_>,
 ) -> Value {
     let mut results = Vec::new();
     let mut unresolved = Vec::new();
     let mut jobs: Vec<_> = state
         .host_command_jobs
         .iter()
-        .filter(|(_, job)| job.actor == actor && job.work == work)
+        .filter(|(_, job)| {
+            (job.actor == actor && job.work == work && matches!(
+                job.state,
+                s::IntentState::Admitted | s::IntentState::Dispatched | s::IntentState::Uncertain
+            )) || job.result_source.as_ref().is_some_and(|reference| {
+                context.includes_result(reference, job.observation.as_deref())
+            })
+        })
         .collect();
     jobs.sort_by_key(|(id, job)| {
         (
@@ -542,19 +549,19 @@ pub(super) fn control(
         if !exposure_permitted(state, &job.exposure, a) {
             continue;
         }
-        // Unresolved jobs are operational state, independent of whether the
-        // caller requested terminal-result metadata.
-        if matches!(
+        // Unresolved jobs are this participant's current operational state.
+        // Referenced result provenance can come from another actor or work.
+        if job.actor == actor && job.work == work && matches!(
             job.state,
             s::IntentState::Admitted | s::IntentState::Dispatched | s::IntentState::Uncertain
         ) {
             extend_exposure(exposure, &job.exposure);
             unresolved.push(json!({"intent":id,"state":job.state,"automatic_replay":false}));
         }
-        if !include_results {
-            continue;
-        }
         if let Some(reference) = &job.result_source {
+            if !context.includes_result(reference, job.observation.as_deref()) {
+                continue;
+            }
             if let Ok(file) = file_reference(reference) {
                 if lineage_permitted(state, std::slice::from_ref(&file), a) {
                     extend_exposure(exposure, &job.exposure);
@@ -571,9 +578,9 @@ pub(super) fn control(
         Value::Null
     } else {
         json!({"retained_results":results,"retained_results_limit":null,
-            "retained_results_included":include_results,
+            "retained_results_included":true,
             "retained_results_truncated":false,"unresolved":unresolved,
-            "scope":"All currently visible result references for this actor and work. Bodies remain available by exact reference; listing a reference does not supply its body."})
+            "scope":"Result provenance for exact revisions already referenced in this input; this is not a historical result catalogue. Use native file discovery or retained-history queries for other results. Unresolved jobs belong to the current actor/work. A reference supplies no body and never replays its command."})
     }
 }
 

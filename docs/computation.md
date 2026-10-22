@@ -54,6 +54,12 @@ Metadata alone does not supply output text. Source attribution, required
 qualifications and prior immutable evidence remain attached. File-corpus and context byte/count quotas are removed; see
 [execution resources](execution-resources.md) for remaining work.
 
+The control projection includes results already referenced in the current input
+or reported by its current observations, including explicitly selected results
+from another work. It does not list every past computation. Historical allocation
+metadata accompanies a referenced guide. Use [native file discovery](input-file-references.md#discover-resources-before-selecting-their-bodies)
+or retained-history queries to locate other results and guides.
+
 `recover-computations` publishes existing terminal evidence or dispatches an
 admitted job whose prerequisites still match. It never replays a dispatched job.
 Missing terminal evidence remains uncertain. Recovery does not change Stop,

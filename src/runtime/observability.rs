@@ -70,6 +70,30 @@ pub(super) fn observation_references(
     Ok(())
 }
 
+/// Resource identities already encountered in the current input. A field or
+/// range names the same immutable document for provenance metadata only.
+pub(super) struct ResourceContext<'a> {
+    revisions: BTreeSet<(&'a str, &'a str)>,
+    observations: BTreeSet<&'a str>,
+}
+
+impl<'a> ResourceContext<'a> {
+    pub(super) fn new(visible: &'a BTreeSet<f::Reference>, observations: &'a [String]) -> Self {
+        Self {
+            revisions: visible.iter().map(|r| (r.source.as_str(), r.revision.as_str())).collect(),
+            observations: observations.iter().map(String::as_str).collect(),
+        }
+    }
+
+    pub(super) fn references(&self, reference: &p::ExactRef) -> bool {
+        self.revisions.contains(&(reference.source.as_str(), reference.revision.as_str()))
+    }
+
+    pub(super) fn includes_result(&self, reference: &p::ExactRef, observation: Option<&str>) -> bool {
+        self.references(reference) || observation.is_some_and(|id| self.observations.contains(id))
+    }
+}
+
 pub(super) fn mutation_metadata(
     state: &State,
     visible: &BTreeSet<f::Reference>,

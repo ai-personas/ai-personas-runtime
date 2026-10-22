@@ -40,6 +40,12 @@ body does not make another request. Required source qualifications and original
 execution evidence remain attached. File-corpus and context byte/count quotas are removed; remaining specialized
 restrictions are documented in [execution resources](execution-resources.md).
 
+The control projection includes results already referenced in the current input
+or reported by its current observations, including explicitly selected results
+from another work. It does not list every past request. Historical allocation
+metadata accompanies a referenced guide. Use [native file discovery](input-file-references.md#discover-resources-before-selecting-their-bodies)
+or retained-history queries to locate other results and guides.
+
 `recover-http-fetches` publishes an existing terminal result or dispatches a
 still-admitted job with matching prerequisites. Already dispatched requests are
 never replayed. Missing terminal evidence remains uncertain. Retrieval proves

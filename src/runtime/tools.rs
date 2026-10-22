@@ -837,16 +837,20 @@ pub(super) fn control(
     work: &str,
     a: &f::Admission,
     exposure: &mut Exposure,
+    context: &observability::ResourceContext<'_>,
     include_allocations: bool,
 ) -> Value {
-    // Only this actor/work's existing allocation, never a tool catalogue or
-    // an automatic selection. Metadata carries the current guide's lineage.
+    // Historical allocation metadata accompanies a currently referenced guide;
+    // the caller does not receive a catalogue of all previously saved guides.
     let mut allocations = Vec::new();
     if include_allocations {
         for grant in state.computation_grants.values().filter(|grant| {
             grant.request.actor == actor && grant.request.work == work
         }) {
             let terms = grant.current_request();
+            if !context.references(&terms.guide) {
+                continue;
+            }
             if let (Ok(file), Ok(reference)) = (
                 full_asset(state, &terms.guide, a),
                 file_reference(&terms.guide),
@@ -866,8 +870,11 @@ pub(super) fn control(
         }
     }
     let mut results = Vec::new();
-    for (id, job) in state.computation_jobs.iter().filter(|(_, job)| job.actor == actor && job.work == work) {
+    for (id, job) in &state.computation_jobs {
         if let Some(reference) = &job.result_source {
+            if !context.includes_result(reference, job.observation.as_deref()) {
+                continue;
+            }
             if let Ok(file) = file_reference(reference) {
                 if exposure_permitted(state, &job.exposure, a)
                     && lineage_permitted(state, std::slice::from_ref(&file), a) {
@@ -895,7 +902,7 @@ pub(super) fn control(
         json!({"unresolved":entries,"retained_results":results,"allocations":allocations,
             "historical_declarations":"Saved grants and guide references are historical metadata. Current computation and HTTP(S) definitions are supplied by default, without grants, guide selection, attempt caps, expiry or origin restrictions.",
             "capability_scope":"CONTROL.work_capability describes internal work commands only. Computation uses the default CONTROL.computation_capabilities through effect without a grant or guide. An absent computation callable does not prevent retrieving a retained result through its exact supporting-file reference. Previous blocked judgments do not establish current resource availability.",
-            "retrieval":"Exact protected supporting files from this persona/work, metadata only. Read or select the source under next_assets to recover its inputs, output and terminal evidence with required qualifications. Selection can avoid a history scan and a read-result byte limit. Do not rerun a computation to recover a receipt. Files are host records, not current callable grants or persona-authored judgments. Inaccessible results are omitted.",
+            "retrieval":"Result provenance for exact revisions already referenced in this input, including selected results from other work. Other retained results and guides remain discoverable through native file or history queries. Read or select an exact source for its inputs, output and terminal evidence with qualifications. Metadata supplies no body. Do not rerun a computation to recover a receipt.",
             "meaning":"No work completion is inferred. Uncertain computation requires host recovery; it is not replayed or treated as free, and blocks further computation for this persona/work."})
     }
 }

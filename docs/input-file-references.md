@@ -56,9 +56,11 @@ silently repairs an unknown handle or malformed literal reference.
 
 The complete table has no application entry or serialized-byte cap.
 Candidates come only from current host
-projections and qualified entries. These include owned tool allocation guides,
-retained tool-result references and structured citations in received local
-messages. Arbitrary document text, nested history and quoted JSON are not parsed
+projections and qualified entries. These include explicitly discovered files,
+referenced tool guides and results, and structured citations in received local
+messages. The host does not add the complete retained fragment collection or
+past tool-result catalogue to each request. Arbitrary document text, nested
+history and quoted JSON are not parsed
 as reference offers. Offering metadata loads no additional file body and does
 not choose context, execute a tool or add funding. Its bytes and source
 restrictions enter the normal admission accounting.
@@ -77,6 +79,42 @@ metadata supplies no result body, and absent historical origin metadata remains
 absent during inspection.
 Decoded fields and ranges of the same immutable result retain that document's
 producing invocation and operation metadata.
+
+## Discover resources before selecting their bodies
+
+Use an already known exact reference directly when it is useful. For an unknown
+fragment or supporting resource, the persona can request native file discovery
+by path, literal text or regex. For example, this operation asks for a page of
+active supporting files whose native paths contain `reviews/`:
+
+```json
+{
+  "kind": "discover",
+  "id": "find-review-notes",
+  "request": {
+    "scope": "assets",
+    "surface": {"kind": "path"},
+    "mode": {"kind": "literal", "needle": "reviews/"},
+    "hidden_paths": "include",
+    "retirement": "active_only"
+  },
+  "limit": 20,
+  "cursor": null
+}
+```
+
+The page size is the persona's request, not an application quota. The persona
+can choose another size, follow a returned cursor, or change its query. Use
+`scope: "fragments"` for characteristic material. Native host-command and
+computation results use `tools/results/`; HTTP results use `tools/http-results/`.
+Retained-history queries can also locate the original
+observations and producing invocations. These operations do not run old tools.
+
+Discovery returns candidates with exact references. Those references can receive
+current-input handles, after which the persona chooses a read or next-context
+selection. A result is not a supplied body or an automatic endorsement. When
+editing, use the exact current base from file-mutation metadata; an earlier
+discovered revision does not silently become the current head.
 
 The retained table and provider-bound input must agree before a handle resolves.
 Unknown, omitted-table or older-invocation handles are rejected. The original

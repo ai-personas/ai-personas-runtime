@@ -215,12 +215,14 @@ The result body can identify the original command's actual host output paths;
 use those exact paths when revising an output. The `stdout.log_path` and `stderr.log_path`
 paths refer to host files directly.
 
-`CONTROL.host_command_state.retained_results` lists the current actor/work's
-visible result references without an entry cap. `retained_results_limit` is
-null and `retained_results_truncated` is false. Unresolved jobs are listed
-independently. `retained_results_included: false` identifies a projection that
-contains only unresolved-job metadata; it does not establish that no older
-results exist. Required context, selected bodies and qualifications remain supplied.
+`CONTROL.host_command_state.retained_results` supplies provenance only for exact
+result revisions already referenced in the current input, including results
+selected from other work. It does not enumerate all past commands. There is no
+entry cap: `retained_results_limit` is null and `retained_results_truncated` is
+false. Unresolved jobs for the current actor/work remain operational state,
+independent of historical retrieval. An absent result entry does not establish
+that no older result exists. Use [native file discovery](input-file-references.md#discover-resources-before-selecting-their-bodies)
+or retained-history queries when another result is needed.
 The ordinary input-file handles can select or cite supplied references. Selecting an old result
 does not run its command again. `development PERSONA --invocation CALL` includes
 `host_command_execution` with dispatch and terminal receipts.

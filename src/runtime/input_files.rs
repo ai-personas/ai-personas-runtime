@@ -198,10 +198,6 @@ fn candidates(control: &Value, qualified: &Value) -> Result<Candidates> {
         &control["work_guide_discovery"]["control_guides"],
         "reference",
     )?;
-    candidates.entries(
-        &control["retained_optional_fragments"]["entries"],
-        "reference",
-    )?;
     candidates.bundle(qualified)?;
     for family in ["computation_state", "http_fetch_state", "host_command_state"] {
         candidates.entries(&control[family]["allocations"], "guide")?;
