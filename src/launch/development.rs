@@ -184,6 +184,7 @@ fn invocation_evidence(
         "invocation evidence unavailable",
     )?;
     let proof = records.decision(invocation_id)?;
+    let reservation = records.reservation(&invocation.reservation)?;
     let object = records.object(&archive_id(invocation_id))?
         .ok_or_else(|| held("invocation evidence unavailable"))?;
     let exact = object.exact_ref()?;
@@ -199,6 +200,9 @@ fn invocation_evidence(
             && proof.invocation_id == invocation_id
             && proof.objects.contains(&exact)
             && proof.response_hash == archive.response_hash
+            && reservation.navigation_charge.as_ref().is_none_or(|charge|
+                charge.response_sha256 == archive.response_hash
+                    && charge.bytes <= reservation.amount.navigation_bytes)
             && archive.actor == persona_id
             && archive.work == prepared.request.work
             && archive.response.invocation_id == invocation_id
@@ -325,6 +329,12 @@ fn invocation_evidence(
             "provider_reported_usage":if provider_completed { receipt.and_then(|r| r.get("usage")) } else { None },
             "provider_request_bytes":if provider_completed { receipt.and_then(|r| r.get("audit")).and_then(|a| a.get("request_bytes")) } else { None },
             "store_usage_is_unknown":archive.report.usage_is_unknown,
+            "store_reservation":{
+                "state":reservation.state,
+                "original_allowance":reservation.amount,
+                "known_native_navigation":reservation.navigation_charge,
+                "complete_measurement":reservation.measured
+            },
             "scope":"This retained call only. Prompt bytes, reserved assembly bytes, provider transport bytes, reported tokens and Store accounting are distinct; no whole-episode cost or savings claim."
         },
         "scope":"Exact full bodies in selected/mandatory context or qualified Read observations, among the characteristic revisions returned by this bounded view. Other revisions and invocations are not inspected. Current permissions still apply.",

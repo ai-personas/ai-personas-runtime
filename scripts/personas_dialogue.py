@@ -1802,7 +1802,11 @@ class Dialogue:
             self.ui.say("Provider-reported usage: " + (json.dumps(usage, ensure_ascii=False) if usage is not None
                                                       else "unavailable for a matching completed provider input"))
             if accounting.get("store_usage_is_unknown"):
-                self.ui.say("Store usage accounting remains uncertain; reported provider tokens do not refund its reservation.")
+                self.ui.say("Provider usage remains uncertain; reported tokens alone do not settle its input/output reservation.")
+            navigation = accounting.get("store_reservation", {}).get("known_native_navigation")
+            if navigation is not None:
+                self.ui.say(f"Known native navigation charge: {navigation['bytes']} bytes. "
+                            "Work attempts and navigation allowances were not renewed.")
             self.ui.say(accounting["scope"])
 
     def work_menu(self, work, after):

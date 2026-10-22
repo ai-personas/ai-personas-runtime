@@ -4551,6 +4551,7 @@ impl Runtime {
             );
         }
         report.accepted_epoch = Some(accepted_epoch);
+        let navigation_bytes = known_navigation_bytes(&next, &prepared, &report)?;
         let archive = AdoptedResponse {
             actor: prepared.request.persona.clone(),
             work: prepared.request.work.clone(),
@@ -4601,7 +4602,7 @@ impl Runtime {
             response_hash,
             changes,
             intents,
-        }, scoped_state) {
+        }, scoped_state, navigation_bytes) {
             Ok(receipt) => {
                 require(
                     Some(receipt.accepted_epoch) == report.accepted_epoch,
@@ -8871,6 +8872,45 @@ fn validate_operation_interfaces(
     }
     Ok(actions)
 }
+/// Read only the runtime-authored accounting in the successfully staged plan.
+/// This is the native-operation charge, not provider usage or all host I/O.
+/// Store reads already have their own metering. Repair projection keeps its
+/// conservative prepaid charge in addition to the measured read counters.
+fn known_navigation_bytes(
+    state: &State, prepared: &Prepared, report: &AdoptionReport,
+) -> Result<u64> {
+    if report.status == AdoptionStatus::CharacterOnly {
+        return Ok(0); // All ordinary navigation operations were fenced.
+    }
+    let (kind, suffix) = if prepared.request.mode == Mode::SelectionRepair {
+        ("selection_repair_receipt", "host-selection-repair")
+    } else {
+        ("host_accounting", "host-navigation-account")
+    };
+    let id = observation_id(&prepared.request.id, kind, suffix);
+    let observation = state.observations.get(&id)
+        .ok_or_else(|| held("accepted navigation accounting absent"))?;
+    require(
+        observation.kind == kind && observation.actor == prepared.request.persona
+            && observation.work == prepared.request.work
+            && observation.invocation.as_deref() == Some(prepared.request.id.as_str()),
+        "accepted navigation accounting attribution changed",
+    )?;
+    let bytes = |value: &Value| -> Result<u64> {
+        let scanned = value["scanned_bytes"].as_u64()
+            .ok_or_else(|| held("navigation scan accounting absent"))?;
+        let returned = value["result_bytes"].as_u64()
+            .ok_or_else(|| held("navigation result accounting absent"))?;
+        scanned.checked_add(returned).ok_or_else(|| invalid("navigation charge overflow"))
+    };
+    let mut charged = bytes(&observation.payload["actual_navigation"])?;
+    if prepared.request.mode == Mode::SelectionRepair {
+        charged = charged.checked_add(bytes(&observation.payload["projection_allocation"])? )
+            .ok_or_else(|| invalid("repair navigation charge overflow"))?;
+    }
+    Ok(charged)
+}
+
 fn plan_response(
     mut state: State,
     prepared: &Prepared,

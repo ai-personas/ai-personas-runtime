@@ -190,6 +190,13 @@ provider input. They remain distinct from Store reservation accounting, which ma
 still be uncertain. These figures describe one call, not total episode cost or
 demonstrated savings.
 
+`input_accounting.store_reservation` distinguishes the original reservation,
+known native navigation charge, and any later complete measurement. New accepted
+calls settle the known native charge while retaining unknown provider input/output
+exposure. A missing navigation charge is unknown, not zero. See
+[navigation accounting](navigation-accounting.md) for the separate work allowance
+and the limits of these counters.
+
 Optional selections belong to a work. Reusing a refinement in another work
 requires that persona's own selection or an authorized character adoption;
 retention alone does not add it to every later prompt. A permitted character

@@ -482,6 +482,7 @@ pub enum ReceiptStatus {
     Uncertain,
     Canceled,
     Settled,
+    NavigationCharged,
     Overrun,
 }
 
@@ -513,7 +514,16 @@ pub struct ReservationRecord {
     pub amount: Resources,
     pub state: ReservationState,
     pub measured: Option<Resources>,
+    /// Known native navigation charge only. Other held usage can stay unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub navigation_charge: Option<NavigationCharge>,
     pub history: Vec<Receipt>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NavigationCharge {
+    pub bytes: u64,
+    pub response_sha256: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -2713,19 +2723,19 @@ impl Store {
     /// Repeated identical decisions return the original receipt even after the
     /// global epoch advances. Changed data under an accepted identity conflicts.
     pub fn commit_decision(&mut self, decision: Decision) -> Result<DecisionRecord> {
-        self.commit_decision_with_runtime_usage(decision, false, None)
+        self.commit_decision_with_runtime_usage(decision, None, None)
     }
 
-    /// Runtime adoption includes the Reserved-to-Uncertain usage disposition in
-    /// the decision transaction. Any failure rolls back the entire adoption.
-    /// Existing uncertainty or measurements are preserved. Generic callers keep
-    /// commit_decision's separate settlement semantics.
+    /// Runtime adoption charges known native navigation and retains other usage
+    /// as uncertain in the same transaction. Failure rolls back the adoption and
+    /// settlement together. Generic callers retain separate settlement semantics.
     pub(crate) fn commit_runtime_decision(
         &mut self,
         decision: Decision,
         scoped_state: Option<ObjectRef>,
+        navigation_bytes: u64,
     ) -> Result<DecisionRecord> {
-        self.commit_decision_with_runtime_usage(decision, true, scoped_state)
+        self.commit_decision_with_runtime_usage(decision, Some(navigation_bytes), scoped_state)
     }
 
     /// Finish interrupted legacy accounting after exact adopted-response replay
@@ -2736,13 +2746,13 @@ impl Store {
         id: &str,
         response_hash: &str,
     ) -> Result<()> {
-        self.transaction(|work| work.finish_runtime_adoption_usage(id, response_hash))
+        self.transaction(|work| work.finish_runtime_adoption_usage(id, response_hash, None))
     }
 
     fn commit_decision_with_runtime_usage(
         &mut self,
         decision: Decision,
-        runtime_unknown_usage: bool,
+        runtime_navigation: Option<u64>,
         scoped_state: Option<ObjectRef>,
     ) -> Result<DecisionRecord> {
         self.transaction(|work| {
@@ -2766,10 +2776,11 @@ impl Store {
                 work.get::<DecisionRecord>("decision", &decision.invocation_id)?
             {
                 if existing.decision_hash == decision_hash {
-                    if runtime_unknown_usage {
+                    if runtime_navigation.is_some() {
                         work.finish_runtime_adoption_usage(
                             &decision.invocation_id,
                             &decision.response_hash,
+                            runtime_navigation,
                         )?;
                     }
                     return Ok(existing);
@@ -2783,7 +2794,7 @@ impl Store {
             live_invocation(&invocation)?;
             if let Some(reference) = &scoped_state {
                 let state: StoredObject = work.required("object", RUNTIME_CONTROL_STATE_ID)?;
-                if !runtime_unknown_usage || !scoped_runtime_invocation(&invocation)
+                if runtime_navigation.is_none() || !scoped_runtime_invocation(&invocation)
                     || invocation.prepared_epoch > decision.expected_epoch
                     || state.exact_ref()? != *reference
                     || !decision.changes.iter().any(|change| {
@@ -2870,8 +2881,10 @@ impl Store {
                 receipt,
             };
             work.insert_exact("decision", &decision.invocation_id, &record, class)?;
-            if runtime_unknown_usage {
-                work.finish_runtime_adoption_usage(&record.invocation_id, &record.response_hash)?;
+            if runtime_navigation.is_some() {
+                work.finish_runtime_adoption_usage(
+                    &record.invocation_id, &record.response_hash, runtime_navigation,
+                )?;
             }
             Ok(record)
         })
@@ -4503,6 +4516,7 @@ impl<'a> Work<'a> {
             amount,
             state: ReservationState::Reserved,
             measured: None,
+            navigation_charge: None,
             history: vec![receipt],
         };
         self.insert_control("reservation", &key, &record, class, RESERVATION_EVENTS)?;
@@ -4550,7 +4564,12 @@ impl<'a> Work<'a> {
         if usage == Usage::Unknown && record.state == ReservationState::Uncertain {
             return Ok((record, false));
         }
-        let held = record.amount.without_attempts();
+        let mut held = record.amount.without_attempts();
+        if record.navigation_charge.is_some() {
+            // This dimension was already removed from the uncertain hold and
+            // charged locally. A later complete measurement must not count it twice.
+            held.navigation_bytes = 0;
+        }
         let mut account = self.meta.account(record.class).clone();
         match usage {
             Usage::Unknown => {
@@ -4577,6 +4596,12 @@ impl<'a> Work<'a> {
                 let overrun = !measured.fits(record.amount);
                 let mut additional = measured.without_attempts();
                 additional.attempts = measured.attempts - record.amount.attempts;
+                if let Some(charge) = &record.navigation_charge {
+                    if measured.navigation_bytes != charge.bytes {
+                        return Err(StoreError::Conflict(id.id.clone()));
+                    }
+                    additional.navigation_bytes = 0;
+                }
                 let represented: Result<Account> = (|| {
                     if record.state == ReservationState::Reserved {
                         account.reserved = account.reserved.checked_sub(held)?;
@@ -4714,7 +4739,9 @@ impl<'a> Work<'a> {
         Ok(receipt)
     }
 
-    fn finish_runtime_adoption_usage(&mut self, id: &str, response_hash: &str) -> Result<()> {
+    fn finish_runtime_adoption_usage(
+        &mut self, id: &str, response_hash: &str, navigation_bytes: Option<u64>,
+    ) -> Result<()> {
         self.id(id)?;
         hash_valid(response_hash)?;
         let invocation: InvocationRecord = self.required("invocation", id)?;
@@ -4731,7 +4758,47 @@ impl<'a> Work<'a> {
         }
         // Read the current reservation inside this transaction. A later measured
         // settlement, including an overrun, must never be replaced by Unknown.
-        self.mark_usage_unknown_if_open(&invocation.reservation)
+        self.mark_usage_unknown_if_open(&invocation.reservation)?;
+        if let Some(bytes) = navigation_bytes {
+            self.charge_runtime_navigation(&invocation.reservation, response_hash, bytes)?;
+        }
+        Ok(())
+    }
+
+    /// Called only with an authenticated adoption in this transaction. Native
+    /// navigation has a known charge even when provider usage remains unknown.
+    /// The original reservation stays intact; only its unused Store navigation
+    /// hold is released. Work attempts and work navigation allocations are not
+    /// renewed, and replay cannot charge or release this dimension twice.
+    fn charge_runtime_navigation(
+        &mut self, id: &ReservationId, response_hash: &str, bytes: u64,
+    ) -> Result<()> {
+        let key = id.key();
+        let mut record: ReservationRecord = self.required("reservation", &key)?;
+        let charge = NavigationCharge { bytes, response_sha256: response_hash.into() };
+        if let Some(existing) = &record.navigation_charge {
+            return if existing == &charge { Ok(()) } else { Err(StoreError::Conflict(id.id.clone())) };
+        }
+        if record.state != ReservationState::Uncertain || record.measured.is_some()
+            || bytes > record.amount.navigation_bytes
+        {
+            return Err(StoreError::InvalidState("runtime navigation charge exceeds an unresolved reservation".into()));
+        }
+        let mut account = self.meta.account(record.class).clone();
+        account.uncertain.navigation_bytes = account.uncertain.navigation_bytes
+            .checked_sub(record.amount.navigation_bytes)
+            .ok_or(StoreError::Overflow("uncertain navigation charge"))?;
+        account.consumed.navigation_bytes = account.consumed.navigation_bytes
+            .checked_add(bytes).ok_or(StoreError::Overflow("known navigation charge"))?;
+        *self.meta.account_mut(record.class) = account;
+        record.navigation_charge = Some(charge);
+        let receipt = self.event(
+            EntityId::Reservation(id.clone()), ReceiptStatus::NavigationCharged,
+            Some("Native navigation charged; other usage remains unknown; work allowances unchanged".into()),
+            None,
+        )?;
+        append(&mut record.history, receipt, RESERVATION_EVENTS)?;
+        self.update("reservation", &key, &record)
     }
 
     fn mark_usage_unknown_if_open(&mut self, id: &ReservationId) -> Result<()> {
