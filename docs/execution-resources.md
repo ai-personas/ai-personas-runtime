@@ -334,6 +334,11 @@ previously registered message wait in the immediate parent; the sender needs a
 known persona identity, not parent-participant membership. Parent phase or authority changes do not
 erase an already adopted request or prevent its separate child admission.
 
+Foreground scheduling scans the complete participant list of the requested work
+in circular identity order. It has no fixed consideration-page cutoff. An
+operator's requested inspection page size remains a display choice and cannot
+hide an eligible persona from a foreground run.
+
 Removal is still incomplete. Remaining application enforcement includes initial
 episode selection and single-episode binding constraints; explicit optional opportunity and birth workflows; and
 additional specialized control and workflow gates. These are implementation gaps under the

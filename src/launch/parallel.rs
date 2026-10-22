@@ -106,7 +106,7 @@ pub(super) async fn run<D: Driver>(
             let mut needs_exclusive = false;
             let admission = (|| {
                 driver.before_step(app)?;
-                let (_, selected) = select_owned(app, work, 128, unix_now()?, &owned)?;
+                let (_, selected) = select_owned(app, work, unix_now()?, &owned)?;
                 let Some(persona) = selected else {
                     return Ok(None);
                 };

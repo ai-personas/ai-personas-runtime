@@ -656,17 +656,15 @@ fn start_owned_keyed(
     Ok(id)
 }
 type Pick = (usize, Option<String>);
-fn select(app: &mut Runtime, work: &str, limit: usize, now: i64) -> Result<Pick> {
-    select_owned(app, work, limit, now, &BTreeSet::new())
+fn select(app: &mut Runtime, work: &str, now: i64) -> Result<Pick> {
+    select_owned(app, work, now, &BTreeSet::new())
 }
 fn select_owned(
     app: &mut Runtime,
     work: &str,
-    limit: usize,
     now: i64,
     owned: &BTreeSet<String>,
 ) -> Result<Pick> {
-    scheduler_bound(limit)?;
     let time = u64::try_from(now).map_err(|_| invalid("negative scheduling time"))?;
     let (head, state) = app.load()?;
     require(
@@ -674,9 +672,16 @@ fn select_owned(
         "unfinished invocation requires completion or explicit recovery",
     )?;
     let (old, mut cursor) = app.load_scheduler()?;
-    let page = state
-        .board
-        .consideration_page(cursor.after.as_ref(), limit)?;
+    let work_id = w::WorkId(work.into());
+    let current = state.board.work(&work_id)?;
+    let after = cursor.after.clone();
+    let pairs = || current.participants.keys().map(|actor| (work_id.clone(), actor.clone()));
+    // A foreground run selects from its complete work, in circular identity
+    // order. An inspection page elsewhere in the runtime cannot hide a runnable
+    // participant or make this run report a false lack of eligible work.
+    let page = pairs()
+        .filter(|pair| after.as_ref().is_none_or(|last| pair > last))
+        .chain(pairs().filter(|pair| after.as_ref().is_some_and(|last| pair <= last)));
     let mut selected = None;
     cursor.last.clear();
     for (wid, actor) in page {
@@ -869,7 +874,7 @@ async fn run_with_options<D: Driver>(
             if !handover(app, work)? {
                 return Ok("character_fence");
             }
-            let (_, selected) = select(app, work, 128, unix_now()?)?;
+            let (_, selected) = select(app, work, unix_now()?)?;
             let Some(persona) = selected else {
                 if app.has_background_host_commands() {
                     if yield_after_step {
