@@ -88,7 +88,10 @@ enum Command {
         work: Option<String>,
         #[arg(long, required_unless_present_any = ["need", "work"], conflicts_with_all = ["need", "work"])]
         delegation: Option<String>,
-        /// Exact bounded grant reference for proposal authoring on --work.
+        /// Select an exact admitted child when --delegation has several children.
+        #[arg(long, requires = "delegation")]
+        child_work: Option<String>,
+        /// Exact grant reference for proposal authoring on --work.
         /// Retains the selected vault lock and direct in-process transport.
         #[arg(long, requires = "work", conflicts_with_all = ["need", "delegation"])]
         intake_delegation: Option<PathBuf>,
@@ -179,6 +182,7 @@ pub(crate) async fn run(cli: Cli) -> Result<i32> {
             need,
             work,
             delegation,
+            child_work,
             intake_delegation,
         } => {
             if !absolute_path(&state_root) {
@@ -207,7 +211,10 @@ pub(crate) async fn run(cli: Cli) -> Result<i32> {
                     ai_personas::launch::NativeInput::WorkWithIntake { work, selection }
                 }
                 (None, None, Some(grant), None) => {
-                    ai_personas::launch::NativeInput::Delegation(grant)
+                    match child_work.as_deref() {
+                        Some(work) => ai_personas::launch::NativeInput::DelegatedWork { grant, work },
+                        None => ai_personas::launch::NativeInput::Delegation(grant),
+                    }
                 }
                 _ => return Err(AuthError::State),
             };

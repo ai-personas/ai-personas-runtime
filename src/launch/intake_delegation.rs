@@ -43,7 +43,7 @@ impl IntakeReference {
             sha256: self.sha256.clone(),
         }
     }
-    fn validate(&self, id: &str) -> Result<()> {
+    pub(in crate::runtime) fn validate(&self, id: &str) -> Result<()> {
         identity(&self.id)?;
         require(
             self.id == id && self.revision > 0,
@@ -141,6 +141,7 @@ pub struct IntakeDelegationRequest {
     pub policy: f::Policy,
     pub destination: String,
     pub expires_at_unix: i64,
+    /// Historical request metadata, not a child-count quota.
     pub creation_rights: u8,
     pub allow_further_delegation: bool,
     /// Aggregate across proposal authoring and all participating personas and
@@ -185,10 +186,9 @@ impl IntakeDelegationRequest {
         validate_ceiling(self.episode_ceiling)?;
         require(
             self.activate
-                && self.creation_rights == 1
                 && !self.allow_further_delegation
                 && self.expires_at_unix >= 0,
-            "explicit activation, one creation right, valid historical expiry and no further delegation are required",
+            "explicit activation, valid historical expiry and no further delegation are required",
         )?;
         match &self.funding {
             IntakeFundingBasis::ExistingParentTransfer {
@@ -354,16 +354,18 @@ pub struct IntakeDelegation {
     pub creation_rights_remaining: u8,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub consumed_child: Option<ConsumedChild>,
+    /// Appended admissions leave the first child's retained evidence intact.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub additional_consumed_children: Vec<ConsumedChild>,
     pub status: IntakeDelegationStatus,
 }
 impl IntakeDelegation {
     pub fn sha256(&self) -> Result<String> {
         canonical_hash(self)
     }
-    /// Explicit lifecycle/right status; saved expiry is observational. Current operator, policy, exposure, root,
-    /// identity and opportunity checks remain mandatory for future consumption.
+    /// Explicit lifecycle status; saved expiry and creation counts are observational.
     pub fn active_at(&self, now: i64) -> bool {
-        self.usable_at(now) && self.creation_rights_remaining == 1 && self.consumed_child.is_none()
+        self.usable_at(now)
     }
     pub(in crate::runtime) fn usable_at(&self, now: i64) -> bool {
         self.version == 1
@@ -373,10 +375,24 @@ impl IntakeDelegation {
     /// Identity of the immutable issued capsule, independent of monotonic lifecycle fields.
     pub(in crate::runtime) fn source_sha256(&self) -> Result<String> {
         let mut source = self.clone();
-        source.creation_rights_remaining = 1;
+        source.creation_rights_remaining = source.request.creation_rights;
         source.consumed_child = None;
+        source.additional_consumed_children.clear();
         source.status = IntakeDelegationStatus::Active;
         source.sha256()
+    }
+    pub(in crate::runtime) fn consumed_children(&self) -> impl Iterator<Item = &ConsumedChild> {
+        self.consumed_child
+            .iter()
+            .chain(&self.additional_consumed_children)
+    }
+    pub(in crate::runtime) fn record_child(&mut self, child: ConsumedChild) {
+        self.creation_rights_remaining = self.creation_rights_remaining.saturating_sub(1);
+        if self.consumed_child.is_none() {
+            self.consumed_child = Some(child);
+        } else {
+            self.additional_consumed_children.push(child);
+        }
     }
     pub(in crate::runtime) fn validate(&self, key: &str) -> Result<()> {
         require(
@@ -389,18 +405,25 @@ impl IntakeDelegation {
             "delegation issue provenance changed",
         )?;
         expiry(&self.request, self.issued_at_unix)?;
-        if let Some(child) = &self.consumed_child {
+        let mut works = BTreeSet::new();
+        let mut admissions = BTreeSet::new();
+        let mut proposals = BTreeSet::new();
+        let mut remaining = self.request.creation_rights;
+        for child in self.consumed_children() {
             child.validate(self)?;
             require(
-                self.creation_rights_remaining == 0,
-                "consumed creation right cannot be restored",
+                works.insert(&child.work)
+                    && admissions.insert(&child.admission_id)
+                    && proposals.insert(&child.pending.id),
+                "duplicate child admission binding",
             )?;
+            remaining = remaining.saturating_sub(1);
         }
         match &self.status {
             IntakeDelegationStatus::Active => {
                 require(
-                    self.creation_rights_remaining == u8::from(self.consumed_child.is_none()),
-                    "invalid active creation right",
+                    self.creation_rights_remaining == remaining,
+                    "invalid historical creation count",
                 )?;
             }
             IntakeDelegationStatus::Revoked {
@@ -1021,8 +1044,9 @@ fn plan(
                     request: request.clone(),
                     request_sha256: hash.clone(),
                     issued_at_unix: now,
-                    creation_rights_remaining: 1,
+                    creation_rights_remaining: request.creation_rights,
                     consumed_child: None,
+                    additional_consumed_children: Vec::new(),
                     status: IntakeDelegationStatus::Active,
                 },
             );
@@ -1039,8 +1063,8 @@ fn plan(
                     && now >= grant.issued_at_unix,
                 "delegation issuer, exact grant or revocation status changed",
             )?;
-            // Cancel any unused right and disable future episode admissions.
-            // Preserve a consumed child, all balances, history and existing holds.
+            // Explicit revocation disables future episode admissions and retains
+            // every admitted child, all accounting, history and existing holds.
             grant.creation_rights_remaining = 0;
             grant.status = IntakeDelegationStatus::Revoked {
                 request_id: request.id.clone(),
@@ -1323,8 +1347,7 @@ pub(in crate::runtime) fn commit_episode_preparation(
     let authority = episode_authority(app, state, &episode.grant.request.id, now)?;
     require(
         authority.grant.source_sha256()? == episode.grant_sha256
-            && authority.grant.consumed_child.as_ref()
-                == episode.child.as_ref().map(|child| &child.binding)
+            && episode.children_match(&authority.grant)
             && authority.registry == episode.last_preparation_registry
             && authority.launch_binding_sha256 == episode.launch_binding_sha256
             && app.invocation_leases_quiescent(state)?,

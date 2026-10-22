@@ -7516,7 +7516,7 @@ fn render_mode_with_history(
         core["need_capability"] = serde_json::to_value(interface)?;
         core["need_proposal_rules"] = json!({
             "operation":"propose_need",
-            "rule":"Optional closed operation only. Copy this exact grant and binding_revision. Purpose must equal the offered purpose. Supply your own request, outcomes with criteria, invitees with voluntary terms, and an allocation recorded as requested metadata without a quota. At most one pending proposal per episode. Depends_on may name local FileWrite saves only. Pending adoption creates no work, invitation, acceptance, resources or dispatch. Character changes fence this operation. Stop, decline and no_change remain legitimate; parent Stop is retained.",
+            "rule":"Optional closed operation only. Copy this exact grant and binding_revision. Purpose must equal the offered purpose. Supply your own request, outcomes with criteria, invitees with voluntary terms, and an allocation recorded as requested metadata without a quota. There is no proposal or child count limit. Each proposal needs its own operation ID and retains its own immutable provenance. Depends_on may name local FileWrite saves only. Pending adoption creates no work, invitation, acceptance, resources or dispatch. Character changes fence this operation. Stop, decline and no_change remain legitimate; parent Stop is retained.",
             "funding":"The authoring admission and later episode activity retain exact attempt and navigation accounting. Historical allocation and remaining values impose no quota. Pending adoption alone does not schedule another call or create a work identity."
         });
     }
@@ -8558,15 +8558,6 @@ fn plan_response(
             "timed reconsideration was not offered by this admitted interface",
         )?;
     }
-    require(
-        decision
-            .operations
-            .iter()
-            .filter(|operation| matches!(operation, p::Operation::ProposeNeed { .. }))
-            .count()
-            <= 1,
-        "at most one ProposeNeed operation per decision",
-    )?;
     let admitted_exposure = planning_exposure.clone();
     // Ordinary mutation/authority checks do not yet provide a complete derived
     // exposure manifest. Their failures are explicitly unknown until a complete

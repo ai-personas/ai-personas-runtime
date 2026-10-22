@@ -11,9 +11,7 @@ pub(crate) struct AdmittedChild {
 fn child<'a>(state: &'a State, work: &str) -> Option<(&'a IntakeEpisode, &'a AdmittedChild)> {
     state.intake_episodes.values().find_map(|episode| {
         episode
-            .child
-            .as_ref()
-            .filter(|child| child.binding.work == work)
+            .child_for(work)
             .map(|child| (episode, child))
     })
 }
@@ -59,7 +57,7 @@ pub(super) fn validate(
     require(
         binding.work != episode.work
             && binding.source_grant_sha256 == episode.grant_sha256
-            && episode.pending_proposal.as_ref() == Some(&binding.pending),
+            && episode.pending_proposals().any(|pending| pending == &binding.pending),
         "child differs from its immutable source grant or accepted pending lineage",
     )?;
     let work = state.board.work(&w::WorkId(binding.work.clone()))?;

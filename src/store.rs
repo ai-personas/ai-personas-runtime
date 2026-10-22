@@ -949,7 +949,11 @@ impl TrustedHost<'_> {
                 || request["request"]["id"] != record.id
                 || current.body["personas"][actor]["active_invocation"] != record.id
                 || episode["grant_sha256"] != request["intake_episode"]["sha256"]
-                || !(episode["work"] == work_id || episode["child"]["binding"]["work"] == work_id)
+                || !(episode["work"] == work_id
+                    || episode["child"]["binding"]["work"] == work_id
+                    || episode["additional_children"].as_array().is_some_and(|children| {
+                        children.iter().any(|child| child["binding"]["work"] == work_id)
+                    }))
                 || work.cell("decision", &record.id)?.is_some()
             {
                 return Err(StoreError::Invalid(

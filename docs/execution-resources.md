@@ -270,8 +270,16 @@ it cannot establish real external execution or human consent.
 
 ## Remaining work
 
+Intake episodes accept multiple proposals in a single response and across later
+responses, and admit a separate child for each distinct proposal without a
+creation-count quota. Every proposal and child keeps its own immutable evidence.
+The supplied proposal interface remains available after earlier proposals or
+children. Snapshot, continuation, accounting, result routing and explicit lease
+recovery cover every admitted child. Native continuation no longer requires a
+positive saved attempt balance or consideration count.
+
 Removal is still incomplete. Remaining
-application enforcement includes delegated intake authority and one-child workflow
+application enforcement includes delegated intake authority, participant and nesting
 constraints; explicit optional opportunity and birth workflows; remaining typed protocol and
 tool-input limits; and additional specialized control limits. These are implementation gaps under the
 new requirement, not exceptions granted by the user. Some earlier documents still

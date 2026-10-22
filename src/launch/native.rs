@@ -12,15 +12,20 @@ pub enum NativeInput<'a> {
         work: &'a str,
         selection: &'a p::need::GrantReference,
     },
-    /// Continue only the atomically admitted child of this exact named grant.
+    /// Continue a grant's sole child. Select DelegatedWork when there are several.
     Delegation(&'a str),
+    /// Continue this exact admitted child of the named grant.
+    DelegatedWork {
+        grant: &'a str,
+        work: &'a str,
+    },
 }
 
 fn rejected(failure: provider::Failure) -> RuntimeError {
     provider::ProviderError::Rejected(failure).into()
 }
 
-/// Calling this entry explicitly authorizes one existing bounded launch run.
+/// Calling this entry explicitly authorizes one existing launch run.
 /// There is no caller-selected provider, transport, executable or endpoint.
 pub async fn native_run(
     root: &Path,
@@ -41,6 +46,10 @@ pub async fn native_run(
             selection.validate()?;
         }
         NativeInput::Delegation(grant) => identity(grant)?,
+        NativeInput::DelegatedWork { grant, work } => {
+            identity(grant)?;
+            identity(work)?;
+        }
     }
     // Ordinary open may recover orphan dispatches. Do not load launch settings
     // with launch::open before acquiring the owner below.
@@ -59,7 +68,7 @@ pub async fn native_run(
 }
 
 /// Explicit foreground continuation. This creates no work or opportunity and
-/// retains native_run's existing owner, provider, reservation and run limits.
+/// retains native_run's execution owner and exact saved provider bindings.
 pub async fn native_continue_delegation(
     root: &Path,
     operator: &str,
@@ -87,9 +96,8 @@ fn validate_saved(
     let setup = &saved.setup;
     require(
         setup.cohort > 0
-            && (1..=setup.cohort).contains(&setup.owner)
-            && setup.max_considerations > 0,
-        "invalid saved foreground bounds",
+            && (1..=setup.cohort).contains(&setup.owner),
+        "invalid saved cohort identity",
     )?;
     let (head, state) = app.load()?;
     let config = &state.config;
@@ -141,6 +149,14 @@ async fn run_opened(
             app,
             operator,
             grant,
+            None,
+            unix_now()?,
+        )?),
+        NativeInput::DelegatedWork { grant, work } => Some(intake_delegation::admitted_child_for_run(
+            app,
+            operator,
+            grant,
+            Some(work),
             unix_now()?,
         )?),
         _ => None,
@@ -163,7 +179,7 @@ async fn run_opened(
     let work = match input {
         NativeInput::Need(request) => start_with_acceptance_owned(app, request, false, &owner)?,
         NativeInput::Work(work) | NativeInput::WorkWithIntake { work, .. } => work.to_owned(),
-        NativeInput::Delegation(_) => {
+        NativeInput::Delegation(_) | NativeInput::DelegatedWork { .. } => {
             delegated_work.ok_or_else(|| held("admitted delegated child absent"))?
         }
     };

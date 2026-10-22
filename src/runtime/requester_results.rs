@@ -14,10 +14,7 @@ pub(super) fn observation_work(state: &State, work: &str, recipient: &str) -> Re
     let Some(episode) = need_proposals::episode(state, work) else {
         return Ok(work.into());
     };
-    let Some(child) = &episode.child else {
-        return Ok(work.into());
-    };
-    if child.binding.work != work {
+    if episode.child_for(work).is_none() {
         return Ok(work.into());
     }
     let current = state.board.work(&w::WorkId(work.into()))?;

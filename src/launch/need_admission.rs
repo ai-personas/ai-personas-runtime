@@ -136,9 +136,7 @@ fn validate_receipt(receipt: &AdmitNeedProposalReceipt) -> Result<()> {
             )?;
         }
         (
-            IntakeFundingBasis::OperatorTranche {
-                authorize_new_tranche: true,
-            },
+            IntakeFundingBasis::OperatorTranche { .. },
             None,
             None,
         ) => (),
@@ -230,7 +228,7 @@ fn proof(
             && pending.accepted_at_unix >= pending.grant.issued_at_unix
             && pending.accepted_at_unix <= now
             && pending.grant.active_at(pending.accepted_at_unix)
-            && episode.pending_proposal.as_ref() == Some(&request.pending)
+            && episode.pending_proposals().any(|pending| pending == &request.pending)
             && episode.charges.iter().any(|charge| {
                 charge.invocation.as_deref() == Some(pending.invocation_id.as_str())
                     && charge.allocation.attempts == 1
@@ -481,16 +479,16 @@ fn plan(
         "active invocation blocks child admission",
     )?;
     app.store.require_quiescent_invocations()?;
-    let grant = registry
+    let current_grant = registry
         .grants
         .get(&request.grant.id)
         .cloned()
         .ok_or_else(|| held("source grant absent"))?;
     require(
-        grant.active_at(now)
-            && grant.sha256()? == request.grant.sha256
-            && grant.request.operator == request.operator
-            && grant.request.purpose == request.purpose,
+        current_grant.active_at(now)
+            && current_grant.source_sha256()? == request.grant.sha256
+            && current_grant.request.operator == request.operator
+            && current_grant.request.purpose == request.purpose,
         "source grant issuer, exact hash, purpose or status changed",
     )?;
     let episode = state
@@ -498,11 +496,18 @@ fn plan(
         .get(&request.grant.id)
         .ok_or_else(|| held("charged proposal episode absent"))?;
     require(
-        episode.child.is_none()
-            && episode.grant == grant
+        episode.grant_sha256 == request.grant.sha256
+            && episode.children_match(&current_grant)
             && canonical_hash(episode)? == request.expected_episode_sha256,
-        "episode changed or already has an admitted child",
+        "episode or admitted child bindings changed",
     )?;
+    require(
+        !episode.children().any(|child| child.binding.pending == request.pending),
+        "this exact proposal already has an admitted child",
+    )?;
+    // Receipts and authored origins name the immutable issued grant. Later
+    // admissions append to the separately fenced current registry.
+    let grant = episode.grant.clone();
     need_proposals::check_work(app, &state, &episode.work, now)?;
     let parent = state.board.work(&w::WorkId(episode.work.clone()))?;
     require(
@@ -635,7 +640,7 @@ fn plan(
     next.intake_episodes
         .get_mut(&request.grant.id)
         .ok_or_else(|| held("episode absent"))?
-        .child = Some(child_binding);
+        .record_child(child_binding);
     for invitee in &proposal.invitees {
         let permitted = need_proposals::initial_allowed(&next, &input.id, &invitee.persona);
         let persona = next
@@ -664,8 +669,7 @@ fn plan(
         .grants
         .get_mut(&request.grant.id)
         .ok_or_else(|| held("source grant absent"))?;
-    consumed.creation_rights_remaining = 0;
-    consumed.consumed_child = Some(binding.clone());
+    consumed.record_child(binding.clone());
     registry.validate()?;
     let registry_object = s::StoredObject {
         id: REGISTRY_ID.into(),
@@ -808,9 +812,13 @@ pub(in crate::runtime) fn admitted_child_for_run(
     app: &mut Runtime,
     operator: &str,
     grant_id: &str,
+    selected_work: Option<&str>,
     now: i64,
 ) -> Result<String> {
     request_id(grant_id)?;
+    if let Some(work) = selected_work {
+        identity(work)?;
+    }
     let (_, state, _, saved) = candidates(app)?;
     admission_extension::authorize(&state, &saved, operator)?;
     admission_extension::validate_saved(&state, &saved)?;
@@ -823,9 +831,22 @@ pub(in crate::runtime) fn admitted_child_for_run(
         .intake_episodes
         .get(grant_id)
         .ok_or_else(|| held("named grant has no selected episode"))?;
-    let child = episode.child.as_ref().ok_or_else(|| {
-        held("named grant has no admitted child; grant or pending proposal alone enables no run")
-    })?;
+    let child = match selected_work {
+        Some(work) => episode.child_for(work).ok_or_else(|| {
+            held("selected work is not an admitted child of this grant")
+        })?,
+        None => {
+            let mut children = episode.children();
+            let child = children.next().ok_or_else(|| {
+                held("named grant has no admitted child; grant or pending proposal alone enables no run")
+            })?;
+            require(
+                children.next().is_none(),
+                "grant has multiple children; select the exact child work to continue",
+            )?;
+            child
+        }
+    };
     let work = &child.binding.work;
     require(
         saved.works.contains_key(work),
@@ -839,7 +860,6 @@ pub(in crate::runtime) fn admitted_child_for_run(
     let current = state.board.work(&w::WorkId(work.clone()))?;
     let exposure = work_exposure(&state, work)?;
     require(matches!(current.phase, w::Phase::Open)
-        && state.work_meta.get(work).is_some_and(|meta| meta.attempts_left > 0)
         && current.participants.keys().any(|actor| {
             need_proposals::actor_reason(&state, work, &actor.0).is_none()
                 && state.personas.get(&actor.0).is_some_and(|persona| {

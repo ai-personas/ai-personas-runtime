@@ -10,8 +10,10 @@ claim that invitees accepted responsibility or completed the request.
 Saved source policies and work allocations are provenance rather than execution quotas. Model calls, navigation, metadata retention and episode expiry have no application resource gate.
 An intake grant creates no initial work opportunity. A stopped persona needs a
 separately authorized resume or other eligible opportunity. Child participants
-must come from the grant's existing cohort, and this profile permits one child
-without further delegation.
+must currently come from the grant's existing cohort. There is no limit on the
+number of proposals in a decision, pending proposals in an episode, or children
+admitted from its distinct proposals. Saved creation counts are historical
+metadata; reaching zero does not disable proposal authoring or child admission.
 
 ## Grant and select an episode
 
@@ -75,19 +77,27 @@ ai-personas --state-root /private/state --operator requester admit-need-proposal
 ai-personas --state-root /private/state --operator requester admit-need-proposal admission.json --apply
 ```
 
-The episode snapshot exposes any adopted `pending_proposal` and its original
-author, parent, invocation, operation and response hashes. With no pending
+The episode snapshot exposes every adopted proposal in `pending_proposals`, with
+its original author, parent, invocation, operation and response hashes. The
+singular `pending_proposal` reports the first entry; `child_work_ids` lists every
+admitted child. With no pending
 proposal, there is nothing to admit. The
 [`AdmitNeedProposalRequest`](../src/launch/need_admission.rs) binds that exact
 record, grant, current episode, runtime, launch and registry, along with an unused
-child work ID and the explicit admission authorization. Its purpose must equal
+child work ID. Its purpose must equal
 the source grant's purpose. `expected_episode_sha256` hashes the episode object's
 UTF-8 JSON with keys sorted recursively, compact separators and unescaped Unicode;
 it is not a hash of the formatted snapshot file.
 
 Admission rechecks the actual complete adopted response and terminal evidence.
-It atomically consumes the single creation right, registers the child and records
-its funding. A parent transfer subtracts the child's allocation from the existing
+It atomically appends the child binding, registers the work and records its
+funding. Each proposal keeps its own immutable reference and admission receipt;
+an already admitted proposal cannot create another child under a different
+admission ID. For another proposal, take fresh snapshots and use the original
+issued grant hash from the episode. The current registry hash changes as children
+are added; it is not the proposal's immutable source grant hash.
+
+A parent transfer subtracts the child's allocation from the existing
 parent account. The historical parent remainder saturates at zero. The child receives the requested metadata without being reduced to a finite remainder. Complete episode charge records retain use beyond the original numbers. Admission
 performs no inference and accepts no invitation on an invitee's behalf.
 
@@ -96,6 +106,11 @@ child using the configured route. Only separately authorized initial recipients
 can receive its initial consideration. They can accept, decline or stop under
 the ordinary work rules. The proposal, admission, execution, delivery and
 completion remain distinct retained facts.
+
+The direct SIWC helper also accepts `native-run --delegation GRANT --child-work
+CHILD_WORK` with its usual vault, state root and operator. When a grant has several
+children, select the exact work; omitting `--child-work` is only unambiguous for a
+single child. Ordinary `--work CHILD_WORK` continuation also remains available.
 
 Newly admitted child mandates name the proposal's persona author as the delivery
 target. `CONTROL.requester` identifies the actual need origin separately from
@@ -131,7 +146,7 @@ erasing history. Saved expiry no longer stops preparation or provider dispatch.
 There are no fixed episode, charge, proposal-byte or registry quotas. Existing
 exact evidence, record binding and identity checks remain.
 
-The one-pending-proposal/one-child shape, explicit operator admission and further
-delegation restrictions remain implementation gaps under the no-limits
-requirement. This increment removes resource enforcement; it does not complete
-the authority and workflow changes listed in [execution resources](execution-resources.md).
+Explicit operator admission, the participant pool and further-delegation
+restrictions remain implementation gaps under the no-limits requirement. Removing
+proposal and child count limits does not complete the authority and workflow
+changes listed in [execution resources](execution-resources.md).

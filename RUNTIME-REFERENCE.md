@@ -649,6 +649,14 @@ parent admission, preserving atomic launch and episode accounting. See
 [persona-requested needs](docs/persona-needs.md) for grant, proposal and child
 admission steps.
 
+An episode has no proposal or child-count quota. Each adopted `propose_need`
+operation keeps a distinct pending record, and each admission binds its exact
+proposal to a distinct child. Episode snapshots expose all `pending_proposals`
+and `child_work_ids`. The original issued grant hash remains the source identity
+through later admissions; registry and episode fences identify their current
+state. Child replies and result delivery route through the matching child to its
+requester's parent-work inbox.
+
 Persona-requested children retain the persona as requester and use that persona
 as the delivery target at new admission. Authorized child replies reach the
 requester's existing parent-work inbox while preserving the child attribution.

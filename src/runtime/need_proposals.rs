@@ -49,9 +49,45 @@ pub(crate) struct IntakeEpisode {
     pub remaining: WorkAllocation,
     pub charges: Vec<EpisodeCharge>,
     pub pending_proposal: Option<g::IntakeReference>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub additional_pending_proposals: Vec<g::IntakeReference>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub child: Option<AdmittedChild>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub additional_children: Vec<AdmittedChild>,
     pub revoked_at_unix: Option<i64>,
+}
+impl IntakeEpisode {
+    pub(crate) fn pending_proposals(&self) -> impl Iterator<Item = &g::IntakeReference> {
+        self.pending_proposal
+            .iter()
+            .chain(&self.additional_pending_proposals)
+    }
+    pub(crate) fn children(&self) -> impl Iterator<Item = &AdmittedChild> {
+        self.child.iter().chain(&self.additional_children)
+    }
+    pub(crate) fn child_for(&self, work: &str) -> Option<&AdmittedChild> {
+        self.children().find(|child| child.binding.work == work)
+    }
+    pub(crate) fn children_match(&self, grant: &g::IntakeDelegation) -> bool {
+        grant
+            .consumed_children()
+            .eq(self.children().map(|child| &child.binding))
+    }
+    fn record_pending(&mut self, pending: g::IntakeReference) {
+        if self.pending_proposal.is_none() {
+            self.pending_proposal = Some(pending);
+        } else {
+            self.additional_pending_proposals.push(pending);
+        }
+    }
+    pub(crate) fn record_child(&mut self, child: AdmittedChild) {
+        if self.child.is_none() {
+            self.child = Some(child);
+        } else {
+            self.additional_children.push(child);
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -86,8 +122,10 @@ pub struct IntakeEpisodeSnapshot {
     pub runtime: g::IntakeReference,
     pub episode: Value,
     pub pending_proposal: Option<PendingNeedProposal>,
+    pub pending_proposals: Vec<PendingNeedProposal>,
     pub capacity_reserved_by_snapshot: bool,
     pub child_admitted: bool,
+    pub child_work_ids: Vec<String>,
 }
 
 /// Decrease historical remaining metadata without making it an admission quota.
@@ -117,11 +155,7 @@ fn fits(a: WorkAllocation, b: WorkAllocation) -> bool {
 
 pub(super) fn episode<'a>(state: &'a State, work: &str) -> Option<&'a IntakeEpisode> {
     state.intake_episodes.values().find(|episode| {
-        episode.work == work
-            || episode
-                .child
-                .as_ref()
-                .is_some_and(|child| child.binding.work == work)
+        episode.work == work || episode.child_for(work).is_some()
     })
 }
 
@@ -144,6 +178,7 @@ pub(super) fn validate_state(state: &State) -> Result<()> {
             episode.version == 1
                 && episode.grant.active_at(episode.grant.issued_at_unix)
                 && episode.grant.sha256()? == episode.grant_sha256
+                && episode.grant.source_sha256()? == episode.grant_sha256
                 && episode
                     .grant
                     .request
@@ -154,10 +189,14 @@ pub(super) fn validate_state(state: &State) -> Result<()> {
             "invalid retained intake episode",
         )?;
         identity(&episode.work)?;
-        if let Some(child) = &episode.child {
+        let mut admissions = BTreeSet::new();
+        let mut admitted_proposals = BTreeSet::new();
+        for child in episode.children() {
             require(
-                works.insert(&child.binding.work),
-                "work belongs to more than one intake episode",
+                works.insert(&child.binding.work)
+                    && admissions.insert(&child.binding.admission_id)
+                    && admitted_proposals.insert(&child.binding.pending.id),
+                "duplicate intake child, admission or proposal binding",
             )?;
             child::validate(state, episode, child)?;
         }
@@ -175,7 +214,7 @@ pub(super) fn validate_state(state: &State) -> Result<()> {
             let charged_work = charge.work.as_deref().unwrap_or(&episode.work);
             require(
                 charged_work == episode.work
-                    || episode.child.as_ref().is_some_and(|child| {
+                    || episode.children().any(|child| {
                         child.binding.work == charged_work
                             && charge.at_unix >= child.binding.admitted_at_unix
                     }),
@@ -196,9 +235,13 @@ pub(super) fn validate_state(state: &State) -> Result<()> {
                 "invalid episode revocation time",
             )?;
         }
-        if let Some(pending) = &episode.pending_proposal {
+        let mut proposals = BTreeSet::new();
+        for pending in episode.pending_proposals() {
+            pending.validate(&pending.id)?;
             require(
-                pending.id.starts_with("need-proposal:") && pending.revision == 1,
+                pending.id.starts_with("need-proposal:")
+                    && pending.revision == 1
+                    && proposals.insert(&pending.id),
                 "invalid pending proposal reference",
             )?;
         }
@@ -232,19 +275,17 @@ pub(super) fn check_work(app: &mut Runtime, state: &State, work: &str, now: i64)
         (&episode.authority, episode.work_epoch)
     } else {
         let child = episode
-            .child
-            .as_ref()
+            .child_for(work)
             .ok_or_else(|| held("admitted child binding absent"))?;
         (&child.authority, child.work_epoch)
     };
     require(
         current.grant.source_sha256()? == episode.grant_sha256
-            && current.grant.consumed_child.as_ref()
-                == episode.child.as_ref().map(|child| &child.binding)
+            && episode.children_match(&current.grant)
             && current.launch_binding_sha256 == episode.launch_binding_sha256
             && &current_work.mandate().authority == authority
             && current_work.version.epoch == epoch,
-        "selected episode source grant, consumed child, launch binding or work authority changed",
+        "selected episode source grant, admitted children, launch binding or work authority changed",
     )
 }
 
@@ -348,7 +389,9 @@ pub(super) fn attach(
         launch_binding_sha256: authority.launch_binding_sha256,
         charges: Vec::new(),
         pending_proposal: None,
+        additional_pending_proposals: Vec::new(),
         child: None,
+        additional_children: Vec::new(),
         revoked_at_unix: None,
     };
     state.intake_episodes.insert(selected.id.clone(), episode);
@@ -482,8 +525,6 @@ pub(super) fn interface(
     };
     if !ordinary
         || episode.work != work
-        || episode.child.is_some()
-        || episode.pending_proposal.is_some()
         || episode.revoked_at_unix.is_some()
         || !episode.grant.active_at(now)
         || !episode.grant.request.requesting_personas.contains(actor)
@@ -594,13 +635,25 @@ pub(super) fn stage_pending(
                 && report.applied.iter().any(|id| id == operation.id())
         })
         .collect::<Vec<_>>();
-    require(
-        operations.len() <= 1,
-        "at most one pending need per response",
-    )?;
-    let Some(operation) = operations.first().copied() else {
-        return Ok(Vec::new());
-    };
+    let mut changes = Vec::new();
+    for operation in operations {
+        changes.push(stage_pending_operation(
+            state, prepared, decision, report, accepted_writes, response_sha256, now, operation,
+        )?);
+    }
+    Ok(changes)
+}
+
+fn stage_pending_operation(
+    state: &mut State,
+    prepared: &Prepared,
+    decision: &p::Decision,
+    report: &AdoptionReport,
+    accepted_writes: &BTreeMap<String, String>,
+    response_sha256: &str,
+    now: i64,
+    operation: &p::Operation,
+) -> Result<s::Change> {
     require(
         report.status == AdoptionStatus::Adopted,
         "fenced response cannot retain a pending need",
@@ -617,10 +670,6 @@ pub(super) fn stage_pending(
     };
     let episode_id = existing_id(state, &prepared.request.work)?;
     let episode = &state.intake_episodes[&episode_id];
-    require(
-        episode.pending_proposal.is_none(),
-        "episode already has an immutable pending proposal",
-    )?;
     require(
         episode.charges.iter().any(|charge| {
             charge.invocation.as_deref() == Some(prepared.request.id.as_str())
@@ -731,13 +780,13 @@ pub(super) fn stage_pending(
         .intake_episodes
         .get_mut(&episode_id)
         .ok_or_else(|| held("episode absent"))?
-        .pending_proposal = Some(reference);
+        .record_pending(reference);
     validate_state(state)?;
-    Ok(vec![s::Change {
+    Ok(s::Change {
         expected_revision: None,
         object,
         depends_on: vec![pending.registry_at_preparation.store_ref()],
-    }])
+    })
 }
 
 impl Runtime {
@@ -766,7 +815,8 @@ impl Runtime {
         g::authorize_episode_inspection(self, &state, operator)?;
         let episode = episode(&state, work)
             .ok_or_else(|| held("no selected intake episode for this work"))?;
-        let pending_proposal = if let Some(reference) = &episode.pending_proposal {
+        let mut pending_proposals = Vec::new();
+        for reference in episode.pending_proposals() {
             let object = self
                 .store
                 .read(&reference.id)?
@@ -784,18 +834,22 @@ impl Runtime {
                     && pending.grant_sha256 == episode.grant_sha256,
                 "pending need episode mismatch",
             )?;
-            Some(pending)
-        } else {
-            None
-        };
+            pending_proposals.push(pending);
+        }
+        let child_work_ids: Vec<_> = episode
+            .children()
+            .map(|child| child.binding.work.clone())
+            .collect();
         Ok(IntakeEpisodeSnapshot {
             operator: operator.into(),
             work: work.into(),
             runtime: g::IntakeReference::of(&head)?,
             episode: serde_json::to_value(episode)?,
-            pending_proposal,
+            pending_proposal: pending_proposals.first().cloned(),
+            pending_proposals,
             capacity_reserved_by_snapshot: false,
-            child_admitted: episode.child.is_some(),
+            child_admitted: !child_work_ids.is_empty(),
+            child_work_ids,
         })
     }
 }
