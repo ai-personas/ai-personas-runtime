@@ -3720,8 +3720,8 @@ impl<'a> Work<'a> {
         Ok(rows.collect::<std::result::Result<Vec<String>, _>>()?)
     }
 
-    fn returned<T: Serialize>(&mut self, value: &T, bound: u64, class: BudgetClass) -> Result<()> {
-        let bytes = encode(value, bound)?.len() as u64;
+    fn returned<T: Serialize>(&mut self, value: &T, _historical_bound: u64, class: BudgetClass) -> Result<()> {
+        let bytes = serialized_size(value)?;
         let account = self.meta.account_mut(class);
         account.consumed.navigation_bytes = account
             .consumed
@@ -4735,31 +4735,32 @@ fn decode_json<'de, T: Deserialize<'de>>(bytes: &'de [u8]) -> serde_json::Result
     Ok(value)
 }
 
+/// Count actual native JSON bytes without allocating another record body.
+/// Native records have unique fields; canonical field ordering changes neither
+/// their serialized length nor the navigation charge. This imposes no ceiling.
+fn serialized_size<T: Serialize>(value: &T) -> Result<u64> {
+    struct Counter(u64);
+    impl std::io::Write for Counter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 = self.0.checked_add(bytes.len() as u64)
+                .ok_or_else(|| std::io::Error::other("serialized byte count overflow"))?;
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+    }
+    let mut counter = Counter(0);
+    serde_json::to_writer(&mut counter, value)?;
+    Ok(counter.0)
+}
+
 /// Canonicalizes map order, including builds enabling serde_json/preserve_order.
 /// Serialize complete canonical UTF-8 JSON without a configured byte ceiling.
 fn encode<T: Serialize>(value: &T, _historical_limit: u64) -> Result<Vec<u8>> {
-    let value = serde_json::to_value(value)?;
-    fn canonical(value: Value, depth: usize) -> Result<Value> {
-        match value {
-            Value::Array(values) => Ok(Value::Array(
-                values
-                    .into_iter()
-                    .map(|v| canonical(v, depth + 1))
-                    .collect::<Result<Vec<_>>>()?,
-            )),
-            Value::Object(values) => {
-                let ordered: BTreeMap<String, Value> = values.into_iter().collect();
-                let mut output = serde_json::Map::new();
-                for (key, value) in ordered {
-                    output.insert(key, canonical(value, depth + 1)?);
-                }
-                Ok(Value::Object(output))
-            }
-            other => Ok(other),
-        }
-    }
-    let canonical = canonical(value, 0)?;
-    Ok(serde_json::to_vec(&canonical)?)
+    let mut value = serde_json::to_value(value)?;
+    // Default serde_json maps are already ordered. With preserve_order enabled,
+    // sort in place rather than rebuilding every object and array in the tree.
+    value.sort_all_objects();
+    Ok(serde_json::to_vec(&value)?)
 }
 
 fn sidecar(path: &Path, suffix: &str) -> PathBuf {

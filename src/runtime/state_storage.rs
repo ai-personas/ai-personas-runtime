@@ -322,11 +322,16 @@ impl Serialize for State {
     }
 }
 
+/// Store heads are already parsed JSON. Do not deserialize Value into another
+/// Value before decoding the typed state; that repeats the entire tree walk.
+pub(super) fn decode(value: Value) -> serde_json::Result<State> {
+    ExpandedState::deserialize(unpack(value)?)
+}
+
 impl<'de> Deserialize<'de> for State {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
     ) -> std::result::Result<Self, D::Error> {
-        let value = unpack(Value::deserialize(deserializer)?).map_err(serde::de::Error::custom)?;
-        ExpandedState::deserialize(value).map_err(serde::de::Error::custom)
+        decode(Value::deserialize(deserializer)?).map_err(serde::de::Error::custom)
     }
 }
