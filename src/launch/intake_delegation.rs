@@ -1014,6 +1014,7 @@ fn plan(
     )?;
     app.store.require_quiescent_invocations()?;
     let mut launch = launch_head.clone();
+    let mut next_saved = saved.clone();
     let availability;
     let minimum_available;
     match action {
@@ -1036,6 +1037,8 @@ fn plan(
                 launch.revision = increment(launch.revision)?;
                 launch.body["setup"]["max_total_steps"] = json!(steps);
                 launch.body["setup"]["max_works"] = json!(works);
+                next_saved.setup.max_total_steps = steps;
+                next_saved.setup.max_works = works;
             }
             registry.grants.insert(
                 request.id.clone(),
@@ -1086,6 +1089,17 @@ fn plan(
     };
     let mut runtime = runtime_head.clone();
     runtime.revision = increment(runtime.revision)?;
+    let previous_binding = episode_launch_binding(&saved)?;
+    let next_binding = episode_launch_binding(&next_saved)?;
+    let mut carried = Vec::new();
+    if previous_binding != next_binding {
+        for (id, episode) in &state.intake_episodes {
+            if episode.launch_binding_sha256 == previous_binding {
+                runtime.body["intake_episodes"][id]["launch_binding_sha256"] = json!(next_binding);
+                carried.push(id.clone());
+            }
+        }
+    }
     runtime.body["operator_events"].as_array_mut().ok_or_else(|| held("invalid operator history"))?.push(json!({
         "kind": match action { IntakeDelegationAction::Issue(_) => "intake_delegation_issue", IntakeDelegationAction::Revoke(_) => "intake_delegation_revoke" },
         "request_id": action.id(),
@@ -1093,7 +1107,8 @@ fn plan(
         "operator": action.operator(),
         "request_sha256": &hash,
         "receipt_id": receipt_id(action.id()),
-        "at_unix": now
+        "at_unix": now,
+        "episode_binding_transition":{"from":previous_binding,"to":next_binding,"carried_episodes":carried}
     }));
     if let IntakeDelegationAction::Revoke(request) = action {
         if let Some(episode) = runtime

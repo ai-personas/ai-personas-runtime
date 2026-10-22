@@ -44,8 +44,8 @@ stream cap. The collector still requires a complete, coherent provider response
 and EOF. A partial stream remains partial. Exact model/account/request bindings,
 duplicate-key rejection and whole-Decision structure remain checked.
 
-Runtime input construction still has separate context/corpus restrictions pending
-removal. Provider account, rate and context outcomes are reported as observed;
+Runtime context assembly and corpus retention also have no application byte or
+record quota. Provider account, rate and context outcomes are reported as observed;
 removing local quotas does not change the external service.
 
 Historical `transport-capacity-snapshot` and `extend-transport-capacity` commands
@@ -53,6 +53,11 @@ remain present, but extending those saved values is no longer necessary to pass
 ordinary transport. They do not repair an incomplete historical response or
 resume a stopped actor. Reservations remain accounting estimates, not enforced
 resource allowances; actual known use and unknown provider exposure stay distinct.
+These metadata APIs accept zero or changed values without fixed byte, event or
+timeout maxima or an increase requirement. Current episode launch bindings carry
+forward when only transport metadata changes. Context metadata updates likewise
+require no prompt/output allowance calculation or provider migration. Their
+snapshots explicitly report that application quotas are disabled.
 
 Use setup and `step --profile direct`. Saved `allow_direct_provider`, cohort-sharing and model-confirmation flags are historical declarations rather than access gates. Existing working-directory arguments remain compatibility metadata; the provider does not read that directory or transmit it.
 

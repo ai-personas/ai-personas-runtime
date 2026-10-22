@@ -557,23 +557,15 @@ configured byte counts. This also covers attribution added during assembly.
 Removing optional selections cannot resolve this failure; no repair invocation
 or provider request is admitted, and the blocked preparation grants no resources.
 
-`context-capacity-snapshot` inspects the launch-global assembled-context allocation
-and its explicit recovery ceiling. `extend-context-capacity REQUEST.json --preview`
+`context-capacity-snapshot` inspects historical launch-global context metadata
+and reports no application maximum. `extend-context-capacity REQUEST.json --preview`
 or `--apply` accepts `id`, `operator`, `reason`, `authorization_reference`,
-`authorize_extension: true`, the snapshot's `expected_runtime`, `expected_launch`
-and `expected_context_bytes`, and a strictly larger `new_context_bytes`. The new
-allocation cannot exceed the saved provider's prompt allowance plus the existing
-output reserve, or the runtime's 2 MiB limit. Assembly charges schema and safety
-margins as well, so this ceiling conservatively fits the existing provider prompt
-envelope. Provider limits, output reserves and model/account bindings are unchanged.
-
-Increasing the provider's own prompt allowance uses a separate explicit
-`migrate-provider REQUEST.json` operation. Its prompt limit must fit the current
-runtime context allocation; response and stream limits are checked separately.
-Where both allocations need growth, apply coherent bounded steps: migrate to a
-prompt limit within the current context allocation, then inspect the new context
-ceiling before requesting a context extension. Neither operation adds work
-attempts or navigation, and neither proves remote token or billing bounds.
+the snapshot's `expected_runtime`, `expected_launch` and `expected_context_bytes`,
+and the requested `new_context_bytes`. The old `authorize_extension` flag is
+optional. Zero, unchanged, smaller and larger metadata values are accepted; they
+do not restrict assembly, depend on provider prompt/output fields, or require a
+provider migration. Provider account, model and reported remote outcomes remain
+separate facts. These updates do not establish remote context or token capacity.
 
 Snapshot, preview and apply use metered reads without orphan recovery. A new
 extension requires exclusive execution ownership and terminal invocations, and
@@ -583,12 +575,13 @@ attempts, navigation and Stop/Pause dispositions remain intact. It does not resu
 any persona or prove that the next request will fit. Repeating the exact applied
 request returns its historical receipt; preview reserves no future capacity.
 
-`transport-capacity-snapshot` and `extend-transport-capacity` separately recover
-insufficient local stream bytes, event count or transfer time. They atomically
-increase the explicitly selected provider allowances and the matching per-call
-transport-output reservation, without increasing the authored Decision bound or
-changing provider identity, history, uncertain charges, remaining resources or
-continuations. Exact current state fences, terminal invocations and execution
+`transport-capacity-snapshot` and `extend-transport-capacity` update recorded
+stream-byte, event-count and timeout metadata without fixed maxima or a required
+increase. Those fields impose no application transport quota or deadline. The
+historical output reservation remains monotonic accounting metadata. Updates
+preserve provider identity, history, uncertain charges and continuations, and
+carry current episode bindings across the transport metadata change.
+Exact current state fences, terminal invocations and execution
 ownership are required. See the [transport recovery contract](docs/direct-provider.md#configuration-and-evidence)
 for the request fields, preview and immutable receipt behavior.
 

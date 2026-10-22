@@ -1,5 +1,5 @@
-//! Explicit growth of local provider transport allowances. The account, model,
-//! response bound and persona state are preserved; no request is dispatched.
+//! Explicit updates to historical provider transport metadata. The account,
+//! model and persona state are preserved; no request is dispatched.
 use super::*;
 
 const KIND: &str = "transport-capacity-extension";
@@ -18,16 +18,6 @@ impl TransportBounds {
             max_events: provider.limits.max_events,
             timeout_ms: provider.limits.timeout_ms,
         }
-    }
-    fn validate(&self) -> Result<()> {
-        // Match the existing provider ceilings; validate the complete prospective
-        // provider too before mutation. These are local bounds, not token funds.
-        require(
-            (1..=64 * 1024 * 1024).contains(&self.max_stream_bytes)
-                && (1..=100_000).contains(&self.max_events)
-                && (1..=86_400_000).contains(&self.timeout_ms),
-            "transport capacity exceeds provider configuration bounds",
-        )
     }
 }
 
@@ -99,17 +89,6 @@ impl TransportCapacityRequest {
             )?;
             increment(reference.revision)?;
         }
-        self.expected_limits.validate()?;
-        self.new_limits.validate()?;
-        require(
-            self.expected_transport_output_reserve_bytes
-                >= self.expected_limits.max_stream_bytes as u64
-                && self.new_limits.max_stream_bytes >= self.expected_limits.max_stream_bytes
-                && self.new_limits.max_events >= self.expected_limits.max_events
-                && self.new_limits.timeout_ms >= self.expected_limits.timeout_ms
-                && self.new_limits != self.expected_limits,
-            "transport extension must increase an allowance without reducing another",
-        )?;
         Ok(())
     }
     fn new_reserve(&self) -> u64 {
@@ -163,8 +142,8 @@ pub fn snapshot_at(root: &Path, operator: &str) -> Result<Value> {
         "expected_runtime":runtime.exact_ref()?, "expected_launch":launch.exact_ref()?,
         "expected_transport_output_reserve_bytes":state.config.transport_output_reserve_bytes,
         "expected_limits":TransportBounds::from_provider(&saved.execution_provider()?),
-        "snapshot_atomic":false,"capacity_reserved":false,
-        "scope":"Local transport allowances and their per-call output reservation. No response-size, provider identity, resource refill or continuation change."
+        "snapshot_atomic":false,"capacity_reserved":false,"application_quotas_enforced":false,
+        "scope":"Historical transport size, event and timeout metadata. These values impose no application quota or deadline; updates create no provider capacity or continuation."
     }))
 }
 
@@ -230,11 +209,28 @@ pub fn extend_at(
     let mut runtime = runtime_head.clone();
     runtime.revision = increment(runtime.revision)?;
     runtime.body["config"]["transport_output_reserve_bytes"] = json!(request.new_reserve());
+    let previous_binding = intake_delegation::episode_launch_binding(&saved)?;
+    let mut next_saved = saved.clone();
+    let next_limits = &mut next_saved.setup.provider["limits"];
+    next_limits["max_stream_bytes"] = json!(request.new_limits.max_stream_bytes);
+    next_limits["max_events"] = json!(request.new_limits.max_events);
+    next_limits["timeout_ms"] = json!(request.new_limits.timeout_ms);
+    let next_binding = intake_delegation::episode_launch_binding(&next_saved)?;
+    let mut carried = Vec::new();
+    if previous_binding != next_binding {
+        for (id, episode) in &state.intake_episodes {
+            if episode.launch_binding_sha256 == previous_binding {
+                runtime.body["intake_episodes"][id]["launch_binding_sha256"] = json!(next_binding);
+                carried.push(id.clone());
+            }
+        }
+    }
     runtime.body["operator_events"].as_array_mut()
         .ok_or_else(|| held("invalid operator event history"))?
         .push(json!({"kind":KIND,"request":request,"request_sha256":hash,
             "authorization_basis":"saved operator attestation; reference is not independent authentication",
             "response_bound_changed":false,"provider_identity_changed":false,
+            "episode_binding_transition":{"from":previous_binding,"to":next_binding,"carried_episodes":carried},
             "resumed":false,"inference_performed":false,"budget_reset":false}));
     let mut launch = launch_head.clone();
     launch.revision = increment(launch.revision)?;

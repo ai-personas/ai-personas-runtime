@@ -51,8 +51,8 @@ pub(super) fn validate(
         .as_array()
         .ok_or_else(|| held("delivery package absent"))?;
     require(
-        (1..=128).contains(&packages.len()) && packages.len() == release.candidate.artifacts.len(),
-        "complete delivery package bound",
+        packages.len() == release.candidate.artifacts.len(),
+        "complete delivery package binding",
     )?;
     let mut actual_artifacts = Vec::new();
     let corpus = corpus_for_delivery(state, a)?;

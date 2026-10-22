@@ -1,5 +1,4 @@
-//! Explicit operator growth of the assembled context allocation, within the
-//! existing provider prompt allowance plus the existing output reserve.
+//! Explicit operator updates to historical assembled-context metadata.
 //! No provider settings, selections, continuations or consumption are changed.
 use super::*;
 
@@ -53,27 +52,8 @@ impl ContextCapacityRequest {
             )?;
         }
         increment(self.expected_runtime.revision)?;
-        require(
-            self.expected_context_bytes > 0
-                && self.new_context_bytes > self.expected_context_bytes
-                && self.new_context_bytes <= INPUT_LIMIT / 2,
-            "context extension must be a bounded increase",
-        )?;
         Ok(())
     }
-}
-
-fn ceiling(state: &State, saved: &Saved) -> Result<usize> {
-    // Assembly includes the output reserve; the provider limit bounds only the
-    // actual prompt. Keep both already-authorized envelopes unchanged. Schema
-    // and safety margins consume assembly space too, so this is conservative.
-    let provider = saved.execution_provider()?;
-    Ok(provider
-        .limits
-        .max_prompt_bytes
-        .checked_add(state.config.output_reserve_bytes)
-        .ok_or_else(|| invalid("context capacity arithmetic overflow"))?
-        .min(INPUT_LIMIT / 2))
 }
 
 fn authorize(state: &State, saved: &Saved, operator: &str) -> Result<()> {
@@ -90,7 +70,8 @@ struct ContextCapacityReceipt {
     created_at_unix: i64,
     target_runtime: s::ObjectRef,
     target_launch: s::ObjectRef,
-    maximum_context_bytes_at_extension: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    maximum_context_bytes_at_extension: Option<usize>,
 }
 
 impl ContextCapacityReceipt {
@@ -104,9 +85,7 @@ impl ContextCapacityReceipt {
                 && self.target_runtime.revision
                     == increment(self.request.expected_runtime.revision)?
                 && valid_hash(&self.target_runtime.sha256)
-                && self.target_launch == self.request.expected_launch
-                && self.request.new_context_bytes <= self.maximum_context_bytes_at_extension
-                && self.maximum_context_bytes_at_extension <= INPUT_LIMIT / 2,
+                && self.target_launch == self.request.expected_launch,
             "invalid context extension receipt",
         )
     }
@@ -123,9 +102,9 @@ pub fn snapshot_at(root: &Path, operator: &str) -> Result<Value> {
         "expected_runtime":runtime.exact_ref()?,
         "expected_launch":launch.exact_ref()?,
         "expected_context_bytes":state.config.context_bytes,
-        "maximum_context_bytes":ceiling(&state, &saved)?,
+        "maximum_context_bytes":null,"application_quotas_enforced":false,
         "snapshot_atomic":false,"capacity_reserved":false,
-        "scope":"Launch-global assembled context allocation within existing provider prompt and output-reserve allowances. No resource refill, selection change or resume."
+        "scope":"Historical launch-global context metadata. Context assembly has no application byte quota; metadata updates create no provider capacity, selection change or resume."
     }))
 }
 
@@ -176,11 +155,6 @@ pub fn extend_at(
         "active invocation blocks context extension",
     )?;
     app.store.require_quiescent_invocations()?;
-    let maximum = ceiling(&state, &saved)?;
-    require(
-        request.new_context_bytes <= maximum,
-        "context extension exceeds existing provider and output-reserve allowances",
-    )?;
     let mut config = state.config.clone();
     config.context_bytes = request.new_context_bytes;
     config.validate()?;
@@ -202,7 +176,7 @@ pub fn extend_at(
         created_at_unix: now,
         target_runtime: runtime.exact_ref()?,
         target_launch: launch_head.exact_ref()?,
-        maximum_context_bytes_at_extension: maximum,
+        maximum_context_bytes_at_extension: None,
     };
     receipt.validate()?;
     let changes = vec![

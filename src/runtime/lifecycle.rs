@@ -157,20 +157,27 @@ pub(crate) fn requirements(object: &s::StoredObject) -> Result<Vec<s::RuntimeCon
             .ok_or_else(|| held("persona focus unavailable"))?
             .len();
         require(
-            focuses <= 128 && record.revision > 0,
-            "persona lifecycle bound",
+            record.revision > 0,
+            "persona lifecycle revision absent",
         )?;
         let pause = record.status == Status::Active;
         let quarantine = record.quarantine.is_none();
         // Three possible copies of an escaped reason, bounded identifiers,
         // scalar counters and every route flag. Double that conservative bound
         // for each still-available independent control.
-        let growth = 6 * (6 * 4096 + 4096) + 4096 + focuses as u64 * 16;
+        let focus_bytes = u64::try_from(focuses)
+            .ok()
+            .and_then(|count| count.checked_mul(16))
+            .ok_or_else(|| held("persona focus accounting overflow"))?;
+        let growth = (6_u64 * (6 * 4096 + 4096) + 4096)
+            .checked_add(focus_bytes)
+            .and_then(|bytes| bytes.checked_mul(u64::from(pause) + u64::from(quarantine)))
+            .ok_or_else(|| held("persona control accounting overflow"))?;
         requirements.push(s::RuntimeControlRequirement {
             work: key,
             pause,
             ending: quarantine,
-            growth_bytes: growth * (u64::from(pause) + u64::from(quarantine)),
+            growth_bytes: growth,
         });
     }
     Ok(requirements)

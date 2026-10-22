@@ -122,6 +122,15 @@ ordinary execution. Exact request hashes, identities, current-head fences and
 checked accounting arithmetic remain. Launch metadata updates carry current
 episode bindings forward without changing the issued grants or invocation history.
 
+Context and transport metadata updates have no fixed byte, event or timeout
+maximum, required increase, or derived prompt/output ceiling. Their snapshots
+identify the values as non-enforcing metadata. Transport updates and later grant
+issues that change launch metadata carry current episode bindings forward, so
+these changes do not strand already selected episodes. Lifecycle control
+accounting accepts any retained number of persona focuses, using checked
+arithmetic. Delivery evidence projects the complete actual artifact list without
+a 128-package ceiling; exact release and artifact bindings still apply.
+
 Fresh setup, continuing launch and persona creation have no cohort or population
 quota. Birth no longer requires a preallocated sharing slot or remaining launch
 allowance. Initialization counts remain observational. Existing seeds keep their
