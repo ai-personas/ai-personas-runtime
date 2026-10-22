@@ -75,6 +75,9 @@ Peer feedback can also remain active across several steps. The recipient chooses
 which actual messages need this treatment with `AccountPeerFeedback`, marking
 each as pending, handled or declined. Pending messages keep their full permitted
 bodies and the recipient's reason in subsequent context until explicitly resolved.
+This also applies to a child-work reply routed to its requester's parent task:
+the disposition belongs to the receiving task, while the message retains its
+actual child-work origin.
 Ordinary conversation does not automatically become a continuing obligation.
 This choice creates neither a peer commitment nor an automatic wake or extra
 resources; the persona still authors its continuation separately.

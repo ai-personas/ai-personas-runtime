@@ -333,6 +333,9 @@ and unknown calls remain effective. A child reply can satisfy its author's
 previously registered message wait in the immediate parent; the sender needs a
 known persona identity, not parent-participant membership. Parent phase or authority changes do not
 erase an already adopted request or prevent its separate child admission.
+The receiving persona can account that child reply as pending, handled or declined
+in the parent task, using the exact supplied message. Feedback accounting follows
+the same immediate-parent route as delivery and message waits.
 
 Foreground scheduling scans the complete participant list of the requested work
 in circular identity order. It has no fixed consideration-page cutoff. An

@@ -128,18 +128,30 @@ pub(super) fn account(
         .messages
         .get(observation_id)
         .ok_or_else(|| held("peer feedback message missing"))?;
+    // A child result retains the child's work as its authored source, while
+    // its observation belongs to the requester's immediate parent focus.
+    // Account the actual receiving work without relabeling that source.
+    let receiving_work =
+        requester_results::observation_work(state, &message.work, &message.recipient)?;
+    let kind = if receiving_work == message.work {
+        "received_local_persona_message"
+    } else {
+        "received_child_work_message"
+    };
     require(
-        observation.actor == *actor
+        observation.id == observation_id
+            && message.id == observation_id
+            && observation.actor == *actor
             && observation.work == *work
-            && observation.kind == "received_local_persona_message"
+            && observation.kind == kind
             && observation.invocation.as_ref() == Some(&message.invocation)
             && message.recipient == *actor
-            && message.work == *work
+            && receiving_work == *work
             && message.sender != *actor
             && state.personas.contains_key(&message.sender)
             && observation.payload["sender"] == message.sender
             && observation.payload["text"] == message.text,
-        "peer feedback must be an actual message from another persona in this work",
+        "peer feedback must be an actual message from another persona received in this work",
     )?;
     let a = admission(&state.personas[actor], now);
     let corpus = corpus(state, &a)?;

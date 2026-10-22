@@ -1525,7 +1525,7 @@ pub enum WorkAction {
     /// without an application count or byte quota.
     /// Resolve pending items before CloseGoal; final dispositions cannot be reopened.
     AccountPeerFeedback {
-        /// Exact top-level id of a supplied received_local_persona_message.
+        /// Exact top-level id of a supplied local peer or child-work message.
         /// Pending items also expose it as CONTROL.peer_feedback.pending[].observation.
         observation: String,
         disposition: PeerFeedbackDisposition,
