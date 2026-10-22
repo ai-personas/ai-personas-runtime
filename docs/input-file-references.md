@@ -25,6 +25,11 @@ text and stores the resolved references separately. JSON result views include
 under a separate metadata label. Persona recipients receive the same structured
 metadata and may choose to read or select it in their own later admission.
 
+The sender's `local_message_deposit` observation lists these same resolved
+attachments beside the message identity and hashes. It confirms the actual
+local deposit without resupplying the message or attached file bodies. It does
+not establish recipient attention or acceptance, or resume a stopped sender.
+
 Message references and combined literal/handle qualifications have no fixed
 count cap. Duplicate exact qualifications are rejected after resolution. Handles are unique
 within each field. A selection lifetime does not become an output-reference

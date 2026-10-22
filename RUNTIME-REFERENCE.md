@@ -356,6 +356,16 @@ Peer feedback becomes a continuing item only when the recipient chooses to accou
 
 A `communicate` operation and an authored top-level reply independently deposit messages. Use one path for each intended message. Deposit proves placement in the local inbox/outbox, not attention, agreement, acceptance, or completion.
 
+Each adopted message also creates a `local_message_deposit` observation for its
+sender in the same transaction. It identifies the message and recipient, hashes
+the exact native message record (compact JSON with sorted object keys and expanded
+exposure) and UTF-8 text, and lists its file-reference attachments.
+The sender receives it on its next eligible input. A Stop remains a Stop; the
+receipt creates no extra call, wait or obligation to confirm the deposit.
+Recipient attention and acceptance remain explicitly unestablished by this receipt.
+An exact replay of an adopted response creates neither a duplicate message nor
+a second receipt, and a rejected response publishes neither.
+
 Messages can carry exact file-reference attachments by current input handles. Those attachments are citations and metadata; they do not supply file bodies or prove the cited content was read.
 
 For session-scoped messages:
