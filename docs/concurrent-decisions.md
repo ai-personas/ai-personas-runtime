@@ -91,6 +91,15 @@ An unchanged accepted continuation may allow a fresh, charged admission after
 the rejected lease is retired under the existing rules. No response is rewritten,
 retried, refunded or treated as adopted merely because transport completed.
 
+At each quiescent foreground boundary, the coordinator also examines retained
+completed rejections from earlier sessions of that work. An unchanged accepted
+Immediate or Wait continuation can receive a fresh opportunity after its exact
+failed lease is retired. Missing diagnostic lineage remains explicitly unknown
+in the failure observation; it does not hide that observation or strand the
+continuation. The original failed invocation and terminal stay unchanged.
+Incomplete transports, unknown remote outcomes, Stop, Pause and consumed
+one-shot opportunities do not gain a new continuation from this process.
+
 The response's `epoch` remains its original request nonce. Store adoption checks
 the exact current Runtime head and current global epoch atomically, then records
 the actual commit. A scoped `DecisionRecord` adds `prepared_epoch`; `previous_epoch`

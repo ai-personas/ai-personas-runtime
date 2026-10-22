@@ -180,7 +180,7 @@ pub(super) fn adoption_error(
     Ok(match detail {
         Some(detail) => json!({
             "status":"recorded",
-            "detail":safe_error_detail(detail),
+            "detail":detail,
             "source":"terminal-bound failed invocation receipt",
             "response_body_supplied":false,
             "replay_authorized":false
@@ -191,26 +191,6 @@ pub(super) fn adoption_error(
     })
 }
 
-
-// Parser diagnostics can echo rejected field names/values, including embedded
-// quote delimiters. Preserve the actual category before the first quoted token;
-// never try to recover untrusted quote boundaries from an error string.
-fn safe_error_detail(detail: &str) -> String {
-    let detail = match detail.find(['`', '"', '\'']) {
-        Some(start) => format!(
-            "{}[quoted diagnostic details withheld; consult supplied schema]",
-            &detail[..start]
-        ),
-        None => detail.to_owned(),
-    };
-    bounded_detail(
-        &detail
-            .chars()
-            .map(|c| if c.is_control() { ' ' } else { c })
-            .collect::<String>(),
-        180,
-    )
-}
 
 /// Render only known host-owned reference slots as actionable Decision ExactRef
 /// objects. Never rewrite retained observations, authored text, policies or bindings.

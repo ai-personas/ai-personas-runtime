@@ -5,6 +5,14 @@ without fixed record-count or aggregate byte quotas. Runtime cursor retention,
 result projection and context fitting also have no application count or byte
 quota under [the current requirement](execution-resources.md).
 
+Retained observations with unknown additional source lineage remain available
+in pending context and history. Their projections explicitly report
+`source_lineage_status: unknown`; the original observation and its digest do not
+change. Known source references and required qualifications remain attached.
+Terminal-bound rejection diagnostics retain their complete actual detail,
+including quoted field names. They describe a failed decision, not adopted
+instructions or permission to replay its operations.
+
 History query observations include the exact query alongside their results:
 
 ```json

@@ -3,6 +3,28 @@
 use super::*;
 
 impl Runtime {
+    /// Revisit retained completed rejections at a quiescent foreground boundary.
+    /// A previous session can have ended before its lease became retireable.
+    pub(super) fn retire_ready_rejected_continuations(&mut self, work: &str, now: i64) -> Result<()> {
+        let state = self.snapshot()?;
+        let calls = state.board.work(&w::WorkId(work.into()))?.participants.keys()
+            .filter_map(|actor| state.personas.get(&actor.0)?.active_invocation.clone())
+            .collect::<BTreeSet<_>>();
+        for id in calls {
+            let invocation = match self.store.trusted_host().invocation(&id) {
+                Ok(invocation) => invocation,
+                Err(s::StoreError::Missing(_)) => continue,
+                Err(error) => return Err(error.into()),
+            };
+            if invocation.state == s::InvocationState::Failed
+                && decode_prepared(&invocation)?.request.work == work
+            {
+                self.retire_rejected_continuation(&id, now)?;
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn retire_rejected_continuation(&mut self, id: &str, now: i64) -> Result<bool> {
         let invocation = self.store.trusted_host().invocation(id)?;
         if invocation.state != s::InvocationState::Failed
@@ -89,9 +111,10 @@ impl Runtime {
         {
             return Ok(false);
         }
-        let Some(exposure) = failure_recovery_exposure(&invocation, &evidence, &prepared)? else {
-            return Ok(false);
-        };
+        // Unknown diagnostic lineage stays unknown. It does not invalidate the
+        // complete transport, exact local rejection or prior authored route.
+        let exposure = failure_recovery_exposure(&invocation, &evidence, &prepared)?;
+        let failure_lineage = if exposure.is_some() { "retained" } else { "unknown" };
         let observation_id = composite_id("terminal-recovery", &[id]);
         require(
             !state.observations.contains_key(&observation_id),
@@ -104,9 +127,10 @@ impl Runtime {
                 "terminal":terminal_diagnostic(&evidence.body),"terminal_evidence":reference,
                 "disposition":{"state":invocation.state,"adoption_error":adoption_error},
                 "observed_by":"foreground_runtime","continuation_invocation":continuation_invocation,
-                "continuation_changed":false,"provider_usage":"unknown","replay_authorized":false
+                "continuation_changed":false,"provider_usage":"unknown","replay_authorized":false,
+                "failure_lineage":failure_lineage
             }),
-            sources: prepared.sources.clone(), exposure: Some(exposure),
+            sources: prepared.sources.clone(), exposure,
             qualified_roots: Vec::new(), qualification_sources: None,
         });
         let mut observations = vec![observation_id];
@@ -133,7 +157,8 @@ impl Runtime {
             "kind":"completed_rejection_lease_retired","persona":actor,"work":work,
             "invocation":id,"terminal_evidence":reference,
             "continuation_invocation":continuation_invocation,"continuation_changed":false,
-            "new_permission_granted":false,"budget_reset":false,"replay_authorized":false
+            "new_permission_granted":false,"budget_reset":false,"replay_authorized":false,
+            "failure_lineage":failure_lineage
         }));
         self.store
             .trusted_host()

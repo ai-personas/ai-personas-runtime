@@ -404,25 +404,6 @@ pub fn amend(root: &Path, operator: &str, request: &Request) -> Result<Value> {
     Ok(outcome(&record, false))
 }
 
-/// A saved amendment may precede a new session rather than arrive during a call.
-/// Retire only its exact complete rejected decisions at a quiescent boundary.
-pub(super) fn retire_ready(app: &mut Runtime, work: &str) -> Result<()> {
-    let state = app.snapshot()?;
-    let calls = state.work_meta.get(work).and_then(|meta| meta.amendments.last())
-        .map(|amendment| amendment.superseded_calls.keys().cloned().collect::<Vec<_>>())
-        .unwrap_or_default();
-    for id in calls {
-        let invocation = app.store.trusted_host().invocation(&id)?;
-        if invocation.state != s::InvocationState::Failed {
-            continue;
-        }
-        let prepared = decode_prepared(&invocation)?;
-        let (head, state) = app.load()?;
-        retire_completed(app, &invocation, &prepared, &head, &state, unix_now()?)?;
-    }
-    Ok(())
-}
-
 /// Retire only an exact complete rejected call named by a saved amendment.
 /// The amendment supplied explicit resumption separately; this transition never
 /// creates a persona-authored continuation or diagnoses unknown rejection text.

@@ -170,7 +170,7 @@ fn observation_record(
         observation_id: id.into(),
         sha256: s::sha256_bytes(&bytes),
     };
-    let mut original_exposure = observation.exposure.clone()?;
+    let mut original_exposure = observation.exposure.clone().unwrap_or_default();
     original_exposure
         .sources
         .extend(observation.sources.iter().cloned());
@@ -183,9 +183,12 @@ fn observation_record(
     } else {
         (Value::Null, exposure, observation.qualified_roots.clone())
     };
-    let metadata = json!({"reference":reference,"actor":observation.actor,"work":observation.work,
+    let mut metadata = json!({"reference":reference,"actor":observation.actor,"work":observation.work,
         "producing_invocation":observation.invocation,"kind":observation.kind,"at_unix":observation.at_unix,
         "consuming_invocation":"not inferred from producing invocation"});
+    if observation.exposure.is_none() {
+        metadata["source_lineage_status"] = json!("unknown");
+    }
     Some(Record {
         reference,
         metadata,

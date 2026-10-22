@@ -33,10 +33,10 @@ pub(super) fn project(
     a: &f::Admission,
     observation_corpus: &f::Corpus,
 ) -> Result<(Value, Exposure, Vec<f::Reference>)> {
-    let mut inherited = observation
-        .exposure
-        .clone()
-        .ok_or_else(|| held("observation lineage unknown"))?;
+    // Retained bodies remain readable when their additional lineage is unknown.
+    // Preserve that fact in the projection instead of inventing a complete origin
+    // or treating missing historical policy metadata as an access restriction.
+    let mut inherited = observation.exposure.clone().unwrap_or_default();
     inherited
         .sources
         .extend(observation.sources.iter().cloned());
@@ -155,8 +155,11 @@ pub(super) fn project(
     if observation.kind == "discovery" {
         observability::actionable_discovery(&mut payload)?;
     }
-    let value = json!({"id":observation.id,"actor":observation.actor,"work":observation.work,
+    let mut value = json!({"id":observation.id,"actor":observation.actor,"work":observation.work,
         "invocation":observation.invocation,"kind":observation.kind,"at_unix":observation.at_unix,
         "payload":payload,"current_required_qualifications":qualifications});
+    if observation.exposure.is_none() {
+        value["source_lineage_status"] = json!("unknown");
+    }
     Ok((value, expanded_exposure(state, &inherited)?, exact))
 }
