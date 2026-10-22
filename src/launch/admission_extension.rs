@@ -253,20 +253,14 @@ pub(super) fn validate_saved(state: &State, saved: &Saved) -> Result<()> {
     bounded_identity(&provider.model)?;
     bounded_identity(&provider.effort)?;
     require(
-        (1..=8).contains(&setup.cohort)
+        setup.cohort > 0
             && (1..=setup.cohort).contains(&setup.owner)
-            && (1..=128).contains(&setup.max_steps)
-            && (1..=128).contains(&setup.max_considerations)
-            && (1..=128).contains(&setup.max_work_attempts)
-            && setup.max_total_steps > 0
-            && setup.max_total_steps <= step_ceiling()?
-            && (1..=128).contains(&setup.max_works),
+            && setup.max_considerations > 0,
         "invalid saved foreground bounds",
     )?;
     let config = &state.config;
     require(
         config.persona_capacity == setup.persona_capacity
-            && (setup.cohort..=8).contains(&setup.persona_capacity())
             && config.max_work_attempts == setup.max_work_attempts,
         "saved provider exceeds current runtime authorization or bounds",
     )?;
@@ -277,8 +271,7 @@ pub(super) fn validate_saved(state: &State, saved: &Saved) -> Result<()> {
             .get(&id)
             .ok_or_else(|| held("saved cohort persona missing"))?;
         require(
-            serde_json::to_value(&persona.seed)?
-                == serde_json::to_value(seed_for(saved, &provider, &id))?,
+            seed_matches_saved(saved, &provider, &id, &persona.seed)?,
             "saved cohort binding changed",
         )?;
     }

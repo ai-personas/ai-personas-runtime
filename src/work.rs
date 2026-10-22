@@ -39,8 +39,7 @@ mod arrangements;
 pub use arrangements::{
     formation_need_ref, Arrangement, ArrangementAssentPolicy, ArrangementConsent,
     ArrangementDecisionRule, ArrangementDecline, ArrangementProposal, ArrangementTerms,
-    ArtifactTransfer, CommitmentChange, FormationDelegation, MAX_ARRANGEMENT_CHANGES,
-    MAX_ARRANGEMENT_HOLDERS, MAX_ARRANGEMENT_PROPOSALS,
+    ArtifactTransfer, CommitmentChange, FormationDelegation,
 };
 
 macro_rules! id {
@@ -246,7 +245,6 @@ pub enum Continuation {
         reason: String,
     },
 }
-pub const MAX_WAIT_DEPENDENCIES: usize = 8;
 impl Continuation {
     pub(crate) fn waits_for(&self, reference: &ExactRef) -> bool {
         match self {
@@ -1032,10 +1030,6 @@ impl WorkBoard {
         response: DecisionResponse,
         registrations: Vec<MessageWaitRegistration>,
     ) -> Result<()> {
-        require(
-            registrations.len() <= MAX_WAIT_DEPENDENCIES,
-            "message wait bound",
-        )?;
         let personas = self.personas.clone();
         self.transaction(&ctx.work, ctx.version, |w| {
             open(w)?;
@@ -1468,7 +1462,7 @@ impl WorkBoard {
         after: Option<&(WorkId, PersonaId)>,
         limit: usize,
     ) -> Result<Vec<(WorkId, PersonaId)>> {
-        require((1..=128).contains(&limit), "consideration page bound")?;
+        require(limit > 0, "consideration page size must be positive")?;
         let pairs = || {
             self.works.iter().flat_map(|(wid, work)| {
                 work.participants
@@ -1556,7 +1550,6 @@ fn pending_wait_event_keys(w: &Work, persona: &PersonaId) -> Vec<EventKey> {
                 && event_permitted(w, &event.key, persona)
                 && !participant.observed_events.contains(&event.key)
         })
-        .take(MAX_WAIT_DEPENDENCIES)
         .map(|event| event.key.clone())
         .collect()
 }
@@ -1653,9 +1646,8 @@ fn validate_mandate(
     match &m.decision_rule {
         DecisionRule::PersonaArranged { eligible, .. } => require(
             !eligible.is_empty()
-                && eligible.len() <= MAX_ARRANGEMENT_HOLDERS
                 && eligible.is_subset(personas),
-            "explicit bounded arrangement actor and authority pool",
+            "explicit arrangement actor and authority pool",
         ),
         DecisionRule::Designated(p) => {
             require(personas.contains(p), "designated decision identity")
@@ -2399,7 +2391,7 @@ fn set_continuation(
             purpose,
         } => {
             require(
-                (2..=MAX_WAIT_DEPENDENCIES).contains(&dependencies.len())
+                dependencies.len() >= 2
                     && *deadline > now
                     && text(purpose),
                 "bounded wait set and purpose",

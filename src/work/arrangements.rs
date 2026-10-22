@@ -1,11 +1,6 @@
 //! Exact, voluntary changes within the immutable mandate's authority envelope.
 use super::*;
 
-pub const MAX_ARRANGEMENT_PROPOSALS: usize = 32;
-pub const MAX_ARRANGEMENT_CHANGES: usize = 32;
-pub const MAX_ARRANGEMENT_HOLDERS: usize = 16;
-const MAX_ARRANGEMENT_RESPONSES: usize = 256;
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ArrangementAssentPolicy {
     AffectedPartyAssentV1,
@@ -227,7 +222,7 @@ fn validate_rule(w: &Work, rule: &ArrangementDecisionRule) -> Result<()> {
     };
     let holders = rule.holders();
     require(
-        !holders.is_empty() && holders.len() <= MAX_ARRANGEMENT_HOLDERS && holders.is_subset(pool),
+        !holders.is_empty() && holders.is_subset(pool),
         "arrangement decision holders within authorized pool",
     )?;
     if let ArrangementDecisionRule::Quorum { minimum, .. } = rule {
@@ -257,13 +252,10 @@ fn validate_terms(w: &Work, terms: &ArrangementTerms) -> Result<()> {
     }
     require(
         text(&terms.reason)
-            && terms.reason.len() <= 4096
-            && terms.changes.len() <= MAX_ARRANGEMENT_CHANGES
-            && terms.artifact_transfers.len() <= MAX_ARRANGEMENT_CHANGES
             && (!terms.changes.is_empty()
                 || terms.decision_rule.is_some()
                 || !terms.artifact_transfers.is_empty()),
-        "bounded nonempty arrangement proposal",
+        "nonempty arrangement proposal",
     )?;
     if let Some(rule) = &terms.decision_rule {
         validate_rule(w, rule)?;
@@ -291,7 +283,6 @@ fn validate_terms(w: &Work, terms: &ArrangementTerms) -> Result<()> {
         require(
             change.terms.mandate_revision == w.current_mandate
                 && text(&change.terms.exact_terms)
-                && change.terms.exact_terms.len() <= 16_384
                 && change
                     .terms
                     .outcomes
@@ -400,9 +391,8 @@ pub(super) fn propose(
     actor_in_pool(w, &by.persona)?;
     accepted(w, &by.persona)?;
     require(
-        crate::protocol::check_id(&id.0, "arrangement proposal").is_ok()
-            && w.arrangement_proposals.len() < MAX_ARRANGEMENT_PROPOSALS,
-        "arrangement proposal identity and capacity",
+        crate::protocol::check_id(&id.0, "arrangement proposal").is_ok(),
+        "arrangement proposal identity",
     )?;
     if w.arrangement_proposals.contains_key(&id) || w.arrangements.contains_key(&id) {
         return Err(WorkError::Conflict);
@@ -452,7 +442,7 @@ pub(super) fn decline(
     let acceptance = acceptance.clone();
     let proposal = pending(w, &id, &exact)?;
     require(
-        text(&reason) && reason.len() <= 4096,
+        text(&reason),
         "arrangement decline reason",
     )?;
     if proposal.declines.contains_key(&by.persona) {
@@ -461,10 +451,6 @@ pub(super) fn decline(
     require(
         required_consents(w, &proposal.terms).contains(&by.persona),
         "decline has an affected duty or result-rule scope",
-    )?;
-    require(
-        proposal.consents.len() + proposal.declines.len() < MAX_ARRANGEMENT_RESPONSES,
-        "arrangement response capacity",
     )?;
     w.arrangement_proposals
         .get_mut(&id)
@@ -494,10 +480,6 @@ pub(super) fn consent(w: &mut Work, by: &Attribution, id: RecordId, exact: Exact
     require(
         required.contains(&by.persona),
         "consent has an affected duty or result-rule scope",
-    )?;
-    require(
-        proposal.consents.len() + proposal.declines.len() < MAX_ARRANGEMENT_RESPONSES,
-        "arrangement response capacity",
     )?;
     w.arrangement_proposals
         .get_mut(&id)

@@ -2389,8 +2389,8 @@ fn invalidate_replaced_message_waits(state: &mut State, work: &str) -> Result<()
 
 fn scheduler_bound(limit: usize) -> Result<()> {
     require(
-        (1..=128).contains(&limit),
-        "scheduler bound must be 1..=128",
+        limit > 0,
+        "scheduler page size must be positive",
     )
 }
 fn active_invocations(state: &State) -> BTreeMap<String, String> {
@@ -3411,12 +3411,8 @@ impl Runtime {
         identity(&request.id)?;
         require(now >= 0, "negative event time")?;
         require(
-            serde_json::to_vec(&request)?.len() <= INPUT_LIMIT,
-            "dependency request bound",
-        )?;
-        require(
-            (1..=128).contains(&request.participants.len()),
-            "dependency participant bound",
+            !request.participants.is_empty(),
+            "dependency requires participants",
         )?;
         let source = file_reference(&request.source)?;
         require(
@@ -7457,21 +7453,18 @@ fn render_mode_with_history(
         }
     }
     if ordinary_interfaces {
-        if let Some(capacity) = state.config.persona_capacity {
-            if state.personas.len() < capacity {
-                core["persona_birth_proposal"] = json!({
-                    "proposal_schema":launch::persona_birth::proposal_schema(),
-                    "remaining_lifetime_slots":capacity-state.personas.len(),
-                    "rule":"Creation is optional. When useful, you may author a bounded JSON supporting asset matching this schema and explain its purpose to the requester. A proposal is not a new identity, competence, membership, work acceptance or extra resources. Only the operator can accept an exact current proposal through the native creation interface. The new persona then authors its own initial character under a finite limit on a later explicitly admitted work. Existing personas and simple work need no creation ritual. Do not invent biography, experience or expertise."
-                });
-                growth_bytes = growth_bytes.checked_add(serde_json::to_vec(&core["persona_birth_proposal"])?.len())
-                    .ok_or_else(|| invalid("birth proposal context accounting"))?;
-            }
-        }
+        core["persona_birth_proposal"] = json!({
+            "proposal_schema":launch::persona_birth::proposal_schema(),
+            "remaining_lifetime_slots":null,"population_quota_enforced":false,
+            "rule":"Creation is optional. When useful, author a JSON supporting asset matching this schema and explain its purpose to the requester. A proposal does not establish a new identity, competence, membership, work acceptance or experience. The native creation interface can accept an exact authored proposal without a population or initialization quota. A new persona authors its own initial character when it receives an opportunity. Existing personas and simple work need no creation ritual. Do not invent biography or experience."
+        });
+        growth_bytes = growth_bytes.checked_add(serde_json::to_vec(&core["persona_birth_proposal"])?.len())
+            .ok_or_else(|| invalid("birth proposal context accounting"))?;
     }
     if let Some(origin) = &persona.birth {
         core["creation_origin"] = json!({"parent":origin.parent,"invocation":origin.invocation,
-            "proposal":origin.proposal,"initialization_limit":origin.initialization_limit,
+            "proposal":origin.proposal,"initialization_limit":null,
+            "historical_initialization_limit":origin.initialization_limit,
             "initialization_attempts_spent":origin.initialization_attempts,
             "meaning":"Persona-authored starting material accepted by the operator; not prior lived experience, competence or accepted responsibility."});
         growth_bytes = growth_bytes.checked_add(serde_json::to_vec(&core["creation_origin"])?.len())

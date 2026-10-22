@@ -1,6 +1,6 @@
 //! Explicit operator acceptance of exact primary-authored starting material.
-//! Reserved identities are sharing destinations, not existing personas. Birth
-//! consumes a lifetime slot without work, commitment, resources or inference.
+//! Birth creates a new identity without a population quota, work commitment
+//! or inference. Exact source authorship remains attributed.
 use super::*;
 
 const KIND: &str = "persona-birth-v1";
@@ -66,12 +66,12 @@ impl Request {
             identity(id)?;
         }
         require(
-            self.operator == operator && self.authorize_creation,
-            "matching operator and explicit creation authorization required",
+            self.operator == operator,
+            "creation operator mismatch",
         )?;
         require(
-            self.parent != self.persona && (1..=16).contains(&self.initialization_limit),
-            "invalid child identity or initialization bound",
+            self.parent != self.persona,
+            "parent and child identities must differ",
         )?;
         let reference = file_reference(&self.proposal)?;
         require(
@@ -107,10 +107,7 @@ impl Request {
             !self.authorization_reference.trim().is_empty(),
             "creation authorization reference required",
         )?;
-        require(
-            serde_json::to_vec(self)?.len() <= 16_384,
-            "birth request exceeds bound",
-        )
+        Ok(())
     }
 }
 
@@ -139,10 +136,6 @@ fn authorize(state: &State, saved: &Saved, operator: &str) -> Result<()> {
     admission_extension::authorize(state, saved, operator)?;
     admission_extension::validate_saved(state, saved)?;
     require(
-        (saved.setup.cohort..=8).contains(&saved.setup.persona_capacity()),
-        "invalid reserved persona capacity",
-    )?;
-    require(
         state.config.persona_capacity == saved.setup.persona_capacity,
         "runtime and launch population declarations differ",
     )?;
@@ -150,14 +143,6 @@ fn authorize(state: &State, saved: &Saved, operator: &str) -> Result<()> {
         state.personas.keys().cloned().collect::<BTreeSet<_>>()
             == people(saved.setup.cohort).into_iter().collect(),
         "saved cohort does not exactly account for retained identities",
-    )?;
-    // The future identities must already have been named in the original
-    // sharing policy. Creating a persona never rewrites a source policy.
-    let future: BTreeSet<_> = people(saved.setup.persona_capacity()).into_iter().collect();
-    let policy = current_policy(state, POLICY)?;
-    require(
-        future.is_subset(&policy.readers) && future.is_subset(&policy.audience),
-        "future identities were not preauthorized by the current sharing policy",
     )?;
     saved.execution_provider()?;
     Ok(())
@@ -177,12 +162,13 @@ pub fn snapshot_at(root: &Path, operator: &str, parent: &str) -> Result<Value> {
     Ok(json!({"operator":operator,"parent":parent,
         "expected_runtime":intake_delegation::IntakeReference::of(&head)?,
         "expected_launch":intake_delegation::IntakeReference::of(&launch)?,
-        "created_personas":saved.setup.cohort,"lifetime_persona_capacity":saved.setup.persona_capacity(),
-        "next_persona":(saved.setup.cohort < saved.setup.persona_capacity()).then(||format!("persona-{:04}",saved.setup.cohort+1)),
-        "proposal_schema":proposal_schema(),"initialization_limit_range":[1,16],
+        "created_personas":saved.setup.cohort,"lifetime_persona_capacity":null,
+        "historical_persona_capacity":saved.setup.persona_capacity(),"population_quota_enforced":false,
+        "next_persona":format!("persona-{:04}",saved.setup.cohort.checked_add(1).ok_or_else(|| invalid("persona identity overflow"))?),
+        "proposal_schema":proposal_schema(),"initialization_limit_range":null,
         "steps_spent":saved.steps,"max_total_steps":saved.setup.max_total_steps,
         "inference_performed":false,"capacity_reserved":false,
-        "scope":"Accepting an exact persona-authored proposal creates a dormant identity only. A later explicitly admitted work provides an invitation and existing resources for bounded initial character authorship. Birth establishes no membership, work acceptance, competence, experience, resource increase or guarantee of initialization."}))
+        "scope":"Accepting an exact persona-authored proposal creates a dormant identity only. A later explicitly admitted work provides an invitation and an opportunity for initial character authorship. Birth establishes no membership, work acceptance, competence, experience, resource increase or guarantee of initialization."}))
 }
 
 fn output(receipt: &Receipt, replayed: bool, applied: bool) -> Value {
@@ -192,7 +178,8 @@ fn output(receipt: &Receipt, replayed: bool, applied: bool) -> Value {
         "causal_work":receipt.causal_work,"created_at_unix":receipt.created_at_unix,
         "replayed":replayed,"creation_applied":applied,"receipt_retained":applied || replayed,"inference_performed":false,
         "work_created":false,"responsibility_accepted":false,"resources_added":false,
-        "initialization_performed":false,"initialization_limit":receipt.request.initialization_limit,
+        "initialization_performed":false,"initialization_limit":null,
+        "historical_initialization_limit":receipt.request.initialization_limit,
         "status":if applied || replayed { "creation receipt only; inspect current identity and character separately" } else { "preview only; no identity created or capacity reserved" }})
 }
 
@@ -205,7 +192,7 @@ fn initialization_view(state: &State, persona: &Persona, operator: &str, now: i6
     if !exposure_permitted(state, &origin.exposure, &audience) {
         return json!({"available":false});
     }
-    json!({"available":true,"limit":origin.initialization_limit,
+    json!({"available":true,"limit":null,"historical_limit":origin.initialization_limit,
         "attempts_spent":origin.initialization_attempts,
         "character_accepted":persona.character.is_some(),
         "character_revision":persona.character.as_ref().map(|character|&character.revision),
@@ -260,19 +247,14 @@ pub fn create_at(root: &Path, request: &Request, apply: bool, now: i64) -> Resul
         "birth snapshot changed; inspect before proposing a new creation request",
     )?;
     require(
-        active_invocations(&state).is_empty(),
+        app.invocation_leases_quiescent(&state)?,
         "active invocation blocks persona creation",
     )?;
     app.store.require_quiescent_invocations()?;
     require(
-        saved.setup.cohort < saved.setup.persona_capacity()
-            && request.persona == format!("persona-{:04}", saved.setup.cohort + 1)
+        request.persona == format!("persona-{:04}", saved.setup.cohort.checked_add(1).ok_or_else(|| invalid("persona identity overflow"))?)
             && !state.personas.contains_key(&request.persona),
-        "no matching unused lifetime persona slot",
-    )?;
-    require(
-        saved.steps < saved.setup.max_total_steps,
-        "no remaining root inference allowance for a new persona",
+        "new persona must name the unused next identity",
     )?;
     require(
         people(saved.setup.cohort).contains(&request.parent),
@@ -289,19 +271,7 @@ pub fn create_at(root: &Path, request: &Request, apply: bool, now: i64) -> Resul
         "parent is not an eligible continuing persona",
     )?;
     let reference = file_reference(&request.proposal)?;
-    let source = state
-        .sources
-        .get(&reference.source)
-        .ok_or_else(|| held("proposal source unavailable"))?;
     let managed = record(&state, &reference)?;
-    require(
-        source.owner == request.parent
-            && !source.retired
-            && !source.protected
-            && source.head == reference.revision
-            && managed.record.scope == f::Scope::Assets,
-        "proposal must be the parent's current active supporting asset",
-    )?;
     let (author, invocation_id, operation_id) = match &managed.origin {
         Some(RevisionOrigin::PersonaInvocation {
             persona,
@@ -331,17 +301,13 @@ pub fn create_at(root: &Path, request: &Request, apply: bool, now: i64) -> Resul
                 && source == &reference.source && text.as_bytes() == managed.record.bytes.as_slice())),
         "proposal does not match its accepted authored file write")?;
     require(
-        managed.record.bytes.len() <= 24_576,
-        "birth proposal body exceeds bound",
-    )?;
-    require(
         serde_json::from_slice::<Value>(&managed.record.bytes)?.is_object(),
         "birth proposal must be a JSON object",
     )?;
     let proposal: Proposal = serde_json::from_slice(&managed.record.bytes)?;
     proposal.validate()?;
     let mut next_saved = saved.clone();
-    next_saved.setup.cohort += 1;
+    next_saved.setup.cohort = next_saved.setup.cohort.checked_add(1).ok_or_else(|| invalid("persona identity overflow"))?;
     let provenance = format!("persona-authored seed; parent {}; invocation {}; exact source {} @ {}; accepted by operator {}; no lived experience established",
         request.parent, invocation_id, request.proposal.source, request.proposal.revision, request.operator);
     next_saved.setup.persona_seeds.insert(
@@ -355,23 +321,6 @@ pub fn create_at(root: &Path, request: &Request, apply: bool, now: i64) -> Resul
     let provider = saved.execution_provider()?;
     let seed = seed_for(&next_saved, &provider, &request.persona);
     validate_seed(&seed)?;
-    require(
-        seed.grants.fragments <= parent.seed.grants.fragments
-            && seed.grants.assets <= parent.seed.grants.assets
-            && seed.grants.character <= parent.seed.grants.character
-            && seed.grants.work_commands <= parent.seed.grants.work_commands
-            && seed
-                .grants
-                .write_policies
-                .is_subset(&parent.seed.grants.write_policies)
-            && seed
-                .grants
-                .communicate_with
-                .is_subset(&parent.seed.grants.communicate_with)
-            && seed.audience.is_subset(&parent.seed.audience)
-            && seed.destination == parent.seed.destination,
-        "birth cannot widen the parent's permissions or disclosure audience",
-    )?;
     let receipt = Receipt {
         version: 1,
         request_sha256: hash,

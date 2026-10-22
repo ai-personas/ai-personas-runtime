@@ -2,7 +2,7 @@
 //! This is not a cross-request cache or an alternative mutation admission path.
 use super::*;
 
-/// A bounded view, including its permission checks and lifecycle lookups, is
+/// A complete view, including lifecycle and exact record lookups, is
 /// built inside one Store transaction. Only its final public output is charged.
 pub(super) fn project<T: Serialize, E: From<RuntimeError> + From<s::StoreError>>(
     root: &Path,
@@ -10,7 +10,7 @@ pub(super) fn project<T: Serialize, E: From<RuntimeError> + From<s::StoreError>>
 ) -> std::result::Result<T, E> {
     let mut store = Runtime::inspection_store(root)?;
     store.trusted_host().runtime_projection(
-        session::MAX_VIEW_BYTES as u64,
+        session::PROJECTION_BYTE_ESTIMATE as u64,
         |runtime, launch, records| {
             let state = Runtime::decode_inspection_state(&runtime)?;
             let saved = decode_saved(&launch)?;

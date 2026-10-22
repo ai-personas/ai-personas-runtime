@@ -113,11 +113,19 @@ Optional activity no longer yields admission to foreground work or restricts
 messages to its participant pool. Explicit Stop, Pause and revocation remain.
 An expired historical episode setting does not impose a provider deadline.
 
+Fresh setup, continuing launch and persona creation have no cohort or population
+quota. Birth no longer requires a preallocated sharing slot or remaining launch
+allowance. Initialization counts remain observational. Existing seeds keep their
+original audience and grant declarations when the cohort grows. Arrangement
+proposals, responses, holders, changes and wait registrations have no fixed
+count/text quota. Session terminals accept any monotonic call-count increase;
+operator session pages have no application page-size or output-byte cap.
+
 ## Remaining work
 
 Removal is still incomplete. Remaining
 application enforcement includes delegated intake authority and one-child workflow
-constraints; explicit optional opportunity registration; persona population constraints; source ownership, protection and ineligibility
+constraints; explicit optional opportunity and birth workflows; source ownership, protection and ineligibility
 gates; extra operator authorization fields; remaining typed protocol and tool-input
 limits; and additional specialized control/projection limits. These are implementation gaps under the
 new requirement, not exceptions granted by the user. Some earlier documents still

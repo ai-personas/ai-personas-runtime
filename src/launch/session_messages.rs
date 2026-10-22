@@ -52,24 +52,8 @@ fn project(state: &State, operator: &str, session: SessionView) -> BoundaryResul
         (message.work == scope.work && message.recipient == operator
             && results::message_permitted(&state, message, now)).then_some((*step, message))
     }).collect();
-    // Keep the most recent whole records that fit, then display them in call
-    // order. Earlier work history consumes none of this session's output bound.
-    candidates.sort_by(|(step_a, a), (step_b, b)| (step_b, &b.id).cmp(&(step_a, &a.id)));
-    let mut left = MAX_VIEW_BYTES.checked_sub(serde_json::to_vec(&result)?.len() + 1024)
-        .ok_or(BoundaryError::Capacity)?;
-    for (_, message) in candidates {
-        if result.messages.len() == 128 {
-            result.truncated = true;
-            break;
-        }
-        let size = serde_json::to_vec(message)?.len() + 1;
-        if size > left {
-            result.truncated = true;
-            continue;
-        }
-        left -= size;
-        result.messages.push(message.clone());
-    }
-    result.messages.reverse();
+    // Preserve every matching record in call order; there is no output quota.
+    candidates.sort_by(|(step_a, a), (step_b, b)| (step_a, &a.id).cmp(&(step_b, &b.id)));
+    result.messages = candidates.into_iter().map(|(_, message)| message.clone()).collect();
     Ok(result)
 }

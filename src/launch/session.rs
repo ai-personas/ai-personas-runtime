@@ -1,6 +1,6 @@
 //! Operator-only protocol for an interactive launcher. No onboarding or resource grants.
 //!
-//! All openings are nonrecovering. Inspection is bounded, metered, and metadata
+//! All openings are nonrecovering. Inspection is metered and exposes complete metadata
 //! only except for the operator's own exact original need. Session claims are
 //! create-only before any driver activity. A missing terminal means unknown, not
 //! permission to retry. New claims prepay bounded receipt storage and one final
@@ -18,8 +18,7 @@ pub type BoundaryResult<T> = std::result::Result<T, BoundaryError>;
 const NEED_KIND: &str = "launch-keyed-need-v1";
 const CLAIM_KIND: &str = "launch-session-claim-v1";
 const END_KIND: &str = "launch-session-end-v1";
-const MAX_PAGE: usize = 16;
-pub(super) const MAX_VIEW_BYTES: usize = 1_048_576;
+pub(super) const PROJECTION_BYTE_ESTIMATE: usize = 1_048_576;
 
 /// Static machine codes, never formatted provider/parser errors or secret values.
 /// These classify only this boundary, not the main CLI's errors.
@@ -138,7 +137,7 @@ fn authorize_snapshot(state: &State, saved: &Saved, operator: &str) -> BoundaryR
         BoundaryError::Unauthorized,
     )?;
     check(
-        (1..=8).contains(&saved.setup.cohort) && saved.works.len() <= 128,
+        saved.setup.cohort > 0,
         BoundaryError::InvalidState,
     )?;
     for actor in people(saved.setup.cohort) {
@@ -335,7 +334,7 @@ impl SessionRequest {
                     vault.is_absolute()
                         && vault
                             .to_str()
-                            .is_some_and(|p| p.len() <= 4096 && !p.chars().any(char::is_control))
+                            .is_some_and(|p| !p.chars().any(char::is_control))
                         && vault
                             .components()
                             .all(|c| matches!(c, Component::RootDir | Component::Normal(_))),
@@ -347,7 +346,7 @@ impl SessionRequest {
             } => {
                 let valid_host_path = |path: &PathBuf| {
                     path.is_absolute()
-                        && path.to_str().is_some_and(|p| p.len() <= 4096 && !p.chars().any(char::is_control))
+                        && path.to_str().is_some_and(|p| !p.chars().any(char::is_control))
                         && path.components().all(|c| matches!(c, Component::RootDir | Component::Normal(_)))
                 };
                 check(
@@ -401,9 +400,9 @@ impl SessionEnd {
 
     fn validate(&self, steps_before: u64) -> BoundaryResult<()> {
         let (steps_after, last_invocation) = self.progress();
-        // A foreground session admits at most 128 calls, including failed ones.
+        // Session counters are monotonic; there is no per-session call quota.
         check(
-            steps_after.checked_sub(steps_before).is_some_and(|n| n <= 128),
+            steps_after >= steps_before,
             BoundaryError::InvalidState,
         )?;
         if let Some(id) = last_invocation {
@@ -1053,9 +1052,10 @@ pub struct SettingsView {
     pub destination: String,
     pub working_directory: PathBuf,
     pub cohort: usize,
-    /// All lifetime slots, including future identities named in sharing policy.
-    pub persona_capacity: usize,
-    pub remaining_persona_slots: usize,
+    /// No enforced population quota. Original declaration is separate provenance.
+    pub persona_capacity: Option<usize>,
+    pub remaining_persona_slots: Option<usize>,
+    pub historical_persona_capacity: Option<usize>,
     pub selective_work_commands: bool,
     pub work_guide_directory: Option<String>,
     pub share_cohort: bool,
@@ -1241,8 +1241,9 @@ fn settings_view(state: &State, saved: &Saved, now: u64) -> SettingsView {
         destination: saved.setup.destination.clone(),
         working_directory: saved.working_directory.clone(),
         cohort: saved.setup.cohort,
-        persona_capacity: saved.setup.persona_capacity(),
-        remaining_persona_slots: saved.setup.persona_capacity().saturating_sub(saved.setup.cohort),
+        persona_capacity: None,
+        remaining_persona_slots: None,
+        historical_persona_capacity: saved.setup.persona_capacity,
         selective_work_commands: state.work_guides.is_some(),
         work_guide_directory: state.work_guides.as_ref().map(|catalog|work_guides::directory(catalog).into()),
         share_cohort: saved.setup.share_cohort,
@@ -1280,7 +1281,7 @@ pub fn inspect(
 ) -> BoundaryResult<Inspection> {
     valid_id(operator)?;
     check(
-        (1..=MAX_PAGE).contains(&limit),
+        limit > 0,
         BoundaryError::InvalidRequest,
     )?;
     if let Some(after) = after {
@@ -1298,7 +1299,7 @@ fn inspect_snapshot(
     limit: usize,
 ) -> BoundaryResult<Inspection> {
     check(
-        (1..=MAX_PAGE).contains(&limit),
+        limit > 0,
         BoundaryError::InvalidRequest,
     )?;
     let inspection::Snapshot { runtime, state, launch, saved, epoch } = snapshot;
@@ -1329,10 +1330,6 @@ fn inspect_snapshot(
         check(
             meta.intake_operator == operator,
             BoundaryError::Unauthorized,
-        )?;
-        check(
-            meta.original.request.len() <= 32_768,
-            BoundaryError::Capacity,
         )?;
         let wid = w::WorkId(id.clone());
         let work = state
@@ -1446,9 +1443,5 @@ fn inspect_snapshot(
         resume_authorized: false,
         recovery_performed: false,
     };
-    check(
-        serde_json::to_vec(&result)?.len() <= MAX_VIEW_BYTES,
-        BoundaryError::Capacity,
-    )?;
     Ok(result)
 }

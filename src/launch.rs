@@ -108,8 +108,7 @@ pub struct PersonaSeed {
 #[serde(deny_unknown_fields)]
 pub struct Setup {
     pub cohort: usize,
-    /// Explicitly preauthorize sharing with these bounded future identity slots.
-    /// Missing means the initial cohort is the whole lifetime population.
+    /// Historical population declaration; it does not cap future identities.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub persona_capacity: Option<usize>,
     pub owner: usize,
@@ -295,6 +294,17 @@ fn seed_for(saved: &Saved, provider: &ResearchSettings, id: &str) -> Seed {
         },
     }
 }
+// Growing the cohort must not rewrite or reconstruct old disclosure declarations.
+// Compare identity/model/creation material while preserving each seed's exact
+// historical audience, grants and model-confirmation metadata.
+fn seed_matches_saved(saved: &Saved, provider: &ResearchSettings, id: &str, seed: &Seed) -> Result<bool> {
+    let mut expected = seed_for(saved, provider, id);
+    expected.audience = seed.audience.clone();
+    expected.grants = seed.grants.clone();
+    expected.model_confirmed = seed.model_confirmed;
+    Ok(serde_json::to_value(seed)? == serde_json::to_value(expected)?)
+}
+
 fn ensure_cohort(app: &mut Runtime, saved: &Saved) -> Result<()> {
     let provider = saved.execution_provider()?;
     let state = app.snapshot()?;
@@ -302,7 +312,7 @@ fn ensure_cohort(app: &mut Runtime, saved: &Saved) -> Result<()> {
         let seed = seed_for(saved, &provider, &id);
         if let Some(existing) = state.personas.get(&id) {
             require(
-                serde_json::to_value(&existing.seed)? == serde_json::to_value(&seed)?,
+                seed_matches_saved(saved, &provider, &id, &existing.seed)?,
                 "saved cohort binding changed",
             )?;
         } else {
@@ -315,21 +325,11 @@ fn setup_parts(operator: &str, settings: Setup, opt_in: bool) -> Result<(Config,
     identity(operator)?;
 
     require(
-        (1..=8).contains(&settings.cohort) && (1..=settings.cohort).contains(&settings.owner),
-        "cohort must be 1..=8 and owner must name a cohort position",
+        settings.cohort > 0 && (1..=settings.cohort).contains(&settings.owner),
+        "cohort must be nonempty and owner must name a cohort position",
     )?;
-    require(
-        (1..=128).contains(&settings.max_steps)
-            && (1..=128).contains(&settings.max_considerations)
-            && (1..=128).contains(&settings.max_work_attempts)
-            && settings.max_total_steps > 0
-            && settings.max_total_steps
-                <= storage_limits().total.attempts - storage_limits().protected_closeout.attempts
-            && (1..=128).contains(&settings.max_works),
-        "invalid foreground bounds",
-    )?;
-    let capacity = settings.persona_capacity.unwrap_or(settings.cohort);
-    require((settings.cohort..=8).contains(&capacity), "persona capacity must contain the initial cohort and be at most eight")?;
+    require(settings.max_considerations > 0, "scheduler page size must be positive")?;
+    let capacity = settings.persona_capacity.unwrap_or(settings.cohort).max(settings.cohort);
     let ids = people(capacity);
     require(
         !ids.iter().any(|id| id == operator),
@@ -337,9 +337,8 @@ fn setup_parts(operator: &str, settings: Setup, opt_in: bool) -> Result<(Config,
     )?;
     let mut audience: BTreeSet<_> = ids.iter().cloned().collect();
     audience.insert(operator.into());
-    require(settings.http_origins.len() <= 8
-        && settings.http_origins.iter().all(|origin| crate::http_fetch::valid_origin(origin)),
-        "setup HTTPS origins must be canonical; at most eight")?;
+    require(settings.http_origins.iter().all(|origin| crate::http_fetch::valid_origin(origin)),
+        "historical HTTP origins must be canonical")?;
     let mut processing_destinations = settings.http_origins.clone();
     processing_destinations.insert(settings.destination.clone());
     let policy = f::Policy {

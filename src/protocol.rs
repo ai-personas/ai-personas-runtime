@@ -211,12 +211,12 @@ pub enum Continuation {
         not_before_unix: u64,
         purpose: String,
     },
-    /// Wait for any of 1..8 exact supplied dependencies or same-response registered
+    /// Wait for any of the exact supplied dependencies or same-response registered
     /// message waits, or until the deadline. One arrival permits a fresh decision;
     /// it does not prove all replies arrived. Include every new registration id.
     /// This does not invent an external subscription or a sender commitment.
     Wait {
-        #[schemars(length(min = 1, max = 8))]
+        #[schemars(length(min = 1))]
         dependency_ids: Vec<String>,
         deadline_unix: u64,
         reason: String,
@@ -249,7 +249,6 @@ pub enum ReplyDisposition {
         /// canonical file_references to each deposited message; no body is read.
         /// Use these for exact citations instead of retyping hashes in prose.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        #[schemars(length(max = 32))]
         reference_handles: Vec<String>,
     },
 }
@@ -430,7 +429,6 @@ pub enum Operation {
         /// Canonical qualifications retain the exact source identifiers; refer
         /// to those qualifications in text instead of retyping IDs and hashes.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        #[schemars(length(max = 256))]
         qualification_handles: Vec<String>,
         policy_id: String,
     },
@@ -454,7 +452,6 @@ pub enum Operation {
         expected_sha256: Option<String>,
         qualifications: Vec<ExactRef>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        #[schemars(length(max = 256))]
         qualification_handles: Vec<String>,
         policy_id: String,
     },
@@ -556,7 +553,6 @@ pub enum Operation {
         /// file_references beside the unchanged authored text. No body is read
         /// or supplied. Prefer handles to retyping source identities and hashes.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        #[schemars(length(max = 32))]
         reference_handles: Vec<String>,
     },
     /// Accept or decline one exact supplied pending offer. Here id MUST equal
@@ -1872,20 +1868,19 @@ fn check_operation(
             match mode {
                 crate::files::SearchMode::Listing => (),
                 crate::files::SearchMode::Literal { needle } => {
-                    if needle.is_empty() || needle.len() > MAX_REASON_BYTES {
+                    if needle.is_empty() {
                         return Err(invalid(
                             &format!("{path}.mode"),
-                            "literal must be nonempty and at most 4096 UTF-8 bytes",
+                            "literal must be nonempty",
                         ));
                     }
                 }
-                crate::files::SearchMode::Regex { pattern, dialect } => {
-                    if pattern.len() > MAX_REASON_BYTES
-                        || !matches!(dialect, crate::files::RegexDialect::RustRegex1)
+                crate::files::SearchMode::Regex { pattern: _, dialect } => {
+                    if !matches!(dialect, crate::files::RegexDialect::RustRegex1)
                     {
                         return Err(invalid(
                             &format!("{path}.mode"),
-                            "history regex requires rust_regex1 and at most 4096 UTF-8 bytes",
+                            "history regex requires rust_regex1",
                         ));
                     }
                 }

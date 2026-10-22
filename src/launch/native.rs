@@ -86,15 +86,9 @@ fn validate_saved(
     let settings = saved.execution_provider()?;
     let setup = &saved.setup;
     require(
-        (1..=8).contains(&setup.cohort)
+        setup.cohort > 0
             && (1..=setup.cohort).contains(&setup.owner)
-            && (1..=128).contains(&setup.max_steps)
-            && (1..=128).contains(&setup.max_considerations)
-            && (1..=128).contains(&setup.max_work_attempts)
-            && setup.max_total_steps > 0
-            && setup.max_total_steps
-                <= storage_limits().total.attempts - storage_limits().protected_closeout.attempts
-            && (1..=128).contains(&setup.max_works),
+            && setup.max_considerations > 0,
         "invalid saved foreground bounds",
     )?;
     let (head, state) = app.load()?;
@@ -102,10 +96,6 @@ fn validate_saved(
     config.validate()?;
     require(
         config.persona_capacity == setup.persona_capacity
-            && (setup.cohort..=8).contains(&setup.persona_capacity())
-            && !config.require_physical_hard_bound
-            && !config.require_token_hard_bound
-            && !config.require_dollar_hard_bound
             && config.max_work_attempts == setup.max_work_attempts,
         "saved runtime does not admit the fixed native provider",
     )?;
@@ -116,8 +106,7 @@ fn validate_saved(
             .get(&id)
             .ok_or_else(|| invalid("saved cohort is incomplete"))?;
         require(
-            serde_json::to_value(&persona.seed)?
-                == serde_json::to_value(seed_for(saved, &settings, &id))?,
+            seed_matches_saved(saved, &settings, &id, &persona.seed)?,
             "saved cohort binding changed",
         )?;
     }

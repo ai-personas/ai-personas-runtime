@@ -496,21 +496,20 @@ class Terminal:
             raise Halt()
 
     def number(self, text, default, low, high):
-        for _ in range(3):
+        while True:
             raw = self.ask(f"{text} [{default}]").strip() or str(default)
-            if raw.isdecimal() and low <= int(raw) <= high:
+            if raw.isdecimal() and low <= int(raw) and (high is None or int(raw) <= high):
                 return int(raw)
-            self.say(f"Enter {low}..{high}; no authorization has been granted.")
-        raise Halt()
+            self.say(f"Enter an integer of at least {low}." if high is None else f"Enter {low}..{high}.")
 
     def bounded_text(self, text, maximum, default=None):
-        for _ in range(3):
+        # The old maximum remains a call-site hint, not an input quota.
+        while True:
             raw = self.ask(text + (f" [{default}]" if default is not None else "")).strip()
             value = raw or default
-            if value and len(value.encode("utf-8")) <= maximum:
+            if value:
                 return value
-            self.say(f"Enter nonempty text of at most {maximum} UTF-8 bytes.")
-        raise Halt()
+            self.say("Enter nonempty text.")
 
 
 def _linux_open_regular(path):
@@ -1317,7 +1316,7 @@ class Dialogue:
         self.account()
         if self.p["bootstrap"] is None:
             settings = self.settings()
-            cohort = self.ui.number("Number of continuing personas", 2, 1, 8)
+            cohort = self.ui.number("Number of continuing personas", 2, 1, None)
             noun = "persona" if cohort == 1 else "personas"
             self.ui.say(f"Proposed local cohort: {cohort} continuing {noun} and you, without assigned owner/reviewer roles. "
                         "Grants permit their own fragments, assets, character proposals, work commands and cohort messages. "

@@ -60,7 +60,7 @@ pub fn preview(request: &Request) -> Result<Value> {
         "seed_grants": seed_for(&saved, &provider, &people(saved.setup.cohort)[0]).grants,
         "created_personas": people(saved.setup.cohort),
         "sharing_identity_slots": people(saved.setup.persona_capacity()),
-        "remaining_persona_slots": saved.setup.persona_capacity() - saved.setup.cohort,
+        "remaining_persona_slots": null,"population_quota_enforced":false,
         "native_work_guides":work_command_guides::fresh_summary(&config, &saved)?,
         "inference_performed": false, "authority_granted": false,
         "remote_token_hard_bound": false, "remote_dollar_hard_bound": false
