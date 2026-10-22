@@ -764,6 +764,7 @@ trait Driver {
     fn prospective_intake(&self) -> bool {
         false
     }
+    fn select_intake(&mut self, selection: p::need::GrantReference) -> Result<()>;
     fn before_step(&mut self, _app: &mut Runtime) -> Result<()> {
         Ok(())
     }
@@ -824,6 +825,14 @@ async fn run_with_owned_commands<D: Driver>(
     driver: &mut D,
     owner: &s::ExecutionOwner,
 ) -> Result<Output> {
+    driver.before_step(app)?;
+    if !driver.prospective_intake() {
+        if let Some(selection) =
+            intake_delegation::default_for_work_owned(app, work, owner, unix_now()?)?
+        {
+            driver.select_intake(selection)?;
+        }
+    }
     let mut scope = app.background_host_commands(owner)?;
     let state = scope.snapshot()?;
     let independent = driver.concurrent()

@@ -110,7 +110,6 @@ fn validate_receipt(receipt: &AdmitNeedProposalReceipt) -> Result<()> {
             && receipt.source_grant.sha256()? == request.grant.sha256
             && receipt.source_grant.active_at(receipt.created_at_unix)
             && receipt.source_grant.request.operator == request.operator
-            && receipt.source_grant.request.purpose == request.purpose
             && receipt.consumed_child.admission_id == request.id
             && receipt.consumed_child.request_sha256 == receipt.request_sha256
             && receipt.consumed_child.source_grant_sha256 == request.grant.sha256
@@ -399,9 +398,10 @@ fn child_input(
 ) -> Result<NeedInput> {
     let grant = &pending.grant.request;
     let authorization = serde_json::to_string(&json!({
-        "kind":"consumption_of_exact_operator_intake_delegation",
+        "kind":if pending.grant.automatically_issued { "consumption_of_native_default_intake" } else { "consumption_of_exact_operator_intake_delegation" },
         "issuer":grant.operator,"grant":request.grant,"pending":request.pending,
-        "purpose":grant.purpose,"boundaries":grant.boundaries,
+        "purpose":proposal.purpose,"source_purpose":grant.purpose,"boundaries":grant.boundaries,
+        "automatically_issued":pending.grant.automatically_issued,
         "historical_allowed_participants":grant.allowed_child_participants,
         "historical_initial_consideration_recipients":grant.initial_consideration_recipients,
         "participant_quotas_enforced":false,
@@ -492,9 +492,8 @@ fn plan(
     require(
         current_grant.active_at(now)
             && current_grant.source_sha256()? == request.grant.sha256
-            && current_grant.request.operator == request.operator
-            && current_grant.request.purpose == request.purpose,
-        "source grant issuer, exact hash, purpose or status changed",
+            && current_grant.request.operator == request.operator,
+        "source grant issuer, exact hash or status changed",
     )?;
     let episode = state
         .intake_episodes
@@ -845,12 +844,15 @@ pub(in crate::runtime::launch) fn admit_pending_for_work_owned(
         let Some((reference, pending)) = selected else {
             return Ok(admitted);
         };
+        let p::Operation::ProposeNeed { proposal, .. } = &pending.operation else {
+            return Err(held("pending record lacks its authored proposal"));
+        };
         let (registry_head, _) = registry(app)?;
         let expected = fence(&runtime_head, &launch_head, registry_head.as_ref(), &saved)?;
         let request = AdmitNeedProposalRequest {
             id: format!("automatic-{}", canonical_hash(&reference)?),
             operator: saved.operator.clone(),
-            purpose: episode.grant.request.purpose.clone(),
+            purpose: proposal.purpose.clone(),
             authorize_admission: false,
             grant: p::need::GrantReference {
                 id: episode.grant.request.id.clone(),

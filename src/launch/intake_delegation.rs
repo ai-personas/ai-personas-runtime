@@ -1,4 +1,4 @@
-//! Trusted local operator delegation lifecycle. These records authorize no
+//! Retained native and operator delegation lifecycle. These records authorize no
 //! immediate consideration, invitation acceptance, work creation or dispatch.
 //! Missing registry state means no delegation. Proposal/admission integrations
 //! must revalidate this registry and implement aggregate episode consumption.
@@ -351,6 +351,10 @@ impl ConsumedChild {
 #[serde(deny_unknown_fields)]
 pub struct IntakeDelegation {
     pub version: u32,
+    /// The native foreground driver created this source for existing work.
+    /// Omit false so historical issued source hashes remain unchanged.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub automatically_issued: bool,
     /// Immutable issue provenance, including issuer, exact fences and terms.
     pub request: IntakeDelegationRequest,
     /// Hash of the canonical typed Issue action, not incoming JSON whitespace.
@@ -522,6 +526,8 @@ pub struct IntakeAvailability {
 #[serde(deny_unknown_fields)]
 pub struct IntakeDelegationReceipt {
     pub version: u32,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub automatically_issued: bool,
     pub request_sha256: String,
     pub action: IntakeDelegationAction,
     pub created_at_unix: i64,
@@ -809,8 +815,6 @@ fn issue_availability(
         .require_within_config(&state.config)?;
     let mut currently_enabled_requesters = BTreeMap::new();
     for id in &request.proposal_work_ids {
-        require(!optional_activity::bound(state, id),
-            "optional activity has no nested intake delegation; it cannot create foreground funding or priority")?;
         require(
             !need_proposals::is_child(state, id),
             "a child inherits its existing intake episode; selecting a separate episode is not yet supported",
@@ -878,6 +882,11 @@ fn validate_receipt(receipt: &IntakeDelegationReceipt) -> Result<()> {
     require(
         receipt.action.validate()? == receipt.request_sha256,
         "delegation receipt request hash changed",
+    )?;
+    require(
+        !receipt.automatically_issued
+            || matches!(receipt.action, IntakeDelegationAction::Issue(_)),
+        "automatic issuance must record an issue action",
     )?;
     let expected = receipt.action.expected();
     receipt.target_runtime.validate(STATE_ID)?;
@@ -975,6 +984,7 @@ fn plan(
     action: &IntakeDelegationAction,
     hash: String,
     now: i64,
+    automatically_issued: bool,
 ) -> Result<Planned> {
     let (runtime_head, state, launch_head, saved) = candidates(app)?;
     admission_extension::authorize(&state, &saved, action.operator())?;
@@ -1019,6 +1029,7 @@ fn plan(
                 request.id.clone(),
                 IntakeDelegation {
                     version: 1,
+                    automatically_issued,
                     request: request.clone(),
                     request_sha256: hash.clone(),
                     issued_at_unix: now,
@@ -1083,6 +1094,7 @@ fn plan(
         "request_sha256": &hash,
         "receipt_id": receipt_id(action.id()),
         "at_unix": now,
+        "automatically_issued": automatically_issued,
         "episode_binding_transition":{"from":previous_binding,"to":next_binding,"carried_episodes":carried}
     }));
     if let IntakeDelegationAction::Revoke(request) = action {
@@ -1099,6 +1111,7 @@ fn plan(
     }
     let receipt = IntakeDelegationReceipt {
         version: 1,
+        automatically_issued,
         request_sha256: hash,
         action: action.clone(),
         created_at_unix: now,
@@ -1174,6 +1187,18 @@ fn execute(
     // Preview also checks real ownership. Normal acquisition may recover an
     // orphan before a subsequent check fails; it never dispatches or resumes.
     let _owner = app.store.acquire_execution_owner()?;
+    execute_owned(app, action, now, apply, false)
+}
+
+fn execute_owned(
+    app: &mut Runtime,
+    action: IntakeDelegationAction,
+    now: i64,
+    apply: bool,
+    automatically_issued: bool,
+) -> Result<IntakeDelegationOutcome> {
+    let hash = action.validate()?;
+    require(now >= 0, "negative delegation time")?;
     if let Some(receipt) = replay(app, &action, &hash)? {
         return Ok(IntakeDelegationOutcome {
             receipt,
@@ -1181,7 +1206,7 @@ fn execute(
             replayed: true,
         });
     }
-    let planned = plan(app, &action, hash, now)?;
+    let planned = plan(app, &action, hash, now, automatically_issued)?;
     if apply {
         app.store
             .commit_intake_delegation_batch(planned.changes, planned.minimum_available)?;
@@ -1194,6 +1219,76 @@ fn execute(
         committed: apply,
         replayed: false,
     })
+}
+
+/// Resolve ordinary native delegation before the first eligible preparation.
+/// One deterministic source per work survives interrupted startup; revocation
+/// never causes automatic replacement. The caller already owns execution.
+pub(super) fn default_for_work_owned(
+    app: &mut Runtime,
+    work: &str,
+    _owner: &s::ExecutionOwner,
+    now: i64,
+) -> Result<Option<p::need::GrantReference>> {
+    let (runtime_head, state, launch_head, saved) = candidates(app)?;
+    require(saved.works.contains_key(work), "unknown launch work")?;
+    if need_proposals::bound(&state, work)
+        || !state.personas.keys().any(|actor| enabled(&state, work, actor, now))
+    {
+        return Ok(None);
+    }
+    let id = format!("native-default-{}", canonical_hash(&("intake-work-v1", work))?);
+    let (registry_head, current) = registry(app)?;
+    if let Some(grant) = current.grants.get(&id) {
+        require(
+            grant.automatically_issued
+                && grant.request.operator == saved.operator
+                && grant.request.proposal_work_ids == BTreeSet::from([work.to_owned()]),
+            "native intake source identity conflict",
+        )?;
+        return if grant.active_at(now) {
+            Ok(Some(p::need::GrantReference { id, sha256: grant.sha256()? }))
+        } else {
+            Ok(None)
+        };
+    }
+    let original = &state.work_meta.get(work)
+        .ok_or_else(|| held("native intake work metadata absent"))?.original;
+    let request = IntakeDelegationRequest {
+        id: id.clone(),
+        operator: saved.operator.clone(),
+        purpose: original.request.clone(),
+        boundaries: original.boundaries.clone(),
+        activate: false,
+        expected: fence(&runtime_head, &launch_head, registry_head.as_ref(), &saved)?,
+        expected_cohort: people(saved.setup.cohort).into_iter().collect(),
+        requesting_personas: BTreeSet::new(),
+        proposal_work_ids: BTreeSet::from([work.to_owned()]),
+        allowed_child_participants: BTreeSet::new(),
+        initial_consideration_recipients: BTreeSet::new(),
+        policy: current_policy(&state, &original.policy_id)?.clone(),
+        destination: saved.setup.destination.clone(),
+        expires_at_unix: 0,
+        creation_rights: 0,
+        allow_further_delegation: false,
+        episode_ceiling: WorkAllocation {
+            attempts: 0,
+            navigation: f::NavigationLimits {
+                calls: 0, scanned_bytes: 0, inspected_revisions: 0, matches: 0, result_bytes: 0,
+            },
+            repair_attempts: 0,
+        },
+        funding: IntakeFundingBasis::OperatorTranche { authorize_new_tranche: false },
+        additional_launch_steps: 0,
+        additional_launch_work_ids: 0,
+        token_attestation: IntakeTokenAttestation {
+            conservative_tokens_used: 0, conservative_token_ceiling: 0, per_call_reserve_tokens: 0,
+        },
+    };
+    execute_owned(app, IntakeDelegationAction::Issue(request), now, true, true)?;
+    let (_, issued) = registry(app)?;
+    let grant = issued.grants.get(&id).ok_or_else(|| held("native intake source absent after issue"))?;
+    Ok(Some(p::need::GrantReference { id, sha256: grant.sha256()? }))
 }
 
 /// Preview the actual guarded batch and ordinary allocation checks without

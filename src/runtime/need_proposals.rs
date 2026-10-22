@@ -16,6 +16,8 @@ pub struct NeedInterface {
     pub binding_revision: String,
     pub inputs_schema: Value,
     pub grant: p::need::GrantReference,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub automatically_issued: bool,
     pub terms: g::IntakeDelegationRequest,
     pub registry: g::IntakeReference,
     pub remaining_after_authoring_admission: WorkAllocation,
@@ -535,6 +537,7 @@ pub(super) fn interface(
             id: episode.grant.request.id.clone(),
             sha256: episode.grant_sha256.clone(),
         },
+        automatically_issued: episode.grant.automatically_issued,
         terms: episode.grant.request.clone(),
         registry: episode.last_preparation_registry.clone(),
         remaining_after_authoring_admission: episode.remaining,
@@ -570,14 +573,14 @@ pub(super) fn validate_operation(
             && binding_revision == &supplied.binding_revision
             && supplied.inputs_schema == p::need::schema()
             && supplied.grant == proposal.grant
+            && supplied.automatically_issued == episode.grant.automatically_issued
             && prepared.intake_episode.as_ref() == Some(&proposal.grant)
             && proposal.grant.id == episode.grant.request.id
             && proposal.grant.sha256 == episode.grant_sha256
             && supplied.terms == episode.grant.request
             && supplied.registry == episode.last_preparation_registry
-            && supplied.remaining_after_authoring_admission == episode.remaining
-            && proposal.purpose == episode.grant.request.purpose,
-        "proposal differs from its exact offered interface, purpose or grant",
+            && supplied.remaining_after_authoring_admission == episode.remaining,
+        "proposal differs from its exact offered interface or grant",
     )?;
     require(
         proposal.invitees.iter().all(|invitee| {

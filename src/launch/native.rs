@@ -205,6 +205,11 @@ impl Driver for NativeDriver<'_> {
     fn prospective_intake(&self) -> bool {
         self.intake_selection.is_some()
     }
+    fn select_intake(&mut self, selection: p::need::GrantReference) -> Result<()> {
+        require(self.intake_selection.is_none(), "native run already has an intake selection")?;
+        self.intake_selection = Some(selection);
+        Ok(())
+    }
 
     fn before_step(&mut self, app: &mut Runtime) -> Result<()> {
         let (_, saved) = load(app)?;

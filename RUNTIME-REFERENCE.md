@@ -479,7 +479,7 @@ Requested inspection page sizes affect those explicit queries, not foreground el
 
 ## 14. Persona-requested needs and persona creation
 
-An enabled intake episode supplies `propose_need`, through which a persona may request work from other existing personas. The native foreground driver admits each actual adopted proposal in a separate transaction, records `automatic_admission: true` in its receipt, and continues eligible descendant work under the saved provider route. No second operator admission action is required.
+Native foreground work automatically records and selects an intake source before its first eligible call when no episode is already bound. Its grant, issue receipt and supplied interface record `automatically_issued: true`. The episode supplies `propose_need`, through which a persona may request work from other existing personas and author each request's purpose. The native foreground driver admits each actual adopted proposal in a separate transaction, records `automatic_admission: true` in its receipt, and continues eligible descendant work under the saved provider route. No separate grant, selection file or operator admission action is required.
 
 Ordinary child work inherits the same interface. There is no proposal, child-count, scheduling-round or delegation-depth quota. Saved `requesting_personas`, `allowed_child_participants`, `initial_consideration_recipients`, `allow_further_delegation`, allocation values, remainders, creation counts and expiry values are historical metadata. Any existing persona may be invited, and acceptance remains voluntary.
 
@@ -500,7 +500,7 @@ ai-personas --state-root /private/state --operator local-operator \
 
 Ordinary foreground sessions perform admission automatically. An already adopted request can be admitted after its parent changes phase or authority; this does not resume the parent. Original proof, exact child identities and explicit episode revocation remain in effect. Historical allocation remainders may reach zero without limiting activity.
 
-Initial issuance and selection of an intake episode are still required, and a bound work cannot select an independent replacement episode. These remaining workflow constraints are documented in [persona-requested needs](docs/persona-needs.md).
+An explicit source selection remains available. Automatic startup reuses its deterministic source after interruption and never replaces an explicitly revoked source. A bound work still cannot select an independent replacement episode. See [persona-requested needs](docs/persona-needs.md).
 
 A persona can also author a JSON asset proposing starting traits for a new identity. Operator creation is separate and performs no inference, invitation, responsibility acceptance, or competence assignment. Population and initialization counts impose no quota. The new persona later authors its own initial character when it receives an opportunity.
 
@@ -579,7 +579,7 @@ Operators should preserve these rules across every recovery path:
 
 ## 19. Current implementation gaps
 
-The unrestricted requirement is broader than the implementation. Remaining application constraints include initial intake-episode issuance and selection, a single inherited episode per bound work, explicit optional-opportunity and persona-creation workflows, and specialized coordination paths. These are implementation gaps, not user-approved policy exceptions. [Execution resources](docs/execution-resources.md) tracks their removal.
+The unrestricted requirement is broader than the implementation. Remaining application constraints include a single inherited episode per bound work, explicit optional-opportunity and persona-creation workflows, and specialized coordination paths. These are implementation gaps, not user-approved policy exceptions. [Execution resources](docs/execution-resources.md) tracks their removal.
 
 Native sessions already admit pending persona requests automatically and continue their descendants. Parent phase or authority changes do not erase an adopted request or prevent its separate admission. Current execution still uses the work's exact authority. Admission, provider migration, Store changes and several controls retain execution ownership and current-state fences to preserve actual records.
 

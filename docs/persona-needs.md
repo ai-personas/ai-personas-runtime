@@ -1,8 +1,9 @@
 # Needs requested by a persona
 
 A persona can author a need for other existing personas while working on an
-already enabled task. An operator first records an intake episode. The
-persona decides whether to propose a need, its wording, outcomes and invitees.
+already enabled task. A native foreground run automatically records and selects
+an intake source when the work has no existing episode. The persona decides
+whether to propose a need, its purpose, wording, outcomes and invitees.
 The native foreground driver automatically admits adopted proposals and
 continues eligible descendant work under the same saved provider route. No
 second operator action is required. Each proposal and subsequent child admission
@@ -18,7 +19,32 @@ number of proposals in a decision, pending proposals in an episode, or children
 admitted from its distinct proposals. Saved creation counts are historical
 metadata; reaching zero does not disable proposal authoring or child admission.
 
-## Grant and select an episode
+## Start with ordinary foreground work
+
+Plain foreground runs, saved-environment sessions, Codex auth-only sessions and
+SIWC runs need no delegation JSON or extra grant command. Before the first
+eligible call, the native driver records a deterministic source for the work
+under the existing execution owner. Its grant and issue receipt carry
+`automatically_issued: true`; the supplied need interface carries the same marker.
+The source records the saved operator, work, policy, provider destination and
+exact current heads. Its original request and boundaries remain provenance.
+The persona authors the purpose of each new request.
+
+Automatic issuance creates no opportunity or acceptance. With no eligible actor,
+the run issues nothing. An interrupted startup reuses its existing source, and an
+explicitly revoked default source is never replaced automatically. The same
+revocation command used for an explicitly issued grant applies to this source.
+Existing selected episodes and their original source hashes remain intact.
+
+An already admitted optional activity can also request ordinary child work. Its
+own ending or revocation still governs that optional work; a separately admitted
+child retains its actual request and each participant's continuation. Revoking
+the intake source stops further admissions throughout its inherited episode.
+
+## Explicitly select a recorded source
+
+These commands remain available when an operator wants to name a particular
+source. They are unnecessary for ordinary native delegation.
 
 Use the saved runtime and its operator for each command:
 
@@ -122,8 +148,8 @@ admitted child. With no pending
 proposal, there is nothing to admit. The
 [`AdmitNeedProposalRequest`](../src/launch/need_admission.rs) binds that exact
 record, grant, current episode, runtime, launch and registry, along with an unused
-child work ID. Its purpose must equal
-the source grant's purpose. `expected_episode_sha256` hashes the episode object's
+child work ID. Its purpose must equal the actual adopted proposal's purpose;
+the source's original purpose does not constrain it. `expected_episode_sha256` hashes the episode object's
 UTF-8 JSON with keys sorted recursively, compact separators and unescaped Unicode;
 it is not a hash of the formatted snapshot file.
 

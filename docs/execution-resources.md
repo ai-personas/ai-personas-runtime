@@ -342,8 +342,17 @@ in circular identity order. It has no fixed consideration-page cutoff. An
 operator's requested inspection page size remains a display choice and cannot
 hide an eligible persona from a foreground run.
 
-Removal is still incomplete. Remaining application enforcement includes initial
-episode selection and single-episode binding constraints; explicit optional opportunity and birth workflows; and
+Native foreground work no longer needs an initial delegation grant or selection
+file. The driver records a deterministic source under its existing execution
+owner when an unbound work has an eligible actor, then selects its exact reference
+before preparation. Grant, issue receipt and supplied interface distinguish
+automatic issuance. Historical sources keep their original hashes, and an
+explicitly revoked default source is never silently replaced. The persona authors
+each proposal's purpose rather than copying a required operator purpose. Existing
+optional work may request ordinary child work through this same path.
+
+Removal is still incomplete. Remaining application enforcement includes
+single-episode binding constraints; explicit optional opportunity and birth workflows; and
 additional specialized control and workflow gates. These are implementation gaps under the
 new requirement, not exceptions granted by the user. Some earlier documents still
 describe them because those paths remain implemented. They must be removed or

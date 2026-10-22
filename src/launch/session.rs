@@ -659,6 +659,13 @@ impl<D: Driver> Driver for Tracked<'_, D> {
     fn prospective_intake(&self) -> bool {
         self.driver.prospective_intake()
     }
+    fn select_intake(&mut self, selection: p::need::GrantReference) -> Result<()> {
+        let value = self.driver.select_intake(selection);
+        if let Err(error) = &value {
+            self.failure = Some(error_code(error));
+        }
+        value
+    }
     fn before_step(&mut self, app: &mut Runtime) -> Result<()> {
         let value = self.driver.before_step(app);
         if let Err(error) = &value {
@@ -736,6 +743,11 @@ impl Driver for OwnedLive<'_> {
     }
     fn prospective_intake(&self) -> bool {
         self.intake_selection.is_some()
+    }
+    fn select_intake(&mut self, selection: p::need::GrantReference) -> Result<()> {
+        require(self.intake_selection.is_none(), "session already has an intake selection")?;
+        self.intake_selection = Some(selection);
+        Ok(())
     }
 
     fn before_step(&mut self, app: &mut Runtime) -> Result<()> {
