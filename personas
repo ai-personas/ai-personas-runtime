@@ -61,8 +61,8 @@ Missing setup or access? See docs/launcher.md and docs/direct-provider.md.
 Prepare DirectSettings with the selected account, access route, model and effort,
 then explicitly run ai-personas --operator OP setup --provider-config FILE
 --working-directory DIR --destination DEST.
-Keep state and secrets outside repositories. For existing SIWC accounts use
---vault, an absolute --state-root and --operator; see docs/activation.md.
+Select host-accessible state and credential locations. For existing SIWC accounts
+use --vault, --state-root and --operator; see docs/activation.md.
 Sign-in alone does not create saved provider settings. Capability observations
 are optional. Held, stopped or uncertain work needs its existing explicit controls.'
 }

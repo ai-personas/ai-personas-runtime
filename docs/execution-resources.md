@@ -56,6 +56,14 @@ Linux, a sealed ELF snapshot bind execution to those bytes without imposing a
 resource quota. The thin shell wrapper accepts relative executable overrides
 and leaves execute permission to the host.
 
+The Codex auth-only session route also accepts relative paths, parent components
+and aliases for the explicitly selected executable and home directories. These
+locations resolve before the auth process starts; the dialogue saves canonical
+locations for later sessions. Auth adapters preserve the inherited host
+environment and explicit command overrides without clearing proxy/tool settings
+or replacing PATH and locale. Account fingerprints, grant checks and exact model
+bindings continue to identify the selected provider access.
+
 An earlier accounting overrun remains recorded but no longer freezes admission.
 Ledger inspection reports `resource_quotas_enforced: false`, `frozen: false` and
 separately preserves `historical_freeze_recorded`. Measured use beyond an earlier

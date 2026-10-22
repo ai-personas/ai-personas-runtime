@@ -148,8 +148,15 @@ The chosen size is saved with the setup request and shown again on restart.
 Open the saved work, add feedback if needed, explicitly resume a stopped
 participant, and choose **c: continue**. On first use, select the trusted Codex
 executable, the home directory it should use, and its existing Codex state
-directory. **a: Codex auth source** changes these locations for future sessions.
-Only these non-secret locations are saved in the launcher journal.
+directory. Relative paths, parent components and aliases are resolved to the
+selected actual files and directories before they are saved. **a: Codex auth
+source** changes these locations for future sessions. Only these non-secret
+locations are saved in the launcher journal. Direct session requests can also
+use relative paths; the native driver resolves them before starting the auth
+process and passing its home directories. The auth helper inherits the host
+environment, including proxy, tool and locale settings; the selected home
+directories override the corresponding inherited values. Saved account
+fingerprints and exact provider/model bindings still apply.
 
 Before each session the menu shows the exact model, effort, saved account and
 authentication route. Authorizing the session permits the native runtime's

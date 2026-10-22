@@ -328,24 +328,20 @@ impl SessionRequest {
                 .validate()
                 .map_err(|_| BoundaryError::InvalidRequest)?;
         }
+        let valid_host_path = |path: &Path| {
+            !path.as_os_str().is_empty()
+                && path.to_str().is_some_and(|path| !path.contains('\0'))
+        };
         match &self.route {
             SessionRoute::NativeSiwc { vault } => {
                 check(
-                    !vault.as_os_str().is_empty()
-                        && vault
-                            .to_str()
-                            .is_some_and(|p| !p.contains('\0')),
+                    valid_host_path(vault),
                     BoundaryError::InvalidRequest,
                 )?;
             }
             SessionRoute::CodexAuthOnly {
                 executable, host_home, codex_home, authorize_codex_auth_only: _
             } => {
-                let valid_host_path = |path: &PathBuf| {
-                    path.is_absolute()
-                        && path.to_str().is_some_and(|p| !p.chars().any(char::is_control))
-                        && path.components().all(|c| matches!(c, Component::RootDir | Component::Normal(_)))
-                };
                 check(
                     valid_host_path(executable)
                         && valid_host_path(host_home)
@@ -901,9 +897,15 @@ async fn execute_with_codex_transport(
                 use std::ffi::OsString;
                 use std::sync::Arc;
 
+                // Resolve selected locations before passing HOME/CODEX_HOME to
+                // the child, so relative values cannot select another account
+                // when interpreted from the auth process's working directory.
+                let executable = std::fs::canonicalize(executable)?;
+                let host_home = std::fs::canonicalize(host_home)?;
+                let codex_home = std::fs::canonicalize(codex_home)?;
                 require(
-                    host_home.is_dir() && codex_home.is_dir(),
-                    "selected HOME and CODEX_HOME must be existing directories",
+                    executable.is_file() && host_home.is_dir() && codex_home.is_dir(),
+                    "selected auth executable and home directories are unavailable",
                 )?;
                 let (_, saved) = load(app)?;
                 let (head, state) = app.load()?;
@@ -913,10 +915,10 @@ async fn execute_with_codex_transport(
                     "Codex auth-only route requires saved ephemeral ChatGPT settings",
                 )?;
                 let factory = crate::auth::codex_jsonrpc::ProcessJsonRpcPeerFactory::new(
-                    executable.clone(),
+                    executable,
                     vec![OsString::from("app-server")],
-                    host_home.clone(),
-                    codex_home.clone(),
+                    host_home,
+                    codex_home,
                 );
                 let auth_source = crate::auth::codex_jsonrpc::AuthOnlyJsonRpc::new(factory);
                 let source = Arc::new(crate::auth::codex_adapter::CodexCredentialSource::new(

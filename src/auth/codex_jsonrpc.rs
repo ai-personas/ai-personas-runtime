@@ -63,12 +63,11 @@ impl ProcessJsonRpcPeerFactory {
 
     fn command(&self) -> std::process::Command {
         let mut command = std::process::Command::new(&self.executable);
+        // Host proxy/tool settings remain available. The explicitly selected
+        // home locations override only the corresponding inherited values.
         command.args(&self.args)
-            .env_clear()
             .env("HOME", &self.host_home)
-            .env("CODEX_HOME", &self.codex_home)
-            .env("PATH", "/usr/bin:/bin")
-            .env("LC_ALL", "C");
+            .env("CODEX_HOME", &self.codex_home);
         command
     }
 

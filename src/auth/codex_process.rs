@@ -96,10 +96,8 @@ fn read_available(
 
 /// Run the selected command, retaining complete output and process ownership.
 pub(crate) fn run(command: &mut Command) -> Result<Output, Error> {
-    command.env_clear()
-        .env("PATH", "/usr/bin:/bin")
-        .env("LC_ALL", "C")
-        .stdin(Stdio::null())
+    // Keep the caller's host environment and explicit command overrides.
+    command.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .process_group(0);

@@ -1721,9 +1721,15 @@ class Dialogue:
             default_state = previous.get("codex_home") or os.environ.get("CODEX_HOME") or str(Path(host_home) / ".codex")
             codex_home = self.ui.ask(f"Existing Codex state directory [{default_state}]:").strip() or default_state
             paths = {"executable": executable, "host_home": host_home, "codex_home": codex_home}
+            require(all(path and "\0" not in path for path in paths.values()), "invalid_codex_auth_paths")
+            try:
+                paths = {name: str(Path(path).resolve(strict=True)) for name, path in paths.items()}
+            except (OSError, RuntimeError):
+                raise Blocked("codex_auth_source_unavailable") from None
             require(valid_codex_paths(paths), "invalid_codex_auth_paths")
-            require(Path(executable).is_file() and os.access(executable, os.X_OK)
-                    and Path(host_home).is_dir() and Path(codex_home).is_dir(), "codex_auth_source_unavailable")
+            require(Path(paths["executable"]).is_file() and os.access(paths["executable"], os.X_OK)
+                    and Path(paths["host_home"]).is_dir() and Path(paths["codex_home"]).is_dir(),
+                    "codex_auth_source_unavailable")
             self.p["codex_auth"] = paths
             self.j.save()
             self.ui.say("Saved these locations. No authentication request or model call was made.")
