@@ -245,6 +245,8 @@ struct MessageView<'a> {
     sender: &'a str,
     recipient: &'a str,
     work: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thread_work: Option<&'a str>,
     invocation: &'a str,
     subject: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -258,6 +260,7 @@ fn message_view<'a>(message: &'a Message, sha256: &'a str, body: bool) -> Messag
         sender: &message.sender,
         recipient: &message.recipient,
         work: &message.work,
+        thread_work: message.thread_work.as_deref(),
         invocation: &message.invocation,
         subject: &message.subject,
         text: body.then_some(message.text.as_str()),
@@ -266,9 +269,12 @@ fn message_view<'a>(message: &'a Message, sha256: &'a str, body: bool) -> Messag
 }
 
 // Versioned ordered tuples, compact serde_json UTF-8 without whitespace.
-// Search deliberately excludes private permission manifests. The integrity
-// digest includes every original Message field, including its exact exposure.
+// Search excludes permission manifests. Threaded records include the complete
+// Message; earlier tuple records keep their originally defined digest.
 fn original_bytes(message: &Message) -> Option<Vec<u8>> {
+    if message.thread_work.is_some() {
+        return bounded(&("history-message-record-v2", message), INPUT_LIMIT);
+    }
     bounded(
         &(
             "history-message-record-v1",
@@ -287,6 +293,11 @@ fn original_bytes(message: &Message) -> Option<Vec<u8>> {
     )
 }
 fn search_bytes(message: &Message, maximum: usize) -> Option<Vec<u8>> {
+    if let Some(thread) = &message.thread_work {
+        return bounded(&("history-message-text-v2", &message.id, &message.sender,
+            &message.recipient, &message.work, thread, &message.invocation,
+            &message.subject, &message.text, message.local_deposit_only), maximum);
+    }
     bounded(
         &(
             "history-message-text-v1",

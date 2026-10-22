@@ -12,6 +12,11 @@ struct Section {
 
 const SECTIONS: &[Section] = &[
     Section {
+        id: "cross_work_clarification",
+        commands: &["ask_question", "answer_question", "conclude_question"],
+        text: "AskQuestion.addressee may name any known persona or configured local inbox; it need not be a participant of your work. CONTROL.shared_questions includes related threads from other work. Copy question_work, question ID and the exact supplied revision when answering or concluding such a thread. Your reply is attributed to your actual current work and invocation, while the thread remains on its original work. Only the original author concludes it, accounting for every current reply. Notifications follow the thread's requester/participant focuses and can satisfy an already authored matching message wait; they do not create work acceptance, wake a stopped persona, or establish recipient attention. You may proceed with useful work or a stated provisional interpretation when input is unavailable.",
+    },
+    Section {
         id: "formal_evidence",
         commands: &["assess", "judge"],
         text: "judge.claims.<outcome>.evidence and assess.evidence use formal work IDs: CONTROL.model_evidence/human_evidence keys or an earlier record_model_evidence inner id, never observation/message or outer operation IDs. Every evidence ID in a met claim must support that outcome's exact selected artifact and current criterion. Evidence bound only to another artifact cannot support that claim, even when both documents were reviewed together.",

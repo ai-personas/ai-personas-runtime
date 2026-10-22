@@ -7,7 +7,7 @@ use super::*;
 #[serde(deny_unknown_fields)]
 pub struct QuestionInput {
     pub id: String,
-    /// An existing participant or the local requester. Audience is separate.
+    /// Any existing persona or configured local inbox. Work membership is not required.
     pub addressee: String,
     pub text: String,
     pub why: String,
@@ -25,6 +25,10 @@ pub struct QuestionInput {
 pub struct QuestionReplyInput {
     pub id: String,
     pub question: String,
+    /// The supplied question_work. Omission means this invocation's work.
+    /// Replying from another work creates no participation in the question's work.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question_work: Option<String>,
     /// Copy the immutable question_revision from CONTROL.shared_questions.
     pub question_revision: String,
     pub text: String,
@@ -61,6 +65,9 @@ pub struct QuestionReplyAccount {
 #[serde(deny_unknown_fields)]
 pub struct QuestionConclusionInput {
     pub question: String,
+    /// The supplied question_work. Omission means this invocation's work.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question_work: Option<String>,
     /// Copy review_revision from the complete current supplied question view.
     pub review_revision: String,
     pub disposition: QuestionDisposition,
@@ -75,6 +82,9 @@ pub(crate) struct Origin {
     author: String,
     source_principal: String,
     invocation: Option<String>,
+    /// Actual authoring context, separate from the question's retained work.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    work: Option<String>,
     at_unix: i64,
     audience: BTreeSet<String>,
     exposure: Exposure,
@@ -124,23 +134,28 @@ fn visible(state: &State, origin: &Origin, viewer: &str, a: &f::Admission) -> bo
 
 fn attribution(origin: &Origin) -> Value {
     json!({"author":origin.author,"invocation":origin.invocation,"at_unix":origin.at_unix,
+        "causal_work":origin.work,
         "origin":if origin.invocation.is_some() {"persona_invocation"} else {"local_requester_input"},
         "independently_authenticated":false})
 }
 
-pub(crate) fn view(
+fn append_view(
     state: &State,
     work: &str,
     viewer: &str,
     a: &f::Admission,
     exposure: &mut Exposure,
-) -> Result<Value> {
+    items: &mut Vec<Value>,
+    related_only: bool,
+) -> Result<()> {
     let questions = &state.work_meta[work].questions;
-    if questions.is_empty() {
-        return Ok(Value::Null);
-    }
-    let mut items = Vec::new();
     for question in questions.values() {
+        if related_only && question.origin.author != viewer
+            && question.input.addressee != viewer
+            && !question.replies.iter().any(|reply| reply.origin.author == viewer)
+        {
+            continue;
+        }
         if !visible(state, &question.origin, viewer, a) {
             items.push(json!({"status":"withheld_unavailable"}));
             continue;
@@ -175,24 +190,46 @@ pub(crate) fn view(
                 .is_none_or(|account| account.disposition == QuestionReplyDisposition::Unresolved)
         });
         items.push(json!({
+            "question_work":work,
             "question":question.input,"question_revision":question_revision(question)?,
             "attribution":attribution(&question.origin),"owner":question.origin.author,
-            "follow_through":if state.board.work(&w::WorkId(work.into()))?
-                .acceptance(&w::PersonaId(question.origin.author.clone())).is_some() {
-                    "original_owner_has_current_accepted_participation"
-                } else {"ownership_gap_original_owner_has_no_current_acceptance"},
+            "follow_through":"original_author_retains_question",
+            "author_accepted_on_question_work":state.board.work(&w::WorkId(work.into()))?
+                .acceptance(&w::PersonaId(question.origin.author.clone())).is_some(),
             "replies":replies,"conclusions":conclusions,
             "review_revision":if complete {Some(digest(question)?)} else {None},
             "owner_review_pending":if complete {Some(last.is_none() || pending)} else {None},
             "body_supplied":true
         }));
     }
-    let result = json!({"interface":"shared-questions-v1","items":items,
-        "rule":"Questions and replies remain current after inbox acknowledgment. The owner assesses every reply's basis with conclude_question and an explicit account per reply. The basis is its author's statement: a source citation there does not prove that its body was actually supplied or read. Inspect actual evidence before accepting consequential claims. A later reply creates a new outstanding owner decision. Asking does not make an answer a blocking dependency or create a wake. Choose useful independent progress, provisional interpretation, waiting or stopping yourself. A human-input requirement cannot be satisfied by peer confidence, silence or an assumption. Conclusions are attributed interpretations, never mandate changes, verified facts, consent, releases or automatic permission. Keep affected claims conditional and reconsider them when new input conflicts. Separate conclusions preserve original question and reply access; current permission withdrawal still applies."});
-    Ok(result)
+    Ok(())
 }
 
-fn supplied(prepared: &Prepared, question: &Question) -> Result<Value> {
+fn projected_view(items: Vec<Value>) -> Value {
+    if items.is_empty() { return Value::Null; }
+    json!({"interface":"shared-questions-v1","items":items,
+        "rule":"Questions and replies remain current after inbox acknowledgment. This context includes this work's questions and questions elsewhere that you authored, were addressed, or answered. Copy question_work with the exact question and revision when answering or concluding from another work. Attribution identifies actual authoring work separately. Asking, answering and receiving clarification create no participation or continuation in another work. The original author assesses every reply's basis with conclude_question and an explicit account per reply. The basis is its author's statement: a source citation there does not prove that its body was supplied or read. Inspect actual evidence before accepting consequential claims. A later reply creates a new outstanding author decision. Asking does not make an answer a blocking dependency or create a wake. Choose useful independent progress, provisional interpretation, waiting or stopping yourself. A human-input requirement cannot be satisfied by peer confidence, silence or an assumption. Conclusions are attributed interpretations, never mandate changes, verified facts, consent, releases or automatic permission. Keep affected claims conditional and reconsider them when new input conflicts."})
+}
+
+pub(crate) fn view(state: &State, work: &str, viewer: &str, a: &f::Admission,
+    exposure: &mut Exposure) -> Result<Value>
+{
+    let mut items = Vec::new();
+    append_view(state, work, viewer, a, exposure, &mut items, false)?;
+    Ok(projected_view(items))
+}
+
+pub(super) fn context_view(state: &State, work: &str, viewer: &str, a: &f::Admission,
+    exposure: &mut Exposure) -> Result<Value>
+{
+    let mut items = Vec::new();
+    for id in state.work_meta.keys() {
+        append_view(state, id, viewer, a, exposure, &mut items, id != work)?;
+    }
+    Ok(projected_view(items))
+}
+
+fn supplied(prepared: &Prepared, work: &str, question: &Question) -> Result<Value> {
     let control = request_context::decode(prepared)?.control;
     require(
         s::sha256_bytes(prepared.prompt.as_bytes()) == prepared.prompt_sha256
@@ -207,6 +244,7 @@ fn supplied(prepared: &Prepared, question: &Question) -> Result<Value> {
         .and_then(|items| {
             items.iter().find(|item| {
                 item["question"]["id"] == question.input.id
+                    && item["question_work"].as_str().unwrap_or(&prepared.request.work) == work
                     && item["question_revision"] == revision
                     && item["question"]
                         == serde_json::to_value(&question.input).unwrap_or(Value::Null)
@@ -224,6 +262,7 @@ fn origin(state: &State, prepared: &Prepared, now: i64) -> Result<Origin> {
         author: prepared.request.persona.clone(),
         source_principal: prepared.request.persona.clone(),
         invocation: Some(prepared.request.id.clone()),
+        work: Some(prepared.request.work.clone()),
         at_unix: now,
         audience,
         exposure: expanded_exposure(state, prepared_exposure(prepared)?)?,
@@ -250,6 +289,7 @@ pub(super) fn validate(action: &WorkAction) -> Result<()> {
         WorkAction::AnswerQuestion(input) => validate_reply(input)?,
         WorkAction::ConcludeQuestion(input) => {
             p::check_id(&input.question, "question.id")?;
+            if let Some(work) = &input.question_work { identity(work)?; }
             text(&input.review_revision, 64)?;
             text(&input.conclusion, 8192)?;
             for (id, account) in &input.replies {
@@ -273,6 +313,7 @@ pub(super) fn validate(action: &WorkAction) -> Result<()> {
 pub(crate) fn validate_reply(input: &QuestionReplyInput) -> Result<()> {
     p::check_id(&input.id, "question.reply.id")?;
     p::check_id(&input.question, "question.reply.question")?;
+    if let Some(work) = &input.question_work { identity(work)?; }
     text(&input.question_revision, 64)?;
     text(&input.text, 8192)?;
     text(&input.basis, 4096)
@@ -283,8 +324,7 @@ fn recipient_admission(state: &State, work: &str, viewer: &str, now: i64) -> Res
         return Ok(admission(persona, now));
     }
     require(
-        viewer == state.work_meta[work].intake_operator
-            && state.config.local_recipients.contains(viewer),
+        state.config.local_recipients.contains(viewer),
         "question recipient unavailable",
     )?;
     // Local requester inspection uses the same source-principal and audience
@@ -308,7 +348,7 @@ fn recipient_admission(state: &State, work: &str, viewer: &str, now: i64) -> Res
     Ok(a)
 }
 
-fn viewers(state: &State, work: &str) -> Result<BTreeSet<String>> {
+fn viewers(state: &State, work: &str, question: &Question) -> Result<BTreeSet<String>> {
     let mut recipients: BTreeSet<String> = state
         .board
         .work(&w::WorkId(work.into()))?
@@ -317,11 +357,18 @@ fn viewers(state: &State, work: &str) -> Result<BTreeSet<String>> {
         .map(|p| p.0.clone())
         .collect();
     recipients.insert(state.work_meta[work].intake_operator.clone());
+    recipients.insert(question.input.addressee.clone());
+    recipients.insert(question.origin.author.clone());
+    recipients.extend(question.replies.iter().map(|reply| reply.origin.author.clone()));
     Ok(recipients)
 }
 
 fn validate_views(state: &State, work: &str, now: i64) -> Result<()> {
-    for viewer in viewers(state, work)? {
+    let mut recipients = BTreeSet::new();
+    for question in state.work_meta[work].questions.values() {
+        recipients.extend(viewers(state, work, question)?);
+    }
+    for viewer in recipients {
         let a = recipient_admission(state, work, &viewer, now)?;
         view(state, work, &viewer, &a, &mut Exposure::default())?;
     }
@@ -335,16 +382,16 @@ pub(super) fn apply(
     now: i64,
 ) -> Result<()> {
     validate(action)?;
-    let work = &prepared.request.work;
+    let work = match action {
+        WorkAction::AnswerQuestion(input) => input.question_work.as_deref(),
+        WorkAction::ConcludeQuestion(input) => input.question_work.as_deref(),
+        _ => None,
+    }.unwrap_or(&prepared.request.work);
+    require(state.work_meta.contains_key(work), "question work unavailable")?;
     let actor = &prepared.request.persona;
     require(
-        prepared.request.mode == Mode::Ordinary
-            && state
-                .board
-                .work(&w::WorkId(work.clone()))?
-                .acceptance(&w::PersonaId(actor.clone()))
-                .is_some(),
-        "shared clarification requires ordinary accepted participation",
+        prepared.request.mode == Mode::Ordinary,
+        "shared clarification requires an ordinary decision",
     )?;
     let authored = origin(state, prepared, now)?;
     match action {
@@ -352,10 +399,6 @@ pub(super) fn apply(
             require(
                 !state.work_meta[work].questions.contains_key(&input.id),
                 "question identity already retained",
-            )?;
-            require(
-                viewers(state, work)?.contains(&input.addressee),
-                "question addressee is outside the current work",
             )?;
             let a = recipient_admission(state, work, &input.addressee, now)?;
             require(
@@ -386,7 +429,7 @@ pub(super) fn apply(
                 ),
                 "question is no longer permitted",
             )?;
-            supplied(prepared, question)?;
+            supplied(prepared, work, question)?;
             require(
                 input.question_revision == question_revision(question)?
                     && !question.replies.iter().any(|r| r.input.id == input.id),
@@ -418,14 +461,14 @@ pub(super) fn apply(
                 &admission(&state.personas[actor], now),
                 &mut current_exposure,
             )?;
-            let current = supplied(prepared, question)?;
+            let current = supplied(prepared, work, question)?;
             require(question.origin.author == *actor && input.review_revision == digest(question)?
                 && current["review_revision"] == input.review_revision
                 && current_view["items"].as_array().is_some_and(|items| items.contains(&current))
                 && input.replies.len() == question.replies.len()
                 && question.replies.iter().all(|r| input.replies.contains_key(&r.input.id)),
                 "question conclusion requires the owner, exact complete current review and every reply account")?;
-            for viewer in viewers(state, work)? {
+            for viewer in viewers(state, work, question)? {
                 let a = recipient_admission(state, work, &viewer, now)?;
                 let prior_visible = visible(state, &question.origin, &viewer, &a)
                     || question
@@ -460,54 +503,63 @@ pub(super) fn deliver_changes(
     prepared: &Prepared,
     now: i64,
 ) -> Result<()> {
-    let work = &prepared.request.work;
     let mut events = Vec::new();
-    for (id, question) in &state.work_meta[work].questions {
-        let before = previous.work_meta[work].questions.get(id);
-        if before.is_none() {
-            events.push((
-                bounded_composite_id("shared-question", &[id]),
-                json!({"kind":"shared_question","question":question.input}),
-                question.origin.clone(),
-            ));
-        }
-        for reply in question
-            .replies
-            .iter()
-            .skip(before.map_or(0, |q| q.replies.len()))
-        {
-            events.push((
-                bounded_composite_id("shared-question-reply", &[id, &reply.input.id]),
-                json!({"kind":"shared_question_reply","reply":reply.input}),
-                reply.origin.clone(),
-            ));
-        }
-        for (index, conclusion) in question
-            .conclusions
-            .iter()
-            .enumerate()
-            .skip(before.map_or(0, |q| q.conclusions.len()))
-        {
-            events.push((
-                bounded_composite_id("shared-question-conclusion", &[id, &index.to_string()]),
-                json!({"kind":"shared_question_conclusion","conclusion":conclusion.input}),
-                conclusion.origin.clone(),
-            ));
+    for (work, meta) in &state.work_meta {
+        for (id, question) in &meta.questions {
+            let before = previous.work_meta.get(work).and_then(|meta| meta.questions.get(id));
+            let recipients = viewers(state, work, question)?;
+            if before.is_none() {
+                events.push((
+                    work.clone(), recipients.clone(),
+                    bounded_composite_id("shared-question", &[work, id]),
+                    json!({"kind":"shared_question","question_work":work,
+                        "question_revision":question_revision(question)?,"question":question.input,
+                        "attribution":attribution(&question.origin)}),
+                    question.origin.clone(),
+                ));
+            }
+            for reply in question
+                .replies
+                .iter()
+                .skip(before.map_or(0, |q| q.replies.len()))
+            {
+                events.push((
+                    work.clone(), recipients.clone(),
+                    bounded_composite_id("shared-question-reply", &[work, id, &reply.input.id]),
+                    json!({"kind":"shared_question_reply","question_work":work,
+                        "reply":reply.input,"attribution":attribution(&reply.origin)}),
+                    reply.origin.clone(),
+                ));
+            }
+            for (index, conclusion) in question
+                .conclusions
+                .iter()
+                .enumerate()
+                .skip(before.map_or(0, |q| q.conclusions.len()))
+            {
+                events.push((
+                    work.clone(), recipients.clone(),
+                    bounded_composite_id("shared-question-conclusion", &[work, id, &index.to_string()]),
+                    json!({"kind":"shared_question_conclusion","question_work":work,
+                        "conclusion":conclusion.input,"attribution":attribution(&conclusion.origin)}),
+                    conclusion.origin.clone(),
+                ));
+            }
         }
     }
-    for (suffix, payload, origin) in events {
+    for (work, recipients, suffix, payload, origin) in events {
         require(
             origin.invocation.as_ref() == Some(&prepared.request.id),
             "question notification origin mismatch",
         )?;
         let body = serde_json::to_string(&payload)?;
-        for recipient in viewers(state, work)? {
+        for recipient in recipients {
             if recipient == prepared.request.persona {
                 continue;
             }
-            let a = recipient_admission(state, work, &recipient, now)?;
+            let a = recipient_admission(state, &work, &recipient, now)?;
             if visible(state, &origin, &recipient, &a) {
-                deposit_message(
+                deposit_message_for_thread(
                     state,
                     prepared,
                     &suffix,
@@ -515,6 +567,7 @@ pub(super) fn deliver_changes(
                     "Shared work clarification",
                     &body,
                     &[],
+                    Some(&work),
                     now,
                 )?;
             }
@@ -549,6 +602,8 @@ pub(crate) fn operator_reply(
     now: i64,
 ) -> Result<bool> {
     validate_reply(input)?;
+    require(input.question_work.as_deref().unwrap_or(work) == work,
+        "requester reply names a different question work")?;
     operator_view(state, operator, work, now)?;
     let question = state.work_meta[work]
         .questions
@@ -575,6 +630,7 @@ pub(crate) fn operator_reply(
         author: operator.into(),
         source_principal: question.origin.source_principal.clone(),
         invocation: None,
+        work: Some(work.into()),
         at_unix: now,
         audience: question.origin.audience.clone(),
         exposure: inherited,
@@ -592,13 +648,15 @@ pub(crate) fn operator_reply(
             origin: origin.clone(),
         });
     validate_views(state, work, now)?;
-    for recipient in viewers(state, work)? {
+    let recipients = viewers(state, work, &state.work_meta[work].questions[&input.question])?;
+    for recipient in recipients {
         let Some(persona) = state.personas.get(&recipient) else {
             continue;
         };
         if !visible(state, &origin, &recipient, &admission(persona, now)) {
             continue;
         }
+        let receiving_work = requester_results::observation_work(state, work, &recipient)?;
         let id = bounded_composite_id(
             "question-requester-reply",
             &[work, &input.question, &input.id, &recipient],
@@ -612,11 +670,11 @@ pub(crate) fn operator_reply(
             Observation {
                 id: id.clone(),
                 actor: recipient.clone(),
-                work: work.into(),
+                work: receiving_work.clone(),
                 invocation: None,
                 kind: "shared_question_requester_reply".into(),
                 at_unix: now,
-                payload: json!({"reply":input,"attribution":attribution(&origin)}),
+                payload: json!({"question_work":work,"reply":input,"attribution":attribution(&origin)}),
                 sources: Vec::new(),
                 exposure: Some(origin.exposure.clone()),
                 qualified_roots: Vec::new(),
@@ -628,11 +686,13 @@ pub(crate) fn operator_reply(
             .get_mut(&recipient)
             .unwrap()
             .focus
-            .get_mut(work)
-            .ok_or_else(|| held("question participant focus unavailable"))?
+            .entry(receiving_work.clone())
+            .or_default()
             .pending_observations
             .push(id.clone());
-        requester_wait::satisfy(state, &id, operator, now)?;
+        if state.work_meta[&receiving_work].intake_operator == operator {
+            requester_wait::satisfy(state, &id, operator, now)?;
+        }
     }
     Ok(false)
 }

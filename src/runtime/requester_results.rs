@@ -31,6 +31,22 @@ pub(super) fn observation_work(state: &State, work: &str, recipient: &str) -> Re
     Ok(parent.to_owned())
 }
 
+pub(super) fn message_observation_work(state: &State, message: &Message) -> Result<String> {
+    let work = message.thread_work.as_deref().unwrap_or(&message.work);
+    require(state.work_meta.contains_key(work), "message thread work absent")?;
+    observation_work(state, work, &message.recipient)
+}
+
+pub(super) fn message_observation_kind(message: &Message, receiving_work: &str) -> &'static str {
+    if receiving_work == message.work {
+        "received_local_persona_message"
+    } else if message.thread_work.is_some() {
+        "received_cross_work_message"
+    } else {
+        "received_child_work_message"
+    }
+}
+
 pub(super) fn delivery_notice(
     state: &mut State,
     prepared: &Prepared,

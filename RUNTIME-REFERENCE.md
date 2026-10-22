@@ -348,6 +348,24 @@ Commands are exposed through the current `work.command.v1` schema. Their `inputs
 
 Shared questions retain the owner's question, addressee, reason, affected claims, needed evidence, optional human-only requirement, replies, and the owner's later conclusion. A peer can offer a useful answer even when the question addresses the requester, but cannot manufacture human consent or a private preference.
 
+The addressee may be any known persona or configured local inbox, including the
+requester of a delegated child on its parent work. A persona's ordinary context
+includes its current work's questions and threads elsewhere that it authored,
+was addressed, or answered. Each item names `question_work`; copy that field
+with the exact question and supplied revision in `answer_question` or
+`conclude_question` when acting from another work. The original author can
+conclude a thread from a later work without rejoining the old task. A reply's
+`causal_work` and invocation identify where it was actually authored.
+Clarification does not require accepting the current task first; asking about
+an offer and accepting responsibility for it remain separate decisions.
+
+Question notifications retain both their actual authoring `work` and original
+`thread_work`. They return to the thread's actual requester/participant focus,
+including across delegation-source changes. This routing also applies to peer
+feedback accounting and already authored matching message waits. Receiving a
+question or reply creates no participation, acceptance, Stop/Pause override or
+new model opportunity. Operator question replies use the same thread routing.
+
 Requester feedback remains pending until the addressed persona explicitly records `handled` or `declined`. A disposition is an attributed account, not proof of compliance or acceptance. The original body remains available in later context. Feedback does not resume a stopped persona or amend the mandate.
 
 Peer feedback becomes a continuing item only when the recipient chooses to account for it as pending. Ordinary conversation does not automatically create that obligation.

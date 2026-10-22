@@ -11,6 +11,8 @@ pub struct QuestionAnswerInput {
 impl QuestionAnswerInput {
     pub fn validate(&self) -> Result<()> {
         identity(&self.work)?;
+        require(self.reply.question_work.as_deref().unwrap_or(&self.work) == self.work,
+            "reply names a different question work")?;
         questions::validate_reply(&self.reply)
     }
 }
@@ -53,17 +55,9 @@ pub fn answer_question(
         "unfinished invocation blocks question reply",
     )?;
     app.store.require_quiescent_invocations()?;
-    let events_before = state
-        .board
-        .work(&w::WorkId(input.work.clone()))?
-        .events
-        .len();
+    let events_before: usize = state.board.works().values().map(|work| work.events.len()).sum();
     let replayed = questions::operator_reply(&mut state, operator, &input.work, &input.reply, now)?;
-    let waits_satisfied = state
-        .board
-        .work(&w::WorkId(input.work.clone()))?
-        .events
-        .len()
+    let waits_satisfied = state.board.works().values().map(|work| work.events.len()).sum::<usize>()
         .saturating_sub(events_before);
     if !replayed {
         state.operator_events.push(json!({"kind":"shared_question_reply","operator":operator,

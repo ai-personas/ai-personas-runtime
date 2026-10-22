@@ -128,16 +128,10 @@ pub(super) fn account(
         .messages
         .get(observation_id)
         .ok_or_else(|| held("peer feedback message missing"))?;
-    // A child result retains the child's work as its authored source, while
-    // its observation belongs to the requester's immediate parent focus.
-    // Account the actual receiving work without relabeling that source.
-    let receiving_work =
-        requester_results::observation_work(state, &message.work, &message.recipient)?;
-    let kind = if receiving_work == message.work {
-        "received_local_persona_message"
-    } else {
-        "received_child_work_message"
-    };
+    // Cross-work threads retain the actual author's work and the receiving
+    // focus separately. Accounting for feedback does not relabel either.
+    let receiving_work = requester_results::message_observation_work(state, message)?;
+    let kind = requester_results::message_observation_kind(message, &receiving_work);
     require(
         observation.id == observation_id
             && message.id == observation_id

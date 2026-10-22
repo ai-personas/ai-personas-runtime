@@ -1513,7 +1513,8 @@ class Dialogue:
                 continue
             available.append(item)
             self.ui.say(f"{len(available)}: {question['text']}\n"
-                        f"Owner: {item['owner']}; addressed to: {question['addressee']}")
+                        f"Owner: {item['owner']}; addressed to: {question['addressee']}; "
+                        f"question work: {item.get('question_work', work)}")
             self.ui.say("Why it matters: " + question["why"])
             self.ui.say("Affected claims: " + "; ".join(question["affected_claims"]))
             self.ui.say("Evidence needed: " + question["evidence_needed"])
@@ -1521,14 +1522,16 @@ class Dialogue:
                 self.ui.say("Input needed from the person concerned: " + question["human_input_required"])
             if question.get("provisional_interpretation"):
                 self.ui.say("Provisional interpretation: " + question["provisional_interpretation"])
-            if item.get("follow_through") == "ownership_gap_original_owner_has_no_current_acceptance":
-                self.ui.say("The original owner no longer has current accepted participation; follow-through has an ownership gap.")
+            if item.get("author_accepted_on_question_work") is False:
+                self.ui.say("The author has no current acceptance of this work; they can address the question from another work.")
             for reply in item["replies"]:
                 if "input" not in reply:
                     self.ui.say("A reply is currently unavailable.")
                     continue
                 self.ui.say(f"Reply {reply['input']['id']} from {reply['attribution']['author']}:\n"
                             f"{reply['input']['text']}\nAttributed basis: {reply['input']['basis']}")
+                if reply['attribution'].get('causal_work'):
+                    self.ui.say("Reply authored in: " + reply['attribution']['causal_work'])
             for conclusion in item["conclusions"]:
                 if "input" not in conclusion:
                     self.ui.say("An owner conclusion is currently unavailable.")
@@ -1551,7 +1554,7 @@ class Dialogue:
             return
         require(choice.isdecimal() and 1 <= int(choice) <= len(available), "invalid_question_choice")
         selected = available[int(choice) - 1]
-        text = self.ui.ask("Your answer to store for the permitted work participants (Enter to cancel):")
+        text = self.ui.ask("Your answer to store for this question's readers (Enter to cancel):")
         if not text.strip():
             return
         require(safe_text(text), "invalid_answer_text")
@@ -1561,6 +1564,7 @@ class Dialogue:
         require(safe_text(basis), "invalid_answer_basis")
         self.queue_work_input("answer-question", {"work": work, "reply": {
             "id": "answer-" + uuid.uuid4().hex, "question": selected["question"]["id"],
+            "question_work": selected.get("question_work", work),
             "question_revision": selected["question_revision"], "text": text, "basis": basis}})
 
     def development(self, work):
