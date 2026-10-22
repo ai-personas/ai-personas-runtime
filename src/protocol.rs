@@ -395,8 +395,11 @@ pub enum Operation {
         // Exact observation IDs actually supplied to this invocation, or [].
         evidence: Vec<String>,
     },
-    /// Create a new file source or revise a currently owned source. The source
+    /// Create a new file source or revise an existing source. The source
     /// identity, not the path, determines whether this is a creation or revision.
+    /// Source ownership, protection and retirement are metadata, not write gates.
+    /// A revision preserves the source owner, records its actual author and makes
+    /// a retired source current again. Use the exact current head as the base.
     /// Reuse an exact saved reference when no content change is needed.
     /// A supporting-file save does not require put_artifact, release, delivery
     /// or a work-completion judgment. Register a work artifact only when that
@@ -411,7 +414,8 @@ pub enum Operation {
         /// Use nonempty slash-separated components, with no leading/trailing
         /// slash, empty component, dot or dot-dot component, backslash, colon
         /// or control character.
-        /// Active sources within one persona and scope must have distinct paths.
+        /// Active sources with the same recorded source owner and scope must have
+        /// distinct paths. Revising another source does not change its owner.
         /// Reuse the existing source identity for an update; a new source does
         /// not overwrite an occupied path.
         path: String,
@@ -455,6 +459,10 @@ pub enum Operation {
         qualification_handles: Vec<String>,
         policy_id: String,
     },
+    /// Retire a source from the active file collection at its exact current head.
+    /// Ownership and protection are metadata, not retirement gates. Historical
+    /// revisions and exact references remain retained; this is not physical erasure.
+    /// Retiring a source does not clear selected references or adopt new character.
     FileRetire {
         id: String,
         scope: Scope,

@@ -83,6 +83,49 @@ Ordinary conversation does not automatically become a continuing obligation.
 This choice creates neither a peer commitment nor an automatic wake or extra
 resources; the persona still authors its continuation separately.
 
+## Maintain fragments and supporting files during ordinary work
+
+Every ordinary decision includes maintenance outcomes for both scopes and an
+explicit next-context choice. A reasoned `no_change` is valid. An edit is useful
+when it improves the persona's characteristic guidance or its supporting
+resources; an edit alone does not demonstrate learning or better behavior.
+
+`file_write` creates or revises a native source. To maintain an existing note,
+use its existing `source` and exact current `base_revision`, with the new text,
+path and needed qualifications. A new source ID creates another source; it does
+not update the file already occupying a path. Source ownership, protection and
+retirement are metadata, not application write gates. An accepted revision keeps
+the original source owner, records the actual author and reactivates a retired
+source. Active paths must remain distinct within that recorded owner and scope.
+
+To reorganize a file, write a new revision of the same source at the intended
+relative native path. To combine material, write the maintained text and decide
+which superseded sources should leave the active collection. `file_retire` uses
+the source's exact current head; historical revisions remain available by exact
+reference. Retirement does not physically erase history, clear an existing
+context selection or change accepted character. Review those choices explicitly.
+Native paths do not move or write host files; use host commands for host files.
+
+Keep useful discovery cues in the maintained text and choose a descriptive path.
+Preserve the distinction between earlier evidence and current conclusions when
+combining notes. Source identity stays stable across revisions and path changes;
+an old exact reference continues to name the earlier revision. Select the new
+revision explicitly when it is needed next: a same-response
+`proposal-op:WRITE_OPERATION_ID` binds to that accepted save in `next_fragments`
+or `next_assets`. Preserving the old selection does not advance it to a new head.
+
+List each maintenance operation in the matching maintenance outcome. Changes to
+the persona's currently designated own-voice sources require a coherent
+`character_adopt` proposal; the accepted character and its exact fragment
+bindings must agree. Other fresh work follows in a decision that receives the
+new account. Ordinary supporting-file revisions and optional fragment upkeep
+remain part of the current work, and need no separate learning process.
+
+An accepted save, later supply of its text, the persona's subsequent behavior and
+any benefit are separate observations. Use the development view below to inspect
+the accepted operations and exact supplied material. Keep authored conclusions
+distinct from the host-command receipts and other evidence that support them.
+
 ## Inspect retained guidance and actual supply
 
 The development view reports retained characteristic revisions and
