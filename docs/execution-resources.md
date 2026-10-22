@@ -325,9 +325,17 @@ lineage; cycle detection preserves identities without a depth ceiling. Historica
 children retain their actual original parent, and explicit revocation remains
 effective for the inherited episode.
 
-Removal is still incomplete. Remaining
-application enforcement includes operator child admission and single-episode
-binding constraints; explicit optional opportunity and birth workflows; and
+Native foreground sessions now automatically admit actual pending persona
+requests and continue the requested work plus its descendants. Each admission
+uses exact adopted proof, fresh transaction fences and its own durable receipt.
+Scheduling yields between works without a call, round or depth quota; Stop/Pause
+and unknown calls remain effective. A child reply can satisfy its author's
+previously registered message wait in the immediate parent; the sender needs a
+known persona identity, not parent-participant membership. Parent phase or authority changes do not
+erase an already adopted request or prevent its separate child admission.
+
+Removal is still incomplete. Remaining application enforcement includes initial
+episode selection and single-episode binding constraints; explicit optional opportunity and birth workflows; and
 additional specialized control and workflow gates. These are implementation gaps under the
 new requirement, not exceptions granted by the user. Some earlier documents still
 describe them because those paths remain implemented. They must be removed or

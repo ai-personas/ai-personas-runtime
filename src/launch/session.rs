@@ -774,6 +774,25 @@ impl Driver for OwnedLive<'_> {
         self.finish(app, pending.completion.await)
     }
 }
+
+/// The direct CLI and keyed sessions use the same owned native driver.
+pub(super) async fn run_environment_owned(
+    app: &mut Runtime,
+    work: &str,
+    owner: &s::ExecutionOwner,
+) -> Result<Output> {
+    let (_, saved) = load(app)?;
+    let (head, state) = app.load()?;
+    let mut driver = OwnedLive {
+        owner,
+        provider: saved.execution_provider()?.build(&state.config)?,
+        binding: execution_binding(&saved)?,
+        config: head.body["config"].clone(),
+        intake_selection: None,
+    };
+    run_with_owned_commands(app, work, &mut driver, owner).await
+}
+
 fn build_codex_provider(
     settings: &provider::DirectSettings,
     _config: &Config,

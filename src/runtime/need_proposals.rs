@@ -259,7 +259,7 @@ pub(super) fn route_reason(state: &State, work: &str, now: i64) -> Option<&'stat
 
 /// Current checks do not require the parent's continuation to remain enabled:
 /// authoring a proposal and subsequently choosing Stop are independent facts.
-pub(super) fn check_work(app: &mut Runtime, state: &State, work: &str, now: i64) -> Result<()> {
+pub(super) fn check_episode(app: &mut Runtime, state: &State, work: &str, now: i64) -> Result<()> {
     let Some(episode) = episode(state, work) else {
         return Ok(());
     };
@@ -269,17 +269,24 @@ pub(super) fn check_work(app: &mut Runtime, state: &State, work: &str, now: i64)
         "selected intake episode revoked",
     )?;
     let current = g::episode_authority(app, state, &episode.grant.request.id, now)?;
-    let current_work = state.board.work(&w::WorkId(work.into()))?;
-    let (authority, epoch) = episode.work_binding(work)
-        .ok_or_else(|| held("episode work binding absent"))?;
     require(
         current.grant.source_sha256()? == episode.grant_sha256
             && episode.children_match(&current.grant)
-            && current.launch_binding_sha256 == episode.launch_binding_sha256
-            && &current_work.mandate().authority == authority
-            && current_work.version.epoch == epoch,
-        "selected episode source grant, admitted children, launch binding or work authority changed",
+            && current.launch_binding_sha256 == episode.launch_binding_sha256,
+        "selected episode source grant, admitted children or launch binding changed",
     )
+}
+
+pub(super) fn check_work(app: &mut Runtime, state: &State, work: &str, now: i64) -> Result<()> {
+    check_episode(app, state, work, now)?;
+    let Some(episode) = episode(state, work) else {
+        return Ok(());
+    };
+    let current = state.board.work(&w::WorkId(work.into()))?;
+    let (authority, epoch) = episode.work_binding(work)
+        .ok_or_else(|| held("episode work binding absent"))?;
+    require(&current.mandate().authority == authority && current.version.epoch == epoch,
+        "selected episode work authority changed")
 }
 
 pub(super) fn attach(

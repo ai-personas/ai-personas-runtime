@@ -3,12 +3,14 @@
 A persona can author a need for other existing personas while working on an
 already enabled task. An operator first records an intake episode. The
 persona decides whether to propose a need, its wording, outcomes and invitees.
-An adopted proposal remains pending until an explicit operator admission creates
-the child work. Admission preserves the persona as the requester; it does not
-claim that invitees accepted responsibility or completed the request.
+The native foreground driver automatically admits adopted proposals and
+continues eligible descendant work under the same saved provider route. No
+second operator action is required. Each proposal and subsequent child admission
+remain separate exact records. Admission preserves the persona as requester; it
+does not claim that invitees accepted responsibility or completed the request.
 
 Saved source policies and work allocations are provenance rather than execution quotas. Model calls, navigation, metadata retention and episode expiry have no application resource gate.
-An intake grant creates no initial work opportunity. A stopped persona needs a
+An intake grant creates no initial work opportunity. A stopped persona needs an
 explicit resume or other eligible opportunity. Saved requester, participant and
 initial-recipient lists are historical metadata. Any existing persona can be
 invited; its actual acceptance and continuation remain its own choices. There is no limit on the
@@ -78,9 +80,9 @@ replace an existing binding. No eligible opportunity means no model invocation.
 An admitted child receives the same proposal interface during ordinary work and
 can request further help. Descendants inherit the original episode and issued
 grant identity. There is no nesting-depth quota, and the saved
-`allow_further_delegation` declaration does not restrict this interface. Each
-adopted request still needs its own exact operator admission through the current
-API; automatic child creation remains an implementation gap.
+`allow_further_delegation` declaration does not restrict this interface. Each adopted request gets its own exact admission transaction and receipt. The
+native driver performs that transaction automatically after adoption and picks up
+retained pending requests when explicitly continued.
 
 Every new child records the work on which its request was actually authored.
 Episode snapshots expose `child_parents` alongside the complete `child_work_ids`
@@ -97,7 +99,7 @@ funding account; nesting does not invent a different transfer source. Explicit
 episode revocation applies to the inherited episode and retains every descendant.
 Selecting a separate new episode on already bound work is still unsupported.
 
-## Inspect and admit an authored proposal
+## Inspect proposals and admission receipts
 
 ```sh
 ai-personas --state-root /private/state --operator requester intake-episode-snapshot work-00000001
@@ -105,6 +107,13 @@ ai-personas --state-root /private/state --operator requester intake-delegation-s
 ai-personas --state-root /private/state --operator requester admit-need-proposal admission.json --preview
 ai-personas --state-root /private/state --operator requester admit-need-proposal admission.json --apply
 ```
+
+The explicit preview/apply commands remain available for inspection and manual
+recovery of a retained pending request. Ordinary native sessions need neither
+command. The driver derives current fences and a deterministic admission identity
+from the actual proposal; it never constructs a replacement model response.
+Its receipt records `automatic_admission: true`. A failed local transaction leaves
+the original proposal pending without repeating its authoring model call.
 
 The episode snapshot exposes every adopted proposal in `pending_proposals`, with
 its original author, parent, invocation, operation and response hashes. The
@@ -130,8 +139,19 @@ A parent transfer subtracts the child's allocation from the existing
 parent account. The historical parent remainder saturates at zero. The child receives the requested metadata without being reduced to a finite remainder. Complete episode charge records retain use beyond the original numbers. Admission
 performs no inference and accepts no invitation on an invitee's behalf.
 
-Run a fresh `personas-session run --work CHILD_WORK` to continue the child using
-the configured route. A new invitee receives an initial opportunity without a
+A native session visits the requested work and its complete descendant subtree.
+Each scheduling turn yields after one actual call so an active parent cannot
+starve its children. The loop has no round, call or nesting quota. A fresh
+`personas-session run --work CHILD_WORK` can also continue that exact child and
+its descendants using the configured route. Explicit Stop/Pause is not reset,
+and a completed child result alone does not resume its author.
+
+An author who wants to continue after an actual reply may register a message
+wait naming the invited existing persona and choose `continuation.kind=wait`
+with that dependency and a future deadline. The sender need not already
+participate in the parent work. A later child reply satisfies that exact wait in
+the immediate parent and preserves the original child message attribution. It
+does not bypass Stop/Pause, match an earlier inbox item or infer a reply. A new invitee receives an initial opportunity without a
 separate initial-recipient approval. It can accept, decline or stop under the
 ordinary work rules. Existing Stop/Pause choices and unfinished invocations are
 not reset by removing the participant gates. The recorded `PersonaArranged`
@@ -179,8 +199,12 @@ erasing history. Saved expiry no longer stops preparation or provider dispatch.
 There are no fixed episode, charge, proposal-byte or registry quotas. Existing
 exact evidence, record binding and identity checks remain.
 
-Explicit operator admission, selecting a different episode for already bound
-work, parent-phase coupling and broad coordination checks remain implementation
-gaps under the no-limits requirement. Removing
+An already adopted request can be admitted after its parent changes phase or
+authority; the original proof and explicit episode revocation still apply, and
+that admission does not resume the parent. Current execution on a bound work
+still checks its own authority.
+
+Selecting a different episode for already bound work, requiring initial episode
+selection and broad coordination checks remain implementation gaps under the no-limits requirement. Removing
 proposal and child count limits does not complete the authority and workflow
 changes listed in [execution resources](execution-resources.md).

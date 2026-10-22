@@ -4,6 +4,8 @@ use super::*;
 mod results;
 #[path = "launch/parallel.rs"]
 mod parallel;
+#[path = "launch/delegated.rs"]
+mod delegated;
 #[path = "launch/step_accounting.rs"]
 pub(crate) mod step_accounting;
 /// Operator-only Stage 1 launcher protocol; not a persona tool.
@@ -784,32 +786,15 @@ trait Driver {
         now: i64,
     ) -> Result<AdoptionReport>;
 }
-struct Live;
-impl Driver for Live {
-    async fn step(
-        &mut self,
-        app: &mut Runtime,
-        request: PrepareRequest,
-        saved: &Saved,
-        now: i64,
-    ) -> Result<AdoptionReport> {
-        app.step(
-            request,
-            saved.execution_provider()?,
-            saved.working_directory.clone(),
-            now,
-        )
-        .await
-    }
-}
 pub async fn run(app: &mut Runtime, work: &str) -> Result<Output> {
-    run_with(app, work, &mut Live).await
+    let owner = app.store.acquire_execution_owner()?;
+    session::run_environment_owned(app, work, &owner).await
 }
-/// Explicitly continue a bounded saved foreground session through existing
+/// Explicitly continue a saved foreground session through existing
 /// eligible routes. Delivery status grants no semantic resume, new resources,
 /// invented consent or recovery of a blocked invocation.
 pub async fn continue_run(app: &mut Runtime, work: &str) -> Result<Output> {
-    run_with_options(app, work, &mut Live, true).await
+    run(app, work).await
 }
 fn quiescent_call_allows_peer_progress(app: &mut Runtime, id: &str) -> Result<bool> {
     let invocation = match app.invocation(id) {
@@ -842,6 +827,8 @@ async fn run_with_owned_commands<D: Driver>(
         && state.board.work(&w::WorkId(work.into()))?.need.optional_activity.is_none();
     let outcome = if independent {
         parallel::run(&mut scope, work, driver).await
+    } else if driver.prospective_intake() || need_proposals::bound(&state, work) {
+        delegated::run(&mut scope, work, driver, owner).await
     } else {
         run_with(&mut scope, work, driver).await
     };
@@ -858,7 +845,7 @@ async fn run_with_options<D: Driver>(
     app: &mut Runtime,
     work: &str,
     driver: &mut D,
-    _explicit_continue: bool,
+    yield_after_step: bool,
 ) -> Result<Output> {
     let (_, saved) = load(app)?;
     saved.execution_provider()?;
@@ -885,6 +872,9 @@ async fn run_with_options<D: Driver>(
             let (_, selected) = select(app, work, 128, unix_now()?)?;
             let Some(persona) = selected else {
                 if app.has_background_host_commands() {
+                    if yield_after_step {
+                        return Ok("work_step_yielded");
+                    }
                     app.wait_for_host_command().await?;
                     return Ok("jobs_completed");
                 }
@@ -929,6 +919,7 @@ async fn run_with_options<D: Driver>(
         }
         .await;
         match attempt {
+            Ok("jobs_completed" | "continue") if yield_after_step => break "work_step_yielded",
             Ok("jobs_completed" | "continue") => (),
             Ok(reason) => break reason,
             Err(error) => break stop_for_error(&error),

@@ -657,7 +657,10 @@ requester's parent-work inbox. Bound children can use the inherited proposal
 interface for further requests without a nesting-depth quota. Each descendant
 records its immediate authoring parent; `child_parents` exposes that mapping and
 results return to the matching parent focus. The saved further-delegation flag
-is metadata. Exact pending proof and separate child admission still apply.
+is metadata. Native foreground runs automatically admit actual pending requests
+and continue eligible work throughout the requested descendant subtree. Each
+child retains its exact proof and separate admission receipt; no second operator
+action is needed. Stop/Pause remains effective for each persona and work.
 
 The grant's requester, child-participant and initial-recipient lists are historical
 metadata, including empty lists. Any existing persona may be invited, and a new

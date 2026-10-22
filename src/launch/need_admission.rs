@@ -1,4 +1,4 @@
-//! Exact operator admission of an already adopted pending proposal.
+//! Exact admission of an already adopted pending proposal.
 //! Preview checks the real candidate transaction but reserves no capacity.
 use super::*;
 
@@ -70,6 +70,9 @@ pub struct AdmitNeedProposalReceipt {
     pub parent_remaining_after: Option<WorkAllocation>,
     pub created_at_unix: i64,
     pub capacity_reserved: bool,
+    /// The native driver admitted this actual proposal without a second operator action.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub automatic_admission: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -465,6 +468,7 @@ fn plan(
     request: &AdmitNeedProposalRequest,
     hash: String,
     now: i64,
+    automatic_admission: bool,
 ) -> Result<Planned> {
     let (runtime_head, state, launch_head, mut saved) = candidates(app)?;
     admission_extension::authorize(&state, &saved, &request.operator)?;
@@ -511,12 +515,10 @@ fn plan(
     let grant = episode.grant.clone();
     let proof = proof(app, &state, episode, request, now)?;
     let pending = &proof.pending;
-    need_proposals::check_work(app, &state, &pending.parent_work, now)?;
-    let parent = state.board.work(&w::WorkId(pending.parent_work.clone()))?;
-    require(
-        matches!(parent.phase, w::Phase::Open),
-        "parent work is not open; an individual Stop remains valid",
-    )?;
+    // The complete adopted request remains an actual request after the parent
+    // changes phase or authority. It cannot resume that parent. Explicit episode
+    // revocation and the original proof still bind this separate admission.
+    need_proposals::check_episode(app, &state, &pending.parent_work, now)?;
     let proposal = match &pending.operation {
         p::Operation::ProposeNeed { proposal, .. } => proposal,
         _ => return Err(held("closed pending proposal absent")),
@@ -655,7 +657,8 @@ fn plan(
         json!({"kind":"admit_need_proposal","operator":request.operator,
         "request_id":request.id,"request_sha256":hash,"grant":request.grant,
         "pending":request.pending,"child":input.id,"allocation":allocation,
-        "receipt_id":binding.receipt_id,"parent_resumed":false,"inference_performed":false}),
+        "receipt_id":binding.receipt_id,"parent_resumed":false,"inference_performed":false,
+        "automatic_admission":automatic_admission}),
     );
     need_proposals::validate_state(&next)?;
     let consumed = registry
@@ -690,6 +693,7 @@ fn plan(
         parent_remaining_after: parent_after,
         created_at_unix: now,
         capacity_reserved: false,
+        automatic_admission,
     };
     validate_receipt(&receipt)?;
     let changes = vec![
@@ -757,6 +761,19 @@ fn execute(
         });
     }
     let _owner = app.store.acquire_execution_owner()?;
+    execute_owned(app, request, now, apply, false)
+}
+
+fn execute_owned(
+    app: &mut Runtime,
+    request: &AdmitNeedProposalRequest,
+    now: i64,
+    apply: bool,
+    automatic_admission: bool,
+) -> Result<AdmitNeedProposalOutcome> {
+    request.validate(&request.operator)?;
+    require(now >= 0, "negative need admission time")?;
+    let hash = canonical_hash(request)?;
     if let Some(receipt) = replay(app, request, &hash)? {
         return Ok(AdmitNeedProposalOutcome {
             receipt,
@@ -764,7 +781,7 @@ fn execute(
             replayed: true,
         });
     }
-    let planned = plan(app, request, hash, now)?;
+    let planned = plan(app, request, hash, now, automatic_admission)?;
     if apply {
         app.store.commit_need_admission_batch(
             planned.changes,
@@ -797,6 +814,63 @@ pub fn admit_need_proposal(
     now: i64,
 ) -> Result<AdmitNeedProposalOutcome> {
     execute(app, request, now, true)
+}
+
+/// Called only by a native foreground driver holding this Store's execution owner.
+/// Every transaction is derived from an actual adopted proposal. If it cannot
+/// commit, that immutable proposal stays pending; no model request is replayed.
+pub(in crate::runtime::launch) fn admit_pending_for_work_owned(
+    app: &mut Runtime,
+    work: &str,
+    _owner: &s::ExecutionOwner,
+) -> Result<Vec<String>> {
+    let mut admitted = Vec::new();
+    loop {
+        let (runtime_head, state, launch_head, saved) = candidates(app)?;
+        let Some(episode) = need_proposals::episode(&state, work) else {
+            return Ok(admitted);
+        };
+        let mut selected = None;
+        for reference in episode.pending_proposals() {
+            if episode.children().any(|child| &child.binding.pending == reference) {
+                continue;
+            }
+            let object = app.store.read_exact(&reference.store_ref())?;
+            let pending: PendingNeedProposal = serde_json::from_value(object.body)?;
+            if pending.parent_work == work {
+                selected = Some((reference.clone(), pending));
+                break;
+            }
+        }
+        let Some((reference, pending)) = selected else {
+            return Ok(admitted);
+        };
+        let (registry_head, _) = registry(app)?;
+        let expected = fence(&runtime_head, &launch_head, registry_head.as_ref(), &saved)?;
+        let request = AdmitNeedProposalRequest {
+            id: format!("automatic-{}", canonical_hash(&reference)?),
+            operator: saved.operator.clone(),
+            purpose: episode.grant.request.purpose.clone(),
+            authorize_admission: false,
+            grant: p::need::GrantReference {
+                id: episode.grant.request.id.clone(),
+                sha256: episode.grant_sha256.clone(),
+            },
+            child_work_id: format!("work-{:08}", increment(expected.work_count)?),
+            expected,
+            expected_episode_sha256: canonical_hash(episode)?,
+            pending: reference,
+            proposal_sha256: pending.proposal_sha256,
+            response_sha256: pending.response_sha256,
+            token_attestation: IntakeTokenAttestation {
+                conservative_tokens_used: 0,
+                conservative_token_ceiling: 0,
+                per_call_reserve_tokens: 0,
+            },
+        };
+        let outcome = execute_owned(app, &request, unix_now()?, true, true)?;
+        admitted.push(outcome.receipt.consumed_child.work);
+    }
 }
 
 /// Called under the ordinary native execution owner before connecting a provider.
