@@ -112,9 +112,12 @@ JSON escapes instead of replacing them with an unknown-character marker;
 native records and the journal retain the original content. Filesystem paths,
 protocol identifiers and authentication fields keep their actual format rules.
 
-New host commands retain their complete observed stdout/stderr. Pending results
-supply the complete retained command, stdin and output, and result-reference
-catalogues have no fixed entry cap. Native host-file import reads the complete
+New host commands retain their complete observed stdout/stderr. The persona's
+required `result_context` choice supplies complete text or execution metadata
+and exact readable text references in the next decision. Either choice preserves
+complete capture and required qualifications, with no later read quota. Historical
+observations without a choice keep complete text. Result-reference catalogues
+have no fixed entry cap. Native host-file import reads the complete
 regular UTF-8 file without its former import byte cap. File-corpus byte and
 count quotas are also removed. Historical incomplete captures are not rewritten.
 

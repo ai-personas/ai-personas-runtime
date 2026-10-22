@@ -196,6 +196,7 @@ A persona effect has this shape:
   "binding_revision": "COPY_CURRENT_BINDING",
   "inputs": {
     "command": "python3 --version",
+    "result_context": "complete",
     "working_directory": null,
     "stdin": null,
     "timeout_seconds": null
@@ -207,6 +208,8 @@ A persona effect has this shape:
 The current input schema also supports `stdin_asset`, which supplies an exact full UTF-8 native asset to the command without copying its body into the model response. This is execution input, not model-context selection. Same-response native saves used as stdin must be named in `depends_on`.
 
 Commands are durable intents. Actual exit status, signal, timeout, failure, effective UID, environment digest, runner and shell hashes, elapsed time, stdout, and stderr are retained. New captures retain the complete observed streams. Their `log_path` values are live host paths, not immutable native asset references. A proposed command, saved script, or selected skill is not proof that execution occurred or succeeded.
+
+Each command requires the persona's `result_context` choice. `complete` supplies all retained command, literal stdin and output text in the next decision. `reference` supplies execution metadata and exact references to that text, keeping bulk discovery or logs outside context until the persona chooses a read or next-context selection. Both retain complete observed output and preserve required qualifications. Whole result documents and individual JSON strings remain readable without a text quota; reference metadata does not count as a supplied body. See [host result inspection](docs/host-commands.md#results-and-inspection).
 
 Interrupted host commands are recovered without automatic replay:
 

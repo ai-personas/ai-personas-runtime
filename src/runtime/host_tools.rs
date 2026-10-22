@@ -29,6 +29,8 @@ struct Job {
     invocation: String,
     operation: String,
     input: h::Inputs,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    result_context: Option<context::ResultContext>,
     stdin_asset: Option<input::Receipt>,
     directory: PathBuf,
     exposure: Exposure,
@@ -121,6 +123,7 @@ pub(super) fn stage(
         };
         let offered = prepared.host_command_interface.as_ref().unwrap().clone();
         let authored: input::Inputs = serde_json::from_value(inputs.clone())?;
+        let result_context = Some(authored.result_context);
         let (input, stdin_asset) = authored.materialize(state, prepared, proposals, now)?;
         let requested = input
             .working_directory
@@ -158,6 +161,7 @@ pub(super) fn stage(
             invocation: marker.invocation.clone(),
             operation: id.clone(),
             input,
+            result_context,
             stdin_asset,
             directory,
             exposure,

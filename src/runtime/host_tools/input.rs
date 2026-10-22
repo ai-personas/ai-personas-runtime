@@ -7,6 +7,10 @@ use schemars::JsonSchema;
 pub(super) struct Inputs {
     /// Bash command or script; tools and packages may be installed directly.
     pub command: String,
+    /// Choose the next decision's result context: complete supplies all retained
+    /// command and output text; reference supplies execution metadata and exact
+    /// readable text references. Both retain the complete observed output.
+    pub result_context: context::ResultContext,
     /// Host working directory; omission uses the offered default.
     #[serde(default)]
     pub working_directory: Option<String>,
@@ -192,6 +196,9 @@ pub(super) fn require_current(state: &State, job: &Job, now: i64) -> Result<()> 
 /// bodies. The accepted intent still binds the complete actual stdin bytes.
 pub(super) fn observed(job: &Job) -> Result<Value> {
     let mut value = serde_json::to_value(&job.input)?;
+    if let Some(choice) = job.result_context {
+        value["result_context"] = serde_json::to_value(choice)?;
+    }
     if let Some(receipt) = &job.stdin_asset {
         value.as_object_mut().unwrap().remove("stdin");
         value["stdin_asset"] = json!({"reference":receipt.reference,

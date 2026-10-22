@@ -9,8 +9,8 @@ allowlist, per-tool approval, or tool-installation grant.
 `CONTROL.host_command_capability` supplies the current `host.command.v1`
 definition on every ordinary input. No supporting guide needs to be discovered
 or selected first. Personas choose which tools and skill guides to use, including
-guides available as host files. The separate WebAssembly and HTTPS profiles keep
-their existing grant contracts; those grants do not restrict host commands.
+guides available as host files. WebAssembly and HTTPS callable definitions are
+also supplied by default; historical grant declarations do not restrict access.
 
 ## Invocation
 
@@ -24,6 +24,7 @@ Use an `effect` operation with the supplied capability ID and binding revision:
   "binding_revision": "COPY_THE_CURRENT_BINDING",
   "inputs": {
     "command": "python3 --version",
+    "result_context": "complete",
     "working_directory": null,
     "stdin": null,
     "timeout_seconds": null
@@ -47,8 +48,13 @@ interface. Relative paths resolve against that directory. `stdin` optionally
 supplies UTF-8 input. A persona may choose `timeout_seconds`; omission or `null`
 means no timeout. A chosen timeout stops that command's process group.
 The interactive launcher waits for the native foreground session without adding
-a wall-clock limit to installations or other host commands. Model-call limits
-and explicit user interruption still apply.
+a wall-clock limit to installations or other host commands. Explicit user
+interruption still applies.
+
+`result_context` is required. Choose `complete` when all returned text belongs in
+the next decision, or `reference` when execution metadata and exact readable
+references are enough to decide what to inspect next. This is the persona's
+context choice, not an output capture limit or an automatic size threshold.
 
 Combine dependent shell steps in a single script. Multiple independent command
 operations may be submitted in one decision and execute in their listed order.
@@ -81,6 +87,7 @@ For a handle offered in the current input, the command inputs can be:
 ```json
 {
   "command": "cat > /workspace/retained-helper.py",
+  "result_context": "complete",
   "stdin_asset": {"kind": "input_file", "handle": "COPY_A_CURRENT_INPUT_HANDLE"}
 }
 ```
@@ -155,8 +162,9 @@ installation changes the actual host environment; it is not simulated.
 ## Results and inspection
 
 The next decision receives a `host_command_result` with execution status, exit
-code or terminating signal, optional timeout/failure, elapsed time, observed byte
-counts and complete retained command input, stdout and stderr. The current runner
+code or terminating signal, optional timeout/failure, elapsed time and observed byte
+counts. The persona's `result_context` chooses how retained command input, stdout
+and stderr enter that context. The current runner
 and shell artifact hashes, effective user ID, and a digest of the inherited
 environment identify the observed execution without copying environment values.
 
@@ -174,17 +182,31 @@ that observed range, not future writes. Earlier partial captures keep their
 original gaps and completeness flags; removing a cap does not recover missing
 historical bytes.
 
-Pending observations supply the complete retained command, stdin and captured
-output. There is no shared text quota or beginning/end truncation.
-`context_projection.format` is `host-command-pending-complete-v1`. Its retained
-payload digest and result reference preserve attribution. The reference names
-a separate exact result document; metadata alone does not supply that document
-or select it implicitly. Reading results never repeats the command. The work's
-result-reference catalogue also has no fixed entry cap.
+With `result_context: "complete"`, pending observations supply all retained
+command, literal stdin and captured output text. Asset stdin stays an exact input
+receipt. `context_projection.format` is `host-command-pending-complete-v1`.
+Historical observations without a choice keep this complete projection.
 
-Other context and file-corpus limits remain pending removal under
-[the unrestricted-execution requirement](execution-resources.md). Successful
-capture does not itself prove that a later model input was supplied or accepted.
+With `result_context: "reference"`, pending observations supply execution metadata
+and text references. The format is `host-command-pending-reference-v1`.
+`inputs.command` and literal `inputs.stdin` become `command_reference` and
+`stdin_reference`, with UTF-8 byte counts, SHA-256 and supplied flags. Every output
+segment replaces `text` with `text_reference`, `text_utf8_bytes`, `text_sha256`
+and `text_supplied: false`. Raw offsets and hashes, lossy decoding flags, capture
+completeness, log paths and required qualifications remain available.
+
+These references address decoded JSON strings in the immutable result document:
+for example, `json_string:/result/stdout/segments/0/text`. Ordinary reads and
+next-context selections can supply any range or the complete string. Range
+offsets apply to decoded UTF-8 text, which can differ from raw log offsets when
+decoding was lossy. The whole result reference supplies the complete document
+when read or selected. The original observation and result asset retain all
+captured text in both modes; there is no text quota or beginning/end truncation.
+
+Both projections include the original observation payload digest and exact
+result reference. Reference metadata does not supply a body or select it
+implicitly. Capture completeness does not establish that text reached a later
+model input. Reading results never repeats the command.
 
 Results are also available as exact supporting assets under `tools/results/`.
 These are runtime asset paths, not files beneath the host working directory.
@@ -193,16 +215,12 @@ The result body can identify the original command's actual host output paths;
 use those exact paths when revising an output. The `stdout.log_path` and `stderr.log_path`
 paths refer to host files directly.
 
-`CONTROL.host_command_state.retained_results` lists up to eight of the most
-recently observed permitted result references. `retained_results_truncated`
-reports when older permitted references were omitted from this catalogue; those
-results remain stored and discoverable under `tools/results/`, and existing
-selections are unchanged. Unresolved jobs are listed independently of this limit.
-The result catalogue is optional and is supplied only when it fits alongside
-required context and the persona's selected files. It may be absent, or have
-`retained_results_included: false` when only unresolved jobs are shown. That does
-not establish that no older results exist. Current result observations, selected
-file bodies and required qualifications are unaffected by catalogue omission.
+`CONTROL.host_command_state.retained_results` lists the current actor/work's
+visible result references without an entry cap. `retained_results_limit` is
+null and `retained_results_truncated` is false. Unresolved jobs are listed
+independently. `retained_results_included: false` identifies a projection that
+contains only unresolved-job metadata; it does not establish that no older
+results exist. Required context, selected bodies and qualifications remain supplied.
 The ordinary input-file handles can select or cite supplied references. Selecting an old result
 does not run its command again. `development PERSONA --invocation CALL` includes
 `host_command_execution` with dispatch and terminal receipts.

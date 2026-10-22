@@ -1,5 +1,5 @@
 //! Current-permission and qualification projection for exact observations.
-//! Pending host results and selectively retrieved payloads remain complete.
+//! Host results use the primary's context choice; retained payloads stay complete.
 use super::*;
 
 pub(super) fn project_pending(
@@ -9,16 +9,13 @@ pub(super) fn project_pending(
     observation_corpus: &f::Corpus,
 ) -> Result<(Value, Exposure, Vec<f::Reference>, Vec<f::Reference>)> {
     let (mut value, mut inherited, exact) = project(state, observation, a, observation_corpus)?;
-    let mut metadata = Vec::new();
-    if let Some(reference) = host_tools::pending_projection(
+    let metadata = host_tools::pending_projection(
         state,
         observation,
         a,
         &mut value["payload"],
-    )? {
-        inherited.sources.push(reference.clone());
-        metadata.push(reference);
-    }
+    )?;
+    inherited.sources.extend(metadata.iter().cloned());
     Ok((
         value,
         expanded_exposure(state, &inherited)?,
