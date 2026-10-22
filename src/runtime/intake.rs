@@ -21,8 +21,10 @@ impl WorkAllocation {
     }
 
     pub(super) fn validate(&self) -> Result<()> {
-        require(self.repair_attempts <= self.attempts,
-            "repair metadata must be a subset of attempt metadata")
+        // Requested allocations are historical annotations, including zero or
+        // independently recorded repair values. Actual charges retain their
+        // invocation/repair relationship separately.
+        Ok(())
     }
 
     pub(super) fn require_within_config(&self, _config: &Config) -> Result<()> {
@@ -134,7 +136,7 @@ pub(super) fn construct_host_need(
             attempts_left: allocation.attempts,
             navigation_left: allocation.navigation,
             repair_attempts_left: allocation.repair_attempts,
-            repair_attempts_declared: None,
+            repair_attempts_declared: Some(allocation.repair_attempts),
             artifact_sources: BTreeMap::new(),
             human_evidence: BTreeMap::new(),
             model_evidence: BTreeMap::new(),

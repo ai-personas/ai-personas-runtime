@@ -1,5 +1,5 @@
 //! Explicit operator additions to one existing standalone work's logical
-//! allowance. No new work, repair allowance, continuation, resume or inference.
+//! allocation metadata. No new work, repair allocation, continuation, resume or inference.
 //! Store consumption, reservations, uncertainty and protected funds are retained.
 //! Snapshot/preview use metered reads; normal open/owner recovery can occur.
 use super::*;
@@ -22,7 +22,7 @@ pub struct WorkResourceGrantFence {
 }
 
 /// An addition, never a replacement balance. Repair capacity is deliberately
-/// absent from this contract. Each field remains subject to configured bounds.
+/// absent from this contract. These values do not impose execution quotas.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorkResourceIncrease {
@@ -194,41 +194,14 @@ impl WorkResourceGrantRequest {
         check_ref(&self.expected.runtime, STATE_ID)?;
         check_ref(&self.expected.launch, ID)?;
         let expected = &self.expected;
-        let navigation_increased = [
-            self.increase.navigation.calls,
-            self.increase.navigation.scanned_bytes,
-            self.increase.navigation.inspected_revisions,
-            self.increase.navigation.matches,
-            self.increase.navigation.result_bytes,
-        ]
-        .into_iter()
-        .any(|amount| amount > 0);
         require(
             expected.work_revision > 0
-                && expected.work_epoch > 0
-                && expected.max_total_steps > 0
-                && expected.steps <= expected.max_total_steps
-                && (1..=128).contains(&expected.max_steps)
-                && self.increase.attempts <= 128
-                && (self.increase.attempts > 0 || navigation_increased),
-            "invalid work grant counters or empty resource addition",
+                && expected.work_epoch > 0,
+            "invalid work grant revision or epoch",
         )?;
-        let after = add_remaining(expected.remaining, self.increase)?;
-        let needed_steps = expected
-            .steps
-            .checked_add(after.attempts)
-            .ok_or_else(|| invalid("work grant lifetime bound overflow"))?;
-        let limits = storage_limits();
-        let ordinary_ceiling = limits
-            .total
-            .attempts
-            .checked_sub(limits.protected_closeout.attempts)
-            .ok_or_else(|| invalid("invalid ordinary attempt ceiling"))?;
-        require(
-            self.new_max_total_steps == expected.max_total_steps.max(needed_steps)
-                && self.new_max_total_steps <= ordinary_ceiling,
-            "work grant requires the minimal nondecreasing lifetime bound",
-        )?;
+        // Retain exact arithmetic for the requested metadata update, without
+        // deriving a new lifetime quota or requiring a positive allowance.
+        add_remaining(expected.remaining, self.increase)?;
         admission_extension::validate_token_attestation(
             self.token_attestation.conservative_tokens_used,
             self.token_attestation.conservative_token_ceiling,
@@ -305,13 +278,14 @@ pub fn work_resource_grant_snapshot(
     let (launch, saved) = load(app)?;
     admission_extension::authorize(&state, &saved, operator)?;
     admission_extension::validate_saved(&state, &saved)?;
-    let mut maximum = WorkAllocation::configured(&state.config);
-    maximum.repair_attempts = target(&state, &saved, work)?.declared_repair_attempts(&state.config);
+    let mut configured = WorkAllocation::configured(&state.config);
+    configured.repair_attempts = target(&state, &saved, work)?.declared_repair_attempts(&state.config);
     Ok(json!({
         "operator": operator,
         "work_id": work,
         "expected": fence(&runtime, &state, &launch, &saved, work)?,
-        "maximum_remaining": maximum,
+        "configured_work_allocation": configured,
+        "application_quotas_enforced": false,
         "navigation_per_call": state.config.navigation_per_call,
         "repair_grants_supported": false,
         "capacity_reserved": false,

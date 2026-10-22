@@ -1,13 +1,11 @@
-//! Trusted-operator extension of the launch-global lifetime step cap only.
+//! Trusted-operator updates to historical launch-global step metadata.
 //!
 //! Work and stage identities retain the operator's purpose; they do not scope
-//! the increased cap to that work or stage. No persona tool, inference,
+//! the recorded value to that work or stage. No persona tool, inference,
 //! credential resolution, token measurement, reset, refund, or resume occurs.
 //!
-//! Token figures are an operator snapshot attestation, not ongoing accounting
-//! or new token funds. A serialized operator supervisor must enforce cumulative
-//! usage plus aggregate pending reserves before every call across Stores.
-//! Unknown reserves outside Store are preserved and are not invocation states.
+//! Token figures are an operator snapshot attestation, not measured usage,
+//! an application quota, reserved provider capacity or new token funds.
 //!
 //! Inspection uses ordinary metered Store reads. Runtime::open may perform
 //! normal orphan-dispatch recovery, including for snapshot and preview. New
@@ -16,7 +14,7 @@
 //! rewrites, reconciles, settles, adopts, or replays invocation history.
 //!
 //! The invocation guard checks persona pointers and every retained invocation
-//! through the Store's bounded, ordinarily metered enumeration. Disconnected
+//! through the Store's ordinarily metered enumeration. Disconnected
 //! unresolved records also block a new extension; terminal history stays intact.
 use super::*;
 
@@ -71,8 +69,7 @@ pub struct LaunchAdmissionExtensionRequest {
     /// Operator-attested cumulative usage; never measured by this operation.
     pub conservative_tokens_used: u64,
     pub conservative_token_ceiling: u64,
-    /// Snapshot reserve for one call. The supervisor must separately account
-    /// for aggregate pending reserves, including unknown usage across Stores.
+    /// Historical operator estimate; this does not establish actual usage.
     pub per_call_reserve_tokens: u64,
 }
 
@@ -155,17 +152,8 @@ fn reference(reference: &s::ObjectRef, id: &str) -> Result<()> {
     hash_string(&reference.sha256)
 }
 
-fn step_ceiling() -> Result<u64> {
-    let limits = storage_limits();
-    limits
-        .total
-        .attempts
-        .checked_sub(limits.protected_closeout.attempts)
-        .ok_or_else(|| invalid("invalid protected closeout attempt bound"))
-}
-
-// Before any Store read, including replay: bound all variable-size fields and
-// arithmetic. Typed request values, not incoming JSON formatting, identify it.
+// Typed request values, not incoming JSON formatting, identify this metadata
+// update. Saved ceilings do not limit admission or require an increase.
 fn validate_request(request: &LaunchAdmissionExtensionRequest) -> Result<String> {
     extension_id(&request.id)?;
     bounded_identity(&request.operator)?;
@@ -181,14 +169,6 @@ fn validate_request(request: &LaunchAdmissionExtensionRequest) -> Result<String>
     reference(&request.expected_launch, ID)?;
     increment(request.expected_runtime.revision)?;
     increment(request.expected_launch.revision)?;
-    require(
-        (1..=128).contains(&request.expected_max_steps)
-            && request.expected_max_total_steps > 0
-            && request.expected_steps <= request.expected_max_total_steps
-            && request.new_max_total_steps > request.expected_max_total_steps
-            && request.new_max_total_steps <= step_ceiling()?,
-        "invalid admission extension counters or bounds",
-    )?;
     validate_token_attestation(
         request.conservative_tokens_used,
         request.conservative_token_ceiling,
@@ -394,10 +374,23 @@ fn plan(
     launch.body["setup"]["max_total_steps"] = json!(request.new_max_total_steps);
     let target_launch = launch.exact_ref()?;
 
-    // Only append operator evidence. No config, persona, work, resource,
-    // permission, invocation, or remaining-allowance field is rewritten.
+    // Carry current episode bindings across this metadata update, as in human
+    // intake and work-resource updates. An already stale binding stays stale.
+    let previous_binding = intake_delegation::episode_launch_binding(&saved)?;
+    let mut next_saved = saved.clone();
+    next_saved.setup.max_total_steps = request.new_max_total_steps;
+    let next_binding = intake_delegation::episode_launch_binding(&next_saved)?;
     let mut runtime = runtime_head.clone();
     runtime.revision = increment(runtime.revision)?;
+    let mut carried = Vec::new();
+    if previous_binding != next_binding {
+        for (id, episode) in &state.intake_episodes {
+            if episode.launch_binding_sha256 == previous_binding {
+                runtime.body["intake_episodes"][id]["launch_binding_sha256"] = json!(next_binding);
+                carried.push(id.clone());
+            }
+        }
+    }
     runtime.body["operator_events"]
         .as_array_mut()
         .ok_or_else(|| held("invalid operator event history"))?
@@ -410,7 +403,10 @@ fn plan(
             "token_basis": TOKEN_BASIS,
             "request_sha256": request_sha256,
             "request": request,
-            "target_launch": target_launch
+            "target_launch": target_launch,
+            "episode_binding_transition": {
+                "from": previous_binding, "to": next_binding, "carried_episodes": carried
+            }
         }));
 
     let receipt = LaunchAdmissionExtensionReceipt {

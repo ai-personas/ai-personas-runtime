@@ -124,10 +124,9 @@ enum Command {
     /// Inspect exact launch-global admission heads and spent steps. Requires --state-root and --operator.
     /// Uses metered reads; normal Runtime opening may recover orphan dispatches. No token measurement.
     LaunchAdmissionSnapshot,
-    /// Explicitly preview or apply a launch-global lifetime step-cap increase; work/stage retain purpose only.
+    /// Preview or apply historical launch-global step metadata; work/stage retain purpose only.
     /// Requires --state-root, --operator, and exactly one of --preview or --apply. No inference or resume.
-    /// Token figures are snapshot attestations; the serialized operator supervisor must enforce cumulative
-    /// usage plus aggregate pending reserves before every call across Stores. No token funds are created.
+    /// Step settings and token figures are observational metadata, not execution quotas or usage measurements.
     /// Normal open/owner recovery and metered Store charges apply. Preview reserves no capacity.
     ExtendLaunchAdmission {
         file: PathBuf,
@@ -136,7 +135,7 @@ enum Command {
         #[arg(long, required_unless_present = "preview", conflicts_with = "preview")]
         apply: bool,
     },
-    /// Inspect exact fences and allocation limits for standalone human intake. No inference.
+    /// Inspect exact fences and allocation metadata for standalone human intake. No inference.
     HumanIntakeSnapshot,
     /// Inspect optional opportunities and episode allocations without inference or recovery.
     OptionalActivitySnapshot,

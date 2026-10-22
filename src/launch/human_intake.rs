@@ -1,4 +1,4 @@
-//! Atomic, bounded human-origin intake. Never issues persona delegation,
+//! Atomic human-origin intake with observational allocation metadata. Never issues persona delegation,
 //! resets an old allowance, resumes an old focus, or dispatches inference.
 use super::*;
 
@@ -19,7 +19,7 @@ pub struct HumanIntakeFence {
 
 /// The trusted operator must supply the existing approval's exact statement
 /// and provenance. A digest establishes content identity, never human identity.
-/// These bounded ceilings constrain this operation; they grant no delegation.
+/// Saved ceiling values are provenance, not admission limits or delegation.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HumanAuthorizationEvidence {
@@ -132,30 +132,7 @@ impl HumanIntakeRequest {
         check_ref(&self.expected.launch, ID)?;
         self.allocation.validate()?;
         let expected = &self.expected;
-        let needed_steps = expected
-            .steps
-            .checked_add(self.allocation.attempts)
-            .ok_or_else(|| invalid("human-intake step overflow"))?;
         let needed_works = increment(expected.work_count)?;
-        let limits = storage_limits();
-        let step_ceiling = limits
-            .total
-            .attempts
-            .checked_sub(limits.protected_closeout.attempts)
-            .ok_or_else(|| invalid("invalid protected reserve"))?;
-        require(expected.steps <= expected.max_total_steps
-            && expected.max_total_steps > 0
-            && expected.work_count <= expected.max_works
-            && (1..=128).contains(&expected.max_works)
-            && (1..=128).contains(&expected.max_steps)
-            && (1..=128).contains(&self.allocation.attempts)
-            && self.new_max_total_steps == expected.max_total_steps.max(needed_steps)
-            && self.new_max_works == expected.max_works.max(needed_works)
-            && self.new_max_total_steps <= step_ceiling
-            && self.new_max_total_steps <= auth.authorized_max_total_steps
-            && self.new_max_works <= 128
-            && self.new_max_works <= auth.authorized_max_works,
-            "human-intake ceilings must be the minimal nondecreasing extension within explicit authorization")?;
         require(
             self.work_id == format!("work-{needed_works:08}"),
             "human-intake work identity must be the next saved identity",
@@ -197,7 +174,8 @@ pub fn human_intake_snapshot(app: &mut Runtime, operator: &str) -> Result<Value>
     admission_extension::validate_saved(&state, &saved)?;
     Ok(
         json!({"operator":operator,"expected":fence(&runtime,&launch,&saved)?,
-        "maximum_new_work_allocation":WorkAllocation::configured(&state.config),
+        "configured_work_allocation":WorkAllocation::configured(&state.config),
+        "application_quotas_enforced":false,
         "navigation_per_call":state.config.navigation_per_call,
         "capacity_reserved":false,"snapshot_atomic":false}),
     )
@@ -325,7 +303,7 @@ fn plan(
     let mut carried_episode_bindings = Vec::new();
     if previous_episode_binding != next_episode_binding {
         for (id, episode) in &mut next.intake_episodes {
-            // Carry compatibility across only this authorized ceiling change.
+            // Carry the current binding across this recorded metadata change.
             // Already-stale bindings remain stale; no grant, charge, opportunity,
             // hold, expiry or revocation is changed or newly authorized here.
             if episode.launch_binding_sha256 == previous_episode_binding {

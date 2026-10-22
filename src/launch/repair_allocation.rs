@@ -1,9 +1,8 @@
-//! Explicit finite repair suballowances within existing work attempts.
+//! Explicit repair allocation metadata without an admission quota.
 //! Allocation changes neither continuation nor any controlling resource balance.
 use super::*;
 
 const KIND: &str = "work-repair-allocation";
-const MAX_DECLARED: u64 = 8;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct RepairAllocationRequest {
@@ -96,21 +95,11 @@ impl RepairAllocationRequest {
         increment(self.expected.runtime.revision)?;
         require(
             self.expected.work_revision > 0
-                && self.expected.work_epoch > 0
-                && self.expected.max_total_steps > 0
-                && self.expected.steps <= self.expected.max_total_steps
-                && (1..=128).contains(&self.expected.max_steps)
-                && self.expected.remaining.repair_attempts
-                    <= self.expected_declared_repair_attempts
-                && (1..=MAX_DECLARED).contains(&self.additional_repair_attempts),
-            "invalid repair allocation counters",
+                && self.expected.work_epoch > 0,
+            "invalid repair allocation revision or epoch",
         )?;
-        let declared = self.declared_after()?;
+        self.declared_after()?;
         let remaining = self.remaining_after()?;
-        require(
-            declared <= MAX_DECLARED && remaining.repair_attempts <= declared,
-            "cumulative repair allowance exceeds supported bound",
-        )?;
         remaining.validate()?;
         Ok(())
     }
@@ -184,9 +173,9 @@ pub fn work_repair_snapshot_at(root: &Path, operator: &str, work: &str) -> Resul
     Ok(json!({
         "operator":operator, "work_id":work, "expected":expected,
         "expected_declared_repair_attempts":state.work_meta[work].declared_repair_attempts(&state.config),
-        "maximum_declared_repair_attempts":MAX_DECLARED,
+        "application_quotas_enforced":false,
         "snapshot_atomic":false, "capacity_reserved":false,
-        "scope":"Restricted primary selection repair within existing attempts, navigation and Store funds. Explicit continuation permission and fresh admission remain required."
+        "scope":"Repair allocation metadata does not limit attempts, navigation or Store use. An eligible opportunity and fresh admission remain required."
     }))
 }
 

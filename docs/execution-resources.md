@@ -113,6 +113,15 @@ Optional activity no longer yields admission to foreground work or restricts
 messages to its participant pool. Explicit Stop, Pause and revocation remain.
 An expired historical episode setting does not impose a provider deadline.
 
+The standalone human-intake, launch-admission metadata, work-resource and repair
+allocation APIs also accept exhausted or zero saved counters. They impose no
+128-work/attempt ceiling, eight-repair ceiling, positive-allocation prerequisite,
+minimal lifetime-cap increase or operator-attested token ceiling. Their numeric
+fields record the requested metadata update; an extension is unnecessary for
+ordinary execution. Exact request hashes, identities, current-head fences and
+checked accounting arithmetic remain. Launch metadata updates carry current
+episode bindings forward without changing the issued grants or invocation history.
+
 Fresh setup, continuing launch and persona creation have no cohort or population
 quota. Birth no longer requires a preallocated sharing slot or remaining launch
 allowance. Initialization counts remain observational. Existing seeds keep their

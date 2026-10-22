@@ -99,9 +99,6 @@ impl Proposal {
             }
             check_text(&invitee.terms, 4096, "need.invitees.terms")?;
         }
-        if self.allocation.repair_attempts > self.allocation.attempts {
-            return Err(invalid("need.allocation", "repair metadata exceeds attempt metadata"));
-        }
         Ok(())
     }
 }

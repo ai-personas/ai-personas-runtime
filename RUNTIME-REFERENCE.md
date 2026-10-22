@@ -466,36 +466,41 @@ prevent the grant. Authority and exact fences are revalidated before mutation.
 This extends finite storage capacity, not indefinite retention
 or automatic compaction.
 
-An explicitly authorized operator can inspect `work-resource-grant-snapshot WORK`
-and use `grant-work-resources REQUEST.json --preview` or `--apply` to add ordinary
-attempts and navigation to an existing standalone Open work. The strict request
-can add navigation with `increase.attempts: 0` when reasoning attempts remain;
-an addition with every resource set to zero is refused. The request
-binds exact runtime/launch heads, work version and remaining balances, records the
-authorization reference, and declares the minimal optional lifetime-cap increase.
-That cap remains launch-global; the work addition is not a reservation. Resulting
-balances must fit the existing configured per-work remaining-balance bounds;
-successive explicitly authorized grants can increase cumulative use. Existing
-repair suballowances are preserved; this command cannot increase them.
-Holds, continuation, original requests, identities and spent/uncertain resources
-are preserved. Episode-bound targets require separate authority and are refused.
-Snapshot and preview use metered reads and normal open/owner recovery may occur;
-use a private copied Store when the live Store must remain unchanged. Preview
-checks the prospective metadata transaction and conservative input/output/navigation
-headroom, but reserves nothing and does not guarantee later admission. Actual
-requests still require fresh permission, funding, context and continuation checks.
-Token figures remain operator snapshot attestations, enforced by the serialized
-supervisor across calls and Stores, rather than new token funds or measurements.
+`human-intake-snapshot` and `admit-human-need REQUEST.json --preview` or `--apply`
+record a new human need against exact current heads. Saved lifetime, work-count,
+allocation and authorization-ceiling values are metadata: they can be zero or
+already exceeded without preventing intake. The new work keeps its actual human
+origin, literal request, request digest and unused work identity. Intake performs
+no inference and preserves existing work and invocation history.
+
+`launch-admission-snapshot` and `extend-launch-admission REQUEST.json --preview`
+or `--apply` update historical launch step metadata. Ordinary execution does not
+require an extension. The value need not increase or cover past calls. Current
+episode bindings are carried across this metadata change; original grants,
+charges and immutable records remain unchanged.
+
+An operator can inspect `work-resource-grant-snapshot WORK` and use
+`grant-work-resources REQUEST.json --preview` or `--apply` to update attempts and
+navigation metadata for an existing standalone Open work. Additions have no
+application count ceiling and may be zero. Exact runtime/launch heads, work
+version, current balances and checked addition still identify the change.
+The recorded launch value is independent of the requested allocation. These
+values neither constrain execution nor reserve provider capacity. Existing repair
+metadata, holds, continuation, original requests, identities and spent/uncertain
+resources are preserved. Episode-bound targets still require their separate
+authority. Snapshot and preview use metered reads; normal open/owner recovery may
+occur. Token figures remain operator estimates, not measured usage or new funds.
 
 `work-repair-snapshot WORK` reports exact fences and the existing repair
-suballowance. `allocate-work-repair REQUEST.json --preview` or `--apply` explicitly
-allocates restricted repair from the work's remaining attempts. The request has
+metadata. `allocate-work-repair REQUEST.json --preview` or `--apply` records
+additional repair metadata without an attempt quota. The request has
 `id`, `operator`, `work_id`, `reason`, `authorization_reference`,
-`authorize_allocation: true`, the snapshot's `expected` and
-`expected_declared_repair_attempts`, and `additional_repair_attempts` (1–8).
-Cumulative declared repair attempts cannot exceed eight, and remaining repair
-attempts cannot exceed remaining work attempts. Each admitted repair spends one
-of both balances. Allocation adds no attempts, navigation, lifetime steps or
+the snapshot's `expected` and `expected_declared_repair_attempts`, and
+`additional_repair_attempts`. The old `authorize_allocation` flag is optional.
+There is no eight-repair ceiling, positive-addition prerequisite or requirement
+that repair metadata fit the ordinary attempt balance. Actual use remains
+recorded and historical remaining counters saturate at zero. Allocation adds no
+ordinary attempts, navigation, lifetime steps or
 Store funding, changes no continuation, and performs no inference. Exact request
 replay returns the immutable historical receipt without replenishing anything.
 These commands use metered reads without orphan recovery. Episode-bound work
@@ -511,8 +516,8 @@ inventory that distinguishes withheld optional bodies from bodies independently
 supplied by mandatory context. It permits only whole-entry selection reductions,
 bounded exact repair reads, or an honest stop. After repair, explicit resume and
 fresh ordinary admission are required; the repair cannot answer the task itself.
-A remaining repair attempt alone is insufficient: navigation must cover both
-preparations, including the repair projection.
+The specialized repair interface retains its current opportunity and response
+shape rules; saved attempt and navigation balances do not gate execution.
 
 The repair request presents the complete Decision envelope with only exact-read
 operations, ongoing work with empty evidence, unchanged/blocked/deferred
