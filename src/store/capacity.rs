@@ -161,7 +161,7 @@ fn approved_limits(path: &Path, base: &Limits) -> Result<Limits> {
             "SELECT CASE WHEN length(data)<=?2 THEN data ELSE NULL END FROM store_cells WHERE ns='capacity_extension' AND k=?1",
             params![reference.id, RECEIPT_BYTES as i64], |row| row.get(0),
         )?;
-        let object: StoredObject = serde_json::from_slice(&bytes.ok_or(StoreError::TooLarge)?)?;
+        let object: StoredObject = decode_json(&bytes.ok_or(StoreError::TooLarge)?)?;
         let extension = decode_extension(&object, &reference)?;
         if extension.limits != current
             || (count == 1 && meta.runtime_control_plan.as_deref() != Some(&extension.control_plan))
@@ -291,7 +291,7 @@ impl Store {
                 let cell = work
                     .cell("runtime_control", &key)?
                     .ok_or_else(|| StoreError::Missing(key.clone()))?;
-                let slot: RuntimeControlSlot = serde_json::from_slice(&cell.data)?;
+                let slot: RuntimeControlSlot = decode_json(&cell.data)?;
                 if slot.commit.is_none() {
                     work.runtime_control_slot(&key, &requirement.work, ending, &old_plan)?;
                     slots.push((key, cell, slot));

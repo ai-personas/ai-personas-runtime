@@ -373,13 +373,7 @@ fn setup_parts(operator: &str, settings: Setup, opt_in: bool) -> Result<(Config,
     config.transport_output_reserve_bytes = config
         .transport_output_reserve_bytes
         .max(settings.provider.limits.max_stream_bytes as u64);
-    require(
-        settings.provider.limits.max_prompt_bytes <= config.context_bytes
-            && settings.provider.limits.max_response_bytes <= config.response_bytes
-            && settings.provider.limits.max_stream_bytes as u64
-                <= config.transport_output_reserve_bytes,
-        "provider output exceeds saved runtime bounds",
-    )?;
+
     let working = fs::canonicalize(&settings.working_directory)?;
     require(working.is_dir(), "working directory must exist")?;
     let settings: SavedSetup = serde_json::from_value(serde_json::to_value(settings)?)?;

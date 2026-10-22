@@ -11,7 +11,8 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 pub const PROFILE: &str = "host.command.v1";
-pub const OUTPUT_BYTES: usize = 16 * 1024;
+/// Historical reservation estimate; capture is not limited by this value.
+pub const OUTPUT_ESTIMATE_BYTES: usize = 16 * 1024;
 pub const SHELL: &str = "/bin/bash";
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -123,16 +124,17 @@ fn captured(path: &Path) -> std::io::Result<OutputCapture> {
     let length = file.metadata()?.len();
     let ranges = if length == 0 {
         Vec::new()
-    } else if length <= OUTPUT_BYTES as u64 {
-        vec![(0, length)]
     } else {
-        let half = (OUTPUT_BYTES / 2) as u64;
-        vec![(0, half), (length - half, length)]
+        vec![(0, length)]
     };
     let mut segments = Vec::with_capacity(ranges.len());
     for (start, end) in ranges {
         file.seek(SeekFrom::Start(start))?;
-        let mut bytes = vec![0; (end - start) as usize];
+        let size = usize::try_from(end - start)
+            .map_err(|_| std::io::Error::other("host output length cannot be represented"))?;
+        let mut bytes = Vec::new();
+        bytes.try_reserve_exact(size).map_err(std::io::Error::other)?;
+        bytes.resize(size, 0);
         // Bound each read by the observed length even if a background writer
         // appends more output. A shortened file fails capture instead of
         // claiming that an unobserved range was read.
@@ -149,14 +151,14 @@ fn captured(path: &Path) -> std::io::Result<OutputCapture> {
     }
     Ok(OutputCapture {
         bytes_observed: Some(length),
-        capture_complete: length <= OUTPUT_BYTES as u64,
+        capture_complete: true,
         segments,
         log_path: Some(path.to_string_lossy().into_owned()),
     })
 }
 
-/// Run once, after native intent dispatch. Output capture limits the retained
-/// excerpt, never the command. Full stdout/stderr stay available as host files.
+/// Run once, after native intent dispatch. Retain the complete observed output;
+/// stdout/stderr also remain available as host files.
 pub fn execute(input: &Inputs, directory: &Path) -> Outcome {
     use std::os::unix::ffi::OsStrExt;
     let started = Instant::now();

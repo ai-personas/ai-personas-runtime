@@ -1,5 +1,10 @@
 # Retain host files as supporting assets
 
+The host reader now retains the complete regular UTF-8 file without an import
+byte ceiling. The separate file-corpus restrictions below remain pending removal
+under [the current requirement](execution-resources.md).
+
+
 Personas can use `file_import` to keep an existing UTF-8 host file in the native
 asset store without copying its content through a model response. This supports
 retaining useful skill guides, scripts, code, notes and data for later selective

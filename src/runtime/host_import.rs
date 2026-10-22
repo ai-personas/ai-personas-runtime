@@ -9,7 +9,7 @@ pub(super) fn read(
     operation: &str,
     path: &str,
     expected_sha256: Option<&str>,
-    maximum: usize,
+    _historical_maximum: usize,
 ) -> Result<(Vec<u8>, RevisionOrigin)> {
     let interface = prepared
         .host_command_interface
@@ -32,7 +32,7 @@ pub(super) fn read(
     };
     // Do not block opening a FIFO before discovering that it is not a regular
     // file. Host commands remain available for arbitrary devices and streams.
-    let file = OpenOptions::new()
+    let mut file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NONBLOCK)
         .open(&resolved)
@@ -41,19 +41,9 @@ pub(super) fn read(
         file.metadata()?.is_file(),
         "file_import requires a regular file",
     )?;
-    let maximum = maximum.min(p::MAX_TEXT_BYTES);
-    require(
-        control["file_import"]["maximum_bytes"].as_u64() == Some(maximum as u64),
-        "file_import retention bound changed since admission",
-    )?;
     let mut bytes = Vec::new();
-    file.take(maximum as u64 + 1)
-        .read_to_end(&mut bytes)
+    file.read_to_end(&mut bytes)
         .map_err(|e| held(format!("file_import {operation}: {e}")))?;
-    require(
-        bytes.len() <= maximum,
-        "file_import exceeds the native asset byte limit",
-    )?;
     require(
         std::str::from_utf8(&bytes).is_ok(),
         "file_import requires UTF-8; bytes were not replaced",

@@ -6,13 +6,6 @@ const POOL: &str = "retained_exposures";
 const REFERENCE: &str = "retained_exposure";
 const DOMAIN: &str = "runtime-retained-exposure-v1";
 const POOL_VERSION: u32 = 2;
-// A compact record must not permit unbounded allocation while being decoded.
-// Store continues to enforce its separate, smaller serialized-record limits.
-const MAX_EXPANDED_BYTES: usize = 64 * 1024 * 1024;
-// Store's complete record/control envelope is at most 16 MiB. Leave that much
-// additional decoded room for its prepaid pause/ending mutations, which must
-// remain readable even when ordinary state growth has reached its own limit.
-const MAX_SAVED_EXPANDED_BYTES: usize = MAX_EXPANDED_BYTES - 16 * 1024 * 1024;
 
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "State", deny_unknown_fields)]
@@ -227,11 +220,6 @@ fn manifests(
 }
 
 fn pack(mut value: Value) -> serde_json::Result<Value> {
-    if serde_json::to_vec(&value)?.len() > MAX_SAVED_EXPANDED_BYTES {
-        return Err(invalid_storage(
-            "expanded runtime state exceeds its byte bound",
-        ));
-    }
     let mut candidates: BTreeMap<String, (Value, usize)> = BTreeMap::new();
     manifests(&mut value, POOL_VERSION, |exposure| {
         let key = identity(exposure)?;
@@ -272,12 +260,6 @@ fn pack(mut value: Value) -> serde_json::Result<Value> {
 
 fn unpack(mut value: Value) -> serde_json::Result<Value> {
     let pool = value.as_object_mut().and_then(|object| object.remove(POOL));
-    let mut expanded_bytes = serde_json::to_vec(&value)?.len();
-    if expanded_bytes > MAX_EXPANDED_BYTES {
-        return Err(invalid_storage(
-            "expanded runtime state exceeds its byte bound",
-        ));
-    }
     let Some(pool) = pool else {
         return Ok(value);
     };
@@ -285,7 +267,6 @@ fn unpack(mut value: Value) -> serde_json::Result<Value> {
     if !matches!(pool.version, 1 | POOL_VERSION) || pool.entries.is_empty() {
         return Err(invalid_storage("unsupported retained exposure pool"));
     }
-    let mut sizes = BTreeMap::new();
     for (key, exposure) in &pool.entries {
         // Hash checks bind the complete manifest, including source revisions,
         // representation/ranges, policy versions, restrictions and array order.
@@ -293,25 +274,18 @@ fn unpack(mut value: Value) -> serde_json::Result<Value> {
             return Err(invalid_storage("retained exposure digest mismatch"));
         }
         serde_json::from_value::<Exposure>(exposure.clone())?;
-        sizes.insert(key.clone(), serde_json::to_vec(exposure)?.len());
     }
     let mut used = BTreeSet::new();
-    // Bound the complete expansion before cloning any referenced manifest.
+    // Validate every reference before expanding the shared manifests.
     manifests(&mut value, pool.version, |exposure| {
         if let Some(reference) = exposure.get(REFERENCE) {
             let key = reference
                 .as_str()
                 .filter(|_| exposure.as_object().is_some_and(|o| o.len() == 1))
                 .ok_or_else(|| invalid_storage("invalid retained exposure reference"))?;
-            let bytes = sizes
-                .get(key)
-                .ok_or_else(|| invalid_storage("retained exposure absent"))?;
-            let reference_bytes = serde_json::to_vec(exposure)?.len();
-            expanded_bytes = expanded_bytes
-                .checked_sub(reference_bytes)
-                .and_then(|n| n.checked_add(*bytes))
-                .filter(|n| *n <= MAX_EXPANDED_BYTES)
-                .ok_or_else(|| invalid_storage("expanded runtime state exceeds its byte bound"))?;
+            if !pool.entries.contains_key(key) {
+                return Err(invalid_storage("retained exposure absent"));
+            }
             used.insert(key.to_owned());
         }
         Ok(())

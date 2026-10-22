@@ -1,12 +1,12 @@
 # Direct model provider
 
-Ordinary Direct inference now has **no local duration timer**; explicit cancellation
-remains available. The saved `timeout_ms` is historical configuration. Other
-transport enforcement described below remains an [implementation gap](execution-resources.md#remaining-work)
-under the current no-limits requirement.
+Direct inference has no application duration, prompt/schema/request-byte,
+response-byte, stream-byte, event-size, event-count or output-item quota.
+Explicit cancellation and actual provider/network outcomes remain effective.
+Saved `limits` values are historical estimates. Other runtime restrictions remain
+[implementation gaps](execution-resources.md#remaining-work).
 
-
-Personas sends one bounded HTTPS Responses request per admitted step. Its runtime owns prompt assembly, tools, memory, decisions, collaboration, assessment, adoption, resource accounting and durable recovery. Codex CLI and app-server execution are absent from product runtime. Engineering tools are separate.
+Personas sends one HTTPS Responses request per admitted step. Its runtime owns prompt assembly, tools, memory, decisions, collaboration, assessment, adoption, resource accounting and durable recovery. Codex CLI and app-server execution are absent from product runtime. Engineering tools are separate.
 
 Persona inputs contain the actual admitted capabilities, authority, remaining
 resources and observations. The operator's `readiness` diagnostic is separate;
@@ -36,48 +36,21 @@ These modes never substitute for one another. A missing credential, unsupported 
 
 Capability evidence binds the selected mode, immutable transport profile, model, supported efforts, fixed account fingerprint and retained catalog/structured-output evidence digests. Evidence digests are operator assertions naming retained verification, not independent proof. An environment variable name alone cannot establish account binding. Unestablished structured-output capability rejects preparation; it cannot drop the schema or switch routes.
 
-Limits bound prompt/schema size and structure, encoded request size, observed stream/event bytes and count, response size and local transfer duration. Every required field must be supplied; an absent limit is not unlimited. Setup validates configuration without resolving credentials or building transport. Preparation resolves the explicitly selected source; dispatch rechecks grant, expiry and the prepared account binding. Environment secrets must be configured through a separately authorized operator action.
+Transport and onboarding retain complete responses without enforcing the saved
+size or timeout fields. Reads use ordinary chunks; a chunk size is not a total
+stream cap. The collector still requires a complete, coherent provider response
+and EOF. A partial stream remains partial. Exact model/account/request bindings,
+duplicate-key rejection and whole-Decision structure remain checked.
 
-Fresh setup sizes each attempt's transport-output reservation to cover the
-validated provider stream allowance, even when it exceeds the runtime's default
-reservation. Preview shows this reservation. The controlling Store output
-allowance is unchanged; every admitted attempt must still fit its remaining
-resources. Existing runtimes use the explicit transport-capacity operation below
-when their saved stream allowance needs to change.
+Runtime input construction still has separate context/corpus restrictions pending
+removal. Provider account, rate and context outcomes are reported as observed;
+removing local quotas does not change the external service.
 
-The completion event can contain a larger provider envelope than the authored
-Decision. Native onboarding allows a 512 KiB event within its 1 MiB total stream
-ceiling while retaining the 32 KiB response limit. Existing saved settings keep
-their exact bounds until explicit migration. Increasing an event bound does not
-permit an oversized Decision or turn an interrupted stream into a completed reply.
-
-For an existing standalone launch, `transport-capacity-snapshot` and
-`extend-transport-capacity REQUEST.json --preview|--apply` provide explicit
-recovery when a stream, event-count or transfer-time allowance is too small.
-The request contains `id`, `operator`, `reason`, `authorization_reference`,
-`authorize_extension: true`, the snapshot's `expected_runtime`, `expected_launch`,
-`expected_transport_output_reserve_bytes` and `expected_limits`, plus
-`new_limits`. Both limit objects contain `max_stream_bytes`, `max_events` and
-`timeout_ms`. At least one must increase and none may decrease; existing provider
-configuration ceilings still apply. Size the event-count and time allowances
-alongside the stream allowance: a larger stream can contain more events and take
-longer to receive.
-
-The operation atomically updates those three provider limits and raises the
-runtime's per-call transport-output reservation only if needed. Account, model,
-effort, credentials, capability evidence, prompt and Decision bounds remain
-unchanged. It preserves history, charges, uncertainty, selections, Stop/Pause and
-remaining resources, and neither resumes work nor makes a provider call. Fresh
-calls must fund the increased reservation from existing Store resources; this
-operation grants no output, navigation or token funds. A failed attempt still
-requires its separate native acknowledgment and recovery.
-
-Snapshot and preview reserve no future capacity. All paths use metered reads
-without orphan recovery. A new extension requires execution ownership, terminal
-invocations and exact current runtime/launch references, and records an immutable
-receipt. Repeating the exact applied request returns that historical receipt.
-The original incomplete stream remains incomplete; only a fresh authorized call
-uses the new allowances.
+Historical `transport-capacity-snapshot` and `extend-transport-capacity` commands
+remain present, but extending those saved values is no longer necessary to pass
+ordinary transport. They do not repair an incomplete historical response or
+resume a stopped actor. Reservations remain accounting estimates, not enforced
+resource allowances; actual known use and unknown provider exposure stay distinct.
 
 Use `setup --allow-direct-provider --share-cohort` and `step --profile direct`. Runtime configuration also requires explicit `allow_direct_provider: true`. The historical research flag grants no direct access. Existing working-directory arguments remain compatibility metadata; the provider does not read that directory or transmit it.
 
@@ -85,7 +58,7 @@ Use `setup --allow-direct-provider --share-cohort` and `step --profile direct`. 
 
 New launch metadata uses format 2. Format-1 historical launch records and their opaque provider settings remain readable through `open`/`result`; those reads do not resolve credentials. Legacy CLI configuration and legacy execution profiles fail closed. Explicit provider/model migration is not implemented by silently changing settings: it must preserve Store history, character and asset identities, counters, remaining allowances, stopped work, responsibilities and unresolved attempts. Existing exact persona model/effort bindings still apply. No automatic conversion, reset, new grant or historical receipt rewrite occurs. Missing historical terminal bodies stay missing.
 
-Native admission retains execution ownership, exact prompt/response-contract binding, resource reservation and durable dispatch before transmission. Transport completion precedes whole-Decision acceptance. An invalid complete Decision is held with its bounded exact terminal body. Possible submission followed by timeout, cancellation or transport failure remains uncertain; neither replay nor remote cancellation is inferred. Time-limited live exposure remains rejected until a final egress expiry guard is available.
+Native admission retains execution ownership, exact prompt/response-contract binding, resource reservation and durable dispatch before transmission. Transport completion precedes whole-Decision acceptance. An invalid complete Decision is held with its complete exact terminal body. Possible submission followed by timeout, cancellation or transport failure remains uncertain; neither replay nor remote cancellation is inferred. Time-limited live exposure remains rejected until a final egress expiry guard is available.
 
 A first complete provider response fills its prepaid terminal slot and records
 the response digest before any metered invocation read for adoption or rejection.
@@ -119,7 +92,7 @@ for freshness, accounting, compatibility and the paths that remain sequential.
 
 ## Wire and stream limits
 
-New persona admissions request the complete Decision directly with `text.format: {"type":"json_object"}`. The prompt supplies `APPLICATION_DECISION_SCHEMA`; the native parser validates the entire received object, including duplicate keys, required fields, tagged variants, bounds and cross-field rules, before any adoption. JSON mode alone does not establish application-schema validity. It removes the extra escaping layer that a JSON-string carrier imposed on scripts and other text.
+New persona admissions request the complete Decision directly with `text.format: {"type":"json_object"}`. The prompt supplies `APPLICATION_DECISION_SCHEMA`; the native parser validates the entire received object, including duplicate keys, required fields, tagged variants and cross-field rules, before any adoption. JSON mode alone does not establish application-schema validity. It removes the extra escaping layer that a JSON-string carrier imposed on scripts and other text.
 
 The application permits operation-specific inputs and maps whose keys are authored at runtime. These are not closed objects suitable for a fixed strict response schema. [OpenAI's JSON-mode documentation](https://developers.openai.com/api/docs/guides/structured-outputs#json-mode) describes JSON-object transport and its application-validation requirement. Incomplete, invalid or refused output remains a retained failure, with no transport retry or JSON repair.
 

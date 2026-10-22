@@ -1,5 +1,10 @@
 # Continuing a history query
 
+The Store archive adapter now reads complete inventories and exact archives
+without fixed record-count or aggregate byte quotas. Runtime cursor, result and
+context limits described below remain pending removal under
+[the current requirement](execution-resources.md).
+
 History query observations include the exact query alongside their results:
 
 ```json

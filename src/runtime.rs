@@ -151,10 +151,7 @@ pub fn decode_provider_carrier(bytes: &[u8], maximum: usize) -> Result<String> {
 /// JSON keeps the original UTF-8 bytes; it performs no repair or reserialization.
 fn decode_provider_decision(bytes: &[u8], schema: &Value, maximum: usize) -> Result<String> {
     if schema == &provider::json_object_schema() {
-        require(
-            bytes.len() <= maximum,
-            "provider decision exceeds its byte bound",
-        )?;
+
         String::from_utf8(bytes.to_vec()).map_err(|_| invalid("provider decision is not UTF-8"))
     } else {
         require(
@@ -4330,11 +4327,6 @@ impl Runtime {
             invocation.state == s::InvocationState::Prepared,
             "synthetic submission requires a prepared invocation; no replay",
         )?;
-        let (_, state) = self.load()?;
-        require(
-            bytes.len() <= state.config.response_bytes,
-            "response exceeds its admitted output bound",
-        )?;
         require(
             decision.invocation_id == id,
             "response invocation identity mismatch",
@@ -4408,10 +4400,7 @@ impl Runtime {
             },
             "raw adopt_response is fixture-only; provider completion requires an actual host transport receipt",
         )?;
-        require(
-            bytes.len() <= prepared.terminal_response_bytes.unwrap_or(RESPONSE_LIMIT),
-            "response exceeds its admitted output bound",
-        )?;
+
         let receipt = provider_observation.unwrap_or_else(|| {
             json!({"kind":"synthetic_complete",
             "synthetic":true,"inner_sha256":response_hash,"transport_sha256":response_hash,
@@ -4471,10 +4460,7 @@ impl Runtime {
             require(decision.epoch == prepared.epoch, "response epoch mismatch")?;
             check_supplied_work_command_inputs(&prepared, &decision)?;
             check_supplied_citation_namespace(&prepared, &decision)?;
-            require(
-                bytes.len() <= state.config.response_bytes,
-                "response exceeds its admitted output bound",
-            )?;
+
             check_supplied_closure_record(&prepared, &decision)?;
             if prepared.request.mode == Mode::SelectionRepair {
                 validate_selection_repair(&prepared, &decision)?;
@@ -5655,16 +5641,7 @@ impl Runtime {
                 && intent.effort == persona.seed.requested_effort,
             "provider configuration must retain the exact requested model and effort",
         )?;
-        require(
-            intent.max_prompt_bytes > 0
-                && intent.max_prompt_bytes <= state.config.context_bytes
-                && intent.max_request_bytes > 0
-                && intent.max_response_bytes > 0
-                && intent.max_response_bytes <= state.config.response_bytes
-                && intent.max_stream_bytes >= intent.max_response_bytes
-                && intent.max_stream_bytes as u64 <= state.config.transport_output_reserve_bytes,
-            "provider byte bounds exceed reservation",
-        )?;
+
         match self.store.invocation(&request.id) {
             Err(s::StoreError::Missing(_)) => (),
             Ok(_) => {
@@ -5932,8 +5909,7 @@ impl Runtime {
             &prepared,
             inner_hash.as_deref().unwrap_or(&transport_hash),
             metadata.clone(),
-            (bytes.len() <= intent.max_response_bytes && bytes.len() <= response_bytes)
-                .then_some(bytes.as_str()),
+            Some(bytes.as_str()),
         )?;
         match parsed {
             Ok(decision) => self.adopt_parsed(
@@ -7268,7 +7244,6 @@ fn render_mode_with_history(
             observation_queue.push(id);
         }
     }
-    let host_result_text_limit = host_tools::pending_text_limit(state, &observation_queue);
     for (slot, id) in observation_queue.iter().enumerate() {
         let observation = state
             .observations
@@ -7298,7 +7273,7 @@ fn render_mode_with_history(
                 .map(|(value, inherited, exact, roots)| (value, inherited, exact, roots, Vec::new()))
         } else {
             observation_projection::project_pending(
-                state, observation, &a, &observation_corpus, host_result_text_limit,
+                state, observation, &a, &observation_corpus,
             ).map(|(value, inherited, exact, metadata)| (value, inherited, exact, Vec::new(), metadata))
         };
         if let Ok((value, inherited, exact, historical_roots, metadata)) = supplied {
@@ -7995,8 +7970,8 @@ fn render_mode_with_history(
         core["host_command_capability"] = serde_json::to_value(interface)?;
         core["file_import"] = json!({
             "interface":host_import::INTERFACE,
-            "maximum_bytes":state.config.corpus.max_file_bytes.min(p::MAX_TEXT_BYTES),
-            "rule":"Use file_import to retain an existing regular UTF-8 host file as a supporting asset without rewriting its bytes. Choose a native source ID, native relative destination path, current base revision for updates, policy and qualifications; list the operation in asset_maintenance.change.operation_ids. host_path is a host filesystem path, relative to the supplied default working directory when not absolute. expected_sha256 optionally checks raw bytes. Import is a local save before host commands execute: a file produced by a proposed command requires its observed result and a fresh decision. Select the exact proposal-op:<id> under next_assets for a later input, or rediscover the native path later. Import preserves observed bytes and provenance; it neither runs a tool, establishes content authorship or skill use, nor creates characteristic fragments. A metadata receipt supplies no file body. Host commands remain unrestricted for files outside this native retention format or size."
+            "maximum_bytes":null,
+            "rule":"Use file_import to retain an existing regular UTF-8 host file as a supporting asset without rewriting its bytes. Choose a native source ID, native relative destination path, current base revision for updates, policy and qualifications; list the operation in asset_maintenance.change.operation_ids. host_path is a host filesystem path, relative to the supplied default working directory when not absolute. expected_sha256 optionally checks raw bytes. Import is a local save before host commands execute: a file produced by a proposed command requires its observed result and a fresh decision. Select the exact proposal-op:<id> under next_assets for a later input, or rediscover the native path later. Import preserves observed bytes and provenance; it neither runs a tool, establishes content authorship or skill use, nor creates characteristic fragments. A metadata receipt supplies no file body. Host commands also support files outside this native UTF-8 retention format."
         });
         core["host_command_rules"] = json!({"operation":"effect", "access":"full_host_by_default",
             "paths":"Native file paths such as tools/results/... identify runtime assets, not files under the host working directory. Use inputs.stdin_asset with {kind:input_file,handle:CURRENT_HANDLE} or {kind:reference,reference:EXACT_FULL_ASSET_REF} to pass exact stored UTF-8 bytes directly to command stdin. For example cat > a host path exports them, and python3 - runs a script. Do not also supply literal stdin. A same-response proposal needs its exact save ID in depends_on. This consumes the asset without claiming its body was supplied to the model. Ordinary read or next-context selection can supply the body when useful. Read the retained result body to recover an earlier command's actual host output path. stdout.log_path, stderr.log_path and paths written by commands are filesystem paths. Use the requested exact host output path for a revision instead of treating an asset path as a host path or searching for similar filenames.",
@@ -11191,14 +11166,9 @@ pub type DirectProviderSettings = provider::DirectSettings;
 /// Source-name compatibility only. The legacy serialized CLI shape is rejected.
 pub type ResearchSettings = DirectProviderSettings;
 impl provider::DirectSettings {
-    fn build(&self, config: &Config) -> Result<provider::DirectProvider> {
+    fn build(&self, _config: &Config) -> Result<provider::DirectProvider> {
         self.validate()?;
-        require(
-            self.limits.max_prompt_bytes <= config.context_bytes
-                && self.limits.max_response_bytes <= config.response_bytes
-                && self.limits.max_stream_bytes as u64 <= config.transport_output_reserve_bytes,
-            "direct provider bounds exceed the existing runtime reservation",
-        )?;
+
         Ok(self.connect()?)
     }
 }

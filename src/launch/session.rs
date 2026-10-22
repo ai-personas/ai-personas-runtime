@@ -777,17 +777,12 @@ impl Driver for OwnedLive<'_> {
 }
 fn build_codex_provider(
     settings: &provider::DirectSettings,
-    config: &Config,
+    _config: &Config,
     source: std::sync::Arc<dyn provider::CredentialSource>,
     transport_override: Option<std::sync::Arc<dyn provider::HttpTransport>>,
 ) -> Result<provider::DirectProvider> {
     settings.validate()?;
-    require(
-        settings.limits.max_prompt_bytes <= config.context_bytes
-            && settings.limits.max_response_bytes <= config.response_bytes
-            && settings.limits.max_stream_bytes as u64 <= config.transport_output_reserve_bytes,
-        "direct provider bounds exceed the existing runtime reservation",
-    )?;
+
     let transport: std::sync::Arc<dyn provider::HttpTransport> = match transport_override {
         Some(transport) => transport,
         None => std::sync::Arc::new(provider::ReqwestTransport::new()?),

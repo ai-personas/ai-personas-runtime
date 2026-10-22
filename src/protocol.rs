@@ -1,8 +1,7 @@
 //! Strict, whole-response parsing for persona decisions.
 //!
-//! `parse_decision` is the entry point for untrusted bytes. It checks byte size,
-//! UTF-8, JSON grammar, decoded duplicate keys, Unicode escapes, nesting, node
-//! count, and decoded string size before deserializing the typed response.
+//! `parse_decision` validates the complete UTF-8 JSON grammar, decoded duplicate
+//! keys, Unicode escapes and typed response without application size quotas.
 //!
 //! Successful validation establishes a structurally consistent proposal only.
 //! It establishes neither authority, persistence, evidence authenticity, actual
@@ -763,13 +762,7 @@ pub enum ProtocolError {
 
 /// Parse and validate the complete response without performing any mutation.
 /// No valid prefix is returned if any later part of the response is invalid.
-pub fn parse_decision(bytes: &[u8], max_bytes: usize) -> Result<Decision, ProtocolError> {
-    if bytes.len() > max_bytes {
-        return Err(ProtocolError::InputTooLarge {
-            actual: bytes.len(),
-            maximum: max_bytes,
-        });
-    }
+pub fn parse_decision(bytes: &[u8], _historical_max_bytes: usize) -> Result<Decision, ProtocolError> {
     std::str::from_utf8(bytes).map_err(|error| ProtocolError::InvalidUtf8 {
         offset: error.valid_up_to(),
     })?;
@@ -779,18 +772,20 @@ pub fn parse_decision(bytes: &[u8], max_bytes: usize) -> Result<Decision, Protoc
         nodes: 0,
     }
     .document()?;
-    let decision: Decision = serde_path_to_error::deserialize(
-        &mut serde_json::Deserializer::from_slice(bytes),
-    )
+    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    deserializer.disable_recursion_limit();
+    let decision: Decision = serde_path_to_error::deserialize(&mut deserializer)
     .map_err(|error| {
         let hint = diagnostics::hint(error.path(), bytes);
         shape_error_with_hint(error.into_inner(), hint)
     })?;
     // Serde also accepts positional sequences for derived named structs. Compare
     // the original containers with their typed wire shape, so those sequences
-    // cannot bypass the advertised object-only boundaries. Preflight bounds both
-    // traversals and rejects duplicate keys before either tree is constructed.
-    let received: Value = serde_json::from_slice(bytes).map_err(shape_error)?;
+    // cannot bypass the advertised object-only boundaries. Preflight rejects
+    // duplicate keys before either tree is constructed.
+    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    deserializer.disable_recursion_limit();
+    let received = Value::deserialize(&mut deserializer).map_err(shape_error)?;
     let typed = serde_json::to_value(&decision)
         .expect("a deserialized Decision contains only JSON-serializable fields");
     if !same_container_shapes(&received, &typed) {
@@ -1062,17 +1057,7 @@ impl Preflight<'_> {
     fn value(&mut self, depth: usize) -> Result<(), ProtocolError> {
         self.whitespace();
         self.nodes += 1;
-        if self.nodes > MAX_JSON_NODES {
-            return Err(ProtocolError::NodeLimit {
-                offset: self.position,
-                maximum: MAX_JSON_NODES,
-            });
-        }
         match self.byte() {
-            Some(b'{') | Some(b'[') if depth >= MAX_JSON_DEPTH => Err(ProtocolError::DepthLimit {
-                offset: self.position,
-                maximum: MAX_JSON_DEPTH,
-            }),
             Some(b'{') => self.object(depth + 1),
             Some(b'[') => self.array(depth + 1),
             Some(b'"') => self.string().map(|_| ()),
@@ -1151,12 +1136,6 @@ impl Preflight<'_> {
                             offset: start,
                             problem: "invalid string escape or Unicode scalar value",
                         })?;
-                    if decoded.len() > MAX_TEXT_BYTES {
-                        return Err(ProtocolError::StringLimit {
-                            offset: start,
-                            maximum: MAX_TEXT_BYTES,
-                        });
-                    }
                     return Ok(decoded);
                 }
                 Some(b'\\') => {
@@ -1224,11 +1203,11 @@ fn invalid(path: &str, rule: &'static str) -> ProtocolError {
     }
 }
 
-fn check_text(value: &str, maximum: usize, path: &str) -> Result<(), ProtocolError> {
-    if value.trim().is_empty() || value.len() > maximum {
+fn check_text(value: &str, _historical_maximum: usize, path: &str) -> Result<(), ProtocolError> {
+    if value.trim().is_empty() {
         return Err(invalid(
             path,
-            "text must be nonblank and within its UTF-8 byte limit",
+            "text must be nonblank",
         ));
     }
     if value
@@ -1242,12 +1221,11 @@ fn check_text(value: &str, maximum: usize, path: &str) -> Result<(), ProtocolErr
 
 pub(crate) fn check_id(value: &str, path: &str) -> Result<(), ProtocolError> {
     if value.is_empty()
-        || value.len() > MAX_ID_BYTES
         || value.chars().any(|c| c.is_whitespace() || c.is_control())
     {
         return Err(invalid(
             path,
-            "identifier must be nonempty, bounded, and contain no whitespace or controls",
+            "identifier must be nonempty and contain no whitespace or controls",
         ));
     }
     Ok(())
@@ -1294,13 +1272,13 @@ fn check_base(value: &Option<String>, path: &str) -> Result<(), ProtocolError> {
 fn check_count(
     length: usize,
     minimum: usize,
-    maximum: usize,
+    _historical_maximum: usize,
     path: &str,
 ) -> Result<(), ProtocolError> {
-    if !(minimum..=maximum).contains(&length) {
+    if length < minimum {
         return Err(invalid(
             path,
-            "collection length is outside the protocol bounds",
+            "collection has fewer than the required items",
         ));
     }
     Ok(())
@@ -1649,9 +1627,6 @@ fn check_continuation(continuation: &Continuation) -> Result<(), ProtocolError> 
             ..
         } => {
             check_ids(dependency_ids, 1, "continuation.dependency_ids")?;
-            if dependency_ids.len() > crate::work::MAX_WAIT_DEPENDENCIES {
-                return Err(invalid("continuation.dependency_ids", "at most eight exact dependencies"));
-            }
             check_text(reason, MAX_REASON_BYTES, "continuation.reason")
         }
         Continuation::Pause { reason } | Continuation::Stop { reason } => {
@@ -1688,50 +1663,6 @@ fn check_profile(
     Ok(())
 }
 
-/// Opaque capability inputs may legitimately contain empty strings, nulls, or
-/// arbitrary member names. Check resource bounds without interpreting them as
-/// protocol instructions or guessing which nested objects represent references.
-fn check_inputs(
-    value: &Value,
-    depth: usize,
-    nodes: &mut usize,
-    path: &str,
-) -> Result<(), ProtocolError> {
-    *nodes += 1;
-    if *nodes > MAX_JSON_NODES {
-        return Err(invalid(
-            path,
-            "aggregate capability-input node limit exceeded",
-        ));
-    }
-    match value {
-        Value::String(text) if text.len() > MAX_TEXT_BYTES => {
-            Err(invalid(path, "capability-input string limit exceeded"))
-        }
-        Value::Array(values) => {
-            if depth >= MAX_JSON_DEPTH {
-                return Err(invalid(path, "capability-input depth limit exceeded"));
-            }
-            for value in values {
-                check_inputs(value, depth + 1, nodes, path)?;
-            }
-            Ok(())
-        }
-        Value::Object(values) => {
-            if depth >= MAX_JSON_DEPTH {
-                return Err(invalid(path, "capability-input depth limit exceeded"));
-            }
-            for (key, value) in values {
-                if key.len() > MAX_TEXT_BYTES {
-                    return Err(invalid(path, "capability-input member-name limit exceeded"));
-                }
-                check_inputs(value, depth + 1, nodes, path)?;
-            }
-            Ok(())
-        }
-        _ => Ok(()),
-    }
-}
 
 fn check_warning_references(
     references: &[ExactRef],
@@ -1763,7 +1694,7 @@ fn check_warning_references(
 fn check_operation(
     operation: &Operation,
     index: usize,
-    input_nodes: &mut usize,
+    _input_nodes: &mut usize,
 ) -> Result<(), ProtocolError> {
     let path = format!("operations[{index}]");
     check_id(operation.id(), &format!("{path}.id"))?;
@@ -1929,10 +1860,10 @@ fn check_operation(
             cursor,
             ..
         } => {
-            if !(1..=128).contains(limit) {
+            if *limit == 0 {
                 return Err(invalid(
                     &format!("{path}.limit"),
-                    "history limit must be 1..128",
+                    "history page size must be positive",
                 ));
             }
             if let Some(cursor) = cursor {
@@ -1979,10 +1910,10 @@ fn check_operation(
             Ok(())
         }
         Operation::InspectWork { limit, cursor, .. } => {
-            if !(1..=128).contains(limit) {
+            if *limit == 0 {
                 return Err(invalid(
                     &format!("{path}.limit"),
-                    "work inspection limit must be 1..128",
+                    "work inspection page size must be positive",
                 ));
             }
             if let Some(cursor) = cursor {
@@ -1992,10 +1923,10 @@ fn check_operation(
         }
         Operation::Search { query, limit, .. } => {
             check_text(query, MAX_STRING_BYTES, &format!("{path}.query"))?;
-            if !(1..=MAX_SEARCH_LIMIT).contains(limit) {
+            if *limit == 0 {
                 return Err(invalid(
                     &format!("{path}.limit"),
-                    "search limit must be positive and bounded",
+                    "search page size must be positive",
                 ));
             }
             Ok(())
@@ -2007,10 +1938,10 @@ fn check_operation(
             ..
         } => {
             use crate::files::{Representation, SearchMode, SearchSurface};
-            if !(1..=MAX_SEARCH_LIMIT).contains(limit) {
+            if *limit == 0 {
                 return Err(invalid(
                     &format!("{path}.limit"),
-                    "discovery limit must be positive and bounded",
+                    "discovery page size must be positive",
                 ));
             }
             if let Some(cursor) = cursor {
@@ -2137,21 +2068,18 @@ fn check_operation(
                 ));
             }
             check_ids(depends_on, 0, &format!("{path}.depends_on"))?;
-            check_inputs(inputs, 3, input_nodes, &format!("{path}.inputs"))
+            Ok(())
         }
         Operation::Effect {
             capability_id,
             binding_revision,
-            inputs,
             depends_on,
             ..
         } => {
             check_id(capability_id, &format!("{path}.capability_id"))?;
             check_accepted_revision(binding_revision, &format!("{path}.binding_revision"))?;
             check_ids(depends_on, 0, &format!("{path}.depends_on"))?;
-            // The enclosing decision object, operations array, and operation
-            // object consume three levels of the wire nesting allowance.
-            check_inputs(inputs, 3, input_nodes, &format!("{path}.inputs"))
+            Ok(())
         }
     }
 }

@@ -1,6 +1,5 @@
 //! Current-permission and qualification projection for exact observations.
-//! Pending host results may add explicit excerpts; retained and selectively
-//! retrieved payloads remain complete and immutable.
+//! Pending host results and selectively retrieved payloads remain complete.
 use super::*;
 
 pub(super) fn project_pending(
@@ -8,7 +7,6 @@ pub(super) fn project_pending(
     observation: &Observation,
     a: &f::Admission,
     observation_corpus: &f::Corpus,
-    host_text_limit: usize,
 ) -> Result<(Value, Exposure, Vec<f::Reference>, Vec<f::Reference>)> {
     let (mut value, mut inherited, exact) = project(state, observation, a, observation_corpus)?;
     let mut metadata = Vec::new();
@@ -17,7 +15,6 @@ pub(super) fn project_pending(
         observation,
         a,
         &mut value["payload"],
-        host_text_limit,
     )? {
         inherited.sources.push(reference.clone());
         metadata.push(reference);

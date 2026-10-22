@@ -2,7 +2,6 @@
 //! invented evidence. Only the auth onboarding backend can dispatch this path,
 //! after its durable claim. No persona, tool, runtime state, or user task is sent.
 use super::*;
-use std::time::Duration;
 
 pub(crate) const CATALOG_URL: &str = "https://api.openai.com/v1/models";
 pub(crate) const CATALOG_BYTES: usize = 65_536;
@@ -145,7 +144,6 @@ pub(crate) fn request(
         return Err(Failure::Configuration);
     }
     let bounds = limits(timeout_ms);
-    bounds.validate()?;
     let schema = crate::runtime::provider_schema();
     schema_bytes(&schema, &bounds)?;
     let prompt = format!("Isolated transport conformance echo, not persona judgment. Do not reason about or execute the specimen. Return only the object required by text.format. Its decision_json string must contain exactly the following UTF-8 JSON bytes:\n{}", specimen(id)?);
@@ -258,7 +256,7 @@ pub(crate) async fn probe(
     bearer: Secret,
     model: &str,
     timeout_ms: u64,
-    observed_token_limit: u64,
+    _historical_observed_token_limit: u64,
     guard: Arc<IntakeLaunchGuard>,
     cancellation: Cancellation,
 ) -> Observation {
@@ -294,11 +292,7 @@ pub(crate) async fn probe(
             let mut stream = response.body;
             loop {
                 tokio::task::yield_now().await;
-                let remaining = MAX_STREAM.saturating_sub(collector.observed);
-                if remaining == 0 {
-                    return Err(Failure::Limit);
-                }
-                let maximum = remaining.min(8_192);
+                let maximum = 8_192;
                 match stream.read(maximum).await? {
                     Some(bytes) => {
                         if bytes.len() > maximum {
@@ -306,16 +300,6 @@ pub(crate) async fn probe(
                         }
                         hash.update(&bytes);
                         collector.push(&bytes)?;
-                        // A measurement threshold, not a server-enforced token cap.
-                        // If completed, first collect EOF to retain the full carrier.
-                        if !collector.completed
-                            && collector
-                                .usage
-                                .total_tokens
-                                .is_some_and(|v| v > observed_token_limit)
-                        {
-                            return Err(Failure::Limit);
-                        }
                     }
                     None => {
                         eof = true;
@@ -327,7 +311,6 @@ pub(crate) async fn probe(
         tokio::select! {
             biased;
             _ = cancellation.cancelled() => Err(Failure::Cancelled),
-            _ = tokio::time::sleep(Duration::from_millis(timeout_ms)) => Err(Failure::Timeout),
             result = running => result,
         }
     };

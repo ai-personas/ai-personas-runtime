@@ -14,13 +14,11 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::fmt;
-use std::io::{self, Write};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use tokio::sync::watch;
 
-const MAX_BYTES: usize = 64 * 1024 * 1024;
 const INSTRUCTIONS: &str = "Return only the JSON value required by text.format.";
 const USER_AGENT: &str = "ai-personas/direct-responses-v1";
 const PUBLIC_HEADERS: &[(&str, &str)] = &[
@@ -196,6 +194,7 @@ pub struct CapabilityEvidence {
     pub structured_output_evidence_sha256: Option<String>,
 }
 
+/// Saved historical estimates; ordinary transport does not enforce these as quotas.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Limits {
@@ -209,29 +208,6 @@ pub struct Limits {
     pub max_stream_bytes: usize,
     pub max_event_bytes: usize,
     pub max_events: usize,
-}
-impl Limits {
-    fn validate(&self) -> Result<(), Failure> {
-        let bytes = [
-            self.max_prompt_bytes,
-            self.max_schema_bytes,
-            self.max_request_bytes,
-            self.max_response_bytes,
-            self.max_stream_bytes,
-            self.max_event_bytes,
-        ];
-        if bytes.into_iter().any(|n| n == 0 || n > MAX_BYTES)
-            || !(1..=86_400_000).contains(&self.timeout_ms)
-            || !(1..=65_536).contains(&self.max_schema_nodes)
-            || !(1..=64).contains(&self.max_schema_depth)
-            || !(1..=100_000).contains(&self.max_events)
-            || self.max_event_bytes > self.max_stream_bytes
-            || self.max_response_bytes > self.max_event_bytes
-        {
-            return Err(Failure::Configuration);
-        }
-        Ok(())
-    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -276,7 +252,6 @@ impl DirectSettings {
         self.validate_inner().map_err(ProviderError::Rejected)
     }
     fn validate_inner(&self) -> Result<(), Failure> {
-        self.limits.validate()?;
         if !identifier(&self.model) || !identifier(&self.effort) {
             return Err(Failure::Configuration);
         }
@@ -758,7 +733,6 @@ impl ProviderOutput {
                     reported_effort_label(effort).is_none() || effort != intent.effort.as_str()
                 })
             || self.attempt.previous_reported_effort.is_some()
-            || self.response.len() > intent.max_response_bytes
             || !self.attempt.response_completed
             || !self.attempt.stream_eof
             || self.usage != self.attempt.usage
@@ -1229,9 +1203,6 @@ impl ModelProvider for DirectProvider {
             if request.prompt.trim().is_empty() || !identifier(&request.invocation_id) {
                 return Err(Failure::Configuration);
             }
-            if request.prompt.len() > limits.max_prompt_bytes {
-                return Err(Failure::Limit);
-            }
             let schema = schema_bytes(&request.output_schema, limits)?;
             let (_, account) = self.inner.credentials(None)?;
             let profile = settings.mode.wire_profile();
@@ -1360,15 +1331,8 @@ impl DirectCall {
                         // Even an always-ready body must allow explicit
                         // cancellation, including on empty chunks.
                         tokio::task::yield_now().await;
-                        let remaining = settings
-                            .limits
-                            .max_stream_bytes
-                            .saturating_sub(collector.observed);
-                        // Exact exhaustion also rejects: EOF has not been observed.
-                        if remaining == 0 {
-                            return Err(collector.transport_limit(false));
-                        }
-                        let maximum = remaining.min(8192);
+                        // A read chunk size is transport batching, not a stream quota.
+                        let maximum = 8192;
                         match body.read(maximum).await? {
                             Some(bytes) => {
                                 if bytes.len() > maximum {
@@ -1479,52 +1443,12 @@ fn digest_string(s: &str) -> bool {
 fn digest(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
-fn encoded<T: Serialize + ?Sized>(value: &T, maximum: usize) -> Result<Vec<u8>, Failure> {
-    struct Buffer {
-        bytes: Vec<u8>,
-        maximum: usize,
-    }
-    impl Write for Buffer {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            if bytes.len() > self.maximum.saturating_sub(self.bytes.len()) {
-                return Err(io::Error::other("serialization bound"));
-            }
-            self.bytes.extend_from_slice(bytes);
-            Ok(bytes.len())
-        }
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-    let mut buffer = Buffer {
-        bytes: Vec::new(),
-        maximum,
-    };
-    serde_json::to_writer(&mut buffer, value).map_err(|_| Failure::Limit)?;
-    Ok(buffer.bytes)
+fn encoded<T: Serialize + ?Sized>(value: &T, _historical_maximum: usize) -> Result<Vec<u8>, Failure> {
+    serde_json::to_vec(value).map_err(|_| Failure::Configuration)
 }
 fn schema_bytes(value: &Value, limits: &Limits) -> Result<Vec<u8>, Failure> {
     if !value.is_object() {
         return Err(Failure::Configuration);
-    }
-    let mut pending = vec![(value, 0usize)];
-    let mut count = 0usize;
-    while let Some((value, depth)) = pending.pop() {
-        count += 1;
-        if count > limits.max_schema_nodes || depth > limits.max_schema_depth {
-            return Err(Failure::Limit);
-        }
-        let children: Box<dyn Iterator<Item = &Value>> = match value {
-            Value::Object(v) => Box::new(v.values()),
-            Value::Array(v) => Box::new(v.iter()),
-            _ => Box::new(std::iter::empty()),
-        };
-        for child in children {
-            if pending.len() >= limits.max_schema_nodes.saturating_sub(count) {
-                return Err(Failure::Limit);
-            }
-            pending.push((child, depth + 1));
-        }
     }
     encoded(value, limits.max_schema_bytes)
 }

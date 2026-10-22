@@ -184,7 +184,7 @@ impl Work<'_> {
         let cell = self
             .cell(NAMESPACE, id)?
             .ok_or_else(|| StoreError::Missing(id.into()))?;
-        let slot: SessionTerminalSlot = serde_json::from_slice(&cell.data)?;
+        let slot: SessionTerminalSlot = decode_json(&cell.data)?;
         self.id(&slot.claim.id)?;
         hash_valid(&slot.claim.sha256)?;
         if cell.capacity != SLOT_BYTES

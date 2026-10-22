@@ -156,56 +156,35 @@ installation changes the actual host environment; it is not simulated.
 
 The next decision receives a `host_command_result` with execution status, exit
 code or terminating signal, optional timeout/failure, elapsed time, observed byte
-counts and excerpts of the command input, stdout and stderr. The current runner
+counts and complete retained command input, stdout and stderr. The current runner
 and shell artifact hashes, effective user ID, and a digest of the inherited
 environment identify the observed execution without copying environment values.
 
 `stdout` and `stderr` are capture objects with `bytes_observed`,
-`capture_complete`, `log_path` and `segments`. A stream of at most 16 KiB is
-captured in full. For a larger stream, the runner retains its first and last
-8 KiB as separate segments. Each segment records raw log byte offsets and a
-SHA-256 digest, decoded `text`, and `lossy_utf8`. That flag identifies replacement
-of invalid UTF-8, including a character split at a capture boundary. It does not
-claim that decoded text preserves arbitrary binary bytes.
+`capture_complete`, `log_path` and `segments`. New commands retain the complete
+observed stream in one segment, without a byte ceiling. An empty stream has no
+segments. Each segment preserves raw log byte offsets and SHA-256, decoded
+`text`, and `lossy_utf8`. Invalid UTF-8 may be replaced in text; its raw offsets
+and digest still identify the observed bytes. A null observed count means the
+capture was unavailable. Allocation or file errors remain actual failures.
 
-The segment ranges make omitted middle output explicit; they are never joined
-into a fabricated contiguous string. A null `bytes_observed` means capture was
-unavailable, whereas zero means an observed empty stream. These bounds limit
-retention, not command execution. `stdout.log_path` and `stderr.log_path`
-identify full host files the persona can inspect with another command. Log paths
-are live files; background processes may continue writing after the observed
-length was read. Captured segments and their metadata remain immutable evidence.
+Host logs remain available at `log_path`. They are live files: background
+processes may append after the captured length was observed. Retention describes
+that observed range, not future writes. Earlier partial captures keep their
+original gaps and completeness flags; removing a cap does not recover missing
+historical bytes.
 
-Pending host results share an 8 KiB text allowance in the next context.
-Command/stdin excerpts keep prefixes. Each initially receives up to one eighth
-of its result's text allowance; output receives the remainder. When the captured
-output is shorter, its unused space extends the input prefixes, retaining the
-complete command or stdin when it fits. This never reduces the output allowance
-or increases the total text bound. Unused stream space serves the other stream.
-Stream segments replace `text` with explicit `text_excerpts`
-from the beginning and end, preserving useful starts and actual endings. Even a
-single complete captured stream can have separate context excerpts with a gap.
+Pending observations supply the complete retained command, stdin and captured
+output. There is no shared text quota or beginning/end truncation.
+`context_projection.format` is `host-command-pending-complete-v1`. Its retained
+payload digest and result reference preserve attribution. The reference names
+a separate exact result document; metadata alone does not supply that document
+or select it implicitly. Reading results never repeats the command. The work's
+result-reference catalogue also has no fixed entry cap.
 
-`context_projection` identifies `host-command-pending-segments-v2` and records
-each original text field's UTF-8 length, digest and completeness. Excerpt offsets
-refer to the retained segment's decoded UTF-8 text; the enclosing segment's raw
-offsets and digest still refer to its captured log bytes. These coordinates can
-differ when decoding was lossy. `capture_complete` describes the runner capture,
-while projection `fields.complete` describes the text supplied in this input.
-Execution metadata and required qualifications are preserved. Neither a complete
-capture nor a successful exit establishes that omitted context text was read.
-
-Each projected result includes its exact, currently permitted retained-result
-reference, available for ordinary file reads and selection, with an input-file
-handle when that interface fits the context. This reference is metadata, not
-supplied result-file content or an implicit selection. Read it, select it for a
-later input, or inspect the host logs when the omitted text is needed. Explicit
-historical observation reads and operator development views
-retain their complete result projections. Original observations, result assets,
-terminal evidence and command inputs are unchanged. Historical string-format
-results remain stored and readable as evidence; they are not converted into
-new captures or accepted by the current segment projection. New executions use
-the current runner binding and capture format.
+Other context and file-corpus limits remain pending removal under
+[the unrestricted-execution requirement](execution-resources.md). Successful
+capture does not itself prove that a later model input was supplied or accepted.
 
 Results are also available as exact supporting assets under `tools/results/`.
 These are runtime asset paths, not files beneath the host working directory.

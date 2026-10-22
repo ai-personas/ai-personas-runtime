@@ -130,7 +130,7 @@ impl Store {
             let length = u64::try_from(*length).map_err(|_| StoreError::TooLarge)?;
             work.id(key)?;
             let mut head = work.cell("object", key)?.ok_or_else(|| StoreError::Missing(key.clone()))?;
-            let object: StoredObject = serde_json::from_slice(&head.data)?;
+            let object: StoredObject = decode_json(&head.data)?;
             if object.id != *key || head.data.len() as u64 != length {
                 return Err(StoreError::Corrupt("head identity or byte length".into()));
             }

@@ -41,13 +41,32 @@ as historical settings, not replenished or rewritten. New CONTROL and native
 settings views label the removed quota enforcement. The launcher no longer asks
 for these caps or a second approval after Continue.
 
+Provider transport and its onboarding stream no longer apply local duration,
+prompt/schema/request, response, stream/event or output-item quotas. Whole-response
+JSON validation and Store decoding have no configured byte, node, nesting or
+string ceiling. Protocol text and collection maxima no longer reject otherwise
+valid Decisions. Exact identities, duplicate keys, complete JSON and cross-field
+consistency are still checked. Model-input construction has further caps below.
+
+New host commands retain their complete observed stdout/stderr. Pending results
+supply the complete retained command, stdin and output, and result-reference
+catalogues have no fixed entry cap. Native host-file import reads the complete
+regular UTF-8 file without its former import byte cap; the file-corpus layer still
+has limits pending removal. Historical incomplete captures are not rewritten.
+
+Store archive reads have no fixed inventory count, exact-ID count or aggregate
+body-byte ceiling. Accounting records the inspected proof/archive bytes and keys
+plus its metadata envelope, including unsuccessful reads. Runtime exposure-pool
+packing/expansion has no configured byte cap. Ledger inspection does not claim
+finite-budget conservation when no finite budget is enforced.
+
 ## Remaining work
 
-This is the first runtime increment toward the full requirement. Remaining
+Removal is still incomplete. Remaining
 application enforcement includes source-policy and sharing gates; separate
 WebAssembly/HTTPS execution grants and their engine/request limits; delegated
-intake and optional-activity ceilings; persona population constraints; provider
-stream/response and parser limits; retained-history batch and cursor limits; and
+intake and optional-activity ceilings; persona population constraints; remaining typed protocol and tool-input limits; runtime history cursor and
+projection limits; and
 several input/context/projection limits. These are implementation gaps under the
 new requirement, not exceptions granted by the user. Some earlier documents still
 describe them because those paths remain implemented. They must be removed or

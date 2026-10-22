@@ -2077,9 +2077,7 @@ pub enum JsonProfileError {
 }
 
 struct JsonState<'a> {
-    limits: &'a JsonLimits,
-    nodes: usize,
-    decoded_bytes: usize,
+    _historical_limits: &'a JsonLimits,
     failure: Option<JsonProfileError>,
 }
 
@@ -2087,16 +2085,6 @@ impl JsonState<'_> {
     fn fail<E: de::Error>(&mut self, error: JsonProfileError) -> E {
         self.failure = Some(error);
         E::custom("JSON profile rejected input")
-    }
-
-    fn string<E: de::Error>(&mut self, value: &str) -> Result<(), E> {
-        match self.decoded_bytes.checked_add(value.len()) {
-            Some(next) if next <= self.limits.max_decoded_bytes => {
-                self.decoded_bytes = next;
-                Ok(())
-            }
-            _ => Err(self.fail(JsonProfileError::LimitExceeded)),
-        }
     }
 }
 
@@ -2112,12 +2100,6 @@ impl<'de> DeserializeSeed<'de> for JsonSeed<'_, '_> {
     where
         D: Deserializer<'de>,
     {
-        if self.depth > self.state.limits.max_depth
-            || self.state.nodes >= self.state.limits.max_nodes
-        {
-            return Err(self.state.fail(JsonProfileError::LimitExceeded));
-        }
-        self.state.nodes += 1;
         deserializer.deserialize_any(JsonVisitor {
             state: self.state,
             depth: self.depth,
@@ -2134,7 +2116,7 @@ impl<'de> Visitor<'de> for JsonVisitor<'_, '_> {
     type Value = Value;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("bounded JSON with unique decoded member names")
+        formatter.write_str("JSON with unique decoded member names")
     }
 
     fn visit_bool<E: de::Error>(self, value: bool) -> Result<Value, E> {
@@ -2164,12 +2146,10 @@ impl<'de> Visitor<'de> for JsonVisitor<'_, '_> {
     }
 
     fn visit_str<E: de::Error>(self, value: &str) -> Result<Value, E> {
-        self.state.string::<E>(value)?;
         Ok(Value::String(value.to_owned()))
     }
 
     fn visit_string<E: de::Error>(self, value: String) -> Result<Value, E> {
-        self.state.string::<E>(&value)?;
         Ok(Value::String(value))
     }
 
@@ -2187,7 +2167,6 @@ impl<'de> Visitor<'de> for JsonVisitor<'_, '_> {
     fn visit_map<A: MapAccess<'de>>(self, mut object: A) -> Result<Value, A::Error> {
         let mut values = Map::new();
         while let Some(key) = object.next_key::<String>()? {
-            self.state.string::<A::Error>(&key)?;
             if values.contains_key(&key) {
                 return Err(self.state.fail(JsonProfileError::DuplicateKey));
             }
@@ -2202,27 +2181,20 @@ impl<'de> Visitor<'de> for JsonVisitor<'_, '_> {
 }
 
 /// Independent strict parser. Checks duplicate member names after JSON decoding,
-/// recursively, and rejects invalid UTF-8, unpaired surrogates, trailing data,
-/// excessive nesting/nodes, and excessive aggregate decoded string bytes.
+/// recursively, and rejects invalid UTF-8, unpaired surrogates and trailing data
+/// without imposing application byte, nesting, node or string limits.
 /// Only string-valued projections are exposed by file operations; numeric values
 /// are not offered as an exact lexical representation by this module.
 pub fn parse_json_unique(bytes: &[u8], limits: &JsonLimits) -> Result<Value, JsonProfileError> {
-    if !limits.valid() {
-        return Err(JsonProfileError::InvalidLimits);
-    }
-    if bytes.len() > limits.max_source_bytes {
-        return Err(JsonProfileError::LimitExceeded);
-    }
     if std::str::from_utf8(bytes).is_err() {
         return Err(JsonProfileError::InvalidJson);
     }
     let mut state = JsonState {
-        limits,
-        nodes: 0,
-        decoded_bytes: 0,
+        _historical_limits: limits,
         failure: None,
     };
     let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    deserializer.disable_recursion_limit();
     let parsed = JsonSeed {
         state: &mut state,
         depth: 1,

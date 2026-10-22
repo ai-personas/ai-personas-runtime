@@ -108,10 +108,7 @@ fn validate_saved(
             && !config.require_physical_hard_bound
             && !config.require_token_hard_bound
             && !config.require_dollar_hard_bound
-            && config.max_work_attempts == setup.max_work_attempts
-            && settings.limits.max_prompt_bytes <= config.context_bytes
-            && settings.limits.max_response_bytes <= config.response_bytes
-            && settings.limits.max_stream_bytes as u64 <= config.transport_output_reserve_bytes,
+            && config.max_work_attempts == setup.max_work_attempts,
         "saved runtime does not admit the fixed native provider",
     )?;
     for id in people(setup.cohort) {

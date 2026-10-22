@@ -111,10 +111,7 @@ impl Item {
         }
         Ok(())
     }
-    fn text(&mut self, text: &str, maximum: usize) -> Result<()> {
-        if text.len() > maximum {
-            return Err(limit("message_bytes_limit", "text"));
-        }
+    fn text(&mut self, text: &str) -> Result<()> {
         if (self.saw_delta && self.deltas != text)
             || self.final_text.as_deref().is_some_and(|old| old != text)
         {
@@ -127,7 +124,6 @@ impl Item {
 
 pub(super) struct Collector {
     model: String,
-    limits: Limits,
     allow_thin_completed: bool,
     thin_lifecycle: bool,
     line: Vec<u8>,
@@ -161,10 +157,9 @@ pub(super) struct Collector {
     pub usage: Usage,
 }
 impl Collector {
-    pub fn new(model: &str, limits: &Limits) -> Self {
+    pub fn new(model: &str, _historical_limits: &Limits) -> Self {
         Self {
             model: model.into(),
-            limits: limits.clone(),
             allow_thin_completed: false,
             thin_lifecycle: true,
             line: Vec::new(),
@@ -288,14 +283,8 @@ impl Collector {
             .observed
             .checked_add(bytes.len())
             .ok_or_else(|| limit("stream_byte_count_overflow", "stream_bytes"))?;
-        if self.observed > self.limits.max_stream_bytes {
-            return Err(limit("stream_bytes_limit", "max_stream_bytes"));
-        }
         for &byte in bytes {
             self.frame_bytes += 1;
-            if self.frame_bytes > self.limits.max_event_bytes {
-                return Err(limit("event_bytes_limit", "max_event_bytes"));
-            }
             if byte != b'\n' {
                 self.line.push(byte);
                 continue;
@@ -367,16 +356,13 @@ impl Collector {
         self.stage = "event";
         self.events += 1;
         self.event_index = Some(self.events as u64);
-        if self.events > self.limits.max_events {
-            return Err(limit("event_count_limit", "max_events"));
-        }
         let event = parse_json_unique(
             bytes,
             &JsonLimits {
-                max_source_bytes: self.limits.max_event_bytes,
+                max_source_bytes: bytes.len(),
                 max_depth: 64,
                 max_nodes: 65_536,
-                max_decoded_bytes: self.limits.max_event_bytes,
+                max_decoded_bytes: bytes.len(),
             },
         )
         .map_err(|error| {
@@ -529,9 +515,6 @@ impl Collector {
                 }
                 self.usage = usage(response.get("usage"))?;
                 let output = array(response, "output")?;
-                if output.len() > self.limits.max_events {
-                    return Err(limit("output_count_limit", "output"));
-                }
                 if output.is_empty() && self.allow_thin_completed {
                     self.response = Some(self.thin_completion_text()?);
                     self.completed = true;
@@ -554,13 +537,10 @@ impl Collector {
                         Kind::Message => {
                             let text = message_text(item)?;
                             let mut phase = message_phase(item)?;
-                            if text.len() > self.limits.max_response_bytes {
-                                return Err(limit("message_bytes_limit", "text"));
-                            }
                             if let Some(tracked) = self.items.get_mut(&index) {
                                 tracked.observe_phase(item)?;
                                 phase = tracked.phase;
-                                tracked.text(text, self.limits.max_response_bytes)?;
+                                tracked.text(text)?;
                             }
                             carrier.consider(phase, text)?;
                         }
@@ -624,7 +604,6 @@ impl Collector {
                 let kind_of_item = item_kind(value)?;
                 let index = index(&event, "output_index")?;
                 let id = wire_id(value, "id")?;
-                let maximum = self.limits.max_response_bytes;
                 let item = self.track(index, id, kind_of_item)?;
                 if kind_of_item == Kind::Message {
                     item.observe_phase(value)?;
@@ -654,7 +633,7 @@ impl Collector {
                         return Err(protocol("duplicate_item_done"));
                     }
                     if kind_of_item == Kind::Message {
-                        item.text(message_text(value)?, maximum)?;
+                        item.text(message_text(value)?)?;
                     } else {
                         reasoning_item(value, true)?;
                     }
@@ -668,7 +647,6 @@ impl Collector {
                 if index(&event, "content_index")? != 0 {
                     return Err(protocol("message_content_index"));
                 }
-                let maximum = self.limits.max_response_bytes;
                 let item = self.track(
                     index(&event, "output_index")?,
                     wire_id(&event, "item_id")?,
@@ -683,9 +661,6 @@ impl Collector {
                             return Err(protocol("delta_after_text_done"));
                         }
                         let delta = string(&event, "delta")?;
-                        if delta.len() > maximum.saturating_sub(item.deltas.len()) {
-                            return Err(limit("delta_bytes_limit", "delta"));
-                        }
                         item.deltas.push_str(delta);
                         item.saw_delta = true;
                     }
@@ -693,7 +668,7 @@ impl Collector {
                         if item.text_done || item.part_done {
                             return Err(protocol("duplicate_text_done"));
                         }
-                        item.text(string(&event, "text")?, maximum)?;
+                        item.text(string(&event, "text")?)?;
                         item.text_done = true;
                     }
                     "response.content_part.added" => {
@@ -715,7 +690,6 @@ impl Collector {
                             output_text(
                                 event.get("part").ok_or(protocol("content_part_missing"))?,
                             )?,
-                            maximum,
                         )?;
                         item.part_done = true;
                     }
@@ -738,7 +712,7 @@ impl Collector {
                 if item.done {
                     return Err(protocol("reasoning_after_item_done"));
                 }
-                // Reasoning is bounded by frame/stream limits and never retained
+                // Reasoning is observed by the stream parser and never retained
                 // as carrier text, receipt content, or executable instructions.
             }
             _ => return Err(protocol("unsupported_event_type")),
@@ -799,9 +773,6 @@ impl Collector {
         Ok(())
     }
     fn track(&mut self, index: usize, id: &str, kind: Kind) -> Result<&mut Item> {
-        if index >= self.limits.max_events {
-            return Err(limit("output_index_limit", "output_index"));
-        }
         if self
             .items
             .iter()

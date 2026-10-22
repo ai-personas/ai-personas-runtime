@@ -44,7 +44,6 @@ const MAX_DETAIL_BYTES: usize = 256;
 const MAX_RUNTIME_FAILURE_CONTEXT_BYTES: u64 = 4096;
 const RUNTIME_PLANNING_STARTED: &str =
     "Runtime planning envelope claimed once; completion not established";
-const MAX_JSON_DEPTH: usize = 64;
 pub(crate) const RUNTIME_CONTROL_STATE_ID: &str = "runtime-state-v1";
 const RUNTIME_CONTROL_HEADROOM: u64 = 32 * 1024;
 
@@ -740,7 +739,8 @@ impl Meta {
             historical_freeze_recorded: self.frozen,
             accounting_complete: self.accounting_complete,
             overrun_count: self.overruns,
-            conservation_established: !self.frozen && self.accounting_complete,
+            // There is no enforced finite allowance to conserve.
+            conservation_established: false,
             permanent_records: self.identities,
             allocated_history_events: self.history_slots,
         }
@@ -1948,7 +1948,7 @@ impl RuntimeControlMonitor {
             "SELECT data FROM store_cells WHERE ns='object' AND k=?1",
             [RUNTIME_CONTROL_STATE_ID], |row| row.get(0),
         )?;
-        let object = serde_json::from_slice(&bytes)?;
+        let object = decode_json(&bytes)?;
         transaction.commit()?;
         self.epoch = Some(epoch);
         Ok(Some(object))
@@ -2067,7 +2067,7 @@ impl Store {
                 )?;
             } else {
                 let bytes = existing.ok_or(StoreError::TooLarge)?;
-                let meta: Meta = serde_json::from_slice(&bytes)?;
+                let meta: Meta = decode_json(&bytes)?;
                 if !supported_schema(meta.schema_version) {
                     return Err(StoreError::Unsupported("database schema version"));
                 }
@@ -3466,7 +3466,7 @@ impl<'a> Work<'a> {
 
     fn get<T: DeserializeOwned>(&self, namespace: &str, key: &str) -> Result<Option<T>> {
         self.cell(namespace, key)?
-            .map(|cell| serde_json::from_slice(&cell.data).map_err(StoreError::from))
+            .map(|cell| decode_json(&cell.data).map_err(StoreError::from))
             .transpose()
     }
 
@@ -3903,7 +3903,7 @@ impl<'a> Work<'a> {
             return Err(StoreError::TooLarge);
         }
         if let Some(cell) = self.cell("terminal_evidence", id)? {
-            let slot: TerminalEvidenceSlot = serde_json::from_slice(&cell.data)?;
+            let slot: TerminalEvidenceSlot = decode_json(&cell.data)?;
             if slot.subject != *subject
                 || slot.max_object_bytes != max_object_bytes
                 || cell.class != class
@@ -3976,7 +3976,7 @@ impl<'a> Work<'a> {
         let cell = self
             .cell("terminal_evidence", &object.id)?
             .ok_or_else(|| StoreError::Missing(object.id.clone()))?;
-        let mut slot: TerminalEvidenceSlot = serde_json::from_slice(&cell.data)?;
+        let mut slot: TerminalEvidenceSlot = decode_json(&cell.data)?;
         if slot.max_object_bytes.checked_add(CONTROL_HEADROOM).is_none_or(|minimum| cell.capacity < minimum)
             || cell.slots != 0
         {
@@ -4092,7 +4092,7 @@ impl<'a> Work<'a> {
             .ok_or(StoreError::Unsupported(
                 "required runtime control slot is absent",
             ))?;
-        let slot: RuntimeControlSlot = serde_json::from_slice(&cell.data)?;
+        let slot: RuntimeControlSlot = decode_json(&cell.data)?;
         if cell.class != BudgetClass::Closeout
             || cell.slots != 1
             || cell.capacity < self.limits.max_record_bytes
@@ -4676,7 +4676,7 @@ fn load_meta(connection: &Connection) -> Result<Meta> {
         "SELECT CASE WHEN length(data)<=?1 THEN data ELSE NULL END FROM store_meta WHERE singleton=1",
         [META_CAPACITY as i64], |row| row.get(0),
     )?;
-    let meta: Meta = serde_json::from_slice(&bytes.ok_or(StoreError::TooLarge)?)?;
+    let meta: Meta = decode_json(&bytes.ok_or(StoreError::TooLarge)?)?;
     if !supported_schema(meta.schema_version) {
         return Err(StoreError::Unsupported("database schema version"));
     }
@@ -4777,14 +4777,19 @@ fn fingerprint<T: Serialize>(value: &T, limit: u64) -> Result<String> {
     Ok(sha256_bytes(&encode(value, limit)?))
 }
 
+fn decode_json<'de, T: Deserialize<'de>>(bytes: &'de [u8]) -> serde_json::Result<T> {
+    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    deserializer.disable_recursion_limit();
+    let value = T::deserialize(&mut deserializer)?;
+    deserializer.end()?;
+    Ok(value)
+}
+
 /// Canonicalizes map order, including builds enabling serde_json/preserve_order.
 /// Serialize complete canonical UTF-8 JSON without a configured byte ceiling.
 fn encode<T: Serialize>(value: &T, _historical_limit: u64) -> Result<Vec<u8>> {
     let value = serde_json::to_value(value)?;
     fn canonical(value: Value, depth: usize) -> Result<Value> {
-        if depth > MAX_JSON_DEPTH {
-            return Err(StoreError::Invalid("JSON nesting limit".into()));
-        }
         match value {
             Value::Array(values) => Ok(Value::Array(
                 values

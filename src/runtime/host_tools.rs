@@ -5,7 +5,7 @@ mod background;
 mod context;
 mod input;
 pub(super) use background::Background;
-pub(super) use context::{pending_projection, pending_text_limit};
+pub(super) use context::pending_projection;
 
 const RESULT_CAPACITY: u64 = 256 * 1024;
 
@@ -175,7 +175,7 @@ pub(super) fn stage(
             id: intent_id,
             reservation: s::Resources {
                 input_bytes: serde_json::to_vec(&job.input)?.len() as u64,
-                output_bytes: (h::OUTPUT_BYTES * 6) as u64,
+                output_bytes: (h::OUTPUT_ESTIMATE_BYTES * 6) as u64,
                 ..Default::default()
             },
             body: serde_json::to_value(job)?,
@@ -518,10 +518,8 @@ pub(super) fn control(
     exposure: &mut Exposure,
     include_results: bool,
 ) -> Value {
-    const RESULT_CONTEXT_LIMIT: usize = 8;
     let mut results = Vec::new();
     let mut unresolved = Vec::new();
-    let mut more_results = false;
     let mut jobs: Vec<_> = state
         .host_command_jobs
         .iter()
@@ -540,8 +538,8 @@ pub(super) fn control(
         if !exposure_permitted(state, &job.exposure, a) {
             continue;
         }
-        // Unresolved jobs are operational state, independent of the bounded
-        // catalogue of terminal results. Never hide one behind a history page.
+        // Unresolved jobs are operational state, independent of whether the
+        // caller requested terminal-result metadata.
         if matches!(
             job.state,
             s::IntentState::Admitted | s::IntentState::Dispatched | s::IntentState::Uncertain
@@ -555,10 +553,6 @@ pub(super) fn control(
         if let Some(reference) = &job.result_source {
             if let Ok(file) = file_reference(reference) {
                 if lineage_permitted(state, std::slice::from_ref(&file), a) {
-                    if results.len() == RESULT_CONTEXT_LIMIT {
-                        more_results = true;
-                        continue;
-                    }
                     extend_exposure(exposure, &job.exposure);
                     exposure.sources.push(file);
                     results.push(
@@ -572,10 +566,10 @@ pub(super) fn control(
     if results.is_empty() && unresolved.is_empty() {
         Value::Null
     } else {
-        json!({"retained_results":results,"retained_results_limit":RESULT_CONTEXT_LIMIT,
+        json!({"retained_results":results,"retained_results_limit":null,
             "retained_results_included":include_results,
-            "retained_results_truncated":more_results,"unresolved":unresolved,
-            "scope":"Most recently observed permitted result references only. Older results remain stored under tools/results/ and can be discovered, read or selected by exact reference. Omission does not delete a result or change an existing selection. Unresolved jobs are not limited by this catalogue."})
+            "retained_results_truncated":false,"unresolved":unresolved,
+            "scope":"All currently visible result references for this actor and work. Bodies remain available by exact reference; listing a reference does not supply its body."})
     }
 }
 
