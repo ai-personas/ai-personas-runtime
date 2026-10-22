@@ -100,17 +100,43 @@ without dispatching again. Changing or omitting a previously selected grant unde
 that ID is a key conflict. Old session claims without this optional field retain
 their original serialized request and digest.
 
-Selection is checked against the exact current grant, work, actor, authority and
-funding during preparation. The launch admission and episode charge commit
-together. Subsequent calls on the bound work retain the episode restrictions even
-when the option is omitted from a fresh session. Selecting another grant cannot
-replace an existing binding. No eligible opportunity means no model invocation.
+Selection binds the exact issued source and the current work scope. The launch
+admission and episode charge commit together. A work can select a different
+source, including a source already used by another work. Historical work lists
+and funding snapshots do not restrict selection. Earlier episodes, proposals,
+children and charges remain attached to their original source. Subsequent calls
+use the current selection when the option is omitted. No eligible opportunity
+means no model invocation.
+The supplied interface labels `terms_are_historical: true`; its old purpose and
+work list do not replace the current task request or accepted scope.
+An issued source's original policy, cohort and processing destination remain
+provenance; changes to them do not revoke access. Actual provider/account bindings
+and an explicit source revocation retain their separate meanings.
+
+To select a source independently of a model session, including for stopped work:
+
+```sh
+personas-session --state-root /private/state --operator requester \
+  intake-source-snapshot work-00000001
+personas-session --state-root /private/state --operator requester \
+  select-intake-source selection-request.json
+```
+
+The snapshot lists every recorded source with its exact immutable `source`
+reference, active status, historical work context and retained entry works.
+The request contains a unique `id`, `operator`, `work`, selected `source`, and
+the snapshot's `expected_runtime` and `expected_launch` references. The same
+commands are available on `ai-personas`. Applying this request makes no model
+call and changes no participation or Stop/Pause choice. Reopening its exact ID
+returns the original receipt and the current selection; it never reselects an
+older source after a later change.
 
 ## Further requests from child work
 
 An admitted child receives the same proposal interface during ordinary work and
-can request further help. Descendants inherit the original episode and issued
-grant identity. There is no nesting-depth quota, and the saved
+can request further help. New descendants initially use the source of their
+actual authored proposal; each work can subsequently select another source.
+There is no nesting-depth quota, and the saved
 `allow_further_delegation` declaration does not restrict this interface. Each adopted request gets its own exact admission transaction and receipt. The
 native driver performs that transaction automatically after adoption and picks up
 retained pending requests when explicitly continued.
@@ -128,7 +154,11 @@ Accounting records the exact work of every call and navigation charge. A grant
 whose historical funding names a parent transfer continues to name that original
 funding account; nesting does not invent a different transfer source. Explicit
 episode revocation applies to the inherited episode and retains every descendant.
-Selecting a separate new episode on already bound work is still unsupported.
+Selecting another source preserves the child's original parent and requester.
+Foreground scheduling follows actual parent links across all retained episodes,
+so switching a source neither hides earlier descendants nor runs unrelated roots.
+An adopted pending request retains its original source even when its parent
+selects another; a new selection does not cancel or relabel that request.
 
 ## Inspect proposals and admission receipts
 
@@ -243,7 +273,6 @@ authority; the original proof and explicit episode revocation still apply, and
 that admission does not resume the parent. Current execution on a bound work
 still checks its own authority.
 
-Selecting a different episode for already bound work, requiring initial episode
-selection and broad coordination checks remain implementation gaps under the no-limits requirement. Removing
-proposal and child count limits does not complete the authority and workflow
-changes listed in [execution resources](execution-resources.md).
+Exact source selection, retained request ancestry and persona participation are
+separate records. The absence of resource quotas does not imply acceptance,
+attention, completion or a new continuation choice.

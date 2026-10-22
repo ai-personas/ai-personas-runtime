@@ -206,6 +206,9 @@ impl Driver for NativeDriver<'_> {
         self.intake_selection = Some(selection);
         Ok(())
     }
+    fn take_intake(&mut self) -> Option<p::need::GrantReference> {
+        self.intake_selection.take()
+    }
 
     fn population_created(&mut self, before: &Saved, after: &Saved) -> Result<()> {
         require(binding(before)? == self.launch, "creation began under a different launch binding")?;

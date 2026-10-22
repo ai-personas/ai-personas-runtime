@@ -658,6 +658,9 @@ impl<D: Driver> Driver for Tracked<'_, D> {
         }
         value
     }
+    fn take_intake(&mut self) -> Option<p::need::GrantReference> {
+        self.driver.take_intake()
+    }
     fn population_created(&mut self, before: &Saved, after: &Saved) -> Result<()> {
         let value = self.driver.population_created(before, after);
         if let Err(error) = &value {
@@ -748,6 +751,9 @@ impl Driver for OwnedLive<'_> {
         require(self.intake_selection.is_none(), "session already has an intake selection")?;
         self.intake_selection = Some(selection);
         Ok(())
+    }
+    fn take_intake(&mut self) -> Option<p::need::GrantReference> {
+        self.intake_selection.take()
     }
 
     fn population_created(&mut self, before: &Saved, after: &Saved) -> Result<()> {

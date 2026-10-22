@@ -138,8 +138,7 @@ pub struct IntakeDelegationRequest {
     pub expected_cohort: BTreeSet<String>,
     /// Historical requester metadata; it does not restrict proposal authors.
     pub requesting_personas: BTreeSet<String>,
-    /// Existing works on which a separately admitted decision may propose.
-    /// No additional staging work identity is authorized by this list.
+    /// Historical work context at issue time, not a source-selection allowlist.
     pub proposal_work_ids: BTreeSet<String>,
     /// Historical participant metadata, not an eligibility restriction.
     pub allowed_child_participants: BTreeSet<String>,
@@ -638,7 +637,7 @@ fn enabled(state: &State, work: &str, actor: &str, now: i64) -> bool {
             runtime_opportunity(state, &wid, &w::PersonaId(actor.into()), time).is_some()
         })
 }
-fn registry(app: &mut Runtime) -> Result<(Option<s::StoredObject>, IntakeDelegationRegistry)> {
+pub(super) fn registry(app: &mut Runtime) -> Result<(Option<s::StoredObject>, IntakeDelegationRegistry)> {
     let object = app.store.read(REGISTRY_ID)?;
     let value = if let Some(object) = &object {
         require(
@@ -817,10 +816,6 @@ fn issue_availability(
         .require_within_config(&state.config)?;
     let mut currently_enabled_requesters = BTreeMap::new();
     for id in &request.proposal_work_ids {
-        require(
-            !need_proposals::is_child(state, id),
-            "a child inherits its existing intake episode; selecting a separate episode is not yet supported",
-        )?;
         require(
             saved.works.contains_key(id) && state.work_meta.contains_key(id),
             "proposal work is not an existing launch work",
@@ -1406,14 +1401,8 @@ pub(in crate::runtime) fn episode_authority(
         .clone();
     require(
         grant.usable_at(now)
-            && grant.request.operator == saved.operator
-            // Later explicitly authorized births add no participants to this
-            // grant. Its original pool and every other bound remain unchanged.
-            && grant.request.expected_cohort.is_subset(&people(saved.setup.cohort).into_iter().collect())
-            && grant.request.destination == saved.setup.destination
-            && current_policy(state, &grant.request.policy.id)? == &grant.request.policy
-,
-        "intake grant issuer, status, exact policy, cohort or destination unavailable",
+            && grant.request.operator == saved.operator,
+        "intake source issuer or explicit lifecycle status unavailable",
     )?;
     grant
         .request

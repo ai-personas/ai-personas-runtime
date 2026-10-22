@@ -406,6 +406,10 @@ enum Command {
     AmendWork { file: PathBuf },
     /// Inspect current permitted shared questions, replies and owner decisions. No inference.
     Questions { work: String },
+    /// Inspect current and available delegation sources without starting work.
+    IntakeSourceSnapshot { work: String },
+    /// Select a delegation source without changing scope, participation or continuation.
+    SelectIntakeSource { file: PathBuf },
     /// Add a requester reply to an exact shared question. No implicit resume or consent.
     AnswerQuestion { file: PathBuf },
     /// Read accepted character and fragment revisions, with exact authorship.
@@ -933,6 +937,13 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             source.as_deref(),
             invocation.as_deref(),
         )?);
+    }
+    if let Command::IntakeSourceSnapshot { work } = &cli.command {
+        return emit(&launch::episode_selection::snapshot_at(root, operator, work)?);
+    }
+    if let Command::SelectIntakeSource { file } = &cli.command {
+        let request = runtime::read_json_file(file, 0)?;
+        return emit(&launch::episode_selection::select_at(root, operator, &request, runtime::unix_now()?)?);
     }
     if let Command::AmendWorkSnapshot { work } = &cli.command {
         return emit(&launch::task_amendment::snapshot(root, operator, work)?);
@@ -1623,6 +1634,9 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         Command::Status => emit(&app.status()?),
         Command::Development { .. } => {
             unreachable!("development inspection handled before recovery")
+        }
+        Command::IntakeSourceSnapshot { .. } | Command::SelectIntakeSource { .. } => {
+            unreachable!("source selection handled before recovery")
         }
         Command::Feedback { .. } => unreachable!("feedback handled before dispatch"),
         Command::AmendWork { .. } | Command::AmendWorkSnapshot { .. } => {

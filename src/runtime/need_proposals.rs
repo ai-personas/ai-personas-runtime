@@ -7,7 +7,7 @@ const PENDING_KIND: &str = "runtime-pending-need-proposal";
 
 mod child;
 pub(crate) use child::AdmittedChild;
-pub(super) use child::is_child;
+pub(super) use child::child as originating_child;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -18,6 +18,9 @@ pub struct NeedInterface {
     pub grant: p::need::GrantReference,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub automatically_issued: bool,
+    /// The source's original wording does not replace this work's actual scope.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub terms_are_historical: bool,
     pub terms: g::IntakeDelegationRequest,
     pub registry: g::IntakeReference,
     pub remaining_after_authoring_admission: WorkAllocation,
@@ -45,6 +48,10 @@ pub(crate) struct IntakeEpisode {
     pub work_epoch: u64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub root_amendments: Vec<ScopeAmendment>,
+    /// Other work selecting this same source. These are episode entry points,
+    /// not assertions that one work delegated another.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub additional_roots: Vec<EpisodeRoot>,
     pub grant: g::IntakeDelegation,
     pub grant_sha256: String,
     pub selected_registry: g::IntakeReference,
@@ -62,6 +69,15 @@ pub(crate) struct IntakeEpisode {
     pub revoked_at_unix: Option<i64>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct EpisodeRoot {
+    pub work: String,
+    pub authority: w::ExactRef,
+    pub work_epoch: u64,
+    pub amendments: Vec<ScopeAmendment>,
+}
+
 /// An explicit operator scope transition, retaining the original episode binding.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -72,6 +88,10 @@ pub(crate) struct ScopeAmendment {
     pub work_epoch: u64,
 }
 impl IntakeEpisode {
+    pub(crate) fn roots(&self) -> impl Iterator<Item = &str> {
+        std::iter::once(self.work.as_str())
+            .chain(self.additional_roots.iter().map(|root| root.work.as_str()))
+    }
     pub(crate) fn pending_proposals(&self) -> impl Iterator<Item = &g::IntakeReference> {
         self.pending_proposal
             .iter()
@@ -86,6 +106,8 @@ impl IntakeEpisode {
     pub(crate) fn record_amendment(&mut self, work: &str, binding: ScopeAmendment) -> Result<()> {
         if self.work == work {
             self.root_amendments.push(binding);
+        } else if let Some(root) = self.additional_roots.iter_mut().find(|root| root.work == work) {
+            root.amendments.push(binding);
         } else {
             self.child.iter_mut().chain(&mut self.additional_children)
                 .find(|child| child.binding.work == work)
@@ -98,6 +120,9 @@ impl IntakeEpisode {
         if self.work == work {
             Some(self.root_amendments.last().map_or((&self.authority, self.work_epoch),
                 |binding| (&binding.authority, binding.work_epoch)))
+        } else if let Some(root) = self.additional_roots.iter().find(|root| root.work == work) {
+            Some(root.amendments.last().map_or((&root.authority, root.work_epoch),
+                |binding| (&binding.authority, binding.work_epoch)))
         } else {
             self.child_for(work).map(|child|
                 child.amendments.last().map_or((&child.authority, child.work_epoch),
@@ -107,6 +132,8 @@ impl IntakeEpisode {
     pub(crate) fn retained_work_binding(&self, work: &str, authority: &w::ExactRef, epoch: u64) -> bool {
         let (original_authority, original_epoch, amendments) = if self.work == work {
             (&self.authority, self.work_epoch, &self.root_amendments)
+        } else if let Some(root) = self.additional_roots.iter().find(|root| root.work == work) {
+            (&root.authority, root.work_epoch, &root.amendments)
         } else if let Some(child) = self.child_for(work) {
             (&child.authority, child.work_epoch, &child.amendments)
         } else {
@@ -194,9 +221,10 @@ pub(super) fn subtract(a: WorkAllocation, b: WorkAllocation) -> Result<WorkAlloc
 }
 
 pub(super) fn episode<'a>(state: &'a State, work: &str) -> Option<&'a IntakeEpisode> {
-    state.intake_episodes.values().find(|episode| {
-        episode.work == work || episode.child_for(work).is_some()
-    })
+    if let Some(id) = state.intake_episode_selections.get(work) {
+        return state.intake_episodes.get(id);
+    }
+    state.intake_episodes.values().find(|episode| episode.work_binding(work).is_some())
 }
 
 pub(super) fn bound(state: &State, work: &str) -> bool {
@@ -211,7 +239,9 @@ pub(super) fn reference(state: &State, work: &str) -> Option<p::need::GrantRefer
 }
 
 pub(super) fn validate_state(state: &State) -> Result<()> {
-    let mut works = BTreeSet::new();
+    let mut works: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+    let mut children = BTreeSet::new();
+    let mut ancestry = BTreeMap::new();
     for (id, episode) in &state.intake_episodes {
         episode.grant.validate(id)?;
         require(
@@ -219,28 +249,35 @@ pub(super) fn validate_state(state: &State) -> Result<()> {
                 && episode.grant.active_at(episode.grant.issued_at_unix)
                 && episode.grant.sha256()? == episode.grant_sha256
                 && episode.grant.source_sha256()? == episode.grant_sha256
-                && episode
-                    .grant
-                    .request
-                    .proposal_work_ids
-                    .contains(&episode.work)
-                && works.insert(&episode.work)
                 && state.work_meta.contains_key(&episode.work),
             "invalid retained intake episode",
         )?;
         identity(&episode.work)?;
         validate_amendments(state, &episode.work, &episode.authority,
             episode.work_epoch, &episode.root_amendments)?;
+        let mut episode_works = BTreeSet::from([episode.work.as_str()]);
+        works.entry(&episode.work).or_default().insert(id);
+        for root in &episode.additional_roots {
+            identity(&root.work)?;
+            require(episode_works.insert(&root.work) && state.work_meta.contains_key(&root.work),
+                "duplicate or missing intake episode entry work")?;
+            validate_amendments(state, &root.work, &root.authority, root.work_epoch, &root.amendments)?;
+            works.entry(&root.work).or_default().insert(id);
+        }
         let mut admissions = BTreeSet::new();
         let mut admitted_proposals = BTreeSet::new();
         for child in episode.children() {
             require(
-                works.insert(&child.binding.work)
+                episode_works.insert(&child.binding.work)
+                    && children.insert(&child.binding.work)
                     && admissions.insert(&child.binding.admission_id)
                     && admitted_proposals.insert(&child.binding.pending.id),
                 "duplicate intake child, admission or proposal binding",
             )?;
             child::validate(state, episode, child)?;
+            ancestry.insert(child.binding.work.as_str(),
+                (child.parent_work(episode), child.binding.admitted_at_unix));
+            works.entry(&child.binding.work).or_default().insert(id);
         }
         let mut remainder = episode.grant.request.episode_ceiling;
         let mut keys = BTreeSet::new();
@@ -255,7 +292,7 @@ pub(super) fn validate_state(state: &State) -> Result<()> {
             )?;
             let charged_work = charge.work.as_deref().unwrap_or(&episode.work);
             require(
-                charged_work == episode.work
+                episode.roots().any(|work| work == charged_work)
                     || episode.children().any(|child| {
                         child.binding.work == charged_work
                             && charge.at_unix >= child.binding.admitted_at_unix
@@ -286,6 +323,26 @@ pub(super) fn validate_state(state: &State) -> Result<()> {
                     && proposals.insert(&pending.id),
                 "invalid pending proposal reference",
             )?;
+        }
+    }
+    for (work, ids) in works {
+        match state.intake_episode_selections.get(work) {
+            Some(id) => require(ids.contains(id.as_str()), "selected episode does not contain this work")?,
+            None => require(ids.len() == 1, "work has multiple episodes without a current selection")?,
+        }
+    }
+    for (work, id) in &state.intake_episode_selections {
+        require(state.intake_episodes.get(id).is_some_and(|episode| episode.work_binding(work).is_some()),
+            "current intake selection has no retained work binding")?;
+    }
+    for (&work, &(parent, mut at)) in &ancestry {
+        let mut seen = BTreeSet::from([work]);
+        let mut next = parent;
+        while let Some(&(ancestor, earlier)) = ancestry.get(next) {
+            require(seen.insert(next) && earlier <= at,
+                "cyclic or temporally inconsistent delegated ancestry")?;
+            next = ancestor;
+            at = earlier;
         }
     }
     Ok(())
@@ -336,7 +393,13 @@ pub(super) fn check_episode(app: &mut Runtime, state: &State, work: &str, now: i
         episode.revoked_at_unix.is_none(),
         "selected intake episode revoked",
     )?;
-    let current = g::episode_authority(app, state, &episode.grant.request.id, now)?;
+    check_source(app, state, &episode.grant.request.id, now)
+}
+
+pub(in crate::runtime) fn check_source(app: &mut Runtime, state: &State, id: &str, now: i64) -> Result<()> {
+    let episode = state.intake_episodes.get(id).ok_or_else(|| held("intake source episode absent"))?;
+    require(episode.revoked_at_unix.is_none(), "intake source episode revoked")?;
+    let current = g::episode_authority(app, state, id, now)?;
     require(
         current.grant.source_sha256()? == episode.grant_sha256
             && episode.children_match(&current.grant)
@@ -364,107 +427,60 @@ pub(super) fn attach(
     selected: Option<&p::need::GrantReference>,
     now: i64,
 ) -> Result<bool> {
-    if let Some(selected) = selected {
-        selected.validate()?;
-    }
-    if let Some(existing) = episode(state, &request.work) {
-        if let Some(selected) = selected {
-            require(
-                selected.id == existing.grant.request.id
-                    && selected.sha256 == existing.grant_sha256,
-                "work is already bound to a different exact intake episode",
-            )?;
-        }
-        check_work(app, state, &request.work, now)?;
-        let id = existing_id(state, &request.work)?;
-        let authority = g::episode_authority(app, state, &id, now)?;
-        state
-            .intake_episodes
-            .get_mut(&id)
-            .ok_or_else(|| held("episode absent"))?
-            .last_preparation_registry = authority.registry;
-        return Ok(true);
-    }
-    let Some(selected) = selected else {
-        return Ok(false);
-    };
-    require(
-        request.mode == Mode::Ordinary,
-        "initial episode selection requires an ordinary opportunity",
-    )?;
-    require(
-        !state.intake_episodes.contains_key(&selected.id),
-        "grant already bound to another work",
-    )?;
-    let authority = g::episode_authority(app, state, &selected.id, now)?;
-    let grant = authority.grant;
-    require(
-        grant.active_at(now)
-            && grant.sha256()? == selected.sha256
-            && grant.request.proposal_work_ids.contains(&request.work),
-        "exact selected grant does not bind this parent",
-    )?;
-    let parent = state.board.work(&w::WorkId(request.work.clone()))?;
-    let meta = &state.work_meta[&request.work];
-    if let g::IntakeFundingBasis::ExistingParentTransfer {
-        work_id,
-        expected_work_revision,
-        expected_work_epoch,
-        expected_remaining,
-    } = &grant.request.funding
-    {
-        let remaining = WorkAllocation {
-            attempts: meta.attempts_left,
-            navigation: meta.navigation_left,
-            repair_attempts: meta.repair_attempts_left,
-        };
-        require(
-            work_id == &request.work
-                && parent.version.revision == *expected_work_revision
-                && parent.version.epoch == *expected_work_epoch
-                && remaining == *expected_remaining,
-            "parent funding changed before explicit episode selection",
-        )?;
-    }
-    let actor = state
-        .personas
-        .get(&request.persona)
-        .ok_or_else(|| held("proposer absent"))?;
-    require(
-        actor.failed_attempt_hold.is_none()
-            && actor.active_invocation.is_none()
-            && (continuation_permit(state, &request.persona, &request.work)
-                || ordinary_opportunity(state, &request.persona, &request.work, now)),
-        "selection requires an existing enabled opportunity; the grant creates none",
-    )?;
-    check_output_policy(
-        state,
-        &grant.request.policy,
-        &work_exposure(state, &request.work)?,
-        &admission(actor, now),
-    )?;
-    let episode = IntakeEpisode {
-        version: 1,
-        work: request.work.clone(),
-        authority: parent.mandate().authority.clone(),
-        work_epoch: parent.version.epoch,
-        root_amendments: Vec::new(),
-        remaining: grant.request.episode_ceiling,
-        grant,
-        grant_sha256: selected.sha256.clone(),
-        selected_registry: authority.registry.clone(),
-        last_preparation_registry: authority.registry,
-        launch_binding_sha256: authority.launch_binding_sha256,
-        charges: Vec::new(),
-        pending_proposal: None,
-        additional_pending_proposals: Vec::new(),
-        child: None,
-        additional_children: Vec::new(),
-        revoked_at_unix: None,
-    };
-    state.intake_episodes.insert(selected.id.clone(), episode);
-    validate_state(state)?;
+    let selected = selected.cloned().or_else(|| reference(state, &request.work));
+    let Some(selected) = selected else { return Ok(false); };
+    select_source(app, state, &request.work, &selected, now)?;
     Ok(true)
+}
+
+/// Select a source for future admissions without rewriting earlier ancestry,
+/// pending requests, charges or any persona's continuation.
+pub(in crate::runtime) fn select_source(
+    app: &mut Runtime,
+    state: &mut State,
+    work: &str,
+    selected: &p::need::GrantReference,
+    now: i64,
+) -> Result<()> {
+    selected.validate()?;
+    let authority = g::episode_authority(app, state, &selected.id, now)?;
+    require(authority.grant.source_sha256()? == selected.sha256,
+        "selected intake source differs from its exact issued record")?;
+    let parent = state.board.work(&w::WorkId(work.into()))?;
+    require(state.work_meta.contains_key(work), "selected work metadata absent")?;
+    if let Some(episode) = state.intake_episodes.get_mut(&selected.id) {
+        require(episode.revoked_at_unix.is_none()
+            && episode.grant_sha256 == selected.sha256
+            && episode.children_match(&authority.grant)
+            && episode.launch_binding_sha256 == authority.launch_binding_sha256,
+            "retained intake source, children or launch binding changed")?;
+        if let Some((bound, epoch)) = episode.work_binding(work) {
+            require(bound == &parent.mandate().authority && epoch == parent.version.epoch,
+                "retained episode work scope changed")?;
+        } else {
+            episode.additional_roots.push(EpisodeRoot {
+                work: work.into(), authority: parent.mandate().authority.clone(),
+                work_epoch: parent.version.epoch, amendments: Vec::new(),
+            });
+        }
+        episode.last_preparation_registry = authority.registry;
+    } else {
+        require(authority.grant.sha256()? == selected.sha256,
+            "issued source has child history without its retained episode")?;
+        let episode = IntakeEpisode {
+            version: 1, work: work.into(), authority: parent.mandate().authority.clone(),
+            work_epoch: parent.version.epoch, root_amendments: Vec::new(),
+            additional_roots: Vec::new(), remaining: authority.grant.request.episode_ceiling,
+            grant: authority.grant, grant_sha256: selected.sha256.clone(),
+            selected_registry: authority.registry.clone(), last_preparation_registry: authority.registry,
+            launch_binding_sha256: authority.launch_binding_sha256,
+            charges: Vec::new(), pending_proposal: None, additional_pending_proposals: Vec::new(),
+            child: None, additional_children: Vec::new(), revoked_at_unix: None,
+        };
+        state.intake_episodes.insert(selected.id.clone(), episode);
+    }
+    state.intake_episode_selections.insert(work.into(), selected.id.clone());
+    validate_state(state)
 }
 
 fn existing_id(state: &State, work: &str) -> Result<String> {
@@ -605,6 +621,7 @@ pub(super) fn interface(
             sha256: episode.grant_sha256.clone(),
         },
         automatically_issued: episode.grant.automatically_issued,
+        terms_are_historical: true,
         terms: episode.grant.request.clone(),
         registry: episode.last_preparation_registry.clone(),
         remaining_after_authoring_admission: episode.remaining,
@@ -803,8 +820,7 @@ fn stage_pending_operation(
             .get(&invitee.persona)
             .ok_or_else(|| held("proposal invitee absent"))?;
         require(
-            persona.seed.destination == episode.grant.request.destination
-                && exposure_permitted(state, &exposure, &admission(persona, now)),
+            exposure_permitted(state, &exposure, &admission(persona, now)),
             "proposal exposure is unavailable to an intended invitee",
         )?;
     }
@@ -857,8 +873,8 @@ fn stage_pending_operation(
 }
 
 impl Runtime {
-    /// Selection narrows an existing opportunity. It cannot resume a persona,
-    /// replenish an old work, or create an extra staging work identity.
+    /// Selection chooses the source attributed to this existing opportunity.
+    /// It cannot resume a persona, replenish work or erase earlier ancestry.
     pub fn prepare_with_intake_delegation(
         &mut self,
         request: PrepareRequest,

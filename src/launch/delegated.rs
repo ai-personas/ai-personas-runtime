@@ -5,16 +5,17 @@ use super::*;
 pub(super) fn subtree(state: &State, root: &str) -> Result<Vec<String>> {
     let mut works = vec![root.to_owned()];
     let mut selected = BTreeSet::from([root.to_owned()]);
-    let Some(episode) = need_proposals::episode(state, root) else {
-        return Ok(works);
-    };
     need_proposals::validate_state(state)?;
     let mut index = 0;
     while index < works.len() {
         let parent = works[index].clone();
-        for child in episode.children() {
-            if child.parent_work(episode) == parent && selected.insert(child.binding.work.clone()) {
-                works.push(child.binding.work.clone());
+        // Source selection may change without changing who requested a child.
+        // Follow actual immediate parents across all retained source episodes.
+        for episode in state.intake_episodes.values() {
+            for child in episode.children() {
+                if child.parent_work(episode) == parent && selected.insert(child.binding.work.clone()) {
+                    works.push(child.binding.work.clone());
+                }
             }
         }
         index += 1;

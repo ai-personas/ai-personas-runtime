@@ -31,6 +31,8 @@ struct ExpandedState {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     intake_episodes: BTreeMap<String, need_proposals::IntakeEpisode>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    intake_episode_selections: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     computation_grants: BTreeMap<String, tools::Grant>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     computation_jobs: BTreeMap<String, tools::JobMarker>,

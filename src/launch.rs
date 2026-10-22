@@ -46,6 +46,8 @@ pub use admission_extension::{
 
 #[path = "launch/intake_delegation.rs"]
 pub mod intake_delegation;
+#[path = "launch/episode_selection.rs"]
+pub mod episode_selection;
 pub use intake_delegation::{
     admit_need_proposal, grant_intake_delegation, intake_delegation_snapshot,
     preview_admit_need_proposal, preview_intake_delegation, preview_intake_delegation_revocation,
@@ -768,6 +770,7 @@ trait Driver {
         false
     }
     fn select_intake(&mut self, selection: p::need::GrantReference) -> Result<()>;
+    fn take_intake(&mut self) -> Option<p::need::GrantReference>;
     fn population_created(&mut self, _before: &Saved, _after: &Saved) -> Result<()> {
         Err(held("driver cannot advance a population binding"))
     }
@@ -839,6 +842,13 @@ async fn run_with_owned_commands<D: Driver>(
         {
             driver.select_intake(selection)?;
         }
+    }
+    if let Some(selection) = driver.take_intake() {
+        // The first eligible caller may be a descendant of a stopped parent.
+        // Bind the named work before scheduling, independently of who runs first.
+        let (head, mut state) = app.load()?;
+        need_proposals::select_source(app, &mut state, work, &selection, unix_now()?)?;
+        app.save(&head, &state)?;
     }
     let mut scope = app.background_host_commands(owner)?;
     let state = scope.snapshot()?;

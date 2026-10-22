@@ -11,10 +11,7 @@ pub(super) fn control(work: &w::Work, meta: &WorkMeta) -> Value {
 }
 
 pub(super) fn observation_work(state: &State, work: &str, recipient: &str) -> Result<String> {
-    let Some(episode) = need_proposals::episode(state, work) else {
-        return Ok(work.into());
-    };
-    let Some(child) = episode.child_for(work) else {
+    let Some((episode, child)) = need_proposals::originating_child(state, work) else {
         return Ok(work.into());
     };
     let parent = child.parent_work(episode);

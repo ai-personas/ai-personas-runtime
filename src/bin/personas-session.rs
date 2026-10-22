@@ -1,6 +1,7 @@
 //! Machine-readable Stage 1 boundary. Not an interactive onboarding wizard.
 //! New commands have static errors; existing ai-personas/personas-auth stay intact.
 use ai_personas::launch::session::{self, NeedRequest, SessionRequest, SessionRoute};
+use ai_personas::launch::episode_selection;
 use clap::{error::ErrorKind, Parser, Subcommand};
 use serde::Serialize;
 use std::path::PathBuf;
@@ -107,6 +108,10 @@ enum Command {
     Result { work: String },
     /// Current permitted shared questions, replies and conclusions; no inference.
     Questions { work: String },
+    /// Inspect current and available delegation sources; no inference.
+    IntakeSourceSnapshot { work: String },
+    /// Select a source without changing scope, participation or continuation.
+    SelectIntakeSource { file: PathBuf },
     /// Retained characteristic guidance and optional exact accepted-call evidence.
     Development {
         persona: String,
@@ -285,6 +290,13 @@ async fn main() {
         Command::SessionMessages { id } => emit(session::session_messages(&root, &operator, &id)),
         Command::Result { work } => emit(session::result_view(&root, &operator, &work)),
         Command::Questions { work } => emit(session::questions_view(&root, &operator, &work)),
+        Command::IntakeSourceSnapshot { work } => emit((|| -> session::BoundaryResult<serde_json::Value> {
+            Ok(episode_selection::snapshot_at(&root, &operator, &work)?)
+        })()),
+        Command::SelectIntakeSource { file } => emit((|| -> session::BoundaryResult<serde_json::Value> {
+            let request = ai_personas::runtime::read_json_file(&file, 0)?;
+            Ok(episode_selection::select_at(&root, &operator, &request, ai_personas::runtime::unix_now()?)?)
+        })()),
         Command::Development {
             persona,
             source,

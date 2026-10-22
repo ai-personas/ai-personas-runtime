@@ -512,7 +512,7 @@ fn plan(
     // The complete adopted request remains an actual request after the parent
     // changes phase or authority. It cannot resume that parent. Explicit episode
     // revocation and the original proof still bind this separate admission.
-    need_proposals::check_episode(app, &state, &pending.parent_work, now)?;
+    need_proposals::check_source(app, &state, &request.grant.id, now)?;
     let proposal = match &pending.operation {
         p::Operation::ProposeNeed { proposal, .. } => proposal,
         _ => return Err(held("closed pending proposal absent")),
@@ -536,10 +536,6 @@ fn plan(
     let allocation = proposal.allocation;
     let (parent_before, parent_after) = match &grant.request.funding {
         IntakeFundingBasis::ExistingParentTransfer { work_id, .. } => {
-            require(
-                work_id == &episode.work,
-                "transfer parent differs from selected episode",
-            )?;
             let before = remaining(
                 state
                     .work_meta
@@ -573,9 +569,8 @@ fn plan(
             .get(&invitee.persona)
             .ok_or_else(|| held("child invitee absent"))?;
         require(
-            persona.seed.destination == grant.request.destination
-                && exposure_permitted(&state, &exposure, &admission(persona, now)),
-            "current child invitee destination or inherited exposure unavailable",
+            exposure_permitted(&state, &exposure, &admission(persona, now)),
+            "current child invitee inherited exposure unavailable",
         )?;
     }
     let input = child_input(request, pending, proposal)?;
@@ -613,9 +608,12 @@ fn plan(
         None,
     )?;
     if let Some(after) = parent_after {
+        let IntakeFundingBasis::ExistingParentTransfer { work_id, .. } = &grant.request.funding else {
+            return Err(held("parent accounting has no recorded transfer source"));
+        };
         let meta = next
             .work_meta
-            .get_mut(&episode.work)
+            .get_mut(work_id)
             .ok_or_else(|| held("parent account absent"))?;
         meta.attempts_left = after.attempts;
         meta.repair_attempts_left = after.repair_attempts;
@@ -822,33 +820,33 @@ pub(in crate::runtime::launch) fn admit_pending_for_work_owned(
     let mut admitted = Vec::new();
     loop {
         let (runtime_head, state, launch_head, saved) = candidates(app)?;
-        let Some(episode) = need_proposals::episode(&state, work) else {
-            return Ok(admitted);
-        };
         let mut selected = None;
-        for reference in episode.pending_proposals() {
-            if episode.children().any(|child| &child.binding.pending == reference) {
-                continue;
-            }
-            let object = app.store.read_exact(&reference.store_ref())?;
-            let pending: PendingNeedProposal = serde_json::from_value(object.body)?;
-            if pending.parent_work == work {
-                // An operator amendment supersedes unadmitted requests from
-                // the older scope. Keep their exact records without stalling
-                // current work or admitting them under a different mandate.
-                if episode.work_binding(work) != Some((&pending.parent_authority,
-                    pending.parent_version_at_preparation.epoch))
-                {
-                    require(episode.retained_work_binding(work, &pending.parent_authority,
-                        pending.parent_version_at_preparation.epoch),
-                        "pending need has no retained parent scope binding")?;
+        'sources: for episode in state.intake_episodes.values().filter(|episode|
+            episode.work_binding(work).is_some() && episode.revoked_at_unix.is_none())
+        {
+            for reference in episode.pending_proposals() {
+                if episode.children().any(|child| &child.binding.pending == reference) {
                     continue;
                 }
-                selected = Some((reference.clone(), pending));
-                break;
+                let object = app.store.read_exact(&reference.store_ref())?;
+                let pending: PendingNeedProposal = serde_json::from_value(object.body)?;
+                if pending.parent_work == work {
+                    // A mandate amendment supersedes its old pending requests.
+                    // Selecting another source does not cancel an adopted request.
+                    if episode.work_binding(work) != Some((&pending.parent_authority,
+                        pending.parent_version_at_preparation.epoch))
+                    {
+                        require(episode.retained_work_binding(work, &pending.parent_authority,
+                            pending.parent_version_at_preparation.epoch),
+                            "pending need has no retained parent scope binding")?;
+                        continue;
+                    }
+                    selected = Some((episode, reference.clone(), pending));
+                    break 'sources;
+                }
             }
         }
-        let Some((reference, pending)) = selected else {
+        let Some((episode, reference, pending)) = selected else {
             return Ok(admitted);
         };
         let p::Operation::ProposeNeed { proposal, .. } = &pending.operation else {

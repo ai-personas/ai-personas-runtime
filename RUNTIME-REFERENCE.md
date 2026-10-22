@@ -510,7 +510,7 @@ ai-personas --state-root /private/state --operator local-operator \
 
 Ordinary foreground sessions perform admission automatically. An already adopted request can be admitted after its parent changes phase or authority; this does not resume the parent. Original proof, exact child identities and explicit episode revocation remain in effect. Historical allocation remainders may reach zero without limiting activity.
 
-An explicit source selection remains available. Automatic startup reuses its deterministic source after interruption and never replaces an explicitly revoked source. A bound work still cannot select an independent replacement episode. See [persona-requested needs](docs/persona-needs.md).
+An explicit source selection remains available. Root or child work can change its current source, and multiple works can use the same source. `intake-source-snapshot WORK` and keyed `select-intake-source FILE` change this selection independently of a model session, without resuming anyone. Previous source episodes, requests, children, charges and actual requester routing remain intact. Automatic startup reuses its deterministic source after interruption and never replaces an explicitly revoked source. See [persona-requested needs](docs/persona-needs.md).
 
 A persona can also author a JSON asset proposing starting traits for a new identity. Operator creation is separate and performs no inference, invitation, responsibility acceptance, or competence assignment. Population and initialization counts impose no quota. The new persona later authors its own initial character when it receives an opportunity.
 

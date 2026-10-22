@@ -224,7 +224,8 @@ Warning history, traversal, feedback, maintenance and local evidence projections
 have no application retention or output quota. Warning resolutions record their
 actual author without requiring the original author's identity. Existing exact
 warning revisions and supplied evidence still bind each judgment. Development
-inspection accepts any positive requested page size and retains complete output.
+inspection returns the complete retained characteristic history without a fixed
+revision cutoff; an explicit source filter can narrow it.
 
 Current affect has no maximum application lifetime. Personas still choose an
 explicit future expiry, and expiration remains effective at that chosen time.
@@ -244,6 +245,12 @@ mutation, native-conflict and command-instruction metadata also have no fixed
 count or byte quota. Lifecycle bookkeeping no longer caps persona or work counts.
 Exact hashes, unique identities, actual supply, authorship, consent and explicit
 Stop/Pause choices remain recorded.
+
+Delegation sources can be shared across work and changed on already bound root
+or child work. Current selection is separate from retained episodes and actual
+child ancestry. Historical source work lists and funding snapshots do not gate
+selection. Selecting another source resets no counters or participation, and
+does not erase or cancel earlier adopted proposals, child links or charges.
 
 Explicit operator commands now execute without a second boolean approval. This
 covers bootstrap, session routes, authentication actions, catalogue/probe actions,
@@ -461,7 +468,6 @@ exact completed rejected call covered by the saved amendment's resumption,
 while incomplete and uncertain calls retain their actual outcomes.
 
 Removal is still incomplete. Remaining application enforcement includes
-single-episode binding constraints and
 additional specialized control and workflow gates. These are implementation gaps under the
 new requirement, not exceptions granted by the user. Some earlier documents still
 describe them because those paths remain implemented. They must be removed or

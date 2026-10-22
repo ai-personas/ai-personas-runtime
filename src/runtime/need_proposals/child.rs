@@ -18,15 +18,12 @@ impl AdmittedChild {
         self.parent_work.as_deref().unwrap_or(&episode.work)
     }
 }
-fn child<'a>(state: &'a State, work: &str) -> Option<(&'a IntakeEpisode, &'a AdmittedChild)> {
+pub(in crate::runtime) fn child<'a>(state: &'a State, work: &str) -> Option<(&'a IntakeEpisode, &'a AdmittedChild)> {
     state.intake_episodes.values().find_map(|episode| {
         episode
             .child_for(work)
             .map(|child| (episode, child))
     })
-}
-pub(in crate::runtime) fn is_child(state: &State, work: &str) -> bool {
-    child(state, work).is_some()
 }
 pub(super) fn validate(
     state: &State,
@@ -37,7 +34,7 @@ pub(super) fn validate(
     binding.validate(&episode.grant)?;
     identity(&binding.work)?;
     require(
-        binding.work != episode.work
+        !episode.roots().any(|work| work == binding.work)
             && binding.source_grant_sha256 == episode.grant_sha256
             && episode.pending_proposals().any(|pending| pending == &binding.pending),
         "child differs from its immutable source grant or accepted pending lineage",
@@ -48,7 +45,7 @@ pub(super) fn validate(
     let mut parent = child.parent_work(episode);
     loop {
         require(seen.insert(parent), "cyclic delegated child lineage")?;
-        if parent == episode.work { break; }
+        if episode.roots().any(|work| work == parent) { break; }
         let ancestor = episode.child_for(parent)
             .ok_or_else(|| held("delegated parent binding absent"))?;
         require(ancestor.binding.admitted_at_unix <= binding.admitted_at_unix,
