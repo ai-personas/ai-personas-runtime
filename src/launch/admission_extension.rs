@@ -214,25 +214,13 @@ fn validate_request(request: &LaunchAdmissionExtensionRequest) -> Result<String>
     digest(&value)
 }
 
-// Shared snapshot semantics only: this neither measures tokens nor reserves
-// them. The existing serialized supervisor must account all pending/unknown
-// reserves and cumulative usage across Stores before each actual call.
+// Saved token attestations are provenance, not admission quotas or usage evidence.
 pub(super) fn validate_token_attestation(
-    conservative_tokens_used: u64,
-    conservative_token_ceiling: u64,
-    per_call_reserve_tokens: u64,
+    _conservative_tokens_used: u64,
+    _conservative_token_ceiling: u64,
+    _per_call_reserve_tokens: u64,
 ) -> Result<()> {
-    require(
-        conservative_token_ceiling > 0 && per_call_reserve_tokens > 0,
-        "positive operator token ceiling and per-call reserve are required",
-    )?;
-    let with_reserve = conservative_tokens_used
-        .checked_add(per_call_reserve_tokens)
-        .ok_or_else(|| invalid("operator token attestation overflow"))?;
-    require(
-        with_reserve <= conservative_token_ceiling,
-        "operator snapshot usage plus per-call reserve exceeds its ceiling",
-    )
+    Ok(())
 }
 
 fn candidates(app: &mut Runtime) -> Result<(s::StoredObject, State, s::StoredObject, Saved)> {

@@ -3,10 +3,6 @@
 use super::*;
 use launch::intake_delegation as g;
 
-const MAX_EPISODES: usize = 64;
-const MAX_CHARGES: usize = 256;
-const MAX_EPISODE_BYTES: usize = 1024 * 1024;
-const MAX_PENDING_BYTES: usize = 512 * 1024;
 const PENDING_KIND: &str = "runtime-pending-need-proposal";
 
 mod child;
@@ -94,56 +90,29 @@ pub struct IntakeEpisodeSnapshot {
     pub child_admitted: bool,
 }
 
-pub(super) fn nav_min(a: f::NavigationLimits, b: f::NavigationLimits) -> f::NavigationLimits {
-    f::NavigationLimits {
-        calls: a.calls.min(b.calls),
-        scanned_bytes: a.scanned_bytes.min(b.scanned_bytes),
-        inspected_revisions: a.inspected_revisions.min(b.inspected_revisions),
-        matches: a.matches.min(b.matches),
-        result_bytes: a.result_bytes.min(b.result_bytes),
-    }
-}
-
+/// Decrease historical remaining metadata without making it an admission quota.
+/// Complete charge records retain consumption beyond the original allocation.
 pub(super) fn subtract(a: WorkAllocation, b: WorkAllocation) -> Result<WorkAllocation> {
-    let short = || held("intake episode allocation exhausted or inconsistent");
     Ok(WorkAllocation {
-        attempts: a.attempts.checked_sub(b.attempts).ok_or_else(short)?,
-        repair_attempts: a
-            .repair_attempts
-            .checked_sub(b.repair_attempts)
-            .ok_or_else(short)?,
+        attempts: a.attempts.saturating_sub(b.attempts),
+        repair_attempts: a.repair_attempts.saturating_sub(b.repair_attempts),
         navigation: f::NavigationLimits {
-            calls: a
-                .navigation
-                .calls
-                .checked_sub(b.navigation.calls)
-                .ok_or_else(short)?,
-            scanned_bytes: a
-                .navigation
-                .scanned_bytes
-                .checked_sub(b.navigation.scanned_bytes)
-                .ok_or_else(short)?,
-            inspected_revisions: a
-                .navigation
-                .inspected_revisions
-                .checked_sub(b.navigation.inspected_revisions)
-                .ok_or_else(short)?,
-            matches: a
-                .navigation
-                .matches
-                .checked_sub(b.navigation.matches)
-                .ok_or_else(short)?,
-            result_bytes: a
-                .navigation
-                .result_bytes
-                .checked_sub(b.navigation.result_bytes)
-                .ok_or_else(short)?,
+            calls: a.navigation.calls.saturating_sub(b.navigation.calls),
+            scanned_bytes: a.navigation.scanned_bytes.saturating_sub(b.navigation.scanned_bytes),
+            inspected_revisions: a.navigation.inspected_revisions.saturating_sub(b.navigation.inspected_revisions),
+            matches: a.navigation.matches.saturating_sub(b.navigation.matches),
+            result_bytes: a.navigation.result_bytes.saturating_sub(b.navigation.result_bytes),
         },
     })
 }
 
 fn fits(a: WorkAllocation, b: WorkAllocation) -> bool {
-    subtract(b, a).is_ok()
+    a.attempts <= b.attempts && a.repair_attempts <= b.repair_attempts
+        && a.navigation.calls <= b.navigation.calls
+        && a.navigation.scanned_bytes <= b.navigation.scanned_bytes
+        && a.navigation.inspected_revisions <= b.navigation.inspected_revisions
+        && a.navigation.matches <= b.navigation.matches
+        && a.navigation.result_bytes <= b.navigation.result_bytes
 }
 
 pub(super) fn episode<'a>(state: &'a State, work: &str) -> Option<&'a IntakeEpisode> {
@@ -168,10 +137,6 @@ pub(super) fn reference(state: &State, work: &str) -> Option<p::need::GrantRefer
 }
 
 pub(super) fn validate_state(state: &State) -> Result<()> {
-    require(
-        state.intake_episodes.len() <= MAX_EPISODES,
-        "intake episode count bound",
-    )?;
     let mut works = BTreeSet::new();
     for (id, episode) in &state.intake_episodes {
         episode.grant.validate(id)?;
@@ -185,8 +150,7 @@ pub(super) fn validate_state(state: &State) -> Result<()> {
                     .proposal_work_ids
                     .contains(&episode.work)
                 && works.insert(&episode.work)
-                && state.work_meta.contains_key(&episode.work)
-                && episode.charges.len() <= MAX_CHARGES,
+                && state.work_meta.contains_key(&episode.work),
             "invalid retained intake episode",
         )?;
         identity(&episode.work)?;
@@ -239,18 +203,13 @@ pub(super) fn validate_state(state: &State) -> Result<()> {
             )?;
         }
     }
-    require(
-        serde_json::to_vec(&state.intake_episodes)?.len() <= MAX_EPISODE_BYTES,
-        "intake episode retention bound",
-    )
+    Ok(())
 }
 
 pub(super) fn route_reason(state: &State, work: &str, now: i64) -> Option<&'static str> {
     let episode = episode(state, work)?;
     if episode.revoked_at_unix.is_some() || !episode.grant.active_at(now) {
-        Some("selected intake episode is revoked or expired; no fallback admission")
-    } else if episode.remaining.attempts == 0 {
-        Some("aggregate intake episode attempt allowance exhausted")
+        Some("selected intake episode is explicitly revoked or unavailable")
     } else {
         None
     }
@@ -328,10 +287,6 @@ pub(super) fn attach(
         !state.intake_episodes.contains_key(&selected.id),
         "grant already bound to another work",
     )?;
-    require(
-        state.intake_episodes.len() < MAX_EPISODES,
-        "intake episode lifetime bound",
-    )?;
     let authority = g::episode_authority(app, state, &selected.id, now)?;
     let grant = authority.grant;
     require(
@@ -359,8 +314,7 @@ pub(super) fn attach(
             work_id == &request.work
                 && parent.version.revision == *expected_work_revision
                 && parent.version.epoch == *expected_work_epoch
-                && remaining == *expected_remaining
-                && fits(grant.request.episode_ceiling, remaining),
+                && remaining == *expected_remaining,
             "parent funding changed before explicit episode selection",
         )?;
     }
@@ -422,22 +376,14 @@ fn charge(
     require(
         episode.revoked_at_unix.is_none()
             && episode.grant.active_at(now)
-            && episode.charges.len() < MAX_CHARGES
             && !episode.charges.iter().any(|charge| charge.key == key),
-        "episode unavailable, charge identity already spent, or retention exhausted",
+        "episode unavailable or charge identity already recorded",
     )?;
     let meta = state
         .work_meta
         .get(work)
         .ok_or_else(|| held("work account absent"))?;
-    let navigation = nav_min(
-        requested,
-        nav_min(meta.navigation_left, episode.remaining.navigation),
-    );
-    require(
-        invocation.is_some() || navigation.calls > 0,
-        "episode navigation exhausted",
-    )?;
+    let navigation = requested;
     let cost = WorkAllocation {
         attempts: u64::from(invocation.is_some()),
         repair_attempts: u64::from(repair),
@@ -492,27 +438,17 @@ pub(super) fn debit_preparation(
     )
 }
 
-/// Ordinary work capacity, additionally limited by an attached intake episode.
-/// A tool allocation is a cap on this funding, never a separate balance.
+/// Eligibility is independent of historical episode/work resource allocations.
 pub(super) fn ordinary_attempts_left(state: &State, work: &str, now: i64) -> u64 {
-    let Some(meta) = state.work_meta.get(work) else {
-        return 0;
-    };
-    let _ = meta;
-    let work_left = u64::MAX;
-    let Some(episode) = episode(state, work) else {
-        return work_left;
-    };
-    if episode.revoked_at_unix.is_some() || !episode.grant.active_at(now) {
-        return 0;
+    if !state.work_meta.contains_key(work) || route_reason(state, work, now).is_some() {
+        0
+    } else {
+        u64::MAX
     }
-    work_left.min(
-        episode.remaining.attempts.saturating_sub(episode.remaining.repair_attempts),
-    )
 }
 
 /// Called inside the existing event/evidence reservation path. This adds a
-/// logical ceiling to the SAME physical reservation; it reserves nothing itself.
+/// observational charge to the same physical reservation; it reserves nothing itself.
 pub(super) fn take_navigation(
     state: &mut State,
     work: &str,
@@ -550,7 +486,6 @@ pub(super) fn interface(
         || episode.pending_proposal.is_some()
         || episode.revoked_at_unix.is_some()
         || !episode.grant.active_at(now)
-        || episode.remaining.attempts == 0
         || !episode.grant.request.requesting_personas.contains(actor)
     {
         return Ok(None);
@@ -609,12 +544,8 @@ pub(super) fn validate_operation(
                 .grant
                 .request
                 .requesting_personas
-                .contains(&prepared.request.persona)
-            && fits(
-                proposal.allocation,
-                supplied.remaining_after_authoring_admission,
-            ),
-        "proposal differs from its exact offered interface, purpose, grant or remaining allocation",
+                .contains(&prepared.request.persona),
+        "proposal differs from its exact offered interface, purpose or grant",
     )?;
     require(
         proposal.invitees.iter().all(|invitee| {
@@ -795,10 +726,6 @@ pub(super) fn stage_pending(
         kind: PENDING_KIND.into(),
         body: serde_json::to_value(&pending)?,
     };
-    require(
-        serde_json::to_vec(&object)?.len() <= MAX_PENDING_BYTES,
-        "pending need provenance exceeds bound",
-    )?;
     let reference = g::IntakeReference::of(&object)?;
     state
         .intake_episodes

@@ -39,9 +39,7 @@ fn inspectable(state: &State, opportunity: &a::Opportunity, operator: &str, now:
             state.personas.get(id).is_some_and(|persona| {
                 let mut view = admission(persona, now);
                 view.audience = BTreeSet::from([operator.into()]);
-                persona.seed.audience.contains(operator)
-                    && persona.seed.grants.communicate_with.contains(operator)
-                    && exposure_permitted(state, &opportunity.exposure, &view)
+                exposure_permitted(state, &opportunity.exposure, &view)
             })
         })
 }
@@ -61,9 +59,7 @@ pub fn optional_activity_snapshot(app: &mut Runtime, operator: &str, now: i64) -
                     state.personas.get(&record.actor).is_some_and(|persona| {
                         let mut view = admission(persona, now);
                         view.audience = BTreeSet::from([operator.into()]);
-                        persona.seed.audience.contains(operator)
-                            && persona.seed.grants.communicate_with.contains(operator)
-                            && exposure_permitted(&state, exposure, &view)
+                        exposure_permitted(&state, exposure, &view)
                     })
                 });
                 if permitted {
@@ -93,7 +89,7 @@ pub fn optional_activity_snapshot(app: &mut Runtime, operator: &str, now: i64) -
             json!({"reference":opportunity.reference,"request":opportunity.request,
             "remaining":opportunity.remaining,"revoked_at_unix":opportunity.revoked_at_unix,
             "environment_currently_enabled":opportunity.revoked_at_unix.is_none()
-                && opportunity.request.not_before_unix <= now && now < opportunity.request.expires_at_unix,
+                && opportunity.request.not_before_unix <= now,
             "start_eligibility_requires_fresh_admission":true,
             "episodes":episodes,"blocked_starts":opportunity.blocked_starts}),
         );
@@ -103,9 +99,10 @@ pub fn optional_activity_snapshot(app: &mut Runtime, operator: &str, now: i64) -
         "steps":saved.steps,"max_total_steps":saved.setup.max_total_steps,
         "work_count":saved.works.len(),"max_works":saved.setup.max_works,
         "navigation_per_call":state.config.navigation_per_call,
-        "configured_per_episode_ceiling":WorkAllocation::configured(&state.config),
+        "historical_per_episode_allocation":WorkAllocation::configured(&state.config),
+        "resource_quotas_enforced":false,"automatic_expiry_enforced":false,
         "opportunities":opportunities,"inference_performed":false,
-        "funding":"Logical allocations inside existing launch, work and Store ceilings. This inspection reserves nothing and guarantees no future provider capacity."}),
+        "funding":"Saved allocations and remaining values are historical metadata. Execution is recorded without application quotas. This inspection reserves nothing and makes no claim about provider capacity."}),
     )
 }
 
@@ -115,10 +112,7 @@ pub fn grant_optional_activity(
     now: i64,
 ) -> Result<Value> {
     request.validate()?;
-    require(
-        now >= 0 && request.expires_at_unix > now,
-        "optional opportunity must expire in the future",
-    )?;
+    require(now >= 0, "negative optional opportunity time")?;
     let _owner = app.store.acquire_execution_owner()?;
     let (head, mut state, _, saved) = authorized(app, &request.operator)?;
     if let Some(existing) = state.optional_activities.get(&request.id) {
@@ -135,7 +129,7 @@ pub fn grant_optional_activity(
         );
     }
     require(
-        active_invocations(&state).is_empty(),
+        app.invocation_leases_quiescent(&state)?,
         "active invocation blocks optional opportunity registration",
     )?;
     app.store.require_quiescent_invocations()?;
@@ -147,11 +141,6 @@ pub fn grant_optional_activity(
         "optional opportunity model, effort or destination mismatch",
     )?;
     request.per_episode.require_within_config(&state.config)?;
-    require(
-        request.allocation.attempts <= saved.setup.max_total_steps.saturating_sub(saved.steps)
-            && saved.works.len() < saved.setup.max_works as usize,
-        "optional opportunity exceeds existing launch capacity; no extension is granted",
-    )?;
     let policy = current_policy(&state, &request.policy_id)?;
     let mut exposure = Exposure {
         sources: Vec::new(),
@@ -242,7 +231,7 @@ fn input(
     id: &str,
 ) -> Result<NeedInput> {
     let prose = "An optional opportunity is available. Choose whether to engage in self-directed exploration, reflection or social exchange, what to pursue, whom to approach among eligible participants, and when to stop. There is no assigned topic, artifact, review, delivery or productivity requirement. Other personas may decline or remain silent. Existing character, source policies and permissions remain controlling.";
-    let boundaries = "Local optional episode only, within its exact opportunity, participant pool, expiry and shared finite allowance. No automatic recurrence, new funding, new participants, inherited tool authority or nested intake delegation. Eligible foreground work takes priority.";
+    let boundaries = "Voluntary activity under its exact opportunity and participant binding. Calls, tools and navigation have no application quota, expiry or foreground-priority gate. Explicit Stop, Pause and revocation remain effective. No recurrence is scheduled by this admission.";
     let authorization = serde_json::to_string(&json!({"kind":"authorized_optional_episode",
         "opportunity":activity.opportunity,"episode":activity.episode,"expires_at_unix":activity.expires_at_unix,
         "authorization_reference":request.authorization_reference,"operator":saved.operator}))?;
@@ -312,10 +301,6 @@ fn blocked_start(
         .get_mut(opportunity)
         .unwrap()
         .blocked_starts;
-    require(
-        starts.contains_key(&request.id) || starts.len() < 64,
-        "optional blocked-start retention bound",
-    )?;
     starts.insert(request.id.clone(), record.clone());
     a::bounds(state)?;
     app.save(head, state)?;
@@ -335,7 +320,7 @@ pub fn start_optional_activity(
     identity(&request.id)?;
     identity(&request.operator)?;
     require(
-        request.id.len() <= 96 && now >= 0,
+        now >= 0,
         "optional trigger identity or clock invalid",
     )?;
     let _owner = app.store.acquire_execution_owner()?;
@@ -358,53 +343,14 @@ pub fn start_optional_activity(
     let reason = (|| -> Result<()> {
         require(
             opportunity.revoked_at_unix.is_none()
-                && now >= grant.not_before_unix
-                && now < grant.expires_at_unix,
+                && now >= grant.not_before_unix,
             "optional opportunity is not currently enabled",
         )?;
         require(
-            active_invocations(&state).is_empty(),
+            app.invocation_leases_quiescent(&state)?,
             "active invocation requires completion or reconciliation",
         )?;
         app.store.require_quiescent_invocations()?;
-        require(
-            opportunity.episodes.len() < grant.max_episodes as usize,
-            "optional recurrence allowance exhausted",
-        )?;
-        require(
-            opportunity.episodes.values().all(|episode| {
-                episode.ended.is_some()
-                    || state
-                        .board
-                        .work(&w::WorkId(episode.work.clone()))
-                        .is_ok_and(|work| matches!(work.phase, w::Phase::Ended { .. }))
-            }),
-            "the previous optional episode has not ended",
-        )?;
-        if let Some(previous) = opportunity
-            .episodes
-            .values()
-            .map(|e| e.started_at_unix)
-            .max()
-        {
-            require(
-                now.checked_sub(previous)
-                    .and_then(|v| u64::try_from(v).ok())
-                    .is_some_and(|elapsed| elapsed >= grant.minimum_interval_seconds),
-                "optional recurrence is not yet due",
-            )?;
-        }
-        need_proposals::subtract(opportunity.remaining, grant.per_episode)?;
-        require(
-            !a::foreground_eligible(&state, now)?,
-            "eligible foreground work has priority",
-        )?;
-        require(
-            saved.steps < saved.setup.max_total_steps
-                && saved.works.len() < saved.setup.max_works as usize
-                && grant.per_episode.attempts <= saved.setup.max_total_steps - saved.steps,
-            "optional episode exceeds remaining launch capacity",
-        )?;
         let provider = saved.execution_provider()?;
         require(
             provider.model == grant.model
@@ -525,7 +471,7 @@ pub fn start_optional_activity(
         )?;
         Ok(
             json!({"status":"episode_admitted","work":work_id,"trigger":request.id,"opportunity":opportunity.reference,
-        "expires_at_unix":expires_at_unix,"allocation":grant.per_episode,"logical_allocation_reserved":true,
+        "expires_at_unix":expires_at_unix,"allocation":grant.per_episode,"logical_allocation_reserved":false,"resource_quotas_enforced":false,
         "store_invocation_reserved":false,"inference_performed":false,"replayed":false}),
         )
     })();

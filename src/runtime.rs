@@ -5630,26 +5630,13 @@ impl Runtime {
             }
         };
         let native_audit = native.audit().clone();
-        let mut intake_deadline = None;
         let mut control_monitor = None;
         let authorization = (|| -> Result<()> {
             let (_, fresh) = self.load()?;
             self.current(&fresh, &prepared, unix_now()?)?;
             optional_activity::require_current(&fresh, &prepared.request.work, &prepared.request.persona, unix_now()?)?;
             expanded_exposure(&fresh, prepared_exposure(&prepared)?)?;
-            // Source-policy expiry is historical metadata. The remaining
-            // episode deadline mechanism is separate from source access.
-
-            // current() verified this exact retained source grant against the
-            // current registry. Carry its unchanged deadline to actual launch.
-            intake_deadline = need_proposals::episode(&fresh, &prepared.request.work)
-                .map(|episode| episode.grant.request.expires_at_unix);
-            if let Some(deadline) = fresh.board.work(&w::WorkId(prepared.request.work.clone()))?
-                .need.optional_activity.as_ref().map(|activity| activity.expires_at_unix)
-            {
-                let deadline = i64::try_from(deadline).map_err(|_| held("optional deadline unavailable"))?;
-                intake_deadline = Some(intake_deadline.map_or(deadline, |prior| prior.min(deadline)));
-            }
+            // Source and episode expiry settings do not impose transport deadlines.
             control_monitor = Some((self.store.runtime_control_monitor()?, fresh.operator_events.len()));
             self.store.dispatch_invocation(&prepared.request.id)?;
             Ok(())
@@ -5687,10 +5674,7 @@ impl Runtime {
             cancellation?;
             return Err(error);
         }
-        let dispatch = match intake_deadline {
-            Some(deadline) => native.dispatch_with_intake_deadline(cancellation.clone(), deadline),
-            None => native.dispatch(cancellation.clone()),
-        };
+        let dispatch = native.dispatch(cancellation.clone());
         let (monitor, event_cursor) = control_monitor.expect("authorized transport control monitor");
         Ok(provider_calls::pending(
             prepared, native_audit, intent, cancellation, state.config.response_bytes,

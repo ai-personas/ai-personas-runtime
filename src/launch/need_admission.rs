@@ -286,10 +286,8 @@ fn proof(
         .terminal_response_bytes
         .ok_or_else(|| held("original complete-body bound unavailable"))?;
     require(
-        maximum <= RESPONSE_LIMIT
-            && raw.len() <= maximum
-            && s::sha256_bytes(raw.as_bytes()) == pending.response_sha256,
-        "exact authored bytes or admitted response bound differ",
+        s::sha256_bytes(raw.as_bytes()) == pending.response_sha256,
+        "exact authored response hash differs",
     )?;
     let parsed = p::parse_decision(raw.as_bytes(), maximum)?;
     require(
@@ -393,27 +391,6 @@ fn proof(
     })
 }
 
-fn minimum(a: WorkAllocation, b: WorkAllocation) -> WorkAllocation {
-    let attempts = a.attempts.min(b.attempts);
-    WorkAllocation {
-        attempts,
-        repair_attempts: a.repair_attempts.min(b.repair_attempts).min(attempts),
-        navigation: need_proposals::nav_min(a.navigation, b.navigation),
-    }
-}
-fn transfer_navigation(
-    requested: f::NavigationLimits,
-    available: f::NavigationLimits,
-) -> Result<()> {
-    require(
-        (requested.calls == 0 || available.calls > 0)
-            && (requested.scanned_bytes == 0 || available.scanned_bytes > 0)
-            && (requested.inspected_revisions == 0 || available.inspected_revisions > 0)
-            && (requested.matches == 0 || available.matches > 0)
-            && (requested.result_bytes == 0 || available.result_bytes > 0),
-        "navigation-using parent transfer has an exhausted required navigation dimension",
-    )
-}
 fn child_input(
     request: &AdmitNeedProposalRequest,
     pending: &PendingNeedProposal,
@@ -499,7 +476,7 @@ fn plan(
     )?;
     let registry_head = registry_head.ok_or_else(|| held("delegation registry absent"))?;
     require(
-        active_invocations(&state).is_empty(),
+        app.invocation_leases_quiescent(&state)?,
         "active invocation blocks child admission",
     )?;
     app.store.require_quiescent_invocations()?;
@@ -513,7 +490,7 @@ fn plan(
             && grant.sha256()? == request.grant.sha256
             && grant.request.operator == request.operator
             && grant.request.purpose == request.purpose,
-        "source grant issuer, exact hash, purpose, quota, status or expiry changed",
+        "source grant issuer, exact hash, purpose or status changed",
     )?;
     let episode = state
         .intake_episodes
@@ -537,19 +514,10 @@ fn plan(
         p::Operation::ProposeNeed { proposal, .. } => proposal,
         _ => return Err(held("closed pending proposal absent")),
     };
-    let original_tokens = &grant.request.token_attestation;
-    let tokens = &request.token_attestation;
-    require(
-        tokens.conservative_tokens_used >= original_tokens.conservative_tokens_used
-            && tokens.conservative_token_ceiling <= original_tokens.conservative_token_ceiling
-            && tokens.per_call_reserve_tokens >= original_tokens.per_call_reserve_tokens,
-        "admission token attestation weakens the source grant snapshot",
-    )?;
     let work_count =
         u64::try_from(saved.works.len()).map_err(|_| invalid("work count overflow"))?;
     require(
-        work_count < saved.setup.max_works
-            && request.child_work_id == format!("work-{:08}", increment(work_count)?)
+        request.child_work_id == format!("work-{:08}", increment(work_count)?)
             && !saved.works.contains_key(&request.child_work_id)
             && !state.work_meta.contains_key(&request.child_work_id)
             && !state
@@ -562,7 +530,7 @@ fn plan(
                 .all(|persona| !persona.focus.contains_key(&request.child_work_id)),
         "child identity is not the exact unused next launch identity",
     )?;
-    let mut allocation = minimum(proposal.allocation, episode.remaining);
+    let allocation = proposal.allocation;
     let (parent_before, parent_after) = match &grant.request.funding {
         IntakeFundingBasis::ExistingParentTransfer { work_id, .. } => {
             require(
@@ -575,8 +543,6 @@ fn plan(
                     .get(work_id)
                     .ok_or_else(|| held("parent account absent"))?,
             );
-            allocation = minimum(allocation, before);
-            transfer_navigation(proposal.allocation.navigation, allocation.navigation)?;
             (
                 Some(before),
                 Some(need_proposals::subtract(before, allocation)?),
@@ -593,14 +559,6 @@ fn plan(
         }
     };
     allocation.require_within_config(&state.config)?;
-    require(
-        saved
-            .setup
-            .max_total_steps
-            .checked_sub(saved.steps)
-            .is_some_and(|left| left >= allocation.attempts),
-        "remaining launch calls cannot support this child allocation",
-    )?;
     let mut exposure = expanded_exposure(&state, &pending.exposure)?;
     lifecycle::require_active(&state, &pending.author)?;
     let author = state
@@ -612,10 +570,6 @@ fn plan(
         &grant.request.policy,
         &exposure,
         &admission(author, now),
-    )?;
-    require(
-        grant.request.policy.audience.contains(&request.operator),
-        "operator delivery is outside the exact policy audience",
     )?;
     for invitee in &proposal.invitees {
         lifecycle::require_active(&state, &invitee.persona)?;

@@ -15,11 +15,8 @@ pub use need_admission::{
 const REGISTRY_ID: &str = "launch-intake-delegations-v1";
 const REGISTRY_KIND: &str = "launch-intake-delegations";
 const RECEIPT_KIND: &str = "launch-intake-delegation-receipt";
-const MAX_GRANTS: usize = 64;
 const MAX_REGISTRY_BYTES: usize = 1024 * 1024;
 const MAX_REQUEST_BYTES: usize = 32_768;
-const MAX_LIFETIME_SECONDS: i64 = 30 * 24 * 60 * 60;
-const REVOCATION_HEADROOM: usize = 1024;
 
 /// Strict JSON counterpart of a Store reference; content identity is not
 /// authentication. All entry points below are trusted operator interfaces.
@@ -86,15 +83,7 @@ impl IntakeDelegationFence {
             reference.validate(REGISTRY_ID)?;
             increment(reference.revision)?;
         }
-        require(
-            self.steps <= self.max_total_steps
-                && self.max_total_steps > 0
-                && self.max_total_steps <= step_ceiling()?
-                && self.work_count <= self.max_works
-                && (1..=128).contains(&self.max_works)
-                && (1..=128).contains(&self.max_steps),
-            "unsupported intake fence counters",
-        )
+        Ok(())
     }
 }
 
@@ -198,22 +187,20 @@ impl IntakeDelegationRequest {
             self.activate
                 && self.creation_rights == 1
                 && !self.allow_further_delegation
-                && self.expires_at_unix > 0,
-            "explicit activation, one creation right, finite expiry and no further delegation are required",
+                && self.expires_at_unix >= 0,
+            "explicit activation, one creation right, valid historical expiry and no further delegation are required",
         )?;
         match &self.funding {
             IntakeFundingBasis::ExistingParentTransfer {
                 work_id,
                 expected_work_revision,
-                expected_remaining,
                 ..
             } => {
                 identity(work_id)?;
                 require(
                     *expected_work_revision > 0
-                        && self.proposal_work_ids == BTreeSet::from([work_id.clone()])
-                        && allocation_fits(self.episode_ceiling, *expected_remaining),
-                    "parent transfer requires its exact proposal work and sufficient observed remainder",
+                        && self.proposal_work_ids == BTreeSet::from([work_id.clone()]),
+                    "parent transfer requires its exact proposal work",
                 )?;
             }
             IntakeFundingBasis::OperatorTranche {
@@ -225,14 +212,7 @@ impl IntakeDelegationRequest {
                 )?;
             }
         }
-        let (steps, works) = target_ceilings(self)?;
-        require(
-            self.additional_launch_steps <= self.episode_ceiling.attempts
-                && self.additional_launch_work_ids <= 1
-                && steps <= step_ceiling()?
-                && works <= 128,
-            "unsupported launch ceiling deltas",
-        )?;
+        target_ceilings(self)?;
         if self.additional_launch_steps != 0 || self.additional_launch_work_ids != 0 {
             increment(self.expected.launch.revision)?;
         }
@@ -365,9 +345,7 @@ impl ConsumedChild {
                 && self.pending.id.starts_with("need-proposal:")
                 && self.pending.revision == 1
                 && self.receipt_id == format!("launch-need-admission:{}", self.admission_id)
-                && self.admitted_at_unix >= grant.issued_at_unix
-                && self.admitted_at_unix < grant.request.expires_at_unix
-                && allocation_fits(self.allocation, grant.request.episode_ceiling),
+                && self.admitted_at_unix >= grant.issued_at_unix,
             "invalid immutable consumed-child binding",
         )?;
         bounded(self, 8192)
@@ -392,8 +370,8 @@ impl IntakeDelegation {
     pub fn sha256(&self) -> Result<String> {
         canonical_hash(self)
     }
-    /// Only temporal/right status. Current operator, policy, exposure, root,
-    /// funding and opportunity checks remain mandatory for future consumption.
+    /// Explicit lifecycle/right status; saved expiry is observational. Current operator, policy, exposure, root,
+    /// identity and opportunity checks remain mandatory for future consumption.
     pub fn active_at(&self, now: i64) -> bool {
         self.usable_at(now) && self.creation_rights_remaining == 1 && self.consumed_child.is_none()
     }
@@ -401,7 +379,6 @@ impl IntakeDelegation {
         self.version == 1
             && matches!(self.status, IntakeDelegationStatus::Active)
             && now >= self.issued_at_unix
-            && now < self.request.expires_at_unix
     }
     /// Identity of the immutable issued capsule, independent of monotonic lifecycle fields.
     pub(in crate::runtime) fn source_sha256(&self) -> Result<String> {
@@ -470,26 +447,13 @@ impl Default for IntakeDelegationRegistry {
 impl IntakeDelegationRegistry {
     fn validate(&self) -> Result<()> {
         require(
-            self.version == 1 && self.grants.len() <= MAX_GRANTS,
-            "delegation registry bound",
+            self.version == 1,
+            "delegation registry version",
         )?;
         for (id, grant) in &self.grants {
             grant.validate(id)?;
         }
-        let active = self
-            .grants
-            .values()
-            .filter(|g| matches!(g.status, IntakeDelegationStatus::Active))
-            .count();
-        let bytes = serde_json::to_vec(self)?.len();
-        let with_headroom = active
-            .checked_mul(REVOCATION_HEADROOM)
-            .and_then(|n| bytes.checked_add(n))
-            .ok_or_else(|| invalid("delegation registry size overflow"))?;
-        require(
-            with_headroom <= MAX_REGISTRY_BYTES,
-            "delegation registry and revocation headroom exceed bound",
-        )
+        Ok(())
     }
 }
 
@@ -563,12 +527,11 @@ pub struct IntakeDelegationOutcome {
     pub replayed: bool,
 }
 
-fn bounded<T: Serialize + ?Sized>(value: &T, limit: usize) -> Result<()> {
-    require(
-        serde_json::to_vec(value)?.len() <= limit,
-        "intake metadata exceeds byte bound",
-    )
+fn bounded<T: Serialize + ?Sized>(value: &T, _historical_limit: usize) -> Result<()> {
+    serde_json::to_writer(std::io::sink(), value)?;
+    Ok(())
 }
+
 fn canonical_hash<T: Serialize + ?Sized>(value: &T) -> Result<String> {
     digest(&serde_json::to_value(value)?)
 }
@@ -582,68 +545,26 @@ fn hash_string(value: &str) -> Result<()> {
     )
 }
 fn request_id(value: &str) -> Result<()> {
-    identity(value)?;
-    require(value.len() <= 96, "intake request identity exceeds bound")
+    identity(value)
 }
 fn receipt_id(id: &str) -> String {
     format!("launch-intake-request:{id}")
 }
-fn identities(values: &BTreeSet<String>, minimum: usize, maximum: usize) -> Result<()> {
+fn identities(values: &BTreeSet<String>, minimum: usize, _historical_maximum: usize) -> Result<()> {
     require(
-        (minimum..=maximum).contains(&values.len()),
-        "intake identity set bound",
+        values.len() >= minimum,
+        "required intake identities absent",
     )?;
     for value in values {
         identity(value)?;
     }
     Ok(())
 }
-fn step_ceiling() -> Result<u64> {
-    let limits = storage_limits();
-    limits
-        .total
-        .attempts
-        .checked_sub(limits.protected_closeout.attempts)
-        .ok_or_else(|| invalid("invalid protected attempt ceiling"))
-}
-fn navigation_fits(a: f::NavigationLimits, b: f::NavigationLimits) -> bool {
-    a.calls <= b.calls
-        && a.scanned_bytes <= b.scanned_bytes
-        && a.inspected_revisions <= b.inspected_revisions
-        && a.matches <= b.matches
-        && a.result_bytes <= b.result_bytes
-}
-fn allocation_fits(a: WorkAllocation, b: WorkAllocation) -> bool {
-    a.attempts <= b.attempts
-        && a.repair_attempts <= b.repair_attempts
-        && navigation_fits(a.navigation, b.navigation)
-}
 fn validate_ceiling(allocation: WorkAllocation) -> Result<()> {
-    allocation.validate()?;
-    require(
-        allocation.attempts <= 128
-            && navigation_fits(
-                allocation.navigation,
-                f::NavigationLimits {
-                    calls: 128,
-                    scanned_bytes: 1024 * 1024 * 1024,
-                    inspected_revisions: 262_144,
-                    matches: 4096,
-                    result_bytes: 512 * 1024,
-                },
-            ),
-        "unsupported episode ceilings",
-    )
+    allocation.validate()
 }
-fn expiry(request: &IntakeDelegationRequest, now: i64) -> Result<()> {
-    require(
-        now >= 0
-            && request
-                .expires_at_unix
-                .checked_sub(now)
-                .is_some_and(|duration| duration > 0 && duration <= MAX_LIFETIME_SECONDS),
-        "delegation expiry must be in the next 30 days",
-    )
+fn expiry(_request: &IntakeDelegationRequest, now: i64) -> Result<()> {
+    require(now >= 0, "negative delegation time")
 }
 fn target_ceilings(request: &IntakeDelegationRequest) -> Result<(u64, u64)> {
     Ok((
@@ -681,7 +602,7 @@ fn enabled(state: &State, work: &str, actor: &str, now: i64) -> bool {
         || state
             .work_meta
             .get(work)
-            .is_none_or(|m| m.attempts_left == 0)
+            .is_none()
     {
         return false;
     }
@@ -734,26 +655,15 @@ fn fence(
     })
 }
 fn ordinary_available(ledger: &s::LedgerReport) -> Result<s::Resources> {
-    if ledger.frozen {
-        return Err(s::StoreError::Frozen.into());
-    }
-    require(
-        ledger.accounting_complete && ledger.conservation_established,
-        "ordinary root conservation is not established",
-    )?;
     let ordinary = ledger.ordinary.exposure()?;
     let closeout = ledger.closeout.exposure()?;
     let total = ledger.limits.total;
     let protected = ledger.limits.protected_closeout;
     fn left(total: u64, protected: u64, ordinary: u64, closeout: u64) -> Result<u64> {
-        let class = total
-            .checked_sub(protected)
-            .and_then(|n| n.checked_sub(ordinary))
-            .ok_or_else(|| held("ordinary root capacity exceeded"))?;
-        let aggregate = ordinary
-            .checked_add(closeout)
-            .and_then(|n| total.checked_sub(n))
-            .ok_or_else(|| held("aggregate root capacity exceeded"))?;
+        let class = total.saturating_sub(protected).saturating_sub(ordinary);
+        let exposure = ordinary.checked_add(closeout)
+            .ok_or_else(|| invalid("recorded resource usage overflow"))?;
+        let aggregate = total.saturating_sub(exposure);
         Ok(class.min(aggregate))
     }
     Ok(s::Resources {
@@ -876,17 +786,6 @@ fn issue_availability(
             && current_policy(state, &request.policy.id)? == &request.policy,
         "delegation cohort, destination or exact current policy changed",
     )?;
-    require(
-        request
-            .policy
-            .expires_at_unix
-            .is_none_or(|t| t >= request.expires_at_unix)
-            && request
-                .policy
-                .revoked_at_unix
-                .is_none_or(|t| t >= request.expires_at_unix),
-        "delegation outlives its recorded policy",
-    )?;
     request
         .episode_ceiling
         .require_within_config(&state.config)?;
@@ -962,7 +861,6 @@ fn issue_availability(
                 work.version.revision == *expected_work_revision
                     && work.version.epoch == *expected_work_epoch
                     && available == *expected_remaining
-                    && allocation_fits(request.episode_ceiling, available)
                     && currently_enabled_requesters.get(work_id)
                         == Some(&request.requesting_personas),
                 "parent version, remaining funding or enabled requesting opportunity changed",
@@ -972,16 +870,8 @@ fn issue_availability(
         IntakeFundingBasis::OperatorTranche { .. } => None,
     };
     let (steps, works) = target_ceilings(request)?;
-    let calls_available = steps
-        .checked_sub(saved.steps)
-        .ok_or_else(|| held("launch steps exceed ceiling"))?;
-    let works_available = works
-        .checked_sub(request.expected.work_count)
-        .ok_or_else(|| held("launch works exceed ceiling"))?;
-    require(
-        calls_available >= request.episode_ceiling.attempts && works_available >= 1,
-        "launch has insufficient episode calls or work identities at snapshot",
-    )?;
+    let calls_available = steps.saturating_sub(saved.steps);
+    let works_available = works.saturating_sub(request.expected.work_count);
     Ok(IntakeAvailability {
         ordinary_root_available_before_commit: ordinary_available(&app.store.ledger()?)?,
         launch_calls_available_after_change: calls_available,
@@ -1038,8 +928,8 @@ fn validate_receipt(receipt: &IntakeDelegationReceipt) -> Result<()> {
             let (steps, works) = target_ceilings(request)?;
             require(
                 !availability.capacity_reserved
-                    && availability.launch_calls_available_after_change == steps - expected.steps
-                    && availability.work_ids_available_after_change == works - expected.work_count
+                    && availability.launch_calls_available_after_change == steps.saturating_sub(expected.steps)
+                    && availability.work_ids_available_after_change == works.saturating_sub(expected.work_count)
                     && availability
                         .currently_enabled_requesters
                         .keys()
@@ -1106,7 +996,7 @@ fn plan(
         "delegation heads or counters changed",
     )?;
     require(
-        active_invocations(&state).is_empty(),
+        app.invocation_leases_quiescent(&state)?,
         "active invocation blocks delegation lifecycle",
     )?;
     app.store.require_quiescent_invocations()?;
@@ -1118,13 +1008,9 @@ fn plan(
             if registry.grants.contains_key(&request.id) {
                 return Err(s::StoreError::Conflict(request.id.clone()).into());
             }
-            require(
-                registry.grants.len() < MAX_GRANTS,
-                "lifetime delegation registry is full",
-            )?;
             availability = Some(issue_availability(app, &state, &saved, request, now)?);
-            // This is only a transaction-time exhaustion check. Actual future
-            // calls must reserve their full bytes and attempts normally.
+            // Retained allocation metadata. Actual future calls record their own
+            // complete physical reservation and observed use.
             minimum_available = s::Resources {
                 attempts: request.episode_ceiling.attempts,
                 input_bytes: 1,
@@ -1417,23 +1303,8 @@ pub(in crate::runtime) fn episode_authority(
             && grant.request.expected_cohort.is_subset(&people(saved.setup.cohort).into_iter().collect())
             && grant.request.destination == saved.setup.destination
             && current_policy(state, &grant.request.policy.id)? == &grant.request.policy
-            && !state
-                .config
-                .policies
-                .revoked_policies
-                .contains(&grant.request.policy.identity())
-            && grant.request.policy.derivative_use == f::DerivativeUse::AllowDerivatives
-            && grant
-                .request
-                .policy
-                .expires_at_unix
-                .is_none_or(|expiry| now < expiry)
-            && grant
-                .request
-                .policy
-                .revoked_at_unix
-                .is_none_or(|revoked| now < revoked),
-        "intake grant issuer, status, expiry, policy, cohort or destination unavailable",
+,
+        "intake grant issuer, status, exact policy, cohort or destination unavailable",
     )?;
     grant
         .request

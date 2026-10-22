@@ -1,5 +1,5 @@
 //! Pure need construction after the caller has established creation authority
-//! and resolved the exact origin and exposure. Allocations are logical ceilings;
+//! and resolved the exact origin and exposure. Saved allocations are observational metadata;
 //! construction neither reserves Store resources nor persists a candidate.
 use super::*;
 
@@ -21,27 +21,14 @@ impl WorkAllocation {
     }
 
     pub(super) fn validate(&self) -> Result<()> {
-        require(
-            self.attempts > 0 && self.repair_attempts <= self.attempts,
-            "need allocation requires positive attempts and a repair suballowance within those attempts",
-        )
+        require(self.repair_attempts <= self.attempts,
+            "repair metadata must be a subset of attempt metadata")
     }
 
-    pub(super) fn require_within_config(&self, config: &Config) -> Result<()> {
-        self.validate()?;
-        let available = config.navigation_per_work;
-        let requested = self.navigation;
-        require(
-            self.attempts <= config.max_work_attempts
-                && self.repair_attempts <= config.max_repair_attempts
-                && requested.calls <= available.calls
-                && requested.scanned_bytes <= available.scanned_bytes
-                && requested.inspected_revisions <= available.inspected_revisions
-                && requested.matches <= available.matches
-                && requested.result_bytes <= available.result_bytes,
-            "explicit host allocation exceeds existing configured need ceilings; this API grants no cap extension or delegated funding",
-        )
+    pub(super) fn require_within_config(&self, _config: &Config) -> Result<()> {
+        self.validate()
     }
+
 }
 
 /// These are the existing host-intake structural checks. Origin authentication

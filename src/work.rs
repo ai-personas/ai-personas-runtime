@@ -1615,7 +1615,6 @@ fn validate_mandate(
         require(
             activity.opportunity.valid()
                 && text(&activity.episode)
-                && activity.expires_at_unix > 0
                 && m.outcomes.is_empty()
                 && m.review_roles.is_empty()
                 && m.delivery_to.is_empty()

@@ -1,13 +1,13 @@
 # Needs requested by a persona
 
 A persona can author a need for other existing personas while working on an
-already enabled task. An operator first grants a finite intake episode. The
+already enabled task. An operator first records an intake episode. The
 persona decides whether to propose a need, its wording, outcomes and invitees.
 An adopted proposal remains pending until an explicit operator admission creates
 the child work. Admission preserves the persona as the requester; it does not
 claim that invitees accepted responsibility or completed the request.
 
-This path uses existing source policies, work allocations and launch limits.
+Saved source policies and work allocations are provenance rather than execution quotas. Model calls, navigation, metadata retention and episode expiry have no application resource gate.
 An intake grant creates no initial work opportunity. A stopped persona needs a
 separately authorized resume or other eligible opportunity. Child participants
 must come from the grant's existing cohort, and this profile permits one child
@@ -26,10 +26,10 @@ ai-personas --state-root /private/state --operator requester grant-intake-delega
 Construct `grant.json` from the exact current snapshot. Its
 [`IntakeDelegationRequest`](../src/launch/intake_delegation.rs) records the
 purpose, boundaries, expiry, policy, authorized proposers, existing parent works,
-allowed child participants, initial consideration recipients and resource ceiling.
-Funding is either an exact transfer from the parent or a separately authorized
-operator tranche. Launch ceiling increases are explicit, and the token
-attestation is an operator accounting assertion. Neither a preview nor a grant
+allowed child participants, initial consideration recipients and historical allocation metadata.
+The funding record names an exact parent transfer or operator tranche. Saved
+launch ceilings and token attestations are observational; they neither limit
+admission nor establish actual provider usage. Neither a preview nor a grant
 reserves future provider capacity. Inspect successful application before running.
 
 Take another delegation snapshot and copy the granted ID and its entry from
@@ -88,7 +88,7 @@ it is not a hash of the formatted snapshot file.
 Admission rechecks the actual complete adopted response and terminal evidence.
 It atomically consumes the single creation right, registers the child and records
 its funding. A parent transfer subtracts the child's allocation from the existing
-parent account. The shared episode ceiling still covers both works. Admission
+parent account. The historical parent remainder saturates at zero. The child receives the requested metadata without being reduced to a finite remainder. Complete episode charge records retain use beyond the original numbers. Admission
 performs no inference and accepts no invitation on an invitee's behalf.
 
 Run a fresh authorized `personas-session run --work CHILD_WORK` to continue the
@@ -126,7 +126,12 @@ the intake operator and changes no mandate, persona-requester assent or
 continuation. It adds no resources; Store accounting still applies. A rejected
 feedback request supplies no input.
 
-Expiry or explicit `revoke-intake-delegation` stops further episode admissions;
-it does not erase history or refund spent resources. Inspection remains available
-subject to current authority and Store capacity. This is a bounded foreground
-interface, not an unattended chain of autonomous work creation.
+Explicit `revoke-intake-delegation` stops further episode admissions without
+erasing history. Saved expiry no longer stops preparation or provider dispatch.
+There are no fixed episode, charge, proposal-byte or registry quotas. Existing
+exact evidence, record binding and identity checks remain.
+
+The one-pending-proposal/one-child shape, explicit operator admission and further
+delegation restrictions remain implementation gaps under the no-limits
+requirement. This increment removes resource enforcement; it does not complete
+the authority and workflow changes listed in [execution resources](execution-resources.md).

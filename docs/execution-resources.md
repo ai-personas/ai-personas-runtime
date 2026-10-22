@@ -105,11 +105,19 @@ size/depth settings use machine representability, not smaller application caps.
 History cursor retention, archive material and complete native record projections
 have no fixed count or byte quota. Native navigation still records use.
 
+Delegated intake and optional activity no longer enforce saved work/episode
+attempts, navigation allocations, token attestations, automatic expiry,
+recurrence count/interval, proposal size or registry/charge retention quotas.
+Complete charges remain recorded; historical remaining values saturate at zero.
+Optional activity no longer yields admission to foreground work or restricts
+messages to its participant pool. Explicit Stop, Pause and revocation remain.
+An expired historical episode setting does not impose a provider deadline.
+
 ## Remaining work
 
 Removal is still incomplete. Remaining
-application enforcement includes delegated intake and optional-activity ceilings;
-persona population constraints; source ownership, protection and ineligibility
+application enforcement includes delegated intake authority and one-child workflow
+constraints; explicit optional opportunity registration; persona population constraints; source ownership, protection and ineligibility
 gates; extra operator authorization fields; remaining typed protocol and tool-input
 limits; and additional specialized control/projection limits. These are implementation gaps under the
 new requirement, not exceptions granted by the user. Some earlier documents still

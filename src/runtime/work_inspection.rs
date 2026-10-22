@@ -628,8 +628,7 @@ pub(super) fn apply(
     // Reuse the already performed post-consumption, pre-navigation render.
     // No new render, collection walk, source traversal or content serialization
     // precedes the call and fixed state-projection reservation below.
-    // The caller's final transactional render remains the authoritative exact
-    // context fit check; this conservative local cap never expands its allowance.
+    // Complete results are serialized without an application context quota.
     let result_limit = navigation.remaining().result_bytes;
     // Pagination and budget statuses depend on the available context after
     // ordinary selection changes. Keep its permission lineage without claiming

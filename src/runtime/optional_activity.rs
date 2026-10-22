@@ -1,10 +1,5 @@
-//! Bounded optional episodes. An absent opportunity never authorizes activity.
-//! Host grants describe an environment and limits, not topics or required output.
+//! Voluntary optional episodes with observed use and explicit lifecycle control.
 use super::*;
-
-pub(crate) const MAX_OPPORTUNITIES: usize = 32;
-pub(crate) const MAX_EPISODES: usize = 32;
-pub(crate) const MAX_BYTES: usize = 1_048_576;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -80,32 +75,15 @@ impl OpportunityRequest {
         identity(&self.effort)?;
         identity(&self.destination)?;
         text(&self.authorization_reference, 4096)?;
-        require(
-            self.authorize_optional_activity
-                && !self.authorization_reference.trim().is_empty()
-                && self.id.len() <= 96
-                && (1..=8).contains(&self.participants.len())
-                && self.sources.len() <= 16
-                && self.not_before_unix >= 0
-                && self.expires_at_unix > self.not_before_unix
-                && (1..=86_400).contains(&self.episode_seconds)
-                && self.minimum_interval_seconds <= 31_536_000
-                && (1..=MAX_EPISODES as u32).contains(&self.max_episodes)
-                && (self.max_episodes == 1 || self.minimum_interval_seconds > 0),
-            "explicit finite optional-activity opportunity required",
-        )?;
+        require(!self.participants.is_empty() && self.not_before_unix >= 0
+            && self.expires_at_unix >= 0,
+            "optional activity requires participants and valid historical timestamps")?;
         for participant in &self.participants {
             identity(participant)?;
         }
         self.allocation.validate()?;
         self.per_episode.validate()?;
-        need_proposals::subtract(self.allocation, self.per_episode)?;
-        require(
-            self.allocation.attempts <= 4096
-                && self.per_episode.attempts <= 128
-                && serde_json::to_vec(self)?.len() <= 32_768,
-            "optional-activity allocation or request bound",
-        )
+        Ok(())
     }
     pub(crate) fn reference(&self) -> Result<w::ExactRef> {
         Ok(w::ExactRef::new(
@@ -116,12 +94,8 @@ impl OpportunityRequest {
     }
 }
 
-pub(crate) fn bounds(state: &State) -> Result<()> {
-    require(
-        state.optional_activities.len() <= MAX_OPPORTUNITIES
-            && serde_json::to_vec(&state.optional_activities)?.len() <= MAX_BYTES,
-        "optional-activity retention bound",
-    )
+pub(crate) fn bounds(_state: &State) -> Result<()> {
+    Ok(())
 }
 
 pub(crate) fn bound(state: &State, work: &str) -> bool {
@@ -158,64 +132,6 @@ fn binding<'a>(state: &'a State, work: &str) -> Result<(&'a Opportunity, &'a Epi
     Ok((opportunity, episode))
 }
 
-/// Inspect the complete bounded root, never just one scheduler page. No work
-/// identity or private payload is included in the resulting availability reason.
-pub(crate) fn foreground_eligible(state: &State, now: i64) -> Result<bool> {
-    bounds(state)?;
-    require(
-        state.board.works().len() <= 128 && state.personas.len() <= 128,
-        "optional-activity foreground projection exceeds its bound",
-    )?;
-    let optional_admissions: BTreeSet<_> = state
-        .optional_activities
-        .values()
-        .flat_map(|o| o.episodes.values())
-        .flat_map(|e| &e.admissions)
-        .map(|a| (&a.actor, &a.invocation))
-        .collect();
-    for (id, work) in state.board.works() {
-        if work.need.optional_activity.is_some() || !matches!(work.phase, w::Phase::Open) {
-            continue;
-        }
-        let Some(meta) = state.work_meta.get(&id.0) else {
-            continue;
-        };
-        for actor in work.participants.keys() {
-            let Some(persona) = state.personas.get(&actor.0) else {
-                continue;
-            };
-            if persona
-                .active_invocation
-                .as_ref()
-                .is_some_and(|call| !optional_admissions.contains(&(&actor.0, call)))
-            {
-                return Ok(true);
-            }
-            if persona.failed_attempt_hold.is_some()
-                || lifecycle::reason(state, &actor.0).is_some()
-                || meta.attempts_left == 0
-                || need_proposals::route_reason(state, &id.0, now).is_some()
-                || need_proposals::actor_reason(state, &id.0, &actor.0).is_some()
-                || tools::require_settled(state, &actor.0, &id.0).is_err()
-                || http_tools::require_settled(state, &actor.0, &id.0).is_err()
-                || host_tools::require_settled(state, &actor.0, &id.0).is_err()
-            {
-                continue;
-            }
-            let a = admission(persona, now);
-            if !work_exposure(state, &id.0).is_ok_and(|e| exposure_permitted(state, &e, &a)) {
-                continue;
-            }
-            if continuation_permit(state, &actor.0, &id.0)
-                || ordinary_opportunity(state, &actor.0, &id.0, now)
-            {
-                return Ok(true);
-            }
-        }
-    }
-    Ok(false)
-}
-
 /// Staged in the same transaction as actual preparation and reservation. A
 /// failed preparation creates no admission record and cannot classify an
 /// unrelated active invocation as optional.
@@ -234,9 +150,8 @@ pub(crate) fn record_admission(
         !episode
             .admissions
             .iter()
-            .any(|a| a.invocation == request.id)
-            && episode.admissions.len() < episode.allocation.attempts as usize,
-        "optional episode admission identity or allocation exhausted",
+            .any(|a| a.invocation == request.id),
+        "optional episode admission identity already recorded",
     )?;
     state
         .optional_activities
@@ -294,9 +209,7 @@ pub(crate) fn require_current(state: &State, work: &str, actor: &str, now: i64) 
         opportunity.revoked_at_unix.is_none()
             && episode.ended.is_none()
             && request.not_before_unix <= now
-            && now < request.expires_at_unix
             && episode.started_at_unix <= now
-            && now < episode.expires_at_unix
             && request.participants.contains(actor),
         "optional-activity opportunity is no longer eligible",
     )?;
@@ -311,10 +224,7 @@ pub(crate) fn require_current(state: &State, work: &str, actor: &str, now: i64) 
             && exposure_permitted(state, &opportunity.exposure, &admission(persona, now)),
         "optional-activity inference or source authority changed",
     )?;
-    require(
-        !foreground_eligible(state, now)?,
-        "optional activity yields to eligible foreground work",
-    )
+    Ok(())
 }
 
 pub(crate) fn route_reason(
@@ -324,25 +234,17 @@ pub(crate) fn route_reason(
     now: i64,
 ) -> Option<&'static str> {
     if bound(state, work) && require_current(state, work, actor, now).is_err() {
-        Some("optional activity is unavailable under its current scope, expiry or foreground priority")
+        Some("optional activity is unavailable under its explicit lifecycle and participant binding")
     } else {
         None
     }
 }
 
-pub(crate) fn require_recipient(state: &State, work: &str, recipient: &str) -> Result<()> {
-    if !bound(state, work) {
-        return Ok(());
-    }
-    let (opportunity, _) = binding(state, work)?;
-    require(
-        opportunity.request.participants.contains(recipient)
-            || opportunity.request.operator == recipient,
-        "optional communication is limited to the enabled participants and operator",
-    )
+pub(crate) fn require_recipient(_state: &State, _work: &str, _recipient: &str) -> Result<()> {
+    Ok(())
 }
 
-/// An already admitted response may record an end after expiry or revocation,
+/// An already admitted response may record an end after explicit revocation,
 /// but may perform no new discretionary action, communication or semantic edit.
 pub(crate) fn require_response(
     state: &State,
@@ -398,11 +300,12 @@ pub(crate) fn control(state: &State, work: &str) -> Result<Value> {
     let (opportunity, episode) = binding(state, work)?;
     Ok(
         json!({"opportunity":opportunity.reference,"episode":episode.trigger,
-        "expires_at_unix":episode.expires_at_unix,"participants":opportunity.request.participants,
+        "expires_at_unix":null,"historical_expires_at_unix":episode.expires_at_unix,
+        "resource_quotas_enforced":false,"participants":opportunity.request.participants,
         "operator":opportunity.request.operator,
-        "communication":"Messages and replies may address only the enabled participants and operator, subject to existing source and contact permissions. Availability creates no right to a response.",
-        "purpose":"Optional self-directed activity within the existing local permissions. No assigned topic, artifact, review or delivery. Choose whether to engage, whom to approach, what to explore or discuss, and when to stop. Silence or refusal creates no duty. Other participants choose independently.",
-        "funding":"One bounded episode allocation shared by all participants, tools and failed attempts. No reset, renewal, new participant allowance or automatic recurrence. Eligible foreground work has priority. Expiry or revocation prevents further discretionary admission.",
+        "communication":"Messages and replies may address any known local recipient. Availability creates no duty to respond.",
+        "purpose":"Optional self-directed activity. No assigned topic, artifact, review or delivery. Choose whether to engage, whom to approach, what to explore or discuss, and when to stop. Silence or refusal creates no duty. Other participants choose independently.",
+        "funding":"Model calls, tools and navigation are recorded without application quotas or automatic expiry. Saved allocations remain historical metadata. Explicit revocation and authored Stop or Pause remain effective. Starting an episode does not schedule recurrence.",
         "ending":"Choose Stop when you want to end participation. The host can record the activity ended once all invited participants have stopped and all executions are settled. No release, delivery, CloseGoal, artifact or characteristic edit is required. An ended activity establishes neither improvement nor task fulfillment.",
         "maintenance":"Every response still addresses work, fragment and asset maintenance and both next-context scopes. Character and actual experience shape choices; no change or no engagement is legitimate."}),
     )
