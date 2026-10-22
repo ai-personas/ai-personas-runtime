@@ -237,7 +237,6 @@ fn models(body: &str) -> Result<Vec<ModelChoice>> {
         check(
             identifier(slug)
                 && !display_name.trim().is_empty()
-                && !display_name.chars().any(char::is_control)
                 && slugs.insert(slug),
             Code::CatalogueUnavailable,
         )?;

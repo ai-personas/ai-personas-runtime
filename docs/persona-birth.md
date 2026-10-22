@@ -12,6 +12,11 @@ reserved slots or launch allowance are exhausted. Existing seeds, audience
 declarations and grants retain their exact historical contents as the cohort
 grows. Source policies are provenance, not access restrictions.
 
+Initial-character instructions also impose no operation-count, collection-size
+or text-byte quota. They describe the atomic fragment/profile transition and
+its handover to a fresh ordinary decision without repeating superseded source
+permission or finite-resource restrictions.
+
 ## Inspect an actual proposal
 
 Ordinary persona input supplies the optional `persona_birth_proposal` schema.

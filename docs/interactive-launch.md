@@ -105,6 +105,10 @@ one regular-file identity for atomic replacement and locking; invalid or ambiguo
 saved progress is reported without resetting it. Selecting an existing runtime
 also authorizes its inspection without another approval prompt.
 
+Saved needs, feedback and answers retain their complete text, including control
+characters. Terminal output renders nonprinting characters as visible escapes;
+it does not reject those inputs or replace their stored content.
+
 Select an existing directory containing the four current Rust helpers, or build
 this checkout with locked Cargo dependencies. Relative paths and directory or
 executable aliases are accepted. Helper selection has no byte-size, ownership or

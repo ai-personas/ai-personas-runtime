@@ -70,14 +70,14 @@ pub enum WorkDisposition {
     Ongoing {
         reason: String,
         /// Exact available evidence identifiers, never prose or invented references.
-        /// Each is 1..=256 UTF-8 bytes with no whitespace or control characters;
+        /// Each is nonempty, with no whitespace or control characters;
         /// entries are unique. Use [] when no exact evidence identifier is available.
         evidence: Vec<String>,
     },
     Blocked {
         reason: String,
         /// Exact available evidence identifiers, never prose or invented references.
-        /// Each is 1..=256 UTF-8 bytes with no whitespace or control characters;
+        /// Each is nonempty, with no whitespace or control characters;
         /// entries are unique. Use [] when no exact evidence identifier is available.
         evidence: Vec<String>,
     },
@@ -89,21 +89,21 @@ pub enum WorkDisposition {
     IndividualSufficient {
         reason: String,
         /// Exact available evidence identifiers, never prose or invented references.
-        /// Each is 1..=256 UTF-8 bytes with no whitespace or control characters;
+        /// Each is nonempty, with no whitespace or control characters;
         /// entries are unique. Use [] when no exact evidence identifier is available.
         evidence: Vec<String>,
     },
     SharedSufficient {
         reason: String,
         /// Exact available evidence identifiers, never prose or invented references.
-        /// Each is 1..=256 UTF-8 bytes with no whitespace or control characters;
+        /// Each is nonempty, with no whitespace or control characters;
         /// entries are unique. Use [] when no exact evidence identifier is available.
         evidence: Vec<String>,
     },
     Closed {
         reason: String,
         /// Exact available evidence identifiers, never prose or invented references.
-        /// Each is 1..=256 UTF-8 bytes with no whitespace or control characters;
+        /// Each is nonempty, with no whitespace or control characters;
         /// entries are unique. Use [] when no exact evidence identifier is available.
         evidence: Vec<String>,
     },
@@ -469,7 +469,7 @@ pub enum Operation {
         own_voice: Vec<ExactRef>,
         reason: String,
         /// Exact available evidence identifiers, never prose or invented references.
-        /// Each is 1..=256 UTF-8 bytes with no whitespace or control characters;
+        /// Each is nonempty, with no whitespace or control characters;
         /// entries are unique. Use [] when no exact evidence identifier is available.
         evidence: Vec<String>,
     },
@@ -573,7 +573,7 @@ pub enum Operation {
         subject: ExactRef,
         criteria: String,
         /// Exact available evidence identifiers, never prose or invented references.
-        /// Each is 1..=256 UTF-8 bytes with no whitespace or control characters;
+        /// Each is nonempty, with no whitespace or control characters;
         /// entries are unique. Use [] when no exact evidence identifier is available.
         evidence: Vec<String>,
         judgment: String,
@@ -1205,12 +1205,6 @@ fn check_text(value: &str, _historical_maximum: usize, path: &str) -> Result<(),
             path,
             "text must be nonblank",
         ));
-    }
-    if value
-        .chars()
-        .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
-    {
-        return Err(invalid(path, "text contains a forbidden control character"));
     }
     Ok(())
 }

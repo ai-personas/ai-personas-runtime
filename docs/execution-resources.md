@@ -9,6 +9,10 @@ the requested behavior.
 
 Ordinary launches no longer stop at session, consideration, lifetime or work
 attempt ceilings. Initial character authorship also has no attempt quota.
+Its model instructions and evidence-identifier descriptions no longer repeat
+historical operation, collection, identifier or prose byte caps. The initial
+character transition retains its exact atomic fragment/profile references and
+then hands ordinary work to a fresh decision under the accepted character.
 An explicit Stop, Pause or cancellation remains effective; this change does not
 resume a stopped actor or replay a failed or uncertain invocation.
 
@@ -86,6 +90,13 @@ JSON validation and Store decoding have no configured byte, node, nesting or
 string ceiling. Protocol text and collection maxima no longer reject otherwise
 valid Decisions. Exact identities, duplicate keys, complete JSON and cross-field
 consistency are still checked. Model-input construction now retains complete selected material without a byte quota.
+
+General prose and catalogue display labels are not rejected for containing
+control characters in valid JSON text. Launcher inputs likewise retain the
+original text. Terminal presentation shows nonprinting characters as visible
+JSON escapes instead of replacing them with an unknown-character marker;
+native records and the journal retain the original content. Filesystem paths,
+protocol identifiers and authentication fields keep their actual format rules.
 
 New host commands retain their complete observed stdout/stderr. Pending results
 supply the complete retained command, stdin and output, and result-reference

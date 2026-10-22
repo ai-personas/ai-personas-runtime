@@ -66,9 +66,9 @@ def path_text(value):
             and "\x00" not in value)
 
 
-def safe_text(value, maximum=32768):
+def safe_text(value, _historical_maximum=32768):
     return (isinstance(value, str) and bool(value)
-            and bool(value.strip()) and "\x00" not in value)
+            and bool(value.strip()))
 
 
 def provider_label(value):
@@ -77,8 +77,10 @@ def provider_label(value):
 
 
 def terminal_text(value):
-    # Provider-authored text cannot emit terminal escape/control sequences.
-    return "".join(c if c in "\n\t" or (c.isprintable() and c != "\x1b") else "�" for c in str(value))
+    # Show control characters as visible escapes; retain the original text in
+    # native records and the journal instead of rejecting or replacing it.
+    return "".join(c if c in "\n\t" or c.isprintable()
+                   else json.dumps(c, ensure_ascii=True)[1:-1] for c in str(value))
 
 
 def readable_messages(messages, show_invocation=False):
