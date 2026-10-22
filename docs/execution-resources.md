@@ -237,11 +237,21 @@ Reported effort labels are retained without a local allowlist, while exact
 request/response matching still applies. Unsupported choices retain their actual
 provider outcome without substitution or fabricated capability evidence.
 
+Provider preparation no longer requires catalogue or capability-proof digests,
+or membership of the requested effort in an evidenced set. Native SIWC settings
+can be generated directly from explicit model/effort choices and the selected
+account's actual credential binding, without a catalogue request or inference.
+The dialogue offers optional discovery and checks; they are no longer setup
+prerequisites. Probe plans may omit a catalogue, and a later catalogue read does
+not invalidate an already retained exact plan. Renewal does not require fresh
+proof. Missing or historical proof stays unverified or historical, and native
+inspection separately reports which optional observations are recorded.
+
 ## Remaining work
 
 Removal is still incomplete. Remaining
 application enforcement includes delegated intake authority and one-child workflow
-constraints; explicit optional opportunity and birth workflows; provider capability-evidence prerequisites; remaining typed protocol and
+constraints; explicit optional opportunity and birth workflows; remaining typed protocol and
 tool-input limits; and additional specialized control limits. These are implementation gaps under the
 new requirement, not exceptions granted by the user. Some earlier documents still
 describe them because those paths remain implemented. They must be removed or

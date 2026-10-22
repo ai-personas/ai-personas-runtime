@@ -8,7 +8,7 @@ mod cli {
     use std::path::PathBuf;
 
     #[derive(Parser)]
-    #[command(name = "personas-provider", about = "Explicit SIWC catalogue and one-use capability evidence", after_help = backend::COST_NOTICE)]
+    #[command(name = "personas-provider", about = "Explicit SIWC settings and optional capability checks", after_help = backend::COST_NOTICE)]
     struct Cli {
         /// Required for operations: selected vault, absolute, private and outside repositories.
         #[arg(long, global = true)]
@@ -18,6 +18,13 @@ mod cli {
     }
     #[derive(Subcommand)]
     enum Command {
+        /// Generate settings for explicit model/effort choices. No catalogue or inference.
+        Configure {
+            #[arg(long)]
+            model: String,
+            #[arg(long)]
+            effort: String,
+        },
         /// Read the selected account's LIVE catalogue. No inference.
         Catalogue {
             #[arg(long)]
@@ -30,7 +37,7 @@ mod cli {
             #[arg(long)]
             id: String,
             #[arg(long)]
-            catalogue_sha256: String,
+            catalogue_sha256: Option<String>,
             #[arg(long)]
             model: String,
             /// Unverified candidate, not an assertion of model support. No default.
@@ -90,6 +97,7 @@ mod cli {
         // Explicit commands retain their actual evidence without another approval flag.
         let mut host = backend::Backend::open(vault)?;
         match cli.command {
+            Command::Configure { model, effort } => value(host.configure(&model, &effort)?),
             Command::Catalogue {
                 authorize_read,
                 retain_private_evidence,

@@ -59,15 +59,13 @@ Account binding is the fixed-size string `personas-siwc-account-v1:<sha256>`, wh
 
 See the official [registration and sign-in flow](https://developers.openai.com/siwc/token-sharing-open-source/sign-in).
 
-## Capability verification is a separate gate
+## Optional capability observations
 
-Before preparing a runtime provider configuration, obtain separately authorized evidence for the selected account:
+After selecting an account, `personas-provider --vault SELECTED configure --model MODEL --effort EFFORT` returns settings directly. It needs no catalogue read or capability check and performs no inference. The exact account, credential expiry and route are bound to the selected settings; missing capability evidence remains unverified.
 
-1. Read the account's current catalog at `https://api.openai.com/v1/models` using the same SIWC access token intended for inference. Preserve the exact selected model slug and retain the catalog evidence; a browser label or another application's cached catalog is insufficient.
-2. Select a Responses capability check for the exact selected model, requested effort and strict carrier schema (`decision_json` as a string), followed by native validation of the complete Decision value. It has no application duration, byte or token quota. Catalog membership alone does not establish these capabilities.
-3. Retain the evidence and bind its digests to the exact account binding, SIWC wire profile, model and effort in `DirectSettings`.
+The catalogue and exact Responses capability check remain optional. A check names an explicit model and effort and may omit catalogue evidence. A successful check validates its strict carrier schema (`decision_json` as a string), complete Decision value, exact echoed specimen, reported model/effort and usage. It has no application duration, byte or token quota. Only an actual successful check contributes proof; its digests remain attributed to its exact account and credential generation. Neither discovery nor a prior successful check guarantees a later provider outcome.
 
-No probe is part of sign-in, refresh, migration or ordinary configuration validation. Configuration digests identify operator-retained evidence; they do not authenticate evidence or prove entitlement by themselves. See [models and inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference).
+No probe is required by sign-in, refresh, migration or ordinary configuration validation. Renewal diagnoses actual account/expiry bindings independently of optional proof. Configuration digests identify operator-retained evidence; they do not authenticate evidence or prove entitlement by themselves.
 
 ## Preserve existing personas when bindings change
 

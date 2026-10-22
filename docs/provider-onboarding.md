@@ -1,10 +1,10 @@
-# SIWC provider-onboarding backend (Stage 2)
+# SIWC provider configuration and optional checks
 
-This backend supplies account-specific model choices, a selected
-transport probe with an exact single-use identity, and generated native `DirectSettings`. It is not the
-interactive launcher, an installer, sign-in UI, or permission-recovery UI. The
-existing `personas-auth` sign-in and refresh contracts are unchanged. No runtime
-Store is opened by this backend.
+This backend generates native `DirectSettings` from an explicit model/effort
+choice and the selected account's actual credential binding. Catalogue discovery
+and a transport probe are optional. Neither is required to configure or use the
+provider. The [terminal dialogue](interactive-launch.md) uses this backend;
+`personas-auth` handles sign-in and refresh. No runtime Store is opened here.
 
 ## Provider contract and observed usage
 
@@ -48,21 +48,25 @@ renewal operation. These commands need no second authorization flag.
 
 | Method | Effect and result |
 | --- | --- |
+| `configure(model, effort)` | Returns settings for the explicit choices and current vault identity, with no catalogue/probe prerequisites or network requests. Capability digests are null and the evidenced-effort set is empty. |
 | `catalogue(authorize_read, retain_private_evidence)` | A live GET and complete private catalogue retention, without local size, count or duration quotas. Returns exact selectable choices and an evidence digest. |
 | `plan(PlanRequest, retain_private_evidence)` | Persists an immutable plan under an exact ID; returns the bound account/model/effort, plan digest, cost notice and disabled-quota view. No inference. |
 | `execute(id, plan_sha256, ProbeConsent, Cancellation)` | Consumes the exact plan durably before possible transmission, then attempts at most one request. The explicit command needs no additional confirmation flags; exact evidence is retained. |
 | `probe_status(id, plan_sha256)` | Returns retained historical metadata without resolving credentials or dispatching. |
-| `configuration(id, plan_sha256)` | Returns typed native settings only after exact completed proof, current credential-generation checking and current catalogue checking. No runtime write or sharing/funding grant. |
-| `renewal_status(&saved_settings)` | Read-only same-account comparison and explicit migration/fresh-evidence requirements. No credential or runtime modification. |
+| `configuration(id, plan_sha256)` | Optionally attaches exact completed proof for the current credential generation to typed settings. It uses the retained plan's optional catalogue, independently of the latest catalogue. No runtime write. |
+| `renewal_status(&saved_settings)` | Read-only same-account/expiry comparison. Reports optional proof status separately; fresh evidence is never required. No credential or runtime modification. |
 
 Mutating methods require `&mut Backend`, preventing overlapping in-process
 journal updates. The account file lock excludes another backend process and
 cooperative sign-in/refresh writers. Busy is not permission to recover an owner.
 
-`PlanRequest` requires `id`, `catalogue_sha256`, `model` and `effort`. Its historical
+`PlanRequest` requires `id`, `model` and `effort`. `catalogue_sha256` may be omitted
+or null. When supplied, it must name the exact retained catalogue for the selected
+account and credential generation; the plan keeps that catalogue's full record.
+Its historical
 `timeout_ms`, `max_observed_total_tokens` and `require_remote_token_hard_bound`
 fields default to zero/false and do not impose quotas. There is no model
-or effort default. `effort_candidates_unverified` in catalogue output is only the
+or effort default. `effort_candidates_unverified` in catalogue output is only
 an illustrative list, not a required or provider-supported-effort list.
 The user may enter any nonempty model and effort identifiers without whitespace
 or control characters. Exact reported effort is retained without a closed local
@@ -79,16 +83,18 @@ workspace, asset, tool, or saved history. Whole carrier decoding, native
 known consistent input/output/total token usage, a completed stream and clean EOF
 are all required for proof. Nothing is adopted as a persona decision.
 
-`DirectSettings` validation is unchanged. The probe has a separate sealed host
-wire path rather than constructing settings with fabricated evidence. After a
-pass, settings use the actual catalogue/proof digests, exact account fingerprint,
-actual expiry, typed `OAuth`/`SiwcTokenSharing` credentials and the existing native
-reference names. These names are in-process reference identifiers, not an
-instruction to export tokens into environment variables.
+`DirectSettings` validation accepts absent catalogue/proof digests and an empty
+evidenced-effort set. It still binds the selected route, model and actual account,
+and validates any recorded digest. The optional probe has a separate host wire
+path. Only an actual pass contributes its proof digest and reported effort; its
+catalogue digest remains null when none was selected. All generated settings use
+the exact account fingerprint, actual expiry, typed `OAuth`/`SiwcTokenSharing`
+credentials and existing native reference names. These names are in-process
+identifiers, not an instruction to export tokens into environment variables.
 
-## CLI for the later dialogue
+## CLI and dialogue
 
-The added `personas-provider` binary exposes `catalogue`, `plan`, `probe`,
+The `personas-provider` binary exposes `configure`, `catalogue`, `plan`, `probe`,
 `probe-status`, `configuration` and `renewal-status`. All commands require
 `--vault`; `--help` is available without opening it. The UI can pass ordinary
 arguments and consume one JSON envelope; no human-written provider JSON is needed.
@@ -97,7 +103,12 @@ Errors use static serialized `Code` enum values. Invalid arguments never echo
 supplied values. Do not parse `Display` text: its longer explanatory strings may
 differ from the serialized code.
 
-`plan` requires explicit `--id`, `--catalogue-sha256`, `--model` and `--effort`.
+`configure --model MODEL --effort EFFORT` returns settings without discovery or
+inference. The dialogue uses this path by default and offers optional catalogue
+browsing or a capability check.
+
+`plan` requires explicit `--id`, `--model` and `--effort`.
+`--catalogue-sha256` is optional.
 The old `--timeout-ms` and `--max-observed-total-tokens` arguments are optional
 metadata and default to zero.
 `probe` requires the exact returned `--id` and `--plan-sha256`. The former
@@ -106,10 +117,11 @@ metadata and default to zero.
 model, effort, request and recorded metadata are bound by that digest.
 No token, API key, executable, or alternate endpoint argument exists.
 
-`configuration` returns settings in `data`, not a saved-runtime modification.
-The later UI supplies this typed value to ordinary `launch::setup` after distinct
-runtime sharing, destination and resource decisions. Root `./personas` remains
-unchanged in this stage. Credential/API-key input and dialogue are not added.
+Both `configure` and `configuration` return settings in `data`, without modifying
+a runtime. The dialogue saves the exact generated settings before cohort setup.
+A failed, unknown or old probe does not prevent using the selected model and
+effort without proof. Existing request identities and outcomes remain retained;
+selecting direct configuration neither repeats nor reconciles them.
 
 ## Complete retention and uncertainty
 
@@ -168,8 +180,15 @@ account returns `account_changed`; old catalogue and proof never transfer. Missi
 or generation-mismatched backend proof is not certified from a digest supplied
 by a caller, even if the credential expiry happens to be unchanged.
 
-For a changed generation, obtain a fresh catalogue and a fresh probe, then call `configuration`. Existing saved expiry/evidence pins are
-not rewritten in place. For an existing runtime, a trusted future UI uses the
+`renewal_status` reports `capability_evidence_required: false` and
+`fresh_catalogue_and_probe_required: false`. Optional proof from another
+generation is historical. An unreadable optional journal is reported through
+`retained_probe_check_code`, without claiming verification or requiring a probe.
+The actual selected account and credential still have to be valid.
+
+If the saved expiry changes, call `configure` for the chosen model and effort
+without requiring a catalogue or probe. Existing saved expiry/evidence pins are
+not rewritten in place. For an existing runtime, a trusted UI uses the
 already implemented typed `launch::migration_snapshot`, fills
 `ProviderMigrationRequest` from that exact snapshot and the generated settings,
 and records the operator reason, destination and exact model/provider selection

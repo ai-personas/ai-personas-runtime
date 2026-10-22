@@ -177,21 +177,25 @@ impl AccountBindingReference {
     }
 }
 
-/// The operator must retain evidence for this exact route, account, model and
-/// effort. Digests name that evidence; they do not authenticate it themselves.
+/// The selected route, account and model, with optional retained capability
+/// observations. Missing observations do not gate inference. Digests name
+/// historical evidence; they do not authenticate it or promise future support.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CapabilityEvidence {
     pub mode: AccessMode,
     pub model: String,
+    #[serde(default)]
     pub efforts: BTreeSet<String>,
     pub account_env: AccountBindingReference,
     /// Lowercase SHA-256 of the exact account bytes captured with this evidence.
     /// This configuration pin must never be refreshed from a mutable source.
     pub account_sha256: String,
-    /// Exact immutable wire contract under which this capability was evidenced.
+    /// Exact immutable wire contract selected for this configuration.
     pub transport_profile: String,
-    pub catalog_evidence_sha256: String,
+    #[serde(default)]
+    pub catalog_evidence_sha256: Option<String>,
+    #[serde(default)]
     pub structured_output_evidence_sha256: Option<String>,
 }
 
@@ -235,7 +239,7 @@ impl<'de> Deserialize<'de> for DirectSettings {
         let value = Value::deserialize(deserializer)?;
         let document: Document = serde_json::from_value(value).map_err(|_| {
             serde::de::Error::custom(
-                "direct provider settings required: replace legacy CLI executable, pin, temporary-directory and feature settings with explicit mode, credential references, account/model/schema evidence and direct limits; migrate saved launch metadata explicitly without resetting Store state",
+                "direct provider settings require an explicit mode, model, effort, credential references, account/route binding and historical limits; catalogue and capability observations are optional",
             )
         })?;
         Ok(Self {
@@ -262,24 +266,22 @@ impl DirectSettings {
         {
             return Err(Failure::ModelUnavailable);
         }
-        if !self.evidence.efforts.contains(&self.effort) {
-            return Err(Failure::EffortUnsupported);
-        }
         if self.evidence.efforts.iter().any(|s| !identifier(s))
-            || !digest_string(&self.evidence.catalog_evidence_sha256)
+            || self
+                .evidence
+                .catalog_evidence_sha256
+                .as_deref()
+                .is_some_and(|s| !digest_string(s))
+            || self
+                .evidence
+                .structured_output_evidence_sha256
+                .as_deref()
+                .is_some_and(|s| !digest_string(s))
             || !digest_string(&self.evidence.account_sha256)
         {
             return Err(Failure::Configuration);
         }
         self.evidence.account_env.validate()?;
-        if !self
-            .evidence
-            .structured_output_evidence_sha256
-            .as_deref()
-            .is_some_and(digest_string)
-        {
-            return Err(Failure::SchemaCapabilityMissing);
-        }
         let grant = match &self.credentials {
             CredentialReference::OAuth {
                 grant,
@@ -510,12 +512,8 @@ impl IntakeLaunchGuard {
 pub enum Failure {
     #[error("invalid direct provider configuration")]
     Configuration,
-    #[error("exact route/account/model eligibility evidence is absent")]
+    #[error("selected route/model binding is inconsistent")]
     ModelUnavailable,
-    #[error("exact requested effort is not evidenced")]
-    EffortUnsupported,
-    #[error("strict structured-output capability is not established")]
-    SchemaCapabilityMissing,
     #[error("explicit credential source is unavailable")]
     CredentialMissing,
     #[error("credential is invalid")]
@@ -528,7 +526,7 @@ pub enum Failure {
     IntakeGuardUnsupported,
     #[error("credential grant does not match the selected mode")]
     GrantMismatch,
-    #[error("credential account does not match the capability evidence")]
+    #[error("credential account does not match the saved account binding")]
     AccountMismatch,
     #[error("local cancellation; remote stop is not confirmed")]
     Cancelled,

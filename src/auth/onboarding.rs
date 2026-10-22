@@ -1,4 +1,4 @@
-//! Operator-side SIWC catalogue and exact strict-carrier verification backend.
+//! Operator-side SIWC configuration and optional capability observations.
 //!
 //! This is isolated host conformance work, not persona judgment. All production
 //! credentials come from the explicitly selected locked Personas vault. No login,
@@ -38,7 +38,7 @@ pub enum Code {
     CredentialFenced,
     #[error("account_changed_evidence_invalid")]
     AccountChanged,
-    #[error("credential_changed_fresh_catalogue_and_probe_required")]
+    #[error("credential_changed")]
     CredentialChanged,
     #[error("catalogue_unavailable")]
     CatalogueUnavailable,
@@ -292,7 +292,8 @@ fn catalogue_view(c: &Catalogue) -> Result<CatalogueView> {
 #[serde(deny_unknown_fields)]
 pub struct PlanRequest {
     pub id: String,
-    pub catalogue_sha256: String,
+    #[serde(default)]
+    pub catalogue_sha256: Option<String>,
     pub model: String,
     pub effort: String,
     /// Historical request metadata; no local timeout or token quota is enforced.
@@ -307,7 +308,9 @@ pub struct PlanRequest {
 impl PlanRequest {
     fn validate(&self) -> Result<()> {
         check(
-            valid_key(&self.id) && is_hash(&self.catalogue_sha256) && identifier(&self.model),
+            valid_key(&self.id)
+                && self.catalogue_sha256.as_deref().is_none_or(is_hash)
+                && identifier(&self.model),
             Code::InvalidRequest,
         )?;
         check(identifier(&self.effort), Code::InvalidRequest)
@@ -363,7 +366,7 @@ struct Terminal {
 #[serde(deny_unknown_fields)]
 struct Attempt {
     plan: ProbePlan,
-    catalogue: Catalogue,
+    catalogue: Option<Catalogue>,
     /// None is a plan only. Some means consumed, even without a terminal record.
     claimed_at_unix: Option<u64>,
     terminal: Option<Terminal>,
@@ -529,7 +532,6 @@ impl Backend {
             source: Arc::new(SelectedVault),
             transport: None,
         };
-        backend.read()?;
         Ok(backend)
     }
     fn now(&self) -> Result<u64> {
@@ -645,12 +647,15 @@ impl Backend {
         }
         let access = self.access()?;
         bind_account(&j, &access)?;
-        let catalogue = j.catalogue.as_ref().ok_or(Code::CatalogueUnavailable)?;
-        check(
-            digest(catalogue)? == request.catalogue_sha256,
-            Code::CatalogueStale,
-        )?;
-        check_catalogue(catalogue, &access, self.now()?)?;
+        let catalogue = match &request.catalogue_sha256 {
+            Some(expected) => {
+                let catalogue = j.catalogue.as_ref().ok_or(Code::CatalogueUnavailable)?;
+                check(digest(catalogue)? == *expected, Code::CatalogueStale)?;
+                check_catalogue(catalogue, &access, self.now()?)?;
+                Some(catalogue.clone())
+            }
+            None => None,
+        };
         let body = wire::request(
             &request.id,
             &request.model,
@@ -671,11 +676,12 @@ impl Backend {
             schema_sha256: digest(&crate::runtime::provider_schema())?,
         };
         let view = plan_view(&plan)?;
+        j.account_sha256 = Some(plan.account_sha256.clone());
         j.attempts.insert(
             plan.request.id.clone(),
             Attempt {
                 plan,
-                catalogue: catalogue.clone(),
+                catalogue,
                 claimed_at_unix: None,
                 terminal: None,
             },
@@ -704,12 +710,6 @@ impl Backend {
         let access = self.access()?;
         bind_account(&j, &access)?;
         check_plan_access(&old.plan, &access, self.now()?)?;
-        check(
-            j.catalogue.as_ref().is_some_and(|c| {
-                digest(c).ok().as_deref() == Some(old.plan.request.catalogue_sha256.as_str())
-            }),
-            Code::CatalogueStale,
-        )?;
         let plan = old.plan.clone();
         let transport = self.transport()?;
         let body = wire::request(
@@ -799,8 +799,17 @@ impl Backend {
         self.save(&j).map_err(|_| Code::PersistenceUncertain)?;
         Ok(output)
     }
-    /// Generates valid native settings only from actual retained successful proof
-    /// for the exact current credential generation. Does not write runtime state.
+    /// Select exact model/effort settings using the current vault identity. This
+    /// performs no catalogue read or probe and claims no capability observations.
+    pub fn configure(&self, model: &str, effort: &str) -> Result<p::DirectSettings> {
+        check(
+            identifier(model) && identifier(effort),
+            Code::InvalidRequest,
+        )?;
+        native_settings(model, effort, self.access()?)
+    }
+    /// Optionally attach actual retained successful proof for the exact current
+    /// credential generation. The ordinary configure path needs no such proof.
     pub fn configuration(&self, id: &str, plan_sha256: &str) -> Result<p::DirectSettings> {
         let j = self.read()?;
         let a = find(&j, id, plan_sha256)?;
@@ -816,39 +825,13 @@ impl Backend {
                 && a.plan.credential_expires_at_unix == access.expires_at_unix,
             Code::CredentialChanged,
         )?;
-        let catalogue = j.catalogue.as_ref().ok_or(Code::CatalogueUnavailable)?;
-        check(
-            digest(catalogue)? == a.plan.request.catalogue_sha256,
-            Code::CatalogueStale,
-        )?;
-        check_catalogue(catalogue, &access, self.now()?)?;
-        let account = p::SecretReference {
-            env: super::ACCOUNT_BINDING_ENV.into(),
-        };
-        let settings = p::DirectSettings {
-            mode: p::AccessMode::SiwcOAuth,
-            model: a.plan.request.model.clone(),
-            effort: a.plan.request.effort.clone(),
-            credentials: p::CredentialReference::OAuth {
-                grant: p::OAuthGrant::SiwcTokenSharing,
-                token_env: p::SecretReference {
-                    env: super::ACCESS_TOKEN_ENV.into(),
-                },
-                account_env: account.clone(),
-                expires_at_unix: access.expires_at_unix,
-            },
-            evidence: p::CapabilityEvidence {
-                mode: p::AccessMode::SiwcOAuth,
-                model: a.plan.request.model.clone(),
-                efforts: BTreeSet::from([a.plan.request.effort.clone()]),
-                account_env: p::AccountBindingReference::Environment(account),
-                account_sha256: access.account_sha256,
-                transport_profile: p::AccessMode::SiwcOAuth.profile().into(),
-                catalog_evidence_sha256: digest(&a.catalogue)?,
-                structured_output_evidence_sha256: Some(digest(a)?),
-            },
-            limits: native_limits(),
-        };
+        let mut settings = native_settings(&a.plan.request.model, &a.plan.request.effort, access)?;
+        settings
+            .evidence
+            .efforts
+            .insert(a.plan.request.effort.clone());
+        settings.evidence.catalog_evidence_sha256 = a.catalogue.as_ref().map(digest).transpose()?;
+        settings.evidence.structured_output_evidence_sha256 = Some(digest(a)?);
         settings.validate().map_err(|_| Code::InvalidState)?;
         Ok(settings)
     }
@@ -882,24 +865,38 @@ impl Backend {
             saved.evidence.account_sha256 == access.account_sha256,
             Code::AccountChanged,
         )?;
-        let journal = self.read()?;
-        bind_account(&journal, &access)?;
-        let current_proof = journal.attempts.values().any(|a| {
-            a.plan.credential_sha256 == access.credential_sha256
-                && a.plan.request.model == saved.model
-                && a.plan.request.effort == saved.effort
-                && verified(a).unwrap_or(false)
-                && digest(a).ok().as_deref()
-                    == saved.evidence.structured_output_evidence_sha256.as_deref()
-        });
+        // Optional history cannot gate an otherwise valid selected credential.
+        // A missing, old or unreadable observation is never promoted to proof.
+        let (current_proof, proof_check_code) =
+            if saved.evidence.structured_output_evidence_sha256.is_some() {
+                match self.read() {
+                    Ok(journal) => (
+                        journal.attempts.values().any(|a| {
+                            a.plan.account_sha256 == access.account_sha256
+                                && a.plan.credential_sha256 == access.credential_sha256
+                                && a.plan.credential_expires_at_unix == access.expires_at_unix
+                                && a.plan.request.model == saved.model
+                                && a.plan.request.effort == saved.effort
+                                && verified(a).unwrap_or(false)
+                                && digest(a).ok().as_deref()
+                                    == saved.evidence.structured_output_evidence_sha256.as_deref()
+                        }),
+                        None,
+                    ),
+                    Err(code) => (false, Some(code)),
+                }
+            } else {
+                (false, None)
+            };
         Ok(RenewalStatus {
             account_matches: true,
             saved_expiry: expiry,
             selected_expiry: access.expires_at_unix,
-            explicit_provider_migration_required: expiry != access.expires_at_unix
-                || !current_proof,
-            fresh_catalogue_and_probe_required: !current_proof,
+            explicit_provider_migration_required: expiry != access.expires_at_unix,
+            fresh_catalogue_and_probe_required: false,
+            capability_evidence_required: false,
             retained_probe_matches_current_credential: current_proof,
+            retained_probe_check_code: proof_check_code,
             runtime_modified: false,
             inference_performed: false,
         })
@@ -912,9 +909,42 @@ pub struct RenewalStatus {
     pub selected_expiry: u64,
     pub explicit_provider_migration_required: bool,
     pub fresh_catalogue_and_probe_required: bool,
+    pub capability_evidence_required: bool,
     pub retained_probe_matches_current_credential: bool,
+    pub retained_probe_check_code: Option<Code>,
     pub runtime_modified: bool,
     pub inference_performed: bool,
+}
+fn native_settings(model: &str, effort: &str, access: Access) -> Result<p::DirectSettings> {
+    let account = p::SecretReference {
+        env: super::ACCOUNT_BINDING_ENV.into(),
+    };
+    let settings = p::DirectSettings {
+        mode: p::AccessMode::SiwcOAuth,
+        model: model.into(),
+        effort: effort.into(),
+        credentials: p::CredentialReference::OAuth {
+            grant: p::OAuthGrant::SiwcTokenSharing,
+            token_env: p::SecretReference {
+                env: super::ACCESS_TOKEN_ENV.into(),
+            },
+            account_env: account.clone(),
+            expires_at_unix: access.expires_at_unix,
+        },
+        evidence: p::CapabilityEvidence {
+            mode: p::AccessMode::SiwcOAuth,
+            model: model.into(),
+            efforts: BTreeSet::new(),
+            account_env: p::AccountBindingReference::Environment(account),
+            account_sha256: access.account_sha256,
+            transport_profile: p::AccessMode::SiwcOAuth.profile().into(),
+            catalog_evidence_sha256: None,
+            structured_output_evidence_sha256: None,
+        },
+        limits: native_limits(),
+    };
+    settings.validate().map_err(|_| Code::InvalidState)?;
+    Ok(settings)
 }
 fn native_limits() -> p::Limits {
     // Historical settings only; Direct transport does not enforce these quotas.
@@ -995,17 +1025,27 @@ fn validate_journal(j: &Journal) -> Result<()> {
     }
     for (key, a) in &j.attempts {
         a.plan.request.validate().map_err(|_| Code::InvalidState)?;
-        a.catalogue.validate()?;
         let p = &a.plan;
+        if let Some(catalogue) = &a.catalogue {
+            catalogue.validate()?;
+            check(
+                p.account_sha256 == catalogue.account_sha256
+                    && p.credential_sha256 == catalogue.credential_sha256
+                    && p.credential_expires_at_unix == catalogue.credential_expires_at_unix
+                    && p.request.catalogue_sha256.as_deref() == Some(digest(catalogue)?.as_str())
+                    && p.created_at_unix >= catalogue.observed_at_unix,
+                Code::InvalidState,
+            )?;
+        } else {
+            check(p.request.catalogue_sha256.is_none(), Code::InvalidState)?;
+        }
         check(
             key == &p.request.id
                 && p.profile == wire::PROBE_PROFILE
                 && j.account_sha256.as_ref() == Some(&p.account_sha256)
-                && p.account_sha256 == a.catalogue.account_sha256
-                && p.credential_sha256 == a.catalogue.credential_sha256
-                && p.credential_expires_at_unix == a.catalogue.credential_expires_at_unix
-                && p.request.catalogue_sha256 == digest(&a.catalogue)?
-                && p.created_at_unix >= a.catalogue.observed_at_unix
+                && is_hash(&p.account_sha256)
+                && is_hash(&p.credential_sha256)
+                && p.created_at_unix > 0
                 && p.authorization_deadline_unix > p.created_at_unix
                 && p.authorization_deadline_unix <= p.credential_expires_at_unix
                 && p.schema_sha256 == digest(&crate::runtime::provider_schema())?

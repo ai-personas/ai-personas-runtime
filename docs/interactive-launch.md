@@ -233,21 +233,25 @@ does not implement credential import/transfer. Do not copy Codex credentials or
 manually edit host IDs. If the supported callback and protected vault cannot be
 provided, stop without granting sign-in or inference.
 
-Selecting the native route uses its vault, reads the live catalogue and retains
-private evidence without repeated confirmations. Choose a listed model number
-or enter an exact model slug, including one absent from the catalogue. Enter an
-exact effort label; the displayed examples do not restrict the selection.
-Discovery alone proves neither effort support nor strict output support.
+Selecting the native route uses its vault. Model setup defaults to entering an
+exact model slug and effort label directly, with no catalogue read or inference.
+Browsing the live catalogue and running a capability check are optional menu
+choices. Catalogue choices accept a listed number or an exact slug, including
+one absent from the list. Effort examples do not restrict selection. Direct
+configuration saves null capability digests and an empty evidenced-effort set;
+capability is unverified. Generated settings are saved before cohort setup.
 
 The probe has one durable request identity and no application duration, byte or
 observed-token quota. SIWC cannot use `max_output_tokens`, and no remote token or
 dollar ceiling is claimed. The selected probe proceeds without a separate
-acknowledgment. Leaving the dialogue preserves the need. A pass requires the
-backend's complete proof. Generated settings are saved immediately, before setup
-prompts. Catalogue/proof binding has no fixed five-minute lifetime; actual
-credential expiry and exact account/generation checks still apply. Unavailable
-proof is never fabricated or silently rerun. An unknown previous probe remains
-recorded while the menu offers a separately selected new identity.
+acknowledgment. It can be planned without catalogue evidence. Leaving the dialogue
+preserves the need. A verified result requires the backend's complete proof;
+setup does not require that result. The menu can use a previous check's selected
+model/effort without claiming proof, continue an unclaimed plan or select a new
+check. Every consumed identity and unknown outcome remains retained. Actual
+credential expiry and exact request/account/generation bindings still apply to
+a check. A later catalogue read does not invalidate its retained plan. Unavailable
+proof is never fabricated or silently rerun.
 
 The proposed runtime uses the chosen number of voluntary continuing personas, recorded local
 self-authorship/work/message grants, the selected account/model/effort, local
@@ -353,11 +357,14 @@ evidence and [activation](activation.md) covers same-account renewal/migration.
 
 Explicit browser reauthorization or refresh is offered for unavailable access.
 An existing runtime's old account/expiry pins never change automatically. A
-successful renewal that differs from those pins requires separate explicit
-reverification and a reviewed provider migration; this narrow UI reports that
+successful renewal that changes the saved expiry requires an explicit
+provider migration; this narrow UI reports that
 boundary rather than constructing a policy/recovery editor. Account mismatch is
 blocked, never treated as permission to switch accounts. A historical completed
-probe is not proof for a new credential generation.
+probe is not proof for a new credential generation. Fresh catalogue/probe evidence
+is optional. Before bootstrap has been authored, the same selected model and
+effort can receive a new settings document for the current same-account expiry;
+the previous settings document remains retained.
 
 The journal, pending/intake records, probe identities, generated settings and
 bootstrap profiles have no application count or byte quotas. The current session

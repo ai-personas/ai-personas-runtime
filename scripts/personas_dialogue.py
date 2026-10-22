@@ -363,7 +363,9 @@ def validate_progress(p):
                 and type(q["timeout_ms"]) is int and q["timeout_ms"] >= 0
                 and type(q["max_observed_total_tokens"]) is int and q["max_observed_total_tokens"] >= 0
                 and type(q["require_remote_token_hard_bound"]) is bool and type(probe["attempted"]) is bool
-                and re.fullmatch(r"[a-f0-9]{64}", q["catalogue_sha256"]) is not None)
+                and (q["catalogue_sha256"] is None
+                     or (isinstance(q["catalogue_sha256"], str)
+                         and re.fullmatch(r"[a-f0-9]{64}", q["catalogue_sha256"]) is not None)))
         seen.add(q["id"])
         v = probe["view"]
         if v is not None:
@@ -1148,22 +1150,27 @@ class Dialogue:
             self.h.call("personas-auth", ["--vault", self.p["vault"], command],
                         timeout=240, auth_display=True)
 
-    def new_probe(self):
-        catalog = self.provider("catalogue")
-        models = catalog.get("models")
+    def select_provider(self, catalog=None):
+        models = [] if catalog is None else catalog.get("models")
         require(isinstance(models, list), "catalogue_unavailable")
         for i, model in enumerate(models, 1):
             self.ui.say(f"{i}: {model['display_name']} ({model['slug']})")
-        raw = self.ui.ask("Choose a listed number or enter an exact model slug (no default):").strip()
+        prompt = "Choose a listed number or enter an exact model slug (no default):" if models else "Exact model slug (no default):"
+        raw = self.ui.ask(prompt).strip()
         model = {str(i): m["slug"] for i, m in enumerate(models, 1)}.get(raw, raw)
         require(provider_label(model), "model_selection_required")
-        efforts = catalog.get("effort_candidates_unverified", [])
-        self.ui.say("Example effort labels, with no advertised support: " + ", ".join(efforts))
-        effort = self.ui.ask("Choose an exact effort to verify (no default):").strip()
+        if catalog is not None:
+            efforts = catalog.get("effort_candidates_unverified", [])
+            self.ui.say("Example effort labels, with no advertised support: " + ", ".join(efforts))
+        effort = self.ui.ask("Exact effort label (no default):").strip()
         require(provider_label(effort), "effort_selection_required")
+        return model, effort
+
+    def new_probe(self):
+        model, effort = self.select_provider()
         # Saved fields remain request metadata; application quotas are disabled.
         timeout, tokens = 0, 0
-        request = {"id": "probe-" + uuid.uuid4().hex, "catalogue_sha256": catalog["catalogue_sha256"],
+        request = {"id": "probe-" + uuid.uuid4().hex, "catalogue_sha256": None,
                    "model": model, "effort": effort, "timeout_ms": timeout,
                    "max_observed_total_tokens": tokens, "require_remote_token_hard_bound": False}
         probe = {"request": request, "view": None, "attempted": False}
@@ -1171,18 +1178,27 @@ class Dialogue:
         self.j.save()
         return probe
 
+    def selected_settings(self, model, effort):
+        settings = self.provider("configure", "--model", model, "--effort", effort)
+        key = "selected-" + hashlib.sha256(encoded(settings)).hexdigest()
+        self.j.keep("settings", settings, key)
+        self.ui.say("Model settings saved with capability unverified. Configuration performed no inference.")
+        return settings
+
     def settings(self):
         if self.p["settings"] is not None:
             path, settings = self.j.document("settings")
-            # Reuse durable generated settings beyond the catalogue TTL, but never
-            # bypass current credential-generation/account/expiry diagnostics.
             renewal = self.provider("renewal-status", "--saved-config", path)
-            require(not renewal["explicit_provider_migration_required"], "explicit_reverification_required")
+            if renewal["explicit_provider_migration_required"]:
+                # Bootstrap has not been authored yet. Save a new configuration
+                # for the same choices and current account/expiry, preserving the
+                # previous document. No existing runtime is migrated here.
+                return self.selected_settings(settings["model"], settings["effort"])
             return settings
         if self.p["probes"]:
             # A settings file can be durable even if the following progress write
             # was interrupted. Reattach only those exact bytes after the backend
-            # confirms their current account/generation/proof; never invent them
+            # confirms their current account/expiry; never invent them
             # or repeat the paid probe just because its UI pointer was lost.
             key = self.p["probes"][-1]["request"]["id"]
             name = "settings-" + key + ".json"
@@ -1191,25 +1207,45 @@ class Dialogue:
                 saved = decode(raw)
                 path = str(self.j.directory.path / name)
                 renewal = self.provider("renewal-status", "--saved-config", path)
-                require(not renewal["explicit_provider_migration_required"], "explicit_reverification_required")
+                if renewal["explicit_provider_migration_required"]:
+                    return self.selected_settings(saved["model"], saved["effort"])
                 self.j.keep("settings", saved, key)
                 return saved
-        probe = self.p["probes"][-1] if self.p["probes"] else self.new_probe()
         while True:
+            self.ui.say("Model setup: d: enter model and effort (default); c: browse models; p: optional capability check; q: leave.")
+            if self.p["probes"]:
+                self.ui.say("Previous check: r: inspect/continue it; u: use its model and effort without requiring proof.")
+            choice = self.ui.ask("Model setup:").strip().lower() or "d"
+            if choice in ("d", "c", "u"):
+                if choice == "u":
+                    require(bool(self.p["probes"]), "probe_unavailable")
+                    q = self.p["probes"][-1]["request"]
+                    model, effort = q["model"], q["effort"]
+                else:
+                    catalog = self.provider("catalogue") if choice == "c" else None
+                    model, effort = self.select_provider(catalog)
+                return self.selected_settings(model, effort)
+            if choice == "p":
+                probe = self.new_probe()
+            elif choice == "r" and self.p["probes"]:
+                probe = self.p["probes"][-1]
+            else:
+                raise Halt()
             q = probe["request"]
             if probe["view"] is None:
-                args = ["plan", "--id", q["id"], "--catalogue-sha256", q["catalogue_sha256"],
+                args = ["plan", "--id", q["id"],
                         "--model", q["model"], "--effort", q["effort"], "--timeout-ms", str(q["timeout_ms"]),
                         "--max-observed-total-tokens", str(q["max_observed_total_tokens"])]
+                if q["catalogue_sha256"] is not None:
+                    args += ["--catalogue-sha256", q["catalogue_sha256"]]
                 try:
                     probe["view"] = self.provider(*args)
                     self.j.save()
                 except Blocked as error:
-                    if error.code != "catalogue_stale":
+                    if error.code not in ("catalogue_stale", "credential_changed"):
                         raise
-                    self.ui.say("The unexecuted catalogue/plan expired; no request was dispatched by this UI.")
-                    self.ui.consent("Start a NEW explicit catalogue selection and verification plan? Old identity remains retained")
-                    probe = self.new_probe()
+                    self.ui.say("The selected catalogue no longer matches this credential. No request was dispatched. "
+                                "The retained selection remains available without requiring that check.")
                     continue
             v = probe["view"]
             args = ["--id", q["id"], "--plan-sha256", v["plan_sha256"]]
@@ -1221,29 +1257,31 @@ class Dialogue:
                 self.ui.say(v["cost_notice"])
                 probe["attempted"] = True
                 self.j.save()
-                status = self.provider("probe", *args)
+                try:
+                    status = self.provider("probe", *args)
+                except Blocked as error:
+                    if error.code != "credential_changed":
+                        raise
+                    self.ui.say("The check names an earlier credential. Its model and effort remain available without requiring proof.")
+                    continue
                 phase = status.get("phase")
             if phase == "completed_verified":
                 try:
                     # Save the exact completed proof and configuration together.
                     settings = self.provider("configuration", *args)
                     self.j.keep("settings", settings, q["id"])
-                    self.ui.say("Strict-carrier/effort proof was verified and generated settings were saved privately. "
-                                "No persona work or runtime sharing has been authorized yet.")
+                    self.ui.say("This check verified its strict carrier and reported effort. Settings and exact evidence were saved privately.")
                     return settings
                 except Blocked as error:
-                    if error.code not in ("catalogue_stale", "credential_changed"):
+                    if error.code != "credential_changed":
                         raise
                     self.ui.say("Completed proof cannot be bound to configuration now. No replacement probe was started.")
             elif phase in ("outcome_unrecorded", "failed_or_uncertain") or status.get("remote_usage_may_remain"):
                 self.ui.say("This probe outcome/usage remains unresolved and its identity is never replayed. "
                             "A distinct selected probe does not settle or replace that outcome.")
-                if self.ui.ask("n: select a distinct new probe; q: leave").strip().lower() != "n":
-                    raise Halt()
             else:
                 self.ui.say(f"Capability remains unestablished: {phase}, {status.get('code')}. "
                             "No model/effort substitution or fabricated evidence is permitted.")
-            probe = self.new_probe()
 
     def bootstrap(self):
         self.account()
