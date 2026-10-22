@@ -110,6 +110,8 @@ pub struct DeliverPendingMockEventRequest {
     pub dependency_id: String,
     pub binding_revision: String,
     pub ingestion_id: String,
+    /// Historical estimate, not a delivery quota.
+    #[serde(default)]
     pub max_delivery_bytes: usize,
 }
 

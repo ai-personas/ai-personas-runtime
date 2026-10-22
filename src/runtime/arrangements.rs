@@ -353,7 +353,7 @@ pub(super) const DUTIES: &str = "Persona arrangements: CONTROL.arrangements repo
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct WorkExactRef {
-    #[schemars(length(min = 1, max = 256))]
+    #[schemars(length(min = 1))]
     pub id: String,
     #[schemars(range(min = 1))]
     pub revision: u64,
@@ -394,14 +394,14 @@ impl WorkExactRef {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ArrangementDecisionRuleInput {
     Designated {
-        #[schemars(length(min = 1, max = 128))]
+        #[schemars(length(min = 1))]
         persona: String,
     },
     Quorum {
-        #[schemars(length(min = 1, max = 16))]
-        #[schemars(extend("items" = {"type": "string", "minLength": 1, "maxLength": 128}))]
+        #[schemars(length(min = 1))]
+        #[schemars(extend("items" = {"type": "string", "minLength": 1}))]
         eligible: BTreeSet<String>,
-        #[schemars(range(min = 1, max = 16))]
+        #[schemars(range(min = 1))]
         minimum: usize,
     },
 }
@@ -439,14 +439,12 @@ impl ArrangementDecisionRuleInput {
 pub struct ArrangementCommitment {
     #[schemars(range(min = 1))]
     pub mandate_revision: u64,
-    /// Nonblank, at most 16384 UTF-8 bytes.
-    #[schemars(length(min = 1, max = 16384))]
+    /// Nonblank complete commitment text.
+    #[schemars(length(min = 1))]
     pub exact_terms: String,
-    #[schemars(length(max = 256))]
-    #[schemars(extend("items" = {"type": "string", "minLength": 1, "maxLength": 256}))]
+    #[schemars(extend("items" = {"type": "string", "minLength": 1}))]
     pub outcomes: BTreeSet<String>,
-    #[schemars(length(max = 256))]
-    #[schemars(extend("items" = {"type": "string", "minLength": 1, "maxLength": 256}))]
+    #[schemars(extend("items" = {"type": "string", "minLength": 1}))]
     pub review_roles: BTreeSet<String>,
 }
 
@@ -481,7 +479,7 @@ impl ArrangementCommitment {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CommitmentChangeInput {
-    #[schemars(length(min = 1, max = 256))]
+    #[schemars(length(min = 1))]
     pub prior_acceptance: String,
     pub terms: ArrangementCommitment,
 }
@@ -489,9 +487,9 @@ pub struct CommitmentChangeInput {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ArtifactTransferInput {
-    #[schemars(length(min = 1, max = 128))]
+    #[schemars(length(min = 1))]
     pub from: String,
-    #[schemars(length(min = 1, max = 128))]
+    #[schemars(length(min = 1))]
     pub to: String,
     pub artifact: ArtifactKey,
 }
@@ -503,23 +501,21 @@ pub struct ArrangementTermsInput {
     pub delegation: Option<WorkExactRef>,
     /// Copy CONTROL.arrangements.current_exact; null only before any arrangement.
     pub base: Option<WorkExactRef>,
-    /// Only changed commitments: at most 32 persona keys, each naming its exact
-    /// current acceptance and genuinely different successor terms. Omit people
+    /// Only changed commitments: each persona key names its exact current
+    /// acceptance and genuinely different successor terms. Omit people
     /// whose terms stay unchanged; their commitments are retained automatically.
     /// Required consent is computed separately: a decision-rule change still
     /// requires every accepted participant's consent, including omitted people.
-    #[schemars(extend("maxProperties" = 32,
-        "propertyNames" = {"type": "string", "minLength": 1, "maxLength": 128}))]
+    #[schemars(extend("propertyNames" = {"type": "string", "minLength": 1}))]
     pub changes: BTreeMap<String, CommitmentChangeInput>,
     /// Null preserves the current rule, including its absence. A duty-only
     /// arrangement with no rule authorizes no shared selection or release.
     /// Fixed legacy mandates cannot replace their rule.
     pub decision_rule: Option<ArrangementDecisionRuleInput>,
     /// Explicit work-artifact ownership only; never transfers file-source ownership.
-    #[schemars(length(max = 32))]
     pub artifact_transfers: Vec<ArtifactTransferInput>,
-    /// Nonblank, at most 4096 UTF-8 bytes.
-    #[schemars(length(min = 1, max = 4096))]
+    /// Nonblank explanation of the proposed change.
+    #[schemars(length(min = 1))]
     pub reason: String,
 }
 

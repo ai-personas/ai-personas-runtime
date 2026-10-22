@@ -1408,7 +1408,7 @@ pub struct AdoptedResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ArtifactKey {
-    #[schemars(length(min = 1, max = 256))]
+    #[schemars(length(min = 1))]
     pub id: String,
     #[schemars(range(min = 1))]
     pub revision: u64,
@@ -1521,8 +1521,8 @@ pub enum WorkAction {
     /// Ordinary conversation needs no feedback record. This records your judgment,
     /// not a sender commitment, mandate change, agreement, acceptance or compliance.
     /// Use a separate communicate operation for an actual reply.
-    /// It creates no wake or funding. At most eight messages of 16384 text bytes
-    /// each may be pending, within 128 dispositions including reserved final slots.
+    /// It creates no wake or funding. Message bodies and dispositions are retained
+    /// without an application count or byte quota.
     /// Resolve pending items before CloseGoal; final dispositions cannot be reopened.
     AccountPeerFeedback {
         /// Exact top-level id of a supplied received_local_persona_message.
@@ -1533,7 +1533,7 @@ pub enum WorkAction {
     },
     /// Register one future local message from a named current participant, or
     /// new feedback/question-answer input from this work's local requester.
-    /// A Decision may register up to eight waits. Choose continuation.kind=wait,
+    /// A Decision may register multiple waits. Choose continuation.kind=wait,
     /// include every new inputs.id in dependency_ids, and supply a future
     /// deadline_unix. Other listed IDs must be current permitted dependencies.
     /// Any one arrival permits a fresh decision; it does not establish all replies.
@@ -1560,7 +1560,7 @@ pub enum WorkAction {
     /// Assigning an outcome also requires the affected persona's changed commitment
     /// in terms.changes, with that outcome ID in terms.outcomes, and exact consent.
     ProposeArrangement {
-        #[schemars(length(min = 1, max = 256))]
+        #[schemars(length(min = 1))]
         id: String,
         terms: ArrangementTermsInput,
         /// true explicitly consents as the proposer; false only records terms.
@@ -1571,16 +1571,16 @@ pub enum WorkAction {
     /// Use kind=accept_arrangement with proposal and exact. A pending arrangement
     /// proposal is not an invitation offer; accept_arranged_offer is different.
     AcceptArrangement {
-        #[schemars(length(min = 1, max = 256))]
+        #[schemars(length(min = 1))]
         proposal: String,
         exact: WorkExactRef,
     },
     /// Decline only for yourself, with the exact currently supplied proposal.
     DeclineArrangement {
-        #[schemars(length(min = 1, max = 256))]
+        #[schemars(length(min = 1))]
         proposal: String,
         exact: WorkExactRef,
-        #[schemars(length(min = 1, max = 4096))]
+        #[schemars(length(min = 1))]
         reason: String,
     },
     /// Register a complete saved asset as an artifact candidate. For a new
@@ -1599,7 +1599,7 @@ pub enum WorkAction {
     /// This requires offer, terms_revision and arrangement. For consent to a
     /// pending arrangement proposal, use accept_arrangement with proposal and exact.
     AcceptArrangedOffer {
-        #[schemars(length(min = 1, max = 256))]
+        #[schemars(length(min = 1))]
         offer: String,
         #[schemars(length(equal = 64), regex(pattern = "^[0-9a-f]{64}$"))]
         terms_revision: String,
@@ -1616,13 +1616,13 @@ pub enum WorkAction {
     /// needs release and delivery receipts supplied in a fresh admission.
     RecordModelEvidence {
         /// A new evidence identifier, not the judgment text.
-        #[schemars(length(min = 1, max = 256))]
+        #[schemars(length(min = 1))]
         id: String,
         artifact: ArtifactKey,
         /// Copy an exact outcome ID from the keys of CONTROL.mandate.outcomes.
         /// Do not put a description, criterion text, or judgment in this field.
         /// Put the reasoned judgment in explanation instead.
-        #[schemars(length(min = 1, max = 256), regex(pattern = "^\\S+$"))]
+        #[schemars(length(min = 1), regex(pattern = "^\\S+$"))]
         outcome: String,
         explanation: String,
         limitations: Vec<String>,
@@ -1631,7 +1631,7 @@ pub enum WorkAction {
         id: String,
         artifact: ArtifactKey,
         /// Copy an exact outcome ID from the keys of CONTROL.mandate.outcomes.
-        #[schemars(length(min = 1, max = 256), regex(pattern = "^\\S+$"))]
+        #[schemars(length(min = 1), regex(pattern = "^\\S+$"))]
         outcome: String,
         role: String,
         /// Exact formal work EvidenceRecord.id values, not observation/message or outer operation IDs.
@@ -2154,7 +2154,8 @@ pub struct DeliverLocalEventRequest {
     pub binding_revision: String,
     /// Must equal the registered source exactly; delivery cannot add a source.
     pub observation: p::ExactRef,
-    /// Aggregate serialized observation bytes across all recipients.
+    /// Historical aggregate byte estimate; complete observations are delivered.
+    #[serde(default)]
     pub max_delivery_bytes: usize,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -3550,14 +3551,6 @@ impl Runtime {
         identity(&request.id)?;
         identity(&request.dependency_id)?;
         require(now >= 0, "negative event time")?;
-        require(
-            (1..=INPUT_LIMIT).contains(&request.max_delivery_bytes),
-            "event delivery byte bound",
-        )?;
-        require(
-            serde_json::to_vec(&request)?.len() <= INPUT_LIMIT,
-            "event request bound",
-        )?;
         let request_hash = match &pending_ingestion {
             Some(id) => digest(&("pending-mock-event-v1", operator, &request, id))?,
             None => digest(&(operator, &request))?,
@@ -3649,8 +3642,8 @@ impl Runtime {
         // Admit the root envelope and durable work debit together before corpus
         // construction or payload reads. Initial admission failure rolls both
         // back; the preceding Store state read remains separately metered.
-        // Once admitted, retain the full unmeasured root hold on read, aggregate
-        // bound, or final persistence failure. Event state and wake still commit
+        // Once admitted, retain the full unmeasured root hold on read or final
+        // persistence failure. Event state and wake still commit
         // together only after every recipient result is complete.
         let charged = state_object(&old, &state)?;
         self.store.trusted_host().reserve_runtime_navigation(
@@ -3664,14 +3657,13 @@ impl Runtime {
         let reference = file_reference(&dependency.source)?;
         let exposure = local_dependency_exposure(&state, work_id, &dependency)?;
         let mut observations = BTreeMap::new();
-        let mut total = 0usize;
         for actor in recipients {
             let a = admission(&state.personas[&actor], now);
             let bundle = corpus(&state, &a)?.read(
                 &reference,
                 &a,
                 &mut navigation,
-                request.max_delivery_bytes.min(limits.result_bytes),
+                limits.result_bytes,
             )?;
             let sources = bundle
                 .entries
@@ -3710,13 +3702,6 @@ impl Runtime {
                     "synthetic":true,"goal_success":false
                 });
             }
-            total = total
-                .checked_add(serde_json::to_vec(&observation)?.len())
-                .ok_or_else(|| invalid("event delivery size overflow"))?;
-            require(
-                total <= request.max_delivery_bytes,
-                "aggregate event delivery byte limit",
-            )?;
             state
                 .personas
                 .get_mut(&actor)
@@ -6624,17 +6609,7 @@ fn carry_expiry_witness(
     serial: u64,
 ) -> Result<()> {
     let next = increment(serial)?;
-    // Unknown oversized legacy collections remain unmatched, with bounded work.
-    if focus
-        .fragments
-        .as_ref()
-        .is_some_and(|v| v.len() > p::MAX_COLLECTION_ITEMS)
-        || focus
-            .assets
-            .as_ref()
-            .is_some_and(|v| v.len() > p::MAX_COLLECTION_ITEMS)
-        || (focus.selection_fit.is_none() && focus.repair_trigger.is_none())
-    {
+    if focus.selection_fit.is_none() && focus.repair_trigger.is_none() {
         return Ok(());
     }
     let deadlines: BTreeSet<_> = focus

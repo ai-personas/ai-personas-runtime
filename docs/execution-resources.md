@@ -139,6 +139,15 @@ proposals, responses, holders, changes and wait registrations have no fixed
 count/text quota. Session terminals accept any monotonic call-count increase;
 operator session pages have no application page-size or output-byte cap.
 
+The supplied work-command and arrangement schemas also omit string, quorum,
+commitment, transfer and property-count maxima. Exact digest formats, nonblank
+identities and actual consent remain part of the record shape. Local event
+delivery supplies complete observations for every current recipient, with no
+request-size or aggregate-delivery byte quota. `max_delivery_bytes` is optional
+historical metadata, including zero. Selection-expiry evidence follows every
+retained selection, and exact historical context-failure facts are available
+without a new cap on their recorded limit value.
+
 Source ownership, protection, retirement and applicability annotations no longer
 block exact reads, explicit revisions, retirement, character-fragment selection
 or warning targets. Every revision retains its actual author and origin; current
@@ -318,8 +327,8 @@ effective for the inherited episode.
 
 Removal is still incomplete. Remaining
 application enforcement includes operator child admission and single-episode
-binding constraints; explicit optional opportunity and birth workflows; remaining typed protocol and
-tool-input limits; and additional specialized control limits. These are implementation gaps under the
+binding constraints; explicit optional opportunity and birth workflows; and
+additional specialized control and workflow gates. These are implementation gaps under the
 new requirement, not exceptions granted by the user. Some earlier documents still
 describe them because those paths remain implemented. They must be removed or
 reworked without relabeling lost data, malformed records or unknown execution as

@@ -65,7 +65,6 @@ pub(super) fn observation(
         || evidence.body["prompt_sha256"] != prepared.prompt_sha256
         || s::sha256_bytes(prepared.prompt.as_bytes()) != prepared.prompt_sha256
         || diagnostic.limit_bytes == 0
-        || diagnostic.limit_bytes > INPUT_LIMIT / 2
         || diagnostic.required_bytes <= diagnostic.limit_bytes
         || diagnostic.mandatory_bytes > diagnostic.required_bytes
         || diagnostic.selection_sha256.len() != 64
