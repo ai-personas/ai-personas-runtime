@@ -576,7 +576,7 @@ pub enum Operation {
     Responsibility {
         id: String,
         work_id: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default)]
         terms_revision: Option<String>,
         disposition: String,
         reason: String,
