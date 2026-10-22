@@ -462,7 +462,7 @@ Protected pause and unfinished closeout preserve actual state; they do not claim
 
 ## 13. Scheduler, dependencies, and local events
 
-Native foreground runs inspect the complete participant list of each requested work in circular identity order, without a fixed scan cutoff. A selected intake episode also continues eligible descendants; each work yields after one call so a continuing parent cannot starve its children.
+Native foreground runs inspect the complete participant list of each requested work in circular identity order, without a fixed scan cutoff. Each work retains its own participant cursor across descendant turns and restarts. An intake episode also continues eligible descendants; each work yields after one call so a continuing parent cannot starve its children.
 
 The lower-level scheduler interface is explicit and local:
 

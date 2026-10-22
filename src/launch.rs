@@ -674,7 +674,9 @@ fn select_owned(
     let (old, mut cursor) = app.load_scheduler()?;
     let work_id = w::WorkId(work.into());
     let current = state.board.work(&work_id)?;
-    let after = cursor.after.clone();
+    let after = cursor.foreground_after.get(work)
+        .map(|actor| (work_id.clone(), w::PersonaId(actor.clone())))
+        .or_else(|| cursor.after.clone().filter(|(id, _)| id == &work_id));
     let pairs = || current.participants.keys().map(|actor| (work_id.clone(), actor.clone()));
     // A foreground run selects from its complete work, in circular identity
     // order. An inspection page elsewhere in the runtime cannot hide a runnable
@@ -699,6 +701,7 @@ fn select_owned(
                 selected = Some(actor.0.clone());
             }
         }
+        cursor.foreground_after.insert(wid.0.clone(), actor.0.clone());
         cursor.after = Some((wid, actor));
         cursor.considered = increment(cursor.considered)?;
         cursor.last.push(entry);

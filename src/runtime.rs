@@ -2059,7 +2059,7 @@ fn action(value: &Value) -> Result<WorkAction> {
 }
 
 const SCHEDULER_ID: &str = "runtime-ordinary-scheduler-v1";
-const SCHEDULER_ASSUMPTIONS: &str = "Explicit progressing caller; positive bounded pages; successful durable writes; finite retained participation queue without endless insertion ahead of a participant; continuing eligibility, current source/authority, context fit and remaining ordinary capacity. Restart retains the cursor. One global runtime invocation lease must finish or receive explicit recovery before another scheduler mutation. Consideration and preparation promise neither dispatch nor useful progress.";
+const SCHEDULER_ASSUMPTIONS: &str = "Explicit progressing caller; requested inspection page sizes; successful durable writes; continuing eligibility and actual execution ownership. Native foreground scheduling scans the complete requested work and retains a separate participant cursor for each work, without application resource quotas. Lower-level scheduler preparation creates no provider call and retains its invocation freshness checks. Consideration and preparation promise neither dispatch nor useful progress.";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2094,8 +2094,11 @@ pub struct SchedulerConsideration {
 #[serde(deny_unknown_fields)]
 pub struct SchedulerState {
     pub after: Option<(w::WorkId, w::PersonaId)>,
+    /// Foreground turns in one work must not reset another work's rotation.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub foreground_after: BTreeMap<String, String>,
     pub considered: u64,
-    /// Last bounded operation; older receipts remain in finite Store journals.
+    /// Last consideration operation; earlier receipts remain in Store journals.
     pub last: Vec<SchedulerConsideration>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -10787,10 +10790,10 @@ pub fn readiness() -> Value {
         "limits":["hard remote model context bounds unsupported","strict live guarantees are not established",
             "exact model availability requires verified operator configuration; no implicit model substitution","logical retention only; no physical hard bound",
             "tokens, billing, hidden provider inputs, remote retention and remote stop remain unverified",
-            "selection repair is explicitly enabled only by a finite need-intake suballowance; whole-entry reductions and bounded exact reads only",
+            "selection repair supports explicit whole-entry reductions and exact reads; historical repair allocations do not limit ordinary work",
             "runtime admission, work debit, ownership, invocation and terminal capacity commit atomically; prior navigation preparation remains charged",
-            "persisted bounded round-robin consideration; lower-level scheduler preparation alone launches no provider; foreground and session coordinators launch authorized direct calls",
-            "scheduler progress requires successful persistence, finite queue, continuing eligibility and ordinary capacity; one current invocation per persona; independent owned calls may overlap, while unknown or orphaned invocations require recovery",
+            "persisted per-work foreground rotation without scan quotas; lower-level scheduler preparation alone launches no provider; foreground and session coordinators launch direct calls",
+            "scheduler progress requires successful persistence and continuing eligibility; one current invocation per persona; intake episodes currently use sequential primary calls; unknown outcomes remain retained",
             "exact-file and admitted pending-mock dependencies; local evidence requires explicit host lineage/policy attestation and applied Store terminal proof; no external subscriptions or independent authentication",
             "event observations cannot adopt or resolve applicability warnings",
             "external effects and exports remain unsupported by this scheduler/event interface",

@@ -1,26 +1,25 @@
 # Concurrent primary decisions
 
-Native foreground runs and `personas-session` runs can keep direct-provider calls
-for independent, already accepted participants in flight together. One coordinator
-holds the Store's execution owner, prepares each request, awaits independent
-transport futures and adopts completed responses one at a time. Each persona has
-at most one current primary invocation. Concurrency uses the existing session
-step and consideration limits, work attempts, navigation and Store reservations.
-Waiting for a transport or host command grants no extra call or allowance.
+The runtime has an owned coordinator for overlapping independent Direct calls.
+New native foreground runs automatically bind an intake source and use the
+current delegation coordinator, which runs primary calls sequentially while
+visiting the root and its descendants. Extending overlapping primary calls to
+these episodes remains an implementation gap. There is no application call,
+round, resource or nesting quota; a sequential transaction path is not evidence
+of concurrent execution.
 
-First-character and responsibility-acceptance calls run alone. Their shared work
-changes must be supplied before peers make dependent decisions. Selection repair
-also stops further concurrent admissions and retains its complete prompt seal.
-Intake-delegation and optional-activity episodes use the existing sequential loop.
-The plain one-step API and foreground path without a retained execution owner
-remain sequential. This is not a background scheduler across works or roots.
+The independent coordinator holds the Store's execution owner, prepares each
+request, awaits transport futures and adopts completed responses one at a time.
+Each persona retains one current primary invocation. First-character,
+responsibility-acceptance and selection-repair transitions run alone because
+subsequent decisions must receive their changed shared state. Optional episodes
+also retain sequential preparation. Foreground work is not a background service
+across roots.
 
-Ordinary inputs can include `CONTROL.collaborators`: up to eight other current
-work participants, their labels and current acceptance IDs, and their latest
-accepted continuation with its authoring invocation. Persona-proposed labels and
-each intention retain their original source restrictions. Withheld or omitted records establish neither
-absence nor permission. The snapshot is limited to 4 KiB and spare input space;
-it cannot displace selected context, current observations or available tools.
+Ordinary inputs can include `CONTROL.collaborators`: other current-work
+participants, their labels and current acceptance IDs, and their latest accepted
+continuation with its authoring invocation. The snapshot has no application
+record-count or byte quota. Each intention retains its actual source attribution.
 
 These intentions help personas choose contributions and communicate about shared
 edits. They are snapshots at admission, and can change while inference runs.
@@ -37,9 +36,9 @@ focus, configuration, work authority and shared semantic state, metadata, and th
 expanded supplied-source lineage with its accepted bindings. Ordinary calls ignore
 only another participant's private continuation, wake, activity and observed-event
 bookkeeping, the work revision counter and appended applied-invocation IDs. They
-also exclude remaining shared spend counters: each request has already paid its
-own admission and reserved its resources. Current capacity is still checked at
-commit, and adoption preserves concurrent spending.
+also exclude remaining shared spend counters: each request has its own
+admission and reservation records. Accounting records actual use without applying
+a cumulative quota, and adoption preserves concurrent spending.
 
 Another task's focus is separate: pausing that task or queuing an operator
 amendment's resumption does not invalidate this call. Identity, character,
@@ -89,9 +88,9 @@ Dispatch still checks character, lifecycle, failure holds, the originating task'
 focus, authority and shared state, relevant control history, configuration and
 supplied lineage. Explicit same-response file-save prerequisites retain their
 accepted source and binding hashes. A pause followed by resume cannot revive a
-command admitted before that pause. Existing computation and HTTPS checks for
-grants, expiry, inputs and implementation versions remain in effect; default
-host commands continue to require no per-tool grant.
+command admitted before that pause. Computation, HTTP(S) and host commands require no per-tool grant or expiry
+approval. Their exact supplied inputs, implementation bindings and actual
+execution records remain attributable.
 
 An intent from a new admission retains its sealed peer-message deferral rule.
 An ordinary unsupplied peer message alone does not cancel the accepted command;

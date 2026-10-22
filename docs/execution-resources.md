@@ -340,7 +340,9 @@ the same immediate-parent route as delivery and message waits.
 Foreground scheduling scans the complete participant list of the requested work
 in circular identity order. It has no fixed consideration-page cutoff. An
 operator's requested inspection page size remains a display choice and cannot
-hide an eligible persona from a foreground run.
+hide an eligible persona from a foreground run. The participant cursor is retained
+separately for each work, so visiting descendants does not reset the parent's
+rotation or repeatedly prefer its first eligible persona.
 
 Native foreground work no longer needs an initial delegation grant or selection
 file. The driver records a deterministic source under its existing execution
