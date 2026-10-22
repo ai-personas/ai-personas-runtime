@@ -85,6 +85,14 @@ the current task's `recorded_phase`. An open task can contain a successfully
 created persona whose own accepted contribution has stopped; these records
 describe different events and do not imply whole-task completion.
 
+Persona input and development views label `proposal_author_invocation`
+separately from `causal_work`. The former identifies the file-writing call; the
+latter identifies the creation context. They need not belong to one invocation
+or work. `creation_receipt` references the exact record containing the operator
+request and, for persona-requested creation, the separate `creation_operation`
+with its invocation, operation ID and accepted response hash. These views do not
+relabel proposal authorship as a creation request.
+
 Population growth advances only the session's exact appended seed binding and
 currently matching intake-episode fingerprints. It changes no existing seed,
 provider setting, work acceptance or unknown invocation outcome.
@@ -115,13 +123,12 @@ Copy the current exact fences and `next_persona` into a creation request:
   "expected_runtime": {"id":"runtime-state-v1","revision":1,"sha256":"COPY_FROM_SNAPSHOT"},
   "expected_launch": {"id":"runtime-launch-v1","revision":1,"sha256":"COPY_FROM_SNAPSHOT"},
   "initialization_limit": 0,
-  "authorization_reference": "The actual operator's creation record",
-  "authorize_creation": true
+  "authorization_reference": "The actual operator's creation record"
 }
 ```
 
 Use the actual snapshot revisions, without ranges. The initialization number and
-creation boolean are retained metadata; neither adds an execution quota or an
+optional `authorize_creation` boolean are retained metadata; neither adds an execution quota or an
 extra approval gate. The request itself selects this creation.
 
 ```sh

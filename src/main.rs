@@ -414,8 +414,6 @@ enum Command {
         /// Limit inspection to this exact characteristic source.
         #[arg(long)]
         source: Option<String>,
-        #[arg(long, default_value_t = 8)]
-        limit: usize,
         /// Check exact fragment-body supply in this accepted invocation.
         #[arg(long)]
         invocation: Option<String>,
@@ -925,7 +923,6 @@ async fn run(cli: Cli) -> runtime::Result<()> {
     if let Command::Development {
         persona,
         source,
-        limit,
         invocation,
     } = &cli.command
     {
@@ -934,7 +931,6 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             operator,
             persona,
             source.as_deref(),
-            *limit,
             invocation.as_deref(),
         )?);
     }

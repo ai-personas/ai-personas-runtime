@@ -1052,7 +1052,7 @@ pub fn development_view(
 ) -> BoundaryResult<Value> {
     valid_id(operator)?;
     valid_id(persona)?;
-    Ok(development_at(root, operator, persona, source, 8, invocation)?)
+    Ok(development_at(root, operator, persona, source, invocation)?)
 }
 
 /// Attributed local input uses the native idempotent operation. Opening this

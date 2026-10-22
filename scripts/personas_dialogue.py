@@ -1567,7 +1567,7 @@ class Dialogue:
         persona = self.choose_participant(work)
         if persona is None:
             return
-        source = self.ui.ask("Exact source ID (Enter to show up to eight retained revisions):").strip()
+        source = self.ui.ask("Exact source ID (Enter for all retained characteristic revisions):").strip()
         invocation = self.ui.ask("Accepted call ID to inspect (Enter for guidance only):").strip()
         args = ["development"]
         if source:
@@ -1580,6 +1580,14 @@ class Dialogue:
         if lifecycle:
             self.ui.say(f"Identity: {lifecycle['status']}; quarantined: {lifecycle['quarantined']}. "
                         "Work participation and continuation are separate.")
+        origin = result.get("creation_origin")
+        if origin and origin.get("available"):
+            self.ui.say(f"Starting proposal: authored by {origin['parent']} in "
+                        f"{origin['proposal_author_invocation']}.")
+            self.ui.say("Proposal reference: " + json.dumps(origin["proposal"], ensure_ascii=False))
+            self.ui.say(f"Creation context: {origin['causal_work']}. "
+                        "The exact receipt separately identifies the creation request.")
+            self.ui.say("Creation receipt: " + json.dumps(origin["creation_receipt"], ensure_ascii=False))
         character = result.get("character")
         if character:
             self.ui.say(f"Current character revision: {character['revision']}")

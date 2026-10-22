@@ -9,9 +9,8 @@ pub fn development(
     operator: &str,
     persona_id: &str,
     source_id: Option<&str>,
-    limit: usize,
 ) -> Result<Value> {
-    development_at(root, operator, persona_id, source_id, limit, None)
+    development_at(root, operator, persona_id, source_id, None)
 }
 
 /// Inspect one explicitly named accepted invocation without scanning history or
@@ -21,7 +20,6 @@ pub fn development_at(
     operator: &str,
     persona_id: &str,
     source_id: Option<&str>,
-    limit: usize,
     invocation_id: Option<&str>,
 ) -> Result<Value> {
     identity(operator)?;
@@ -32,10 +30,9 @@ pub fn development_at(
     if let Some(invocation) = invocation_id {
         identity(invocation)?;
     }
-    require(limit > 0, "revision page size must be positive")?;
     // Do not recover or interrupt a live invocation merely to inspect development.
     inspection::project(root, |snapshot, records| {
-        project(snapshot, records, operator, persona_id, source_id, limit, invocation_id)
+        project(snapshot, records, operator, persona_id, source_id, invocation_id)
     })
 }
 
@@ -45,7 +42,6 @@ fn project(
     operator: &str,
     persona_id: &str,
     source_id: Option<&str>,
-    limit: usize,
     invocation_id: Option<&str>,
 ) -> Result<Value> {
     let saved = &snapshot.saved;
@@ -82,10 +78,6 @@ fn project(
             let reference = revision.record.reference(f::Representation::Utf8);
             if !lineage_permitted(&state, std::slice::from_ref(&reference), &audience) {
                 continue;
-            }
-            if revisions.len() == limit {
-                truncated = true;
-                break 'sources;
             }
             let bundle = match corpus.read(
                 &reference,
@@ -129,8 +121,10 @@ fn project(
     if let Some(origin) = &persona.birth {
         output["creation_origin"] = if exposure_permitted(&state, &origin.exposure, &audience) {
             json!({"available":true,"kind":"persona_authored_proposal",
-                "parent":origin.parent,"invocation":origin.invocation,"work":origin.work,
+                "parent":origin.parent,"proposal_author_invocation":origin.invocation,
+                "causal_work":origin.work,
                 "proposal":origin.proposal,"creation_receipt":origin.receipt,
+                "meaning":"Proposal authorship and creation are separate events. The proposal_author_invocation may belong to different work; causal_work identifies the creation context. The exact receipt records the creation request and any creating persona operation.",
                 "initialization_limit":null,"historical_initialization_limit":origin.initialization_limit,
                 "initialization_attempts_spent":origin.initialization_attempts,
                 "character_accepted":persona.character.is_some(),

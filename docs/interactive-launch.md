@@ -330,7 +330,7 @@ Selecting a work opens its action menu:
 - **f: feedback** records plain-text input for a selected participant.
 - **d: persona development** displays accepted characteristic guidance with its
   attribution and complete qualifications. An optional source ID narrows the
-  eight-revision view; an optional accepted call ID inspects exact body supply
+  complete retained-revision view; an optional accepted call ID inspects exact body supply
   and the matching completed provider input, authored maintenance and next-context
   decisions, locally applied or fenced operations, and per-call input accounting.
   Retained file-write metadata is checked separately. This does not establish improvement.

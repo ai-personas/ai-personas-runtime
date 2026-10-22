@@ -7432,11 +7432,12 @@ fn render_mode_with_history(
             .ok_or_else(|| invalid("birth proposal context accounting"))?;
     }
     if let Some(origin) = &persona.birth {
-        core["creation_origin"] = json!({"parent":origin.parent,"invocation":origin.invocation,
-            "proposal":origin.proposal,"initialization_limit":null,
+        core["creation_origin"] = json!({"parent":origin.parent,
+            "proposal_author_invocation":origin.invocation,"causal_work":origin.work,
+            "proposal":origin.proposal,"creation_receipt":origin.receipt,"initialization_limit":null,
             "historical_initialization_limit":origin.initialization_limit,
             "initialization_attempts_spent":origin.initialization_attempts,
-            "meaning":"Attributed persona-authored starting material; the exact receipt records who requested creation. It is not prior lived experience, competence or accepted responsibility."});
+            "meaning":"proposal_author_invocation identifies the proposal file write, which may precede the creation request and belong to different work. causal_work identifies the creation context. The exact creation_receipt separately records the operator request and any persona creation operation. This is attributed starting material, not prior lived experience, competence or accepted responsibility."});
         growth_bytes = growth_bytes.checked_add(serde_json::to_vec(&core["creation_origin"])?.len())
             .ok_or_else(|| invalid("birth origin context accounting"))?;
     }

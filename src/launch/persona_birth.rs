@@ -44,7 +44,10 @@ impl Proposal {
 pub(crate) struct Origin {
     pub receipt: s::ObjectRef,
     pub parent: String,
+    /// Invocation that authored the proposal asset, not necessarily the call
+    /// that requested creation. The exact receipt records that separate event.
     pub invocation: String,
+    /// Creation's causal work; this need not be the proposal author's work.
     pub work: String,
     pub proposal: p::ExactRef,
     pub exposure: Exposure,
@@ -64,6 +67,8 @@ pub struct Request {
     pub expected_launch: intake_delegation::IntakeReference,
     pub initialization_limit: u64,
     pub authorization_reference: String,
+    /// Historical request metadata. The creation request itself selects the
+    /// action; this flag does not add an approval gate.
     #[serde(default)]
     pub authorize_creation: bool,
 }
