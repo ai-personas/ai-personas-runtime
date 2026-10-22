@@ -22,16 +22,17 @@ metadata; reaching zero does not disable proposal authoring or child admission.
 ## Start with ordinary foreground work
 
 Plain foreground runs, saved-environment sessions, Codex auth-only sessions and
-SIWC runs need no delegation JSON or extra grant command. Before the first
-eligible call, the native driver records a deterministic source for the work
+SIWC runs need no delegation JSON or extra grant command. Before scheduling an
+open task, the native driver records a deterministic source for the work
 under the existing execution owner. Its grant and issue receipt carry
 `automatically_issued: true`; the supplied need interface carries the same marker.
 The source records the saved operator, work, policy, provider destination and
 exact current heads. Its original request and boundaries remain provenance.
 The persona authors the purpose of each new request.
 
-Automatic issuance creates no opportunity or acceptance. With no eligible actor,
-the run issues nothing. An interrupted startup reuses its existing source, and an
+Automatic issuance creates no opportunity or acceptance. A task with no eligible
+actor performs no model call; a pending host result can establish an opportunity
+later in the same run. An interrupted startup reuses its existing source, and an
 explicitly revoked default source is never replaced automatically. The same
 revocation command used for an explicitly issued grant applies to this source.
 Existing selected episodes and their original source hashes remain intact.

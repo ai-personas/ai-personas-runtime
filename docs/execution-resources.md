@@ -344,12 +344,14 @@ hide an eligible persona from a foreground run.
 
 Native foreground work no longer needs an initial delegation grant or selection
 file. The driver records a deterministic source under its existing execution
-owner when an unbound work has an eligible actor, then selects its exact reference
+owner for an unbound open work, then selects its exact reference
 before preparation. Grant, issue receipt and supplied interface distinguish
 automatic issuance. Historical sources keep their original hashes, and an
 explicitly revoked default source is never silently replaced. The persona authors
 each proposal's purpose rather than copying a required operator purpose. Existing
-optional work may request ordinary child work through this same path.
+optional work may request ordinary child work through this same path. Source
+creation does not make an actor eligible; existing continuation rules still
+govern each call, including opportunities made ready by later host results.
 
 Removal is still incomplete. Remaining application enforcement includes
 single-episode binding constraints; explicit optional opportunity and birth workflows; and

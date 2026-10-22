@@ -1221,7 +1221,7 @@ fn execute_owned(
     })
 }
 
-/// Resolve ordinary native delegation before the first eligible preparation.
+/// Resolve ordinary native delegation before foreground scheduling.
 /// One deterministic source per work survives interrupted startup; revocation
 /// never causes automatic replacement. The caller already owns execution.
 pub(super) fn default_for_work_owned(
@@ -1233,10 +1233,13 @@ pub(super) fn default_for_work_owned(
     let (runtime_head, state, launch_head, saved) = candidates(app)?;
     require(saved.works.contains_key(work), "unknown launch work")?;
     if need_proposals::bound(&state, work)
-        || !state.personas.keys().any(|actor| enabled(&state, work, actor, now))
+        || !matches!(state.board.work(&w::WorkId(work.into()))?.phase, w::Phase::Open)
     {
         return Ok(None);
     }
+    // A pending host result may establish the first eligible opportunity later
+    // in this same run. Source issuance grants no opportunity, so do not make
+    // its availability depend on the initial readiness snapshot.
     let id = format!("native-default-{}", canonical_hash(&("intake-work-v1", work))?);
     let (registry_head, current) = registry(app)?;
     if let Some(grant) = current.grants.get(&id) {
