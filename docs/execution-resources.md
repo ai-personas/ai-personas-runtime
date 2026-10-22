@@ -170,13 +170,30 @@ fixed number of attempts; each sign-in or refresh is still a selected action.
 Several operator request and receipt byte/identity caps are removed. Current
 persona instructions no longer advertise the removed protocol text/list quotas.
 
+Store identity length, requested page size, batch size and page-body limits no
+longer gate operations. Lists supply the complete requested page. Invocation
+input can exceed its historical reservation, and receipt details and terminal
+allocation requests have no application byte ceiling. Database lock waits have
+no local timeout; actual lock availability, process cancellation and database
+errors determine their outcome.
+
+Store head compaction scans every current head without count, key-length or
+aggregate-byte ceilings. Its receipt records actual key/data scan charges plus
+the metadata envelope, and accounts for a receipt that grows beyond its initial
+allocation. Capacity-setting updates have no application numerical ceilings or
+MiB/GiB rounding requirements. Opening validates every exact retained extension
+receipt without a chain-length or receipt-byte quota; cycle and hash checks remain.
+The capacity view reports null maxima and quota enforcement off. These legacy
+allocation operations are not prerequisites for ordinary execution, and they
+preserve existing consumption and immutable data.
+
 ## Remaining work
 
 Removal is still incomplete. Remaining
 application enforcement includes delegated intake authority and one-child workflow
 constraints; explicit optional opportunity and birth workflows; provider onboarding
 plan/catalogue limits; toolchain discovery bounds; remaining typed protocol and
-tool-input limits; and specialized Store maintenance/control limits. These are implementation gaps under the
+tool-input limits; and additional specialized control limits. These are implementation gaps under the
 new requirement, not exceptions granted by the user. Some earlier documents still
 describe them because those paths remain implemented. They must be removed or
 reworked without relabeling lost data, malformed records or unknown execution as

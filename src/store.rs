@@ -26,7 +26,7 @@ mod operator_inspection;
 mod provider_prelaunch;
 mod session_journal;
 mod terminal_inspection;
-pub use capacity::{CapacityExtensionRequest, MAX_RUNTIME_SNAPSHOT_BODY_BYTES};
+pub use capacity::CapacityExtensionRequest;
 pub use head_compaction::HeadCompactionRequest;
 pub(crate) use operator_inspection::RuntimeInspection;
 
@@ -40,7 +40,6 @@ const CELL_ENVELOPE: u64 = 128;
 const INVOCATION_EVENTS: u64 = 8;
 const INTENT_EVENTS: u64 = 6;
 const RESERVATION_EVENTS: u64 = 4;
-const MAX_DETAIL_BYTES: usize = 256;
 const MAX_RUNTIME_FAILURE_CONTEXT_BYTES: u64 = 4096;
 const RUNTIME_PLANNING_STARTED: &str =
     "Runtime planning envelope claimed once; completion not established";
@@ -243,23 +242,15 @@ impl Limits {
     fn validate(&self) -> Result<()> {
         if !self.protected_closeout.fits(self.total)
             || self.max_id_bytes == 0
-            || self.max_id_bytes > 256
             || self.max_page_items == 0
-            || self.max_page_items > 1024
             || self.max_batch_items == 0
-            || self.max_batch_items > 1024
             || self.max_identity_records == 0
-            || self.max_identity_records > 1_000_000
             || self.max_history_events == 0
             || self.max_body_bytes == 0
             || self.max_body_bytes.checked_add(CONTROL_HEADROOM).is_none()
             || self.max_body_bytes + CONTROL_HEADROOM > self.max_record_bytes
             || self.max_record_bytes > self.max_read_bytes
             || self.max_read_bytes > self.max_page_bytes
-            || self.max_record_bytes > 16 * 1024 * 1024
-            || self.max_page_bytes > 64 * 1024 * 1024
-            || self.busy_timeout_ms == 0
-            || self.busy_timeout_ms > 300_000
         {
             return Err(StoreError::Invalid(
                 "inconsistent or unsupported limits".into(),
@@ -1955,12 +1946,18 @@ impl RuntimeControlMonitor {
     }
 }
 
+fn wait_for_database(_attempt: i32) -> bool {
+    // A busy database is a lock wait, not an application duration quota.
+    std::thread::sleep(Duration::from_millis(10));
+    true
+}
+
 impl Store {
     pub(crate) fn runtime_control_monitor(&self) -> Result<RuntimeControlMonitor> {
         let connection = Connection::open_with_flags(
             secure_database_path(&self.path)?, OpenFlags::SQLITE_OPEN_READ_ONLY,
         )?;
-        connection.busy_timeout(Duration::from_millis(self.limits.busy_timeout_ms))?;
+        connection.busy_handler(Some(wait_for_database))?;
         Ok(RuntimeControlMonitor {
             connection, epoch: None,
         })
@@ -1992,7 +1989,7 @@ impl Store {
             &path,
             OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
         )?;
-        connection.busy_timeout(Duration::from_millis(limits.busy_timeout_ms))?;
+        connection.busy_handler(Some(wait_for_database))?;
         let journal: String =
             connection.query_row("PRAGMA journal_mode=WAL", [], |row| row.get(0))?;
         if !journal.eq_ignore_ascii_case("wal") {
@@ -2208,22 +2205,9 @@ impl Store {
                 rows.collect::<std::result::Result<Vec<_>, _>>()?
             };
             let mut items = Vec::new();
-            let mut bytes = 512u64;
             for key in keys.iter().take(limit as usize) {
                 let object: StoredObject = work.required("object", key)?;
-                let size = encode(&object, work.limits.max_read_bytes)?.len() as u64;
-                let next = bytes
-                    .checked_add(size)
-                    .and_then(|n| n.checked_add(1))
-                    .ok_or(StoreError::Overflow("list response"))?;
-                if next > work.limits.max_page_bytes {
-                    break;
-                }
                 items.push(object);
-                bytes = next;
-            }
-            if items.is_empty() && !keys.is_empty() {
-                return Err(StoreError::TooLarge);
             }
             let complete = items.len() == keys.len();
             let continuation = if complete {
@@ -2416,7 +2400,7 @@ impl Store {
     ///
     /// Changes use spec.class; slots use their individually supplied classes.
     /// Closeout selections require prior trusted host authorization. The combined
-    /// number of changes and slots must fit max_batch_items; slot IDs are unique.
+    /// Slot IDs are unique; change and slot collections have no application quota.
     /// Filling slots still requires TrustedHost::record_terminal_evidence and its
     /// authentication callback. Admission itself neither fills slots nor refunds
     /// any previously committed allowance.
@@ -3382,11 +3366,10 @@ impl<'a> Work<'a> {
 
     fn id(&self, id: &str) -> Result<()> {
         if id.is_empty()
-            || id.len() > self.limits.max_id_bytes as usize
             || id.chars().any(char::is_control)
         {
             return Err(StoreError::Invalid(
-                "empty, overlong, or control-containing identity".into(),
+                "empty or control-containing identity".into(),
             ));
         }
         Ok(())
@@ -3397,16 +3380,13 @@ impl<'a> Work<'a> {
     }
 
     fn page_limit(&self, limit: u32) -> Result<()> {
-        if limit == 0 || limit > self.limits.max_page_items {
+        if limit == 0 {
             return Err(StoreError::Invalid("page limit".into()));
         }
         Ok(())
     }
 
-    fn batch_limit(&self, count: usize) -> Result<()> {
-        if count > self.limits.max_batch_items as usize {
-            return Err(StoreError::Invalid("batch item limit".into()));
-        }
+    fn batch_limit(&self, _historical_count: usize) -> Result<()> {
         Ok(())
     }
 
@@ -3900,9 +3880,6 @@ impl<'a> Work<'a> {
         let capacity = max_object_bytes
             .checked_add(CONTROL_HEADROOM)
             .ok_or(StoreError::Overflow("terminal evidence capacity"))?;
-        if capacity > self.limits.max_record_bytes {
-            return Err(StoreError::TooLarge);
-        }
         if let Some(cell) = self.cell("terminal_evidence", id)? {
             let slot: TerminalEvidenceSlot = decode_json(&cell.data)?;
             if slot.subject != *subject
@@ -4265,13 +4242,6 @@ impl<'a> Work<'a> {
         if spec.reservation.attempts != 1 {
             return Err(StoreError::Invalid(
                 "each invocation reserves exactly one root attempt".into(),
-            ));
-        }
-        if encode(&spec.request, self.limits.max_body_bytes)?.len() as u64
-            > spec.reservation.input_bytes
-        {
-            return Err(StoreError::Invalid(
-                "request bytes exceed input reservation".into(),
             ));
         }
         let reservation = ReservationId {
@@ -4739,9 +4709,9 @@ fn live_invocation(record: &InvocationRecord) -> Result<()> {
 }
 
 fn detail_valid(detail: &str) -> Result<()> {
-    if detail.is_empty() || detail.len() > MAX_DETAIL_BYTES {
+    if detail.is_empty() {
         return Err(StoreError::Invalid(
-            "receipt detail must be nonempty and bounded".into(),
+            "receipt detail must be nonempty".into(),
         ));
     }
     Ok(())

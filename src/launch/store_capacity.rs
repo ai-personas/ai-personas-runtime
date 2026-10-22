@@ -1,4 +1,4 @@
-//! Operator-controlled storage growth and finite storage funding.
+//! Operator-controlled historical storage settings and allocation bookkeeping.
 //! No inference, work resume, allowance reset, history deletion or settlement
 //! of unknown provider usage.
 use super::*;
@@ -67,11 +67,12 @@ fn snapshot_store(store: &mut s::Store, operator: &str) -> Result<Value> {
         "ordinary":ledger.ordinary,"closeout":ledger.closeout,
         "frozen":ledger.frozen,
         "snapshot_atomic":false,"capacity_reserved":false,
-        "supported_max_body_bytes":s::MAX_RUNTIME_SNAPSHOT_BODY_BYTES,
-        "supported_max_protected_closeout_retained_bytes":256*1024*1024,
-        "supported_max_total_navigation_bytes":64u64*1024*1024*1024,
-        "supported_max_total_retained_bytes":16u64*1024*1024*1024,
-        "scope":"Larger snapshot bounds, protected retained-space partition and explicitly requested storage funding. No history, uncertainty or consumption is reset."
+        "resource_quotas_enforced":false,
+        "supported_max_body_bytes":null,
+        "supported_max_protected_closeout_retained_bytes":null,
+        "supported_max_total_navigation_bytes":null,
+        "supported_max_total_retained_bytes":null,
+        "scope":"Historical snapshot settings, retained-space partition and allocation bookkeeping. Runtime execution does not require quota extensions. No history, uncertainty or consumption is reset."
     }))
 }
 

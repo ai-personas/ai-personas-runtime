@@ -5,7 +5,9 @@ Explicit commands and selected UI actions need no second approval. Historical
 metadata in operator requests. Exact current-state references and actual operator,
 provider and execution identities still bind each action. See
 [execution resources](docs/execution-resources.md) for completed removals and
-remaining implementation gaps.
+remaining implementation gaps. Store capacity snapshots report null maxima;
+compaction and capacity history have no application scan, receipt-size or chain
+quotas.
 
 A Rust application for personas whose primary language model directs their work, character, behavior, voice, supporting assets, and next-context selection. The current design target is [revision dddc451](https://github.com/ai-personas/ai-personas-design/tree/dddc451b2e4f854c3ceaaea600ba0c290d54b6c2), including default full host access and retained continuation responsibility. Earlier implementation baseline [67894561](https://github.com/ai-personas/ai-personas-design/tree/67894561fa88a8f734e8f536bcbafda271b18c63) and editorial restatement [294d5c6](https://github.com/ai-personas/ai-personas-design/tree/294d5c6bf29b6d5fe597c40b4c9c33e9da3bc03c) remain historical context. The runtime implements a bounded subset; these links do not establish full conformance.
 
@@ -356,16 +358,17 @@ To reclaim unused ordinary head allocation in an existing Store, inspect
 `compact-store-heads REQUEST.json --preview` followed by `--apply`. The request
 copies `expected_epoch`, `expected_runtime`, `expected_launch` and
 `expected_limits` from that snapshot and supplies `id`, `operator`, `reason`,
-`authorization_reference` and `authorize_compaction: true`. Both modes require
-execution ownership, the current saved operator, exact fences, an unfrozen Store
+`authorization_reference`. No extra `authorize_compaction` flag is required.
+Both modes require execution ownership, the current saved operator, exact fences
 and terminal invocations. A failed invocation may remain retained; compaction
 does not acknowledge, replay or resume it.
 
 One transaction reduces only unused Ordinary object-head capacity, preserves
 every existing data byte, and enables schema-2 allocation for subsequent writes.
 It records an immutable receipt with the reclaimed logical allocation, receipt
-cost and digest of the scanned heads. The scan is limited to 4,096 current heads
-and 64 MiB of head data, and spends existing navigation funding. Limits, model
+cost and digest of the scanned heads. The scan includes every current head, with
+no application count or byte quota. It records actual key/data lengths plus its
+metadata envelope, including any growth of the receipt itself. Limits, model
 allowances, reservations, uncertain usage, identities and history slots are not
 reset; the receipt itself consumes a new identity and retained allocation. No
 revision or history is deleted. Preview retains no candidate allocation or read
@@ -375,32 +378,29 @@ reclaim space left by ordinary heads that have shrunk.
 
 After apply, use schema-2-aware versions of all native helpers; older versions
 reject the Store. This operation reclaims logical allocation, does not guarantee
-a smaller SQLite file and does not provide indefinite retention. Required control
-prepayment and accumulated immutable history continue to consume finite capacity.
+a smaller SQLite file. Control allocations and immutable history remain charged
+without application retention quotas; physical disk availability still applies.
 
-An explicitly authorized operator can inspect `store-capacity-snapshot` and use
-`extend-store-capacity REQUEST.json --preview` or `--apply` when a retained runtime
-snapshot, retained history or cumulative storage reads reach their capacity. The request copies `expected_epoch`,
-`expected_runtime`, `expected_launch` and `expected_limits` from the snapshot and
-provides `id`, `operator`, `reason`, `authorization_reference`,
-`authorize_extension: true`, `max_body_bytes` and
-`protected_closeout_retained_bytes`. Body bounds grow in whole MiB steps, up to
-15 MiB; the protected retained-space partition can grow up to 256 MiB. The largest
-body still leaves control/record headroom within the Store's existing 16 MiB record
-envelope; ordinary setup defaults are unchanged. Record and
-read bounds follow the new body bound. By default all total resource limits stay
-unchanged. The optional `total_navigation_bytes` explicitly increases cumulative
-storage-read funding in whole GiB steps up to 64 GiB. The optional
-`total_retained_bytes` independently increases the retained-storage allowance in
-whole GiB steps up to 16 GiB. Omission preserves each current total; neither can
-decrease its allowance or change another resource. Receipts state the additional
-navigation and retained-storage bytes separately and verify both against their
-exact requests on reopening. These are finite logical allocations, not reserved
-physical disk, tokens or money.
-Increasing the protected retained partition reduces the Ordinary retained-space ceiling;
-both existing accounts must still fit. Used, reserved and uncertain resources
-remain charged. No work, attempts, work-level navigation allowances, provider calls or
-persona continuations are created or reset.
+An operator can inspect `store-capacity-snapshot` and use
+`extend-store-capacity REQUEST.json --preview` or `--apply` to update historical
+storage settings and logical allocation. Ordinary execution does not require
+these extensions. The request copies `expected_epoch`, `expected_runtime`,
+`expected_launch` and `expected_limits` from the snapshot and provides `id`,
+`operator`, `reason`, `authorization_reference`, `max_body_bytes` and
+`protected_closeout_retained_bytes`. The old `authorize_extension` flag is optional.
+Body/allocation metadata has no application numerical ceiling or MiB rounding
+requirement; record, read and page settings follow larger body settings. Existing
+larger heads and control cells are never shrunk by this operation.
+
+Optional `total_navigation_bytes` and `total_retained_bytes` increase their
+recorded totals without fixed maxima or GiB rounding. Omission preserves each
+current total. Extensions remain monotonic allocation records; they do not
+refund past use. Opening validates the complete exact receipt chain without a
+chain-length or receipt-size limit, while detecting cycles and mismatched hashes.
+The snapshot reports null maxima and `resource_quotas_enforced: false`. These
+settings do not reserve physical disk, tokens or money. Consumed, reserved and
+uncertain resources remain recorded. No work, attempts, provider calls or persona
+continuations are created or reset.
 
 New runtime snapshots store repeated typed host exposure manifests once in a
 versioned `retained_exposures` table. Version 2 covers character and focus records,

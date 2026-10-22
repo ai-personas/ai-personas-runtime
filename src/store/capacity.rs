@@ -1,15 +1,9 @@
-//! Explicit growth of runtime snapshot bounds and finite storage capacity.
-//! Immutable receipts authorize reopening; counters and history survive.
+//! Explicit updates to historical storage settings and allocation metadata.
+//! Immutable receipts bind reopening; counters and history survive.
 use super::*;
 
 const KIND: &str = "runtime-store-capacity-extension-v1";
 const RECEIPT_BYTES: u64 = 32 * 1024;
-const MAX_EXTENSIONS: usize = 32;
-const MIB: u64 = 1024 * 1024;
-const GIB: u64 = 1024 * MIB;
-/// Largest whole-MiB body leaving control/record headroom inside the Store's
-/// existing 16 MiB maximum record envelope. This is opt-in, not a new default.
-pub const MAX_RUNTIME_SNAPSHOT_BODY_BYTES: u64 = 15 * MIB;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -61,41 +55,37 @@ fn proposed_limits(request: &CapacityExtensionRequest) -> Result<Limits> {
     let old = &request.expected_limits;
     old.validate()?;
     if request.id.is_empty()
-        || request.id.len() > 256
         || request.id.chars().any(char::is_whitespace)
         || request.id.chars().any(char::is_control)
         || request.operator.is_empty()
-        || request.operator.len() > 256
         || request.operator.chars().any(char::is_whitespace)
         || request.operator.chars().any(char::is_control)
         || request.reason.trim().is_empty()
-        || request.reason.len() > 4096
         || request.authorization_reference.trim().is_empty()
-        || request.authorization_reference.len() > 4096
         || request.expected_runtime.id != RUNTIME_CONTROL_STATE_ID
         || request.expected_launch.id != "runtime-launch-v1"
         || request.max_body_bytes < old.max_body_bytes
         || (request.max_body_bytes == old.max_body_bytes
             && request.protected_closeout_retained_bytes != old.protected_closeout.retained_bytes)
-        || request.max_body_bytes > MAX_RUNTIME_SNAPSHOT_BODY_BYTES
-        || request.max_body_bytes % MIB != 0
         || request.protected_closeout_retained_bytes < old.protected_closeout.retained_bytes
-        || request.protected_closeout_retained_bytes > 256 * MIB
         || request
             .total_navigation_bytes
-            .is_some_and(|n| n < old.total.navigation_bytes || n > 64 * GIB || n % GIB != 0)
+            .is_some_and(|n| n < old.total.navigation_bytes)
         || request
             .total_retained_bytes
-            .is_some_and(|n| n < old.total.retained_bytes || n > 16 * GIB || n % GIB != 0)
+            .is_some_and(|n| n < old.total.retained_bytes)
     {
         return Err(StoreError::Invalid("unsupported capacity extension".into()));
     }
     let mut next = old.clone();
     next.max_body_bytes = request.max_body_bytes;
-    next.max_record_bytes = request.max_body_bytes + CONTROL_HEADROOM;
+    next.max_record_bytes = request.max_body_bytes.checked_add(CONTROL_HEADROOM)
+        .ok_or(StoreError::Overflow("capacity record allocation"))?;
     next.max_read_bytes = next
         .max_read_bytes
-        .max(next.max_record_bytes.next_power_of_two());
+        .max(next.max_record_bytes.checked_next_power_of_two()
+            .unwrap_or(next.max_record_bytes));
+    next.max_page_bytes = next.max_page_bytes.max(next.max_read_bytes);
     next.protected_closeout.retained_bytes = request.protected_closeout_retained_bytes;
     if let Some(bytes) = request.total_navigation_bytes {
         next.total.navigation_bytes = bytes;
@@ -138,12 +128,13 @@ fn decode_extension(object: &StoredObject, reference: &ObjectRef) -> Result<Exte
     Ok(value)
 }
 
-/// This bounded host bootstrap read selects only receipt-authorized limits.
+/// This host bootstrap read validates the complete exact receipt chain.
 /// It supplies no application body or persona context. Normal Store reads remain
 /// metered after opening, and a concurrent migration fails the strict open check.
 fn approved_limits(path: &Path, base: &Limits) -> Result<Limits> {
     let path = secure_database_path(path)?;
     let db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    db.busy_handler(Some(wait_for_database))?;
     let meta = load_meta(&db)?;
     if !supported_schema(meta.schema_version) {
         return Err(StoreError::Unsupported("database schema version"));
@@ -151,27 +142,28 @@ fn approved_limits(path: &Path, base: &Limits) -> Result<Limits> {
     meta.limits.validate()?;
     let mut current = meta.limits.clone();
     let mut next = meta.capacity_extension.clone();
-    let mut count = 0;
+    let mut first = true;
+    let mut seen = BTreeSet::new();
     while let Some(reference) = next {
-        count += 1;
-        if count > MAX_EXTENSIONS {
-            return Err(StoreError::Invalid("capacity extension chain bound".into()));
+        if !seen.insert(reference.id.clone()) {
+            return Err(StoreError::Corrupt("capacity extension cycle".into()));
         }
-        let bytes: Option<Vec<u8>> = db.query_row(
-            "SELECT CASE WHEN length(data)<=?2 THEN data ELSE NULL END FROM store_cells WHERE ns='capacity_extension' AND k=?1",
-            params![reference.id, RECEIPT_BYTES as i64], |row| row.get(0),
+        let bytes: Vec<u8> = db.query_row(
+            "SELECT data FROM store_cells WHERE ns='capacity_extension' AND k=?1",
+            params![reference.id], |row| row.get(0),
         )?;
-        let object: StoredObject = decode_json(&bytes.ok_or(StoreError::TooLarge)?)?;
+        let object: StoredObject = decode_json(&bytes)?;
         let extension = decode_extension(&object, &reference)?;
         if extension.limits != current
-            || (count == 1 && meta.runtime_control_plan.as_deref() != Some(&extension.control_plan))
+            || (first && meta.runtime_control_plan.as_deref() != Some(&extension.control_plan))
         {
             return Err(StoreError::LimitsMismatch);
         }
         current = extension.request.expected_limits;
         next = extension.previous;
+        first = false;
     }
-    if current != *base || (count == 0 && meta.runtime_control_plan.is_some()) {
+    if current != *base || (first && meta.runtime_control_plan.is_some()) {
         return Err(StoreError::LimitsMismatch);
     }
     Ok(meta.limits)
@@ -278,9 +270,6 @@ impl Store {
                 .ok_or(StoreError::TooLarge)?,
         };
         let requirements = crate::runtime::runtime_control_requirements(&state)?;
-        if requirements.len() > 128 {
-            return Err(StoreError::Invalid("capacity work bound".into()));
-        }
         // Load against the old allocation before switching limits. Committed
         // snapshots remain immutable; every current unused slot is enlarged,
         // including slots for a completed work that might later be resumed.
@@ -317,11 +306,11 @@ impl Store {
         let mut head = work
             .cell("object", RUNTIME_CONTROL_STATE_ID)?
             .ok_or_else(|| StoreError::Missing(RUNTIME_CONTROL_STATE_ID.into()))?;
-        if head.class != BudgetClass::Ordinary || head.capacity > limits.max_record_bytes {
+        if head.class != BudgetClass::Ordinary {
             return Err(StoreError::Corrupt("runtime head allocation".into()));
         }
         let head_before = head.charge("object", RUNTIME_CONTROL_STATE_ID)?;
-        head.capacity = limits.max_record_bytes;
+        head.capacity = head.capacity.max(limits.max_record_bytes);
         let ordinary_added = head
             .charge("object", RUNTIME_CONTROL_STATE_ID)?
             .checked_sub(head_before)
@@ -348,8 +337,9 @@ impl Store {
         for (key, mut cell, mut slot) in slots {
             let before = cell.charge("runtime_control", &key)?;
             slot.max_object_bytes = plan.max_object_bytes;
-            cell.capacity = limits.max_record_bytes;
+            cell.capacity = cell.capacity.max(limits.max_record_bytes);
             cell.data = encode(&slot, cell.capacity)?;
+            cell.capacity = cell.capacity.max(cell.data.len() as u64);
             let increase = cell
                 .charge("runtime_control", &key)?
                 .checked_sub(before)
