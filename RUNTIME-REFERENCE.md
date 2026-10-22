@@ -359,6 +359,16 @@ conclude a thread from a later work without rejoining the old task. A reply's
 Clarification does not require accepting the current task first; asking about
 an offer and accepting responsibility for it remain separate decisions.
 
+To answer, inspect the complete current `CONTROL.shared_questions` item and
+submit `answer_question` with its `question_work`, question ID, and exact
+`question_revision`, plus your reply and its attributed basis. The original
+author then assesses the replies and submits `conclude_question` with the
+current complete item's `review_revision` and a `used`, `declined`, or
+`unresolved` account for every reply ID. A later reply needs another author
+decision; an earlier conclusion does not account for it. Choose useful
+independent progress, an explicitly provisional interpretation, a wait, or a
+stop while input is unavailable. Asking alone does not register a wait.
+
 Question notifications retain both their actual authoring `work` and original
 `thread_work`. They return to the thread's actual requester/participant focus,
 including across delegation-source changes. This routing also applies to peer
@@ -452,6 +462,19 @@ History is a supporting-resource interface, not automatic memory or character.
 - `history_read` supplies one exact original attributed message after a query.
 - `history_records_query` searches retained observations or authored adopted Decisions.
 - `history_record_read` supplies one exact typed record.
+
+Message literal and regex matching use compact JSON tuples. Messages without
+`thread_work` use
+`["history-message-text-v1",id,sender,recipient,work,invocation,subject,text,local_deposit_only]`.
+Threaded messages use
+`["history-message-text-v2",id,sender,recipient,work,thread_work,invocation,subject,text,local_deposit_only]`.
+Here `work` identifies the actual authoring context and `thread_work` identifies
+the original shared thread. Matching is case-sensitive by default and never
+spans messages. Copy the returned `message_id` and `sha256` unchanged into
+`history_read`; query metadata is insufficient to reconstruct the digest.
+Unthreaded records retain their `history-message-record-v1` tuple digest.
+Threaded records use `history-message-record-v2` over the complete message,
+including its thread, lineage, exposure, and file-reference attachments.
 
 Queries support listing, case-sensitive literal matching, or Rust Regex 1. Hits are metadata; a separate read is required for a body. Adopted Decision history preserves authored choices and reasoning, not proof that every proposed operation executed. A metadata-only observation stays metadata-only after historical retrieval.
 

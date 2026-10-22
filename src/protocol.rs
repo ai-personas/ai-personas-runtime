@@ -488,7 +488,9 @@ pub enum Operation {
         /// Copy next_cursor or retry_cursor. To change the query, use null.
         cursor: Option<String>,
     },
-    /// Exact original message identity and history-message-record-v1 digest.
+    /// Copy the exact message_id and versioned sha256 returned by HistoryQuery.
+    /// Threaded messages use history-message-record-v2; copy rather than rebuild
+    /// the digest from query metadata, which omits original record fields.
     /// A successful read supplies protected text only on a fresh request.
     HistoryRead {
         id: String,
