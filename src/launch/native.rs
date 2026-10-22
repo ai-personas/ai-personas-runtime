@@ -231,6 +231,7 @@ impl Driver for NativeDriver<'_> {
         request: PrepareRequest,
         saved: &Saved,
         now: i64,
+        owned: &BTreeSet<String>,
     ) -> Result<provider_calls::Pending> {
         require(
             binding(saved)? == self.launch,
@@ -244,6 +245,7 @@ impl Driver for NativeDriver<'_> {
             self.owner,
             now,
             self.intake_selection.take(),
+            owned,
         )
     }
 
@@ -254,7 +256,7 @@ impl Driver for NativeDriver<'_> {
         saved: &Saved,
         now: i64,
     ) -> Result<AdoptionReport> {
-        let pending = self.start(app, request, saved, now)?;
+        let pending = self.start(app, request, saved, now, &BTreeSet::new())?;
         self.finish(app, pending.completion.await)
     }
 }

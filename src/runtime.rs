@@ -3779,7 +3779,7 @@ impl Runtime {
         hook: impl FnOnce(&Prepared) -> Result<Option<Value>>,
         scheduler: Option<SchedulerAdmission>,
     ) -> Result<Prepared> {
-        self.prepare_with_scheduler_and_intake(request, now, hook, scheduler, None)
+        self.prepare_with_scheduler_and_intake(request, now, hook, scheduler, None, &BTreeSet::new())
     }
     fn prepare_with_scheduler_and_intake(
         &mut self,
@@ -3788,6 +3788,7 @@ impl Runtime {
         hook: impl FnOnce(&Prepared) -> Result<Option<Value>>,
         scheduler: Option<SchedulerAdmission>,
         intake_selection: Option<p::need::GrantReference>,
+        owned: &BTreeSet<String>,
     ) -> Result<Prepared> {
         if let Some(selection) = &intake_selection {
             selection.validate()?;
@@ -3901,17 +3902,17 @@ impl Runtime {
             need_proposals::attach(self, &mut state, &request, intake_selection.as_ref(), now)?;
         let navigation = if episode_admission {
             require(
-                self.invocation_leases_quiescent(&state)?,
-                "unfinished invocation blocks episode admission",
+                self.invocation_leases_owned(&state, owned)?,
+                "unfinished invocation requires its episode coordinator",
             )?;
             let navigation = need_proposals::debit_preparation(&mut state, &request, now)?;
             let charged_object = state_object(&old, &state)?;
-            // Charge the aggregate logical episode and old work, and register
-            // the launch step, before rendering or provider preparation. A
-            // later failure cannot refund these finite allowances. The actual
+            // Account the aggregate episode and work, and register the launch
+            // step, before rendering or provider preparation. Later failure
+            // does not erase that actual charge. The actual
             // invocation still receives exactly one ordinary Store reservation.
             let receipt = launch::intake_delegation::commit_episode_preparation(
-                self, &old, &state, &request, now,
+                self, &old, &state, &request, now, owned,
             )?;
             require(
                 receipt.epoch == increment(start_epoch)?,
@@ -4391,6 +4392,7 @@ impl Runtime {
                 &accepted_writes,
                 &response_hash,
                 now,
+                accepted_epoch,
             )?;
             planning_exposure = before_proposal;
             if matches!(report.status, AdoptionStatus::Adopted)
@@ -5490,6 +5492,7 @@ impl Runtime {
     ) -> Result<AdoptionReport> {
         let pending = self.start_owned_provider_call(
             request, provider, cancellation, execution_owner, now, intake_selection,
+            &BTreeSet::new(),
         )?;
         let completion = pending.completion.await;
         self.finish_provider_call(completion)
@@ -5505,6 +5508,7 @@ impl Runtime {
         _execution_owner: &s::ExecutionOwner,
         now: i64,
         intake_selection: Option<p::need::GrantReference>,
+        owned: &BTreeSet<String>,
     ) -> Result<provider_calls::Pending> {
         let (_, state) = self.load()?;
         let persona = state
@@ -5558,6 +5562,7 @@ impl Runtime {
                 },
                 None,
                 intake_selection.clone(),
+                owned,
             );
             match preparation {
                 Ok(prepared) => break (

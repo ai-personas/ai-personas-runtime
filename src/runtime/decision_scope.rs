@@ -27,10 +27,10 @@ pub(super) fn seal(state: &State, prepared: &Prepared) -> Result<Option<Snapshot
     let work = state
         .board
         .work(&w::WorkId(prepared.request.work.clone()))?;
-    // Episode allocation and optional-activity lifecycle retain their existing
-    // global admission fences. An old or synthetic request gains no new right.
+    // Optional-activity sealing still changes shared lifecycle state after this
+    // snapshot. It runs alone. Ordinary intake episodes use the same exact
+    // task dependencies as other direct calls; their counters are accounting.
     if prepared.request.profile != Profile::Direct
-        || prepared.intake_episode.is_some()
         || work.need.optional_activity.is_some()
     {
         return Ok(None);
@@ -43,7 +43,6 @@ pub(super) fn seal(state: &State, prepared: &Prepared) -> Result<Option<Snapshot
 /// request retains the complete actor snapshot it actually admitted against.
 pub(super) fn isolates_other_work(prepared: &Prepared) -> bool {
     prepared.request.profile == Profile::Direct
-        && prepared.intake_episode.is_none()
         && prepared
             .decision_scope
             .as_ref()
@@ -338,7 +337,6 @@ pub(super) fn require_current(state: &State, prepared: &Prepared) -> Result<bool
     };
     require(
         prepared.request.profile == Profile::Direct
-            && prepared.intake_episode.is_none()
             && state
                 .board
                 .work(&w::WorkId(prepared.request.work.clone()))?

@@ -1,8 +1,8 @@
 //! Continue an actual delegation subtree under one foreground execution owner.
-//! A scheduling turn yields after one call; it is not a call or depth quota.
+//! Concurrent native drivers share one coordinator across the subtree.
 use super::*;
 
-fn subtree(state: &State, root: &str) -> Result<Vec<String>> {
+pub(super) fn subtree(state: &State, root: &str) -> Result<Vec<String>> {
     let mut works = vec![root.to_owned()];
     let mut selected = BTreeSet::from([root.to_owned()]);
     let Some(episode) = need_proposals::episode(state, root) else {
@@ -28,6 +28,9 @@ pub(super) async fn run<D: Driver>(
     driver: &mut D,
     owner: &s::ExecutionOwner,
 ) -> Result<Output> {
+    if driver.concurrent() {
+        return parallel::run_delegated(app, root, driver, owner).await;
+    }
     let mut failure = None;
     loop {
         driver.before_step(app)?;

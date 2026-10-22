@@ -52,7 +52,6 @@ pub(crate) fn check_invocation_leases(
                 && persona.admission_serial == prepared.admission_serial
                 && (!pending
                     || (prepared.request.profile == Profile::Direct
-                        && prepared.intake_episode.is_none()
                         && prepared.decision_scope.is_some())),
             "invocation lease binding changed",
         )?;

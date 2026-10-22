@@ -1,20 +1,25 @@
 # Concurrent primary decisions
 
-The runtime has an owned coordinator for overlapping independent Direct calls.
-New native foreground runs automatically bind an intake source and use the
-current delegation coordinator, which runs primary calls sequentially while
-visiting the root and its descendants. Extending overlapping primary calls to
-these episodes remains an implementation gap. There is no application call,
-round, resource or nesting quota; a sequential transaction path is not evidence
-of concurrent execution.
+Native foreground runs overlap independent Direct calls within a task and across
+its delegated descendants. The same coordinator handles ordinary work and the
+automatically selected intake episode. There is no application call, round,
+resource or nesting quota.
 
 The independent coordinator holds the Store's execution owner, prepares each
 request, awaits transport futures and adopts completed responses one at a time.
 Each persona retains one current primary invocation. First-character,
 responsibility-acceptance and selection-repair transitions run alone because
-subsequent decisions must receive their changed shared state. Optional episodes
-also retain sequential preparation. Foreground work is not a background service
-across roots.
+subsequent decisions must receive their changed shared state. Optional-activity
+admissions also run alone because they seal shared lifecycle state. Foreground
+work is not a background service across roots.
+
+The coordinator rotates through the current subtree and each work's participants.
+A round visits each eligible task/persona pair once, then drains its actual
+transport futures before admitting newly authored children. Another round starts
+while eligible work or command completion can advance. This prevents a continuing
+parent from indefinitely refilling the pending set ahead of child admission.
+Children still require their exact adopted proposal and a separate atomic receipt;
+parent and child continuations are independent.
 
 Ordinary inputs can include `CONTROL.collaborators`: other current-work
 participants, their labels and current acceptance IDs, and their latest accepted
@@ -30,7 +35,7 @@ in-flight requests are excluded. Initialization and restricted repair omit it.
 
 ## Freshness and evidence
 
-New direct admissions outside delegated and optional episodes retain a host-only
+New direct admissions, including ordinary delegated work, retain a host-only
 `runtime-decision-scope-v2` snapshot. It binds global persona state, that task's
 focus, configuration, work authority and shared semantic state, metadata, and the
 expanded supplied-source lineage with its accepted bindings. Ordinary calls ignore
@@ -39,6 +44,16 @@ bookkeeping, the work revision counter and appended applied-invocation IDs. They
 also exclude remaining shared spend counters: each request has its own
 admission and reservation records. Accounting records actual use without applying
 a cumulative quota, and adoption preserves concurrent spending.
+
+Episode preparation carries the coordinator's exact owned invocation IDs through
+the runtime lease check and the Store checkpoint transaction. An unrelated or
+orphaned transport cannot be included by persona output. Proposal validation binds
+the exact historical interface in its prepared prompt; another persona's later
+accounting or registry snapshot does not replace it. Pending proposals retain
+their actual preparation registry and adoption epoch. Child-admission proof
+distinguishes the original prepared epoch from the later Store commit epoch.
+Source identity, explicit episode revocation and current work authority remain
+checked before adoption and command dispatch.
 
 Another task's focus is separate: pausing that task or queuing an operator
 amendment's resumption does not invalidate this call. Identity, character,
@@ -111,7 +126,7 @@ rules, irrespective of whether a newer unrelated task is running.
 
 Only exact pending calls owned by this coordinator may coexist during selection.
 An unknown or orphaned invocation still requires its existing recovery path.
-On a local error or session limit, the coordinator stops new admissions and drains
+On a local error, the coordinator stops new admissions and drains
 already admitted calls, retaining their actual outcomes. Character handovers and
 complete-rejection retirement wait for terminal leases and use each completed
 invocation's ID. The latest call pointer for a work is not completion evidence.

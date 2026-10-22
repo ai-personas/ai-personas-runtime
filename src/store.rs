@@ -2253,9 +2253,19 @@ impl Store {
         &mut self,
         changes: Vec<Change>,
     ) -> Result<BatchReceipt> {
+        self.compare_and_swap_batch_with_owned_invocations(changes, &BTreeSet::new())
+    }
+
+    /// The native coordinator may retain its exact pending transports while
+    /// committing another episode admission. Other callers retain quiescence.
+    pub(crate) fn compare_and_swap_batch_with_owned_invocations(
+        &mut self,
+        changes: Vec<Change>,
+        owned: &BTreeSet<String>,
+    ) -> Result<BatchReceipt> {
         self.transaction(|work| {
             work.admission()?;
-            work.require_quiescent_invocations()?;
+            work.require_owned_invocations(owned)?;
             let candidates = work.validate_changes(&changes)?;
             for change in &changes {
                 work.dependencies(&change.depends_on, &candidates)?;
@@ -3707,13 +3717,19 @@ impl<'a> Work<'a> {
     }
 
     fn require_quiescent_invocations(&mut self) -> Result<()> {
+        self.require_owned_invocations(&BTreeSet::new())
+    }
+
+    fn require_owned_invocations(&mut self, owned: &BTreeSet<String>) -> Result<()> {
         for id in self.keys("invocation")? {
             let record: InvocationRecord = self.required("invocation", &id)?;
             self.returned(&record, self.limits.max_read_bytes, BudgetClass::Ordinary)?;
             if record.id != id {
                 return Err(StoreError::Corrupt("invocation identity mismatch".into()));
             }
-            if !matches!(
+            let pending = owned.contains(&id)
+                && matches!(record.state, InvocationState::Dispatched | InvocationState::Responded);
+            if !pending && !matches!(
                 record.state,
                 InvocationState::Adopted | InvocationState::Failed | InvocationState::Uncertain
             ) {

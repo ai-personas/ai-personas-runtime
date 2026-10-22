@@ -1436,6 +1436,7 @@ pub(in crate::runtime) fn commit_episode_preparation(
     state: &State,
     request: &PrepareRequest,
     now: i64,
+    owned: &BTreeSet<String>,
 ) -> Result<s::BatchReceipt> {
     let episode = crate::runtime::need_proposals::episode(state, &request.work)
         .ok_or_else(|| held("selected intake episode absent"))?;
@@ -1445,7 +1446,7 @@ pub(in crate::runtime) fn commit_episode_preparation(
             && episode.children_match(&authority.grant)
             && authority.registry == episode.last_preparation_registry
             && authority.launch_binding_sha256 == episode.launch_binding_sha256
-            && app.invocation_leases_quiescent(state)?,
+            && app.invocation_leases_owned(state, owned)?,
         "episode checkpoint authority or invocation slot changed",
     )?;
     let (launch_head, mut saved) = load(app)?;
@@ -1462,7 +1463,7 @@ pub(in crate::runtime) fn commit_episode_preparation(
     let runtime = state_object(runtime_head, state)?;
     Ok(app
         .store
-        .compare_and_swap_batch_requiring_quiescent_invocations(vec![
+        .compare_and_swap_batch_with_owned_invocations(vec![
             s::Change {
                 expected_revision: Some(runtime_head.revision),
                 object: runtime,
@@ -1473,5 +1474,5 @@ pub(in crate::runtime) fn commit_episode_preparation(
                 object: launch,
                 depends_on: vec![authority.registry.store_ref()],
             },
-        ])?)
+        ], owned)?)
 }

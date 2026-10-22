@@ -577,11 +577,13 @@ pub(super) fn validate_operation(
             && prepared.intake_episode.as_ref() == Some(&proposal.grant)
             && proposal.grant.id == episode.grant.request.id
             && proposal.grant.sha256 == episode.grant_sha256
-            && supplied.terms == episode.grant.request
-            && supplied.registry == episode.last_preparation_registry
-            && supplied.remaining_after_authoring_admission == episode.remaining,
+            && supplied.terms == episode.grant.request,
         "proposal differs from its exact offered interface or grant",
     )?;
+    // Registry and remaining-allocation fields describe this request's actual
+    // admission. Another persona may advance them while inference runs. The
+    // sealed prompt below binds that historical interface; current episode
+    // authority and exact grant identity are checked independently.
     require(
         proposal.invitees.iter().all(|invitee| {
             state.personas.contains_key(&invitee.persona)
@@ -616,6 +618,7 @@ pub(super) fn stage_pending(
     accepted_writes: &BTreeMap<String, String>,
     response_sha256: &str,
     now: i64,
+    accepted_epoch: u64,
 ) -> Result<Vec<s::Change>> {
     let operations = decision
         .operations
@@ -628,7 +631,8 @@ pub(super) fn stage_pending(
     let mut changes = Vec::new();
     for operation in operations {
         changes.push(stage_pending_operation(
-            state, prepared, decision, report, accepted_writes, response_sha256, now, operation,
+            state, prepared, decision, report, accepted_writes, response_sha256, now,
+            accepted_epoch, operation,
         )?);
     }
     Ok(changes)
@@ -642,6 +646,7 @@ fn stage_pending_operation(
     accepted_writes: &BTreeMap<String, String>,
     response_sha256: &str,
     now: i64,
+    accepted_epoch: u64,
     operation: &p::Operation,
 ) -> Result<s::Change> {
     require(
@@ -755,10 +760,11 @@ fn stage_pending_operation(
         prompt_sha256: prepared.prompt_sha256.clone(),
         grant: episode.grant.clone(),
         grant_sha256: episode.grant_sha256.clone(),
-        registry_at_preparation: episode.last_preparation_registry.clone(),
+        registry_at_preparation: prepared.need_interface.as_ref()
+            .ok_or_else(|| held("admitted need interface absent"))?.registry.clone(),
         exposure,
         accepted_at_unix: now,
-        accepted_epoch: increment(prepared.epoch)?,
+        accepted_epoch,
     };
     let object = s::StoredObject {
         id: format!(
@@ -793,7 +799,9 @@ impl Runtime {
         now: i64,
     ) -> Result<Prepared> {
         selection.validate()?;
-        self.prepare_with_scheduler_and_intake(request, now, |_| Ok(None), None, Some(selection))
+        self.prepare_with_scheduler_and_intake(
+            request, now, |_| Ok(None), None, Some(selection), &BTreeSet::new(),
+        )
     }
 
     /// Authenticated local-operator inspection; historical pending provenance

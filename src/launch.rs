@@ -665,6 +665,15 @@ fn select_owned(
     now: i64,
     owned: &BTreeSet<String>,
 ) -> Result<Pick> {
+    select_owned_except(app, work, now, owned, &BTreeSet::new())
+}
+fn select_owned_except(
+    app: &mut Runtime,
+    work: &str,
+    now: i64,
+    owned: &BTreeSet<String>,
+    visited: &BTreeSet<(String, String)>,
+) -> Result<Pick> {
     let time = u64::try_from(now).map_err(|_| invalid("negative scheduling time"))?;
     let (head, state) = app.load()?;
     require(
@@ -687,6 +696,9 @@ fn select_owned(
     let mut selected = None;
     cursor.last.clear();
     for (wid, actor) in page {
+        if visited.contains(&(wid.0.clone(), actor.0.clone())) {
+            continue;
+        }
         let opportunity = runtime_opportunity(&state, &wid, &actor, time);
         let mut entry = scheduler_entry(&state, wid.clone(), actor.clone(), opportunity, now)?;
         if wid.0 == work {
@@ -777,6 +789,7 @@ trait Driver {
         _request: PrepareRequest,
         _saved: &Saved,
         _now: i64,
+        _owned: &BTreeSet<String>,
     ) -> Result<provider_calls::Pending> {
         Err(held("driver does not own concurrent transport"))
     }

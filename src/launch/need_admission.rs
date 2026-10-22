@@ -258,15 +258,10 @@ fn proof(
         .need_interface
         .as_ref()
         .ok_or_else(|| held("admitted need interface absent"))?;
-    let mut historical_interface_state = state.clone();
-    // Validate against the actually retained admission's counters and registry,
-    // never a newly offered interface. This copy is not persisted or authority.
-    let retained = historical_interface_state
-        .intake_episodes
-        .get_mut(&request.grant.id)
-        .ok_or_else(|| held("episode absent"))?;
-    retained.remaining = interface.remaining_after_authoring_admission;
-    retained.last_preparation_registry = pending.registry_at_preparation.clone();
+    require(
+        interface.registry == pending.registry_at_preparation,
+        "pending proposal differs from its actual preparation registry",
+    )?;
     let archive = app
         .store
         .read(&archive_id(&pending.invocation_id))?
@@ -310,7 +305,7 @@ fn proof(
         "pending operation was not actually adopted from these complete raw bytes",
     )?;
     need_proposals::validate_operation(
-        &historical_interface_state,
+        state,
         &prepared,
         &pending.operation,
         &parsed,
@@ -328,8 +323,10 @@ fn proof(
     require(
         decision.invocation_id == pending.invocation_id
             && decision.response_hash == pending.response_sha256
-            && decision.previous_epoch == prepared.epoch
-            && decision.accepted_epoch == increment(prepared.epoch)?
+            && decision.prepared_epoch.unwrap_or(decision.previous_epoch) == prepared.epoch
+            && decision.prepared_epoch.is_some() == prepared.decision_scope.is_some()
+            && decision.previous_epoch >= prepared.epoch
+            && decision.accepted_epoch == increment(decision.previous_epoch)?
             && decision.accepted_epoch == pending.accepted_epoch
             && decision.objects.contains(&object.exact_ref()?)
             && decision.objects.contains(&archive_ref)

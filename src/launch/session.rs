@@ -679,8 +679,9 @@ impl<D: Driver> Driver for Tracked<'_, D> {
         request: PrepareRequest,
         saved: &Saved,
         now: i64,
+        owned: &BTreeSet<String>,
     ) -> Result<provider_calls::Pending> {
-        let value = self.driver.start(app, request, saved, now);
+        let value = self.driver.start(app, request, saved, now, owned);
         if let Err(error) = &value {
             self.failure = Some(error_code(error));
         }
@@ -764,6 +765,7 @@ impl Driver for OwnedLive<'_> {
         request: PrepareRequest,
         _saved: &Saved,
         now: i64,
+        owned: &BTreeSet<String>,
     ) -> Result<provider_calls::Pending> {
         self.before_step(app)?;
         app.start_owned_provider_call(
@@ -773,6 +775,7 @@ impl Driver for OwnedLive<'_> {
             self.owner,
             now,
             self.intake_selection.take(),
+            owned,
         )
     }
     async fn step(
@@ -782,7 +785,7 @@ impl Driver for OwnedLive<'_> {
         saved: &Saved,
         now: i64,
     ) -> Result<AdoptionReport> {
-        let pending = self.start(app, request, saved, now)?;
+        let pending = self.start(app, request, saved, now, &BTreeSet::new())?;
         self.finish(app, pending.completion.await)
     }
 }

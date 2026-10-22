@@ -328,6 +328,11 @@ effective for the inherited episode.
 Native foreground sessions now automatically admit actual pending persona
 requests and continue the requested work plus its descendants. Each admission
 uses exact adopted proof, fresh transaction fences and its own durable receipt.
+Independent Direct transports overlap within and across delegated work. The
+coordinator carries its exact pending invocation set through episode checkpoints,
+preserves each preparation's historical interface, and records the actual later
+adoption epoch in pending proposals. Scheduling rounds drain their owned calls
+before structural child admission and continue while work can advance.
 Scheduling yields between works without a call, round or depth quota; Stop/Pause
 and unknown calls remain effective. A child reply can satisfy its author's
 previously registered message wait in the immediate parent; the sender needs a

@@ -171,10 +171,12 @@ parent account. The historical parent remainder saturates at zero. The child rec
 performs no inference and accepts no invitation on an invitee's behalf.
 
 A native session visits the requested work and its complete descendant subtree.
-Each scheduling turn yields after one actual call so an active parent cannot
-starve its children. Each work retains its own participant cursor; a child scan
-cannot send its parent's next turn back to the first participant. The loop has
-no round, call or nesting quota. A fresh
+Independent Direct calls overlap across eligible parent and child participants.
+Each round visits task/persona pairs, then drains its actual transports before
+admitting new children, so an active parent cannot indefinitely delay their
+admission. Each work retains its own participant cursor; a child scan cannot
+send its parent's next turn back to the first participant. The loop has no
+round, call or nesting quota. A fresh
 `personas-session run --work CHILD_WORK` can also continue that exact child and
 its descendants using the configured route. Explicit Stop/Pause is not reset,
 and a completed child result alone does not resume its author.
