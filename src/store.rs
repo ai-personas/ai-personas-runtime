@@ -480,10 +480,13 @@ pub(crate) fn runtime_decision_scope_supported(format: &str) -> bool {
 }
 
 fn scoped_runtime_invocation(record: &InvocationRecord) -> bool {
+    // Ordinary intake episodes use the same sealed Direct scope. Its presence,
+    // not the absence of an episode, selects scoped planning, adoption and
+    // intent dispatch. Runtime checks the exact episode and current authority
+    // before entering these transaction-bound Store operations.
     record.request.as_ref().is_some_and(|request| {
         request["decision_scope"]["format"].as_str().is_some_and(runtime_decision_scope_supported)
             && request["request"]["profile"] == "direct"
-            && request.get("intake_episode").is_none_or(Value::is_null)
     })
 }
 

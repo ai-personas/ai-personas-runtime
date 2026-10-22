@@ -55,6 +55,12 @@ distinguishes the original prepared epoch from the later Store commit epoch.
 Source identity, explicit episode revocation and current work authority remain
 checked before adoption and command dispatch.
 
+Store recognizes these sealed Direct scopes for both ordinary and intake-bound
+calls when claiming planning, committing a decision and dispatching its accepted
+commands. An intake episode does not force a scoped call back to global-epoch
+validation or prevent its adoption. The same transaction still binds the exact
+invocation, retained response, current Runtime head and accepted prerequisites.
+
 Another task's focus is separate: pausing that task or queuing an operator
 amendment's resumption does not invalidate this call. Identity, character,
 lifecycle, ownership, admission serial and failure holds remain global. The
