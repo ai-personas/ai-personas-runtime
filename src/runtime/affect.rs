@@ -44,8 +44,9 @@ impl Projection {
 }
 
 /// The current state's body is an exact immutable observation. Its source and
-/// qualification checks are the same as other protected observations, including
-/// when this persona later acts in a different work or for a different audience.
+/// qualification bindings remain exact when this persona later acts in a
+/// different work or for a different audience. Historical source policies do
+/// not gate projection; missing or inconsistent evidence remains unavailable.
 pub(crate) fn project(
     state: &State,
     actor: &str,

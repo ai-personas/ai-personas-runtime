@@ -192,9 +192,9 @@ Feedback preserves the original need, stops and resource balances. Resume a stop
 persona explicitly before continuing its work. Active invocations block a new
 feedback write. Feedback remains retrievable through retained observation history.
 
-New feedback also remains in each fresh permitted input until its recipient
+New feedback remains pending in each fresh input until its recipient
 explicitly accounts for it with `ResolveRequesterFeedback`. Ordinary reads,
-observation consumption, waits and stops cannot silently clear it. The action
+observation consumption, waits and stops cannot silently clear the queue. The action
 copies an exact ID from `CONTROL.requester_feedback.pending`, records `handled`
 or `declined` with the persona's reason, and requires that item's full permitted
 body in the current admission. Unresolved items stay pending automatically:
@@ -206,10 +206,16 @@ declared pending, and replay does not revive a resolved item.
 
 After a disposition, `CONTROL.requester_feedback` continues to report the current
 `pending_state` (`pending` or `none_pending`) and pending queue. It also includes
-all available `recent_dispositions`, newest first, without count or byte quotas. Each receipt identifies the observation, accepting
-invocation, disposition and time; it supplies neither the feedback text nor the
-authored reason. Original observation and disposition restrictions are rechecked
-and inherited. `recent_dispositions_omitted` identifies unavailable history. These receipts establish accepted accounting, not compliance or assent.
+all available `recent_dispositions`, newest first, without count or byte quotas.
+Each receipt identifies the observation, accepting invocation, disposition, time
+and exact authored reason. Original feedback bodies continue to be supplied in
+`actual_observations`, with `feedback_body_supplied` reporting their actual supply.
+This keeps requester direction available through later reads and edits after a
+disposition. Historical items do not become pending or newly received again;
+later explicit corrections can supersede older directions. Original observation
+hashes, authorship and disposition provenance remain checked and inherited.
+`recent_dispositions_omitted` identifies unavailable history. These receipts
+establish accepted accounting, not compliance or assent.
 
 `CONTROL.previous_authored_continuation` carries the exact last accepted persona
 intention, its invocation and its original information lineage when still

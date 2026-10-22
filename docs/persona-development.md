@@ -48,16 +48,19 @@ ai-personas --state-root /private/personas-state --operator requester \
 ```
 
 The runtime attributes this input to the requester. It preserves the full
-permitted feedback across reads, waits and local stops until the recipient
-explicitly records a handled or declined disposition with a reason. Unresolved
+feedback across reads, waits and local stops. The pending queue lasts until the
+recipient explicitly records a handled or declined disposition with a reason. Unresolved
 feedback remains pending. Exact replay queues nothing twice; conflicting reuse
 of the same identifier fails.
 
 Later inputs retain an explicit pending or none-pending state and complete native
-receipts for handled or declined items. This lets the persona distinguish
-an accepted disposition from its earlier intention to record one. These receipts
-preserve their original permissions and identify the accepting call; they do not
-verify compliance with the feedback or establish requester acceptance.
+receipts for handled or declined items, including each exact authored reason.
+The original feedback body remains in `actual_observations` after disposition;
+`recent_dispositions[].feedback_body_supplied` reports its actual supply. This
+keeps direction available while later work continues. Historical feedback is
+neither newly received nor pending again, and later corrections can supersede
+older directions. Exact observation hashes, accepting calls and provenance
+remain checked. A receipt does not verify compliance or requester acceptance.
 
 Feedback does not resume a stopped persona or replenish its resources. Continue
 through the existing foreground session, explicitly resuming a stopped

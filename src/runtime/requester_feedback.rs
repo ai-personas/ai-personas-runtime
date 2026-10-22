@@ -1,5 +1,5 @@
-//! Current requester direction survives intermediate reads and other steps.
-//! Only a fresh, explicit primary disposition clears a retained feedback item.
+//! Requester direction remains available across reads and accepted dispositions.
+//! A disposition clears the pending queue, without removing its original body.
 use super::*;
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -20,6 +20,44 @@ pub struct Receipt {
     pub reason: String,
     pub at_unix: i64,
     pub exposure: Exposure,
+}
+
+fn retained_observation<'a>(
+    state: &'a State,
+    work: &str,
+    a: &f::Admission,
+    record: &Receipt,
+) -> Option<&'a Observation> {
+    let observation = state.observations.get(&record.observation)?;
+    let origin = observation.exposure.as_ref()?;
+    (observation.actor == a.principal
+        && observation.work == work
+        && observation.kind == "received_local_operator_feedback"
+        && observation.invocation.is_none()
+        && digest(observation).is_ok_and(|hash| hash == record.observation_sha256)
+        && exposure_permitted(state, origin, a)
+        && exposure_permitted(state, &record.exposure, a))
+    .then_some(observation)
+}
+
+/// Retain the exact direction even after its author records an account of it.
+/// Historical supply does not make the item pending again or verify compliance.
+pub(super) fn observation_ids(
+    state: &State,
+    work: &str,
+    focus: &Focus,
+    a: &f::Admission,
+) -> Vec<String> {
+    let mut seen = focus.pending_requester_feedback.clone();
+    let mut ids: Vec<_> = seen.iter().cloned().collect();
+    for record in &focus.feedback_dispositions {
+        if retained_observation(state, work, a, record).is_some()
+            && seen.insert(record.observation.clone())
+        {
+            ids.push(record.observation.clone());
+        }
+    }
+    ids
 }
 
 pub(super) fn control(
@@ -44,46 +82,33 @@ pub(super) fn control(
             }
         })
         .collect();
-    // Keep the accepted accounting visible after the last pending body leaves
-    // context. A previous authored plan to resolve it is not a success receipt.
-    // Project all native disposition metadata. Exact reasons and feedback text
-    // remain separately addressable retained records.
+    // Keep the accepted account and its reason alongside the exact original
+    // feedback body. A previous authored plan is not a success receipt.
     let mut recent = Vec::new();
     let mut omitted = false;
     for record in focus.feedback_dispositions.iter().rev() {
-        let Some(observation) = state.observations.get(&record.observation) else {
+        let Some(observation) = retained_observation(state, work, a, record) else {
             omitted = true;
             continue;
         };
-        let Some(origin) = observation.exposure.as_ref() else {
-            omitted = true;
-            continue;
-        };
-        if observation.actor != a.principal
-            || observation.work != work
-            || observation.kind != "received_local_operator_feedback"
-            || observation.invocation.is_some()
-            || !digest(observation).is_ok_and(|hash| hash == record.observation_sha256)
-            || !exposure_permitted(state, origin, a)
-            || !exposure_permitted(state, &record.exposure, a)
-        {
-            omitted = true;
-            continue;
-        }
         let value = json!({
             "observation":record.observation,"invocation":record.invocation,
-            "disposition":record.disposition,"at_unix":record.at_unix
+            "disposition":record.disposition,"at_unix":record.at_unix,
+            "reason":record.reason,"feedback_body_supplied":supplied.contains(&record.observation)
         });
         recent.push(value);
-        extend_exposure(exposure, origin);
+        extend_exposure(
+            exposure,
+            observation.exposure.as_ref().expect("validated lineage"),
+        );
         extend_exposure(exposure, &record.exposure);
     }
     Ok(json!({
-        "interface":"requester-feedback-disposition-v1",
+        "interface":"requester-feedback-disposition-v2",
         "pending":pending,
         "pending_state":if focus.pending_requester_feedback.is_empty() { "none_pending" } else { "pending" },
         "recent_dispositions":recent,"recent_dispositions_omitted":omitted,
-        "accounting":"pending is the current tracked queue for this actor and work. none_pending means no tracked item currently needs a disposition. recent_dispositions contains all available accepted native accounting receipts, newest first; original feedback bodies and authored reasons remain separately retained. An item already disposed of is no longer pending and must not be resolved again. Unavailable history establishes no absence of other obligations. Handled records the persona's account, not verified compliance or requester acceptance.",
+        "accounting":"pending is the current tracked queue for this actor and work. none_pending means no tracked item currently needs a disposition. recent_dispositions contains every available accepted account and its exact reason, newest first. feedback_body_supplied identifies original feedback bodies retained in actual_observations after disposition. Use this history to keep requester direction available while continuing the work; a disposition does not erase the direction or prove that a planned edit was completed. Historical items are not newly received and must not be resolved again. Later explicit corrections can supersede older directions. Unavailable history establishes no absence of other obligations. Handled records the persona's account, not verified compliance or requester acceptance.",
         "attribution":"Each item's sender identifies its author. Local operator input is attributed to the intake operator; CONTROL.requester identifies the need's requester, who may be a different persona. No item establishes that persona's assent or acceptance.",
         "rule":"The full permitted items are in actual_observations. For resolution copy pending[].observation exactly, including its full prefix; actual_observations[].payload.id is only the requester's input label, not an observation reference. These requester directions remain current across reads, waits and local stops automatically. For an unresolved item, omit resolve_requester_feedback entirely; pending is not a valid disposition for that action. Use it only when recording handled or declined with a reason. Feedback changes no mandate, authority or resources; a disposition is your attributed account, not proof of compliance or requester acceptance."
     }))

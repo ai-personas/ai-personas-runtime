@@ -6979,9 +6979,9 @@ fn render_mode_with_history(
         None
     };
     let mut observation_queue = focus.pending_observations.clone();
-    for id in &focus.pending_requester_feedback {
-        if !observation_queue.contains(id) {
-            observation_queue.push(id.clone());
+    for id in requester_feedback::observation_ids(state, work_id, focus, &a) {
+        if !observation_queue.contains(&id) {
+            observation_queue.push(id);
         }
     }
     for id in peer_feedback::observation_ids(state, focus, &a) {

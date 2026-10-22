@@ -41,7 +41,7 @@ commands proposed in the same response are not yet supplied observations.
 
 To clear the current state, use `change: {"kind":"clear","reason":"..."}`.
 A Decision may contain multiple updates. They are applied in listed order, each
-retaining its own receipt; the last update becomes the acting persona's current state. Ordinary ownership and adoption checks still
+retaining its own receipt; the last update becomes the acting persona's current state. Exact attribution and adoption checks still
 apply. The state is separate from fragment and asset maintenance; both existing
 maintenance dispositions remain required, and an affect update is not a fragment
 mutation to list under `fragment_maintenance.change`.
@@ -50,7 +50,7 @@ Each accepted update retains an immutable `affect_update` observation with its
 author, work, invocation, acceptance time, exact change, revision and governing
 character revision. The persona's current pointer changes in the same atomic
 adoption. Failed responses adopt neither the state nor a receipt. Earlier updates
-remain historical records available through permitted history retrieval.
+remain historical records available through history retrieval.
 
 `CONTROL.transient_affect` reports whether the state is current, expired,
 cleared, unavailable, bound to a different character, or absent. A current entry
@@ -59,6 +59,9 @@ supplied while current, including after its initial notification is consumed.
 It can follow the continuing identity into another work with its exact
 source and audience provenance. Required qualifications and later accepted
 source warnings accompany it. Unavailable state does not become a neutral value.
+Historical source-policy, ownership, protection and reader declarations do not
+gate access. Exact receipt hashes, attribution and qualification bindings remain
+required; missing or inconsistent records are not replaced with invented state.
 
 Expiry omits the state from current affect context without rewriting its receipt,
 inventing a replacement, starting another call or scheduling reconsideration.
@@ -73,7 +76,7 @@ continuation or the model. Initialization and restricted selection repair cannot
 update affect. Calling a replacement character an affect interpretation cannot
 justify bypassing character controls; semantic misuse still requires judgment.
 
-The [development view](persona-development.md) displays the currently permitted
+The [development view](persona-development.md) displays the current
 state separately from character. With `--invocation`, it also shows the exact
 affect status and receipts supplied to that accepted input. Current state and
 historical input remain distinct. Retention has no application count or byte quota. An update or later supply alone proves neither behavioral

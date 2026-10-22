@@ -216,6 +216,12 @@ no iteration cap. Every prior session identity remains in the journal; an unknow
 outcome can coexist with a separately selected new session for eligible personas.
 It is never replayed or relabeled as complete.
 
+Requester feedback remains available in full after a handled or declined
+disposition, without a context-history quota. Later inputs retain the exact
+original feedback and the persona's account and reason. A disposition clears
+the pending queue without removing the direction from the continuing context,
+reopening an old item or establishing that the requested work succeeded.
+
 ## Remaining work
 
 Removal is still incomplete. Remaining
