@@ -1,7 +1,7 @@
 //! Explicit host-side SIWC access actions and fixed in-process native launch.
 //!
 //! Native-run retains the selected Store execution owner and vault lock through
-//! the bounded run. Capability evidence digests are operator pins, not proof of
+//! the selected run. Capability evidence digests are operator pins, not proof of
 //! actual model capability. Generic Exec remains disabled.
 //! After renewal, use an explicit migrate-provider when saved expiry, model,
 //! or account bindings differ. The runtime independently checks its saved pins.
@@ -30,7 +30,6 @@ use std::{
     },
     path::{Component, Path, PathBuf},
     pin::Pin,
-    time::Duration,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -39,11 +38,6 @@ use tokio::{
 use url::Url;
 
 type Result<T> = std::result::Result<T, AuthError>;
-const MAX_BODY: usize = 262_144;
-const MAX_CALLBACK: usize = 16_384;
-const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
-const CALLBACK_TIMEOUT: Duration = Duration::from_secs(120);
-const CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
 const ISSUER: &str = "https://auth.openai.com";
 const DISCOVERY: &str = "https://auth.openai.com/.well-known/openid-configuration";
 const TOKEN_ENDPOINT: &str = "https://auth.openai.com/api/accounts/oauth/token";
@@ -157,7 +151,6 @@ fn error_message(error: &AuthError) -> &'static str {
     }
 }
 
-
 fn error_code(error: &AuthError) -> &'static str {
     match error {
         AuthError::Vault => "native_vault_location_unsupported",
@@ -239,7 +232,7 @@ pub(crate) async fn run(cli: Cli) -> Result<i32> {
             let vault = cli.vault.ok_or(AuthError::Vault)?;
             prepare_vault_path(&vault, false)?;
             // A protected registration can exist without a credential file.
-            // Read both under the selected lock through the bounded vault APIs.
+            // Read both completely under the selected vault lock.
             // Status neither creates a host identity nor constructs HTTP adapters.
             let guard = open_locked(&vault).await?;
             let record = guard.load()?;
@@ -290,10 +283,7 @@ async fn open_locked(path: &Path) -> Result<LockedVault> {
         let vault = Vault::open(&path)?;
         vault.lock()
     });
-    tokio::time::timeout(CONNECTION_TIMEOUT, task)
-        .await
-        .map_err(|_| AuthError::Timeout)?
-        .map_err(|_| AuthError::Vault)?
+    task.await.map_err(|_| AuthError::Vault)?
 }
 
 pub(crate) struct SignInAttempt {
@@ -480,7 +470,6 @@ fn emit(value: serde_json::Value) -> Result<()> {
 fn absolute_path(path: &Path) -> bool {
     let bytes = path.as_os_str().as_bytes();
     path.is_absolute()
-        && bytes.len() <= 4096
         && !bytes.contains(&0)
         && !bytes.ends_with(b"/")
         && !bytes
@@ -508,7 +497,6 @@ fn trusted_directory(directory: &File) -> Result<()> {
 fn trusted_directory_metadata(is_dir: bool, owner_uid: u32, mode: u32) -> bool {
     is_dir && (mode & 0o022 == 0 || (owner_uid == 0 && mode & 0o1000 != 0))
 }
-
 
 fn open_directory_at(parent: &File, name: &OsStr, create: bool) -> Result<File> {
     let name = CString::new(name.as_bytes()).map_err(|_| AuthError::Vault)?;
@@ -609,99 +597,59 @@ impl HttpsTransport {
     pub(crate) fn new() -> Result<Self> {
         let client = reqwest::Client::builder()
             .https_only(true)
-            .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
             .retry(reqwest::retry::never())
-            .http1_only()
-            .pool_max_idle_per_host(0)
             .connection_verbose(false)
             .no_gzip()
             .no_brotli()
             .no_deflate()
             .no_zstd()
-            .connect_timeout(HTTP_TIMEOUT)
-            .timeout(HTTP_TIMEOUT)
             .build()
             .map_err(|_| AuthError::Transport)?;
         Ok(Self { client })
     }
 
     pub(crate) fn build_token_request(&self, request: TokenRequest) -> Result<reqwest::Request> {
-        if request.endpoint != TOKEN_ENDPOINT
-            || request.timeout.is_zero()
-            || request.timeout > HTTP_TIMEOUT
-            || request.max_response_bytes == 0
-            || request.max_response_bytes > MAX_BODY
-            || request.form.len() > 32
-            || request
-                .form
-                .iter()
-                .any(|(key, value)| key.len() > 128 || value.len() > 32_768)
-            || request
-                .form
-                .iter()
-                .map(|(key, value)| key.len() + value.len())
-                .sum::<usize>()
-                > 65_536
-        {
+        if request.endpoint != TOKEN_ENDPOINT {
             return Err(AuthError::Protocol);
         }
         self.client
             .post(TOKEN_ENDPOINT)
             .header("accept", "application/json")
             .header("accept-encoding", "identity")
-            .timeout(request.timeout)
             .form(&request.form)
             .build()
             .map_err(|_| AuthError::Transport)
     }
 
-    async fn fetch(
-        &self,
-        request: reqwest::Request,
-        timeout: Duration,
-        maximum: usize,
-    ) -> Result<TokenResponse> {
-        tokio::time::timeout(timeout, async {
-            let response = self.client.execute(request).await.map_err(http_error)?;
-            {
-                let values = response
-                    .headers()
-                    .get_all(reqwest::header::CONTENT_ENCODING);
-                let mut encodings = values.iter();
-                if encodings
-                    .next()
-                    .is_some_and(|value| !value.as_bytes().eq_ignore_ascii_case(b"identity"))
-                    || encodings.next().is_some()
-                {
-                    return Err(AuthError::Protocol);
-                }
-            }
-            if response
-                .content_length()
-                .is_some_and(|length| length > maximum as u64)
+    async fn fetch(&self, request: reqwest::Request) -> Result<TokenResponse> {
+        let response = self.client.execute(request).await.map_err(http_error)?;
+        {
+            let values = response
+                .headers()
+                .get_all(reqwest::header::CONTENT_ENCODING);
+            let mut encodings = values.iter();
+            if encodings
+                .next()
+                .is_some_and(|value| !value.as_bytes().eq_ignore_ascii_case(b"identity"))
+                || encodings.next().is_some()
             {
                 return Err(AuthError::Protocol);
             }
-            let status = response.status().as_u16();
-            let mut stream = response.bytes_stream();
-            let mut body = Vec::new();
-            loop {
-                tokio::task::yield_now().await;
-                match stream.next().await {
-                    Some(chunk) => {
-                        let chunk = chunk.map_err(http_error)?;
-                        if chunk.len() > maximum.saturating_sub(body.len()) {
-                            return Err(AuthError::Protocol);
-                        }
-                        body.extend_from_slice(&chunk);
-                    }
-                    None => return Ok(TokenResponse { status, body }),
+        }
+        let status = response.status().as_u16();
+        let mut stream = response.bytes_stream();
+        let mut body = Vec::new();
+        loop {
+            tokio::task::yield_now().await;
+            match stream.next().await {
+                Some(chunk) => {
+                    let chunk = chunk.map_err(http_error)?;
+                    body.extend_from_slice(&chunk);
                 }
+                None => return Ok(TokenResponse { status, body }),
             }
-        })
-        .await
-        .map_err(|_| AuthError::Timeout)?
+        }
     }
 
     async fn get_document(&self, url: Url) -> Result<Vec<u8>> {
@@ -710,10 +658,9 @@ impl HttpsTransport {
             .get(url)
             .header("accept", "application/json")
             .header("accept-encoding", "identity")
-            .timeout(HTTP_TIMEOUT)
             .build()
             .map_err(|_| AuthError::Transport)?;
-        let response = self.fetch(request, HTTP_TIMEOUT, MAX_BODY).await?;
+        let response = self.fetch(request).await?;
         if response.status != 200 {
             return Err(AuthError::Protocol);
         }
@@ -734,11 +681,9 @@ impl TokenTransport for HttpsTransport {
         request: TokenRequest,
     ) -> Pin<Box<dyn Future<Output = Result<TokenResponse>> + Send + 'a>> {
         Box::pin(async move {
-            let timeout = request.timeout;
-            let maximum = request.max_response_bytes;
             // Endpoint rejection precedes request execution or DNS resolution.
             let request = self.build_token_request(request)?;
-            self.fetch(request, timeout, maximum).await
+            self.fetch(request).await
         })
     }
 }
@@ -757,11 +702,17 @@ pub(crate) fn jwks_url(configuration: &[u8]) -> Result<Url> {
         issuer: String,
         jwks_uri: String,
     }
-    if configuration.len() > MAX_BODY {
-        return Err(AuthError::Protocol);
-    }
-    let document: Configuration =
-        serde_json::from_slice(configuration).map_err(|_| AuthError::Protocol)?;
+    let value = ai_personas::files::parse_json_unique(
+        configuration,
+        &ai_personas::files::JsonLimits {
+            max_source_bytes: 0,
+            max_depth: 0,
+            max_nodes: 0,
+            max_decoded_bytes: 0,
+        },
+    )
+    .map_err(|_| AuthError::Protocol)?;
+    let document: Configuration = serde_json::from_value(value).map_err(|_| AuthError::Protocol)?;
     if document.issuer != ISSUER {
         return Err(AuthError::Identity);
     }
@@ -808,8 +759,7 @@ fn valid_percent_encoding(bytes: &[u8]) -> bool {
 }
 
 pub(crate) fn parse_callback_request(bytes: &[u8], port: u16) -> Result<String> {
-    if port == 0 || bytes.len() > MAX_CALLBACK || !bytes.is_ascii() || !bytes.ends_with(b"\r\n\r\n")
-    {
+    if port == 0 || !bytes.is_ascii() || !bytes.ends_with(b"\r\n\r\n") {
         return Err(AuthError::Protocol);
     }
     let end = bytes
@@ -888,13 +838,8 @@ async fn read_callback(stream: &mut TcpStream, port: u16) -> Result<String> {
     let mut bytes = Vec::with_capacity(1024);
     let mut buffer = [0u8; 1024];
     loop {
-        let remaining = MAX_CALLBACK.saturating_sub(bytes.len());
-        if remaining == 0 {
-            return Err(AuthError::Protocol);
-        }
-        let limit = remaining.min(buffer.len());
         let count = stream
-            .read(&mut buffer[..limit])
+            .read(&mut buffer)
             .await
             .map_err(|_| AuthError::Protocol)?;
         if count == 0 {
@@ -923,30 +868,34 @@ async fn callback_response(stream: &mut TcpStream, accepted: bool) {
         "HTTP/1.1 {status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
-    let _ = tokio::time::timeout(Duration::from_secs(1), async {
-        stream.write_all(response.as_bytes()).await?;
-        stream.shutdown().await
-    })
-    .await;
+    if stream.write_all(response.as_bytes()).await.is_ok() {
+        let _ = stream.shutdown().await;
+    }
 }
 
 async fn receive_callback(listener: TcpListener, port: u16) -> Result<String> {
-    tokio::time::timeout(CALLBACK_TIMEOUT, async {
-        for _ in 0..32 {
-            let (mut stream, peer) = listener.accept().await.map_err(|_| AuthError::Transport)?;
-            if peer.ip() != std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST) {
-                continue;
+    // Independent connections remain serviceable while an earlier browser
+    // connection is idle. Dropping the set cancels those reads on completion
+    // or explicit cancellation, without imposing a duration or attempt quota.
+    let mut connections = tokio::task::JoinSet::new();
+    loop {
+        tokio::select! {
+            incoming = listener.accept() => {
+                let (mut stream, peer) = incoming.map_err(|_| AuthError::Transport)?;
+                if peer.ip() != std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST) {
+                    continue;
+                }
+                connections.spawn(async move {
+                    let parsed = read_callback(&mut stream, port).await;
+                    callback_response(&mut stream, parsed.is_ok()).await;
+                    parsed
+                });
             }
-            let parsed = tokio::time::timeout(CONNECTION_TIMEOUT, read_callback(&mut stream, port))
-                .await
-                .unwrap_or(Err(AuthError::Timeout));
-            callback_response(&mut stream, parsed.is_ok()).await;
-            if let Ok(callback) = parsed {
-                return Ok(callback);
+            completed = connections.join_next(), if !connections.is_empty() => {
+                if let Some(Ok(Ok(callback))) = completed {
+                    return Ok(callback);
+                }
             }
         }
-        Err(AuthError::Protocol)
-    })
-    .await
-    .map_err(|_| AuthError::Timeout)?
+    }
 }

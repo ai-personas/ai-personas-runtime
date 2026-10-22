@@ -16,7 +16,6 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
-    time::Duration,
 };
 
 macro_rules! opaque_debug {
@@ -30,11 +29,11 @@ macro_rules! opaque_debug {
 }
 
 #[cfg(unix)]
-pub(crate) mod codex_process;
-#[cfg(unix)]
 pub(crate) mod codex_adapter;
 #[cfg(unix)]
 pub(crate) mod codex_jsonrpc;
+#[cfg(unix)]
+pub(crate) mod codex_process;
 #[cfg(unix)]
 mod vault;
 #[cfg(unix)]
@@ -60,13 +59,6 @@ pub const ACCOUNT_BINDING_ENV: &str = "PERSONAS_SIWC_ACCOUNT_BINDING";
 const DYNAMIC_CLIENT: &str = "dynamic_agent_client";
 const DIRECT_SCOPE: &str = "chatgpt.tokens.use.direct";
 const CALLBACK_REGISTRATION: &str = "http://127.0.0.1/auth/callback";
-const TOKEN_TIMEOUT: Duration = Duration::from_secs(30);
-const PENDING_LIFETIME: u64 = 600;
-const MAX_BODY: usize = 64 * 1024;
-const MAX_REQUEST: usize = 32 * 1024;
-const MAX_TOKEN: usize = 16 * 1024;
-const MAX_ID_TOKEN: usize = 24 * 1024;
-const MAX_LIFETIME: u64 = 3600;
 
 /// Static errors deliberately exclude provider messages and sensitive values.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
@@ -179,7 +171,6 @@ fn valid_opaque(value: &str) -> bool {
 
 fn identifier(value: &str) -> bool {
     !value.is_empty()
-        && value.len() <= 256
         && value
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b':'))
@@ -189,12 +180,12 @@ fn issued_client(value: &str) -> bool {
     identifier(value) && value != DYNAMIC_CLIENT
 }
 
-fn identity_text(value: &str, limit: usize) -> bool {
-    !value.trim().is_empty() && value.len() <= limit && !value.chars().any(char::is_control)
+fn identity_text(value: &str) -> bool {
+    !value.trim().is_empty() && !value.chars().any(char::is_control)
 }
 
-fn secret(value: &str, limit: usize) -> bool {
-    !value.is_empty() && value.len() <= limit && value.bytes().all(|b| (0x21..=0x7e).contains(&b))
+fn secret(value: &str) -> bool {
+    !value.is_empty() && value.bytes().all(|b| (0x21..=0x7e).contains(&b))
 }
 
 // Inspect every byte of the fixed-length expected value, without a
@@ -209,9 +200,6 @@ fn constant_time_equal(expected: &[u8], actual: &[u8]) -> bool {
 }
 
 fn validate_callback_base(uri: &str) -> Result<(), AuthError> {
-    if uri.len() > 256 {
-        return Err(AuthError::Binding);
-    }
     let rest = uri
         .strip_prefix("http://127.0.0.1:")
         .ok_or(AuthError::Binding)?;
@@ -302,9 +290,6 @@ impl AuthFlow {
         expected_client: Option<String>,
     ) -> Result<PendingAuthorization, AuthError> {
         let started_at = clock.now_unix();
-        let deadline = started_at
-            .checked_add(PENDING_LIFETIME)
-            .ok_or(AuthError::Expired)?;
         let state = random_opaque(entropy)?;
         let nonce = random_opaque(entropy)?;
         let verifier = random_opaque(entropy)?;
@@ -337,7 +322,6 @@ impl AuthFlow {
             selected,
             expected_client,
             started_at,
-            deadline,
         })
     }
 }
@@ -401,7 +385,6 @@ pub struct PendingAuthorization {
     selected: Option<AccountMetadata>,
     expected_client: Option<String>,
     started_at: u64,
-    deadline: u64,
 }
 
 impl PendingAuthorization {
@@ -411,7 +394,7 @@ impl PendingAuthorization {
 
     fn check_time(&self, clock: &dyn Clock) -> Result<(), AuthError> {
         let now = clock.now_unix();
-        if now < self.started_at || now >= self.deadline {
+        if now < self.started_at {
             return Err(AuthError::Expired);
         }
         Ok(())
@@ -443,7 +426,7 @@ impl PendingAuthorization {
         }
         let code = query
             .get("code")
-            .filter(|code| secret(code, 4096))
+            .filter(|code| secret(code))
             .ok_or(AuthError::Protocol)?;
         let client = match (self.expected_client.as_deref(), query.get("client_id")) {
             (Some(expected), Some(client)) if client == expected => expected,
@@ -493,7 +476,6 @@ impl PendingAuthorization {
                 ("redirect_uri", &self.callback_uri),
                 ("resource", RESOURCE),
             ]),
-            TOKEN_TIMEOUT,
         )
         .await?;
         self.check_time(clock)?;
@@ -513,7 +495,7 @@ impl PendingAuthorization {
 }
 
 fn callback_query(uri: &str, expected_base: &str) -> Result<BTreeMap<String, String>, AuthError> {
-    if uri.len() > 16 * 1024 || uri.contains('#') {
+    if uri.contains('#') {
         return Err(AuthError::Protocol);
     }
     let (base, query) = uri.split_once('?').ok_or(AuthError::Protocol)?;
@@ -564,8 +546,8 @@ fn decode_query_component(value: &str) -> Result<String, AuthError> {
 }
 
 /// A trusted adapter must return promptly from `send`, perform nonblocking I/O,
-/// honor the request's bounds, and avoid logging forms or response bodies.
-/// The helper additionally enforces its own asynchronous timeout and body bound.
+/// retain complete bodies, and avoid logging forms or response bodies.
+/// No application duration or byte quota applies; the caller can cancel.
 pub trait TokenTransport: Send + Sync {
     fn send<'a>(
         &'a self,
@@ -578,8 +560,6 @@ pub trait TokenTransport: Send + Sync {
 pub struct TokenRequest {
     pub endpoint: &'static str,
     pub form: Vec<(String, String)>,
-    pub timeout: Duration,
-    pub max_response_bytes: usize,
 }
 
 pub struct TokenResponse {
@@ -610,34 +590,34 @@ struct TokenPayload {
 async fn send_tokens(
     transport: &dyn TokenTransport,
     form: Vec<(String, String)>,
-    timeout: Duration,
 ) -> Result<TokenPayload, AuthError> {
-    let encoded = url::form_urlencoded::Serializer::new(String::new())
-        .extend_pairs(
-            form.iter()
-                .map(|(key, value)| (key.as_str(), value.as_str())),
-        )
-        .finish();
-    if encoded.len() > MAX_REQUEST {
-        return Err(AuthError::Protocol);
-    }
     let request = TokenRequest {
         endpoint: TOKEN_ENDPOINT,
         form,
-        timeout,
-        max_response_bytes: MAX_BODY,
     };
-    let response = tokio::time::timeout(timeout, transport.send(request))
-        .await
-        .map_err(|_| AuthError::Timeout)??;
+    let response = transport.send(request).await?;
     parse_token_response(response)
 }
 
+fn decode_json<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, AuthError> {
+    let value = crate::files::parse_json_unique(
+        bytes,
+        &crate::files::JsonLimits {
+            max_source_bytes: 0,
+            max_depth: 0,
+            max_nodes: 0,
+            max_decoded_bytes: 0,
+        },
+    )
+    .map_err(|_| AuthError::Protocol)?;
+    serde_json::from_value(value).map_err(|_| AuthError::Protocol)
+}
+
 fn parse_token_response(response: TokenResponse) -> Result<TokenPayload, AuthError> {
-    if response.body.len() > MAX_BODY || response.status != 200 {
+    if response.status != 200 {
         return Err(AuthError::Protocol);
     }
-    serde_json::from_slice(&response.body).map_err(|_| AuthError::Protocol)
+    decode_json(&response.body)
 }
 
 #[derive(Deserialize)]
@@ -668,12 +648,11 @@ struct JwtHeader {
 }
 
 fn jwt_header(token: &str) -> Result<JwtHeader, AuthError> {
-    if !secret(token, MAX_ID_TOKEN) {
+    if !secret(token) {
         return Err(AuthError::Identity);
     }
     let parts: Vec<_> = token.split('.').collect();
     if parts.len() != 3
-        || parts[0].len() > 4096
         || parts.iter().any(|part| {
             part.is_empty()
                 || !part
@@ -686,9 +665,9 @@ fn jwt_header(token: &str) -> Result<JwtHeader, AuthError> {
     let bytes = URL_SAFE_NO_PAD
         .decode(parts[0])
         .map_err(|_| AuthError::Identity)?;
-    let header: JwtHeader = serde_json::from_slice(&bytes).map_err(|_| AuthError::Identity)?;
+    let header: JwtHeader = decode_json(&bytes).map_err(|_| AuthError::Identity)?;
     if header.alg != "RS256"
-        || !identity_text(&header.kid, 128)
+        || !identity_text(&header.kid)
         || header.typ.as_ref().is_some_and(|typ| typ != "JWT")
     {
         return Err(AuthError::Identity);
@@ -704,17 +683,14 @@ pub struct IdTokenVerifier {
 
 impl IdTokenVerifier {
     pub fn from_jwks(bytes: &[u8]) -> Result<Self, AuthError> {
-        if bytes.len() > MAX_BODY {
-            return Err(AuthError::Identity);
-        }
-        let jwks: Jwks = serde_json::from_slice(bytes).map_err(|_| AuthError::Identity)?;
-        if jwks.keys.is_empty() || jwks.keys.len() > 32 {
+        let jwks: Jwks = decode_json(bytes).map_err(|_| AuthError::Identity)?;
+        if jwks.keys.is_empty() {
             return Err(AuthError::Identity);
         }
         let mut keys = BTreeMap::new();
         for key in jwks.keys {
             if key.kty != "RSA"
-                || !identity_text(&key.kid, 128)
+                || !identity_text(&key.kid)
                 || key.alg.as_ref().is_some_and(|alg| alg != "RS256")
                 || key.usage.as_ref().is_some_and(|usage| usage != "sig")
                 || key
@@ -731,22 +707,16 @@ impl IdTokenVerifier {
                 .decode(&key.e)
                 .map_err(|_| AuthError::Identity)?;
             if n.is_empty()
-                || n.len() > 1024
                 || n[0] == 0
-                || n.len() * 8 - (n[0].leading_zeros() as usize) < 2048
                 || n.last().is_none_or(|byte| byte & 1 == 0)
                 || e.is_empty()
-                || e.len() > 8
                 || e[0] == 0
                 || URL_SAFE_NO_PAD.encode(&n) != key.n
                 || URL_SAFE_NO_PAD.encode(&e) != key.e
             {
                 return Err(AuthError::Identity);
             }
-            let exponent = e
-                .iter()
-                .fold(0_u64, |value, byte| (value << 8) | u64::from(*byte));
-            if exponent < 3 || exponent & 1 == 0 {
+            if (e.len() == 1 && e[0] < 3) || e.last().is_none_or(|byte| byte & 1 == 0) {
                 return Err(AuthError::Identity);
             }
             let decoded = DecodingKey::from_rsa_components(&key.n, &key.e)
@@ -780,7 +750,7 @@ impl IdTokenVerifier {
             .claims;
         if claims.iss != ISSUER
             || !claims.aud.matches(client)
-            || !identity_text(&claims.sub, 1024)
+            || !identity_text(&claims.sub)
             || claims.azp.as_ref().is_some_and(|azp| azp != client)
         {
             return Err(AuthError::Identity);
@@ -833,24 +803,17 @@ struct IdClaims {
 
 fn valid_scopes(scopes: &[String]) -> bool {
     let mut seen = BTreeSet::new();
-    scopes.len() <= 64
-        && scopes.iter().map(String::len).sum::<usize>() <= 4096
-        && scopes.iter().all(|scope| {
-            !scope.is_empty()
-                && scope.len() <= 128
-                && scope
-                    .bytes()
-                    .all(|b| b == 0x21 || (0x23..=0x5b).contains(&b) || (0x5d..=0x7e).contains(&b))
-                && seen.insert(scope.as_str())
-        })
-        && scopes.iter().any(|scope| scope == "resource.invoke")
+    scopes.iter().all(|scope| {
+        !scope.is_empty()
+            && scope
+                .bytes()
+                .all(|b| b == 0x21 || (0x23..=0x5b).contains(&b) || (0x5d..=0x7e).contains(&b))
+            && seen.insert(scope.as_str())
+    }) && scopes.iter().any(|scope| scope == "resource.invoke")
         && scopes.iter().any(|scope| scope == DIRECT_SCOPE)
 }
 
 fn parse_scopes(scope: &str) -> Result<Vec<String>, AuthError> {
-    if scope.len() > 4096 {
-        return Err(AuthError::Scope);
-    }
     let scopes: Vec<_> = scope.split(' ').map(str::to_owned).collect();
     if !valid_scopes(&scopes) {
         return Err(AuthError::Scope);
@@ -873,10 +836,9 @@ fn finish_tokens(
     binding: GrantBinding<'_>,
 ) -> Result<CredentialRecord, AuthError> {
     if response.token_type != "Bearer"
-        || !secret(&response.access_token, MAX_TOKEN)
-        || !secret(&response.refresh_token, MAX_TOKEN)
+        || !secret(&response.access_token)
+        || !secret(&response.refresh_token)
         || response.expires_in == 0
-        || response.expires_in > MAX_LIFETIME
     {
         return Err(AuthError::Protocol);
     }
@@ -958,7 +920,7 @@ impl StoredCredential {
     fn validate(&self) -> Result<(), AuthError> {
         if self.version != 1
             || self.issuer != ISSUER
-            || !identity_text(&self.subject, 1024)
+            || !identity_text(&self.subject)
             || !issued_client(&self.client_id)
         {
             return Err(AuthError::Identity);
@@ -972,8 +934,8 @@ impl StoredCredential {
             return Err(AuthError::State);
         }
         if self.token_type != "Bearer"
-            || !secret(&self.access_token, MAX_TOKEN)
-            || !secret(&self.refresh_token, MAX_TOKEN)
+            || !secret(&self.access_token)
+            || !secret(&self.refresh_token)
         {
             return Err(AuthError::Protocol);
         }
@@ -983,7 +945,6 @@ impl StoredCredential {
             .checked_sub(self.saved_at_unix)
             .ok_or(AuthError::Protocol)?;
         if lifetime == 0
-            || lifetime > MAX_LIFETIME
             || self
                 .earliest_refresh_at
                 .is_some_and(|at| at < self.saved_at_unix || at > self.expires_at_unix)

@@ -8,7 +8,7 @@
 use super::{
     finish_tokens, form, new_host_id, send_tokens, valid_host_id, AuthError, Clock,
     CredentialRecord, Entropy, GrantBinding, IdTokenVerifier, PendingRegistration,
-    StoredCredential, StoredRegistration, TokenTransport, RESOURCE, TOKEN_TIMEOUT,
+    StoredCredential, StoredRegistration, TokenTransport, RESOURCE,
 };
 use std::{
     ffi::{CStr, CString},
@@ -484,7 +484,6 @@ impl LockedVault {
                 ("refresh_token", &old.data.refresh_token),
                 ("resource", RESOURCE),
             ]),
-            TOKEN_TIMEOUT,
         )
         .await?;
         let selected = old.metadata();
@@ -516,7 +515,7 @@ fn read_credential(directory: &File, name: &CStr) -> Result<Option<StoredCredent
         return Ok(None);
     };
     let bytes = read_complete(file)?;
-    let data: StoredCredential = serde_json::from_slice(&bytes).map_err(|_| AuthError::Vault)?;
+    let data: StoredCredential = super::decode_json(&bytes).map_err(|_| AuthError::Vault)?;
     data.validate()?;
     Ok(Some(data))
 }
@@ -561,7 +560,7 @@ fn read_pending_registration(
         return Ok(None);
     };
     let bytes = read_complete(file)?;
-    let data: StoredRegistration = serde_json::from_slice(&bytes).map_err(|_| AuthError::Vault)?;
+    let data: StoredRegistration = super::decode_json(&bytes).map_err(|_| AuthError::Vault)?;
     data.validate()?;
     Ok(Some(PendingRegistration { data }))
 }

@@ -222,12 +222,19 @@ original feedback and the persona's account and reason. A disposition clears
 the pending queue without removing the direction from the continuing context,
 reopening an old item or establishing that the requested work succeeded.
 
+Native SIWC authentication also has no local vault-opening, connection, transfer,
+callback or pending-state timer. Credential, callback, request/response, JWT-header,
+key-set, scope and identity size/count caps are removed. Actual provider expiry
+has no additional application lifetime ceiling. Independent callback connections
+are served concurrently without an attempt quota, and explicit cancellation
+remains effective. Signature, issuer/account, nonce and exact registration
+bindings remain necessary to establish which credential was actually acquired.
+
 ## Remaining work
 
 Removal is still incomplete. Remaining
 application enforcement includes delegated intake authority and one-child workflow
-constraints; explicit optional opportunity and birth workflows; native SIWC authentication
-transport and credential-field limits; onboarding model/effort selection gates; remaining typed protocol and
+constraints; explicit optional opportunity and birth workflows; onboarding model/effort selection gates; remaining typed protocol and
 tool-input limits; and additional specialized control limits. These are implementation gaps under the
 new requirement, not exceptions granted by the user. Some earlier documents still
 describe them because those paths remain implemented. They must be removed or

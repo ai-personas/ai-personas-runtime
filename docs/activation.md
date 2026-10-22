@@ -11,12 +11,12 @@ Build the binaries with `cargo build --locked`. Help is available without a vaul
 ./target/debug/ai-personas migrate-provider --help
 ```
 
-After separately authorizing a real access action, the operator can use an explicit protected credential path outside repositories:
+Select an access action with an explicit credential path outside repositories:
 
 ```sh
-personas-auth --vault /absolute/private/personas-account.json sign-in --authorize
+personas-auth --vault /absolute/private/personas-account.json sign-in
 personas-auth --vault /absolute/private/personas-account.json status
-personas-auth --vault /absolute/private/personas-account.json refresh --authorize
+personas-auth --vault /absolute/private/personas-account.json refresh
 ```
 
 These are access operations, not offline validation commands. The helper may create the final missing protected parent directory during explicitly authorized sign-in; its ancestors must already exist.
@@ -29,15 +29,25 @@ ai-personas --state-root /absolute/private/state --operator local-operator migra
 ai-personas --state-root /absolute/private/state --operator local-operator migrate-provider /absolute/private/migration-request.json
 ```
 
-The request type is `launch::ProviderMigrationRequest`. It includes the exact snapshot references and full cohort binding map, explicit provider settings, `allow_direct_provider: true`, `model_confirmed: true`, and authorization for the existing destination. These confirmations are operator assertions backed by retained evidence, not results of syntax validation.
+The request type is `launch::ProviderMigrationRequest`. It includes exact snapshot references, the full cohort binding map and explicit provider settings. Historical direct-access and confirmation fields are optional metadata; the selected migration needs no second approval.
 
 ## Registration and sign-in
 
 The operator invokes sign-in explicitly and completes account selection and consent in the browser. OpenAI issues the application client ID. Personas creates only its own stable host identifier; it cannot mint a provider client identity or reuse another application's registration. First registration uses the documented `dynamic_agent_client` entry point. This flow does not require a client secret or partner API key.
 
-Under the selected vault lock, the helper loads both credentials and bounded, protected pending-registration metadata. An existing credential always supplies the exact selected issuer, subject, issued client and host binding, even if a matching registration receipt also exists. Without credentials, a retained registration supplies the issued client and host for the next explicit sign-in. Only when neither exists does the helper use dynamic registration. Every attempt generates fresh state, nonce and PKCE values; a returning authorization URL contains no ID-token hint.
+Under the selected vault lock, the helper loads complete credentials and pending-registration metadata without byte quotas. An existing credential always supplies the exact selected issuer, subject, issued client and host binding, even if a matching registration receipt also exists. Without credentials, a retained registration supplies the issued client and host for the next explicit sign-in. Only when neither exists does the helper use dynamic registration. Every attempt generates fresh state, nonce and PKCE values; a returning authorization URL contains no ID-token hint.
 
-After validating the callback's state, lifetime, exact loopback URI, code and client binding, the helper durably retains a credential-free `<vault>.registration` receipt before attempting token exchange. Its only fields are the format version, issued client ID, host ID and callback registration. It contains no code, state, nonce, PKCE secret or token. A retention failure, including uncertain durability, prevents exchange. A failed, canceled or uncertain exchange leaves the protected receipt available for a later explicit sign-in using the same issued client. There is no automatic code retry, refresh or new grant. After a verified exchange, the vault saves credentials durably before removing the matching receipt.
+After validating the callback's state, exact loopback URI, code and client binding, the helper durably retains a credential-free `<vault>.registration` receipt before attempting token exchange. Its only fields are the format version, issued client ID, host ID and callback registration. It contains no code, state, nonce, PKCE secret or token. A retention failure, including uncertain durability, prevents exchange. A failed, canceled or uncertain exchange leaves the protected receipt available for a later explicit sign-in using the same issued client. There is no automatic code retry, refresh or new grant. After a verified exchange, the vault saves credentials durably before removing the matching receipt.
+
+Authentication has no application connection, transfer, callback, pending-state
+or vault-opening timer. Request, response, callback, token, JWT-header, key-set,
+scope and identity fields have no application size/count quota. The provider's
+actual token expiry is retained without a local maximum lifetime. Complete JSON,
+duplicate-key validation, signature verification and exact account/registration
+bindings still apply. The callback listener handles independent connections
+concurrently without an attempt quota; an idle connection does not block another.
+Explicit cancellation closes the pending operation. The HTTP adapter respects
+the selected host environment's proxy configuration and normal protocol negotiation.
 
 The callback listener binds to `127.0.0.1`, with the same `/auth/callback` path and exact selected port in authorization and code exchange. Run the helper and browser in the same loopback network context. A host browser cannot reach a Docker container's loopback through an unrelated VNC port mapping. Do not expose the callback on a public interface.
 
@@ -54,7 +64,7 @@ See the official [registration and sign-in flow](https://developers.openai.com/s
 Before preparing a runtime provider configuration, obtain separately authorized evidence for the selected account:
 
 1. Read the account's current catalog at `https://api.openai.com/v1/models` using the same SIWC access token intended for inference. Preserve the exact selected model slug and retain the catalog evidence; a browser label or another application's cached catalog is insufficient.
-2. Perform a separately authorized, bounded Responses capability check for the exact selected model and supported requested effort and small strict carrier schema (`decision_json` as a string), followed by native validation of the complete Decision value. Catalog membership alone does not establish these capabilities.
+2. Select a Responses capability check for the exact selected model, requested effort and strict carrier schema (`decision_json` as a string), followed by native validation of the complete Decision value. It has no application duration, byte or token quota. Catalog membership alone does not establish these capabilities.
 3. Retain the evidence and bind its digests to the exact account binding, SIWC wire profile, model and effort in `DirectSettings`.
 
 No probe is part of sign-in, refresh, migration or ordinary configuration validation. Configuration digests identify operator-retained evidence; they do not authenticate evidence or prove entitlement by themselves. See [models and inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference).
@@ -63,7 +73,7 @@ No probe is part of sign-in, refresh, migration or ordinary configuration valida
 
 Use the operator-only provider migration operation for an existing saved cohort. A migration request names exact runtime and launch references, every saved cohort member's current binding, the target provider settings, the existing processing destination, operator attribution and a reason. Preview validates the request without resolving credentials or making network requests. Opening a runtime can perform its ordinary orphan-attempt recovery; preview is not a promise that opening a Store never changes lifecycle records.
 
-Apply acquires execution ownership and rejects active or unresolved invocations. It updates the runtime state, saved launch and create-only migration receipt in one ordinary Store transaction. It changes the explicitly selected provider/model bindings and fences stale admissions. Existing identities, character and other assets, work and history remain in the same Store. Migration does not resume paused work, reconcile uncertain attempts, replenish allowances or create replacement personas. New immutable revisions consume their normal existing storage budgets.
+Apply acquires execution ownership and rejects active or unresolved invocations. It updates the runtime state, saved launch and create-only migration receipt in one ordinary Store transaction. It changes the explicitly selected provider/model bindings and fences stale admissions. Existing identities, character and other assets, work and history remain in the same Store. Migration does not resume paused work, reconcile uncertain attempts or create replacement personas. New immutable revisions retain their actual storage accounting without application quotas.
 
 An exact replay of a migration ID returns its historical receipt without applying another migration. A changed request under that ID conflicts. A historical receipt does not prove its target remains the current binding after later changes.
 
@@ -73,15 +83,15 @@ Refresh is an explicit helper action, serialized for the selected credential rec
 
 `DirectSettings` retains an exact expiry as well as the account fingerprint. After renewal, update existing saved settings through the same explicit provider migration before handing off credentials. Generic `exec` remains unavailable and fails closed.
 
-For an already configured Store, explicitly authorize one fixed in-process native run with exactly one input:
+For an already configured Store, select an in-process native run with exactly one input:
 
 ```sh
-personas-auth --vault /absolute/private/personas-account.json native-run --authorize --state-root /absolute/private/state --operator local-operator --need "Write the requested local result."
-personas-auth --vault /absolute/private/personas-account.json native-run --authorize --state-root /absolute/private/state --operator local-operator --work work-00000001
+personas-auth --vault /absolute/private/personas-account.json native-run --state-root /absolute/private/state --operator local-operator --need "Write the requested local result."
+personas-auth --vault /absolute/private/personas-account.json native-run --state-root /absolute/private/state --operator local-operator --work work-00000001
 ```
 
-Native launch acquires the Store execution owner before reading saved launch settings or credentials. Under that same owner it validates the saved operator, SIWC mode and grant, exact credential references, account fingerprint, expiry, wire profile, model, effort, evidence pins and runtime bounds. It holds the selected vault lock through the entire bounded run, including HTTP and adoption; credential reads continue checking the selected record, refresh fences and expiry. Admission checks precede intake, selection and launch-step reservation. Ordinary Runtime opening can still perform orphan recovery, and failures after admission retain ordinary lifecycle accounting.
+Native launch acquires the Store execution owner before reading saved launch settings or credentials. Under that same owner it validates the saved operator, SIWC mode and grant, exact credential references, account fingerprint, expiry, wire profile, model, effort and evidence pins. It holds the selected vault lock through the entire run, including HTTP and adoption; credential reads continue checking the selected record, refresh fences and expiry. Admission checks precede intake, selection and launch-step reservation. Ordinary Runtime opening can still perform orphan recovery, and failures after admission retain ordinary lifecycle accounting.
 
-A new need uses ordinary human intake and existing limits. Existing work uses the ordinary run loop and boundaries, including its narrow initial-character handover. Native launch adds no general resume, later-character authorization, allowances, recovery or retry. It accepts no executable, provider configuration or network target, changes no environment, and performs no grant, refresh, probe or migration. Output is the ordinary launch JSON; credentials are not serialized. Models and efforts remain the exact saved pins without substitution. Capability hashes identify operator-retained evidence and do not prove capability; all live gates remain unverified.
+A new need uses ordinary human intake. Existing work uses the ordinary run loop, including its initial-character handover, with no application call quota or local model timeout. Native launch adds no general resume, recovery or retry. It accepts no executable, provider configuration or network target, changes no environment, and performs no grant, refresh, probe or migration. Output is the ordinary launch JSON; credentials are not serialized. Models and efforts remain the exact saved pins without substitution. Capability hashes identify operator-retained evidence and do not prove capability.
 
-The runtime's own model, effort, policy, work, budget and invocation checks still apply. Authentication readiness, code readiness and live persona validation are distinct. See [accounts and sessions](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions).
+The runtime retains exact model, effort, work and invocation bindings. Application resource quotas and source-policy gates are disabled; [execution resources](execution-resources.md) lists remaining removal work. Authentication readiness, code readiness and live persona validation are distinct. See [accounts and sessions](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions).
