@@ -1,4 +1,4 @@
-//! Bounded operator-side SIWC catalogue and strict-carrier verification backend.
+//! Operator-side SIWC catalogue and exact strict-carrier verification backend.
 //!
 //! This is isolated host conformance work, not persona judgment. All production
 //! credentials come from the explicitly selected locked Personas vault. No login,
@@ -12,18 +12,12 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
-    io::{self, Write},
     path::Path,
     sync::Arc,
-    time::Duration,
 };
 
 pub type Result<T> = std::result::Result<T, Code>;
-const MAX_PLANS: usize = 16;
-const MAX_MODELS: usize = 128;
-const CATALOG_LIFETIME: u64 = 300;
-const JOURNAL_LIMIT: usize = super::vault::MAX_ONBOARDING_BYTES;
-pub const COST_NOTICE: &str = "One SIWC request may consume ChatGPT plan usage. SIWC does not support max_output_tokens. Local bytes, elapsed time and observed-token thresholds are bounded; remote tokens, charges and remote cancellation are NOT hard-bounded. An interrupted or unknown attempt is never retried.";
+pub const COST_NOTICE: &str = "A selected SIWC probe may consume ChatGPT plan usage. Application duration, byte and observed-token quotas are disabled. Actual provider usage is retained when reported; unknown outcomes remain unknown and an existing request identity is never replayed.";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "snake_case")]
@@ -112,43 +106,27 @@ fn is_hash(s: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 fn identifier(s: &str) -> bool {
-    !s.is_empty() && s.len() <= 128 && !s.chars().any(|c| c.is_whitespace() || c.is_control())
+    !s.is_empty() && !s.chars().any(|c| c.is_whitespace() || c.is_control())
 }
 fn valid_key(s: &str) -> bool {
     !s.is_empty()
-        && s.len() <= 64
         && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 fn encode<T: Serialize + ?Sized>(value: &T) -> Result<Vec<u8>> {
-    struct Buffer(Vec<u8>);
-    impl Write for Buffer {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            if bytes.len() > JOURNAL_LIMIT.saturating_sub(self.0.len()) {
-                return Err(io::Error::other("bounded journal"));
-            }
-            self.0.extend_from_slice(bytes);
-            Ok(bytes.len())
-        }
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-    let mut out = Buffer(Vec::new());
-    serde_json::to_writer(&mut out, value).map_err(|_| Code::Limit)?;
-    Ok(out.0)
+    serde_json::to_vec(value).map_err(|_| Code::InvalidState)
 }
 fn digest<T: Serialize + ?Sized>(value: &T) -> Result<String> {
     Ok(hash(&encode(value)?))
 }
-fn unique(bytes: &[u8], maximum: usize) -> Result<Value> {
+fn unique(bytes: &[u8], _historical_maximum: usize) -> Result<Value> {
     crate::files::parse_json_unique(
         bytes,
         &crate::files::JsonLimits {
-            max_source_bytes: maximum,
+            max_source_bytes: 0,
             max_depth: 32,
             max_nodes: 65_536,
-            max_decoded_bytes: maximum,
+            max_decoded_bytes: 0,
         },
     )
     .map_err(|_| Code::InvalidState)
@@ -196,9 +174,6 @@ impl AccessSource for SelectedVault {
     }
 }
 fn contains_secret(value: &Value, access: &Access, depth: usize) -> bool {
-    if depth > 40 {
-        return true;
-    }
     match value {
         Value::String(s) => {
             if access.redactions.iter().any(|v| s.contains(v.expose())) {
@@ -206,7 +181,7 @@ fn contains_secret(value: &Value, access: &Access, depth: usize) -> bool {
             }
             // Also inspect JSON strings embedded in the carrier, after decoding
             // escapes. Non-JSON text is never interpreted as executable material.
-            if (s.starts_with('{') || s.starts_with('[')) && s.len() <= wire::MAX_CARRIER {
+            if s.starts_with('{') || s.starts_with('[') {
                 if let Ok(v) = unique(s.as_bytes(), wire::MAX_CARRIER) {
                     return contains_secret(&v, access, depth + 1);
                 }
@@ -247,7 +222,6 @@ fn models(body: &str) -> Result<Vec<ModelChoice>> {
         .get("models")
         .and_then(Value::as_array)
         .ok_or(Code::CatalogueUnavailable)?;
-    check(entries.len() <= MAX_MODELS, Code::Limit)?;
     let mut selected = Vec::new();
     let mut slugs = BTreeSet::new();
     for entry in entries {
@@ -266,7 +240,6 @@ fn models(body: &str) -> Result<Vec<ModelChoice>> {
         check(
             identifier(slug)
                 && !display_name.trim().is_empty()
-                && display_name.len() <= 256
                 && !display_name.chars().any(char::is_control)
                 && slugs.insert(slug),
             Code::CatalogueUnavailable,
@@ -325,24 +298,20 @@ pub struct PlanRequest {
     pub catalogue_sha256: String,
     pub model: String,
     pub effort: String,
+    /// Historical request metadata; no local timeout or token quota is enforced.
+    #[serde(default)]
     pub timeout_ms: u64,
+    #[serde(default)]
     pub max_observed_total_tokens: u64,
-    /// SIWC currently cannot satisfy this. It never causes a silent omission.
+    /// Historical metadata. The view reports the actual lack of remote hard bounds.
+    #[serde(default)]
     pub require_remote_token_hard_bound: bool,
 }
 impl PlanRequest {
     fn validate(&self) -> Result<()> {
         check(
-            valid_key(&self.id)
-                && is_hash(&self.catalogue_sha256)
-                && identifier(&self.model)
-                && (1..=60_000).contains(&self.timeout_ms)
-                && (1..=65_536).contains(&self.max_observed_total_tokens),
+            valid_key(&self.id) && is_hash(&self.catalogue_sha256) && identifier(&self.model),
             Code::InvalidRequest,
-        )?;
-        check(
-            !self.require_remote_token_hard_bound,
-            Code::RemoteTokenBoundUnsupported,
         )?;
         check(
             matches!(
@@ -376,10 +345,11 @@ pub struct PlanView {
     pub plan: ProbePlan,
     pub plan_sha256: String,
     pub cost_notice: &'static str,
-    pub maximum_requests: u8,
-    pub maximum_request_bytes: usize,
-    pub maximum_response_bytes: usize,
-    pub maximum_stream_bytes: usize,
+    pub request_identity_single_use: bool,
+    pub resource_quotas_enforced: bool,
+    pub maximum_request_bytes: Option<usize>,
+    pub maximum_response_bytes: Option<usize>,
+    pub maximum_stream_bytes: Option<usize>,
     pub remote_token_hard_bound: bool,
     pub dollar_hard_bound: bool,
 }
@@ -469,7 +439,6 @@ fn verified(a: &Attempt) -> Result<bool> {
     };
     if input.checked_add(output) != Some(total)
         || total == 0
-        || total > a.plan.request.max_observed_total_tokens
         || o.usage.cached_input_tokens.is_some_and(|v| v > input)
     {
         return Ok(false);
@@ -593,8 +562,8 @@ impl Backend {
                 ..Journal::default()
             });
         };
-        let j: Journal = serde_json::from_value(unique(&bytes, JOURNAL_LIMIT)?)
-            .map_err(|_| Code::InvalidState)?;
+        let j: Journal =
+            serde_json::from_value(unique(&bytes, 0)?).map_err(|_| Code::InvalidState)?;
         validate_journal(&j)?;
         Ok(j)
     }
@@ -638,9 +607,7 @@ impl Backend {
             let mut bytes = Vec::new();
             loop {
                 tokio::task::yield_now().await;
-                let left = wire::CATALOG_BYTES.saturating_sub(bytes.len());
-                check(left > 0, Code::Limit)?;
-                let maximum = left.min(8_192);
+                let maximum = 8_192;
                 match stream.read(maximum).await.map_err(|_| Code::Network)? {
                     Some(part) => {
                         check(part.len() <= maximum, Code::Limit)?;
@@ -651,9 +618,7 @@ impl Backend {
             }
             Ok::<_, Code>(bytes)
         };
-        let bytes = tokio::time::timeout(Duration::from_secs(15), operation)
-            .await
-            .map_err(|_| Code::Timeout)??;
+        let bytes = operation.await?;
         let value = unique(&bytes, wire::CATALOG_BYTES).map_err(|_| Code::CatalogueUnavailable)?;
         check(!contains_secret(&value, &access, 0), Code::BodyWithheld)?;
         let fresh = self.access()?;
@@ -687,7 +652,6 @@ impl Backend {
             check(old.plan.request == request, Code::KeyConflict)?;
             return plan_view(&old.plan);
         }
-        check(j.attempts.len() < MAX_PLANS, Code::Limit)?;
         let access = self.access()?;
         bind_account(&j, &access)?;
         let catalogue = j.catalogue.as_ref().ok_or(Code::CatalogueUnavailable)?;
@@ -717,10 +681,7 @@ impl Backend {
             credential_sha256: access.credential_sha256,
             credential_expires_at_unix: access.expires_at_unix,
             created_at_unix: now,
-            authorization_deadline_unix: now
-                .saturating_add(CATALOG_LIFETIME)
-                .min(access.expires_at_unix)
-                .min(catalogue.observed_at_unix.saturating_add(CATALOG_LIFETIME)),
+            authorization_deadline_unix: access.expires_at_unix,
             request_sha256: hash(&body),
             schema_sha256: digest(&crate::runtime::provider_schema())?,
         };
@@ -755,10 +716,6 @@ impl Backend {
         if old.claimed_at_unix.is_some() {
             return status(old);
         }
-        check(
-            !j.attempts.iter().any(|(key, a)| key != id && unresolved(a)),
-            Code::UnresolvedProbe,
-        )?;
         let access = self.access()?;
         bind_account(&j, &access)?;
         check_plan_access(&old.plan, &access, self.now()?)?;
@@ -786,7 +743,7 @@ impl Backend {
         let operation = async {
             let current = self.access()?;
             check_plan_access(&plan, &current, self.now()?)?;
-            let guard = wire::expiry_guard(plan.authorization_deadline_unix, self.clock.clone())
+            let guard = wire::expiry_guard(current.expires_at_unix, self.clock.clone())
                 .map_err(|_| Code::CredentialExpired)?;
             Ok::<_, Code>(
                 wire::probe(
@@ -975,7 +932,7 @@ pub struct RenewalStatus {
     pub inference_performed: bool,
 }
 fn native_limits() -> p::Limits {
-    // Explicit local policy ceilings, not claims about provider context or costs.
+    // Historical settings only; Direct transport does not enforce these quotas.
     p::Limits {
         timeout_ms: 300_000,
         max_prompt_bytes: 196_608,
@@ -985,8 +942,7 @@ fn native_limits() -> p::Limits {
         max_request_bytes: 524_288,
         max_response_bytes: 32_768,
         max_stream_bytes: 1_048_576,
-        // A completed event includes the full provider output envelope, which
-        // can exceed the final authored Decision bound during reasoning calls.
+        // A completed event includes the full provider output envelope.
         max_event_bytes: 524_288,
         max_events: 10_000,
     }
@@ -1006,10 +962,7 @@ fn check_catalogue(c: &Catalogue, a: &Access, now: u64) -> Result<()> {
             && c.credential_expires_at_unix == a.expires_at_unix,
         Code::CredentialChanged,
     )?;
-    check(
-        now >= c.observed_at_unix && now < c.observed_at_unix.saturating_add(CATALOG_LIFETIME),
-        Code::CatalogueStale,
-    )
+    check(now >= c.observed_at_unix, Code::CatalogueStale)
 }
 fn check_plan_access(p: &ProbePlan, a: &Access, now: u64) -> Result<()> {
     check(p.account_sha256 == a.account_sha256, Code::AccountChanged)?;
@@ -1019,7 +972,7 @@ fn check_plan_access(p: &ProbePlan, a: &Access, now: u64) -> Result<()> {
         Code::CredentialChanged,
     )?;
     check(
-        now >= p.created_at_unix && now < p.authorization_deadline_unix,
+        now >= p.created_at_unix && now < a.expires_at_unix,
         Code::CredentialExpired,
     )
 }
@@ -1034,19 +987,18 @@ fn plan_view(p: &ProbePlan) -> Result<PlanView> {
         plan: p.clone(),
         plan_sha256: p.sha256()?,
         cost_notice: COST_NOTICE,
-        maximum_requests: 1,
-        maximum_request_bytes: wire::MAX_REQUEST,
-        maximum_response_bytes: wire::MAX_CARRIER,
-        maximum_stream_bytes: wire::MAX_STREAM,
+        request_identity_single_use: true,
+        resource_quotas_enforced: false,
+        maximum_request_bytes: None,
+        maximum_response_bytes: None,
+        maximum_stream_bytes: None,
         remote_token_hard_bound: false,
         dollar_hard_bound: false,
     })
 }
 fn validate_journal(j: &Journal) -> Result<()> {
     check(
-        j.version == 1
-            && j.attempts.len() <= MAX_PLANS
-            && j.account_sha256.as_ref().is_none_or(|s| is_hash(s)),
+        j.version == 1 && j.account_sha256.as_ref().is_none_or(|s| is_hash(s)),
         Code::InvalidState,
     )?;
     if let Some(c) = &j.catalogue {
@@ -1073,12 +1025,6 @@ fn validate_journal(j: &Journal) -> Result<()> {
                     .any(|v| v.slug == p.request.model)
                 && p.created_at_unix >= a.catalogue.observed_at_unix
                 && p.authorization_deadline_unix > p.created_at_unix
-                && p.authorization_deadline_unix
-                    <= p.created_at_unix.saturating_add(CATALOG_LIFETIME)
-                && p.authorization_deadline_unix
-                    <= a.catalogue
-                        .observed_at_unix
-                        .saturating_add(CATALOG_LIFETIME)
                 && p.authorization_deadline_unix <= p.credential_expires_at_unix
                 && p.schema_sha256 == digest(&crate::runtime::provider_schema())?
                 && p.request_sha256
@@ -1095,7 +1041,7 @@ fn validate_journal(j: &Journal) -> Result<()> {
         )?;
         if let Some(at) = a.claimed_at_unix {
             check(
-                at >= p.created_at_unix && at < p.authorization_deadline_unix,
+                at >= p.created_at_unix && at < p.credential_expires_at_unix,
                 Code::InvalidState,
             )?;
         }
@@ -1106,9 +1052,7 @@ fn validate_journal(j: &Journal) -> Result<()> {
             )?;
             if let Some(o) = &t.observation {
                 check(
-                    o.stream_bytes <= wire::MAX_STREAM
-                        && o.event_count <= 2_049
-                        && is_hash(&o.stream_sha256)
+                    is_hash(&o.stream_sha256)
                         && o.reported_effort.as_deref().is_none_or(|v| {
                             matches!(
                                 v,
@@ -1126,8 +1070,7 @@ fn validate_journal(j: &Journal) -> Result<()> {
                 )?;
                 if let Some(carrier) = &o.carrier {
                     check(
-                        carrier.len() <= wire::MAX_CARRIER
-                            && o.eof
+                        o.eof
                             && o.completed
                             && o.failure.is_none()
                             && t.completed_carrier_sha256.as_deref()
@@ -1141,9 +1084,7 @@ fn validate_journal(j: &Journal) -> Result<()> {
             }
             check(
                 t.completed_carrier_sha256.as_deref().is_none_or(is_hash)
-                    && t.completed_carrier_sha256.is_some() == t.completed_carrier_bytes.is_some()
-                    && t.completed_carrier_bytes
-                        .is_none_or(|v| v <= wire::MAX_CARRIER),
+                    && t.completed_carrier_sha256.is_some() == t.completed_carrier_bytes.is_some(),
                 Code::InvalidState,
             )?;
         }

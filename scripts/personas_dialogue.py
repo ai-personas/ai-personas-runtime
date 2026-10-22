@@ -16,7 +16,6 @@ import signal
 import stat
 import subprocess
 import sys
-import time
 import uuid
 
 NAMES = ("ai-personas", "personas-auth", "personas-provider", "personas-session")
@@ -307,14 +306,14 @@ def valid_session_route(route):
 
 def new_progress():
     return {"version": 1, "operator": None, "installation": None, "runtime": None,
-            "vault": None, "needs": [], "session": None, "probes": [],
+            "vault": None, "needs": [], "session": None, "session_history": [], "probes": [],
             "settings": None, "bootstrap": None, "setup_authorized": False,
             "work_input": None, "codex_auth": None}
 
 
 def validate_progress(p):
     fields = set(new_progress())
-    require(isinstance(p, dict) and set(p) == fields and p["version"] == 1)
+    require(isinstance(p, dict) and set(p) | {"session_history"} == fields and p["version"] == 1)
     require(p["codex_auth"] is None or valid_codex_paths(p["codex_auth"]))
     require(type(p["setup_authorized"]) is bool)
     require(not p["setup_authorized"] or p["bootstrap"] is not None)
@@ -336,11 +335,15 @@ def validate_progress(p):
                 and type(n["require_acceptance"]) is bool and type(n["shared"]) is bool
                 and (n["work"] is None or identifier(n["work"])))
         seen.add(n["id"])
-    if p["session"] is not None:
-        s = p["session"]
+    history = p.get("session_history", [])
+    require(isinstance(history, list))
+    session_ids = set()
+    for s in history + ([] if p["session"] is None else [p["session"]]):
         require(isinstance(s, dict)
                 and set(s) == {"id", "work", "route", "expected_launch"}
                 and identifier(s["id"]) and identifier(s["work"]))
+        require(s["id"] not in session_ids)
+        session_ids.add(s["id"])
         require(valid_session_route(s["route"]))
         require(valid_launch_reference(s["expected_launch"]))
     require(isinstance(p["probes"], list))
@@ -352,9 +355,9 @@ def validate_progress(p):
                                                   "max_observed_total_tokens", "require_remote_token_hard_bound"})
         require(identifier(q["id"]) and q["id"] not in seen and safe_text(q["model"], 128)
                 and q["effort"] in ("none", "minimal", "low", "medium", "high", "xhigh", "max")
-                and type(q["timeout_ms"]) is int and 1 <= q["timeout_ms"] <= 60000
-                and type(q["max_observed_total_tokens"]) is int and 1 <= q["max_observed_total_tokens"] <= 65536
-                and q["require_remote_token_hard_bound"] is False and type(probe["attempted"]) is bool
+                and type(q["timeout_ms"]) is int and q["timeout_ms"] >= 0
+                and type(q["max_observed_total_tokens"]) is int and q["max_observed_total_tokens"] >= 0
+                and type(q["require_remote_token_hard_bound"]) is bool and type(probe["attempted"]) is bool
                 and re.fullmatch(r"[a-f0-9]{64}", q["catalogue_sha256"]) is not None)
         seen.add(q["id"])
         v = probe["view"]
@@ -718,20 +721,8 @@ def _toolchain_order(name):
     return None
 
 
-MAX_TOOLCHAIN_CANDIDATES = 8
-MAX_TOOLCHAIN_DIRECTORY_ENTRIES = 256
-MAX_TOOLCHAIN_PROBE_SECONDS = 12.0
-MAX_RUSTC_VERSION_BYTES = 4096
-
-
 def discover_cargo():
-    """Discover bounded candidates without executing them or scanning unbounded roots.
-
-    PATH Cargo keeps precedence. Off-PATH discovery is limited to configured
-    RUSTUP_HOME, or HOME/.rustup when RUSTUP_HOME is unset. A toolchain root with
-    more than MAX_TOOLCHAIN_DIRECTORY_ENTRIES entries fails closed rather than
-    selecting from a partial, enumeration-order-dependent view.
-    """
+    """Discover every candidate from PATH and the selected Rustup root."""
     candidates = []
     cargo = shutil.which("cargo")
     if cargo:
@@ -751,8 +742,6 @@ def discover_cargo():
                 names = []
                 for entry in entries:
                     names.append(entry.name)
-                    if len(names) > MAX_TOOLCHAIN_DIRECTORY_ENTRIES:
-                        raise Blocked("rustup_toolchain_directory_limit")
         except (FileNotFoundError, NotADirectoryError):
             continue
         except PermissionError:
@@ -773,13 +762,11 @@ def discover_cargo():
     for _, candidate, bindir in sorted(discovered):
         if all(existing[0] != candidate for existing in candidates):
             candidates.append((candidate, bindir))
-        if len(candidates) >= MAX_TOOLCHAIN_CANDIDATES:
-            break
-    return candidates[:MAX_TOOLCHAIN_CANDIDATES]
+    return candidates
 
 
 def _parse_rustc_version(output):
-    if not isinstance(output, str) or len(output.encode("utf-8", "replace")) > MAX_RUSTC_VERSION_BYTES:
+    if not isinstance(output, str):
         return False
     match = re.match(r"^rustc (\d+)\.(\d+)\.(\d+)(?:-([^\s]+))?(?:\s|$)", output)
     if not match:
@@ -800,15 +787,13 @@ def _stop_probe(proc):
         except OSError:
             pass
     try:
-        proc.wait(timeout=0.2)
+        proc.wait()
     except (OSError, subprocess.SubprocessError):
         pass
 
 
-def _supported_rustc(rustc, env, deadline, cwd):
-    """Probe one compiler with a shared deadline, nonblocking pipe and byte cap."""
-    if deadline - time.monotonic() <= 0:
-        return False
+def _supported_rustc(rustc, env, cwd):
+    """Read one compiler version without application duration or byte quotas."""
     try:
         proc = subprocess.Popen([rustc, "--version"], stdin=subprocess.DEVNULL,
                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -823,29 +808,18 @@ def _supported_rustc(rustc, env, deadline, cwd):
         with selectors.DefaultSelector() as poll:
             poll.register(proc.stdout, selectors.EVENT_READ)
             while poll.get_map():
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    return False
-                events = poll.select(min(0.1, remaining))
+                events = poll.select(0.1)
                 if not events:
                     continue
                 try:
-                    part = os.read(fd, min(8192, MAX_RUSTC_VERSION_BYTES + 1 - len(output)))
+                    part = os.read(fd, 8192)
                 except BlockingIOError:
                     continue
                 if not part:
                     poll.unregister(proc.stdout)
                     continue
                 output.extend(part)
-                if len(output) > MAX_RUSTC_VERSION_BYTES:
-                    return False
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return False
-        try:
-            code = proc.wait(timeout=remaining)
-        except subprocess.TimeoutExpired:
-            return False
+        code = proc.wait()
         if code != 0:
             return False
         try:
@@ -865,11 +839,8 @@ def _supported_rustc(rustc, env, deadline, cwd):
 
 
 def select_supported_cargo(candidates, base_env, cwd):
-    """Select a candidate within shared candidate/time bounds using the build env."""
-    deadline = time.monotonic() + MAX_TOOLCHAIN_PROBE_SECONDS
-    for cargo, toolchain_bin in candidates[:MAX_TOOLCHAIN_CANDIDATES]:
-        if time.monotonic() >= deadline:
-            break
+    """Select the first supported compiler using the actual build environment."""
+    for cargo, toolchain_bin in candidates:
         env = dict(base_env)
         if toolchain_bin:
             env["PATH"] = toolchain_bin + os.pathsep + env.get("PATH", "")
@@ -878,7 +849,7 @@ def select_supported_cargo(candidates, base_env, cwd):
             rustc = shutil.which("rustc", path=env.get("PATH"))
             if not rustc:
                 continue
-        if _supported_rustc(rustc, env, deadline, cwd):
+        if _supported_rustc(rustc, env, cwd):
             return cargo, toolchain_bin, env
     return None
 
@@ -900,7 +871,7 @@ class Helpers:
             paths.append(Path(installed).parent)
         paths += [self.checkout / "target/release", self.checkout / "target/debug"]
         found = []
-        for folder in paths[:4]:
+        for folder in paths:
             if folder not in found and all((folder / n).is_file() for n in NAMES):
                 found.append(folder)
         return found
@@ -953,21 +924,13 @@ class Helpers:
             require(path_text(folder), "invalid_installation")
             self.adopt(Path(folder))
         elif choice == "b":
-            try:
-                candidates = discover_cargo()
-            except Blocked as error:
-                if error.code != "rustup_toolchain_directory_limit":
-                    raise
-                self.ui.say("The configured Rustup toolchain root has more than 256 entries; discovery refused a partial scan. "
-                            "Set RUSTUP_HOME to the intended root or remove stale toolchain entries under host policy, "
-                            "then retry. No files were changed.")
-                raise Halt()
+            candidates = discover_cargo()
             if not candidates:
                 self.ui.say("No Cargo candidate was found on PATH or in the configured Rustup toolchain root. "
                             "Install or repair Rust 1.88+ and the native C toolchain/linker under host policy, "
                             "or choose an approved existing helper directory. No installer was run.")
                 return self.install()
-            self.ui.consent("Build optimized helpers from this exact checkout with locked Cargo dependencies, one job and no debug symbols? "
+            self.ui.consent("Build optimized helpers from this exact checkout with locked Cargo dependencies, Cargo parallelism and no debug symbols? "
                             "Cargo may download locked crates and execute their build scripts. No sudo/system installation. "
                             "Build/cache files consume disk; failure preserves your need")
             target = self.j.directory.path / "build"
@@ -979,7 +942,7 @@ class Helpers:
                        CARGO_TARGET_DIR=str(target))
             selected = select_supported_cargo(candidates, env, self.checkout)
             if selected is None:
-                self.ui.say("No discovered candidate reported Rust 1.88+ within the bounded compiler-probe budget. "
+                self.ui.say("No discovered candidate reported Rust 1.88+. "
                             "Repair the configured toolchain or choose an approved existing helper directory. "
                             "No installer or provider operation was run.")
                 return self.install()
@@ -987,7 +950,7 @@ class Helpers:
             self.ui.say("Building local helpers; Cargo progress follows. Interrupting never starts provider work.")
             # Child-only (Python 3.9+): keep new build paths private even when
             # the caller uses umask 0002. Never chmod an existing installation.
-            proc = subprocess.Popen([cargo, "build", "--locked", "--release", "--bins", "-j", "1"],
+            proc = subprocess.Popen([cargo, "build", "--locked", "--release", "--bins"],
                                     cwd=self.checkout, env=env, start_new_session=True, umask=0o077)
             try:
                 code = proc.wait()
@@ -1195,8 +1158,8 @@ class Dialogue:
         self.ui.say("Unverified effort candidates, NOT advertised support: " + ", ".join(efforts))
         effort = self.ui.ask("Choose an exact effort to verify (no default):").strip()
         require(effort in efforts, "effort_selection_required")
-        timeout = self.ui.number("Probe local deadline in milliseconds", 60000, 1, 60000)
-        tokens = self.ui.number("Probe observed-total-token PASS threshold (NOT a remote cap)", 4096, 1, 65536)
+        # Saved fields remain request metadata; application quotas are disabled.
+        timeout, tokens = 0, 0
         request = {"id": "probe-" + uuid.uuid4().hex, "catalogue_sha256": catalog["catalogue_sha256"],
                    "model": model, "effort": effort, "timeout_ms": timeout,
                    "max_observed_total_tokens": tokens, "require_remote_token_hard_bound": False}
@@ -1234,7 +1197,7 @@ class Dialogue:
             if probe["view"] is None:
                 args = ["plan", "--id", q["id"], "--catalogue-sha256", q["catalogue_sha256"],
                         "--model", q["model"], "--effort", q["effort"], "--timeout-ms", str(q["timeout_ms"]),
-                        "--max-observed-total-tokens", str(q["max_observed_total_tokens"]), "--retain-private-evidence"]
+                        "--max-observed-total-tokens", str(q["max_observed_total_tokens"])]
                 try:
                     probe["view"] = self.provider(*args)
                     self.j.save()
@@ -1251,21 +1214,15 @@ class Dialogue:
             phase = status.get("phase")
             if phase == "planned":
                 self.ui.say(f"One capability check: model={q['model']}, effort={q['effort']}, "
-                            f"account={v['plan']['account_sha256']}; local deadline={q['timeout_ms']}ms; "
-                            f"request<={v['maximum_request_bytes']} bytes, response<={v['maximum_response_bytes']} bytes, "
-                            f"stream<={v['maximum_stream_bytes']} bytes. Observed token threshold={q['max_observed_total_tokens']}.")
+                            f"account={v['plan']['account_sha256']}; application duration, byte and token quotas are disabled.")
                 self.ui.say(v["cost_notice"])
-                self.ui.consent("Authorize exactly this ONE potentially charged probe, private completed evidence retention, "
-                                "and UNCAPPED remote token/dollar exposure? A hard remote cap is unsupported; declining saves your need")
                 probe["attempted"] = True
                 self.j.save()
-                status = self.provider("probe", *args, "--authorize-one-request", "--retain-private-evidence",
-                                       "--acknowledge-uncapped-remote-usage", timeout=q["timeout_ms"] / 1000 + 15)
+                status = self.provider("probe", *args)
                 phase = status.get("phase")
             if phase == "completed_verified":
                 try:
-                    # Do this IMMEDIATELY, before any further question: the proof
-                    # to configuration binding has a five-minute catalogue TTL.
+                    # Save the exact completed proof and configuration together.
                     settings = self.provider("configuration", *args)
                     self.j.keep("settings", settings, q["id"])
                     self.ui.say("Strict-carrier/effort proof was verified and generated settings were saved privately. "
@@ -1276,14 +1233,13 @@ class Dialogue:
                         raise
                     self.ui.say("Completed proof cannot be bound to configuration now. No replacement probe was started.")
             elif phase in ("outcome_unrecorded", "failed_or_uncertain") or status.get("remote_usage_may_remain"):
-                self.ui.say("Probe outcome/usage is unresolved. This identity is retained and never replayed. "
-                            "Fresh probe IDs are not a recovery mechanism. See docs/provider-onboarding.md.")
-                raise Blocked("probe_outcome_unknown_no_replay")
+                self.ui.say("This probe outcome/usage remains unresolved and its identity is never replayed. "
+                            "A distinct selected probe does not settle or replace that outcome.")
+                if self.ui.ask("n: select a distinct new probe; q: leave").strip().lower() != "n":
+                    raise Halt()
             else:
                 self.ui.say(f"Capability remains unestablished: {phase}, {status.get('code')}. "
                             "No model/effort substitution or fabricated evidence is permitted.")
-            self.ui.consent("Authorize planning a distinct NEW verification after this recorded terminal outcome? "
-                            "This does not yet authorize another probe; any backend uncertainty block still controls")
             probe = self.new_probe()
 
     def bootstrap(self):
@@ -1769,7 +1725,7 @@ class Dialogue:
         self.ui.say(f"Work {work['id']} — original request: {work['need']}")
         if work.get("task_amendment"):
             self.ui.say("Current amended request: " + work["task_amendment"]["current_scope"]["request"])
-        for _ in range(16):
+        while True:
             self.ui.say("r: results; j: delivery receipt JSON; q: questions and answers; f: feedback; d: persona development; "
                         "m: amend task; u: resume participant; c: continue; a: Codex auth source; b: back")
             choice = self.ui.ask("Work action:").strip().lower()
@@ -1804,7 +1760,6 @@ class Dialogue:
                                 "or individually paused participant. Other holds and limits use the controls in RUNTIME-REFERENCE.md.")
             else:
                 self.ui.say("Choose a listed action.")
-        self.ui.say("Returning to the work list; progress remains saved.")
 
     @staticmethod
     def eligible(view, work):
@@ -1887,19 +1842,21 @@ class Dialogue:
                     "no application call quota or local model timeout. "
                     "The session continues until the personas stop, work is paused, or execution cannot proceed.")
         if not reuse:
+            if self.p["session"] is not None:
+                self.p.setdefault("session_history", []).append(self.p["session"])
             self.p["session"] = {"id": "session-" + uuid.uuid4().hex, "work": work,
                                  "route": route, "expected_launch": view["launch"]}
             self.j.save()
         s = self.p["session"]
         require(s["work"] == work and s["route"] == route, "session_binding_changed")
-        args = ["run", "--id", s["id"], "--work", work, "--authorize-run"]
+        args = ["run", "--id", s["id"], "--work", work]
         self.j.directory.write("session-launch.json", encoded(s["expected_launch"]))
         args += ["--expected-launch", str(self.j.directory.path / "session-launch.json")]
         if route["kind"] == "native_siwc":
-            args += ["--vault", route["vault"], "--authorize-native"]
+            args += ["--vault", route["vault"]]
         else:
             args += ["--codex-executable", route["executable"], "--host-home", route["host_home"],
-                     "--codex-home", route["codex_home"], "--authorize-codex-auth-only"]
+                     "--codex-home", route["codex_home"]]
         self.ui.say(f"Submitting {s['id']}. Waiting for its recorded native outcome.")
         # Host commands have no default duration limit. Wait for the native
         # session's outcome; explicit interruption still stops this helper.
@@ -1925,17 +1882,15 @@ class Dialogue:
         status = self.session_output(s)
         self.ui.say(f"Previous session {s['id']}: {status['status']}")
         if status["status"] == "outcome_unrecorded":
-            self.ui.say("No terminal outcome is retained. No new session or replay will be started. "
-                        "Keep this progress and use the exact advanced evidence/recovery controls in RUNTIME-REFERENCE.md.")
-            raise Blocked("session_outcome_unknown_no_replay")
+            self.ui.say("This session has no retained terminal outcome. Its exact identity remains saved and is not replayed. "
+                        "The work menu can select a distinct session for currently eligible participants.")
+            return
         if status["status"] == "not_recorded":
             if s["expected_launch"] != view["launch"]:
                 self.ui.say("This unstarted session's saved launch has changed, so its exact request cannot run. "
                             "No session was started. Return to the work menu to review a fresh run.")
                 return
-            self.ui.say("The retained ID has no runtime claim. It is the ONLY ID eligible for a retry after your fresh consent.")
-            if self.ui.ask("Authorize reviewing this same unclaimed session for dispatch? [yes/NO]").strip().lower() != "yes":
-                raise Halt()
+            self.ui.say("The selected session has no runtime claim. Submitting its same exact saved request.")
             self.run_work(s["work"], view, reuse=True)
         # Finished sessions are never dispatched again. A later explicit menu
         # action may request a distinct session through current eligible routes.
@@ -1981,7 +1936,7 @@ class Dialogue:
         view = self.inspect()
         self.recover_session(view)
         after = None
-        for _ in range(64):
+        while True:
             view = self.inspect(after)
             pending = [n for n in self.p["needs"] if n["work"] is None]
             settings = view["settings"]
@@ -2008,14 +1963,14 @@ class Dialogue:
             if saved_input:
                 request = saved_input["request"]
                 if saved_input["kind"] == "resume-participant":
-                    self.ui.say(f"Saved explicit resume for {request['persona']} in {request['work']} awaiting confirmation.")
+                    self.ui.say(f"Saved explicit resume for {request['persona']} in {request['work']} awaiting submission.")
                     self.ui.say("i: finish this same resume request; an earlier receipt cannot resume anyone again")
                 elif saved_input["kind"] == "amend-work":
-                    self.ui.say(f"Saved amendment for {request['work']} awaiting confirmation:\n{request['scope']['request']}")
+                    self.ui.say(f"Saved amendment for {request['work']} awaiting submission:\n{request['scope']['request']}")
                     self.ui.say("i: finish this same amendment; its identity and scope will be reused")
                 else:
                     content = request if saved_input["kind"] == "feedback" else request["reply"]
-                    self.ui.say(f"Saved {saved_input['kind']} for {request['work']} awaiting confirmation:\n{content['text']}")
+                    self.ui.say(f"Saved {saved_input['kind']} for {request['work']} awaiting submission:\n{content['text']}")
                     if "basis" in content:
                         self.ui.say("Basis: " + content["basis"])
                     self.ui.say("i: deliver this same saved input; its identity and text will be reused")
@@ -2042,7 +1997,6 @@ class Dialogue:
                 self.work_menu(work, after)
             else:
                 self.ui.say("Choose a listed entry. No operation was started.")
-        self.ui.say("This foreground interaction reached its menu bound; progress remains saved.")
 
 
 def progress_candidates():

@@ -201,12 +201,27 @@ streams fairly. Process cleanup waits for the actual owned child to exit instead
 of treating a local grace-period expiry as its outcome. Credential-bearing data
 remains private and is not printed in diagnostics.
 
+Provider onboarding has no catalogue size, entry-count or transfer-duration quota,
+fixed catalogue lifetime, plan retention quota, journal byte ceiling or observed-token
+threshold. Probe views report quota enforcement off and null byte maxima. Exact
+account, credential generation, actual expiry, complete response and proof bindings
+remain required. An unknown prior probe preserves its consumed identity without
+blocking a separately selected new probe. Vault file reads and writes have no
+application byte quota.
+
+The terminal dialogue asks for no probe timeout or token threshold. Toolchain
+discovery examines every candidate without a count, directory-entry, version-output
+or local-duration cap; Cargo uses its normal parallelism. Work and main menus have
+no iteration cap. Every prior session identity remains in the journal; an unknown
+outcome can coexist with a separately selected new session for eligible personas.
+It is never replayed or relabeled as complete.
+
 ## Remaining work
 
 Removal is still incomplete. Remaining
 application enforcement includes delegated intake authority and one-child workflow
-constraints; explicit optional opportunity and birth workflows; provider onboarding
-plan/catalogue limits; toolchain discovery bounds; remaining typed protocol and
+constraints; explicit optional opportunity and birth workflows; native SIWC authentication
+transport and credential-field limits; onboarding model/effort selection gates; remaining typed protocol and
 tool-input limits; and additional specialized control limits. These are implementation gaps under the
 new requirement, not exceptions granted by the user. Some earlier documents still
 describe them because those paths remain implemented. They must be removed or

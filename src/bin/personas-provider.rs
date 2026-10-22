@@ -36,10 +36,10 @@ mod cli {
             /// Unverified candidate, not an assertion of model support. No default.
             #[arg(long)]
             effort: String,
-            #[arg(long)]
+            #[arg(long, default_value_t = 0)]
             timeout_ms: u64,
-            /// Observed-usage threshold, NOT a remote token cap.
-            #[arg(long)]
+            /// Historical metadata; no observed-token threshold is enforced.
+            #[arg(long, default_value_t = 0)]
             max_observed_total_tokens: u64,
             #[arg(long)]
             require_remote_token_hard_bound: bool,
@@ -192,7 +192,6 @@ mod cli {
             }
         }
     }
-
 }
 #[cfg(unix)]
 #[tokio::main]

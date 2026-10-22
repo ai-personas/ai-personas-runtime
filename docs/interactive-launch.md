@@ -110,7 +110,7 @@ this checkout with locked Cargo dependencies. Selected binaries are
 pinned by exact path and SHA-256; changed binaries stop the flow rather than
 silently replacing an installation. Cargo may download locked crates and execute
 build scripts as part of the selected build. The build produces optimized release
-helpers using one job, no incremental compilation and no debug symbols, storing
+helpers using Cargo's normal parallelism, no incremental compilation and no debug symbols, storing
 artifacts under the private UI root. Initial compilation can take longer than a
 development build; normal work and inspection use the optimized helpers.
 To select an updated installation for an existing journal, start the launcher
@@ -118,7 +118,9 @@ with `PERSONAS_BIN=/absolute/helper-directory/ai-personas ./personas`. The expli
 directory takes precedence over the saved installation and uses the same review
 of all four helper hashes. The journal's runtime, pending inputs and session
 identities remain intact.
-Cargo caches, native toolchains and physical disk are not hard-bounded by the UI.
+Toolchain discovery examines every configured candidate without directory-entry,
+candidate-count, version-output or duration caps. Cargo caches, native toolchains
+and physical disk are not hard-bounded by the UI.
 The shell launcher selects the first available Python 3.9+ from supported versioned names, then checks Linux memfd sealing and procfs descriptor support before starting the UI. If none qualifies, it prints an actionable host-prerequisite message; it does not install software or fall back to pathname execution. Missing Rust 1.88+, Cargo, compiler/linker requires installation; no sudo, arbitrary installer, privilege bypass, Codex CLI or coding-agent fallback is used.
 
 Choose a fresh runtime or explicitly select an existing private one and its
@@ -128,8 +130,8 @@ configured for the Codex auth-only ChatGPT OAuth route can also continue from th
 work menu. Other saved provider modes retain their explicit CLI paths; the menu
 does not convert provider modes or switch billing accounts.
 
-For a fresh runtime, choose between one and eight continuing personas before
-reviewing the sharing permissions and resource limits. Give each a name and
+For a fresh runtime, choose any positive number of continuing personas before
+reviewing the setup. Give each a name and
 starting profile describing its OCEAN tendencies and VAD affect in words or
 scores. Profiles describe character, not assigned jobs, competence or experience.
 The launcher retains your exact supplied profile with its attribution and shows
@@ -159,9 +161,10 @@ The session retains its exact route, paths and inspected launch reference before
 dispatch. A changed launch is rejected before a new session claim is created.
 An interrupted session keeps that same identity and request. A confirmed
 unclaimed request whose launch has changed cannot be reused; the menu lets you
-review a fresh run separately. An unrecorded terminal outcome still blocks all
-replacement sessions. Every launcher session records an explicit authentication
-route and the inspected launch reference.
+select a fresh run separately. An unrecorded terminal outcome stays unknown;
+the menu permits a separately selected session for eligible personas and retains
+every earlier session identity in its history. Every launcher session records an
+explicit authentication route and the inspected launch reference.
 
 Native session claims use version 2. Admission atomically retains the bounded
 claim and prepays one 16 KiB terminal slot, its identity/history capacity, peak
@@ -235,15 +238,17 @@ private evidence without repeated confirmations. Choose a listed model and an
 exact unverified effort candidate.
 Discovery alone proves neither effort support nor strict output support.
 
-The probe has one durable identity, one request and explicit local time/byte and
-observed-token thresholds. **Those are not remote token/dollar ceilings.** SIWC
-cannot use `max_output_tokens`. The selected probe proceeds without a separate
-uncapped-usage acknowledgment. Leaving the dialogue preserves the need. A pass requires the backend's complete strict proof. Generated settings
-are saved immediately, before setup prompts, because catalogue/proof-to-config
-binding expires after five minutes. Unavailable or expired proof is never fabricated
-and does not automatically cause another probe.
+The probe has one durable request identity and no application duration, byte or
+observed-token quota. SIWC cannot use `max_output_tokens`, and no remote token or
+dollar ceiling is claimed. The selected probe proceeds without a separate
+acknowledgment. Leaving the dialogue preserves the need. A pass requires the
+backend's complete proof. Generated settings are saved immediately, before setup
+prompts. Catalogue/proof binding has no fixed five-minute lifetime; actual
+credential expiry and exact account/generation checks still apply. Unavailable
+proof is never fabricated or silently rerun. An unknown previous probe remains
+recorded while the menu offers a separately selected new identity.
 
-The proposed runtime uses two voluntary continuing personas, explicit local
+The proposed runtime uses the chosen number of voluntary continuing personas, recorded local
 self-authorship/work/message grants, the selected account/model/effort, local
 requester delivery and default full host command access, including tool
 installation and use. The flow displays
@@ -268,13 +273,14 @@ remains explicit and is not used by the dialogue.
 
 ## Returning, failure and recovery
 
-The foreground menu submits pending needs, lists pages of eight saved works,
-shows permission-projected results and offers explicitly authorized continuation
-only for eligible candidates. Keyed intake retains its ID and exact acceptance
-requirement after a lost response. Every run has a saved single-use session ID;
-an unknown session is queried, not redispatched or replaced. Even an unclaimed
-session requires fresh consent before the same ID may run. No background work or
-automatic model request occurs merely by starting the UI.
+The foreground menu submits pending needs, lists requested pages of saved works,
+shows attributed results and offers continuation for eligible candidates. Both
+the main and work menus have no iteration cap. Keyed intake retains its ID and
+exact acceptance requirement after a lost response. Every run has a saved
+single-use session ID. An unknown session is queried and retained in history;
+the user can separately select a new session for eligible personas. A confirmed
+unclaimed request can continue under its exact saved launch binding without a
+second confirmation.
 
 Selecting a work opens its action menu:
 
@@ -296,9 +302,9 @@ Selecting a work opens its action menu:
   participant in an Open work and explicitly allow a fresh decision. It starts
   no model call. The menu shows names alongside identities and rechecks the
   exact work state before applying the choice.
-- **c: continue** rechecks current eligibility before the existing foreground
-  authorization flow. Resume a stopped participant with **u** first. Work-wide
-  pauses, failed-attempt holds and exhausted resources use their separate controls.
+- **c: continue** rechecks current eligibility before running the selected session.
+  Resume a stopped participant with **u** first. Work-wide pauses and failed-attempt
+  holds use their separate controls. Historical resource settings impose no quotas.
 - **a: Codex auth source** selects non-secret authentication locations for a
   compatible saved runtime. It neither authenticates nor starts a session.
 
@@ -312,7 +318,7 @@ request and its identity.
 If the operation is interrupted, **i** in the work list explicitly delivers that
 same input. Native replay queues no duplicate. A new input cannot replace an
 unconfirmed one. After a confirmed receipt, the next input may replace the UI's
-pointer; accepted history remains in the runtime. One bounded transport file is
+pointer; accepted history remains in the runtime. One complete transport file is
 reconstructed from the journal, without accumulating an input file per operation.
 Resume commits its state transition and immutable receipt together. Repeating the
 request returns that earlier receipt without resuming anyone again, even if the
@@ -326,15 +332,15 @@ The machine boundary exposes these actions as `personas-session questions`,
 execution owners, and errors remain static machine codes. The explicit native
 CLI and thin-wrapper commands remain available.
 
-An unknown probe, unfinished invocation or unrecorded session blocks further
-execution; retain progress for exact evidence review. A call with a recorded
-local failure holds its own persona. Eligible peers can continue within the
-current session's remaining allowance or a newly authorized session. The menu
+Unknown probes and sessions retain their exact identities and outcomes without
+blocking separately selected work. An unfinished invocation or recorded local
+failure holds its own persona. Eligible peers can continue in the current session
+or a separately selected one without a session allowance. The menu
 uses each participant's current eligibility, even when a peer still has a failed
 invocation. Requester feedback, question replies and a targeted resume of an
 otherwise eligible stopped peer remain available after local execution ends.
 
-Work-wide pauses, failed-persona recovery and exhausted capacity use their
+Work-wide pauses and failed-persona recovery use their
 existing supported controls. A local network failure can still have unknown
 remote outcome and usage. Peer progress neither reconciles that failure nor
 releases its actor, repeats its request or replenishes resources. Complete
@@ -342,7 +348,7 @@ rejected responses can retain an already accepted ordinary continuation under
 the [foreground continuation rules](../RUNTIME-REFERENCE.md#foreground-cohort-workflow).
 [Runtime reference](../RUNTIME-REFERENCE.md) documents the
 operator controls; [provider onboarding](provider-onboarding.md) describes probe
-limits and [activation](activation.md) covers same-account renewal/migration.
+evidence and [activation](activation.md) covers same-account renewal/migration.
 
 Explicit browser reauthorization or refresh is offered for unavailable access.
 An existing runtime's old account/expiry pins never change automatically. A
@@ -352,19 +358,14 @@ boundary rather than constructing a policy/recovery editor. Account mismatch is
 blocked, never treated as permission to switch accounts. A historical completed
 probe is not proof for a new credential generation.
 
-The journal is bounded to 2 MiB, 32 pending/intake records and 16 probe identities.
-Generated settings are bounded immutable 64 KiB files; bootstrap requests allow
-256 KiB to retain the full cohort's starting profiles. Only
-the most recent session pointer is needed: replacement requires a known terminal
-or a confirmed unclaimed stale request, followed by new consent. The bounded
-`session-launch.json` transport file is reconstructed from the exact saved
-session, not accumulated per run. Writes are atomic, synchronized and guarded
-by a nonblocking OS lock; malformed/missing progress with retained files blocks
-instead of resetting. Bounded stale write files are not silently removed. This is
-not protection from hostile same-UID/root access, deletion or rollback. Preserve
-private state; do not copy it into repositories. Build outputs and Runtime/vault
-evidence have separate limits; physical disk and arbitrary outside copies are
-not covered by the progress-journal cap.
+The journal, pending/intake records, probe identities, generated settings and
+bootstrap profiles have no application count or byte quotas. The current session
+has its own pointer, and all earlier selected sessions remain in `session_history`.
+The `session-launch.json` transport file is reconstructed from the exact saved
+session. Writes are atomic, synchronized and guarded by an OS lock;
+malformed/missing progress with retained files is reported without resetting it.
+Stale write files are not silently removed. Private state belongs outside
+repositories. Physical disk and outside copies are not bounded by the launcher.
 
 If the selected standard state location is rejected by the native vault helper,
 the dialogue stops with `native_vault_location_unsupported`; it does not prompt

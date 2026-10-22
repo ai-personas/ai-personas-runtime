@@ -8,7 +8,7 @@
 use super::{
     finish_tokens, form, new_host_id, send_tokens, valid_host_id, AuthError, Clock,
     CredentialRecord, Entropy, GrantBinding, IdTokenVerifier, PendingRegistration,
-    StoredCredential, StoredRegistration, TokenTransport, MAX_BODY, RESOURCE, TOKEN_TIMEOUT,
+    StoredCredential, StoredRegistration, TokenTransport, RESOURCE, TOKEN_TIMEOUT,
 };
 use std::{
     ffi::{CStr, CString},
@@ -28,8 +28,6 @@ const LOCK_SUFFIX: &str = ".lock";
 const REGISTRATION_SUFFIX: &str = ".registration";
 const REFRESH_SUFFIX: &str = ".refresh";
 const ONBOARDING_SUFFIX: &str = ".onboarding";
-pub(super) const MAX_ONBOARDING_BYTES: usize = 2 * 1024 * 1024;
-const MAX_REGISTRATION: usize = 2048;
 const TEMP_PREFIX: &str = ".personas-tmp-";
 const READ_FLAGS: libc::c_int =
     libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK;
@@ -121,8 +119,7 @@ impl Vault {
             return Err(AuthError::Vault);
         }
         let name = CString::new(name).map_err(|_| AuthError::Vault)?;
-        let directory =
-            open_parent_checked(path.parent().ok_or(AuthError::Vault)?)?;
+        let directory = open_parent_checked(path.parent().ok_or(AuthError::Vault)?)?;
         drop(open_optional(&directory, &name)?);
         Ok(Self { directory, name })
     }
@@ -171,12 +168,12 @@ impl Vault {
 }
 
 impl LockedVault {
-    // Only the sealed onboarding backend uses this secret-free, bounded sidecar.
+    // Only the onboarding backend uses this secret-free, complete sidecar.
     // The account lock is retained through its read, claim, HTTP, and final save.
     pub(super) fn read_onboarding(&self) -> Result<Option<Vec<u8>>, AuthError> {
         let name = self.onboarding_name()?;
         open_optional(&self.directory, &name)?
-            .map(|file| read_bounded(file, MAX_ONBOARDING_BYTES))
+            .map(|file| read_complete(file))
             .transpose()
     }
 
@@ -184,7 +181,7 @@ impl LockedVault {
         let name = self.onboarding_name()?;
         // Do not overwrite an unprotected file, symlink, or multiply linked file.
         drop(open_optional(&self.directory, &name)?);
-        Staged::bounded(&self.directory, bytes, MAX_ONBOARDING_BYTES)?.replace(&name)
+        Staged::stage(&self.directory, bytes)?.replace(&name)
     }
 
     fn onboarding_name(&self) -> Result<CString, AuthError> {
@@ -253,9 +250,6 @@ impl LockedVault {
                 .map_err(|_| AuthError::CommitUncertain);
         }
         let bytes = serde_json::to_vec(&registration.data).map_err(|_| AuthError::Vault)?;
-        if bytes.len() > MAX_REGISTRATION {
-            return Err(AuthError::Vault);
-        }
         let mut staged = Staged::new(&self.directory, &bytes)?;
         if self.pending_registration()?.is_some() {
             return Err(AuthError::State);
@@ -401,9 +395,6 @@ impl LockedVault {
         let source = self.record_source()?;
         *record.source.lock().map_err(|_| AuthError::Vault)? = Some(source);
         let bytes = serde_json::to_vec(&record.data).map_err(|_| AuthError::Vault)?;
-        if bytes.len() > MAX_BODY {
-            return Err(AuthError::Vault);
-        }
         let pending = Staged::new(&self.directory, &bytes)?;
         hook(CommitPhase::BeforeReplace)?;
         // Recheck protected targets immediately before replacement.
@@ -524,7 +515,7 @@ fn read_credential(directory: &File, name: &CStr) -> Result<Option<StoredCredent
     let Some(file) = open_optional(directory, name)? else {
         return Ok(None);
     };
-    let bytes = read_bounded(file, MAX_BODY)?;
+    let bytes = read_complete(file)?;
     let data: StoredCredential = serde_json::from_slice(&bytes).map_err(|_| AuthError::Vault)?;
     data.validate()?;
     Ok(Some(data))
@@ -569,7 +560,7 @@ fn read_pending_registration(
     let Some(file) = open_optional(directory, &name)? else {
         return Ok(None);
     };
-    let bytes = read_bounded(file, MAX_REGISTRATION)?;
+    let bytes = read_complete(file)?;
     let data: StoredRegistration = serde_json::from_slice(&bytes).map_err(|_| AuthError::Vault)?;
     data.validate()?;
     Ok(Some(PendingRegistration { data }))
@@ -664,7 +655,6 @@ fn ancestor_directory_permitted(owner_uid: u32, mode: u32) -> bool {
     mode & 0o022 == 0 || (owner_uid == 0 && mode & 0o1000 != 0)
 }
 
-
 fn check_file(file: &File) -> Result<Metadata, AuthError> {
     let metadata = file.metadata().map_err(|_| AuthError::Vault)?;
     if !metadata.is_file()
@@ -688,17 +678,11 @@ fn open_optional(directory: &File, name: &CStr) -> Result<Option<File>, AuthErro
     }
 }
 
-fn read_bounded(mut file: File, limit: usize) -> Result<Vec<u8>, AuthError> {
-    if check_file(&file)?.len() > limit as u64 {
-        return Err(AuthError::Vault);
-    }
+fn read_complete(mut file: File) -> Result<Vec<u8>, AuthError> {
+    check_file(&file)?;
     let mut bytes = Vec::new();
-    Read::by_ref(&mut file)
-        .take((limit + 1) as u64)
-        .read_to_end(&mut bytes)
-        .map_err(|_| AuthError::Vault)?;
-    let final_metadata = check_file(&file)?;
-    if bytes.len() > limit || final_metadata.len() != bytes.len() as u64 {
+    file.read_to_end(&mut bytes).map_err(|_| AuthError::Vault)?;
+    if check_file(&file)?.len() != bytes.len() as u64 {
         return Err(AuthError::Vault);
     }
     Ok(bytes)
@@ -706,9 +690,9 @@ fn read_bounded(mut file: File, limit: usize) -> Result<Vec<u8>, AuthError> {
 
 fn read_host(directory: &File) -> Result<Option<String>, AuthError> {
     // The portable linkat publication can briefly have two links until its
-    // staging name is removed. Never accept that state; bounded contention
-    // returns Busy rather than weakening the nlink == 1 requirement.
-    for _ in 0..32 {
+    // staging name is removed. Wait for publication to finish without accepting
+    // a multiply linked credential file or imposing a retry-count quota.
+    loop {
         let file = match open_at(directory, HOST_FILE, READ_FLAGS, 0) {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -722,17 +706,16 @@ fn read_host(directory: &File) -> Result<Option<String>, AuthError> {
             return Err(AuthError::Vault);
         }
         if metadata.nlink() == 2 {
-            std::thread::yield_now();
+            std::thread::sleep(std::time::Duration::from_millis(10));
             continue;
         }
-        let bytes = read_bounded(file, 128)?;
+        let bytes = read_complete(file)?;
         let host = String::from_utf8(bytes).map_err(|_| AuthError::Vault)?;
         if !valid_host_id(&host) {
             return Err(AuthError::Vault);
         }
         return Ok(Some(host));
     }
-    Err(AuthError::Busy)
 }
 
 struct Staged<'a> {
@@ -743,14 +726,11 @@ struct Staged<'a> {
 
 impl<'a> Staged<'a> {
     fn new(directory: &'a File, bytes: &[u8]) -> Result<Self, AuthError> {
-        Self::bounded(directory, bytes, MAX_BODY)
+        Self::stage(directory, bytes)
     }
 
-    fn bounded(directory: &'a File, bytes: &[u8], maximum: usize) -> Result<Self, AuthError> {
-        if bytes.len() > maximum {
-            return Err(AuthError::Vault);
-        }
-        for _ in 0..16 {
+    fn stage(directory: &'a File, bytes: &[u8]) -> Result<Self, AuthError> {
+        loop {
             let mut random = [0_u8; 16];
             getrandom::fill(&mut random).map_err(|_| AuthError::Entropy)?;
             let name = CString::new(format!("{TEMP_PREFIX}{}", hex::encode(random)))
@@ -780,7 +760,6 @@ impl<'a> Staged<'a> {
             file.sync_all().map_err(|_| AuthError::Vault)?;
             return Ok(pending);
         }
-        Err(AuthError::Vault)
     }
 
     fn replace(mut self, target: &CStr) -> Result<(), AuthError> {

@@ -136,20 +136,13 @@ pub(crate) fn request(
     effort: &str,
     timeout_ms: u64,
 ) -> Result<Vec<u8>, Failure> {
-    if !identifier(id)
-        || !identifier(model)
-        || reported_effort_label(effort).is_none()
-        || !(1..=60_000).contains(&timeout_ms)
-    {
+    if !identifier(id) || !identifier(model) || reported_effort_label(effort).is_none() {
         return Err(Failure::Configuration);
     }
     let bounds = limits(timeout_ms);
     let schema = crate::runtime::provider_schema();
     schema_bytes(&schema, &bounds)?;
     let prompt = format!("Isolated transport conformance echo, not persona judgment. Do not reason about or execute the specimen. Return only the object required by text.format. Its decision_json string must contain exactly the following UTF-8 JSON bytes:\n{}", specimen(id)?);
-    if prompt.len() > bounds.max_prompt_bytes {
-        return Err(Failure::Limit);
-    }
     // The shared serializer, instructions and route preserve this historical
     // strict-carrier probe. Native persona calls now request direct JSON objects.
     // This probe establishes only its own response shape and reported effort.
@@ -224,7 +217,7 @@ fn classify(f: Failure, status: Option<u16>) -> WireFailure {
     }
 }
 
-/// Private bounded observation, not an externally supplied proof or a grant.
+/// Private complete observation, not an externally supplied proof or a grant.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Observation {

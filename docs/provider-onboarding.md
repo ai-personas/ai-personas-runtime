@@ -1,12 +1,12 @@
 # SIWC provider-onboarding backend (Stage 2)
 
-This backend supplies account-specific model choices, a separately authorized
-single-use transport probe, and generated native `DirectSettings`. It is not the
+This backend supplies account-specific model choices, a selected
+transport probe with an exact single-use identity, and generated native `DirectSettings`. It is not the
 interactive launcher, an installer, sign-in UI, or permission-recovery UI. The
 existing `personas-auth` sign-in and refresh contracts are unchanged. No runtime
 Store is opened by this backend.
 
-## Provider contract and the unavoidable token-cap limit
+## Provider contract and observed usage
 
 The official [sign-in contract](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)
 remains the basis of the existing selected vault, registration, PKCE/callback,
@@ -24,11 +24,11 @@ Inference uses only public `POST https://api.openai.com/v1/responses`, with
 **SIWC does not support `max_output_tokens`.** This is explicit in the official
 [preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations).
 A server-enforced token/dollar ceiling is therefore not implemented or claimed.
-A plan requiring a remote token hard bound returns
-`remote_token_bound_unsupported` before dispatch. The alternative is a distinct
-one-request grant that explicitly acknowledges this limitation. Its observed
-usage threshold is a post-observation acceptance limit, not a remote cap. Closing
-a local connection or reaching a deadline does not establish remote cancellation.
+Application duration, byte and observed-token quotas are disabled. Historical
+timeout, token-threshold and hard-bound request fields are optional metadata;
+they do not reject a plan or its completed response. The view reports
+`resource_quotas_enforced: false`, null byte maxima and no remote token or dollar
+hard bound. Closing a local connection does not establish remote cancellation.
 
 These contracts were checked on 2026-10-16. Catalogue discovery does not establish
 strict-carrier or effort support. A successful small echo is evidence for that
@@ -45,8 +45,8 @@ renewal operation. These commands need no second authorization flag.
 
 | Method | Effect and result |
 | --- | --- |
-| `catalogue(authorize_read, retain_private_evidence)` | One bounded live GET and private catalogue retention. Returns exact selectable choices and an evidence digest. |
-| `plan(PlanRequest, retain_private_evidence)` | Persists an immutable plan under an exact ID; returns the bound account/model/effort, plan digest, cost notice and finite local limits. No inference. |
+| `catalogue(authorize_read, retain_private_evidence)` | A live GET and complete private catalogue retention, without local size, count or duration quotas. Returns exact selectable choices and an evidence digest. |
+| `plan(PlanRequest, retain_private_evidence)` | Persists an immutable plan under an exact ID; returns the bound account/model/effort, plan digest, cost notice and disabled-quota view. No inference. |
 | `execute(id, plan_sha256, ProbeConsent, Cancellation)` | Consumes the exact plan durably before possible transmission, then attempts at most one request. The explicit command needs no additional confirmation flags; exact evidence is retained. |
 | `probe_status(id, plan_sha256)` | Returns retained historical metadata without resolving credentials or dispatching. |
 | `configuration(id, plan_sha256)` | Returns typed native settings only after exact completed proof, current credential-generation checking and current catalogue checking. No runtime write or sharing/funding grant. |
@@ -56,8 +56,9 @@ Mutating methods require `&mut Backend`, preventing overlapping in-process
 journal updates. The account file lock excludes another backend process and
 cooperative sign-in/refresh writers. Busy is not permission to recover an owner.
 
-`PlanRequest` contains `id`, `catalogue_sha256`, `model`, `effort`, `timeout_ms`,
-`max_observed_total_tokens` and `require_remote_token_hard_bound`. There is no model
+`PlanRequest` requires `id`, `catalogue_sha256`, `model` and `effort`. Its historical
+`timeout_ms`, `max_observed_total_tokens` and `require_remote_token_hard_bound`
+fields default to zero/false and do not impose quotas. There is no model
 or effort default. `effort_candidates_unverified` in catalogue output is only the
 existing local Responses vocabulary; it is NOT a provider-supported-effort list.
 The human chooses a candidate; evidence requires the response to actually report
@@ -90,12 +91,13 @@ Errors use static serialized `Code` enum values. Invalid arguments never echo
 supplied values. Do not parse `Display` text: its longer explanatory strings may
 differ from the serialized code.
 
-`plan` requires explicit `--id`, `--catalogue-sha256`, `--model`, `--effort`,
-`--timeout-ms` and `--max-observed-total-tokens`.
+`plan` requires explicit `--id`, `--catalogue-sha256`, `--model` and `--effort`.
+The old `--timeout-ms` and `--max-observed-total-tokens` arguments are optional
+metadata and default to zero.
 `probe` requires the exact returned `--id` and `--plan-sha256`. The former
 `--authorize-one-request`, `--retain-private-evidence` and
 `--acknowledge-uncapped-remote-usage` flags are optional metadata. Account,
-model, effort, request, finite local limits and deadline are bound by that digest.
+model, effort, request and recorded metadata are bound by that digest.
 No token, API key, executable, or alternate endpoint argument exists.
 
 `configuration` returns settings in `data`, not a saved-runtime modification.
@@ -103,23 +105,21 @@ The later UI supplies this typed value to ordinary `launch::setup` after distinc
 runtime sharing, destination and resource decisions. Root `./personas` remains
 unchanged in this stage. Credential/API-key input and dialogue are not added.
 
-## Bounds, retention and uncertainty
+## Complete retention and uncertainty
 
-Catalogue transfer is at most 65535 bytes plus observed EOF, at most 128 entries,
-and 15 seconds locally. Catalogue freshness is a local 300-second policy. Probe
-plans expire no later than that catalogue's freshness deadline or credential
-expiry. Each plan admits at most one request, 16384 encoded request bytes, 8192
-carrier bytes, 262144 stream bytes (EOF required before exhaustion), 32768 event
-bytes, 2048 events, and an explicitly selected 1..60000 ms local transfer deadline.
-The observed-token threshold is explicitly selected in 1..65536. It does not stop
-unobservable server computation. Generated runtime transport ceilings are separate
-finite local policy constants; they neither replenish runtime resources nor
-promise that every future request fits.
+Catalogue transfer and parsing retain complete available data without application
+byte, entry-count or duration quotas. There is no fixed catalogue lifetime or
+five-minute plan deadline. The selected account, credential generation and actual
+credential expiry still have to match. Each request identity is consumed once;
+request, carrier, stream, event and observed-token quotas do not restrict it.
+Complete EOF and consistent provider usage remain required for proof. Generated
+runtime transport settings retain historical values without quota enforcement.
 
-The secret-free `<vault>.onboarding` sidecar holds at most 16 immutable plan IDs,
-the current catalogue, claims and outcomes within 2 MiB. The cap includes each
-plan's retained exact catalogue. There is no automatic eviction, reset or ID
-reuse. Local settings/output, exact completed carrier, reported usage, request and
+The secret-free `<vault>.onboarding` sidecar retains immutable plan IDs,
+the current catalogue, claims and outcomes without a plan-count or byte quota.
+There is no automatic eviction, reset or ID reuse. Vault credential, registration
+and journal reads and writes also have no application byte quota.
+Local settings/output, exact completed carrier, reported usage, request and
 stream digests, timestamps and status are retained; reasoning streams are not.
 The journal includes a one-way credential-generation commitment, never token
 values. Malformed carrier or known secret echoes are withheld with a digest and
@@ -128,16 +128,16 @@ byte count, never promoted to proof. Machine output contains no carrier bodies.
 Publication uses the vault's descriptor-anchored mode-0600 staging, file fsync,
 atomic replacement and directory fsync under its account lock. Symlinks,
 multiply-linked files, wrong ownership/permissions, repository ancestry and
-malformed/over-limit saved fields are refused. No production credential format is
+malformed saved fields are refused. No production credential format is
 changed. The `.onboarding` filename suffix is now reserved against credential-path
 selection to prevent namespace collisions.
 
 A claim is saved before possible dispatch. An identical repeated ID returns its
 existing plan/status; changed contents or plan digest conflict. A lost response,
 process death, dropped future or failed terminal save leaves the identity consumed
-and cannot trigger a repeat. Unknown prior probes block fresh dispatch even under
-another ID. This stage exposes that blockage; it has no remote-usage reconciliation
-or hold-clearing operation. It never invents zero usage or successful completion.
+and cannot trigger a repeat under that identity. An independently selected new
+probe can use a distinct identity while an earlier outcome remains unknown.
+This does not reconcile the earlier use or invent zero usage or successful completion.
 
 There is no physical disk, OS-buffer, allocator, hidden-provider-token or dollar
 hard bound. Atomic rewrite needs an old/new copy and may leave private staging
@@ -147,11 +147,11 @@ unrecorded, not retryable. Protect and retain the journal; deleting it or restor
 an older copy defeats any local duplicate-history guarantee and is unsupported.
 Same-UID/root tampering remains outside the existing vault security boundary.
 
-## Exact safe renewal and migration path
+## Exact renewal and migration path
 
 Drop the backend first. The future UI can invoke the existing
-`personas-auth --vault SELECTED refresh --authorize` only after a separate renewal
-decision. An uncertain refresh remains fenced; do not repeat it automatically.
+`personas-auth --vault SELECTED refresh` after the user selects renewal.
+An uncertain refresh remains fenced; do not repeat it automatically.
 Use the existing explicit same-selected-account sign-in path when reauthorization
 is required. Registration, host, subject/client binding and callback validation
 stay with that helper; a different account cannot overwrite this account's grant.
