@@ -3409,13 +3409,17 @@ impl<'a> Work<'a> {
             )
             .optional()?;
         row.map(|(data, capacity, lane, slots)| {
-            let data = revision_storage::decode(namespace, data.ok_or(StoreError::TooLarge)?)?;
+            let data = data.ok_or(StoreError::TooLarge)?;
             let capacity = u64::try_from(capacity)
                 .map_err(|_| StoreError::Corrupt("negative capacity".into()))?;
             let slots = u64::try_from(slots)
                 .map_err(|_| StoreError::Corrupt("negative event slots".into()))?;
             if data.len() as u64 > capacity {
                 return Err(StoreError::Corrupt("cell capacity".into()));
+            }
+            let data = revision_storage::decode(namespace, data, capacity)?;
+            if data.len() as u64 > capacity {
+                return Err(StoreError::Corrupt("decoded cell capacity".into()));
             }
             let class = match lane {
                 0 => BudgetClass::Ordinary,

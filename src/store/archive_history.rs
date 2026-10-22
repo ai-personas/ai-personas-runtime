@@ -148,7 +148,11 @@ fn archive_cell(
             charge(inspected_bytes, physical_bytes)?;
             return Ok(Some(None));
         };
-        let decoded = match revision_storage::decode(namespace, body) {
+        let Ok(capacity) = u64::try_from(capacity) else {
+            charge(inspected_bytes, physical_bytes)?;
+            return Ok(Some(None));
+        };
+        let decoded = match revision_storage::decode(namespace, body, capacity) {
             Ok(decoded) => decoded,
             Err(error) => {
                 charge(inspected_bytes, physical_bytes)?;
@@ -158,7 +162,7 @@ fn archive_cell(
         // Archive navigation measures complete logical records, independently
         // of their physical compression. Retain observed cost on failures too.
         charge(inspected_bytes, decoded.len() as u64)?;
-        if u64::try_from(capacity).ok().is_none_or(|capacity| decoded.len() as u64 > capacity) {
+        if decoded.len() as u64 > capacity {
             return Ok(Some(None));
         }
         Ok(Some(Some(decoded)))

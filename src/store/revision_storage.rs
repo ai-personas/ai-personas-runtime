@@ -34,7 +34,7 @@ pub(super) fn encode<'a>(namespace: &str, data: &'a [u8]) -> Result<Cow<'a, [u8]
 /// Restore exact bytes before JSON decoding, identity validation or logical
 /// accounting. The recorded length is an integrity claim, not a size quota.
 /// Existing plain revisions remain their original immutable representation.
-pub(super) fn decode(namespace: &str, data: Vec<u8>) -> Result<Vec<u8>> {
+pub(super) fn decode(namespace: &str, data: Vec<u8>, allocation: u64) -> Result<Vec<u8>> {
     if namespace != "revision" || !data.starts_with(b"AIPR") {
         return Ok(data);
     }
@@ -42,6 +42,12 @@ pub(super) fn decode(namespace: &str, data: Vec<u8>) -> Result<Vec<u8>> {
         return Err(StoreError::Corrupt("revision compression header".into()));
     }
     let length = u64::from_le_bytes(data[8..16].try_into().expect("checked header"));
+    // Allocation records the complete bytes retained for this immutable cell.
+    // Check that identity metadata before decompression can allocate output.
+    // This is not a configured Store limit; new cells grow with their data.
+    if length > allocation {
+        return Err(StoreError::Corrupt("revision length exceeds recorded allocation".into()));
+    }
     let capacity = usize::try_from(length)
         .map_err(|_| StoreError::Overflow("decoded revision byte length"))?;
     let decoded = zstd::bulk::decompress(&data[HEADER_BYTES..], capacity)
