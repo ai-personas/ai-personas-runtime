@@ -138,7 +138,6 @@ pub(crate) fn requirements(object: &s::StoredObject) -> Result<Vec<s::RuntimeCon
     let personas = object.body["personas"]
         .as_object()
         .ok_or_else(|| held("persona state unavailable"))?;
-    require(personas.len() <= 128, "persona control population bound")?;
     let works = object.body["board"]["works"]
         .as_object()
         .ok_or_else(|| held("work board unavailable"))?;
@@ -260,10 +259,6 @@ pub(crate) fn retirement_blockers(
         .personas
         .get(actor)
         .ok_or_else(|| held("persona unavailable"))?;
-    require(
-        persona.focus.len() <= 128 && state.board.works().len() <= 128,
-        "persona retirement work bound",
-    )?;
     let mut blockers = Vec::new();
     for (wid, work) in state.board.works() {
         let canceled = matches!(

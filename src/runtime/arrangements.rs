@@ -1,19 +1,10 @@
-//! Bounded persona-authored arrangement inputs and admitted proposal supply.
+//! Persona-authored arrangement inputs and complete admitted proposal supply.
 //! These projections inherit the work core's current permission checks. They
 //! grant neither authority nor resources and never change peer continuation.
 use super::*;
 
-const MAX_CHANGES: usize = 32;
-const MAX_AUTHORITY_HOLDERS: usize = 16;
-const MAX_PROPOSALS: usize = 32;
-const MAX_COMMITMENTS: usize = 256;
-const MAX_CONTROL_BYTES: usize = 64 * 1024;
-const MAX_RESPONSE_ORIGINS: usize = MAX_PROPOSALS * 256;
-const MAX_ACCEPTANCE_ORIGINS: usize = MAX_PROPOSALS * MAX_CHANGES;
-const MAX_ORIGIN_BYTES: usize = 2 * 1024 * 1024;
-
 /// Host-retained immutable origins. Empty historical maps establish no lineage.
-/// The maps are separately bounded; no later work exposure backfills a record.
+/// No later work exposure backfills a record.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Origins {
@@ -38,21 +29,6 @@ impl Origins {
             && self.acceptances.is_empty()
     }
 
-    fn validate_bounds(&self) -> Result<()> {
-        require(
-            self.delegations.len() <= launch::task_amendment::MAX_AMENDMENTS + 1
-                && self.proposals.len() <= MAX_PROPOSALS
-                && self.responses.len() <= MAX_RESPONSE_ORIGINS
-                && self.activations.len() <= MAX_PROPOSALS
-                && self.acceptances.len() <= MAX_ACCEPTANCE_ORIGINS,
-            "arrangement origin count limit exceeded",
-        )?;
-        require(
-            serde_json::to_vec(self)?.len() <= MAX_ORIGIN_BYTES,
-            "arrangement origin retention limit exceeded",
-        )
-    }
-
     pub(super) fn for_need(state: &State, work_id: &str, inherited: &Exposure) -> Result<Self> {
         let work = state.board.work(&w::WorkId(work_id.into()))?;
         let mut result = Self::default();
@@ -62,7 +38,6 @@ impl Origins {
                 expanded_exposure(state, inherited)?,
             );
         }
-        result.validate_bounds()?;
         Ok(result)
     }
 }
@@ -75,7 +50,7 @@ pub(super) fn retain_amendment_origin(state: &mut State, work_id: &str, inherite
         require(!origins.delegations.contains_key(&key), "amendment delegation origin already exists")?;
         origins.delegations.insert(key, exposure);
     }
-    origins.validate_bounds()
+    Ok(())
 }
 
 fn delegation_key(work: &str, exact: &w::ExactRef) -> Result<String> {
@@ -333,7 +308,6 @@ pub(super) fn retain_origins(
         extend_exposure(&mut retained, &inherited);
         insert_origin(&mut origins.acceptances, key, inherited)?;
     }
-    origins.validate_bounds()?;
     state
         .work_meta
         .get_mut(work_id)
@@ -674,13 +648,12 @@ pub(super) fn validate_objects(value: &Value) -> Result<()> {
     Ok(())
 }
 
-fn unique_ids(raw: &Value, values: &BTreeSet<String>, maximum: usize, label: &str) -> Result<()> {
+fn unique_ids(raw: &Value, values: &BTreeSet<String>, label: &str) -> Result<()> {
     require(
-        values.len() <= maximum
-            && raw
+        raw
                 .as_array()
                 .is_some_and(|items| items.len() == values.len()),
-        "arrangement set must be bounded and unique",
+        "arrangement set members must be unique",
     )?;
     for value in values {
         p::check_id(value, label)?;
@@ -693,14 +666,6 @@ pub(super) fn validate_action(value: &Value, action: &WorkAction) -> Result<()> 
         WorkAction::ProposeArrangement { id, terms, .. } => {
             p::check_id(id, "arrangement.id")?;
             text(&terms.reason, 4096)?;
-            require(
-                terms.changes.len() <= MAX_CHANGES,
-                "too many arrangement commitment changes",
-            )?;
-            require(
-                terms.artifact_transfers.len() <= MAX_CHANGES,
-                "too many arrangement artifact transfers",
-            )?;
             if let Some(base) = &terms.base {
                 base.native()?;
             }
@@ -719,13 +684,11 @@ pub(super) fn validate_action(value: &Value, action: &WorkAction) -> Result<()> 
                 unique_ids(
                     &raw["outcomes"],
                     &change.terms.outcomes,
-                    256,
                     "arrangement.outcome",
                 )?;
                 unique_ids(
                     &raw["review_roles"],
                     &change.terms.review_roles,
-                    256,
                     "arrangement.review_role",
                 )?;
             }
@@ -735,7 +698,6 @@ pub(super) fn validate_action(value: &Value, action: &WorkAction) -> Result<()> 
                     unique_ids(
                         &value["terms"]["decision_rule"]["eligible"],
                         eligible,
-                        MAX_AUTHORITY_HOLDERS,
                         "arrangement.eligible",
                     )?;
                     require(
@@ -954,8 +916,8 @@ pub(super) fn retained_acceptance_origin(
     Ok(origin.cloned())
 }
 
-/// Invoked only after the existing work-core policy and lineage checks. Count
-/// and byte omissions are explicit; a missing record never proves absence.
+/// Complete current records with exact provenance. A genuinely unavailable
+/// record is identified as omitted and never establishes absence or consent.
 pub(super) fn context(
     state: &State,
     work_id: &str,
@@ -966,7 +928,6 @@ pub(super) fn context(
     let work = state.board.work(&w::WorkId(work_id.into()))?;
     extend_exposure(exposure, &require_current_origin(state, work_id, a)?);
     let current_exact = work.arrangement_ref();
-    let maximum = MAX_CONTROL_BYTES.min(state.config.context_bytes / 4);
     let effective_rule = work.effective_decision_rule();
     let mut projection = json!({
         "delegation_exact": work.formation_delegation_ref().as_ref().map(WorkExactRef::from_native),
@@ -978,13 +939,13 @@ pub(super) fn context(
         "current_commitments_omitted": false,
         "proposals": [],
         "proposals_omitted": false,
-        "maximum_proposals": MAX_PROPOSALS,
-        "maximum_projection_bytes": maximum,
-        "omission_semantics": "Bounded current permitted work-core metadata only. Omitted records establish neither absence nor consent nor permission. No history traversal, file body, peer wake, resume, or resources are supplied.",
+        "maximum_proposals": null,
+        "maximum_projection_bytes": null,
+        "quotas_enforced":false,
+        "omission_semantics": "Complete available current work-core metadata without count or byte quotas. Unavailable records establish neither absence nor consent. No file body, peer wake or resume is supplied.",
         "consent_rule": "Copy a supplied proposal id and exact reference to accept or decline for yourself. Merely proposing grants no consent; consent_own=true explicitly consents only for the author. Activation is atomic only after all required personal consents under the immutable formation delegation; every acceptance and current base is rechecked.",
         "joining_rule": "When current_exact is present, a new participant must use work command accept_arranged_offer with offer, terms_revision and arrangement=current_exact to accept the supplied invitation and current arrangement explicitly. Responsibility accept is available only before an arrangement exists. Responsibility decline remains available; inspecting an arrangement is not consent."
     });
-    let mut bytes = serde_json::to_vec(&projection)?.len();
     let mut proposals = Vec::new();
     // Stable identity order never ranks records using a withheld response.
     for (id, proposal) in &work.arrangement_proposals {
@@ -1003,21 +964,12 @@ pub(super) fn context(
                 work.acceptance(persona)
                     .is_some_and(|(id, _)| id == &change.prior_acceptance)
             }));
-        let size = serde_json::to_vec(&value)?.len() + 1;
-        if proposals.len() < MAX_PROPOSALS
-            && bytes.checked_add(size).is_some_and(|sum| sum <= maximum)
-        {
-            proposals.push(value);
-            extend_exposure(exposure, &inherited);
-            bytes += size;
-        } else {
-            projection["proposals_omitted"] = json!(true);
-        }
+        proposals.push(value);
+        extend_exposure(exposure, &inherited);
     }
     projection["proposals"] = json!(proposals);
     let mut commitments = Vec::new();
-    // Consent proposals take precedence over general ownership metadata. Include
-    // the deciding persona's commitment first, then stable lexical participant order.
+    // Include the deciding persona's commitment first, then stable lexical order.
     let participants = work
         .participants
         .keys()
@@ -1040,17 +992,9 @@ pub(super) fn context(
         };
         let value = json!({"persona": persona, "acceptance_id": id,
             "terms": ArrangementCommitment::from_native(&acceptance.terms), "by": acceptance.by});
-        let size = serde_json::to_vec(&value)?.len() + 1;
-        if commitments.len() < MAX_COMMITMENTS
-            && bytes.checked_add(size).is_some_and(|sum| sum <= maximum)
-        {
-            commitments.push(value);
-            if let Some(inherited) = inherited {
-                extend_exposure(exposure, &inherited);
-            }
-            bytes += size;
-        } else {
-            projection["current_commitments_omitted"] = json!(true);
+        commitments.push(value);
+        if let Some(inherited) = inherited {
+            extend_exposure(exposure, &inherited);
         }
     }
     projection["current_commitments"] = json!(commitments);
@@ -1062,18 +1006,8 @@ pub(super) fn context(
         let value = json!({"id": current_id, "revision": current.revision,
             "proposal": WorkExactRef::from_native(&current.proposal),
             "by": current.by, "acceptances": current.acceptances, "consents": current.consents});
-        let size = serde_json::to_vec(&value)?.len();
-        if bytes.checked_add(size).is_some_and(|sum| sum <= maximum) {
-            projection["current_arrangement"] = value;
-        } else {
-            projection["current_arrangement_omitted"] = json!(true);
-        }
+        projection["current_arrangement"] = value;
     }
-    // Count actual serialized UTF-8, including keys, escaping and delimiters.
-    require(
-        serde_json::to_vec(&projection)?.len() <= maximum,
-        "bounded arrangement control metadata exceeds its allowance",
-    )?;
     Ok(projection)
 }
 
@@ -1109,10 +1043,6 @@ pub(super) fn require_supplied(
     let supplied = control["arrangements"]["proposals"]
         .as_array()
         .ok_or_else(|| held("exact arrangement proposal was not supplied"))?;
-    require(
-        supplied.len() <= MAX_PROPOSALS,
-        "arrangement supplied proposal bound exceeded",
-    )?;
     let id = w::RecordId(proposal.to_owned());
     let current = work
         .arrangement_proposals

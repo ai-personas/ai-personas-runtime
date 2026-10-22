@@ -3,7 +3,6 @@
 use super::*;
 
 const PROFILE: &str = "native-work-command-instructions-v1";
-const MAX_BYTES: usize = 16_384;
 
 struct Section {
     id: &'static str,
@@ -30,7 +29,7 @@ const SECTIONS: &[Section] = &[
     Section {
         id: "model_evidence",
         commands: &["record_model_evidence"],
-        text: "record_model_evidence: attributed ModelJudgment of the exact current registered artifact/outcome, with reasons and limitations. Requires its full UTF-8 body supplied now; metadata, summaries, planned selections, same-response saves/reads do not qualify. No human testimony, execution, measurement, outside fact, consent, independent approval or engineering assurance is established. Criterion and outside evidence/review requirements remain; attribution does not verify truth. Later operations cite its inner evidence id, not the outer effect id; no forward references. depends_on names local saves only. Per work: 128 records/2097152 serialized bytes, within response/context/Store limits.",
+        text: "record_model_evidence: attributed ModelJudgment of the exact current registered artifact/outcome, with reasons and limitations. Requires its full UTF-8 body supplied now; metadata, summaries, planned selections, same-response saves/reads do not qualify. No human testimony, execution, measurement, outside fact, consent, independent approval or engineering assurance is established. Criterion and outside evidence/review requirements remain; attribution does not verify truth. Later operations cite its inner evidence id, not the outer effect id; no forward references. depends_on names local saves only. Retained evidence has no application record-count or byte quota.",
     },
     Section {
         id: "local_delivery",
@@ -123,10 +122,6 @@ pub(super) fn for_interface(interface: &WorkInterface) -> Result<Option<Value>> 
         profile: PROFILE.into(),
         sections,
     })?;
-    require(
-        serde_json::to_vec(&value)?.len() <= MAX_BYTES,
-        "native work instruction byte bound",
-    )?;
     Ok(Some(value))
 }
 
@@ -173,12 +168,10 @@ pub(crate) fn inspect(prepared: &Prepared, control: &Value) -> Result<Value> {
         "native work instruction interface mismatch",
     )?;
     let bytes = serde_json::to_vec(value)?.len();
-    require(bytes <= MAX_BYTES, "native work instruction byte bound")?;
     let supplied: Supplied = serde_json::from_value(value.clone())?;
     require(
         supplied.profile == PROFILE
-            && !supplied.sections.is_empty()
-            && supplied.sections.len() <= 32,
+            && !supplied.sections.is_empty(),
         "native work instruction profile",
     )?;
     let available: BTreeSet<_> = interface.inputs_schema["oneOf"]
@@ -192,11 +185,9 @@ pub(crate) fn inspect(prepared: &Prepared, control: &Value) -> Result<Value> {
     for section in supplied.sections {
         require(
             !section.id.is_empty()
-                && section.id.len() <= 128
                 && seen.insert(section.id.clone())
                 && !section.text.is_empty()
                 && !section.applies_to.is_empty()
-                && section.applies_to.len() <= available.len()
                 && section.applies_to.iter().collect::<BTreeSet<_>>().len()
                     == section.applies_to.len()
                 && section

@@ -3,8 +3,6 @@
 //! view adds no inventory, body, consent, global readiness or operation.
 use super::*;
 
-const MAX_RELEASES: usize = 128;
-
 // Describe each partial evidence record without asserting a closure verdict.
 fn projection_claims() -> Value {
     json!({
@@ -48,36 +46,14 @@ pub(super) fn deserialize_anchors<'de, D>(
 where
     D: serde::Deserializer<'de>,
 {
-    struct BoundedAnchors;
-    impl<'de> serde::de::Visitor<'de> for BoundedAnchors {
-        type Value = Vec<Anchor>;
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            formatter.write_str("at most 128 exact release anchors, unique by release")
-        }
-
-        fn visit_seq<A>(self, mut sequence: A) -> std::result::Result<Self::Value, A::Error>
-        where
-            A: serde::de::SeqAccess<'de>,
-        {
-            let mut anchors = Vec::new();
-            let mut releases = BTreeSet::new();
-            while anchors.len() < MAX_RELEASES {
-                let Some(anchor) = sequence.next_element::<Anchor>()? else {
-                    return Ok(anchors);
-                };
-                if !releases.insert(anchor.release.clone()) {
-                    return Err(serde::de::Error::custom("duplicate closure anchor release"));
-                }
-                anchors.push(anchor);
-            }
-            if sequence.next_element::<serde::de::IgnoredAny>()?.is_some() {
-                return Err(serde::de::Error::custom("closure anchor limit exceeded"));
-            }
-            Ok(anchors)
+    let anchors = Vec::<Anchor>::deserialize(deserializer)?;
+    let mut releases = BTreeSet::new();
+    for anchor in &anchors {
+        if !releases.insert(&anchor.release) {
+            return Err(serde::de::Error::custom("duplicate closure anchor release"));
         }
     }
-    deserializer.deserialize_seq(BoundedAnchors)
+    Ok(anchors)
 }
 
 // These closure observation kinds are supplied without transformed file bodies.
@@ -137,13 +113,10 @@ pub(super) fn retain_supplied(state: &mut State, prepared: &Prepared) -> Result<
     )?;
     let mut anchors = Vec::new();
     let mut releases = BTreeSet::new();
-    // This pass is bounded by the actual admitted prompt and stops at 128
-    // anchors. It reads no historical invocation or board inventory. Prefer
+    // This pass covers the actual admitted prompt without a retention quota.
+    // It reads no historical invocation or board inventory. Prefer
     // current supply in observation order, then lexical release order.
     for supplied in observations {
-        if anchors.len() == MAX_RELEASES {
-            break;
-        }
         let Some(id) = supplied["id"].as_str() else {
             continue;
         };
@@ -169,9 +142,6 @@ pub(super) fn retain_supplied(state: &mut State, prepared: &Prepared) -> Result<
         let source_sha256 = digest(observation)?;
         let supplied_sha256 = digest(supplied)?;
         for release in ids {
-            if anchors.len() == MAX_RELEASES {
-                break;
-            }
             if releases.insert(release.clone()) {
                 anchors.push(Anchor {
                     actor: actor.into(),
@@ -191,10 +161,7 @@ pub(super) fn retain_supplied(state: &mut State, prepared: &Prepared) -> Result<
         .get_mut(actor)
         .and_then(|persona| persona.focus.get_mut(work))
         .ok_or_else(|| held("work focus absent"))?;
-    for anchor in focus.closure_anchors.iter().take(MAX_RELEASES) {
-        if anchors.len() == MAX_RELEASES {
-            break;
-        }
+    for anchor in &focus.closure_anchors {
         if anchor.actor == actor && anchor.work == work && releases.insert(anchor.release.clone()) {
             anchors.push(anchor.clone());
         }
@@ -237,17 +204,12 @@ fn retained_origin<'a>(
 
 fn supplied_release_ids(observations: &[Value]) -> (BTreeSet<String>, bool) {
     let mut ids = BTreeSet::new();
-    let mut truncated = false;
     let mut include = |id: Option<&str>| {
         if let Some(id) = id {
             if ids.contains(id) {
                 return;
             }
-            if ids.len() == MAX_RELEASES {
-                truncated = true;
-            } else {
-                ids.insert(id.to_owned());
-            }
+            ids.insert(id.to_owned());
         }
     };
     for observation in observations {
@@ -275,7 +237,7 @@ fn supplied_release_ids(observations: &[Value]) -> (BTreeSet<String>, bool) {
             _ => {}
         }
     }
-    (ids, truncated)
+    (ids, false)
 }
 
 fn permitted_exposure(state: &State, exposure: &Exposure, a: &f::Admission) -> Option<Exposure> {
@@ -816,7 +778,6 @@ impl Runtime {
                 .closure_anchors
                 .retain(|existing| existing.release != request.release);
             focus.closure_anchors.insert(0, anchor);
-            focus.closure_anchors.truncate(MAX_RELEASES);
             state.operator_events.push(json!({
                 "kind": "closure_anchor_recovery",
                 "operator": operator,
@@ -882,13 +843,13 @@ pub(super) fn context(
     exposure: &mut Exposure,
     sources: &mut BTreeSet<f::Reference>,
 ) -> Result<Value> {
-    let (mut ids, mut truncated) = supplied_release_ids(observations);
+    let (mut ids, truncated) = supplied_release_ids(observations);
     // Preserve the existing current-observation projection and its gates.
     let mut records = ids
         .iter()
         .map(|id| record(state, work, id, a, exposure))
         .collect::<Result<Vec<_>>>()?;
-    for anchor in anchors.iter().take(MAX_RELEASES) {
+    for anchor in anchors {
         if ids.contains(&anchor.release) {
             continue;
         }
@@ -900,15 +861,10 @@ pub(super) fn context(
             // or current evidence supplies no identifier, count, or hold.
             continue;
         };
-        // Even a permitted truncation indication depends on this lineage.
         // These are provenance references, never additional supplied bodies.
         extend_exposure(exposure, &inherited);
         sources.extend(observation.sources.iter().cloned());
         sources.extend(inherited.sources.iter().cloned());
-        if records.len() == MAX_RELEASES {
-            truncated = true;
-            continue;
-        }
         projected["identity_provenance"] = json!({
             "kind": "host_retained_actual_supply",
             "anchor": anchor,
@@ -924,8 +880,8 @@ pub(super) fn context(
     Ok(json!({
         "records": records,
         "truncated": truncated,
-        "retained_anchor_limit": MAX_RELEASES,
-        "scope": "exact release identities from currently supplied permitted observations or rechecked host-retained actual-supply anchors; retention is bounded and absence establishes neither nonexistence nor permission",
+        "retained_anchor_limit": null,"quotas_enforced":false,
+        "scope": "exact release identities from currently supplied observations or rechecked host-retained actual-supply anchors; retention has no application quota and unavailable records establish no absence",
         "metadata_only": true,
         "projection_claims": projection_claims()
     }))

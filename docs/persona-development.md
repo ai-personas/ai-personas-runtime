@@ -108,9 +108,8 @@ through qualified context and completed read observations. Each entry includes
 the exact source, revision, representation and range, its path and authorship,
 qualification roles, supply route, byte count and text digest. Full UTF-8 bodies
 are compared with the retained revision. This metadata view does not detach or
-display a file's text without its required accompanying material. Current source
-permissions still apply. If the complete metadata exceeds 256 entries or 64 KiB,
-the view reports it unavailable rather than implying complete coverage.
+display a file's text without its required accompanying material. Exact source provenance and retained-body comparisons still apply. Supporting
+resource metadata has no application entry-count or output-byte quota.
 
 Use this evidence to distinguish finding a candidate, selecting a resource for
 the next call, actually supplying its body, and carrying out its instructions.

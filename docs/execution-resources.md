@@ -140,6 +140,20 @@ explicit future expiry, and expiration remains effective at that chosen time.
 Multiple updates retain receipts in listed order; the last becomes current.
 The explicit participant-resume request no longer needs a second boolean approval.
 
+Shared questions, replies, conclusions and affected claims have no application
+count, text or retained-view quota. Arrangement origin histories, proposals,
+commitments, transfers and current views retain complete available records.
+Quorum thresholds still describe the authored decision rule; they are not
+application population caps.
+
+Closure anchors retain every unique previously supplied release identity and
+project all available exact receipts without count limits. Capturing or
+recovering one anchor does not evict another. Supporting-resource, selection,
+mutation, native-conflict and command-instruction metadata also have no fixed
+count or byte quota. Lifecycle bookkeeping no longer caps persona or work counts.
+Exact hashes, unique identities, actual supply, authorship, consent and explicit
+Stop/Pause choices remain recorded.
+
 ## Remaining work
 
 Removal is still incomplete. Remaining

@@ -2,11 +2,6 @@
 //! Original questions, replies and owner conclusions retain separate lineage.
 use super::*;
 
-const MAX_QUESTIONS: usize = 16;
-const MAX_REPLIES: usize = 16;
-const MAX_CONCLUSIONS: usize = 16;
-const MAX_VIEW_BYTES: usize = 65_536;
-const MAX_RETAINED_BYTES: usize = 2_097_152;
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -194,10 +189,6 @@ pub(crate) fn view(
     }
     let result = json!({"interface":"shared-questions-v1","items":items,
         "rule":"Questions and replies remain current after inbox acknowledgment. The owner assesses every reply's basis with conclude_question and an explicit account per reply. The basis is its author's statement: a source citation there does not prove that its body was actually supplied or read. Inspect actual evidence before accepting consequential claims. A later reply creates a new outstanding owner decision. Asking does not make an answer a blocking dependency or create a wake. Choose useful independent progress, provisional interpretation, waiting or stopping yourself. A human-input requirement cannot be satisfied by peer confidence, silence or an assumption. Conclusions are attributed interpretations, never mandate changes, verified facts, consent, releases or automatic permission. Keep affected claims conditional and reconsider them when new input conflicts. Separate conclusions preserve original question and reply access; current permission withdrawal still applies."});
-    require(
-        serde_json::to_vec(&result)?.len() <= MAX_VIEW_BYTES,
-        "shared question view exceeds 65536 bytes; no records are truncated",
-    )?;
     Ok(result)
 }
 
@@ -247,10 +238,6 @@ pub(super) fn validate(action: &WorkAction) -> Result<()> {
             for value in [&input.text, &input.why, &input.evidence_needed] {
                 text(value, 4096)?;
             }
-            require(
-                input.affected_claims.len() <= 16,
-                "question affected-claim bound",
-            )?;
             for value in input
                 .affected_claims
                 .iter()
@@ -265,10 +252,6 @@ pub(super) fn validate(action: &WorkAction) -> Result<()> {
             p::check_id(&input.question, "question.id")?;
             text(&input.review_revision, 64)?;
             text(&input.conclusion, 8192)?;
-            require(
-                input.replies.len() <= MAX_REPLIES,
-                "question reply-account bound",
-            )?;
             for (id, account) in &input.replies {
                 p::check_id(id, "question.reply")?;
                 text(&account.reason, 4096)?;
@@ -337,19 +320,7 @@ fn viewers(state: &State, work: &str) -> Result<BTreeSet<String>> {
     Ok(recipients)
 }
 
-fn check_bounds(state: &State, work: &str, now: i64) -> Result<()> {
-    let questions = &state.work_meta[work].questions;
-    require(
-        questions.len() <= MAX_QUESTIONS
-            && serde_json::to_vec(questions)?.len() <= MAX_RETAINED_BYTES,
-        "shared question retention bound",
-    )?;
-    for question in questions.values() {
-        require(
-            question.replies.len() <= MAX_REPLIES && question.conclusions.len() <= MAX_CONCLUSIONS,
-            "shared question history bound",
-        )?;
-    }
+fn validate_views(state: &State, work: &str, now: i64) -> Result<()> {
     for viewer in viewers(state, work)? {
         let a = recipient_admission(state, work, &viewer, now)?;
         view(state, work, &viewer, &a, &mut Exposure::default())?;
@@ -478,7 +449,7 @@ pub(super) fn apply(
         }
         _ => return Err(invalid("not a shared question action")),
     }
-    check_bounds(state, work, now)
+    validate_views(state, work, now)
 }
 
 /// Called after the board transition so notifications can satisfy existing
@@ -620,7 +591,7 @@ pub(crate) fn operator_reply(
             input: input.clone(),
             origin: origin.clone(),
         });
-    check_bounds(state, work, now)?;
+    validate_views(state, work, now)?;
     for recipient in viewers(state, work)? {
         let Some(persona) = state.personas.get(&recipient) else {
             continue;

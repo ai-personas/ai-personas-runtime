@@ -2,9 +2,6 @@
 //! A saved script, skill guide or tool definition is still an asset, not execution.
 use super::*;
 
-const MAX_VIEW_BYTES: usize = 65_536;
-const MAX_ENTRIES: usize = 256;
-
 fn unavailable(reason: &str) -> Value {
     json!({"available":false,"reason":reason})
 }
@@ -29,9 +26,6 @@ pub(super) fn inspect(
     );
     let mut resources = Vec::new();
     for (entry, route) in candidates {
-        if resources.len() == MAX_ENTRIES {
-            return Ok(unavailable("Supporting-resource metadata exceeds this view's entry bound; coverage is unavailable."));
-        }
         let Ok(reference) = serde_json::from_value::<p::ExactRef>(entry["reference"].clone())
         else {
             return Ok(unavailable(
@@ -99,17 +93,12 @@ pub(super) fn inspect(
             "http_fetch":control["http_fetch_state"]["allocations"],
             "meaning":"Historical allocation metadata actually present in this admitted input. Null means no such metadata was recorded. These entries are not guide-body supply, callable definitions, current authority or execution evidence; later grant changes are not substituted."
         },
-        "current_runtime_computation":"default full-access host.command.v1 can run installed software; separately granted import-free compute.wasm.v1 remains available; inspect actual intent and terminal receipts",
-        "current_runtime_external_tool_execution":"default full-access host.command.v1 permits installation, filesystem, network and subprocess use without a tool grant; separately granted https.get.v1 remains available; inspect actual intent and terminal receipts",
+        "current_runtime_computation":"default full-access host.command.v1 can run installed software; default compute.wasm.v1 remains available; inspect actual intent and terminal receipts",
+        "current_runtime_external_tool_execution":"default full-access host.command.v1 permits installation, filesystem, network and subprocess use without a tool grant; default https.get.v1 remains available; inspect actual intent and terminal receipts",
         "skill_application_established":false,
         "scope":"Supporting-file entries actually present in this call's qualified context, supplied qualified-read observations or tool-result qualifications. Entries retain their exact representation, range and qualification roles. Discovery candidates, next-context proposals, message text and nested history are not counted. This view returns metadata, not detached file content.",
-        "limits":"Input supply proves neither application of a skill's instructions nor code, simulator, renderer, shell or external tool execution. The runtime executes internal operations and default full-access host commands, alongside the separately granted WebAssembly and HTTPS profiles. work.command.v1 remains internal even when encoded as Effect. Execution intents alone also do not prove dispatch or success. Inspect accepted operations and actual result receipts separately."
+        "limits":"Input supply proves neither application of a skill's instructions nor code, simulator, renderer, shell or external tool execution. The runtime executes internal operations and default full-access host commands, alongside the default WebAssembly and HTTP(S) profiles. work.command.v1 remains internal even when encoded as Effect. Execution intents alone also do not prove dispatch or success. Inspect accepted operations and actual result receipts separately."
     });
-    if serde_json::to_vec(&view)?.len() > MAX_VIEW_BYTES {
-        return Ok(unavailable(
-            "Supporting-resource metadata exceeds this view's byte bound; coverage is unavailable.",
-        ));
-    }
     Ok(view)
 }
 

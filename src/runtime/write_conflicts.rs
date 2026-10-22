@@ -200,11 +200,7 @@ impl NativeWriteConflict {
         object.remove("diagnostic");
         object.insert("kind".into(), json!("native_write_conflict_v1"));
         object.insert("conflict".into(), json!(self.diagnostic));
-        if serde_json::to_vec(&value).is_ok_and(|bytes| bytes.len() <= 4096) {
-            value
-        } else {
-            json!({"kind":"unknown"})
-        }
+        value
     }
 }
 

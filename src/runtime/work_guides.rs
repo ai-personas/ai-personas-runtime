@@ -5,7 +5,6 @@ use super::*;
 
 pub(crate) const DIRECTORY: &str = "runtime/work-commands/";
 const AUTHOR: &str = "ai-personas-runtime";
-const MAX_COMMANDS: usize = 64;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -37,7 +36,7 @@ fn validate_catalog(catalog: &Catalog) -> Result<()> {
         _ => false,
     };
     require(
-        supported && !catalog.guides.is_empty() && catalog.guides.len() <= MAX_COMMANDS,
+        supported && !catalog.guides.is_empty(),
         "native work guide catalog unsupported",
     )
 }
@@ -47,7 +46,7 @@ fn variants(schema: &Value) -> Result<&Vec<Value>> {
         .as_array()
         .ok_or_else(|| invalid("native work schema is not a tagged union"))?;
     require(
-        !variants.is_empty() && variants.len() <= MAX_COMMANDS,
+        !variants.is_empty(),
         "native work definition count exceeds its bound",
     )?;
     Ok(variants)
@@ -63,7 +62,7 @@ fn kind(variant: &Value) -> Result<&str> {
 /// Neither names nor a valid schema bypass the sealed admitted interface.
 pub(super) fn selected_schema(commands: &BTreeSet<String>) -> Result<Value> {
     require(
-        !commands.is_empty() && commands.len() <= MAX_COMMANDS,
+        !commands.is_empty(),
         "empty or oversized native work selection",
     )?;
     let mut schema = work_schema();
@@ -94,7 +93,7 @@ fn purpose(command: &str) -> &'static str {
         "assess" => "Record a criteria-bound assessment under an actually accepted review role, using exact available evidence and explicit limitations.",
         "release" => "Bind a currently supported shared decision to an exact release. Release does not perform delivery or establish requester satisfaction.",
         "deliver_release" => "Deposit an exact permitted release for authorized local recipients and retain a delivery receipt. This is local delivery, not an external export or proof of reading.",
-        _ => "Use the current exact native input schema and the admitted work's authority, evidence and resource limits.",
+        _ => "Use the current exact native input schema and the admitted work's authority and exact evidence.",
     }
 }
 
@@ -162,10 +161,6 @@ fn records(
     let files = bodies
         .into_iter()
         .map(|(command, body)| {
-            require(
-                body.len() <= 8192,
-                "native work guide exceeds its byte bound",
-            )?;
             let record = f::FileRevision {
                 // Logical identity stays readable; the sealed revision binds
                 // the exact content, path, author and source policy.
@@ -411,11 +406,10 @@ pub(super) fn capability(
             );
         }
         if !unavailable.is_empty() {
-            let truncated = unavailable.len() > MAX_COMMANDS;
             value["guide_supply"] = json!({
-                "unavailable_supplied_guides":unavailable.into_iter().take(MAX_COMMANDS)
+                "unavailable_supplied_guides":unavailable.into_iter()
                     .map(|(path, reason)|json!({"path":path,"reason":reason})).collect::<Vec<_>>(),
-                "truncated":truncated,
+                "truncated":false,
                 "rule":"These actually supplied guide bodies do not match complete current registered guide references. Find relevant current guides if their explanatory text is useful. Native command definitions are supplied independently of these bodies. This diagnostic changes no selection or execution record."});
         }
     }

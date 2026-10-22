@@ -277,12 +277,10 @@ This local requester input is not independent authentication or consent. The
 native commands are `ai-personas questions WORK_ID` and
 `ai-personas answer-question answer.json` with the same state/operator options.
 
-Each work retains at most 16 questions, 16 replies and 16 conclusions per
-question, within 2 MiB of serialized question state. Each current permitted
-view is bounded to 64 KiB and is charged as mandatory context. Questions and
-bases have individual text bounds in the action contract. Exceeding a bound
-refuses the mutation; no unresolved question or reply is silently truncated.
-These optional state fields default empty for older stores.
+Questions, replies, conclusions, affected claims and their current views have no
+application count, retention or text-size quota. Complete views remain mandatory
+context. Exact authorship, references and explicit per-reply dispositions remain
+checked; no unresolved question or reply is silently dropped.
 
 The foreground driver considers at most 128 participant entries and attempts at
 most 12 steps per command by default, within 32 attempts per work, 256 attempted
@@ -1031,7 +1029,7 @@ structural closure prerequisites without caller-specific access checks; never
 expose its raw result to a model or restricted user. The permission-checked
 `Runtime::closure_readiness_evidence(actor, work, release, now)` instead returns
 a partial view for one exact known release. Ordinary `CONTROL.closure_readiness`
-uses the same checks for at most 128 identities already supplied in permitted
+uses the same checks for all identities already supplied in available
 release, delivery, human-decision or release-inspection observations.
 
 Each consulted delivery and human decision requires its own exact retained
@@ -1126,8 +1124,8 @@ fresh-call boundary; subsequent work gates still revalidate current state. The
 receipts supply no artifact body, human attention, stakeholder acceptance or
 semantic assurance, and they do not expose a complete work-history inventory.
 
-Successful ordinary adoption, including a no-operation response, retains at most
-128 host-private exact release anchors before consuming supplied observations.
+Successful ordinary adoption, including a no-operation response, retains all
+exact release anchors before consuming supplied observations, without a count quota.
 Each anchor binds its actor/work, immutable source observation hash, actual
 supplied observation hash, supplying invocation and prepared prompt hash. Only
 observations present in both that invocation's actual CONTROL observations and
@@ -1136,8 +1134,8 @@ deterministic precedence, unique by release. Later rendering rechecks ownership,
 source identity/hash, observation kind and release binding, lineage and current
 permissions, then regenerates receipts through the existing closure projection.
 Unavailable anchors are omitted without identifiers or counts and do not hold
-unrelated context. Permitted records beyond the projection limit set truncation;
-normal context accounting and source restrictions remain in force. Anchors cache
+unrelated context. All available records are projected without a count quota;
+normal context accounting and exact source provenance remain in force. Anchors cache
 no readiness, authority or bodies and are not a persona tool. Retention neither
 scans historical invocations nor discovers releases from board inventory. Legacy
 saves default to empty anchors; observations consumed before this collection
@@ -1160,7 +1158,7 @@ Capture, retained-anchor verification and recovery preserve immutable original
 observation payloads and supply proofs; changing the fresh closure record schema
 does not invalidate historical anchors or their recovery.
 It restores only the requested release's host anchor at the front, preserving
-other unique release anchors in order up to 128. An identical anchor returns
+all other unique release anchors in order. An identical anchor returns
 unchanged after all checks; the expected runtime reference must still match.
 A change appends an operator event binding the request, anchor provenance,
 before reference and time, and saves through ordinary CAS and size accounting.

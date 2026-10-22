@@ -1,8 +1,6 @@
-//! Bounded actor-facing receipts and exact mutation/selection metadata.
+//! Complete actor-facing receipts and exact mutation/selection metadata.
 //! These projections never select, refresh, read a new body, or grant authority.
 use super::*;
-
-const MAX_MUTATION_SOURCES: usize = 256;
 
 pub(super) fn selection_state(
     state: &State,
@@ -13,10 +11,6 @@ pub(super) fn selection_state(
 ) -> Result<Value> {
     let mut entries = |selection: &Option<Vec<Selected>>| -> Result<Vec<Value>> {
         let mut output = Vec::new();
-        require(
-            selection.as_ref().is_none_or(|s| s.len() <= 256),
-            "selection metadata bound",
-        )?;
         for selected in selection.iter().flatten() {
             let reference = file_reference(&selected.reference)?;
             if !lineage_permitted(state, std::slice::from_ref(&reference), a) {
@@ -84,16 +78,11 @@ pub(super) fn mutation_metadata(
 ) -> Result<(Vec<Value>, bool)> {
     let mut output = Vec::new();
     let mut seen = BTreeSet::new();
-    let mut truncated = false;
     for reference in visible {
         if !lineage_permitted(state, std::slice::from_ref(reference), a)
             || !seen.insert(reference.source.clone())
         {
             continue;
-        }
-        if output.len() == MAX_MUTATION_SOURCES {
-            truncated = true;
-            break;
         }
         let source = &state.sources[&reference.source];
         let stored = record(state, reference)?;
@@ -109,13 +98,14 @@ pub(super) fn mutation_metadata(
             "source":reference.source,
             "source_owner":source.owner,
             "source_protected":source.protected,
+            "source_retired":source.retired,
             "scope":stored.record.scope,
             "current_head":current_head,
             "current_head_status":if current_head.is_some() { "permitted" } else { "unavailable" },
             "metadata_only":true
         }));
     }
-    Ok((output, truncated))
+    Ok((output, false))
 }
 
 pub(super) fn accepted_writes(
