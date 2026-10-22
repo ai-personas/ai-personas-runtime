@@ -16,8 +16,11 @@ credentials, reads an API key, or falls back to API billing.
 
 The [models and inference contract](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference)
 specifies the selected account's authenticated `GET https://api.openai.com/v1/models`.
-Only entries with `visibility: "list"` become choices. Their order, display names
-and slugs are preserved. No bundled model catalogue or guessed model is used.
+Returned model entries retain their order, display names and slugs; visibility
+annotations do not act as an application allowlist. A missing display name uses
+the exact slug. The user can also enter an exact model slug absent from the
+catalogue. Catalogue evidence remains attributed to its actual account and
+generation; it does not claim that an unlisted choice is supported.
 Inference uses only public `POST https://api.openai.com/v1/responses`, with
 `store: false`, `stream: true`, and completion/EOF validation.
 
@@ -60,9 +63,12 @@ cooperative sign-in/refresh writers. Busy is not permission to recover an owner.
 `timeout_ms`, `max_observed_total_tokens` and `require_remote_token_hard_bound`
 fields default to zero/false and do not impose quotas. There is no model
 or effort default. `effort_candidates_unverified` in catalogue output is only the
-existing local Responses vocabulary; it is NOT a provider-supported-effort list.
-The human chooses a candidate; evidence requires the response to actually report
-that exact effort. Omitted effort metadata remains unestablished.
+an illustrative list, not a required or provider-supported-effort list.
+The user may enter any nonempty model and effort identifiers without whitespace
+or control characters. Exact reported effort is retained without a closed local
+vocabulary; evidence requires the response to actually report the selected value.
+Omitted effort metadata remains unestablished. Actual provider rejection is
+recorded without silently substituting another model or effort.
 
 The probe sends an explicitly labeled, isolated host-authored echo specimen in
 the historical strict `decision_json` carrier. Native persona calls return their

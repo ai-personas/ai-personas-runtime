@@ -226,9 +226,6 @@ fn models(body: &str) -> Result<Vec<ModelChoice>> {
     let mut slugs = BTreeSet::new();
     for entry in entries {
         check(entry.is_object(), Code::CatalogueUnavailable)?;
-        if entry.get("visibility").and_then(Value::as_str) != Some("list") {
-            continue;
-        }
         let slug = entry
             .get("slug")
             .and_then(Value::as_str)
@@ -236,7 +233,7 @@ fn models(body: &str) -> Result<Vec<ModelChoice>> {
         let display_name = entry
             .get("display_name")
             .and_then(Value::as_str)
-            .ok_or(Code::CatalogueUnavailable)?;
+            .unwrap_or(slug);
         check(
             identifier(slug)
                 && !display_name.trim().is_empty()
@@ -271,7 +268,7 @@ pub struct CatalogueView {
     pub credential_expires_at_unix: u64,
     pub observed_at_unix: u64,
     pub models: Vec<ModelChoice>,
-    /// Local protocol vocabulary only, NOT this model/account's supported efforts.
+    /// Illustrative labels only, NOT a required or supported-effort list.
     pub effort_candidates_unverified: Vec<&'static str>,
     pub strict_carrier_verified: bool,
     pub inference_performed: bool,
@@ -313,13 +310,7 @@ impl PlanRequest {
             valid_key(&self.id) && is_hash(&self.catalogue_sha256) && identifier(&self.model),
             Code::InvalidRequest,
         )?;
-        check(
-            matches!(
-                self.effort.as_str(),
-                "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
-            ),
-            Code::EffortLabelUnsupported,
-        )
+        check(identifier(&self.effort), Code::InvalidRequest)
     }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -660,12 +651,6 @@ impl Backend {
             Code::CatalogueStale,
         )?;
         check_catalogue(catalogue, &access, self.now()?)?;
-        check(
-            models(&catalogue.body)?
-                .iter()
-                .any(|v| v.slug == request.model),
-            Code::ModelNotSelectable,
-        )?;
         let body = wire::request(
             &request.id,
             &request.model,
@@ -1020,9 +1005,6 @@ fn validate_journal(j: &Journal) -> Result<()> {
                 && p.credential_sha256 == a.catalogue.credential_sha256
                 && p.credential_expires_at_unix == a.catalogue.credential_expires_at_unix
                 && p.request.catalogue_sha256 == digest(&a.catalogue)?
-                && models(&a.catalogue.body)?
-                    .iter()
-                    .any(|v| v.slug == p.request.model)
                 && p.created_at_unix >= a.catalogue.observed_at_unix
                 && p.authorization_deadline_unix > p.created_at_unix
                 && p.authorization_deadline_unix <= p.credential_expires_at_unix
@@ -1053,18 +1035,8 @@ fn validate_journal(j: &Journal) -> Result<()> {
             if let Some(o) = &t.observation {
                 check(
                     is_hash(&o.stream_sha256)
-                        && o.reported_effort.as_deref().is_none_or(|v| {
-                            matches!(
-                                v,
-                                "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
-                            )
-                        })
-                        && o.previous_reported_effort.as_deref().is_none_or(|v| {
-                            matches!(
-                                v,
-                                "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
-                            )
-                        })
+                        && o.reported_effort.as_deref().is_none_or(identifier)
+                        && o.previous_reported_effort.as_deref().is_none_or(identifier)
                         && o.response_id_sha256.as_deref().is_none_or(is_hash),
                     Code::InvalidState,
                 )?;

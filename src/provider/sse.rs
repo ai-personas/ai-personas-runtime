@@ -3,7 +3,6 @@ use crate::files::{parse_json_unique, JsonLimits, JsonProfileError};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
-
 #[derive(Clone, Copy)]
 struct StreamFailure {
     failure: Failure,
@@ -414,9 +413,9 @@ impl Collector {
             // carry no output or completion authority and do not reset time or
             // byte/event bounds. Refuse an unexpected semantic payload.
             if event.as_object().is_none_or(|fields| {
-                fields.keys().any(|key| {
-                    !matches!(key.as_str(), "type" | "sequence_number" | "response_id")
-                })
+                fields
+                    .keys()
+                    .any(|key| !matches!(key.as_str(), "type" | "sequence_number" | "response_id"))
             }) {
                 return Err(protocol("keepalive_fields_invalid"));
             }
@@ -686,11 +685,9 @@ impl Collector {
                         if item.part_done {
                             return Err(protocol("duplicate_part_done"));
                         }
-                        item.text(
-                            output_text(
-                                event.get("part").ok_or(protocol("content_part_missing"))?,
-                            )?,
-                        )?;
+                        item.text(output_text(
+                            event.get("part").ok_or(protocol("content_part_missing"))?,
+                        )?)?;
                         item.part_done = true;
                     }
                 }
@@ -765,7 +762,7 @@ impl Collector {
             .as_deref()
             .is_some_and(|old| old != effort)
         {
-            // Preserve both bounded observations before the sticky rejection.
+            // Preserve both exact observations before the sticky rejection.
             self.previous_reported_effort = self.reported_effort.replace(effort.into());
             return Err(Failure::ReportedEffortMismatch.into());
         }

@@ -234,8 +234,9 @@ manually edit host IDs. If the supported callback and protected vault cannot be
 provided, stop without granting sign-in or inference.
 
 Selecting the native route uses its vault, reads the live catalogue and retains
-private evidence without repeated confirmations. Choose a listed model and an
-exact unverified effort candidate.
+private evidence without repeated confirmations. Choose a listed model number
+or enter an exact model slug, including one absent from the catalogue. Enter an
+exact effort label; the displayed examples do not restrict the selection.
 Discovery alone proves neither effort support nor strict output support.
 
 The probe has one durable request identity and no application duration, byte or

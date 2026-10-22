@@ -169,7 +169,9 @@ impl AccountBindingReference {
     fn validate(&self) -> Result<(), Failure> {
         match self {
             Self::Environment(reference) if reference.valid() => Ok(()),
-            Self::EphemeralAuthOnly { ephemeral_auth_only: true } => Ok(()),
+            Self::EphemeralAuthOnly {
+                ephemeral_auth_only: true,
+            } => Ok(()),
             _ => Err(Failure::Configuration),
         }
     }
@@ -309,8 +311,7 @@ impl DirectSettings {
                 grant,
                 expires_at_unix,
             } => {
-                if self.mode != AccessMode::ChatgptOAuth
-                    || *grant != OAuthGrant::TraditionalChatgpt
+                if self.mode != AccessMode::ChatgptOAuth || *grant != OAuthGrant::TraditionalChatgpt
                 {
                     return Err(Failure::GrantMismatch);
                 }
@@ -1077,10 +1078,9 @@ impl Inner {
     fn credentials(&self, prepared_account: Option<&Secret>) -> Result<(Secret, Secret), Failure> {
         let settings = &self.settings;
         let bundle = match &settings.credentials {
-            CredentialReference::EphemeralAuthOnly { .. } => self.source.load_ephemeral(
-                &settings.credentials,
-                &settings.evidence.account_sha256,
-            )?,
+            CredentialReference::EphemeralAuthOnly { .. } => self
+                .source
+                .load_ephemeral(&settings.credentials, &settings.evidence.account_sha256)?,
             _ => {
                 let evidence_account = settings
                     .evidence
@@ -1411,25 +1411,15 @@ fn grant_matches(mode: AccessMode, grant: Option<OAuthGrant>) -> bool {
     )
 }
 fn secret_valid(secret: &Secret, _historical_maximum: usize) -> bool {
-    !secret.0.is_empty()
-        && secret.0.bytes().all(|b| b.is_ascii_graphic())
+    !secret.0.is_empty() && secret.0.bytes().all(|b| b.is_ascii_graphic())
 }
 fn identifier(s: &str) -> bool {
     !s.is_empty() && !s.chars().any(|c| c.is_control() || c.is_whitespace())
 }
-// Closed public Responses effort vocabulary. Unknown provider values must not
-// be echoed into serialized or Debug receipts, even if they resemble identifiers.
-fn reported_effort_label(value: &str) -> Option<&'static str> {
-    match value {
-        "none" => Some("none"),
-        "minimal" => Some("minimal"),
-        "low" => Some("low"),
-        "medium" => Some("medium"),
-        "high" => Some("high"),
-        "xhigh" => Some("xhigh"),
-        "max" => Some("max"),
-        _ => None,
-    }
+// Preserve the exact reported label without a host-maintained vocabulary gate.
+// The request/response binding still checks it against the selected effort.
+fn reported_effort_label(value: &str) -> Option<&str> {
+    identifier(value).then_some(value)
 }
 fn digest_string(s: &str) -> bool {
     s.len() == 64
@@ -1439,7 +1429,10 @@ fn digest_string(s: &str) -> bool {
 fn digest(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
-fn encoded<T: Serialize + ?Sized>(value: &T, _historical_maximum: usize) -> Result<Vec<u8>, Failure> {
+fn encoded<T: Serialize + ?Sized>(
+    value: &T,
+    _historical_maximum: usize,
+) -> Result<Vec<u8>, Failure> {
     serde_json::to_vec(value).map_err(|_| Failure::Configuration)
 }
 fn schema_bytes(value: &Value, limits: &Limits) -> Result<Vec<u8>, Failure> {

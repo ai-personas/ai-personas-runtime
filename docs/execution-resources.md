@@ -230,11 +230,18 @@ are served concurrently without an attempt quota, and explicit cancellation
 remains effective. Signature, issuer/account, nonce and exact registration
 bindings remain necessary to establish which credential was actually acquired.
 
+Provider onboarding no longer restricts model selection to listed catalogue
+entries or effort selection to a fixed vocabulary. Catalogue visibility remains
+provider metadata, and the user can enter exact model and effort identifiers.
+Reported effort labels are retained without a local allowlist, while exact
+request/response matching still applies. Unsupported choices retain their actual
+provider outcome without substitution or fabricated capability evidence.
+
 ## Remaining work
 
 Removal is still incomplete. Remaining
 application enforcement includes delegated intake authority and one-child workflow
-constraints; explicit optional opportunity and birth workflows; onboarding model/effort selection gates; remaining typed protocol and
+constraints; explicit optional opportunity and birth workflows; provider capability-evidence prerequisites; remaining typed protocol and
 tool-input limits; and additional specialized control limits. These are implementation gaps under the
 new requirement, not exceptions granted by the user. Some earlier documents still
 describe them because those paths remain implemented. They must be removed or

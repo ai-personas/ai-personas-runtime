@@ -72,6 +72,11 @@ def safe_text(value, maximum=32768):
             and bool(value.strip()) and "\x00" not in value)
 
 
+def provider_label(value):
+    return (isinstance(value, str) and bool(value)
+            and not any(c.isspace() or ord(c) < 32 or 0x7f <= ord(c) <= 0x9f for c in value))
+
+
 def terminal_text(value):
     # Provider-authored text cannot emit terminal escape/control sequences.
     return "".join(c if c in "\n\t" or (c.isprintable() and c != "\x1b") else "�" for c in str(value))
@@ -353,8 +358,8 @@ def validate_progress(p):
         q = probe["request"]
         require(isinstance(q, dict) and set(q) == {"id", "catalogue_sha256", "model", "effort", "timeout_ms",
                                                   "max_observed_total_tokens", "require_remote_token_hard_bound"})
-        require(identifier(q["id"]) and q["id"] not in seen and safe_text(q["model"], 128)
-                and q["effort"] in ("none", "minimal", "low", "medium", "high", "xhigh", "max")
+        require(identifier(q["id"]) and q["id"] not in seen and provider_label(q["model"])
+                and provider_label(q["effort"])
                 and type(q["timeout_ms"]) is int and q["timeout_ms"] >= 0
                 and type(q["max_observed_total_tokens"]) is int and q["max_observed_total_tokens"] >= 0
                 and type(q["require_remote_token_hard_bound"]) is bool and type(probe["attempted"]) is bool
@@ -1140,24 +1145,22 @@ class Dialogue:
                             "Sign-in uses your browser on this host. Renewal never changes saved runtime pins")
             # The auth helper alone displays its generated URL on stderr, never in
             # a journal or returned UI log. Never retry exchange/refresh on error.
-            self.h.call("personas-auth", ["--vault", self.p["vault"], command, "--authorize"],
+            self.h.call("personas-auth", ["--vault", self.p["vault"], command],
                         timeout=240, auth_display=True)
 
     def new_probe(self):
-        self.ui.consent("Read this selected account's live model catalogue and retain bounded private catalogue evidence? "
-                        "This GET performs no inference")
-        catalog = self.provider("catalogue", "--authorize-read", "--retain-private-evidence")
+        catalog = self.provider("catalogue")
         models = catalog.get("models")
-        require(isinstance(models, list) and bool(models), "no_selectable_models")
+        require(isinstance(models, list), "catalogue_unavailable")
         for i, model in enumerate(models, 1):
             self.ui.say(f"{i}: {model['display_name']} ({model['slug']})")
-        raw = self.ui.ask("Choose the exact model number (no default):").strip()
-        require(raw.isdecimal() and 1 <= int(raw) <= len(models), "model_selection_required")
-        model = models[int(raw) - 1]["slug"]
+        raw = self.ui.ask("Choose a listed number or enter an exact model slug (no default):").strip()
+        model = {str(i): m["slug"] for i, m in enumerate(models, 1)}.get(raw, raw)
+        require(provider_label(model), "model_selection_required")
         efforts = catalog.get("effort_candidates_unverified", [])
-        self.ui.say("Unverified effort candidates, NOT advertised support: " + ", ".join(efforts))
+        self.ui.say("Example effort labels, with no advertised support: " + ", ".join(efforts))
         effort = self.ui.ask("Choose an exact effort to verify (no default):").strip()
-        require(effort in efforts, "effort_selection_required")
+        require(provider_label(effort), "effort_selection_required")
         # Saved fields remain request metadata; application quotas are disabled.
         timeout, tokens = 0, 0
         request = {"id": "probe-" + uuid.uuid4().hex, "catalogue_sha256": catalog["catalogue_sha256"],
