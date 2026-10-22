@@ -1738,63 +1738,39 @@ impl TrustedHost<'_> {
         F: FnOnce(&InvocationRecord, &StoredObject) -> Result<()>,
     {
         self.store.transaction(|work| {
+            work.complete_invocation_transport(id, prepare_hash, response_hash, object, authenticate)
+        })
+    }
+
+    /// First actual runtime completion uses the already funded terminal slot.
+    /// The callback authenticates against the admission inside this transaction;
+    /// no full invocation is returned or charged before the receipt is durable.
+    /// This accepts only a dispatched, uncompleted call and grants no replay.
+    pub(crate) fn complete_first_runtime_transport<F>(
+        &mut self,
+        id: &str,
+        response_hash: &str,
+        build_authenticated: F,
+    ) -> Result<Receipt>
+    where
+        F: FnOnce(&InvocationRecord) -> Result<StoredObject>,
+    {
+        self.store.transaction(|work| {
             work.id(id)?;
-            work.id(&object.id)?;
-            hash_valid(prepare_hash)?;
-            hash_valid(response_hash)?;
-            let mut record: InvocationRecord = work.required("invocation", id)?;
+            let record: InvocationRecord = work.required("invocation", id)?;
             live_invocation(&record)?;
-            if record.prepare_hash != prepare_hash
-                || record
-                    .response_hash
-                    .as_deref()
-                    .is_some_and(|existing| existing != response_hash)
-            {
-                return Err(StoreError::Conflict(id.into()));
+            if record.state != InvocationState::Dispatched || record.response_hash.is_some() {
+                return Err(StoreError::InvalidState(id.into()));
             }
-            if record.state == InvocationState::Uncertain {
-                return Err(StoreError::ReconciliationRequired);
-            }
-            let replay = match record.state {
-                InvocationState::Dispatched if record.response_hash.is_none() => None,
-                InvocationState::Responded | InvocationState::Adopted | InvocationState::Failed
-                    if record.response_hash.as_deref() == Some(response_hash) =>
-                {
-                    Some(receipt_with_status(
-                        &record.history,
-                        ReceiptStatus::Responded,
-                    )?)
-                }
-                _ => return Err(StoreError::InvalidState(id.into())),
-            };
-            let subject = EntityId::Invocation(id.into());
-            let slot: TerminalEvidenceSlot = work.required("terminal_evidence", &object.id)?;
-            if slot.subject != subject {
-                return Err(StoreError::Conflict(object.id.clone()));
-            }
-            if let Some(receipt) = &replay {
-                if slot.object.as_ref() != Some(&object)
-                    || receipt.subject != subject
-                    || receipt.evidence.as_ref() != Some(&object.exact_ref()?)
-                {
-                    return Err(StoreError::Conflict(id.into()));
-                }
-            }
-            let evidence = work.fill_terminal_evidence(object, |owner, value| {
-                if owner != &subject {
-                    return Err(StoreError::Conflict(id.into()));
-                }
-                authenticate(&record, value)
-            })?;
-            if let Some(receipt) = replay {
-                return Ok(receipt);
-            }
-            record.response_hash = Some(response_hash.into());
-            record.state = InvocationState::Responded;
-            let receipt = work.event(subject, ReceiptStatus::Responded, None, Some(evidence))?;
-            append(&mut record.history, receipt.clone(), INVOCATION_EVENTS)?;
-            work.update("invocation", id, &record)?;
-            Ok(receipt)
+            let object = build_authenticated(&record)?;
+            work.complete_invocation_transport(
+                id, &record.prepare_hash, response_hash, object, |bound, _| {
+                    if bound != &record {
+                        return Err(StoreError::Conflict(id.into()));
+                    }
+                    Ok(())
+                },
+            )
         })
     }
 
@@ -3362,6 +3338,76 @@ struct Work<'a> {
 }
 
 impl<'a> Work<'a> {
+    fn complete_invocation_transport<F>(
+        &mut self,
+        id: &str,
+        prepare_hash: &str,
+        response_hash: &str,
+        object: StoredObject,
+        authenticate: F,
+    ) -> Result<Receipt>
+    where
+        F: FnOnce(&InvocationRecord, &StoredObject) -> Result<()>,
+    {
+        self.id(id)?;
+        self.id(&object.id)?;
+        hash_valid(prepare_hash)?;
+        hash_valid(response_hash)?;
+        let mut record: InvocationRecord = self.required("invocation", id)?;
+        live_invocation(&record)?;
+        if record.prepare_hash != prepare_hash
+            || record
+                .response_hash
+                .as_deref()
+                .is_some_and(|existing| existing != response_hash)
+        {
+            return Err(StoreError::Conflict(id.into()));
+        }
+        if record.state == InvocationState::Uncertain {
+            return Err(StoreError::ReconciliationRequired);
+        }
+        let replay = match record.state {
+            InvocationState::Dispatched if record.response_hash.is_none() => None,
+            InvocationState::Responded | InvocationState::Adopted | InvocationState::Failed
+                if record.response_hash.as_deref() == Some(response_hash) =>
+            {
+                Some(receipt_with_status(
+                    &record.history,
+                    ReceiptStatus::Responded,
+                )?)
+            }
+            _ => return Err(StoreError::InvalidState(id.into())),
+        };
+        let subject = EntityId::Invocation(id.into());
+        let slot: TerminalEvidenceSlot = self.required("terminal_evidence", &object.id)?;
+        if slot.subject != subject {
+            return Err(StoreError::Conflict(object.id.clone()));
+        }
+        if let Some(receipt) = &replay {
+            if slot.object.as_ref() != Some(&object)
+                || receipt.subject != subject
+                || receipt.evidence.as_ref() != Some(&object.exact_ref()?)
+            {
+                return Err(StoreError::Conflict(id.into()));
+            }
+        }
+        let evidence = self.fill_terminal_evidence(object, |owner, value| {
+            if owner != &subject {
+                return Err(StoreError::Conflict(id.into()));
+            }
+            authenticate(&record, value)
+        })?;
+        if let Some(receipt) = replay {
+            return Ok(receipt);
+        }
+        record.response_hash = Some(response_hash.into());
+        record.state = InvocationState::Responded;
+        let receipt = self.event(subject, ReceiptStatus::Responded, None, Some(evidence))?;
+        append(&mut record.history, receipt.clone(), INVOCATION_EVENTS)?;
+        self.update("invocation", id, &record)?;
+        Ok(receipt)
+    }
+
     fn load(db: &'a Connection, limits: &'a Limits) -> Result<Self> {
         let meta = load_meta(db)?;
         if &meta.limits != limits {

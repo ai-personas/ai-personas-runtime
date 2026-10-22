@@ -4965,6 +4965,53 @@ impl Runtime {
                 Ok(())
             })?)
     }
+
+    /// Retain a first actual complete provider response before any metered read
+    /// for adoption or rejection. The exact admission is checked inside Store's
+    /// prepaid transaction; an exhausted read allowance cannot erase transport
+    /// knowledge. This path never reconstructs an earlier missing response.
+    fn persist_first_provider_completion(
+        &mut self,
+        prepared: &Prepared,
+        response_hash: &str,
+        metadata: Value,
+        body: Option<&str>,
+    ) -> Result<s::ObjectRef> {
+        require(
+            matches!(prepared.request.profile, Profile::Direct | Profile::NonconformantResearch)
+                && metadata["kind"] == "provider_complete"
+                && metadata["synthetic"].as_bool() == Some(false)
+                && metadata["inner_sha256"].as_str()
+                    .or_else(|| metadata["transport_sha256"].as_str()) == Some(response_hash),
+            "first provider completion binding mismatch",
+        )?;
+        let maximum = prepared.terminal_response_bytes
+            .ok_or_else(|| held("first provider completion requires prepaid response capacity"))?;
+        let response_body = body.map(|text| {
+            terminal_response_body(&metadata, response_hash, text, maximum)
+        }).transpose()?;
+        let mut object = terminal_object(prepared, metadata)?;
+        if let Some(body) = response_body {
+            object.body["response_body"] = body;
+        }
+        let expected_request = serde_json::to_value(prepared)?;
+        let capacity = terminal_evidence_capacity(maximum)?;
+        let receipt = self.store.trusted_host().complete_first_runtime_transport(
+            &prepared.request.id, response_hash, move |bound| {
+                if bound.request.as_ref() != Some(&expected_request) {
+                    return Err(s::StoreError::Invalid("provider completion admission mismatch".into()));
+                }
+                if object.body.get("response_body").is_some() {
+                    object.body["prepare_hash"] = json!(bound.prepare_hash);
+                }
+                if serde_json::to_vec(&object)?.len() as u64 > capacity {
+                    return Err(s::StoreError::TooLarge);
+                }
+                Ok(object)
+            },
+        ).map_err(RuntimeError::from).map_err(attribute_terminal_persistence)?;
+        receipt.evidence.ok_or_else(|| held("complete transport evidence absent"))
+    }
     /// Inspect one retained transport from an existing root without loading the
     /// runtime state or performing owner-loss recovery. Only terminal evidence
     /// is returned and charged; this entry point cannot resume or execute work.
@@ -5896,6 +5943,16 @@ impl Runtime {
                 Err(held(provider::Failure::Cancelled.to_string()))
             }
         };
+        // Preserve the actual complete transport while its admission and fixed
+        // terminal slot are sufficient. Later protected reads, planning and
+        // ordinary adoption can still fail without turning it into uncertainty.
+        let terminal_ref = self.persist_first_provider_completion(
+            &prepared,
+            inner_hash.as_deref().unwrap_or(&transport_hash),
+            metadata.clone(),
+            (bytes.len() <= intent.max_response_bytes && bytes.len() <= response_bytes)
+                .then_some(bytes.as_str()),
+        )?;
         match parsed {
             Ok(decision) => self.adopt_parsed(
                 &prepared.request.id,
@@ -5906,20 +5963,11 @@ impl Runtime {
             ),
             Err(error) => {
                 let inv = self.store.trusted_host().invocation(&prepared.request.id)?;
-                let reference = self.complete_transport(
-                    &inv,
-                    &prepared,
-                    inner_hash.as_deref().unwrap_or(&transport_hash),
-                    metadata,
-                    (bytes.len() <= intent.max_response_bytes
-                        && bytes.len() <= response_bytes)
-                        .then_some(bytes.as_str()),
-                )?;
                 self.hold_response(
                     &prepared,
                     &inv,
                     error,
-                    &reference,
+                    &terminal_ref,
                     &PlanningExposure::new(prepared.exposure.as_ref()),
                 )
             }

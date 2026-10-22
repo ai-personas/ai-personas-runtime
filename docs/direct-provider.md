@@ -81,6 +81,14 @@ New launch metadata uses format 2. Format-1 historical launch records and their 
 
 Native admission retains execution ownership, exact prompt/response-contract binding, resource reservation and durable dispatch before transmission. Transport completion precedes whole-Decision acceptance. An invalid complete Decision is held with its bounded exact terminal body. Possible submission followed by timeout, cancellation or transport failure remains uncertain; neither replay nor remote cancellation is inferred. Time-limited live exposure remains rejected until a final egress expiry guard is available.
 
+A first complete provider response fills its prepaid terminal slot and records
+the response digest before any metered invocation read for adoption or rejection.
+The runtime checks the exact admitted request inside that same transaction.
+Exhausted navigation can still prevent subsequent planning or adoption; the
+retained transport remains `Responded`, with its original bytes and attribution.
+This is not substantive adoption or permission to replay. Earlier missing
+responses remain missing and uncertain attempts still require reconciliation.
+
 When runtime authorization rejects a prepared request before dispatch, its actual
 no-launch receipt, Failed invocation status and unknown-usage hold commit together
 using prepaid records. Cleanup does not need navigation capacity to return the
