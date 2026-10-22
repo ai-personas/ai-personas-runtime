@@ -14,6 +14,7 @@ pub struct ParticipantResumeRequest {
     pub persona: String,
     pub expected_runtime: s::ObjectRef,
     pub expected_launch: s::ObjectRef,
+    #[serde(default)]
     pub authorize_resume: bool,
 }
 

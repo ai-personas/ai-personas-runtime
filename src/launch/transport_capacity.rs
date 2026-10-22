@@ -57,6 +57,7 @@ pub struct TransportCapacityRequest {
     pub operator: String,
     pub reason: String,
     pub authorization_reference: String,
+    #[serde(default)]
     pub authorize_extension: bool,
     #[serde(deserialize_with = "exact_reference")]
     pub expected_runtime: s::ObjectRef,
@@ -78,8 +79,8 @@ impl TransportCapacityRequest {
             identity(id)?;
         }
         require(
-            self.operator == operator && self.id.len() <= 96 && self.authorize_extension,
-            "explicit matching operator transport authorization required",
+            self.operator == operator,
+            "transport metadata operator mismatch",
         )?;
         for value in [&self.reason, &self.authorization_reference] {
             text(value, 4096)?;
@@ -109,10 +110,7 @@ impl TransportCapacityRequest {
                 && self.new_limits != self.expected_limits,
             "transport extension must increase an allowance without reducing another",
         )?;
-        require(
-            serde_json::to_vec(self)?.len() <= 16_384,
-            "transport request exceeds bound",
-        )
+        Ok(())
     }
     fn new_reserve(&self) -> u64 {
         self.expected_transport_output_reserve_bytes

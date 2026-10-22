@@ -18,6 +18,7 @@ pub struct CapacityExtensionRequest {
     pub operator: String,
     pub reason: String,
     pub authorization_reference: String,
+    #[serde(default)]
     pub authorize_extension: bool,
     pub expected_epoch: u64,
     pub expected_runtime: ObjectRef,
@@ -59,8 +60,7 @@ fn receipt_id(id: &str) -> String {
 fn proposed_limits(request: &CapacityExtensionRequest) -> Result<Limits> {
     let old = &request.expected_limits;
     old.validate()?;
-    if !request.authorize_extension
-        || request.id.is_empty()
+    if request.id.is_empty()
         || request.id.len() > 256
         || request.id.chars().any(char::is_whitespace)
         || request.id.chars().any(char::is_control)

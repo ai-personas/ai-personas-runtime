@@ -14,6 +14,7 @@ pub struct HeadCompactionRequest {
     pub operator: String,
     pub reason: String,
     pub authorization_reference: String,
+    #[serde(default)]
     pub authorize_compaction: bool,
     pub expected_epoch: u64,
     pub expected_runtime: ObjectRef,
@@ -30,7 +31,7 @@ impl Store {
         request.expected_limits.validate()?;
         let valid_id = |value: &str| !value.is_empty() && value.len() <= 256
             && !value.chars().any(|c| c.is_whitespace() || c.is_control());
-        if !request.authorize_compaction || !valid_id(&request.id) || !valid_id(&request.operator)
+        if !valid_id(&request.id) || !valid_id(&request.operator)
             || request.reason.trim().is_empty() || request.reason.len() > 4096
             || request.authorization_reference.trim().is_empty()
             || request.authorization_reference.len() > 4096

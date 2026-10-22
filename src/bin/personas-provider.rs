@@ -87,32 +87,7 @@ mod cli {
         // Global Clap options cannot be required. Enforce explicit selection here,
         // before any backend or path access; help exits before calling run.
         let vault = cli.vault.as_deref().ok_or(backend::Code::InvalidRequest)?;
-        // Refuse absent affirmative grants before opening even the selected vault.
-        let denied = match &cli.command {
-            Command::Catalogue {
-                authorize_read,
-                retain_private_evidence,
-            } => !authorize_read || !retain_private_evidence,
-            Command::Plan {
-                retain_private_evidence,
-                ..
-            } => !retain_private_evidence,
-            // Retained replay inspection is separately available through status.
-            Command::Probe {
-                authorize_one_request,
-                retain_private_evidence,
-                acknowledge_uncapped_remote_usage,
-                ..
-            } => {
-                !authorize_one_request
-                    || !retain_private_evidence
-                    || !acknowledge_uncapped_remote_usage
-            }
-            _ => false,
-        };
-        if denied {
-            return Err(backend::Code::Denied);
-        }
+        // Explicit commands retain their actual evidence without another approval flag.
         let mut host = backend::Backend::open(vault)?;
         match cli.command {
             Command::Catalogue {

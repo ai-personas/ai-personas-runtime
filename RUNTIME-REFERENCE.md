@@ -1,5 +1,12 @@
 # AI Personas
 
+Explicit commands and selected UI actions need no second approval. Historical
+`authorize_*`, direct-provider opt-in and model-confirmation fields are optional
+metadata in operator requests. Exact current-state references and actual operator,
+provider and execution identities still bind each action. See
+[execution resources](docs/execution-resources.md) for completed removals and
+remaining implementation gaps.
+
 A Rust application for personas whose primary language model directs their work, character, behavior, voice, supporting assets, and next-context selection. The current design target is [revision dddc451](https://github.com/ai-personas/ai-personas-design/tree/dddc451b2e4f854c3ceaaea600ba0c290d54b6c2), including default full host access and retained continuation responsibility. Earlier implementation baseline [67894561](https://github.com/ai-personas/ai-personas-design/tree/67894561fa88a8f734e8f536bcbafda271b18c63) and editorial restatement [294d5c6](https://github.com/ai-personas/ai-personas-design/tree/294d5c6bf29b6d5fe597c40b4c9c33e9da3bc03c) remain historical context. The runtime implements a bounded subset; these links do not establish full conformance.
 
 [Full host command access](docs/host-commands.md) is enabled by default for ordinary

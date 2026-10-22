@@ -3,7 +3,6 @@
 use super::*;
 
 const RECEIPT_KIND: &str = "bounded-human-intake";
-const MAX_REQUEST_BYTES: usize = 65_536;
 const AUTH_BASIS: &str = "trusted operator attestation referencing prior explicit human authorization; not independent authentication";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -41,6 +40,7 @@ pub struct HumanIntakeRequest {
     pub id: String,
     pub operator: String,
     pub purpose: String,
+    #[serde(default)]
     pub authorize_human_intake: bool,
     pub authorization: HumanAuthorizationEvidence,
     pub expected: HumanIntakeFence,
@@ -109,15 +109,14 @@ impl HumanIntakeRequest {
         identity(&self.operator)?;
         identity(&self.work_id)?;
         require(
-            self.operator == operator && self.id.len() <= 96 && receipt_id(&self.id).len() <= 256,
+            self.operator == operator,
             "human-intake operator or receipt identity mismatch",
         )?;
         bounded_text(&self.purpose, 4096)?;
         bounded_text(&self.request, 32_768)?;
         require(
-            self.authorize_human_intake
-                && s::sha256_bytes(self.request.as_bytes()) == self.request_sha256,
-            "explicit human-intake authorization and exact request-body hash required",
+            s::sha256_bytes(self.request.as_bytes()) == self.request_sha256,
+            "exact human-intake request-body hash required",
         )?;
         let auth = &self.authorization;
         bounded_text(&auth.reference, 4096)?;
@@ -166,10 +165,7 @@ impl HumanIntakeRequest {
             auth.cumulative_token_ceiling,
             self.per_call_reserve_tokens,
         )?;
-        require(
-            serde_json::to_vec(self)?.len() <= MAX_REQUEST_BYTES,
-            "human-intake request exceeds bound",
-        )
+        Ok(())
     }
 }
 
@@ -224,8 +220,7 @@ fn validate_receipt(receipt: &HumanIntakeReceipt) -> Result<()> {
             && receipt.target_launch.revision == increment(request.expected.launch.revision)?
             && valid_sha256(&receipt.target_runtime.sha256)
             && valid_sha256(&receipt.target_launch.sha256)
-            && valid_sha256(&receipt.need_sha256)
-            && serde_json::to_vec(receipt)?.len() <= 131_072,
+            && valid_sha256(&receipt.need_sha256),
         "invalid human-intake receipt",
     )
 }

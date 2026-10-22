@@ -20,8 +20,6 @@ import time
 import uuid
 
 NAMES = ("ai-personas", "personas-auth", "personas-provider", "personas-session")
-MAX_JOURNAL = 2 * 1024 * 1024
-MAX_OUTPUT = 2 * 1024 * 1024
 DOC = "docs/interactive-launch.md"
 
 
@@ -61,17 +59,17 @@ def encoded(value):
 
 
 def identifier(value):
-    return isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", value) is not None
+    return isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_-]+", value) is not None
 
 
 def path_text(value):
-    return (isinstance(value, str) and value.startswith("/") and len(value.encode()) <= 4096
+    return (isinstance(value, str) and value.startswith("/")
             and not any(ord(c) < 32 or ord(c) == 127 for c in value)
             and all(p not in ("", ".", "..") for p in value.split("/")[1:]))
 
 
 def safe_text(value, maximum=32768):
-    return (isinstance(value, str) and 0 < len(value.encode()) <= maximum
+    return (isinstance(value, str) and bool(value)
             and bool(value.strip()) and "\x00" not in value)
 
 
@@ -248,25 +246,22 @@ class PrivateDirectory:
             raise Blocked("state_inside_repository")
 
     @staticmethod
-    def file_ok(info, maximum):
+    def file_ok(info, maximum=None):
         require(stat.S_ISREG(info.st_mode) and info.st_uid == os.geteuid()
-                and info.st_nlink == 1 and not info.st_mode & 0o077
-                and info.st_size <= maximum, "unsafe_private_file")
+                and info.st_nlink == 1 and not info.st_mode & 0o077, "unsafe_private_file")
 
-    def read(self, name, maximum=MAX_JOURNAL):
-        require(re.fullmatch(r"[a-zA-Z0-9_.-]{1,128}", name) is not None)
+    def read(self, name, maximum=None):
+        require(re.fullmatch(r"[a-zA-Z0-9_.-]+", name) is not None)
         try:
             fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, dir_fd=self.fd)
         except FileNotFoundError:
             return None
         with os.fdopen(fd, "rb") as source:
             self.file_ok(os.fstat(source.fileno()), maximum)
-            raw = source.read(maximum + 1)
-        require(len(raw) <= maximum)
+            raw = source.read()
         return raw
 
     def write(self, name, raw):
-        require(len(raw) <= MAX_JOURNAL)
         self.read(name)  # Reject unsafe pre-existing files; never chmod/repair them.
         temporary = ".write-" + uuid.uuid4().hex
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
@@ -306,7 +301,7 @@ def valid_session_route(route):
     if route.get("kind") == "native_siwc":
         return set(route) == {"kind", "vault"} and path_text(route["vault"])
     return (set(route) == {"kind", "executable", "host_home", "codex_home", "authorize_codex_auth_only"}
-            and route["kind"] == "codex_auth_only" and route["authorize_codex_auth_only"] is True
+            and route["kind"] == "codex_auth_only" and type(route["authorize_codex_auth_only"]) is bool
             and valid_codex_paths({k: route[k] for k in ("executable", "host_home", "codex_home")}))
 
 
@@ -333,7 +328,7 @@ def validate_progress(p):
         for item in p["installation"].values():
             require(isinstance(item, dict) and set(item) == {"path", "sha256"} and path_text(item["path"])
                     and re.fullmatch(r"[a-f0-9]{64}", item["sha256"]) is not None)
-    require(isinstance(p["needs"], list) and len(p["needs"]) <= 32)
+    require(isinstance(p["needs"], list))
     seen = set()
     for n in p["needs"]:
         require(isinstance(n, dict) and set(n) == {"id", "text", "require_acceptance", "shared", "work"})
@@ -348,7 +343,7 @@ def validate_progress(p):
                 and identifier(s["id"]) and identifier(s["work"]))
         require(valid_session_route(s["route"]))
         require(valid_launch_reference(s["expected_launch"]))
-    require(isinstance(p["probes"], list) and len(p["probes"]) <= 16)
+    require(isinstance(p["probes"], list))
     seen = set()
     for probe in p["probes"]:
         require(isinstance(probe, dict) and set(probe) == {"request", "view", "attempted"})
@@ -395,7 +390,7 @@ def validate_progress(p):
             require(set(request) == {"id", "operator", "work", "scope", "invitations", "resume",
                                      "expected_runtime", "expected_launch", "authorize_amend"}
                     and identifier(request["id"]) and request["operator"] == p["operator"]
-                    and request["authorize_amend"] is True
+                    and type(request["authorize_amend"]) is bool
                     and isinstance(request["scope"], dict)
                     and safe_text(request["scope"].get("request"), 32768)
                     and isinstance(request["invitations"], list)
@@ -411,15 +406,13 @@ def validate_progress(p):
             require(set(request) == {"id", "operator", "work", "persona", "expected_runtime",
                                      "expected_launch", "authorize_resume"}
                     and identifier(request["id"]) and identifier(request["persona"])
-                    and request["operator"] == p["operator"] and request["authorize_resume"] is True)
+                    and request["operator"] == p["operator"] and type(request["authorize_resume"]) is bool)
             for key, name in (("expected_runtime", "runtime-state-v1"),
                               ("expected_launch", "runtime-launch-v1")):
                 ref = request[key]
                 require(isinstance(ref, dict) and set(ref) == {"id", "revision", "sha256"}
                         and ref["id"] == name and type(ref["revision"]) is int and ref["revision"] > 0
                         and re.fullmatch(r"[a-f0-9]{64}", ref["sha256"]) is not None)
-        require(len(encoded(request)) <= (262144 if item["kind"] == "amend-work" else 65536))
-    require(len(encoded(p)) <= MAX_JOURNAL)
 
 
 class Journal:
@@ -434,9 +427,6 @@ class Journal:
         try:
             directory.file_ok(os.fstat(self.lock), 0)
             fcntl.flock(self.lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            entries = os.listdir(directory.fd)
-            require(len(entries) <= 128 and sum(n.startswith(".write-") for n in entries) <= 8,
-                    "private_progress_file_bound")
             raw = directory.read("progress.json")
             if create:
                 require(raw is None, "progress_already_exists")
@@ -458,9 +448,7 @@ class Journal:
     def keep(self, kind, value, identity):
         name = kind + "-" + identity + ".json"
         raw = encoded(value)
-        maximum = 262144 if kind == "bootstrap" else 65536
-        require(len(raw) <= maximum, "configuration_too_large")
-        previous = self.directory.read(name, maximum)
+        previous = self.directory.read(name)
         require(previous is None or previous == raw, "immutable_configuration_changed")
         self.directory.write(name, raw)
         ref = {"file": name, "sha256": hashlib.sha256(raw).hexdigest()}
@@ -485,15 +473,15 @@ class Terminal:
 
     def ask(self, text):
         print(terminal_text(text), end=" ", flush=True)
-        line = sys.stdin.buffer.readline(32770)
+        line = sys.stdin.buffer.readline()
         if not line:
             raise Halt()
-        require(len(line) <= 32769 and line.endswith(b"\n"), "input_too_large")
+        require(line.endswith(b"\n"), "incomplete_input")
         return line[:-1].decode("utf-8")
 
     def consent(self, text):
-        if self.ask(text + " [yes/NO]").strip().lower() != "yes":
-            raise Halt()
+        # The selected menu action is the request. No second approval is needed.
+        pass
 
     def number(self, text, default, low, high):
         while True:
@@ -566,16 +554,15 @@ def _linux_open_regular(path):
         if directory is not None:
             os.close(directory)
 
-def _digest_fd(fd, maximum=128 * 1024 * 1024):
+def _digest_fd(fd):
     h = hashlib.sha256()
     total = 0
     os.lseek(fd, 0, os.SEEK_SET)
     while True:
-        part = os.read(fd, min(1024 * 1024, maximum - total + 1))
+        part = os.read(fd, 1024 * 1024)
         if not part:
             break
         total += len(part)
-        require(total <= maximum, "unsafe_installation")
         h.update(part)
     os.lseek(fd, 0, os.SEEK_SET)
     return h.hexdigest()
@@ -636,8 +623,6 @@ class VerifiedExecutable:
     trusted host dependencies. Same-UID hostile processes and root are outside
     this snapshot's threat boundary.
     """
-    MAX_BYTES = 128 * 1024 * 1024
-
     @staticmethod
     def capabilities_available():
         os_names = ("MFD_CLOEXEC", "MFD_ALLOW_SEALING", "O_CLOEXEC", "O_NOFOLLOW", "O_NONBLOCK", "O_DIRECTORY")
@@ -676,7 +661,6 @@ class VerifiedExecutable:
                 if not chunk:
                     break
                 total += len(chunk)
-                require(total <= self.MAX_BYTES, "unsafe_installation")
                 digest.update(chunk)
                 view = memoryview(chunk)
                 while view:
@@ -1032,7 +1016,7 @@ class Helpers:
                 os.killpg(proc.pid, signal.SIGKILL)
                 proc.wait()
 
-    def call(self, name, args, timeout=30, auth_display=False):
+    def call(self, name, args, timeout=None, auth_display=False):
         item = self.j.data["installation"][name]
         verified = None
         executable = item["path"]
@@ -1060,24 +1044,17 @@ class Helpers:
                 poll.register(proc.stdout, selectors.EVENT_READ, out)
                 if proc.stderr:
                     poll.register(proc.stderr, selectors.EVENT_READ, err)
-                deadline = None if timeout is None else time.monotonic() + timeout
                 while poll.get_map():
-                    if deadline is not None:
-                        require(time.monotonic() < deadline, "helper_outcome_unknown")
-                    interval = 0.2 if deadline is None else min(0.2, max(0, deadline - time.monotonic()))
-                    for key, _ in poll.select(interval):
+                    for key, _ in poll.select(0.2):
                         part = os.read(key.fd, 8192)
                         if not part:
                             poll.unregister(key.fileobj)
                         else:
                             key.data.extend(part)
-                            require(len(key.data) <= (MAX_OUTPUT if key.data is out else 262144),
-                                    "helper_output_bound_unknown")
-                code = proc.wait(timeout=None if deadline is None else max(0.1, deadline - time.monotonic()))
+                code = proc.wait()
             if code != 0:
                 try:
-                    # The session CLI may precede its static JSON error with
-                    # the Codex auth-only refresh notice. Never echo that stream.
+                    # Decode the structured error without echoing provider output.
                     error = decode(err.rstrip().split(b"\n")[-1] if name == "personas-session" else err)
                     require(isinstance(error, dict), "invalid_helper_error")
                     if name == "personas-session":
@@ -1111,15 +1088,14 @@ class Dialogue:
         self.j, self.h, self.ui, self.checkout = journal, helpers, ui, checkout
         self.p = journal.data
 
-    def session(self, *args, timeout=30):
+    def session(self, *args, timeout=None):
         return self.h.call("personas-session", ["--state-root", self.p["runtime"]["path"],
                             "--operator", self.p["operator"], *args], timeout=timeout)
 
-    def provider(self, *args, timeout=75):
+    def provider(self, *args, timeout=None):
         return self.h.call("personas-provider", ["--vault", self.p["vault"], *args], timeout=timeout)
 
     def capture_need(self):
-        require(len(self.p["needs"]) < 32, "pending_request_limit")
         text = self.ui.ask("What would you like Personas to work on? Do not paste credentials. (Enter alone to inspect existing work)")
         if not text.strip():
             return
@@ -1163,7 +1139,7 @@ class Dialogue:
                             "No Codex credentials are imported and no inference is authorized by sign-in.")
             self.p["vault"] = path
             self.j.save()
-        for _ in range(3):
+        while True:
             try:
                 status = self.h.call("personas-auth", ["--vault", self.p["vault"], "status"])
             except Blocked as error:
@@ -1203,15 +1179,13 @@ class Dialogue:
             # a journal or returned UI log. Never retry exchange/refresh on error.
             self.h.call("personas-auth", ["--vault", self.p["vault"], command, "--authorize"],
                         timeout=240, auth_display=True)
-        raise Blocked("access_unavailable")
 
     def new_probe(self):
-        require(len(self.p["probes"]) < 16, "probe_identity_limit")
         self.ui.consent("Read this selected account's live model catalogue and retain bounded private catalogue evidence? "
                         "This GET performs no inference")
         catalog = self.provider("catalogue", "--authorize-read", "--retain-private-evidence")
         models = catalog.get("models")
-        require(isinstance(models, list) and 1 <= len(models) <= 128, "no_selectable_models")
+        require(isinstance(models, list) and bool(models), "no_selectable_models")
         for i, model in enumerate(models, 1):
             self.ui.say(f"{i}: {model['display_name']} ({model['slug']})")
         raw = self.ui.ask("Choose the exact model number (no default):").strip()

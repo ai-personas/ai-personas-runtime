@@ -23,6 +23,7 @@ pub struct Request {
     pub action: Action,
     pub reason: String,
     pub authorization_reference: String,
+    #[serde(default)]
     pub authorize_change: bool,
     pub expected_runtime: s::ObjectRef,
     pub expected_launch: s::ObjectRef,
@@ -45,8 +46,8 @@ impl Request {
             identity(id)?;
         }
         require(
-            self.operator == operator && self.id.len() <= 96 && self.authorize_change,
-            "explicit matching operator lifecycle authorization required",
+            self.operator == operator,
+            "lifecycle operator mismatch",
         )?;
         for value in [&self.reason, &self.authorization_reference] {
             text(value, 4096)?;
@@ -58,10 +59,7 @@ impl Request {
             "invalid lifecycle snapshot references",
         )?;
         increment(self.expected_runtime.revision)?;
-        require(
-            serde_json::to_vec(self)?.len() <= 16_384,
-            "lifecycle request exceeds bound",
-        )
+        Ok(())
     }
 }
 

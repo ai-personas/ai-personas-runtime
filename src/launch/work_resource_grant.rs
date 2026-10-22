@@ -5,7 +5,6 @@
 use super::*;
 
 const RECEIPT_KIND: &str = "work-resource-grant";
-const MAX_REQUEST_BYTES: usize = 16_384;
 const AUTH_BASIS: &str =
     "saved operator attestation; authorization reference is not independent authentication";
 
@@ -39,6 +38,7 @@ pub struct WorkResourceGrantRequest {
     pub work_id: String,
     pub reason: String,
     pub authorization_reference: String,
+    #[serde(default)]
     pub authorize_grant: bool,
     pub expected: WorkResourceGrantFence,
     pub increase: WorkResourceIncrease,
@@ -66,6 +66,7 @@ impl<'de> Deserialize<'de> for WorkResourceGrantRequest {
             work_id: String,
             reason: String,
             authorization_reference: String,
+            #[serde(default)]
             authorize_grant: bool,
             expected: WorkResourceGrantFence,
             increase: WorkResourceIncrease,
@@ -185,15 +186,11 @@ impl WorkResourceGrantRequest {
             identity(id)?;
         }
         require(
-            self.operator == operator && self.id.len() <= 96 && receipt_id(&self.id).len() <= 256,
+            self.operator == operator,
             "work grant operator or receipt identity mismatch",
         )?;
         nonblank(&self.reason, 4096)?;
         nonblank(&self.authorization_reference, 4096)?;
-        require(
-            self.authorize_grant,
-            "explicit authorize_grant true required",
-        )?;
         check_ref(&self.expected.runtime, STATE_ID)?;
         check_ref(&self.expected.launch, ID)?;
         let expected = &self.expected;
@@ -237,10 +234,7 @@ impl WorkResourceGrantRequest {
             self.token_attestation.conservative_token_ceiling,
             self.token_attestation.per_call_reserve_tokens,
         )?;
-        require(
-            serde_json::to_vec(self)?.len() <= MAX_REQUEST_BYTES,
-            "work grant request exceeds bound",
-        )
+        Ok(())
     }
 }
 
@@ -354,8 +348,7 @@ fn validate_receipt(receipt: &WorkResourceGrantReceipt) -> Result<()> {
             && receipt
                 .carried_episode_bindings
                 .windows(2)
-                .all(|pair| pair[0] < pair[1])
-            && serde_json::to_vec(receipt)?.len() <= 65_536,
+                .all(|pair| pair[0] < pair[1]),
         "invalid work resource grant receipt",
     )?;
     for id in &receipt.carried_episode_bindings {

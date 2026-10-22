@@ -58,6 +58,7 @@ pub struct Request {
     pub expected_launch: intake_delegation::IntakeReference,
     pub initialization_limit: u64,
     pub authorization_reference: String,
+    #[serde(default)]
     pub authorize_creation: bool,
 }
 impl Request {

@@ -7,6 +7,7 @@ pub struct OpportunityRequest {
     pub id: String,
     pub operator: String,
     pub authorization_reference: String,
+    #[serde(default)]
     pub authorize_optional_activity: bool,
     pub participants: BTreeSet<String>,
     pub policy_id: String,

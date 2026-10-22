@@ -35,6 +35,7 @@ pub struct Request {
     #[serde(deserialize_with = "deserialize_exact_reference")]
     pub expected_launch: s::ObjectRef,
     pub authorization_reference: String,
+    #[serde(default)]
     pub authorize_installation: bool,
 }
 impl Request {
@@ -42,8 +43,8 @@ impl Request {
         identity(&self.id)?;
         identity(&self.operator)?;
         require(
-            self.operator == operator && self.authorize_installation,
-            "matching operator and explicit native-guide installation authorization required",
+            self.operator == operator,
+            "native-guide installation operator mismatch",
         )?;
         text(&self.authorization_reference, 4096)?;
         require(
@@ -65,10 +66,7 @@ impl Request {
                 "native-guide installation requires exact complete state references",
             )?;
         }
-        require(
-            serde_json::to_vec(self)?.len() <= 16_384,
-            "installation request exceeds bound",
-        )
+        Ok(())
     }
 }
 

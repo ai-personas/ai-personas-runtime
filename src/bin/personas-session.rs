@@ -25,13 +25,10 @@ enum Command {
     /// Preview or atomically initialize an exact fresh launch; never repair/reset a Store.
     Bootstrap {
         file: PathBuf,
-        #[arg(
-            long,
-            required_unless_present = "authorize_setup",
-            conflicts_with = "authorize_setup"
-        )]
+        #[arg(long)]
         preview: bool,
-        #[arg(long, required_unless_present = "preview", conflicts_with = "preview")]
+        /// Retained command-line metadata; invoking bootstrap applies setup unless --preview is selected.
+        #[arg(long)]
         authorize_setup: bool,
     },
     /// No owner recovery, credential resolution, grants or inference. Metered reads.
@@ -59,7 +56,8 @@ enum Command {
         id: String,
         #[arg(long)]
         work: String,
-        #[arg(long, required = true)]
+        /// Retained command-line metadata; invoking run is the explicit action.
+        #[arg(long)]
         authorize_run: bool,
         /// Exact launch reference previously inspected before authorizing this session.
         #[arg(long)]
@@ -68,12 +66,12 @@ enum Command {
         #[arg(long)]
         intake_delegation: Option<PathBuf>,
         /// Explicit existing SIWC vault. No sign-in, refresh, export or fallback.
-        #[arg(long, requires = "authorize_native")]
+        #[arg(long)]
         vault: Option<PathBuf>,
         #[arg(long, requires = "vault", conflicts_with_all = ["codex_executable", "authorize_codex_auth_only"])]
         authorize_native: bool,
         /// Explicit trusted Codex executable; used only for auth-only app-server JSON-RPC.
-        #[arg(long, requires_all = ["authorize_codex_auth_only", "host_home", "codex_home"], conflicts_with_all = ["vault", "authorize_native"])]
+        #[arg(long, requires_all = ["host_home", "codex_home"], conflicts_with_all = ["vault", "authorize_native"])]
         codex_executable: Option<PathBuf>,
         /// Explicit non-secret HOME for the authorized auth-only process.
         #[arg(long, requires = "codex_executable", conflicts_with_all = ["vault", "authorize_native"])]
@@ -171,12 +169,9 @@ async fn main() {
         Command::Bootstrap {
             file,
             preview,
-            authorize_setup,
+            authorize_setup: _,
         } => {
             let result = (|| -> session::BoundaryResult<serde_json::Value> {
-                if preview == authorize_setup {
-                    return Err(session::BoundaryError::InvalidRequest);
-                }
                 let request: ai_personas::launch::bootstrap::Request =
                     ai_personas::runtime::read_json_file(&file, 262_144)?;
                 if request.operator != operator {
@@ -211,20 +206,17 @@ async fn main() {
         Command::Run {
             id,
             work,
-            authorize_run,
+            authorize_run: _,
             expected_launch,
             intake_delegation,
             vault,
-            authorize_native,
+            authorize_native: _,
             codex_executable,
             host_home,
             codex_home,
             authorize_codex_auth_only,
         } => {
-            if !authorize_run
-                || vault.is_some() != authorize_native
-                || codex_executable.is_some() != authorize_codex_auth_only
-                || codex_executable.is_some() != host_home.is_some()
+            if codex_executable.is_some() != host_home.is_some()
                 || codex_executable.is_some() != codex_home.is_some()
                 || (vault.is_some() && codex_executable.is_some())
             {
@@ -241,11 +233,6 @@ async fn main() {
                     (None, None, None, None) => SessionRoute::SavedEnvironment,
                     _ => unreachable!("mutually exclusive CLI routes validated"),
                 };
-                if matches!(&route, SessionRoute::CodexAuthOnly { .. }) {
-                    eprintln!(
-                        "Notice: Codex may proactively refresh stored credentials even though this auth-only request sets refreshToken=false. The selected CODEX_HOME is a store location; token-bearing status can return an ephemeral bearer to the trusted adapter."
-                    );
-                }
                 let result = async {
                     let intake_delegation = intake_delegation
                         .as_ref()

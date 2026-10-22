@@ -40,14 +40,14 @@ a proof for every schema, payload size, future call or account entitlement.
 `auth::onboarding::Backend::open(&vault_path)` selects an existing, absolute,
 protected Personas vault outside repositories. It retains the existing account
 lock. Opening does not sign in, refresh, perform inference or create a credential.
-The parent must already exist with mode 0700. The future UI owns explicit sign-in
-and storage consent, then drops each backend handle before a renewal operation.
+The parent must already exist with mode 0700. The caller selects sign-in or renewal and drops each backend handle before a
+renewal operation. These commands need no second authorization flag.
 
 | Method | Effect and result |
 | --- | --- |
 | `catalogue(authorize_read, retain_private_evidence)` | One bounded live GET and private catalogue retention. Returns exact selectable choices and an evidence digest. |
 | `plan(PlanRequest, retain_private_evidence)` | Persists an immutable plan under an exact ID; returns the bound account/model/effort, plan digest, cost notice and finite local limits. No inference. |
-| `execute(id, plan_sha256, ProbeConsent, Cancellation)` | Consumes the exact plan durably before possible transmission, then attempts at most one request. Requires separate one-request, private-evidence and uncapped-remote-usage confirmations. |
+| `execute(id, plan_sha256, ProbeConsent, Cancellation)` | Consumes the exact plan durably before possible transmission, then attempts at most one request. The explicit command needs no additional confirmation flags; exact evidence is retained. |
 | `probe_status(id, plan_sha256)` | Returns retained historical metadata without resolving credentials or dispatching. |
 | `configuration(id, plan_sha256)` | Returns typed native settings only after exact completed proof, current credential-generation checking and current catalogue checking. No runtime write or sharing/funding grant. |
 | `renewal_status(&saved_settings)` | Read-only same-account comparison and explicit migration/fresh-evidence requirements. No credential or runtime modification. |
@@ -91,11 +91,10 @@ supplied values. Do not parse `Display` text: its longer explanatory strings may
 differ from the serialized code.
 
 `plan` requires explicit `--id`, `--catalogue-sha256`, `--model`, `--effort`,
-`--timeout-ms`, `--max-observed-total-tokens` and `--retain-private-evidence`.
-`probe` requires the exact returned `--id` and `--plan-sha256`, plus
+`--timeout-ms` and `--max-observed-total-tokens`.
+`probe` requires the exact returned `--id` and `--plan-sha256`. The former
 `--authorize-one-request`, `--retain-private-evidence` and
-`--acknowledge-uncapped-remote-usage`. Do not set these because sign-in succeeded;
-show the plan/cost notice and obtain the separate actual decision. Account,
+`--acknowledge-uncapped-remote-usage` flags are optional metadata. Account,
 model, effort, request, finite local limits and deadline are bound by that digest.
 No token, API key, executable, or alternate endpoint argument exists.
 
@@ -163,13 +162,13 @@ account returns `account_changed`; old catalogue and proof never transfer. Missi
 or generation-mismatched backend proof is not certified from a digest supplied
 by a caller, even if the credential expiry happens to be unchanged.
 
-For a changed generation, obtain a fresh catalogue and a separately authorized
-fresh probe, then call `configuration`. Existing saved expiry/evidence pins are
+For a changed generation, obtain a fresh catalogue and a fresh probe, then call `configuration`. Existing saved expiry/evidence pins are
 not rewritten in place. For an existing runtime, a trusted future UI uses the
 already implemented typed `launch::migration_snapshot`, fills
 `ProviderMigrationRequest` from that exact snapshot and the generated settings,
-and obtains the explicit operator reason, destination, model and provider
-confirmations before `preview_provider_migration` / `migrate_provider`.
+and records the operator reason, destination and exact model/provider selection
+before `preview_provider_migration` / `migrate_provider`. Historical confirmation
+booleans are optional metadata, not additional gates.
 No manual JSON authorship is required when calling those Rust interfaces.
 
 That existing migration owns runtime execution, rejects active/unresolved

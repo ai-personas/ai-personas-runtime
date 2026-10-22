@@ -12,6 +12,7 @@ pub struct RepairAllocationRequest {
     pub work_id: String,
     pub reason: String,
     pub authorization_reference: String,
+    #[serde(default)]
     pub authorize_allocation: bool,
     pub expected: WorkResourceGrantFence,
     pub expected_declared_repair_attempts: u64,
@@ -31,6 +32,7 @@ impl<'de> Deserialize<'de> for RepairAllocationRequest {
             work_id: String,
             reason: String,
             authorization_reference: String,
+            #[serde(default)]
             authorize_allocation: bool,
             expected: WorkResourceGrantFence,
             expected_declared_repair_attempts: u64,
@@ -72,7 +74,7 @@ impl RepairAllocationRequest {
             identity(id)?;
         }
         require(
-            self.operator == operator && self.id.len() <= 96,
+            self.operator == operator,
             "repair allocation operator or identity mismatch",
         )?;
         for value in [&self.reason, &self.authorization_reference] {
@@ -82,10 +84,6 @@ impl RepairAllocationRequest {
                 "repair allocation attribution required",
             )?;
         }
-        require(
-            self.authorize_allocation,
-            "explicit authorize_allocation true required",
-        )?;
         for (reference, id) in [
             (&self.expected.runtime, STATE_ID),
             (&self.expected.launch, ID),
@@ -114,10 +112,7 @@ impl RepairAllocationRequest {
             "cumulative repair allowance exceeds supported bound",
         )?;
         remaining.validate()?;
-        require(
-            serde_json::to_vec(self)?.len() <= 16_384,
-            "repair allocation request exceeds bound",
-        )
+        Ok(())
     }
 
     fn declared_after(&self) -> Result<u64> {

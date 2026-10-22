@@ -33,13 +33,13 @@ protected pause and quarantine, create an operator request using a fresh snapsho
   "action": "provision",
   "reason": "Enable separate controls for this continuing identity.",
   "authorization_reference": "The operator's actual authorization record",
-  "authorize_change": true,
   "expected_runtime": {"id": "runtime-state-v1", "revision": 1, "sha256": "COPY_FROM_SNAPSHOT"},
   "expected_launch": {"id": "runtime-launch-v1", "revision": 1, "sha256": "COPY_FROM_SNAPSHOT"},
   "expected_lifecycle_revision": null
 }
 ```
 
+The explicit change command needs no separate `authorize_change` flag.
 Copy all reference fields from the actual snapshot. `null` is valid only before
 provisioning; later requests carry the current numeric lifecycle revision.
 

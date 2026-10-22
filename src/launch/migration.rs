@@ -20,9 +20,8 @@ pub struct PersonaBinding {
     pub owner_epoch: u64,
 }
 
-/// Confirmations are explicit operator assertions, not live capability checks.
-/// The destination authorizes the new route under the existing destination
-/// label; this operation cannot change policies, audiences, grants, or exposure.
+/// The explicit request selects the provider. Historical confirmation fields
+/// are optional metadata, not live capability checks or additional approvals.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderMigrationRequest {
@@ -33,7 +32,9 @@ pub struct ProviderMigrationRequest {
     pub expected_launch: s::ObjectRef,
     pub expected_persona_bindings: BTreeMap<String, PersonaBinding>,
     pub provider: DirectProviderSettings,
+    #[serde(default)]
     pub allow_direct_provider: bool,
+    #[serde(default)]
     pub model_confirmed: bool,
     pub authorized_destination: String,
 }
@@ -86,15 +87,7 @@ fn receipt_id(id: &str) -> String {
 }
 
 fn migration_id(id: &str) -> Result<()> {
-    identity(id)?;
-    require(
-        id.chars().count() <= 96,
-        "migration id exceeds 96 characters",
-    )?;
-    require(
-        receipt_id(id).len() <= 256,
-        "migration receipt identity exceeds bound",
-    )
+    identity(id)
 }
 
 fn hash_string(hash: &str) -> Result<()> {
@@ -129,8 +122,7 @@ fn binding_bounds(bindings: &BTreeMap<String, PersonaBinding>) -> Result<()> {
     Ok(())
 }
 
-// Run before any Store read, including an idempotency lookup. All variable-size
-// request fields are bounded before serialization. Typed maps and sets have
+// Run before any Store read, including an idempotency lookup. Typed maps and sets have
 // deterministic order; incoming JSON formatting is not part of request identity.
 fn validate_request(request: &ProviderMigrationRequest, now: i64) -> Result<String> {
     migration_id(&request.id)?;

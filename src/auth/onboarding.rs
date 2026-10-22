@@ -607,13 +607,12 @@ impl Backend {
                 _ => Code::Storage,
             })
     }
-    /// Explicit read and private retention grants; a GET performs no inference.
+    /// Explicit catalogue read; exact private evidence is retained by default.
     pub async fn catalogue(
         &mut self,
-        authorize_read: bool,
-        retain_private_evidence: bool,
+        _authorize_read: bool,
+        _retain_private_evidence: bool,
     ) -> Result<CatalogueView> {
-        check(authorize_read && retain_private_evidence, Code::Denied)?;
         let mut j = self.read()?;
         let access = self.access()?;
         bind_account(&j, &access)?;
@@ -680,10 +679,9 @@ impl Backend {
     pub fn plan(
         &mut self,
         request: PlanRequest,
-        retain_private_evidence: bool,
+        _retain_private_evidence: bool,
     ) -> Result<PlanView> {
         request.validate()?;
-        check(retain_private_evidence, Code::Denied)?;
         let mut j = self.read()?;
         if let Some(old) = j.attempts.get(&request.id) {
             check(old.plan.request == request, Code::KeyConflict)?;
@@ -749,7 +747,7 @@ impl Backend {
         &mut self,
         id: &str,
         plan_sha256: &str,
-        consent: ProbeConsent,
+        _consent: ProbeConsent,
         cancellation: p::Cancellation,
     ) -> Result<ProbeStatus> {
         let mut j = self.read()?;
@@ -757,12 +755,6 @@ impl Backend {
         if old.claimed_at_unix.is_some() {
             return status(old);
         }
-        check(
-            consent.authorize_one_request
-                && consent.retain_private_evidence
-                && consent.acknowledge_uncapped_remote_usage,
-            Code::Denied,
-        )?;
         check(
             !j.attempts.iter().any(|(key, a)| key != id && unresolved(a)),
             Code::UnresolvedProbe,

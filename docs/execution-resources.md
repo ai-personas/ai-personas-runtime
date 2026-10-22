@@ -154,12 +154,29 @@ count or byte quota. Lifecycle bookkeeping no longer caps persona or work counts
 Exact hashes, unique identities, actual supply, authorship, consent and explicit
 Stop/Pause choices remain recorded.
 
+Explicit operator commands now execute without a second boolean approval. This
+covers bootstrap, session routes, authentication actions, catalogue/probe actions,
+participant resumption, task amendment, lifecycle changes and maintenance controls.
+Their old `authorize_*` fields are optional metadata; exact requests, selected
+routes, operator attribution, current-state references and actual outcomes remain
+recorded. An explicit preview still previews. Authentication still requires the
+selected account's actual credentials.
+
+The terminal dialogue no longer asks a second confirmation after a menu choice.
+It reads complete input and helper output, has no helper duration timer, and does
+not cap progress-journal bytes, configuration bytes, pending needs, retained probe
+entries or helper executable bytes. The UI's authentication menu also has no
+fixed number of attempts; each sign-in or refresh is still a selected action.
+Several operator request and receipt byte/identity caps are removed. Current
+persona instructions no longer advertise the removed protocol text/list quotas.
+
 ## Remaining work
 
 Removal is still incomplete. Remaining
 application enforcement includes delegated intake authority and one-child workflow
-constraints; explicit optional opportunity and birth workflows; extra operator authorization fields; remaining typed protocol and tool-input
-limits; and additional specialized control/projection limits. These are implementation gaps under the
+constraints; explicit optional opportunity and birth workflows; provider onboarding
+plan/catalogue limits; toolchain discovery bounds; remaining typed protocol and
+tool-input limits; and specialized Store maintenance/control limits. These are implementation gaps under the
 new requirement, not exceptions granted by the user. Some earlier documents still
 describe them because those paths remain implemented. They must be removed or
 reworked without relabeling lost data, malformed records or unknown execution as

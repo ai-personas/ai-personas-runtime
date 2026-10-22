@@ -117,7 +117,7 @@ pub enum IntakeFundingBasis {
     },
     /// Separately authorized logical sublimits against ordinary root capacity.
     /// This does not refill any existing work or reserve physical resources.
-    OperatorTranche { authorize_new_tranche: bool },
+    OperatorTranche { #[serde(default)] authorize_new_tranche: bool },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -203,14 +203,7 @@ impl IntakeDelegationRequest {
                     "parent transfer requires its exact proposal work",
                 )?;
             }
-            IntakeFundingBasis::OperatorTranche {
-                authorize_new_tranche,
-            } => {
-                require(
-                    *authorize_new_tranche,
-                    "separate explicit operator tranche authorization required",
-                )?;
-            }
+            IntakeFundingBasis::OperatorTranche { .. } => {}
         }
         target_ceilings(self)?;
         if self.additional_launch_steps != 0 || self.additional_launch_work_ids != 0 {
@@ -229,6 +222,7 @@ pub struct IntakeDelegationRevocationRequest {
     pub grant_id: String,
     pub expected_grant_sha256: String,
     pub reason: String,
+    #[serde(default)]
     pub authorize_revocation: bool,
     pub expected: IntakeDelegationFence,
 }
@@ -244,10 +238,6 @@ impl IntakeDelegationRevocationRequest {
         )?;
         text(&self.reason, 4096)?;
         hash_string(&self.expected_grant_sha256)?;
-        require(
-            self.authorize_revocation,
-            "explicit revocation authorization required",
-        )?;
         self.expected.validate()?;
         require(
             self.expected.registry.is_some(),

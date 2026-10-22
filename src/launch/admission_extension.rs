@@ -24,7 +24,6 @@ const RECEIPT_KIND: &str = "launch-admission-extension";
 const RECEIPT_VERSION: u32 = 1;
 const SCOPE: &str = "launch_global";
 const TOKEN_BASIS: &str = "operator_snapshot_attestation_only";
-const MAX_REQUEST_BYTES: usize = 16_384;
 
 // Enforce the nested request schema independently of ObjectRef's deserializer.
 fn deserialize_exact_reference<'de, D>(
@@ -67,6 +66,7 @@ pub struct LaunchAdmissionExtensionRequest {
     pub expected_max_total_steps: u64,
     pub new_max_total_steps: u64,
     pub expected_max_steps: usize,
+    #[serde(default)]
     pub authorize_extension: bool,
     /// Operator-attested cumulative usage; never measured by this operation.
     pub conservative_tokens_used: u64,
@@ -129,19 +129,11 @@ fn receipt_id(id: &str) -> String {
 }
 
 fn bounded_identity(value: &str) -> Result<()> {
-    identity(value)?;
-    require(
-        value.len() <= 256,
-        "admission extension identity exceeds bound",
-    )
+    identity(value)
 }
 
 fn extension_id(id: &str) -> Result<()> {
-    bounded_identity(id)?;
-    require(
-        id.chars().count() <= 96 && receipt_id(id).len() <= 256,
-        "admission extension receipt identity exceeds bound",
-    )
+    bounded_identity(id)
 }
 
 fn hash_string(hash: &str) -> Result<()> {
@@ -190,10 +182,6 @@ fn validate_request(request: &LaunchAdmissionExtensionRequest) -> Result<String>
     increment(request.expected_runtime.revision)?;
     increment(request.expected_launch.revision)?;
     require(
-        request.authorize_extension,
-        "explicit authorize_extension true is required",
-    )?;
-    require(
         (1..=128).contains(&request.expected_max_steps)
             && request.expected_max_total_steps > 0
             && request.expected_steps <= request.expected_max_total_steps
@@ -207,10 +195,6 @@ fn validate_request(request: &LaunchAdmissionExtensionRequest) -> Result<String>
         request.per_call_reserve_tokens,
     )?;
     let value = serde_json::to_value(request)?;
-    require(
-        serde_json::to_vec(&value)?.len() <= MAX_REQUEST_BYTES,
-        "admission extension request exceeds bound",
-    )?;
     digest(&value)
 }
 
@@ -329,10 +313,7 @@ fn validate_receipt(receipt: &LaunchAdmissionExtensionReceipt) -> Result<()> {
             && receipt.target_launch.revision == increment(receipt.prior_launch.revision)?,
         "invalid admission extension receipt references",
     )?;
-    require(
-        serde_json::to_vec(receipt)?.len() <= 64 * 1024,
-        "admission extension receipt exceeds bound",
-    )
+    Ok(())
 }
 
 fn replay(

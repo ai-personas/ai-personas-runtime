@@ -12,6 +12,7 @@ pub struct AdmitNeedProposalRequest {
     pub id: String,
     pub operator: String,
     pub purpose: String,
+    #[serde(default)]
     pub authorize_admission: bool,
     pub grant: p::need::GrantReference,
     pub expected: IntakeDelegationFence,
@@ -41,11 +42,11 @@ impl AdmitNeedProposalRequest {
         text(&self.purpose, 4096)?;
         self.token_attestation.validate()?;
         require(
-            self.operator == operator && self.authorize_admission
+            self.operator == operator
                 && self.expected.registry.is_some()
                 && self.pending.id.starts_with("need-proposal:")
                 && self.pending.revision == 1,
-            "exact operator, explicit admission authorization, registry and immutable pending reference required",
+            "exact operator, registry and immutable pending reference required",
         )?;
         increment(self.expected.launch.revision)?;
         bounded(self, REQUEST_BYTES)
@@ -548,15 +549,7 @@ fn plan(
                 Some(need_proposals::subtract(before, allocation)?),
             )
         }
-        IntakeFundingBasis::OperatorTranche {
-            authorize_new_tranche,
-        } => {
-            require(
-                *authorize_new_tranche,
-                "separate operator tranche authority absent",
-            )?;
-            (None, None)
-        }
+        IntakeFundingBasis::OperatorTranche { .. } => (None, None),
     };
     allocation.require_within_config(&state.config)?;
     let mut exposure = expanded_exposure(&state, &pending.exposure)?;

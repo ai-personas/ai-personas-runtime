@@ -12,6 +12,7 @@ pub struct ContextCapacityRequest {
     pub operator: String,
     pub reason: String,
     pub authorization_reference: String,
+    #[serde(default)]
     pub authorize_extension: bool,
     pub expected_runtime: s::ObjectRef,
     pub expected_launch: s::ObjectRef,
@@ -32,8 +33,8 @@ impl ContextCapacityRequest {
             identity(id)?;
         }
         require(
-            self.operator == operator && self.id.len() <= 96 && self.authorize_extension,
-            "explicit matching operator context authorization required",
+            self.operator == operator,
+            "context metadata operator mismatch",
         )?;
         for value in [&self.reason, &self.authorization_reference] {
             text(value, 4096)?;
@@ -58,10 +59,7 @@ impl ContextCapacityRequest {
                 && self.new_context_bytes <= INPUT_LIMIT / 2,
             "context extension must be a bounded increase",
         )?;
-        require(
-            serde_json::to_vec(self)?.len() <= 16_384,
-            "context request exceeds bound",
-        )
+        Ok(())
     }
 }
 

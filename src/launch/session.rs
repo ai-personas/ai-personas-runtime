@@ -303,6 +303,7 @@ pub enum SessionRoute {
         executable: PathBuf,
         host_home: PathBuf,
         codex_home: PathBuf,
+        #[serde(default)]
         authorize_codex_auth_only: bool,
     },
 }
@@ -342,7 +343,7 @@ impl SessionRequest {
                 )?;
             }
             SessionRoute::CodexAuthOnly {
-                executable, host_home, codex_home, authorize_codex_auth_only
+                executable, host_home, codex_home, authorize_codex_auth_only: _
             } => {
                 let valid_host_path = |path: &PathBuf| {
                     path.is_absolute()
@@ -350,8 +351,7 @@ impl SessionRequest {
                         && path.components().all(|c| matches!(c, Component::RootDir | Component::Normal(_)))
                 };
                 check(
-                    *authorize_codex_auth_only
-                        && valid_host_path(executable)
+                    valid_host_path(executable)
                         && valid_host_path(host_home)
                         && valid_host_path(codex_home),
                     BoundaryError::InvalidRequest,
@@ -865,15 +865,12 @@ async fn execute_with_codex_transport(
                 Err(invalid("native SIWC requires supported Unix"))
             }
         }
-        SessionRoute::CodexAuthOnly { executable, host_home, codex_home, authorize_codex_auth_only } => {
+        SessionRoute::CodexAuthOnly { executable, host_home, codex_home, authorize_codex_auth_only: _ } => {
             #[cfg(unix)]
             {
                 use std::ffi::OsString;
                 use std::sync::Arc;
 
-                if !authorize_codex_auth_only {
-                    return Err(invalid("explicit Codex auth-only authorization required"));
-                }
                 require(
                     host_home.is_dir() && codex_home.is_dir(),
                     "selected HOME and CODEX_HOME must be existing directories",
@@ -913,7 +910,6 @@ async fn execute_with_codex_transport(
                 let _ = executable;
                 let _ = host_home;
                 let _ = codex_home;
-                let _ = authorize_codex_auth_only;
                 Err(invalid("Codex auth-only requires supported Unix"))
             }
         }

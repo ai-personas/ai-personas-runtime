@@ -53,7 +53,7 @@ const MIGRATION_NOTICE: &str = "A separate explicit ai-personas migrate-provider
 #[command(
     name = "personas-auth",
     about = "Explicit host-side Personas SIWC sign-in, refresh, and status",
-    after_help = "Use an explicit absolute external --vault path. No credential discovery occurs. Open the authorization URL in a browser on the same host as this helper. Authentication establishes a grant, not model capability; no inference is performed by sign-in, refresh, or status. Capability digests are structural checks, not proof of actual capability. Native-run requires --authorize, an explicit absolute --state-root, --operator, and exactly one --need, --work, or --delegation. Optional --intake-delegation selects an exact grant only with --work and creates no opportunity. It performs only the fixed in-process execution-owner-bound exact saved-configuration handoff. After refresh, use a separate explicit ai-personas migrate-provider when saved expiry, model, or account bindings differ. Native-run adds no grant, refresh, probe, migration, fallback or general resume."
+    after_help = "Use an explicit absolute external --vault path. No credential discovery occurs. Open the authorization URL in a browser on the same host as this helper. Authentication establishes a grant, not model capability; no inference is performed by sign-in, refresh, or status. Capability digests are structural checks, not proof of actual capability. Native-run requires an explicit absolute --state-root, --operator, and exactly one --need, --work, or --delegation. Optional --intake-delegation selects an exact grant only with --work and creates no opportunity. It performs only the fixed in-process execution-owner-bound exact saved-configuration handoff. After refresh, use a separate explicit ai-personas migrate-provider when saved expiry, model, or account bindings differ. Native-run adds no grant, refresh, probe, migration, fallback or general resume."
 )]
 pub(crate) struct Cli {
     /// Selected external credential file; absolute, protected, and without symlinks.
@@ -69,7 +69,7 @@ enum Command {
     Status,
     /// Explicitly authorize one new browser sign-in; never opens a browser automatically.
     SignIn {
-        #[arg(long, required = true)]
+        #[arg(long)]
         authorize: bool,
         /// Bind only 127.0.0.1; zero selects an available port.
         #[arg(long, default_value_t = 0)]
@@ -77,12 +77,12 @@ enum Command {
     },
     /// Explicitly renew the selected grant; saved runtime configuration is unchanged.
     Refresh {
-        #[arg(long, required = true)]
+        #[arg(long)]
         authorize: bool,
     },
     /// Authorize one fixed in-process run using an already configured Store.
     NativeRun {
-        #[arg(long, required = true)]
+        #[arg(long)]
         authorize: bool,
         #[arg(long)]
         state_root: PathBuf,
@@ -180,7 +180,7 @@ fn error_code(error: &AuthError) -> &'static str {
 pub(crate) async fn run(cli: Cli) -> Result<i32> {
     match cli.command {
         Command::NativeRun {
-            authorize,
+            authorize: _,
             state_root,
             operator,
             need,
@@ -188,9 +188,6 @@ pub(crate) async fn run(cli: Cli) -> Result<i32> {
             delegation,
             intake_delegation,
         } => {
-            if !authorize {
-                return Err(AuthError::Denied);
-            }
             if !absolute_path(&state_root) {
                 return Err(AuthError::State);
             }
@@ -265,19 +262,13 @@ pub(crate) async fn run(cli: Cli) -> Result<i32> {
             }
         }
         Command::SignIn {
-            authorize,
+            authorize: _,
             callback_port,
         } => {
-            if !authorize {
-                return Err(AuthError::Denied);
-            }
             let vault = cli.vault.ok_or(AuthError::Vault)?;
             cancellable(sign_in(&vault, callback_port)).await?;
         }
-        Command::Refresh { authorize } => {
-            if !authorize {
-                return Err(AuthError::Denied);
-            }
+        Command::Refresh { authorize: _ } => {
             let vault = cli.vault.ok_or(AuthError::Vault)?;
             cancellable(refresh(&vault)).await?;
         }

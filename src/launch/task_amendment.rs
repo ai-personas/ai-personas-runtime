@@ -2,7 +2,6 @@
 //! running transports and resource accounts are retained independently.
 use super::*;
 
-pub(crate) const MAX_AMENDMENTS: usize = 127;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -48,6 +47,7 @@ pub struct Request {
     /// Explicit new offers; they do not accept responsibility for any persona.
     pub invitations: Vec<Invitation>,
     pub resume: BTreeSet<String>,
+    #[serde(default)]
     pub authorize_amend: bool,
 }
 
@@ -153,12 +153,8 @@ fn outcome(record: &Record, replayed: bool) -> Value {
 pub fn amend(root: &Path, operator: &str, request: &Request) -> Result<Value> {
     identity(&request.id)?;
     require(
-        request.id.len() <= 96 && request.authorize_amend && request.operator == operator,
-        "explicit matching operator amendment required",
-    )?;
-    require(
-        serde_json::to_vec(request)?.len() <= RESPONSE_LIMIT,
-        "amendment input byte bound",
+        request.operator == operator,
+        "amendment operator mismatch",
     )?;
     let (mut app, snapshot) = inspection::Snapshot::open(root)?;
     authorize(&snapshot, operator, &request.work)?;
@@ -181,10 +177,6 @@ pub fn amend(root: &Path, operator: &str, request: &Request) -> Result<Value> {
             "transport_cancellation_requested":false,"budget_reset":false}),
         );
     }
-    require(
-        meta.amendments.len() < MAX_AMENDMENTS,
-        "amendment history capacity exhausted",
-    )?;
     require(
         !need_proposals::bound(&snapshot.state, &request.work),
         "delegated task amendment requires its parent scope authority",

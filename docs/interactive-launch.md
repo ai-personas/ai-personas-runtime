@@ -24,14 +24,13 @@ PERSONAS_BIN=/absolute/helpers/ai-personas ./personas
 The launcher opens the runtime saved in that journal and shows the previous
 session's currently permitted messages with their producing call IDs. In a work
 menu, **r: results** shows permitted work history and qualified deliveries.
-**c: continue** requests a fresh bounded session using existing work and runtime
-allowances. For a stopped or individually paused participant, first choose
+**c: continue** requests a fresh session without application call quotas. For a stopped or individually paused participant, first choose
 **u: resume participant**, then **c**. Resume grants that participant permission
 to continue; it starts no inference and does not lift a work-wide pause.
 
 **m: amend task** saves a complete replacement request for a standard task,
 preserves the original request, and requests eligible resumption under a new
-mandate. The remaining resources still apply. Custom outcomes and review terms
+mandate. Recorded resource usage remains attributable. Custom outcomes and review terms
 use the [full task amendment commands](task-amendments.md).
 
 For direct inspection, use the sibling `personas-session` helper. Every operation
@@ -45,22 +44,22 @@ is a different directory:
   --operator local-operator result WORK_ID
 ```
 
-Both views are bounded and apply current disclosure permissions. A session view
+Both views retain complete available output with exact attribution. A session view
 does not establish that the work is complete. `ai-personas` and `personas-session`
 have different command sets; `session-messages` and `resume-participant` belong
 to `personas-session`. Their absence from `ai-personas --help` does not indicate
 an outdated installation.
 
 Saved-work status, result and question views project their output inside one
-Store transaction. Permission checks and status invocation/reservation lookups
-use the same state; status reports `snapshot_atomic: true`. These views charge
-their bounded returned output to the existing Ordinary navigation allowance,
+Store transaction. Status invocation/reservation lookups use the same state;
+status reports `snapshot_atomic: true`. These views record their returned
+output as Ordinary navigation use,
 without returning whole internal runtime, launch or invocation records. The
 ordinary `ai-personas result` and `questions` commands use the same projection
 path. Inspection starts no owner recovery, credential lookup or inference.
 
 Session-status and session-message views also project within one transaction,
-including exact claim/terminal validation and current message permissions. They
+including exact claim/terminal validation and message attribution. They
 charge only the returned view. Both returned and failed sessions retain the final
 call counter and last recorded work invocation, so a later failure does not hide
 messages from earlier calls in that session. Missing terminal evidence still
@@ -69,18 +68,18 @@ or new session.
 
 Development views use the same transaction for accepted character revisions,
 exact invocation inputs and decisions, supplied resources, and tool execution
-receipts. They retain the existing source and audience checks and charge only
-the returned view, bounded to 1 MiB. All views preserve previous spending and
-uncertain usage; a result larger than the remaining allowance is still blocked.
+receipts. They validate exact source bindings and account for the complete
+returned view without byte or navigation quotas. All views preserve previous
+spending and uncertain usage.
 
 ## First use
 
-The dialogue first selects a standard private progress location and asks permission
-before creating a new journal, then asks for your need. It saves the exact request
+The dialogue selects a standard private progress location, creates a new journal
+when needed, and asks for your need. It saves the exact request
 before the next prompt. The default location is
 `$XDG_STATE_HOME/ai-personas-launcher` or `$HOME/.local/state/ai-personas-launcher`.
 An explicit absolute `PERSONAS_LAUNCHER_HOME` selects another location outside
-repositories. The launcher automatically checks the standard XDG state location and then the home state location. Existing progress is reused only when exactly one candidate validates; ambiguous or unsafe existing state blocks instead of relocating or resetting. A new journal requires explicit consent. Path traversal is descriptor-relative and rejects symlinks; the private leaf remains owned by the effective UID and inaccessible to group/other users. The active checkout itself is excluded, but unrelated repository markers in shared ancestors are not treated as proof that a private child belongs to that checkout. Same-UID processes and root remain trusted and can inspect or alter same-UID data; this is not a defense against hostile same-UID tools or synchronization software. A same-host browser is
+repositories. The launcher automatically checks the standard XDG state location and then the home state location. Existing progress is reused only when exactly one candidate validates; ambiguous or unsafe existing state blocks instead of relocating or resetting. Launching the dialogue selects this setup action without a second confirmation. Path traversal is descriptor-relative and rejects symlinks; the private leaf remains owned by the effective UID and inaccessible to group/other users. The active checkout itself is excluded, but unrelated repository markers in shared ancestors are not treated as proof that a private child belongs to that checkout. Same-UID processes and root remain trusted and can inspect or alter same-UID data; this is not a defense against hostile same-UID tools or synchronization software. A same-host browser is
 necessary for the secure loopback callback. No credentials are requested here.
 
 ### Automatic persistent progress selection
@@ -89,7 +88,7 @@ The no-argument launcher checks only the standard XDG state directory and the
 home `.local/state` directory, in that order. If exactly one valid journal exists,
 it reuses that location. If both exist, it blocks rather than guessing; set
 `PERSONAS_LAUNCHER_HOME` to the exact intended existing journal to disambiguate.
-If neither exists, it selects the first safe candidate and asks before creating a
+If neither exists, it selects the first available candidate and creates a
 new private journal. It never silently moves, resets, or substitutes for an unsafe
 existing journal. It does not silently choose a temporary directory for durable
 progress.
@@ -106,11 +105,11 @@ Same-UID processes can still inspect or alter same-UID data, and arbitrary sync 
 backup software may export it. Use standard local state directories, not a repo or
 synced folder. Unsupported or ambiguous state is blocked without resetting it.
 
-Select an existing directory containing the four current Rust helpers, or approve
-a build of this checkout with locked Cargo dependencies. Approved binaries are
+Select an existing directory containing the four current Rust helpers, or build
+this checkout with locked Cargo dependencies. Selected binaries are
 pinned by exact path and SHA-256; changed binaries stop the flow rather than
 silently replacing an installation. Cargo may download locked crates and execute
-build scripts, only after confirmation. The build produces optimized release
+build scripts as part of the selected build. The build produces optimized release
 helpers using one job, no incremental compilation and no debug symbols, storing
 artifacts under the private UI root. Initial compilation can take longer than a
 development build; normal work and inspection use the optimized helpers.
@@ -120,7 +119,7 @@ directory takes precedence over the saved installation and uses the same review
 of all four helper hashes. The journal's runtime, pending inputs and session
 identities remain intact.
 Cargo caches, native toolchains and physical disk are not hard-bounded by the UI.
-The shell launcher selects the first available Python 3.9+ from supported versioned names, then checks Linux memfd sealing and procfs descriptor support before starting the UI. If none qualifies, it prints an actionable host-prerequisite message; it does not install software or fall back to pathname execution. Missing Rust 1.88+, Cargo, compiler/linker or host approval requires operator installation/approval; no sudo, arbitrary installer, privilege bypass, Codex CLI or coding-agent fallback is used.
+The shell launcher selects the first available Python 3.9+ from supported versioned names, then checks Linux memfd sealing and procfs descriptor support before starting the UI. If none qualifies, it prints an actionable host-prerequisite message; it does not install software or fall back to pathname execution. Missing Rust 1.88+, Cargo, compiler/linker requires installation; no sudo, arbitrary installer, privilege bypass, Codex CLI or coding-agent fallback is used.
 
 Choose a fresh runtime or explicitly select an existing private one and its
 operator. Existing runtime access is an operator inspection grant, not a new
@@ -231,16 +230,15 @@ does not implement credential import/transfer. Do not copy Codex credentials or
 manually edit host IDs. If the supported callback and protected vault cannot be
 provided, stop without granting sign-in or inference.
 
-Reusing a vault,
-reading the live catalogue, retaining evidence, and performing a probe are separate
-confirmations. Choose a listed model and an exact unverified effort candidate.
+Selecting the native route uses its vault, reads the live catalogue and retains
+private evidence without repeated confirmations. Choose a listed model and an
+exact unverified effort candidate.
 Discovery alone proves neither effort support nor strict output support.
 
 The probe has one durable identity, one request and explicit local time/byte and
 observed-token thresholds. **Those are not remote token/dollar ceilings.** SIWC
-cannot use `max_output_tokens`; its backend cost notice and explicit uncapped
-remote-usage acknowledgment remain controlling. Declining stops without losing
-the need. A pass requires the backend's complete strict proof. Generated settings
+cannot use `max_output_tokens`. The selected probe proceeds without a separate
+uncapped-usage acknowledgment. Leaving the dialogue preserves the need. A pass requires the backend's complete strict proof. Generated settings
 are saved immediately, before setup prompts, because catalogue/proof-to-config
 binding expires after five minutes. Unavailable or expired proof is never fabricated
 and does not automatically cause another probe.
@@ -249,16 +247,15 @@ The proposed runtime uses two voluntary continuing personas, explicit local
 self-authorship/work/message grants, the selected account/model/effort, local
 requester delivery and default full host command access, including tool
 installation and use. The flow displays
-finite controlling Store and per-work/navigation/transport bounds, offers the
-full exact contract, and requires setup confirmation. Budget values are local
-policy proposals, not provider defaults, measured usage or reserved remote funds.
+recorded Store and work/navigation/transport settings and offers the full exact
+contract. The selected setup proceeds without another approval. Historical
+settings do not enforce application quotas or reserve remote funds.
 
 `personas-session bootstrap` requires `persona_seeds`, a map from every cohort
 ID (`persona-0001`, and so on) to `label`, `text` and `provenance`. Preview shows
 those exact starting profiles without creating state or running inference.
-Labels are bounded to 256 UTF-8 bytes, profile text to 16 KiB and provenance to
-4096 bytes. Missing members, unknown IDs, empty or oversized fields are rejected
-before initialization. This sets creation material only; it cannot reseed an
+Profile fields have no application byte quota. Missing members, unknown IDs and
+empty fields are rejected before initialization. This sets creation material only; it cannot reseed an
 existing identity.
 
 Bootstrap commits fresh Runtime state, control plan, the exact
