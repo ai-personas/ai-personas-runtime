@@ -177,7 +177,7 @@ pub fn extend_at(
         active_invocations(&state).is_empty(),
         "active invocation blocks context extension",
     )?;
-    app.store.require_terminal_invocations()?;
+    app.store.require_quiescent_invocations()?;
     let maximum = ceiling(&state, &saved)?;
     require(
         request.new_context_bytes <= maximum,

@@ -502,7 +502,7 @@ fn plan(
         active_invocations(&state).is_empty(),
         "active invocation blocks child admission",
     )?;
-    app.store.require_terminal_invocations()?;
+    app.store.require_quiescent_invocations()?;
     let grant = registry
         .grants
         .get(&request.grant.id)
@@ -868,10 +868,10 @@ pub(in crate::runtime) fn admitted_child_for_run(
     admission_extension::authorize(&state, &saved, operator)?;
     admission_extension::validate_saved(&state, &saved)?;
     require(
-        app.invocation_leases_terminal(&state)?,
+        app.invocation_leases_quiescent(&state)?,
         "unfinished invocation blocks delegated continuation",
     )?;
-    app.store.require_terminal_invocations()?;
+    app.store.require_quiescent_invocations()?;
     let episode = state
         .intake_episodes
         .get(grant_id)

@@ -219,7 +219,7 @@ pub fn extend_at(
         active_invocations(&state).is_empty(),
         "active invocation blocks transport extension",
     )?;
-    app.store.require_terminal_invocations()?;
+    app.store.require_quiescent_invocations()?;
     provider.limits.max_stream_bytes = request.new_limits.max_stream_bytes;
     provider.limits.max_events = request.new_limits.max_events;
     provider.limits.timeout_ms = request.new_limits.timeout_ms;

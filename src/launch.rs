@@ -556,10 +556,10 @@ fn start_owned_keyed(
     admission_extension::authorize(&state, &saved, &saved.operator)?;
     admission_extension::validate_saved(&state, &saved)?;
     require(
-        app.invocation_leases_terminal(&state)?,
+        app.invocation_leases_quiescent(&state)?,
         "unfinished invocation blocks launch intake",
     )?;
-    app.store.require_terminal_invocations()?;
+    app.store.require_quiescent_invocations()?;
     let work_count =
         u64::try_from(saved.works.len()).map_err(|_| invalid("saved work count overflow"))?;
     let id = format!("work-{:08}", increment(work_count)?);
@@ -651,7 +651,7 @@ fn start_owned_keyed(
         });
     }
     app.store
-        .compare_and_swap_batch_requiring_terminal_invocations(changes)?;
+        .compare_and_swap_batch_requiring_quiescent_invocations(changes)?;
     Ok(id)
 }
 type Pick = (usize, Option<String>);
@@ -812,17 +812,17 @@ pub async fn run(app: &mut Runtime, work: &str) -> Result<Output> {
 pub async fn continue_run(app: &mut Runtime, work: &str) -> Result<Output> {
     run_with_options(app, work, &mut Live, true).await
 }
-fn failed_call_allows_peer_progress(app: &mut Runtime, id: &str) -> Result<bool> {
+fn quiescent_call_allows_peer_progress(app: &mut Runtime, id: &str) -> Result<bool> {
     let invocation = match app.invocation(id) {
         Ok(invocation) => invocation,
         Err(RuntimeError::Store(s::StoreError::Missing(_))) => return Ok(false),
         Err(error) => return Err(error),
     };
-    if invocation.state != s::InvocationState::Failed {
+    if !matches!(invocation.state, s::InvocationState::Failed | s::InvocationState::Uncertain) {
         return Ok(false);
     }
     let state = app.snapshot()?;
-    app.invocation_leases_terminal(&state)
+    app.invocation_leases_quiescent(&state)
 }
 async fn run_with<D: Driver>(app: &mut Runtime, work: &str, driver: &mut D) -> Result<Output> {
     run_with_options(app, work, driver, false).await
@@ -901,10 +901,10 @@ async fn run_with_options<D: Driver>(
             let report = match driver.step(app, request, &current, unix_now()?).await {
                 Ok(report) => report,
                 Err(error) => {
-                    // Only an actually recorded terminal failure permits peer
-                    // consideration. The failed actor retains its lease and
-                    // cannot be selected again; nothing is retried or refunded.
-                    if failed_call_allows_peer_progress(app, &invocation_id)? {
+                    // Failed or uncertain calls retain their actor's lease.
+                    // Independent peers may proceed; nothing is replayed,
+                    // reclassified or refunded.
+                    if quiescent_call_allows_peer_progress(app, &invocation_id)? {
                         return Ok("continue");
                     }
                     return Err(error);
@@ -917,7 +917,7 @@ async fn run_with_options<D: Driver>(
                     // actual rejection observations and the remaining session bound.
                     return Ok("continue");
                 }
-                return Ok(if failed_call_allows_peer_progress(app, &invocation_id)? {
+                return Ok(if quiescent_call_allows_peer_progress(app, &invocation_id)? {
                     "continue"
                 } else {
                     "held"
@@ -1027,7 +1027,7 @@ pub(super) fn authorize_initial(
     require(
         !handed_over(state, persona)
             && actor.active_invocation.is_none()
-            && app.invocation_leases_terminal(state)?
+            && app.invocation_leases_quiescent(state)?
             && inv.state == s::InvocationState::Adopted
             && prepared.character_revision.is_none()
             && prepared.request.persona == persona

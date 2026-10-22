@@ -388,7 +388,7 @@ fn guard_invocations(app: &mut Runtime, state: &State) -> Result<()> {
         active_invocations(state).is_empty(),
         "active invocation blocks admission extension",
     )?;
-    app.store.require_terminal_invocations()?;
+    app.store.require_quiescent_invocations()?;
     Ok(())
 }
 
@@ -543,7 +543,7 @@ pub fn extend_launch_admission(
     }
     let planned = plan(app, request, hash, now)?;
     app.store
-        .compare_and_swap_batch_requiring_terminal_invocations(planned.changes)?;
+        .compare_and_swap_batch_requiring_quiescent_invocations(planned.changes)?;
     Ok(LaunchAdmissionExtensionOutcome {
         receipt: planned.receipt,
         replayed: false,

@@ -87,11 +87,11 @@ pub fn feedback(
         true
     } else {
         require(
-            app.invocation_leases_terminal(&state)?,
+            app.invocation_leases_quiescent(&state)?,
             "unfinished invocation blocks feedback",
         )?;
         requester_feedback::check_capacity(&state.personas[&input.persona].focus[&input.work])?;
-        app.store.require_terminal_invocations()?;
+        app.store.require_quiescent_invocations()?;
         state.observations.insert(
             id.clone(),
             Observation {

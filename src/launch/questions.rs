@@ -49,10 +49,10 @@ pub fn answer_question(
     let (old, mut state) = app.load()?;
     admission_extension::authorize(&state, &saved, operator)?;
     require(
-        app.invocation_leases_terminal(&state)?,
+        app.invocation_leases_quiescent(&state)?,
         "unfinished invocation blocks question reply",
     )?;
-    app.store.require_terminal_invocations()?;
+    app.store.require_quiescent_invocations()?;
     let events_before = state
         .board
         .work(&w::WorkId(input.work.clone()))?

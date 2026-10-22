@@ -2,13 +2,13 @@
 use super::*;
 use futures_util::{stream::FuturesUnordered, StreamExt};
 
-fn failed_allows_progress(app: &mut Runtime, id: &str, owned: &BTreeSet<String>) -> Result<bool> {
+fn quiescent_allows_progress(app: &mut Runtime, id: &str, owned: &BTreeSet<String>) -> Result<bool> {
     let invocation = match app.invocation(id) {
         Ok(invocation) => invocation,
         Err(RuntimeError::Store(s::StoreError::Missing(_))) => return Ok(false),
         Err(error) => return Err(error),
     };
-    if invocation.state != s::InvocationState::Failed {
+    if !matches!(invocation.state, s::InvocationState::Failed | s::InvocationState::Uncertain) {
         return Ok(false);
     }
     let state = app.snapshot()?;
@@ -48,7 +48,7 @@ pub(super) async fn run<D: Driver>(
                             return Ok(Some("character_fence"));
                         }
                     } else if !app.retire_rejected_continuation(&id, unix_now()?)?
-                        && !failed_call_allows_peer_progress(app, &id)?
+                        && !quiescent_call_allows_peer_progress(app, &id)?
                     {
                         return Ok(Some("held"));
                     }
@@ -143,7 +143,7 @@ pub(super) async fn run<D: Driver>(
                 Err(error) => {
                     let peer_progress = attempted_id
                         .as_deref()
-                        .map(|id| failed_allows_progress(app, id, &owned))
+                        .map(|id| quiescent_allows_progress(app, id, &owned))
                         .transpose();
                     match peer_progress {
                         Ok(Some(true)) => (),
@@ -185,7 +185,7 @@ pub(super) async fn run<D: Driver>(
                             deferred.push((id, report.status));
                         }
                         Ok(_) => (),
-                        Err(error) => match failed_allows_progress(app, &id, &owned) {
+                        Err(error) => match quiescent_allows_progress(app, &id, &owned) {
                             Ok(true) => (),
                             Ok(false) => {
                                 stop.get_or_insert(stop_for_error(&error));

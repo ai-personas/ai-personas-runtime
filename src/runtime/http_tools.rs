@@ -1,8 +1,6 @@
-//! Explicitly granted HTTPS retrieval and durable results.
-//! Guides remain assets. Reading one supplies no grant; a grant supplies no body.
+//! HTTP(S) retrieval available by default, with exact durable results.
 use super::*;
 use crate::http_fetch as c;
-pub(super) const MAX_GRANT_SECONDS: i64 = 7 * 24 * 60 * 60;
 
 const RESULT_CAPACITY: u64 = 128 * 1024;
 
@@ -13,7 +11,7 @@ pub struct HttpFetchGrantRequest {
     pub actor: String,
     pub work: String,
     pub guide: p::ExactRef,
-    /// Cap within the existing work allowance, also charged to the root Store ledger.
+    /// Historical declaration; ordinary execution does not enforce this value.
     pub attempts: u32,
     pub origins: BTreeSet<String>,
     pub expires_at_unix: i64,
@@ -46,20 +44,19 @@ impl Grant {
 pub struct HttpFetchInterface {
     pub capability_id: String,
     pub binding_revision: String,
-    pub grant: String,
-    pub guide: p::ExactRef,
+    pub grant: Option<String>,
+    pub guide: Option<p::ExactRef>,
     pub inputs_schema: Value,
     pub client_revision: String,
-    pub attempt_limit: u32,
-    pub origins: BTreeSet<String>,
-    pub expires_at_unix: i64,
+    pub attempt_limit: Option<u32>,
+    pub origins: Option<BTreeSet<String>>,
+    pub expires_at_unix: Option<i64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct Inputs {
-    /// Canonical HTTPS URL on a granted origin, with a DNS hostname and port 443.
-    /// No credentials, fragment, custom headers or request body; maximum 2048 bytes.
+    /// HTTP or HTTPS URL. Any host and port supported by the client is available.
     url: String,
 }
 
@@ -103,13 +100,30 @@ pub(super) fn interface_for(
     Ok(HttpFetchInterface {
         capability_id: c::PROFILE.into(),
         binding_revision: digest(&(c::PROFILE, request, client_revision, &schema))?,
-        grant: request.id.clone(),
-        guide: request.guide.clone(),
+        grant: Some(request.id.clone()),
+        guide: Some(request.guide.clone()),
         inputs_schema: schema,
         client_revision: client_revision.into(),
-        attempt_limit: request.attempts,
-        origins: request.origins.clone(),
-        expires_at_unix: request.expires_at_unix,
+        attempt_limit: Some(request.attempts),
+        origins: Some(request.origins.clone()),
+        expires_at_unix: Some(request.expires_at_unix),
+    })
+}
+
+/// Every ordinary request supplies the current definition without a grant or guide.
+pub(super) fn default_interface() -> Result<HttpFetchInterface> {
+    let schema = serde_json::to_value(schemars::schema_for!(Inputs))?;
+    let revision = c::client_revision();
+    Ok(HttpFetchInterface {
+        capability_id: c::PROFILE.into(),
+        binding_revision: digest(&(c::PROFILE, "default-access-v1", &revision, &schema))?,
+        grant: None,
+        guide: None,
+        inputs_schema: schema,
+        client_revision: revision,
+        attempt_limit: None,
+        origins: None,
+        expires_at_unix: None,
     })
 }
 
@@ -130,7 +144,6 @@ pub(super) fn full_asset<'a>(
         file.scope == f::Scope::Assets
             && !file.retired
             && !file.bytes.is_empty()
-            && file.bytes.len() <= 32 * 1024
             && std::str::from_utf8(&file.bytes).is_ok()
             && lineage_permitted(state, std::slice::from_ref(&reference), a),
         "http_fetch asset unavailable",
@@ -158,49 +171,14 @@ fn outbound_permitted(state: &State, exposure: &Exposure, a: &f::Admission, url:
     exposure_permitted(state, exposure, a) && exposure_permitted(state, exposure, &outbound)
 }
 
-fn available(state: &State, grant: &Grant, now: i64) -> bool {
-    !grant.revoked
-        && now < grant.current_request().expires_at_unix
-        && grant.used < grant.current_request().attempts
-        && grant.current_revision() == c::client_revision()
-        && need_proposals::ordinary_attempts_left(state, &grant.request.work, now) > 0
-        && state
-            .board
-            .work(&w::WorkId(grant.request.work.clone()))
-            .is_ok_and(|w| matches!(w.phase, w::Phase::Open))
-        && state
-            .personas
-            .get(&grant.request.actor)
-            .is_some_and(|persona| {
-                full_asset(state, &grant.current_request().guide, &admission(persona, now)).is_ok()
-            })
-        && !state.http_fetch_jobs.values().any(|job| {
-            job.actor == grant.request.actor
-                && job.work == grant.request.work
-                && matches!(job.state, s::IntentState::Uncertain)
-        })
-}
-
-/// Only exact complete guide bodies in this assembled request expose a callable.
-/// Transitive lineage, inventory metadata and historical mentions do not count.
 pub(super) fn exposed(
-    state: &State,
-    actor: &str,
-    work: &str,
-    bodies: &BTreeSet<f::Reference>,
-    now: i64,
+    _state: &State,
+    _actor: &str,
+    _work: &str,
+    _bodies: &BTreeSet<f::Reference>,
+    _now: i64,
 ) -> Result<Vec<HttpFetchInterface>> {
-    state
-        .http_fetch_grants
-        .values()
-        .filter(|g| {
-            g.request.actor == actor
-                && g.request.work == work
-                && available(state, g, now)
-                && file_reference(&g.current_request().guide).is_ok_and(|r| bodies.contains(&r))
-        })
-        .map(interface)
-        .collect()
+    Ok(vec![default_interface()?])
 }
 
 pub(super) fn is_http_fetch(operation: &p::Operation) -> bool {
@@ -208,11 +186,11 @@ pub(super) fn is_http_fetch(operation: &p::Operation) -> bool {
 }
 
 pub(super) fn validate(
-    state: &State,
+    _state: &State,
     prepared: &Prepared,
-    decision: &p::Decision,
+    _decision: &p::Decision,
     operation: &p::Operation,
-    now: i64,
+    _now: i64,
 ) -> Result<()> {
     let p::Operation::Effect {
         binding_revision,
@@ -231,35 +209,13 @@ pub(super) fn validate(
         .http_fetch_interfaces
         .iter()
         .find(|i| &i.binding_revision == binding_revision)
-        .ok_or_else(|| held("http_fetch guide and callable were not supplied by this admission"))?;
-    let grant = state
-        .http_fetch_grants
-        .get(&offered.grant)
-        .ok_or_else(|| held("http_fetch grant absent"))?;
+        .ok_or_else(|| held("http_fetch callable was not supplied by this admission"))?;
     require(
-        grant.request.actor == prepared.request.persona
-            && grant.request.work == prepared.request.work
-            && available(state, grant, now)
-            && interface(grant)? == *offered,
-        "http_fetch grant unavailable or changed",
-    )?;
-    require(
-        decision
-            .operations
-            .iter()
-            .filter(|o| is_http_fetch(o) || tools::is_computation(o))
-            .count()
-            == 1,
-        "one external execution per decision; results need a fresh decision",
+        default_interface()? == *offered,
+        "http_fetch implementation or interface changed",
     )?;
     let input: Inputs = serde_json::from_value(inputs.clone())?;
-    let url = c::parse_url(&input.url).map_err(held)?;
-    require(
-        offered
-            .origins
-            .contains(&url.origin().ascii_serialization()),
-        "HTTPS origin not granted",
-    )?;
+    c::parse_url(&input.url).map_err(held)?;
     require(
         depends_on.is_empty(),
         "HTTPS retrieval takes no operation dependencies",
@@ -267,7 +223,7 @@ pub(super) fn validate(
     Ok(())
 }
 
-/// Stage the exact URL, exposure and finite debit with the complete decision.
+/// Stage the exact URL and exposure with the complete decision.
 /// No network access occurs until Store has atomically accepted it.
 pub(super) fn stage(
     state: &mut State,
@@ -300,9 +256,7 @@ pub(super) fn stage(
             .clone();
         let input: Inputs = serde_json::from_value(inputs.clone())?;
         let a = admission(&state.personas[&prepared.request.persona], now);
-        full_asset(state, &offered.guide, &a)?;
-        let mut exposure = prepared_exposure(prepared)?.clone();
-        exposure.sources.push(file_reference(&offered.guide)?);
+        let exposure = prepared_exposure(prepared)?.clone();
         let exposure = expanded_exposure(state, &exposure)?;
         require(
             outbound_permitted(state, &exposure, &a, &input.url),
@@ -328,27 +282,15 @@ pub(super) fn stage(
             operation: id.clone(),
             url: input.url,
             exposure,
-            qualification_sources: Some(tools::qualification_inputs(prepared, &[
-                file_reference(&offered.guide)?,
-            ])?),
+            qualification_sources: Some(tools::qualification_inputs(prepared, &[])?),
             dispatch_scope: None,
         };
         let reservation = s::Resources {
             attempts: 1,
             input_bytes: job.url.len() as u64,
-            output_bytes: c::BODY_BYTES as u64,
+            output_bytes: c::BODY_ESTIMATE_BYTES as u64,
             ..Default::default()
         };
-        state
-            .http_fetch_grants
-            .get_mut(&offered.grant)
-            .unwrap()
-            .used += 1;
-        // One http_fetch consumes one existing ordinary work attempt in addition
-        // to the inference admission. The repair suballowance is preserved.
-        need_proposals::debit_execution(
-            state, &prepared.request.work, &prepared.request.id, &intent_id, now,
-        )?;
         require(
             state
                 .http_fetch_jobs
@@ -380,16 +322,8 @@ impl Runtime {
         identity(&request.id)?;
         identity(&request.actor)?;
         identity(&request.work)?;
-        require(
-            (1..=32).contains(&request.attempts),
-            "http_fetch grant requires 1..=32 attempts",
-        )?;
-        require(
-            !request.origins.is_empty()
-                && request.origins.len() <= 8
-                && request.origins.iter().all(|origin| c::valid_origin(origin)),
-            "HTTPS grant requires 1..=8 canonical HTTPS origins",
-        )?;
+        require(request.origins.iter().all(|origin| c::valid_origin(origin)),
+            "invalid historical origin declaration")?;
         let (old, mut state) = self.load()?;
         lifecycle::require_active(&state, &request.actor)?;
         if let Some(existing) = state.http_fetch_grants.get(&request.id) {
@@ -400,13 +334,6 @@ impl Runtime {
             return interface(existing);
         }
         require(
-            state
-                .http_fetch_grants
-                .values()
-                .all(|g| g.request.actor != request.actor || g.request.work != request.work),
-            "a work/persona already has a http_fetch allocation; grants cannot refill it",
-        )?;
-        require(
             state.board.work(&w::WorkId(request.work.clone()))?.phase == w::Phase::Open,
             "work is not open",
         )?;
@@ -415,18 +342,8 @@ impl Runtime {
             .get(&request.actor)
             .ok_or_else(|| held("persona absent"))?;
         require(
-            u64::from(request.attempts)
-                <= need_proposals::ordinary_attempts_left(&state, &request.work, now),
-            "http_fetch cap exceeds the existing ordinary work/episode allowance",
-        )?;
-        require(
             persona.focus.contains_key(&request.work) && persona.active_invocation.is_none(),
             "work focus absent or invocation active",
-        )?;
-        require(
-            request.expires_at_unix > now
-                && request.expires_at_unix <= now.saturating_add(MAX_GRANT_SECONDS),
-            "HTTPS grant expiry must be in the next seven days",
         )?;
         let a = admission(persona, now);
         full_asset(&state, &request.guide, &a)?;
@@ -472,7 +389,7 @@ impl Runtime {
 
     /// Explicit host recovery. Previously dispatched http_fetch is never rerun.
     /// An exact host terminal slot can complete/reconcile it; absent evidence
-    /// remains unknown and blocks further http_fetch in that actor/work scope.
+    /// remains unknown; a new operation does not replay it.
     pub fn recover_http_fetches(&mut self, now: i64) -> Result<usize> {
         let _owner = self.store.acquire_execution_owner()?;
         let state = self.snapshot()?;
@@ -522,17 +439,9 @@ impl Runtime {
                 lifecycle::require_active(&state, &job.actor)?;
                 optional_activity::require_current(&state, &job.work, &job.actor, now)?;
                 need_proposals::check_work(self, &state, &job.work, now)?;
-                let grant = state
-                    .http_fetch_grants
-                    .get(&job.interface.grant)
-                    .ok_or_else(|| held("grant absent"))?;
                 require(
-                    !grant.revoked
-                        && now < grant.current_request().expires_at_unix
-                        && grant.current_revision() == c::client_revision()
-                        && interface(grant)? == job.interface
-                        && grant.used <= grant.current_request().attempts,
-                    "http_fetch authorization changed",
+                    job.interface.client_revision == c::client_revision(),
+                    "http_fetch runner changed before dispatch",
                 )?;
                 require(
                     state.board.work(&w::WorkId(job.work.clone()))?.phase == w::Phase::Open,
@@ -543,7 +452,6 @@ impl Runtime {
                     outbound_permitted(&state, &job.exposure, &a, &job.url),
                     "http_fetch lineage unavailable",
                 )?;
-                full_asset(&state, &job.interface.guide, &a)?;
                 decision_scope::require_intent_current(
                     &state, &prepared, job.dispatch_scope.as_ref(), &retained, &old,
                 )?;
@@ -758,12 +666,11 @@ fn result_location(state: &State, id: &str, actor: &str) -> Result<(String, Stri
 
 fn retain_result(state: &mut State, id: &str, job: &Job, payload: &Value) -> Result<p::ExactRef> {
     let (source, path) = result_location(state, id, &job.actor)?;
-    let policy = record(state, &file_reference(&job.interface.guide)?)?
-        .record
-        .policy
-        .clone();
+    let policy = current_policy(state, &state.work_meta[&job.work].original.policy_id)?.clone();
     let mut required = tools::qualifications(state, job.qualification_sources.as_deref().unwrap_or(&job.exposure.sources));
-    required.push(file_reference(&job.interface.guide)?);
+    if let Some(guide) = &job.interface.guide {
+        required.push(file_reference(guide)?);
+    }
     required.sort();
     required.dedup();
     let mut body = payload.clone();
@@ -850,7 +757,7 @@ pub(super) fn control(
                         need_proposals::ordinary_attempts_left(state, work, a.now_unix),
                     "revoked":grant.revoked,"expires_at_unix":terms.expires_at_unix,
                     "implementation_current":grant.current_revision() == c::client_revision(),
-                    "allocation_available_before_guide_supply":available(state, grant, a.now_unix),
+                    "historical_declaration_only":true,"default_access":true,
                     "metadata_only":true
                 }));
             }
@@ -907,7 +814,7 @@ pub(super) fn control(
         Value::Null
     } else {
         json!({"unresolved":entries,"retained_results":results,"allocations":allocations,
-            "guide_selection":"These are existing allocations for this persona/work whose exact current guide is readable, not callable definitions or execution authority. If a relevant allocation is available but absent from CONTROL.http_fetch_capabilities, read or select its exact guide under next_assets for a fresh admission. Preserving an older guide cannot expose the updated binding. You choose whether to continue; this metadata selects nothing. Current work authority, the complete input's outbound permissions and dispatch checks still apply. An omitted allocation does not prove that none was recorded.",
+            "historical_declarations":"Saved grants and guide references are historical metadata. Current computation and HTTP(S) definitions are supplied by default, without grants, guide selection, attempt caps, expiry or origin restrictions.",
             "capability_scope":"CONTROL.work_capability describes internal work commands only. HTTPS retrieval uses separate CONTROL.http_fetch_capabilities through effect when the exact guide is supplied and its allocation remains available. An absent http_fetch callable does not prevent retrieving a retained result through its exact supporting-file reference. Previous blocked judgments do not establish current resource availability.",
             "retrieval":"Exact protected supporting files from this persona/work, metadata only. Read or select the source under next_assets to recover its URL, remote text and terminal evidence with required qualifications. Selection can avoid a history scan and a read-result byte limit. Do not repeat a request to recover a receipt. Files are host records, not current callable grants or persona-authored judgments. Inaccessible results are omitted.",
             "meaning":"No work completion is inferred. Uncertain http_fetch requires host recovery; it is not replayed or treated as free, and blocks further http_fetch for this persona/work."})

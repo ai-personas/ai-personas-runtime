@@ -97,7 +97,7 @@ fn outcome(
 
 /// A repeat returns historical evidence, never another resume. The state delta
 /// and receipt commit together under exact runtime/launch dependencies and the
-/// Store's transaction-time terminal-invocation and control-capacity guards.
+/// Store's transaction-time quiescent-invocation and exact control guards.
 pub fn resume_participant(
     root: &Path,
     operator: &str,
@@ -145,7 +145,7 @@ pub fn resume_participant(
     }
     check(
         !app.store.ledger()?.frozen
-            && app.invocation_leases_terminal(&state)?
+            && app.invocation_leases_quiescent(&state)?
             && candidate(&state, &saved, &request.work, &request.persona),
         BoundaryError::Blocked,
     )?;
@@ -175,7 +175,7 @@ pub fn resume_participant(
         target_launch: launch.exact_ref()?,
     };
     app.store
-        .compare_and_swap_batch_requiring_terminal_invocations(vec![
+        .compare_and_swap_batch_requiring_quiescent_invocations(vec![
             s::Change {
                 expected_revision: Some(runtime.revision),
                 object: next,

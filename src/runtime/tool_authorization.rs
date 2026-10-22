@@ -1,11 +1,7 @@
-//! Explicit, fenced updates to existing tool allocations. Original requests,
-//! spent attempts and execution history remain intact. No update dispatches,
-//! selects context, resumes a persona or adds work/Store funding.
+//! Fenced updates to historical tool declarations. Current tools are available
+//! by default. Updating these records neither gates execution nor resumes work.
 use super::*;
 
-const MAX_UPDATES: usize = 64;
-const MAX_REQUEST_BYTES: usize = 16_384;
-const MAX_RECEIPT_BYTES: usize = 32_768;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -84,6 +80,7 @@ pub struct ToolGrantUpdateRequest {
     pub reason: String,
     /// Saved-operator attestation, not an independently authenticated document.
     pub authorization_reference: String,
+    #[serde(default)]
     pub authorize_update: bool,
     pub expected: ToolGrantUpdateFence,
     pub terms: ToolGrantUpdateTerms,
@@ -102,6 +99,7 @@ impl<'de> Deserialize<'de> for ToolGrantUpdateRequest {
             grant: String,
             reason: String,
             authorization_reference: String,
+            #[serde(default)]
             authorize_update: bool,
             expected: ToolGrantUpdateFence,
             terms: ToolGrantUpdateTerms,
@@ -150,18 +148,14 @@ impl ToolGrantUpdateRequest {
         text(&self.authorization_reference, 4096)?;
         require(
             self.operator == operator
-                && self.id.len() <= 96
-                && self.authorize_update
                 && !self.reason.trim().is_empty()
                 && !self.authorization_reference.trim().is_empty()
                 && self.expected.runtime.id == STATE_ID
                 && self.expected.runtime.revision > 0
                 && sha256(&self.expected.runtime.sha256)
                 && sha256(&self.expected.grant_sha256)
-                && sha256(&self.expected.implementation_revision)
-                && self.terms.additional_attempts() <= 32
-                && serde_json::to_vec(self)?.len() <= MAX_REQUEST_BYTES,
-            "explicit bounded tool update and exact expected bindings required",
+                && sha256(&self.expected.implementation_revision),
+            "tool metadata update needs exact expected bindings",
         )?;
         file_reference(self.terms.guide())?;
         Ok(())
@@ -313,10 +307,10 @@ impl Runtime {
             "actor":current.actor,"work":current.work,"expected":expected,
             "current_interface":current.interface,"used":current.used,
             "attempt_limit":current.limit,"revoked":current.revoked,
-            "updates":current.updates,"maximum_updates":MAX_UPDATES,
+            "updates":current.updates,"maximum_updates":null,"historical_declaration_only":true,
             "ordinary_work_and_episode_attempts_left":
                 need_proposals::ordinary_attempts_left(&state, &current.work, now),
-            "maximum_additional_attempts":32,"maximum_remaining_after_increase":32,
+            "maximum_additional_attempts":null,"maximum_remaining_after_increase":null,
             "metadata_only":true,"capacity_reserved":false,"inference_performed":false
         }))
     }
@@ -354,7 +348,6 @@ impl Runtime {
         require(
             current.operator == operator
                 && !current.revoked
-                && current.updates < MAX_UPDATES
                 && current.used <= current.limit,
             "tool grant revoked, foreign, inconsistent or update history full",
         )?;
@@ -378,15 +371,6 @@ impl Runtime {
             .limit
             .checked_add(extra)
             .ok_or_else(|| invalid("tool attempt limit overflow"))?;
-        if extra > 0 {
-            let remaining = limit - current.used;
-            require(
-                remaining <= 32
-                    && u64::from(remaining)
-                        <= need_proposals::ordinary_attempts_left(&state, &current.work, now),
-                "tool cap increase exceeds finite remaining work/episode funding",
-            )?;
-        }
         let implementation_revision = &request.expected.implementation_revision;
         let resulting_interface = match &request.terms {
             ToolGrantUpdateTerms::Computation { guide, .. } => {
@@ -404,16 +388,8 @@ impl Runtime {
                 expires_at_unix,
                 ..
             } => {
-                require(
-                    !origins.is_empty()
-                        && origins.len() <= 8
-                        && origins
-                            .iter()
-                            .all(|origin| crate::http_fetch::valid_origin(origin))
-                        && *expires_at_unix > now
-                        && *expires_at_unix <= now.saturating_add(http_tools::MAX_GRANT_SECONDS),
-                    "HTTPS update requires explicit canonical origins and expiry within seven days",
-                )?;
+                require(origins.iter().all(|origin| crate::http_fetch::valid_origin(origin)),
+                    "invalid historical origin declaration")?;
                 http_tools::full_asset(&state, guide, &a)?;
                 for origin in origins {
                     let mut destination = a.clone();
@@ -444,10 +420,6 @@ impl Runtime {
             used_preserved: current.used,
             work_attempts_preserved: state.work_meta[&current.work].attempts_left,
         };
-        require(
-            serde_json::to_vec(&receipt)?.len() <= MAX_RECEIPT_BYTES,
-            "tool update receipt exceeds retention bound",
-        )?;
         if !apply {
             return Ok(outcome(&receipt, "preview"));
         }

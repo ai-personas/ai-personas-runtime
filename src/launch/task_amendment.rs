@@ -442,7 +442,7 @@ pub(crate) fn retire_completed(
         || persona.owner_epoch != prepared.owner_epoch
         || persona.admission_serial != prepared.admission_serial
         || persona.failed_attempt_hold.is_some()
-        || !app.invocation_leases_terminal(state)?
+        || !app.invocation_leases_quiescent(state)?
     {
         return Ok(false);
     }

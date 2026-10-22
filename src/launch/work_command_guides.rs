@@ -178,7 +178,7 @@ pub fn install_at(root: &Path, request: &Request, apply: bool, now: i64) -> Resu
         active_invocations(&state).is_empty(),
         "active invocation blocks native-guide installation",
     )?;
-    app.store.require_terminal_invocations()?;
+    app.store.require_quiescent_invocations()?;
     let mut next = state.clone();
     let owner = &people(saved.setup.cohort)[0];
     work_guides::install(&mut next, &request.operator, owner, POLICY, now)?;
@@ -208,7 +208,7 @@ pub fn install_at(root: &Path, request: &Request, apply: bool, now: i64) -> Resu
     };
     if apply {
         app.store
-            .compare_and_swap_batch_requiring_terminal_invocations(vec![
+            .compare_and_swap_batch_requiring_quiescent_invocations(vec![
                 s::Change {
                     expected_revision: Some(head.revision),
                     object: runtime,

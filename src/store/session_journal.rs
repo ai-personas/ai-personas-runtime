@@ -27,7 +27,7 @@ impl Store {
     pub(crate) fn claim_launch_session(&mut self, claim: Change, terminal_id: &str) -> Result<()> {
         self.transaction(|work| {
             work.admission()?;
-            work.require_terminal_invocations()?;
+            work.require_quiescent_invocations()?;
             work.id(terminal_id)?;
             if claim.expected_revision.is_some()
                 || claim.object.kind != CLAIM_KIND

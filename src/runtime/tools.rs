@@ -1,5 +1,4 @@
-//! Explicitly granted, selected computation capabilities and durable results.
-//! Guides remain assets. Reading one supplies no grant; a grant supplies no body.
+//! Computation available by default, with exact durable dispatch and results.
 use super::*;
 use crate::computation as c;
 
@@ -13,7 +12,7 @@ pub struct ComputationGrantRequest {
     pub actor: String,
     pub work: String,
     pub guide: p::ExactRef,
-    /// Cap within the existing work allowance, also charged to the root Store ledger.
+    /// Historical declaration; ordinary execution does not enforce this value.
     pub attempts: u32,
 }
 
@@ -44,11 +43,11 @@ impl Grant {
 pub struct ComputationInterface {
     pub capability_id: String,
     pub binding_revision: String,
-    pub grant: String,
-    pub guide: p::ExactRef,
+    pub grant: Option<String>,
+    pub guide: Option<p::ExactRef>,
     pub inputs_schema: Value,
     pub engine_revision: String,
-    pub attempt_limit: u32,
+    pub attempt_limit: Option<u32>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -57,7 +56,7 @@ struct Inputs {
     /// Exact full UTF-8 supporting asset containing WebAssembly text (WAT).
     /// A same-response save requires proposal-op:<id> and that id in depends_on.
     program: p::ExactRef,
-    /// Exact UTF-8 bytes supplied to guest memory at offset zero (max 8192).
+    /// Exact UTF-8 bytes supplied to guest memory at offset zero.
     input: String,
 }
 
@@ -158,11 +157,26 @@ pub(super) fn interface_for(
     Ok(ComputationInterface {
         capability_id: c::PROFILE.into(),
         binding_revision: digest(&(c::PROFILE, request, engine_revision, &schema))?,
-        grant: request.id.clone(),
-        guide: request.guide.clone(),
+        grant: Some(request.id.clone()),
+        guide: Some(request.guide.clone()),
         inputs_schema: schema,
         engine_revision: engine_revision.into(),
-        attempt_limit: request.attempts,
+        attempt_limit: Some(request.attempts),
+    })
+}
+
+/// Every ordinary request supplies the current definition without a grant or guide.
+pub(super) fn default_interface() -> Result<ComputationInterface> {
+    let schema = serde_json::to_value(schemars::schema_for!(Inputs))?;
+    let revision = c::engine_revision();
+    Ok(ComputationInterface {
+        capability_id: c::PROFILE.into(),
+        binding_revision: digest(&(c::PROFILE, "default-access-v1", &revision, &schema))?,
+        grant: None,
+        guide: None,
+        inputs_schema: schema,
+        engine_revision: revision,
+        attempt_limit: None,
     })
 }
 
@@ -183,7 +197,6 @@ pub(super) fn full_asset<'a>(
         file.scope == f::Scope::Assets
             && !file.retired
             && !file.bytes.is_empty()
-            && file.bytes.len() <= c::PROGRAM_BYTES
             && std::str::from_utf8(&file.bytes).is_ok()
             && lineage_permitted(state, std::slice::from_ref(&reference), a),
         "computation asset unavailable",
@@ -202,48 +215,14 @@ pub(super) fn full_asset<'a>(
     Ok(file)
 }
 
-fn available(state: &State, grant: &Grant, now: i64) -> bool {
-    !grant.revoked
-        && grant.used < grant.current_request().attempts
-        && grant.current_revision() == c::engine_revision()
-        && need_proposals::ordinary_attempts_left(state, &grant.request.work, now) > 0
-        && state
-            .board
-            .work(&w::WorkId(grant.request.work.clone()))
-            .is_ok_and(|w| matches!(w.phase, w::Phase::Open))
-        && state
-            .personas
-            .get(&grant.request.actor)
-            .is_some_and(|persona| {
-                full_asset(state, &grant.current_request().guide, &admission(persona, now)).is_ok()
-            })
-        && !state.computation_jobs.values().any(|job| {
-            job.actor == grant.request.actor
-                && job.work == grant.request.work
-                && matches!(job.state, s::IntentState::Uncertain)
-        })
-}
-
-/// Only exact complete guide bodies in this assembled request expose a callable.
-/// Transitive lineage, inventory metadata and historical mentions do not count.
 pub(super) fn exposed(
-    state: &State,
-    actor: &str,
-    work: &str,
-    bodies: &BTreeSet<f::Reference>,
-    now: i64,
+    _state: &State,
+    _actor: &str,
+    _work: &str,
+    _bodies: &BTreeSet<f::Reference>,
+    _now: i64,
 ) -> Result<Vec<ComputationInterface>> {
-    state
-        .computation_grants
-        .values()
-        .filter(|g| {
-            g.request.actor == actor
-                && g.request.work == work
-                && available(state, g, now)
-                && file_reference(&g.current_request().guide).is_ok_and(|r| bodies.contains(&r))
-        })
-        .map(interface)
-        .collect()
+    Ok(vec![default_interface()?])
 }
 
 pub(super) fn is_computation(operation: &p::Operation) -> bool {
@@ -251,11 +230,11 @@ pub(super) fn is_computation(operation: &p::Operation) -> bool {
 }
 
 pub(super) fn validate(
-    state: &State,
+    _state: &State,
     prepared: &Prepared,
     decision: &p::Decision,
     operation: &p::Operation,
-    now: i64,
+    _now: i64,
 ) -> Result<()> {
     let p::Operation::Effect {
         binding_revision,
@@ -275,33 +254,13 @@ pub(super) fn validate(
         .iter()
         .find(|i| &i.binding_revision == binding_revision)
         .ok_or_else(|| {
-            held("computation guide and callable were not supplied by this admission")
+            held("computation callable was not supplied by this admission")
         })?;
-    let grant = state
-        .computation_grants
-        .get(&offered.grant)
-        .ok_or_else(|| held("computation grant absent"))?;
     require(
-        grant.request.actor == prepared.request.persona
-            && grant.request.work == prepared.request.work
-            && available(state, grant, now)
-            && interface(grant)? == *offered,
-        "computation grant unavailable or changed",
-    )?;
-    require(
-        decision
-            .operations
-            .iter()
-            .filter(|o| is_computation(o) || http_tools::is_http_fetch(o))
-            .count()
-            == 1,
-        "one external execution per decision; results need a fresh decision",
+        default_interface()? == *offered,
+        "computation implementation or interface changed",
     )?;
     let input: Inputs = serde_json::from_value(inputs.clone())?;
-    require(
-        input.input.len() <= c::INPUT_BYTES,
-        "computation input too large",
-    )?;
     for dep in depends_on {
         require(
             decision
@@ -338,7 +297,7 @@ pub(super) fn validate(
     Ok(())
 }
 
-/// Stage the exact program and allowance in the same candidate as its local save.
+/// Stage the exact program in the same candidate as its local save.
 /// No guest executes here. Store commits the returned intent with the whole decision.
 pub(super) fn stage(
     state: &mut State,
@@ -380,10 +339,7 @@ pub(super) fn stage(
         c::validate(&program)
             .map_err(|code| held(format!("computation program rejected: {code}")))?;
         let mut exposure = prepared_exposure(prepared)?.clone();
-        exposure.sources.extend([
-            file_reference(&program_reference)?,
-            file_reference(&offered.guide)?,
-        ]);
+        exposure.sources.push(file_reference(&program_reference)?);
         let exposure = expanded_exposure(state, &exposure)?;
         require(
             exposure_permitted(state, &exposure, &a),
@@ -403,7 +359,6 @@ pub(super) fn stage(
         };
         let qualification_sources = qualification_inputs(prepared, &[
             file_reference(&program_reference)?,
-            file_reference(&offered.guide)?,
         ])?;
         let job = Job {
             interface: offered.clone(),
@@ -421,19 +376,9 @@ pub(super) fn stage(
         let reservation = s::Resources {
             attempts: 1,
             input_bytes: (job.program.len() + job.input.len()) as u64,
-            output_bytes: c::OUTPUT_BYTES as u64,
+            output_bytes: c::OUTPUT_ESTIMATE_BYTES as u64,
             ..Default::default()
         };
-        state
-            .computation_grants
-            .get_mut(&offered.grant)
-            .unwrap()
-            .used += 1;
-        // One computation consumes one existing ordinary work attempt in addition
-        // to the inference admission. The repair suballowance is preserved.
-        need_proposals::debit_execution(
-            state, &prepared.request.work, &prepared.request.id, &intent_id, now,
-        )?;
         require(
             state
                 .computation_jobs
@@ -465,10 +410,6 @@ impl Runtime {
         identity(&request.id)?;
         identity(&request.actor)?;
         identity(&request.work)?;
-        require(
-            (1..=32).contains(&request.attempts),
-            "computation grant requires 1..=32 attempts",
-        )?;
         let (old, mut state) = self.load()?;
         lifecycle::require_active(&state, &request.actor)?;
         if let Some(existing) = state.computation_grants.get(&request.id) {
@@ -479,13 +420,6 @@ impl Runtime {
             return interface(existing);
         }
         require(
-            state
-                .computation_grants
-                .values()
-                .all(|g| g.request.actor != request.actor || g.request.work != request.work),
-            "a work/persona already has a computation allocation; grants cannot refill it",
-        )?;
-        require(
             state.board.work(&w::WorkId(request.work.clone()))?.phase == w::Phase::Open,
             "work is not open",
         )?;
@@ -493,11 +427,6 @@ impl Runtime {
             .personas
             .get(&request.actor)
             .ok_or_else(|| held("persona absent"))?;
-        require(
-            u64::from(request.attempts)
-                <= need_proposals::ordinary_attempts_left(&state, &request.work, now),
-            "computation cap exceeds the existing ordinary work/episode allowance",
-        )?;
         require(
             persona.focus.contains_key(&request.work) && persona.active_invocation.is_none(),
             "work focus absent or invocation active",
@@ -540,7 +469,7 @@ impl Runtime {
 
     /// Explicit host recovery. Previously dispatched computation is never rerun.
     /// An exact host terminal slot can complete/reconcile it; absent evidence
-    /// remains unknown and blocks further computation in that actor/work scope.
+    /// remains unknown; a new operation does not replay it.
     pub fn recover_computations(&mut self, now: i64) -> Result<usize> {
         let _owner = self.store.acquire_execution_owner()?;
         let state = self.snapshot()?;
@@ -590,16 +519,9 @@ impl Runtime {
                 lifecycle::require_active(&state, &job.actor)?;
                 optional_activity::require_current(&state, &job.work, &job.actor, now)?;
                 need_proposals::check_work(self, &state, &job.work, now)?;
-                let grant = state
-                    .computation_grants
-                    .get(&job.interface.grant)
-                    .ok_or_else(|| held("grant absent"))?;
                 require(
-                    !grant.revoked
-                        && grant.current_revision() == c::engine_revision()
-                        && interface(grant)? == job.interface
-                        && grant.used <= grant.current_request().attempts,
-                    "computation authorization changed",
+                    job.interface.engine_revision == c::engine_revision(),
+                    "computation runner changed before dispatch",
                 )?;
                 require(
                     state.board.work(&w::WorkId(job.work.clone()))?.phase == w::Phase::Open,
@@ -614,7 +536,6 @@ impl Runtime {
                     full_asset(&state, &job.program_reference, &a)?.bytes == job.program.as_bytes(),
                     "program changed",
                 )?;
-                full_asset(&state, &job.interface.guide, &a)?;
                 decision_scope::require_intent_current(
                     &state, &prepared, job.dispatch_scope.as_ref(), &retained, &old,
                 )?;
@@ -808,9 +729,11 @@ fn result_location(state: &State, id: &str, actor: &str) -> Result<(String, Stri
 
 fn retain_result(state: &mut State, id: &str, job: &Job, payload: &Value) -> Result<p::ExactRef> {
     let (source, path) = result_location(state, id, &job.actor)?;
-    let policy = record(state, &file_reference(&job.interface.guide)?)?.record.policy.clone();
+    let policy = record(state, &file_reference(&job.program_reference)?)?.record.policy.clone();
     let mut required = qualifications(state, job.qualification_sources.as_deref().unwrap_or(&job.exposure.sources));
-    required.push(file_reference(&job.interface.guide)?);
+    if let Some(guide) = &job.interface.guide {
+        required.push(file_reference(guide)?);
+    }
     required.sort();
     required.dedup();
     let mut body = payload.clone();
@@ -936,7 +859,7 @@ pub(super) fn control(
                         need_proposals::ordinary_attempts_left(state, work, a.now_unix),
                     "revoked":grant.revoked,
                     "implementation_current":grant.current_revision() == c::engine_revision(),
-                    "allocation_available_before_guide_supply":available(state, grant, a.now_unix),
+                    "historical_declaration_only":true,"default_access":true,
                     "metadata_only":true
                 }));
             }
@@ -970,8 +893,8 @@ pub(super) fn control(
         Value::Null
     } else {
         json!({"unresolved":entries,"retained_results":results,"allocations":allocations,
-            "guide_selection":"These are existing allocations for this persona/work whose exact current guide is readable, not callable definitions or execution authority. If a relevant allocation is available but absent from CONTROL.computation_capabilities, read or select its exact guide under next_assets for a fresh admission. Preserving an older guide cannot expose the updated binding. You choose whether to continue; this metadata selects nothing. Current work authority, input lineage and dispatch checks still apply. An omitted allocation does not prove that none was recorded.",
-            "capability_scope":"CONTROL.work_capability describes internal work commands only. Computation uses separate CONTROL.computation_capabilities through effect when the exact guide is supplied and its allocation remains available. An absent computation callable does not prevent retrieving a retained result through its exact supporting-file reference. Previous blocked judgments do not establish current resource availability.",
+            "historical_declarations":"Saved grants and guide references are historical metadata. Current computation and HTTP(S) definitions are supplied by default, without grants, guide selection, attempt caps, expiry or origin restrictions.",
+            "capability_scope":"CONTROL.work_capability describes internal work commands only. Computation uses the default CONTROL.computation_capabilities through effect without a grant or guide. An absent computation callable does not prevent retrieving a retained result through its exact supporting-file reference. Previous blocked judgments do not establish current resource availability.",
             "retrieval":"Exact protected supporting files from this persona/work, metadata only. Read or select the source under next_assets to recover its inputs, output and terminal evidence with required qualifications. Selection can avoid a history scan and a read-result byte limit. Do not rerun a computation to recover a receipt. Files are host records, not current callable grants or persona-authored judgments. Inaccessible results are omitted.",
             "meaning":"No work completion is inferred. Uncertain computation requires host recovery; it is not replayed or treated as free, and blocks further computation for this persona/work."})
     }

@@ -575,13 +575,13 @@ fn begin_with_launch(
                 .is_some_and(|m| m.intake_operator == request.operator),
         BoundaryError::Unavailable,
     )?;
-    // A fresh key is not recovery. Failed actors retain their exact leases;
-    // eligible peers may proceed once every invocation is locally terminal.
+    // A fresh key is not recovery. Failed/uncertain actors retain their exact
+    // leases; eligible peers may proceed without rewriting those outcomes.
     check(
-        app.invocation_leases_terminal(&state)?,
+        app.invocation_leases_quiescent(&state)?,
         BoundaryError::Blocked,
     )?;
-    app.store.require_terminal_invocations()?;
+    app.store.require_quiescent_invocations()?;
     let claim = SessionClaim {
         version: 2,
         request: request.clone(),
@@ -1307,7 +1307,7 @@ fn inspect_snapshot(
     let settings = settings_view(&state, &saved, time);
     let frozen = records.frozen();
     let active = !active_invocations(&state).is_empty();
-    let leases_terminal = crate::runtime::check_invocation_leases(
+    let leases_quiescent = crate::runtime::check_invocation_leases(
         state, &BTreeSet::new(), |id| {
             Ok(records.invocation(id)?.ok_or_else(|| s::StoreError::Missing(id.into()))?)
         },
@@ -1372,7 +1372,7 @@ fn inspect_snapshot(
                 now,
             )?;
             let eligible_candidate = !frozen
-                && leases_terminal
+                && leases_quiescent
                 && persona.active_invocation.is_none()
                 && persona.failed_attempt_hold.is_none()
                 && settings.compatible_for_execution
@@ -1387,7 +1387,7 @@ fn inspect_snapshot(
                 .transpose()?
                 .flatten();
             let resume_candidate = !frozen
-                && leases_terminal
+                && leases_quiescent
                 && participant_resume::candidate(&state, &saved, id, &actor);
             participants.push(ParticipantView {
                 label: persona.seed.label.clone(),

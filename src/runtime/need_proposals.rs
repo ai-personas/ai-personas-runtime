@@ -511,42 +511,6 @@ pub(super) fn ordinary_attempts_left(state: &State, work: &str, now: i64) -> u64
     )
 }
 
-/// Staged with the complete decision and durable intent. The same execution
-/// debits work and its episode once; it creates no second physical reservation.
-pub(super) fn debit_execution(
-    state: &mut State,
-    work: &str,
-    invocation: &str,
-    intent: &str,
-    now: i64,
-) -> Result<()> {
-    require(
-        ordinary_attempts_left(state, work, now) > 0,
-        "external execution has no ordinary work/episode allowance",
-    )?;
-    if bound(state, work) {
-        charge(
-            state,
-            work,
-            bounded_composite_id("execution", &[intent]),
-            Some(invocation),
-            false,
-            f::NavigationLimits {
-                calls: 0,
-                scanned_bytes: 0,
-                inspected_revisions: 0,
-                matches: 0,
-                result_bytes: 0,
-            },
-            now,
-        )?;
-    } else {
-        let meta = state.work_meta.get_mut(work).unwrap();
-        meta.attempts_left = meta.attempts_left.saturating_sub(1);
-    }
-    Ok(())
-}
-
 /// Called inside the existing event/evidence reservation path. This adds a
 /// logical ceiling to the SAME physical reservation; it reserves nothing itself.
 pub(super) fn take_navigation(

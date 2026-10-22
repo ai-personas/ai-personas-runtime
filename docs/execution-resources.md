@@ -73,11 +73,28 @@ reading a guide. Guides are optional supporting material. The saved direct-acces
 opt-in and model-confirmation flags no longer gate inference; exact requested
 model, effort, route, account and actual credentials are still bound to the call.
 
+Computation and HTTP(S) callable definitions are now supplied by default without
+a grant or guide. Multiple independent executions may appear in one Decision.
+Old attempt, origin, expiry and revocation declarations remain historical
+metadata. Executions do not consume a separate finite work or intake allowance.
+
+The embedded WebAssembly runner has no application program, input, output, fuel,
+memory, table or stack quota. HTTP(S) retrieval has no application URL, body,
+header-value, address, origin, port, DNS-count or local-duration quota; redirects
+and environment proxies are supported. Actual ABI, module, protocol and host
+resource failures are still reported. Tool result and model-context layers have
+further limits listed below.
+
+An uncertain response holds its own persona, without blocking eligible peers.
+Its lease, outcome, evidence and uncertain usage remain unchanged. Active local
+transports and unfinished adoption still require their exact owner. Starting an
+independent session or resuming a stopped peer does not replay or reconcile the
+uncertain call.
+
 ## Remaining work
 
 Removal is still incomplete. Remaining
-application enforcement includes separate WebAssembly/HTTPS execution grants
-and their engine/request limits; delegated intake and optional-activity ceilings;
+application enforcement includes delegated intake and optional-activity ceilings;
 persona population constraints; source ownership, protection and ineligibility
 gates; extra operator authorization fields; remaining typed protocol and tool-input
 limits; and history, file-corpus, context and projection limits. These are implementation gaps under the

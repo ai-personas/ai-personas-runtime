@@ -1,13 +1,12 @@
-//! A locally terminal failure holds its actor, not every peer in the runtime.
+//! Failed and uncertain calls hold their actor without blocking eligible peers.
 use super::*;
 
 impl Runtime {
-    /// Inspect only current persona leases. Failed records cannot adopt another
-    /// response; their actor stays unavailable until its own explicit recovery
-    /// or accepted-continuation retirement. No lease, receipt or usage is changed.
-    /// Other states, including adoption awaiting local completion, still block
-    /// foreground mutations of the shared semantic epoch.
-    pub(super) fn invocation_leases_terminal(&mut self, state: &State) -> Result<bool> {
+    /// Inspect current persona leases. Failed and uncertain calls keep their
+    /// actor unavailable without holding every peer. No lease, outcome, receipt
+    /// or usage is changed. In-flight transport and unfinished local adoption
+    /// still require their exact owner before mutating the shared semantic epoch.
+    pub(super) fn invocation_leases_quiescent(&mut self, state: &State) -> Result<bool> {
         self.invocation_leases_owned(state, &BTreeSet::new())
     }
 
@@ -40,7 +39,8 @@ pub(crate) fn check_invocation_leases(
                 invocation.state,
                 s::InvocationState::Dispatched | s::InvocationState::Responded
             );
-        if !pending && invocation.state != s::InvocationState::Failed {
+        if !pending && !matches!(invocation.state,
+            s::InvocationState::Failed | s::InvocationState::Uncertain) {
             return Ok(false);
         }
         let prepared = decode_prepared(&invocation)?;

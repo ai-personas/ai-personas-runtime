@@ -275,10 +275,10 @@ fn plan(
         "human-intake heads or counters changed",
     )?;
     require(
-        app.invocation_leases_terminal(&state)?,
+        app.invocation_leases_quiescent(&state)?,
         "unfinished invocation blocks human intake",
     )?;
-    app.store.require_terminal_invocations()?;
+    app.store.require_quiescent_invocations()?;
     let provider = saved.execution_provider()?;
     let auth = &request.authorization;
     require(

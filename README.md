@@ -66,16 +66,13 @@ later work without rewriting their contents through the model.
 Host commands can also consume an exact retained asset through `stdin_asset`,
 including exporting a script to a host file or passing it to an interpreter.
 
-Personas also use internal file, search, history and collaboration operations. Fresh
-native setups let personas [discover and select work-command guides](docs/work-command-guides.md)
-through the ordinary file interface; only supplied guides expose their schemas. An
-explicit work grant also permits [bounded WebAssembly computation](docs/computation.md)
-after the persona reads or selects its exact guide. Program execution produces
-durable intent and result receipts. [HTTPS source retrieval](docs/https-retrieval.md)
-is available with an expiring work grant, exact permitted origins and compatible
-source policies. These separate profiles do not restrict default host command access.
-A supplied skill guide alone does not
-establish execution or skill application.
+Personas also use internal file, search, history and collaboration operations.
+All [native work-command definitions](docs/work-command-guides.md),
+[WebAssembly computation](docs/computation.md) and
+[HTTP(S) retrieval](docs/https-retrieval.md) are available by default during
+ordinary work. They require no tool grant or guide selection. Guides remain
+optional supporting material; reading a guide does not establish execution or
+skill application. Actual executions retain their intents and observed results.
 
 [Inspect persona development](docs/persona-development.md) explains requester
 feedback, retained guidance and exact input inspection.

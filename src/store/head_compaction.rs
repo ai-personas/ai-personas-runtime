@@ -87,7 +87,7 @@ impl Store {
         {
             return Err(StoreError::RevisionConflict("head compaction fence".into()));
         }
-        work.require_terminal_invocations()?;
+        work.require_quiescent_invocations()?;
 
         // Admit one finite scan envelope before consulting the head inventory.
         // Lengths are checked before fetching bodies; no bulk historical scan.

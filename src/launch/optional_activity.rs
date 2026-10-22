@@ -138,7 +138,7 @@ pub fn grant_optional_activity(
         active_invocations(&state).is_empty(),
         "active invocation blocks optional opportunity registration",
     )?;
-    app.store.require_terminal_invocations()?;
+    app.store.require_quiescent_invocations()?;
     let provider = saved.execution_provider()?;
     require(
         request.model == provider.model
@@ -366,7 +366,7 @@ pub fn start_optional_activity(
             active_invocations(&state).is_empty(),
             "active invocation requires completion or reconciliation",
         )?;
-        app.store.require_terminal_invocations()?;
+        app.store.require_quiescent_invocations()?;
         require(
             opportunity.episodes.len() < grant.max_episodes as usize,
             "optional recurrence allowance exhausted",

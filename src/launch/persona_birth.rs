@@ -263,7 +263,7 @@ pub fn create_at(root: &Path, request: &Request, apply: bool, now: i64) -> Resul
         active_invocations(&state).is_empty(),
         "active invocation blocks persona creation",
     )?;
-    app.store.require_terminal_invocations()?;
+    app.store.require_quiescent_invocations()?;
     require(
         saved.setup.cohort < saved.setup.persona_capacity()
             && request.persona == format!("persona-{:04}", saved.setup.cohort + 1)
@@ -476,7 +476,7 @@ pub fn create_at(root: &Path, request: &Request, apply: bool, now: i64) -> Resul
     ];
     if apply {
         app.store
-            .compare_and_swap_batch_requiring_terminal_invocations(changes)?;
+            .compare_and_swap_batch_requiring_quiescent_invocations(changes)?;
     }
     let mut outcome = output(&receipt, false, apply);
     if apply {

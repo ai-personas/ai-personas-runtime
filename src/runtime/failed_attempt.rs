@@ -66,7 +66,7 @@ impl Runtime {
             "failed-attempt acknowledgment does not match the current local lease",
         )?;
         require(
-            self.invocation_leases_terminal(&state)?,
+            self.invocation_leases_quiescent(&state)?,
             "unfinished invocation blocks failed-attempt acknowledgment",
         )?;
         require(
@@ -234,7 +234,7 @@ impl Runtime {
             return Ok(None);
         };
         require(initial.is_none() && acknowledgment == Some(&hold.acknowledgment)
-            && hold.work == work && self.invocation_leases_terminal(state)?,
+            && hold.work == work && self.invocation_leases_quiescent(state)?,
             "failed attempt remains held; a separate targeted resume with its exact acknowledgment is required")?;
         let retained = self.store.read_exact(&hold.acknowledgment)?;
         require(

@@ -304,7 +304,7 @@ impl Store {
         // This terminal-history scan is paid from the explicitly proposed
         // allowance. A rejected or preview transaction grants no new capacity.
         // Current operator authority and its read charge are in this transaction.
-        work.require_terminal_invocations()?;
+        work.require_quiescent_invocations()?;
         for resource in RESOURCES {
             work.meta.check_dimension(resource, BudgetClass::Ordinary)?;
             work.meta.check_dimension(resource, BudgetClass::Closeout)?;

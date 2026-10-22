@@ -1109,7 +1109,7 @@ fn plan(
         active_invocations(&state).is_empty(),
         "active invocation blocks delegation lifecycle",
     )?;
-    app.store.require_terminal_invocations()?;
+    app.store.require_quiescent_invocations()?;
     let mut launch = launch_head.clone();
     let availability;
     let minimum_available;
@@ -1466,7 +1466,7 @@ pub(in crate::runtime) fn commit_episode_preparation(
                 == episode.child.as_ref().map(|child| &child.binding)
             && authority.registry == episode.last_preparation_registry
             && authority.launch_binding_sha256 == episode.launch_binding_sha256
-            && app.invocation_leases_terminal(state)?,
+            && app.invocation_leases_quiescent(state)?,
         "episode checkpoint authority or invocation slot changed",
     )?;
     let (launch_head, mut saved) = load(app)?;
@@ -1483,7 +1483,7 @@ pub(in crate::runtime) fn commit_episode_preparation(
     let runtime = state_object(runtime_head, state)?;
     Ok(app
         .store
-        .compare_and_swap_batch_requiring_terminal_invocations(vec![
+        .compare_and_swap_batch_requiring_quiescent_invocations(vec![
             s::Change {
                 expected_revision: Some(runtime_head.revision),
                 object: runtime,

@@ -207,7 +207,7 @@ pub fn change_at(root: &Path, request: &Request, apply: bool, now: i64) -> Resul
         active_invocations(&state).is_empty(),
         "active invocation requires completion or reconciliation",
     )?;
-    app.store.require_terminal_invocations()?;
+    app.store.require_quiescent_invocations()?;
     let revision = request
         .expected_lifecycle_revision
         .map_or(Ok(1), increment)?;

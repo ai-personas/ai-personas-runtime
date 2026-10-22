@@ -250,7 +250,7 @@ pub fn allocate_work_repair_at(
         active_invocations(&state).is_empty(),
         "active invocation blocks repair allocation",
     )?;
-    app.store.require_terminal_invocations()?;
+    app.store.require_quiescent_invocations()?;
     let declared = request.declared_after()?;
     let remaining = request.remaining_after()?;
     let mut runtime = runtime_head.clone();

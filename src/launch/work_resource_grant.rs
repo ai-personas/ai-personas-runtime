@@ -425,7 +425,7 @@ fn plan(
         active_invocations(&state).is_empty(),
         "active invocation blocks work resource grant",
     )?;
-    app.store.require_terminal_invocations()?;
+    app.store.require_quiescent_invocations()?;
     let after = add_remaining(request.expected.remaining, request.increase)?;
     let mut ceilings = state.config.clone();
     ceilings.max_repair_attempts =

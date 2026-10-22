@@ -1257,7 +1257,7 @@ impl TrustedHost<'_> {
     ) -> Result<BatchReceipt> {
         self.store.transaction(|work| {
             work.admission()?;
-            work.require_terminal_invocations()?;
+            work.require_quiescent_invocations()?;
             let current: StoredObject = work.required("object", RUNTIME_CONTROL_STATE_ID)?;
             let retained: InvocationRecord = work.required("invocation", &invocation.id)?;
             let held: ReservationRecord = work.required("reservation", &invocation.reservation.key())?;
@@ -2262,13 +2262,13 @@ impl Store {
     /// Ordinary admission extension batch with its lifecycle guard in the same
     /// immediate transaction. An unlinked concurrent prepare cannot slip between
     /// inspection and CAS, even when it changes neither object heads nor epoch.
-    pub fn compare_and_swap_batch_requiring_terminal_invocations(
+    pub fn compare_and_swap_batch_requiring_quiescent_invocations(
         &mut self,
         changes: Vec<Change>,
     ) -> Result<BatchReceipt> {
         self.transaction(|work| {
             work.admission()?;
-            work.require_terminal_invocations()?;
+            work.require_quiescent_invocations()?;
             let candidates = work.validate_changes(&changes)?;
             for change in &changes {
                 work.dependencies(&change.depends_on, &candidates)?;
@@ -2516,11 +2516,12 @@ impl Store {
     }
 
     /// Operator admission guard over every retained invocation identity.
-    /// The existing permanent-identity bound limits enumeration; ordinary
-    /// navigation is charged. No lifecycle or resource reservation is changed.
-    /// Terminal records remain acceptable after payload history expires.
-    pub fn require_terminal_invocations(&mut self) -> Result<()> {
-        self.transaction(|work| work.require_terminal_invocations())
+    /// Enumeration records ordinary navigation use. No lifecycle or resource
+    /// reservation is changed.
+    /// Adopted, failed and uncertain records permit independent work. Unknown
+    /// outcomes stay unknown; this check changes no record or reservation.
+    pub fn require_quiescent_invocations(&mut self) -> Result<()> {
+        self.transaction(|work| work.require_quiescent_invocations())
     }
 
     fn invocation_in_class(&mut self, id: &str, class: BudgetClass) -> Result<InvocationRecord> {
@@ -3698,7 +3699,7 @@ impl<'a> Work<'a> {
         minimum_available: Resources,
     ) -> Result<BatchReceipt> {
         self.admission()?;
-        self.require_terminal_invocations()?;
+        self.require_quiescent_invocations()?;
         let candidates = self.validate_changes(changes)?;
         for change in changes {
             self.dependencies(&change.depends_on, &candidates)?;
@@ -3721,7 +3722,7 @@ impl<'a> Work<'a> {
         })
     }
 
-    fn require_terminal_invocations(&mut self) -> Result<()> {
+    fn require_quiescent_invocations(&mut self) -> Result<()> {
         for id in self.keys("invocation")? {
             let record: InvocationRecord = self.required("invocation", &id)?;
             self.returned(&record, self.limits.max_read_bytes, BudgetClass::Ordinary)?;
@@ -3730,10 +3731,10 @@ impl<'a> Work<'a> {
             }
             if !matches!(
                 record.state,
-                InvocationState::Adopted | InvocationState::Failed
+                InvocationState::Adopted | InvocationState::Failed | InvocationState::Uncertain
             ) {
                 return Err(StoreError::InvalidState(
-                    "unresolved invocation blocks admission extension".into(),
+                    "active transport or unfinished adoption requires its owner".into(),
                 ));
             }
         }

@@ -42,7 +42,7 @@ impl Runtime {
             || persona.owner_epoch != prepared.owner_epoch
             || persona.admission_serial != prepared.admission_serial
             || persona.failed_attempt_hold.is_some()
-            || !self.invocation_leases_terminal(&state)?
+            || !self.invocation_leases_quiescent(&state)?
             || !focus.ordinary_continuation
             || focus.continuation.as_ref() != Some(&authored.value)
             || !matches!(

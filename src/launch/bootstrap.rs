@@ -123,7 +123,7 @@ fn apply_with(
         store.read(STATE_ID)?.is_none() && store.read(ID)?.is_none(),
         "existing Store has no matching atomic bootstrap receipt; inspect without reset",
     )?;
-    store.require_terminal_invocations()?;
+    store.require_quiescent_invocations()?;
     let mut state = initial_state(config, &request.operator);
     let provider = saved.execution_provider()?;
     for id in people(saved.setup.cohort) {
