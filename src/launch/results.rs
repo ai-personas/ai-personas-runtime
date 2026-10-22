@@ -23,6 +23,9 @@ pub struct Output {
     pub recorded_completion: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub optional_activity_ending: Option<Value>,
+    /// Current native participation, including decisions made without a reply.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub optional_activity: Option<Value>,
     /// Permission-filtered input/disposition history, never proof of compliance.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requester_feedback: Option<Value>,
@@ -46,15 +49,6 @@ pub(super) fn message_permitted(state: &State, message: &Message, now: i64) -> b
     let Some(inherited) = message.exposure.as_ref() else {
         return false;
     };
-    if !sender
-        .seed
-        .grants
-        .communicate_with
-        .contains(&message.recipient)
-        || !sender.seed.audience.contains(&message.recipient)
-    {
-        return false;
-    }
     let mut a = admission(sender, now);
     a.audience = BTreeSet::from([message.recipient.clone()]);
     if let Some(recipient) = state.personas.get(&message.recipient) {
@@ -124,6 +118,7 @@ pub(super) fn project_state(state: &State, work_id: &str, saved: &Saved, now: i6
         completion_supported: None,
         recorded_completion: None,
         optional_activity_ending: None,
+        optional_activity: None,
         requester_feedback: None,
         recorded_task_amendment: None,
         status_delivery: None,
@@ -143,20 +138,16 @@ pub(super) fn project_state(state: &State, work_id: &str, saved: &Saved, now: i6
     // Explicit trusted operator status remains a separate interface.
     result.status = "current-state-unestablished".into();
     result.optional_activity_ending = optional_activity::ending_for_recipient(&state,work_id,&saved.operator,now)?;
+    result.optional_activity = optional_activity::participation_for_operator(state, work_id, &saved.operator, now)?;
     if result.optional_activity_ending.is_some() {
         result.status = "optional-activity-ended-as-recorded".into();
+    } else if result.optional_activity.is_some() {
+        result.status = "optional-activity".into();
     }
-    let mut left = 1024 * 1024 - 4096;
     if let Some(amendment) = state.work_meta.get(work_id)
         .and_then(|meta| task_amendment::recorded_for_operator(meta, &saved.operator))
     {
-        let size = serde_json::to_vec(&amendment)?.len();
-        if size <= left {
-            left -= size;
-            result.recorded_task_amendment = Some(amendment);
-        } else {
-            result.truncated = true;
-        }
+        result.recorded_task_amendment = Some(amendment);
     }
     let completion = closure_readiness::recorded_completion_for_recipient(
         &state,
@@ -167,13 +158,7 @@ pub(super) fn project_state(state: &State, work_id: &str, saved: &Saved, now: i6
     let recorded_release = completion["release"].as_str().map(str::to_owned);
     if !completion.is_null() {
         result.status = "completed-as-recorded".into();
-        let size = serde_json::to_vec(&completion)?.len();
-        if size <= left {
-            left -= size;
-            result.recorded_completion = Some(completion);
-        } else {
-            result.truncated = true;
-        }
+        result.recorded_completion = Some(completion);
     }
     let mut permitted_deliveries: Vec<_> = work
         .deliveries
@@ -200,16 +185,9 @@ pub(super) fn project_state(state: &State, work_id: &str, saved: &Saved, now: i6
         )
     });
     let feedback = requester_feedback::project_for_recipient(
-        &state, work_id, &saved.operator, now, left,
+        &state, work_id, &saved.operator, now, 0,
     )?;
-    let feedback_size = serde_json::to_vec(&feedback)?.len();
-    if feedback_size <= left {
-        left -= feedback_size;
-        result.truncated |= feedback["truncated"].as_bool().unwrap_or(true);
-        result.requester_feedback = Some(feedback);
-    } else {
-        result.truncated = true;
-    }
+    result.requester_feedback = Some(feedback);
     // Choose status before any presentation truncation. This is the latest
     // permitted release creation, not an assertion of global release freshness.
     if let Some((receipt, _, a)) = permitted_deliveries.first() {
@@ -238,13 +216,7 @@ pub(super) fn project_state(state: &State, work_id: &str, saved: &Saved, now: i6
         }
         .into();
         if let Some(evidence) = evidence {
-            let size = serde_json::to_vec(&evidence)?.len();
-            if size <= left {
-                left -= size;
-                result.closure_evidence.push(evidence);
-            } else {
-                result.truncated = true;
-            }
+            result.closure_evidence.push(evidence);
         }
         // The target names this exact permitted delivery, never current
         // sufficiency. Explicit human ingress rechecks all current gates.
@@ -256,22 +228,10 @@ pub(super) fn project_state(state: &State, work_id: &str, saved: &Saved, now: i6
                 delivery: receipt.id.0.clone(),
                 delivery_receipt: receipt.receipt.clone(),
             };
-            let size = serde_json::to_vec(&target)?.len();
-            if size <= left {
-                left -= size;
-                result.human_decision_pointers.push(target);
-            } else {
-                result.truncated = true;
-            }
+            result.human_decision_pointers.push(target);
         }
     }
     for (receipt, body, _) in permitted_deliveries {
-        let size = serde_json::to_vec(body)?.len();
-        if result.local_deliveries.len() == 128 || size > left {
-            result.truncated = true;
-            break;
-        }
-        left -= size;
         debug_assert_eq!(body["release"], receipt.release.0);
         result.local_deliveries.push(body.clone());
     }
@@ -281,12 +241,6 @@ pub(super) fn project_state(state: &State, work_id: &str, saved: &Saved, now: i6
         if !message_permitted(&state, &message, now) {
             continue;
         }
-        let size = serde_json::to_vec(&message)?.len();
-        if result.messages.len() == 128 || size > left {
-            result.truncated = true;
-            break;
-        }
-        left -= size;
         result.messages.push(message.clone());
     }
     Ok(result)

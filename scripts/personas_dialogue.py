@@ -1254,14 +1254,36 @@ class Dialogue:
             args += ["--after", after]
         return self.session(*args)
 
-    def output(self, work, receipt_json=False):
-        result = self.session("result", work)
+    def output(self, work, receipt_json=False, result=None):
+        if result is None:
+            result = self.session("result", work)
         amendment = result.get("recorded_task_amendment")
         if amendment:
             self.ui.say(f"Saved amended request (mandate {amendment['mandate_revision']}): "
                         + amendment["saved_scope"]["request"])
             self.ui.say("Earlier replies and deliveries may predate this amendment.")
-        if result.get("optional_activity_ending"):
+        activity = result.get("optional_activity")
+        if activity:
+            self.ui.say(f"Optional activity {work}: {activity['phase']}.")
+            if activity.get("revoked_at_unix") is not None:
+                self.ui.say("This opportunity has been revoked.")
+            descriptions = {"ready": "ready to participate", "invited": "has not yet chosen",
+                            "stopped": "stopped", "paused": "paused", "waiting": "waiting",
+                            "scheduled": "chose to reconsider later", "held": "has an unresolved failed attempt",
+                            "pending_invocation": "has a pending or unresolved model call",
+                            "unavailable": "is unavailable"}
+            for participant in activity["participants"]:
+                label = participant["label"]
+                self.ui.say(f"{label}: {descriptions.get(participant['status'], participant['status'])}.")
+                authored = participant.get("last_authored_continuation")
+                if authored:
+                    decision = authored["decision"]
+                    reason = decision.get("reason") or decision.get("purpose")
+                    if reason:
+                        self.ui.say(f"{label}'s recorded choice: {reason}")
+                if participant.get("lifecycle_reason"):
+                    self.ui.say(participant["lifecycle_reason"])
+        elif result.get("optional_activity_ending"):
             self.ui.say(f"Work {work}: the optional activity ended as recorded. "
                         "No artifact or later benefit was required or established.")
         else:
@@ -1747,7 +1769,7 @@ class Dialogue:
             self.p["codex_auth"] = paths
             self.j.save()
             self.ui.say("Saved these locations. No authentication request or model call was made.")
-        return {"kind": "codex_auth_only", **self.p["codex_auth"], "authorize_codex_auth_only": True}
+        return {"kind": "codex_auth_only", **self.p["codex_auth"], "authorize_codex_auth_only": False}
 
     def session_binding(self, outcome, session):
         if outcome.get("status") == "not_recorded":
@@ -1821,6 +1843,8 @@ class Dialogue:
         else:
             args += ["--codex-executable", route["executable"], "--host-home", route["host_home"],
                      "--codex-home", route["codex_home"]]
+            if route["authorize_codex_auth_only"]:
+                args += ["--authorize-codex-auth-only"]
         self.ui.say(f"Submitting {s['id']}. Waiting for its recorded native outcome.")
         # Host commands have no default duration limit. Wait for the native
         # session's outcome; explicit interruption still stops this helper.
@@ -1838,6 +1862,9 @@ class Dialogue:
         else:
             self.ui.say(f"Session finished: {terminal.get('stop')}; last recorded work call: {terminal.get('last_invocation')}.")
         self.session_output(s)
+        result = self.session("result", work)
+        if result.get("optional_activity"):
+            self.output(work, result=result)
 
     def recover_session(self, view):
         s = self.p["session"]

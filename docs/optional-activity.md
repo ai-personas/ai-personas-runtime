@@ -38,6 +38,13 @@ checked separately when each participant is considered for a call. Its existing
 work, Stop/Pause and unknown executions are preserved. An invitation itself
 establishes neither engagement nor completion.
 
+Results show each participant's current status and latest authored continuation,
+including its complete reason and invocation reference even when it sent no
+reply. A pending invocation is labeled as pending or unresolved, without claiming
+the transport is still running. The launcher shows these choices after the
+session. A held invitee keeps the activity open; other participants' recorded
+stops do not imply an ending for everyone.
+
 ## Register a custom opportunity
 
 Use the native commands with the saved runtime and operator:

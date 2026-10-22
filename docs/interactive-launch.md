@@ -39,6 +39,11 @@ runs eligible participants using the saved provider. Each persona decides what
 to do and when to stop. Held or paused invitees do not block the others. See
 [optional activity](optional-activity.md) for the keyed native command.
 
+The launcher displays each optional participant's recorded continuation and
+reason after a session, including a choice to stop without sending a reply.
+Codex sessions retain the exact submitted route, including historical flag
+metadata, so completion and later inspection compare the same request.
+
 For direct inspection, use the sibling `personas-session` helper. Every operation
 requires the runtime's state directory and saved operator; the launcher journal
 is a different directory:

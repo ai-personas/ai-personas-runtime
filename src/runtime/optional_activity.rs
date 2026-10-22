@@ -422,6 +422,73 @@ pub(crate) fn finish_if_stopped(state: &mut State, prepared: &Prepared, now: i64
     bounds(state)
 }
 
+/// Current native participation and exact authored continuation, including a
+/// choice made without a requester-facing reply. This is no artifact completion
+/// or evidence of benefit, and an invocation lease is not a liveness claim.
+pub(crate) fn participation_for_operator(
+    state: &State,
+    work_id: &str,
+    operator: &str,
+    now: i64,
+) -> Result<Option<Value>> {
+    if !bound(state, work_id) {
+        return Ok(None);
+    }
+    let (opportunity, episode) = binding(state, work_id)?;
+    require(opportunity.request.operator == operator, "optional activity operator mismatch")?;
+    let work = state.board.work(&w::WorkId(work_id.into()))?;
+    let phase = match work.phase {
+        w::Phase::Open => "open",
+        w::Phase::Paused { .. } => "paused",
+        w::Phase::Ended { .. } => "ended",
+        w::Phase::Completed { .. } => "completed_as_recorded",
+    };
+    let mut participants = Vec::new();
+    for actor in work.participants.keys() {
+        let persona = state.personas.get(&actor.0)
+            .ok_or_else(|| held("optional participant unavailable"))?;
+        let focus = persona.focus.get(work_id)
+            .ok_or_else(|| held("optional participant focus unavailable"))?;
+        let authored = focus.authored_continuation.as_ref();
+        let lifecycle_reason = lifecycle::reason(state, &actor.0);
+        let status = if lifecycle_reason.is_some() {
+            "unavailable"
+        } else if persona.active_invocation.is_some() {
+            "pending_invocation"
+        } else if persona.failed_attempt_hold.is_some() {
+            "held"
+        } else if ordinary_opportunity(state, &actor.0, work_id, now) {
+            "ready"
+        } else {
+            match focus.continuation {
+                Some(p::Continuation::Stop { .. }) => "stopped",
+                Some(p::Continuation::Pause { .. }) => "paused",
+                Some(p::Continuation::Wait { .. }) => "waiting",
+                Some(p::Continuation::ReconsiderAt { .. }) => "scheduled",
+                Some(p::Continuation::Immediate { .. }) => "waiting",
+                None => "invited",
+            }
+        };
+        participants.push(json!({
+            "persona":actor.0,"label":persona.seed.label,"status":status,
+            "last_authored_continuation":authored.map(|record| json!({
+                "invocation":record.invocation,"decision":record.value})),
+            "active_invocation":persona.active_invocation,
+            "failed_attempt_hold":persona.failed_attempt_hold,
+            "lifecycle_reason":lifecycle_reason,
+            "admitted_invocations":episode.admissions.iter()
+                .filter(|record| record.actor == actor.0)
+                .map(|record| &record.invocation).collect::<Vec<_>>()
+        }));
+    }
+    Ok(Some(json!({
+        "opportunity":opportunity.reference,"episode":episode.trigger,"phase":phase,
+        "revoked_at_unix":opportunity.revoked_at_unix,"participants":participants,
+        "artifact_completion":false,"behavioral_benefit_established":false,
+        "scope":"Current native participation and the latest retained authored continuation. A pending invocation may be running or unresolved; its presence does not establish a live transport. No reply, artifact or benefit is required."
+    })))
+}
+
 /// Exact historical ending, permission-checked independently of current global
 /// work status. Missing or inaccessible evidence establishes no absence claim.
 pub(crate) fn ending_for_recipient(

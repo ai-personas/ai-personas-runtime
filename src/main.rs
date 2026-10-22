@@ -512,6 +512,7 @@ fn human_status(status: &str) -> &str {
         "paused" => "Work is paused.",
         "ended-unfinished" => "Work ended without completion.",
         "optional-activity-ended-as-recorded" => "The optional activity ended. No artifact or later benefit was required or established.",
+        "optional-activity" => "Optional activity: each persona chooses whether to participate and when to stop.",
         "withheld" => "This result is unavailable under current permissions.",
         "intake-incomplete" => "The request has not completed intake.",
         _ => "Current work state is not established by this result view.",
@@ -571,6 +572,35 @@ fn readable_result(value: &launch::Output) -> runtime::Result<String> {
         format!("Work {}", value.work_id),
         human_status(&value.status).into(),
     ];
+    if let Some(activity) = &value.optional_activity {
+        lines.push(format!("Activity phase: {}.", activity["phase"].as_str().unwrap_or("unavailable")));
+        if !activity["revoked_at_unix"].is_null() {
+            lines.push("This opportunity has been revoked.".into());
+        }
+        if let Some(participants) = activity["participants"].as_array() {
+            for participant in participants {
+                let label = participant["label"].as_str().unwrap_or("Persona");
+                let status = match participant["status"].as_str() {
+                    Some("pending_invocation") => "has a pending or unresolved model call",
+                    Some("held") => "has an unresolved failed attempt",
+                    Some("ready") => "ready to participate",
+                    Some("invited") => "has not yet chosen",
+                    Some("scheduled") => "chose to reconsider later",
+                    Some("unavailable") => "is unavailable",
+                    Some(status) => status,
+                    None => "unavailable",
+                };
+                lines.push(format!("{label}: {status}."));
+                let decision = &participant["last_authored_continuation"]["decision"];
+                if let Some(reason) = decision["reason"].as_str().or_else(|| decision["purpose"].as_str()) {
+                    lines.push(format!("{label}'s recorded choice: {reason}"));
+                }
+                if let Some(reason) = participant["lifecycle_reason"].as_str() {
+                    lines.push(reason.into());
+                }
+            }
+        }
+    }
     if let Some(feedback) = &value.requester_feedback {
         if let Some(items) = feedback["items"].as_array().filter(|items| !items.is_empty()) {
             lines.push("Requester feedback: persona accounts are separate from actual artifact changes and your acceptance.".into());

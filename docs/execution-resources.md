@@ -438,6 +438,13 @@ the selected participants once and retain the keyed request. Participant holds
 and lifecycle states are checked at invocation scheduling, so one unavailable
 invitee does not block the others. Existing work and unknown calls remain unchanged.
 
+Saved result views retain all available messages, deliveries, feedback and
+completion records without a byte or entry-count cap. Historical communication
+grant and audience declarations do not hide a message addressed to the requester.
+Exact attribution and source bindings remain checked. Optional results also show
+native participation and complete authored continuation reasons when no reply
+was sent; these choices make no claim of an artifact or behavioral improvement.
+
 Removal is still incomplete. Remaining application enforcement includes
 single-episode binding constraints; operator-mediated birth workflows; and
 additional specialized control and workflow gates. These are implementation gaps under the
