@@ -178,7 +178,7 @@ pub fn amend(root: &Path, operator: &str, request: &Request) -> Result<Value> {
         );
     }
     require(
-        !need_proposals::bound(&snapshot.state, &request.work),
+        !need_proposals::is_child(&snapshot.state, &request.work),
         "delegated task amendment requires its parent scope authority",
     )?;
     let board = snapshot
@@ -374,6 +374,18 @@ pub fn amend(root: &Path, operator: &str, request: &Request) -> Result<Value> {
         resumptions,
         exposure: inherited,
     };
+    let amended = next.board.work(&w::WorkId(request.work.clone()))?;
+    for episode in next.intake_episodes.values_mut().filter(|episode| episode.work == request.work) {
+        require(episode.work_binding(&request.work)
+            == Some((&board.mandate().authority, previous_work_version.epoch)),
+            "episode root binding changed before amendment")?;
+        episode.root_amendments.push(need_proposals::RootAmendment {
+            request_sha256: record.request_sha256.clone(),
+            mandate_revision: revision,
+            authority: amended.mandate().authority.clone(),
+            work_epoch: amended.version.epoch,
+        });
+    }
     next.work_meta
         .get_mut(&request.work)
         .unwrap()
@@ -384,6 +396,7 @@ pub fn amend(root: &Path, operator: &str, request: &Request) -> Result<Value> {
         "work":request.work,"id":request.id,"mandate_revision":revision,
         "transport_cancellation_requested":false,"budget_reset":false}));
     validate_inventory(&next)?;
+    need_proposals::validate_state(&next)?;
     app.store.trusted_host().commit_runtime_amendment(
         &request.expected_runtime,
         state_object(&snapshot.runtime, &next)?,
@@ -391,6 +404,25 @@ pub fn amend(root: &Path, operator: &str, request: &Request) -> Result<Value> {
         &request.expected_launch,
     )?;
     Ok(outcome(&record, false))
+}
+
+/// A saved amendment may precede a new session rather than arrive during a call.
+/// Retire only its exact complete rejected decisions at a quiescent boundary.
+pub(super) fn retire_ready(app: &mut Runtime, work: &str) -> Result<()> {
+    let state = app.snapshot()?;
+    let calls = state.work_meta.get(work).and_then(|meta| meta.amendments.last())
+        .map(|amendment| amendment.superseded_calls.keys().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+    for id in calls {
+        let invocation = app.store.trusted_host().invocation(&id)?;
+        if invocation.state != s::InvocationState::Failed {
+            continue;
+        }
+        let prepared = decode_prepared(&invocation)?;
+        let (head, state) = app.load()?;
+        retire_completed(app, &invocation, &prepared, &head, &state, unix_now()?)?;
+    }
+    Ok(())
 }
 
 /// Retire only an exact complete rejected call named by a saved amendment.

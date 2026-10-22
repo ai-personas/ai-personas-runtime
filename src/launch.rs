@@ -874,6 +874,7 @@ async fn run_with_options<D: Driver>(
     require(saved.works.contains_key(work), "unknown launch work")?;
     let stop = loop {
         app.publish_completed_host_commands(unix_now()?)?;
+        task_amendment::retire_ready(app, work)?;
         persona_birth::create_pending_for_work_owned(app, work, driver, owner)?;
         let mut view = result(app, work)?;
         // Scheduling uses trusted current state, never a permission-filtered

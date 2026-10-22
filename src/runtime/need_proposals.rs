@@ -43,6 +43,8 @@ pub(crate) struct IntakeEpisode {
     pub work: String,
     pub authority: w::ExactRef,
     pub work_epoch: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub root_amendments: Vec<RootAmendment>,
     pub grant: g::IntakeDelegation,
     pub grant_sha256: String,
     pub selected_registry: g::IntakeReference,
@@ -59,6 +61,16 @@ pub(crate) struct IntakeEpisode {
     pub additional_children: Vec<AdmittedChild>,
     pub revoked_at_unix: Option<i64>,
 }
+
+/// An explicit operator scope transition, retaining the original episode binding.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RootAmendment {
+    pub request_sha256: String,
+    pub mandate_revision: u64,
+    pub authority: w::ExactRef,
+    pub work_epoch: u64,
+}
 impl IntakeEpisode {
     pub(crate) fn pending_proposals(&self) -> impl Iterator<Item = &g::IntakeReference> {
         self.pending_proposal
@@ -73,10 +85,17 @@ impl IntakeEpisode {
     }
     pub(crate) fn work_binding(&self, work: &str) -> Option<(&w::ExactRef, u64)> {
         if self.work == work {
-            Some((&self.authority, self.work_epoch))
+            Some(self.root_amendments.last().map_or((&self.authority, self.work_epoch),
+                |binding| (&binding.authority, binding.work_epoch)))
         } else {
             self.child_for(work).map(|child| (&child.authority, child.work_epoch))
         }
+    }
+    pub(crate) fn retained_work_binding(&self, work: &str, authority: &w::ExactRef, epoch: u64) -> bool {
+        self.work_binding(work) == Some((authority, epoch))
+            || (self.work == work && ((&self.authority == authority && self.work_epoch == epoch)
+                || self.root_amendments.iter().any(|binding|
+                    &binding.authority == authority && binding.work_epoch == epoch)))
     }
     pub(crate) fn children_match(&self, grant: &g::IntakeDelegation) -> bool {
         grant
@@ -132,6 +151,7 @@ pub struct IntakeEpisodeSnapshot {
     pub episode: Value,
     pub pending_proposal: Option<PendingNeedProposal>,
     pub pending_proposals: Vec<PendingNeedProposal>,
+    pub superseded_pending_proposal_ids: Vec<String>,
     pub capacity_reserved_by_snapshot: bool,
     pub child_admitted: bool,
     pub child_work_ids: Vec<String>,
@@ -190,6 +210,18 @@ pub(super) fn validate_state(state: &State) -> Result<()> {
             "invalid retained intake episode",
         )?;
         identity(&episode.work)?;
+        let meta = &state.work_meta[&episode.work];
+        let mut previous_epoch = episode.work_epoch;
+        for binding in &episode.root_amendments {
+            require(meta.amendments.iter().any(|record|
+                record.request_sha256 == binding.request_sha256
+                    && record.mandate_revision == binding.mandate_revision
+                    && record.previous_work_version.epoch == previous_epoch)
+                && binding.authority == episode.authority
+                && binding.work_epoch == increment(previous_epoch)?,
+                "episode amendment differs from its saved operator scope transition")?;
+            previous_epoch = binding.work_epoch;
+        }
         let mut admissions = BTreeSet::new();
         let mut admitted_proposals = BTreeSet::new();
         for child in episode.children() {
@@ -382,6 +414,7 @@ pub(super) fn attach(
         work: request.work.clone(),
         authority: parent.mandate().authority.clone(),
         work_epoch: parent.version.epoch,
+        root_amendments: Vec::new(),
         remaining: grant.request.episode_ceiling,
         grant,
         grant_sha256: selected.sha256.clone(),
@@ -818,6 +851,7 @@ impl Runtime {
         let episode = episode(&state, work)
             .ok_or_else(|| held("no selected intake episode for this work"))?;
         let mut pending_proposals = Vec::new();
+        let mut superseded_pending_proposal_ids = Vec::new();
         for reference in episode.pending_proposals() {
             let object = self
                 .store
@@ -832,10 +866,16 @@ impl Runtime {
             let pending: PendingNeedProposal = serde_json::from_value(object.body)?;
             require(
                 pending.version == 1
-                    && episode.work_binding(&pending.parent_work) == Some((&pending.parent_authority, pending.parent_version_at_preparation.epoch))
+                    && episode.retained_work_binding(&pending.parent_work, &pending.parent_authority, pending.parent_version_at_preparation.epoch)
                     && pending.grant_sha256 == episode.grant_sha256,
                 "pending need episode mismatch",
             )?;
+            if episode.work_binding(&pending.parent_work)
+                != Some((&pending.parent_authority, pending.parent_version_at_preparation.epoch))
+                && !episode.children().any(|child| child.binding.pending == *reference)
+            {
+                superseded_pending_proposal_ids.push(reference.id.clone());
+            }
             pending_proposals.push(pending);
         }
         let child_work_ids: Vec<_> = episode
@@ -852,6 +892,7 @@ impl Runtime {
             episode: serde_json::to_value(episode)?,
             pending_proposal: pending_proposals.first().cloned(),
             pending_proposals,
+            superseded_pending_proposal_ids,
             capacity_reserved_by_snapshot: false,
             child_admitted: !child_work_ids.is_empty(),
             child_work_ids,

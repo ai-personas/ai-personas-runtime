@@ -66,7 +66,7 @@ pub(super) fn candidate(state: &State, saved: &Saved, work: &str, persona: &str)
     };
     saved.works.contains_key(work)
         && lifecycle::reason(state, persona).is_none()
-        && !need_proposals::bound(state, work)
+        && !need_proposals::is_child(state, work)
         && matches!(board.phase, w::Phase::Open)
         && board
             .participants

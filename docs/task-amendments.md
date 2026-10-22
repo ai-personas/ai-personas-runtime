@@ -28,13 +28,13 @@ The snapshot includes exact `runtime` and `launch` references, `current_scope`,
 
 | Field | Value |
 | --- | --- |
-| `id` | New operator request identity, at most 96 bytes |
+| `id` | New operator request identity |
 | `operator`, `work` | Saved operator and task |
 | `expected_runtime`, `expected_launch` | Exact references from the snapshot |
 | `scope` | Complete authored scope described below |
 | `invitations` | Explicit offers for the new mandate, or an empty array |
 | `resume` | Participant IDs for eligible resumption |
-| `authorize_amend` | `true` for this explicit operator action |
+| `authorize_amend` | Historical request metadata; submitting the amendment is the action |
 
 Start `scope` from the snapshot's `current_scope`. Edit `request`, `boundaries`,
 `terms`, `assumptions`, `outcomes`, `review_roles`, `delivery_to`, and
@@ -58,8 +58,16 @@ persona's normal work interface.
 An exact repeat returns the historical receipt without requesting resumption
 again. Reusing an ID for different content fails. A changed snapshot reports
 `scope_saved: false` and `snapshot_changed: true`; inspect current state and
-author a new request. Inputs are limited to 262,144 bytes. Each task retains up
-to 127 amendments within its existing storage capacity.
+author a new request. Inputs and retained amendments have no application byte
+or count quota.
+
+Automatic delegation does not turn an operator task into a delegated child.
+The original task keeps its amendment and participant-resume controls after a
+foreground session selects an intake episode. An amendment appends the new
+scope binding while preserving the original episode, grants, charges, existing
+children and prior bindings. Previously unadmitted proposals from the old scope
+remain inspectable as superseded; they are not admitted under the new mandate
+and do not block current proposals. Episode snapshots identify those records.
 
 ## Pending calls and resources
 
@@ -68,6 +76,10 @@ admitted inference drain. The old response cannot adopt actions. An exact
 completed rejected call can have its active lease retired, retaining its
 response, failure, and usage. A fresh call uses the new scope and normal
 admission. Incomplete or uncertain calls retain their recovery requirements.
+This also works when the rejected call predates the amendment and a later
+session starts: the foreground boundary retires its proven completed rejection
+before considering the amendment's explicit resumption. It neither adopts the
+failed response nor replays its operations.
 
 Accepted commands depend on the exact accepted runtime state at dispatch.
 Changed state prevents an undispatched command from starting. Already
@@ -82,12 +94,12 @@ Monitoring is host overhead; it consumes no persona navigation and acquires no
 execution ownership.
 
 `scope_saved` and `resumptions_at_save` are separate facts. An amendment supplies
-no additional calls, storage, or navigation. Exhausted attempts can block
-resumption even when saving succeeds. Lifecycle holds, removed participation,
+no inferred work acceptance or fresh provider result. Calls, storage and
+navigation remain recorded without application quotas. Lifecycle holds, removed participation,
 and failed-attempt holds remain effective. Full host command access and tool
 installation remain available by default.
 
-This interface covers saved operator tasks. Parent-delegated child tasks and
+This interface covers saved operator tasks, including episode roots. Parent-delegated child tasks and
 optional activity retain separate controls. With current task-scoped Direct
 admissions, an amendment can save while a participant has a call in another
 task. The existing call retains its authority; the amendment queues resumption

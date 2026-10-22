@@ -452,6 +452,14 @@ The same session can receive the actual child ID and invite it in a fresh
 decision. Creation does not invent initial character or work consent, and
 result views distinguish pending creation from an actual identity.
 
+Selecting automatic delegation no longer removes the original operator task's
+amendment or participant-resume controls. An amendment retains the episode's
+original binding and appends the new scope. Earlier unadmitted proposals remain
+visible as superseded; current proposals can proceed without resetting charges
+or rewriting already admitted children. A new foreground session can retire an
+exact completed rejected call covered by the saved amendment's resumption,
+while incomplete and uncertain calls retain their actual outcomes.
+
 Removal is still incomplete. Remaining application enforcement includes
 single-episode binding constraints and
 additional specialized control and workflow gates. These are implementation gaps under the

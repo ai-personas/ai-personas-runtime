@@ -832,6 +832,17 @@ pub(in crate::runtime::launch) fn admit_pending_for_work_owned(
             let object = app.store.read_exact(&reference.store_ref())?;
             let pending: PendingNeedProposal = serde_json::from_value(object.body)?;
             if pending.parent_work == work {
+                // An operator amendment supersedes unadmitted requests from
+                // the older scope. Keep their exact records without stalling
+                // current work or admitting them under a different mandate.
+                if episode.work_binding(work) != Some((&pending.parent_authority,
+                    pending.parent_version_at_preparation.epoch))
+                {
+                    require(episode.retained_work_binding(work, &pending.parent_authority,
+                        pending.parent_version_at_preparation.epoch),
+                        "pending need has no retained parent scope binding")?;
+                    continue;
+                }
                 selected = Some((reference.clone(), pending));
                 break;
             }

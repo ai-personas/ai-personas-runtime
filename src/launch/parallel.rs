@@ -125,6 +125,7 @@ async fn run_with_subtree<D: Driver>(
                     if let Some(owner) = owner {
                         works = delegated::subtree(&app.snapshot()?, root)?;
                         for work in &works {
+                            task_amendment::retire_ready(app, work)?;
                             persona_birth::create_pending_for_work_owned(app, work, driver, owner)?;
                             intake_delegation::admit_pending_for_work_owned(app, work, owner)?;
                         }
