@@ -1,7 +1,7 @@
-//! Retained native and operator delegation lifecycle. These records authorize no
-//! immediate consideration, invitation acceptance, work creation or dispatch.
-//! Missing registry state means no delegation. Proposal/admission integrations
-//! must revalidate this registry and implement aggregate episode consumption.
+//! Retained native and operator delegation sources share an exact lifecycle.
+//! Automatic issuance is identified explicitly; a saved intake operator is not
+//! evidence of a separate human issue action. A source alone creates no
+//! opportunity, invitation acceptance, child work or provider dispatch.
 use super::*;
 
 #[path = "need_admission.rs"]
@@ -126,6 +126,8 @@ pub enum IntakeFundingBasis {
 pub struct IntakeDelegationRequest {
     /// Also identifies the episode; this is not a launcher work identity.
     pub id: String,
+    /// Saved intake operator. `automatically_issued` on the source and receipt
+    /// distinguishes native creation from an explicit operator issue action.
     pub operator: String,
     pub purpose: String,
     pub boundaries: String,
@@ -1087,7 +1089,11 @@ fn plan(
         }
     }
     runtime.body["operator_events"].as_array_mut().ok_or_else(|| held("invalid operator history"))?.push(json!({
-        "kind": match action { IntakeDelegationAction::Issue(_) => "intake_delegation_issue", IntakeDelegationAction::Revoke(_) => "intake_delegation_revoke" },
+        "kind": match action {
+            IntakeDelegationAction::Issue(_) if automatically_issued => "native_intake_source_issue",
+            IntakeDelegationAction::Issue(_) => "intake_delegation_issue",
+            IntakeDelegationAction::Revoke(_) => "intake_delegation_revoke"
+        },
         "request_id": action.id(),
         "grant_id": action.grant_id(),
         "operator": action.operator(),
@@ -1095,6 +1101,7 @@ fn plan(
         "receipt_id": receipt_id(action.id()),
         "at_unix": now,
         "automatically_issued": automatically_issued,
+        "performed_by": if automatically_issued { "native_foreground_driver" } else { "operator" },
         "episode_binding_transition":{"from":previous_binding,"to":next_binding,"carried_episodes":carried}
     }));
     if let IntakeDelegationAction::Revoke(request) = action {

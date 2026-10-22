@@ -29,6 +29,10 @@ under the existing execution owner. Its grant and issue receipt carry
 The source records the saved operator, work, policy, provider destination and
 exact current heads. Its original request and boundaries remain provenance.
 The persona authors the purpose of each new request.
+The retained `grant` and `request.operator` field names are shared storage/API
+names: an automatically issued source identifies the native foreground driver as
+its issuer and the saved operator as intake context. Its event is
+`native_intake_source_issue`; no separate human grant request is claimed.
 
 Automatic issuance creates no opportunity or acceptance. A task with no eligible
 actor performs no model call; a pending host result can establish an opportunity

@@ -399,7 +399,8 @@ fn child_input(
     let grant = &pending.grant.request;
     let authorization = serde_json::to_string(&json!({
         "kind":if pending.grant.automatically_issued { "consumption_of_native_default_intake" } else { "consumption_of_exact_operator_intake_delegation" },
-        "issuer":grant.operator,"grant":request.grant,"pending":request.pending,
+        "issuer":if pending.grant.automatically_issued { "native_foreground_driver" } else { grant.operator.as_str() },
+        "intake_operator":grant.operator,"grant":request.grant,"pending":request.pending,
         "purpose":proposal.purpose,"source_purpose":grant.purpose,"boundaries":grant.boundaries,
         "automatically_issued":pending.grant.automatically_issued,
         "historical_allowed_participants":grant.allowed_child_participants,
