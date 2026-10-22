@@ -1334,10 +1334,7 @@ class Dialogue:
                 profile = self.ui.bounded_text(f"Starting profile for {label}:", 16384)
                 seeds[persona] = {"label": label, "text": profile,
                                   "provenance": f"Starting profile supplied by {self.p['operator']} during setup; no prior experience asserted."}
-            attempts = self.ui.number("Lifetime attempt allowance for each new work", 16, 1, 128)
-            total = self.ui.number("Saved launch lifetime foreground-step ceiling (never auto-refilled)", 64, 1, 256)
-            steps = self.ui.number("Maximum foreground attempts per explicitly authorized session", 4, 1, min(128, total))
-            works = self.ui.number("Maximum saved work identities", 8, 1, 128)
+            attempts, total, steps, works = 16, 64, 4, 8  # Historical estimates, not quotas.
             request = {"id": "bootstrap-" + uuid.uuid4().hex, "operator": self.p["operator"],
                        "persona_seeds": seeds,
                        "allow_direct_provider": True, "setup": {"cohort": cohort, "owner": 1,
@@ -1355,24 +1352,10 @@ class Dialogue:
         self.ui.say(f"Runtime: {self.p['runtime']['path']}\n"
                     f"Operator: {self.p['operator']}; exact model/effort: {setup['provider']['model']} / {setup['provider']['effort']}\n"
                     f"Share needs, authorized persona context and outputs with OpenAI SIWC, {setup['cohort']} {noun} and this requester. "
-                    f"Cohort self-authorship is permitted, not forced. Work/session/lifetime caps: "
-                    f"{setup['max_work_attempts']} / {setup['max_steps']} / {setup['max_total_steps']}; works: {setup['max_works']}.\n"
-                    "All local storage/navigation/repair/closeout limits below are controlling finite allocations, "
-                    "not a hard filesystem, remote-token or dollar ceiling:")
-        config, storage = preview["runtime_config"], preview["storage_limits"]
-        for label, values in (("Controlling Store total", storage["total"]),
-                              ("Protected closeout within total", storage["protected_closeout"]),
-                              ("Navigation per call", config["navigation_per_call"]),
-                              ("Navigation per work", config["navigation_per_work"])):
-            self.ui.say(label + ": " + json.dumps(values, sort_keys=True))
-        self.ui.say(f"Context/response bytes: {config['context_bytes']}/{config['response_bytes']}; "
-                    f"repair allowance within work attempts: {config['max_repair_attempts']}; "
-                    f"Store identities/history: {storage['max_identity_records']}/{storage['max_history_events']}. "
-                    "These logical limits may exceed free disk; they reserve no physical disk or remote tokens.")
-        if self.ui.ask("Show the full exact resource, corpus and policy contract? [yes/NO]").strip().lower() == "yes":
+                    "The runtime imposes no work/session/lifetime call or cumulative storage/navigation quotas. "
+                    "Usage is recorded. Explicit stops, pauses and actual execution results remain effective.")
+        if self.ui.ask("Show saved configuration and accounting estimates? [yes/NO]").strip().lower() == "yes":
             self.ui.say(json.dumps(preview, ensure_ascii=False, indent=2))
-        self.ui.consent("Persist these exact local permissions, identities and resource limits? "
-                        "No inference now. Existing initialized Stores will NOT be overwritten")
         self.p["setup_authorized"] = True
         self.j.save()
         self.session("bootstrap", path, "--authorize-setup")
@@ -1853,7 +1836,7 @@ class Dialogue:
     @staticmethod
     def eligible(view, work):
         return (not view["frozen"]
-                and work["phase"] == "open" and work["attempts_left"] > 0
+                and work["phase"] == "open"
                 and any(p["eligible_candidate"] for p in work["participants"]))
 
     def codex_auth_source(self, change=False):
@@ -1928,11 +1911,8 @@ class Dialogue:
                         "Codex may refresh its saved credentials. Persona inference uses direct provider requests; "
                         "the launcher does not import or record tokens.")
         self.ui.say(f"Exact saved model/effort: {settings['model']} / {settings['effort']}; "
-                    f"at most {settings['max_steps']} attempts, within remaining work/runtime limits. "
-                    "OAuth has NO hard remote token/dollar cap; local time/bytes do not guarantee remote cancellation.")
-        self.ui.consent("Authorize this ONE bounded native foreground session and sending its currently permitted "
-                        "context to this exact saved account through the displayed authentication route? "
-                        "Stops, pauses, holds and existing limits remain effective")
+                    "no application call quota or local model timeout. "
+                    "The session continues until the personas stop, work is paused, or execution cannot proceed.")
         if not reuse:
             self.p["session"] = {"id": "session-" + uuid.uuid4().hex, "work": work,
                                  "route": route, "expected_launch": view["launch"]}
@@ -2037,7 +2017,7 @@ class Dialogue:
                         f"frozen={view['frozen']}, active invocation={view['active_invocations_present']}.")
             for i, work in enumerate(view["works"], 1):
                 continuations = ", ".join(p["continuation"] for p in work["participants"])
-                self.ui.say(f"{i}: {work['id']} — {work['phase']}, {work['attempts_left']} attempts left; "
+                self.ui.say(f"{i}: {work['id']} — {work['phase']}, no attempt quota; "
                             f"{continuations or 'no participant continuation'}; "
                             f"{'eligible candidate' if self.eligible(view, work) else 'blocked/dormant'}")
                 attempt = work.get("last_attempt")

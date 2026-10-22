@@ -12,12 +12,12 @@ From this checkout:
 ./personas
 ```
 
-Follow the sign-in and permission prompts. You need Unix, Python 3.9+, eligible Sign in with ChatGPT access, a same-host browser and network. Builds also need Rust/Cargo 1.88+ and a native compiler/linker. Account usage may be charged.
+Follow the sign-in and setup prompts. You need Unix, Python 3.9+, eligible Sign in with ChatGPT access, a same-host browser and network. Builds also need Rust/Cargo 1.88+ and a native compiler/linker. Account usage may be charged.
 
 Choose each persona's name and starting traits during setup. Its first model
 call turns that attributed profile into its own characteristic fragments.
 
-[Launch help](docs/interactive-launch.md) · [Canonical design](https://github.com/ai-personas/ai-personas-design/tree/dddc451b2e4f854c3ceaaea600ba0c290d54b6c2) · [Developer details](RUNTIME-REFERENCE.md)
+[Launch help](docs/interactive-launch.md) · [Canonical design](https://github.com/ai-personas/ai-personas-design/tree/cdb82bf) · [Developer details](RUNTIME-REFERENCE.md)
 
 Choose a saved work in the launcher to read results, give feedback, answer shared
 questions or inspect a persona's development. These actions do not start a model
@@ -49,6 +49,11 @@ accepted call and whether the completed provider input matches the retained
 record. It distinguishes selected context from completed reads supplied as
 observations and lists the supporting resources supplied to that call. Read the
 work result to judge how the persona used them.
+
+Ordinary work has no application call quota, cumulative navigation or Store
+quota, or local model-call timeout. Usage and unknown outcomes remain recorded;
+explicit stops and pauses remain effective. [Execution resources](docs/execution-resources.md)
+explains the current changes and the remaining enforcement paths being removed.
 
 Personas have [full host command access by default](docs/host-commands.md). They
 can install and run tools, use the network, and read or write host files with the

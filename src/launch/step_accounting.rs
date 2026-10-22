@@ -1,7 +1,7 @@
 //! Actual saved-launch funding supplied with the admission that spent a step.
 use super::*;
 
-pub(crate) const RULE: &str = "This is the saved launch allowance after reserving this input, shared across all its personas and works. It is separate from attempts_left for this work and does not promise a personal next turn. Other admissions can spend the remaining steps; a foreground session can also end sooner. Zero permits this already admitted response and its available operations, but funds no later model input. Consider the remaining useful work, observed results and any unresolved limitations when choosing what to deliver and whether to continue. An Immediate choice creates no funding, and a command proposed now is not yet an observed result.";
+pub(crate) const RULE: &str = "Steps are recorded usage, not a quota. The runtime imposes no lifetime or session call ceiling. Continue according to the actual work and choose stop, pause or wait when appropriate. A command proposed now still requires its actual result before claiming success. Provider failures, explicit control changes and unresolved execution can still prevent a later input.";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -16,15 +16,16 @@ impl LaunchStepAllowance {
         require(
             self.launch.id == ID
                 && self.launch.revision > 0
-                && self.steps_spent > 0
-                && self.steps_spent <= self.lifetime_step_limit,
+                && self.steps_spent > 0,
             "invalid admitted launch step accounting",
         )?;
         Ok(json!({
             "launch":self.launch,
             "steps_spent_including_this_admission":self.steps_spent,
-            "lifetime_step_limit":self.lifetime_step_limit,
-            "remaining_after_this_admission":self.lifetime_step_limit-self.steps_spent,
+            "limits_enforced":false,
+            "historical_lifetime_step_limit":self.lifetime_step_limit,
+            "lifetime_step_limit":null,
+            "remaining_after_this_admission":null,
             "scope":"shared_saved_launch",
             "rule":RULE
         }))
@@ -56,23 +57,4 @@ pub(crate) fn capture(
     };
     allowance.control()?;
     Ok(Some(allowance))
-}
-
-pub(super) fn require_capacity(saved: &Saved) -> Result<()> {
-    if saved.steps >= saved.setup.max_total_steps {
-        Err(RuntimeError::LifetimeStepLimit)
-    } else {
-        Ok(())
-    }
-}
-
-/// Distinguish a spent lifetime allocation from a foreground session boundary.
-/// This reads the actual saved counter, never a guessed number of model calls.
-pub(super) fn bound_stop(app: &mut Runtime) -> Result<&'static str> {
-    let (_, saved) = load(app)?;
-    Ok(if saved.steps >= saved.setup.max_total_steps {
-        "lifetime_step_limit"
-    } else {
-        "step_limit"
-    })
 }

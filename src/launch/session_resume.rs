@@ -66,7 +66,6 @@ pub(super) fn candidate(state: &State, saved: &Saved, work: &str, persona: &str)
     };
     saved.works.contains_key(work)
         && lifecycle::reason(state, persona).is_none()
-        && saved.steps < saved.setup.max_total_steps
         && !need_proposals::bound(state, work)
         && matches!(board.phase, w::Phase::Open)
         && board
@@ -80,10 +79,7 @@ pub(super) fn candidate(state: &State, saved: &Saved, work: &str, persona: &str)
             focus.continuation,
             Some(p::Continuation::Stop { .. } | p::Continuation::Pause { .. })
         )
-        && state
-            .work_meta
-            .get(work)
-            .is_some_and(|meta| meta.attempts_left > 0)
+        && state.work_meta.contains_key(work)
 }
 
 fn outcome(

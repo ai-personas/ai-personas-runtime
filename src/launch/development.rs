@@ -201,8 +201,7 @@ fn invocation_evidence(
             && proof.objects.contains(&exact)
             && proof.response_hash == archive.response_hash
             && reservation.navigation_charge.as_ref().is_none_or(|charge|
-                charge.response_sha256 == archive.response_hash
-                    && charge.bytes <= reservation.amount.navigation_bytes)
+                charge.response_sha256 == archive.response_hash)
             && archive.actor == persona_id
             && archive.work == prepared.request.work
             && archive.response.invocation_id == invocation_id

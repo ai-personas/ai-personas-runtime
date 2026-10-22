@@ -1470,7 +1470,6 @@ pub(in crate::runtime) fn commit_episode_preparation(
         "episode checkpoint authority or invocation slot changed",
     )?;
     let (launch_head, mut saved) = load(app)?;
-    step_accounting::require_capacity(&saved)?;
     let last = saved
         .works
         .get_mut(&request.work)

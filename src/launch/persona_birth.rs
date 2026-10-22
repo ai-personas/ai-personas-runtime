@@ -500,22 +500,13 @@ pub fn create_at(root: &Path, request: &Request, apply: bool, now: i64) -> Resul
     Ok(outcome)
 }
 
-pub(in crate::runtime) fn initialization_reason(persona: &Persona) -> Option<&'static str> {
-    (persona.character.is_none()
-        && persona
-            .birth
-            .as_ref()
-            .is_some_and(|origin| origin.initialization_attempts >= origin.initialization_limit))
-    .then_some("bounded initial character-authorship allowance exhausted")
+pub(in crate::runtime) fn initialization_reason(_persona: &Persona) -> Option<&'static str> {
+    None
 }
 
 pub(in crate::runtime) fn charge_initialization(persona: &mut Persona) -> Result<()> {
     if persona.character.is_none() {
         if let Some(origin) = &mut persona.birth {
-            require(
-                origin.initialization_attempts < origin.initialization_limit,
-                "bounded initial character-authorship allowance exhausted",
-            )?;
             origin.initialization_attempts = increment(origin.initialization_attempts)?;
         }
     }

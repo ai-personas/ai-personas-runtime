@@ -347,11 +347,7 @@ pub fn amend(root: &Path, operator: &str, request: &Request) -> Result<Value> {
         } else {
             focus.permit = true;
             focus.explicit_resume_permit = true;
-            if meta.attempts_left == 0
-                || snapshot.saved.steps >= snapshot.saved.setup.max_total_steps
-            {
-                "blocked_existing_attempt_limit"
-            } else if let Some(other) = persona
+            if let Some(other) = persona
                 .active_invocation
                 .as_ref()
                 .and_then(|call| other_task_calls.get(call))

@@ -1078,6 +1078,7 @@ pub struct SettingsView {
     pub credential_resolved: bool,
     pub capability_verified: bool,
     pub steps: u64,
+    pub resource_quotas_enforced: bool,
     pub max_steps: usize,
     pub max_considerations: usize,
     pub max_total_steps: u64,
@@ -1263,6 +1264,7 @@ fn settings_view(state: &State, saved: &Saved, now: u64) -> SettingsView {
         credential_resolved: false,
         capability_verified: false,
         steps: saved.steps,
+        resource_quotas_enforced: false,
         max_steps: saved.setup.max_steps,
         max_considerations: saved.setup.max_considerations,
         max_total_steps: saved.setup.max_total_steps,
@@ -1380,9 +1382,7 @@ fn inspect_snapshot(
                 && persona.failed_attempt_hold.is_none()
                 && settings.compatible_for_execution
                 && settings.credential_status != CredentialStatus::SavedExpiryElapsed
-                && saved.steps < saved.setup.max_total_steps
                 && phase == WorkPhase::Open
-                && meta.attempts_left > 0
                 && (matches!(entry.disposition, SchedulerDisposition::Queued)
                     || continuation_permit(&state, &actor, id));
             let active_invocation = persona

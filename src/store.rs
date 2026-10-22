@@ -1,78 +1,14 @@
-//! Durable local object storage, decision admission, and resource conservation.
+//! Durable object storage, exact decision admission and observational accounting.
 //!
-//! This module enforces structural invariants. Its trusted caller must validate
-//! authority, information policy, complete-response semantics, and provider bounds.
-//! Ordinary JSON bodies are opaque. The explicitly trusted runtime-control path
-//! delegates only deterministic pause/ending construction and snapshot bounds to
-//! the runtime; it accepts no replacement body or substantive persona decision.
+//! Configured resource and byte ceilings are historical metadata, not admission
+//! gates. Mutable cells grow to retain complete results and charge that growth to
+//! their actual lane. Unknown provider usage and prior overruns remain recorded.
 //!
-//! All writers use SQLite IMMEDIATE transactions. Object revisions and decision
-//! receipts are immutable. Epochs fence accepted object/decision/effect transitions;
-//! transport observations, including trusted fills of prepaid immutable evidence
-//! slots, and resource metering alone do not invalidate a decision.
+//! SQLite IMMEDIATE transactions, exact revisions, immutable receipts and
+//! execution ownership preserve consistency. Owner loss does not establish a
+//! remote outcome or authorize replay. Explicit controls retain their actual
+//! request and result; accounting changes alone do not advance semantic epochs.
 //!
-//! Storage accounting is a logical allocation bound, NOT a SQLite/filesystem hard
-//! bound. Every cell is charged for its entire allocated payload capacity, keys,
-//! an envelope, and a second copy for peak rewrites. Mutable lifecycle cells reserve
-//! their bounded closeout history at creation. Database, WAL, and SHM sizes are
-//! separately observable. External copies must be accounted for by the caller.
-//! Schema 2 ordinary object heads start at their actual encoded size and pay
-//! for later growth atomically. The runtime state head retains its full prepaid
-//! allocation for protected controls. Explicit head compaction preserves every
-//! data byte while reclaiming unused ordinary payload capacity.
-//!
-//! Connection setup and owner-loss recovery are separate. open_for_inspection()
-//! performs no recovery. open() recovers only while holding exclusive OS execution
-//! ownership, including Prepared calls with a retained runtime no-launch receipt;
-//! an existing owner's dispatched operations remain intact. Trusted
-//! dispatchers must retain acquire_execution_owner() through transport, response
-//! handling, and terminal disposition. Ownership uses one fixed, empty, private
-//! execution.lock file beside the database. Never unlink or replace that file
-//! while the state is in use. Owner loss does not establish remote completion
-//! and recovery never authorizes replay.
-//!
-//! There is deliberately no unrestricted deletion, receipt replacement, budget
-//! reset, or unfreeze API. Garbage collection only expires a closed invocation's
-//! request/history after all associated reservations and intents have settled.
-//! Permanent identities, revision journals, and decision receipts consume finite
-//! quota; admission stops when that quota is exhausted.
-//!
-//! Ordinary admission preserves a rounded-up sixteenth of the identity and
-//! history ceilings for Closeout. Existing identity and history allocations made
-//! by older writers are not reclaimed; cooperating writers use the same rules.
-//! These shares protect capacity, not unconditional completion: an operation
-//! must still fit every applicable aggregate and class ceiling.
-//!
-//! New application state initially prepays two immutable control journal slots
-//! per work from Closeout: one pause and one canceled/unfinished ending. Explicit
-//! unfrozen resume can append a new pause slot from remaining existing capacity,
-//! atomically with reopening and local decision abandonment. Each allocation
-//! includes its entire bounded snapshot, request/receipt identity, history slot,
-//! keys and peak rewrite copy. Ordinary state growth must leave enough prepaid
-//! room for all still-required control transitions. Filled slots are immutable,
-//! readable exact history; they never authorize general frozen CAS, new work,
-//! resume, semantic edits, funding, or changes to ordinary resource counters.
-//! Legacy runtime state requires explicit unfrozen provisioning.
-//!
-//! For terminal evidence that may arrive during a freeze, the trusted host must
-//! reserve an evidence slot while its subject is Prepared or Admitted, before
-//! dispatch. A freeze cannot create slots. An existing slot can accept one
-//! authenticated, bounded object without increasing its prepaid allocation.
-//! Filling is observation-only: slots are neither mutable object heads nor valid
-//! decision prerequisites, and filling does not adopt an outcome or settle usage.
-//! The semantic epoch therefore stays unchanged, just as for record_response().
-//! Ordinary object writes and other operations retain their existing epoch rules.
-//! This archive is accessible through read_exact() and trusted subject-bound slot
-//! inspection, including when a crash left no history reference or response digest.
-//! Dispatch APIs remain compatible; dispatch without such a slot does not carry
-//! a guarantee that newly arriving evidence can be retained during a freeze.
-//!
-//! Authentication is supplied by trusted host code, never by an object field or
-//! model assertion. Exact references establish content identity, not authenticity.
-//! Lifecycle and diagnostic APIs are host control-plane operations, not persona
-//! read endpoints. The host must separately account any forwarding of their
-//! output. All explicit read APIs, including trusted closeout reads, are metered.
-
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
@@ -354,7 +290,11 @@ pub struct LedgerReport {
     pub ordinary: Account,
     pub closeout: Account,
     pub limits: Limits,
+    /// Saved ceilings are historical accounting metadata, not admission gates.
+    pub resource_quotas_enforced: bool,
     pub frozen: bool,
+    /// Whether an earlier writer recorded a freeze; never erased or enforced.
+    pub historical_freeze_recorded: bool,
     /// False if an observed overrun could not be represented in u64 counters.
     /// Its full measurements remain in the immutable terminal reservation record.
     pub accounting_complete: bool,
@@ -774,7 +714,7 @@ impl Meta {
         }
     }
 
-    fn check_dimension(&self, dimension: Resource, class: BudgetClass) -> Result<()> {
+    fn check_dimension(&self, dimension: Resource, _class: BudgetClass) -> Result<()> {
         let exposure = |account: &Account| -> Result<u64> {
             account
                 .consumed
@@ -785,20 +725,8 @@ impl Meta {
         };
         let ordinary = exposure(&self.ordinary)?;
         let closeout = exposure(&self.closeout)?;
-        let total = ordinary
-            .checked_add(closeout)
-            .ok_or(StoreError::Overflow("root exposure"))?;
-        let ordinary_ceiling = self
-            .limits
-            .total
-            .get(dimension)
-            .checked_sub(self.limits.protected_closeout.get(dimension))
-            .ok_or_else(|| StoreError::Corrupt("protected capacity exceeds total".into()))?;
-        if total > self.limits.total.get(dimension)
-            || (class == BudgetClass::Ordinary && ordinary > ordinary_ceiling)
-        {
-            return Err(StoreError::Quota { dimension, class });
-        }
+        // Usage remains representable and auditable, but has no configured ceiling.
+        ordinary.checked_add(closeout).ok_or(StoreError::Overflow("root exposure"))?;
         Ok(())
     }
 
@@ -807,7 +735,9 @@ impl Meta {
             ordinary: self.ordinary.clone(),
             closeout: self.closeout.clone(),
             limits: self.limits.clone(),
-            frozen: self.frozen,
+            resource_quotas_enforced: false,
+            frozen: false,
+            historical_freeze_recorded: self.frozen,
             accounting_complete: self.accounting_complete,
             overrun_count: self.overruns,
             conservation_established: !self.frozen && self.accounting_complete,
@@ -2005,7 +1935,6 @@ pub struct Store {
 pub(crate) struct RuntimeControlMonitor {
     connection: Connection,
     epoch: Option<u64>,
-    max_record_bytes: u64,
 }
 
 impl RuntimeControlMonitor {
@@ -2019,9 +1948,6 @@ impl RuntimeControlMonitor {
             "SELECT data FROM store_cells WHERE ns='object' AND k=?1",
             [RUNTIME_CONTROL_STATE_ID], |row| row.get(0),
         )?;
-        if bytes.len() as u64 > self.max_record_bytes {
-            return Err(StoreError::TooLarge);
-        }
         let object = serde_json::from_slice(&bytes)?;
         transaction.commit()?;
         self.epoch = Some(epoch);
@@ -2036,7 +1962,7 @@ impl Store {
         )?;
         connection.busy_timeout(Duration::from_millis(self.limits.busy_timeout_ms))?;
         Ok(RuntimeControlMonitor {
-            connection, epoch: None, max_record_bytes: self.limits.max_record_bytes,
+            connection, epoch: None,
         })
     }
 
@@ -2467,19 +2393,15 @@ impl Store {
         })
     }
 
-    /// An overrun is intentionally committed before this method returns Err.
+    /// Use beyond an earlier estimate is retained without blocking execution.
     /// Normal validation failures roll back. Full measured use is retained even
     /// when counters overflow; accounting_complete then explicitly becomes false.
     /// This is a trusted host operation: Measured requires authenticated usage
     /// measurements, never model-provided totals or an inference from success.
     /// Recording or reconciling terminal evidence alone does not release holds.
     pub fn settle(&mut self, id: &ReservationId, usage: Usage) -> Result<ReservationRecord> {
-        let (record, overrun) = self.transaction(|work| work.settle(id, usage))?;
-        if overrun {
-            Err(StoreError::Overrun(id.clone()))
-        } else {
-            Ok(record)
-        }
+        let (record, _) = self.transaction(|work| work.settle(id, usage))?;
+        Ok(record)
     }
 
     pub fn prepare_invocation(&mut self, spec: InvocationSpec) -> Result<InvocationRecord> {
@@ -3453,11 +3375,8 @@ impl<'a> Work<'a> {
     }
 
     fn admission(&self) -> Result<()> {
-        if self.meta.frozen {
-            Err(StoreError::Frozen)
-        } else {
-            Ok(())
-        }
+        // Historical overruns remain evidence; they no longer freeze new work.
+        Ok(())
     }
 
     fn id(&self, id: &str) -> Result<()> {
@@ -3516,9 +3435,8 @@ impl<'a> Work<'a> {
         let row: Option<(Option<Vec<u8>>, i64, i64, i64)> = self
             .db
             .query_row(
-                "SELECT CASE WHEN length(data)<=?3 THEN data ELSE NULL END,capacity,lane,slots
-             FROM store_cells WHERE ns=?1 AND k=?2",
-                params![namespace, key, self.limits.max_record_bytes as i64],
+                "SELECT data,capacity,lane,slots FROM store_cells WHERE ns=?1 AND k=?2",
+                params![namespace, key],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .optional()?;
@@ -3528,7 +3446,7 @@ impl<'a> Work<'a> {
                 .map_err(|_| StoreError::Corrupt("negative capacity".into()))?;
             let slots = u64::try_from(slots)
                 .map_err(|_| StoreError::Corrupt("negative event slots".into()))?;
-            if capacity > self.limits.max_record_bytes || data.len() as u64 > capacity {
+            if data.len() as u64 > capacity {
                 return Err(StoreError::Corrupt("cell capacity".into()));
             }
             let class = match lane {
@@ -3570,10 +3488,7 @@ impl<'a> Work<'a> {
             return Err(StoreError::Conflict(key.into()));
         }
         let data = encode(value, self.limits.max_record_bytes)?;
-        let capacity = capacity.unwrap_or(data.len() as u64);
-        if data.len() as u64 > capacity || capacity > self.limits.max_record_bytes {
-            return Err(StoreError::TooLarge);
-        }
+        let capacity = capacity.unwrap_or(0).max(data.len() as u64);
         let identities = self
             .meta
             .identities
@@ -3583,16 +3498,6 @@ impl<'a> Work<'a> {
             .ordinary_identities
             .checked_add(u64::from(class == BudgetClass::Ordinary))
             .ok_or(StoreError::Overflow("ordinary identity count"))?;
-        let ordinary_identity_ceiling = self
-            .limits
-            .max_identity_records
-            .checked_sub(self.limits.protected_closeout_identity_records())
-            .ok_or_else(|| StoreError::Corrupt("protected identities exceed total".into()))?;
-        if identities > self.limits.max_identity_records
-            || (class == BudgetClass::Ordinary && ordinary_identities > ordinary_identity_ceiling)
-        {
-            return Err(StoreError::IdentityLimit);
-        }
         let history_slots = self
             .meta
             .history_slots
@@ -3606,16 +3511,6 @@ impl<'a> Work<'a> {
                 0
             })
             .ok_or(StoreError::Overflow("ordinary history slots"))?;
-        let ordinary_history_ceiling = self
-            .limits
-            .max_history_events
-            .checked_sub(self.limits.protected_closeout_history_events())
-            .ok_or_else(|| StoreError::Corrupt("protected history exceeds total".into()))?;
-        if history_slots > self.limits.max_history_events
-            || (class == BudgetClass::Ordinary && ordinary_history_slots > ordinary_history_ceiling)
-        {
-            return Err(StoreError::HistoryLimit);
-        }
         let cell = Cell {
             data,
             capacity,
@@ -3672,24 +3567,18 @@ impl<'a> Work<'a> {
         let mut cell = self
             .cell(ns, key)?
             .ok_or_else(|| StoreError::Missing(key.into()))?;
-        let adaptive = self.meta.schema_version >= 2
-            && ns == "object"
-            && key != RUNTIME_CONTROL_STATE_ID
-            && cell.class == BudgetClass::Ordinary
-            && cell.slots == 0;
-        let data = encode(value, if adaptive { self.limits.max_record_bytes } else { cell.capacity })?;
+        let data = encode(value, cell.capacity)?;
         if data.len() as u64 > cell.capacity {
-            // Only ordinary, non-control heads may acquire more allocation.
-            // Frozen closeout still writes solely within its prepaid cells.
-            self.admission()?;
+            // Retain the complete result. Capacity is measured allocation, not
+            // a ceiling; immutable namespaces and transition checks still hold.
             let before = cell.charge(ns, key)?;
             cell.capacity = data.len() as u64;
             let growth = cell.charge(ns, key)?.checked_sub(before)
-                .ok_or(StoreError::Overflow("object head growth"))?;
-            self.meta.ordinary.consumed.retained_bytes = self.meta.ordinary.consumed
-                .retained_bytes.checked_add(growth)
-                .ok_or(StoreError::Overflow("object head allocation"))?;
-            self.meta.check_dimension(Resource::RetainedBytes, BudgetClass::Ordinary)?;
+                .ok_or(StoreError::Overflow("cell growth"))?;
+            let account = self.meta.account_mut(cell.class);
+            account.consumed.retained_bytes = account.consumed.retained_bytes
+                .checked_add(growth).ok_or(StoreError::Overflow("cell allocation"))?;
+            self.meta.check_dimension(Resource::RetainedBytes, cell.class)?;
         }
         cell.data = data;
         self.pending.insert((ns.into(), key.into()), cell);
@@ -3852,18 +3741,9 @@ impl<'a> Work<'a> {
     }
 
     fn keys(&self, namespace: &str) -> Result<Vec<String>> {
-        let mut statement = self
-            .db
-            .prepare("SELECT k FROM store_cells WHERE ns=?1 ORDER BY k LIMIT ?2")?;
-        let rows = statement.query_map(
-            params![namespace, (self.limits.max_identity_records + 1) as i64],
-            |row| row.get(0),
-        )?;
-        let keys = rows.collect::<std::result::Result<Vec<String>, _>>()?;
-        if keys.len() as u64 > self.limits.max_identity_records {
-            return Err(StoreError::Corrupt("identity bound".into()));
-        }
-        Ok(keys)
+        let mut statement = self.db.prepare("SELECT k FROM store_cells WHERE ns=?1 ORDER BY k")?;
+        let rows = statement.query_map([namespace], |row| row.get(0))?;
+        Ok(rows.collect::<std::result::Result<Vec<String>, _>>()?)
     }
 
     fn returned<T: Serialize>(&mut self, value: &T, bound: u64, class: BudgetClass) -> Result<()> {
@@ -4097,7 +3977,7 @@ impl<'a> Work<'a> {
             .cell("terminal_evidence", &object.id)?
             .ok_or_else(|| StoreError::Missing(object.id.clone()))?;
         let mut slot: TerminalEvidenceSlot = serde_json::from_slice(&cell.data)?;
-        if slot.max_object_bytes.checked_add(CONTROL_HEADROOM) != Some(cell.capacity)
+        if slot.max_object_bytes.checked_add(CONTROL_HEADROOM).is_none_or(|minimum| cell.capacity < minimum)
             || cell.slots != 0
         {
             return Err(StoreError::Corrupt("terminal evidence allocation".into()));
@@ -4120,8 +4000,8 @@ impl<'a> Work<'a> {
         // Like record_response, this records an observation without changing
         // semantic state. Slots cannot be object heads or decision prerequisites;
         // outcome transitions still apply their own existing epoch rules.
-        // No admission, allocation, resizing, usage settlement, or refund occurs.
-        // update enforces the prepaid cell capacity even after an overrun.
+        // Complete evidence may grow its original allocation. update records
+        // that real retention without changing semantic state or inventing usage.
         self.update("terminal_evidence", &id, &slot)?;
         Ok(reference)
     }
@@ -4215,7 +4095,7 @@ impl<'a> Work<'a> {
         let slot: RuntimeControlSlot = serde_json::from_slice(&cell.data)?;
         if cell.class != BudgetClass::Closeout
             || cell.slots != 1
-            || cell.capacity != self.limits.max_record_bytes
+            || cell.capacity < self.limits.max_record_bytes
             || slot.work != work_id
             || slot.ending != ending
             || slot.max_object_bytes != plan.max_object_bytes
@@ -4260,15 +4140,8 @@ impl<'a> Work<'a> {
         object: &StoredObject,
         plan: &RuntimeControlPlan,
     ) -> Result<()> {
-        // Count the complete serialized snapshot, including fields introduced by
-        // other runtime extensions. A fixed field inventory would undercount it.
-        let mut possible = (encode(object, plan.max_object_bytes)?.len() as u64)
-            .checked_add(128)
-            .ok_or(StoreError::Overflow("control snapshot growth"))?;
+        // Require the real, unfilled control slots, without a fixed snapshot ceiling.
         for requirement in crate::runtime::runtime_control_requirements(object)? {
-            possible = possible
-                .checked_add(requirement.growth_bytes)
-                .ok_or(StoreError::Overflow("control snapshot growth"))?;
             for (ending, needed) in [(false, requirement.pause), (true, requirement.ending)] {
                 if needed {
                     let key = self.current_runtime_control_key(&requirement.work, ending)?;
@@ -4278,12 +4151,6 @@ impl<'a> Work<'a> {
                     }
                 }
             }
-        }
-        if possible > plan.max_object_bytes {
-            return Err(StoreError::RuntimeControlCapacity {
-                projected_bytes: possible,
-                limit_bytes: plan.max_object_bytes,
-            });
         }
         Ok(())
     }
@@ -4632,10 +4499,6 @@ impl<'a> Work<'a> {
                     ReservationState::Settled
                 };
                 if overrun {
-                    if !self.meta.frozen {
-                        self.bump_epoch()?;
-                    }
-                    self.meta.frozen = true;
                     self.meta.overruns = self
                         .meta
                         .overruns
@@ -4779,10 +4642,8 @@ impl<'a> Work<'a> {
         if let Some(existing) = &record.navigation_charge {
             return if existing == &charge { Ok(()) } else { Err(StoreError::Conflict(id.id.clone())) };
         }
-        if record.state != ReservationState::Uncertain || record.measured.is_some()
-            || bytes > record.amount.navigation_bytes
-        {
-            return Err(StoreError::InvalidState("runtime navigation charge exceeds an unresolved reservation".into()));
+        if record.state != ReservationState::Uncertain || record.measured.is_some() {
+            return Err(StoreError::InvalidState("runtime navigation charge requires unresolved usage".into()));
         }
         let mut account = self.meta.account(record.class).clone();
         account.uncertain.navigation_bytes = account.uncertain.navigation_bytes
@@ -4917,8 +4778,8 @@ fn fingerprint<T: Serialize>(value: &T, limit: u64) -> Result<String> {
 }
 
 /// Canonicalizes map order, including builds enabling serde_json/preserve_order.
-/// Byte limits apply to canonical UTF-8 JSON, not original transport formatting.
-fn encode<T: Serialize>(value: &T, limit: u64) -> Result<Vec<u8>> {
+/// Serialize complete canonical UTF-8 JSON without a configured byte ceiling.
+fn encode<T: Serialize>(value: &T, _historical_limit: u64) -> Result<Vec<u8>> {
     let value = serde_json::to_value(value)?;
     fn canonical(value: Value, depth: usize) -> Result<Value> {
         if depth > MAX_JSON_DEPTH {
@@ -4943,44 +4804,7 @@ fn encode<T: Serialize>(value: &T, limit: u64) -> Result<Vec<u8>> {
         }
     }
     let canonical = canonical(value, 0)?;
-    struct BoundedWriter {
-        bytes: Vec<u8>,
-        limit: u64,
-        lower_bound: Option<u64>,
-    }
-    impl std::io::Write for BoundedWriter {
-        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            let next = (self.bytes.len() as u64).checked_add(bytes.len() as u64);
-            if next.is_none() || next.unwrap_or(u64::MAX) > self.limit {
-                // Count only the accepted prefix plus this rejected chunk.
-                // Do not serialize further, allocate beyond the bound, or retain data.
-                self.lower_bound = Some(next.unwrap_or(u64::MAX));
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "JSON byte limit",
-                ));
-            }
-            self.bytes.extend_from_slice(bytes);
-            Ok(bytes.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    let mut writer = BoundedWriter {
-        bytes: Vec::new(),
-        limit,
-        lower_bound: None,
-    };
-    let result = serde_json::to_writer(&mut writer, &canonical);
-    if let Some(serialized_bytes_at_least) = writer.lower_bound {
-        return Err(StoreError::SerializationByteBound {
-            serialized_bytes_at_least,
-            limit_bytes: limit,
-        });
-    }
-    result?;
-    Ok(writer.bytes)
+    Ok(serde_json::to_vec(&canonical)?)
 }
 
 fn sidecar(path: &Path, suffix: &str) -> PathBuf {

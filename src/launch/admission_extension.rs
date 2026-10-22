@@ -264,8 +264,6 @@ pub(super) fn validate_saved(state: &State, saved: &Saved) -> Result<()> {
     bounded_identity(&setup.destination)?;
     bounded_identity(&provider.model)?;
     bounded_identity(&provider.effort)?;
-    let work_count =
-        u64::try_from(saved.works.len()).map_err(|_| invalid("saved work count overflow"))?;
     require(
         setup.share_cohort
             && (1..=8).contains(&setup.cohort)
@@ -275,9 +273,7 @@ pub(super) fn validate_saved(state: &State, saved: &Saved) -> Result<()> {
             && (1..=128).contains(&setup.max_work_attempts)
             && setup.max_total_steps > 0
             && setup.max_total_steps <= step_ceiling()?
-            && (1..=128).contains(&setup.max_works)
-            && saved.steps <= setup.max_total_steps
-            && work_count <= setup.max_works,
+            && (1..=128).contains(&setup.max_works),
         "invalid saved foreground bounds",
     )?;
     let config = &state.config;

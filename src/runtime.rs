@@ -2552,12 +2552,8 @@ fn scheduler_entry(
             focus.permit || ordinary_opportunity(state, &persona.0, &work.0, now)
         }) {
             Some("local stop, character fence, repair stop, or missing runtime continuation")
-        } else if state
-            .work_meta
-            .get(&work.0)
-            .is_none_or(|meta| meta.attempts_left == 0)
-        {
-            Some("ordinary work attempt allowance exhausted or absent")
+        } else if !state.work_meta.contains_key(&work.0) {
+            Some("work metadata absent")
         } else {
             None
         }
@@ -3954,19 +3950,7 @@ impl Runtime {
         tools::require_settled(&state, &request.persona, &request.work)?;
         http_tools::require_settled(&state, &request.persona, &request.work)?;
         host_tools::require_settled(&state, &request.persona, &request.work)?;
-        let meta = state
-            .work_meta
-            .get(&request.work)
-            .ok_or_else(|| held("work resource account absent"))?;
-        require(meta.attempts_left > 0, "work attempt allowance exhausted")?;
-        if request.mode == Mode::SelectionRepair {
-            require(
-                meta.declared_repair_attempts(&state.config) > 0
-                    && meta.repair_attempts_left > 0
-                    && meta.repair_attempts_left <= meta.declared_repair_attempts(&state.config),
-                "selection repair has no remaining declared allowance",
-            )?;
-        }
+        require(state.work_meta.contains_key(&request.work), "work metadata absent")?;
         let persona = state
             .personas
             .get(&request.persona)
@@ -4099,9 +4083,9 @@ impl Runtime {
         let character_revision = persona.character.as_ref().map(|c| c.revision.clone());
         if !episode_admission {
             let meta = state.work_meta.get_mut(&request.work).unwrap();
-            meta.attempts_left -= 1;
+            meta.attempts_left = meta.attempts_left.saturating_sub(1);
             if request.mode == Mode::SelectionRepair {
-                meta.repair_attempts_left -= 1;
+                meta.repair_attempts_left = meta.repair_attempts_left.saturating_sub(1);
             }
         }
         optional_activity::record_admission(&mut state, &request, now)?;
@@ -5748,11 +5732,8 @@ impl Runtime {
                     // invocation admission. Preserve its charged navigation and
                     // diagnostics; no dispatched request is ever retried here.
                     let (_, fresh) = self.load()?;
-                    let eligible = fresh.work_meta.get(&candidate.work).is_some_and(|meta| {
-                        meta.repair_attempts_declared.is_some()
-                            && meta.repair_attempts_left > 0
-                            && meta.attempts_left > 0
-                    }) && !need_proposals::bound(&fresh, &candidate.work)
+                    let eligible = fresh.work_meta.contains_key(&candidate.work)
+                        && !need_proposals::bound(&fresh, &candidate.work)
                         && continuation_permit(&fresh, &candidate.persona, &candidate.work)
                         && fresh.personas.get(&candidate.persona).is_some_and(|persona| {
                             persona.active_invocation.is_none()
@@ -6914,24 +6895,12 @@ fn carry_expiry_witness(
 }
 
 fn allocate_navigation(
-    remaining: &mut f::NavigationLimits,
+    _remaining: &mut f::NavigationLimits,
     requested: f::NavigationLimits,
 ) -> f::NavigationLimits {
-    fn take(left: &mut usize, requested: usize) -> usize {
-        let n = (*left).min(requested);
-        *left -= n;
-        n
-    }
-    f::NavigationLimits {
-        calls: take(&mut remaining.calls, requested.calls),
-        scanned_bytes: take(&mut remaining.scanned_bytes, requested.scanned_bytes),
-        inspected_revisions: take(
-            &mut remaining.inspected_revisions,
-            requested.inspected_revisions,
-        ),
-        matches: take(&mut remaining.matches, requested.matches),
-        result_bytes: take(&mut remaining.result_bytes, requested.result_bytes),
-    }
+    // Preserve the old per-call accounting estimate without draining a work quota.
+    // NavigationBudget records actual usage without a cumulative ceiling.
+    requested
 }
 const REPAIR_DUTIES: &str = "RESTRICTED SELECTION REPAIR ONLY. Retain current identity, character, authority, policies, work, observations, and maintenance duties. Optional bodies may be omitted only as recorded in the receipt. Inventory is metadata, never supplied guidance or task evidence. You may preserve, clear, or choose a subset of whole exact existing selection entries. Range narrowing, added sources, changed revisions, and lifetime renewal are not implemented in this mode. Only the exact inventory body references may be read, with complete qualifications and within the remaining bound. A response requesting reads must preserve both selections; a later explicitly admitted repair must observe the results before a dependent choice. No search, source write, retirement, character or warning change, communication, delivery, assessment, responsibility operation, work command, model change, or substantive task action is permitted. Work must remain ongoing with no evidence claims. Both maintenance outcomes must be explicit no_change, blocked, or deferred; a known useful prohibited edit is blocked/deferred, not completed. Reply must be none and continuation stop or pause. Preserving an oversized selection does not repair fit. No response creates a retry, wake, funding, or ordinary task authority. Every subsequent request requires fresh admission.";
 
@@ -7666,8 +7635,9 @@ fn render_mode_with_history(
     }
     let work_attempt_accounting = json!({
         "unit":"one admitted primary decision, not one operation",
-        "attempts_left":"In an admitted input, this is the shared work allowance remaining after reserving the current decision. Zero does not prohibit operations in this already admitted response.",
-        "multiple_operations":"One complete response may propose multiple currently available, authorized operations allowed by this mode. Work commands do not each spend another work attempt. Ordering, dependencies, required fresh receipts, complete response validation, maintenance accounting and separate navigation, execution, response and storage limits still apply. This description grants no resources or authority."
+        "limits_enforced":false,
+        "attempts_left":"Historical allowance metadata only. Zero does not block this response, host commands or a later decision. Work and lifetime call counts have no runtime quota.",
+        "multiple_operations":"One complete response may propose multiple currently available operations. Usage is recorded without cumulative navigation or work quotas. Ordering, exact dependencies, fresh result receipts, complete response validation and maintenance still describe how operations take effect."
     });
     let mut core = json!({"profile":"application-persona-request-v1","actor":actor,
         "persona_label":persona.seed.label,"work_id":work_id,
@@ -7694,7 +7664,8 @@ fn render_mode_with_history(
         "semantic_warnings":semantic_warnings,
         "selection_state":selection_state,
         "file_mutation_metadata":file_mutation_metadata,"file_mutation_metadata_truncated":file_mutation_metadata_truncated,
-        "navigation_current_admission":current_navigation,
+        "resource_quotas_enforced":false,
+        "navigation_current_admission":{"limits_enforced":false,"historical_estimate":current_navigation},
         "command_resource_accounting":{
             "work_attempts":work_attempt_accounting,
             "history":history::resource_accounting(current_navigation),
@@ -7705,10 +7676,11 @@ fn render_mode_with_history(
         },
         "grants":persona.seed.grants,"destination":a.destination,"audience":a.audience,
         "requested_model":persona.seed.requested_model,"requested_effort":persona.seed.requested_effort,
-        "model_confirmation":persona.seed.model_confirmed,"attempts_left":meta.attempts_left,
-        "declared_max_repair_attempts":meta.declared_repair_attempts(&state.config),"repair_attempts_left":meta.repair_attempts_left,
-        "repair_funding":"subset of existing work attempts and Store limits; no renewal",
-        "navigation_left_after_this_admission":meta.navigation_left,
+        "model_confirmation":persona.seed.model_confirmed,"attempts_left":null,
+        "historical_attempts_left":meta.attempts_left,
+        "declared_max_repair_attempts":null,"repair_attempts_left":null,
+        "repair_funding":"No work or repair attempt quota; exact context overflow and repair semantics still determine eligibility.",
+        "navigation_left_after_this_admission":null,
         "context_bytes":state.config.context_bytes,"response_bytes":state.config.response_bytes,
         "storage":"logical retention only; physical/token/dollar hard bounds unsupported",
         "work_capability":if initializing {

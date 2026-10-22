@@ -2,6 +2,7 @@
 //! invented evidence. Only the auth onboarding backend can dispatch this path,
 //! after its durable claim. No persona, tool, runtime state, or user task is sent.
 use super::*;
+use std::time::Duration;
 
 pub(crate) const CATALOG_URL: &str = "https://api.openai.com/v1/models";
 pub(crate) const CATALOG_BYTES: usize = 65_536;

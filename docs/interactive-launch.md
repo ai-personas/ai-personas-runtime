@@ -1,5 +1,11 @@
 # Interactive launch
 
+Ordinary Continue now runs without work, session, consideration or lifetime call
+quotas and without another approval prompt. Setup no longer asks for these caps.
+See [execution resources](execution-resources.md) for retained historical settings
+and remaining enforcement paths. Explicit stops and pauses are still honored.
+
+
 Run `./personas` with no arguments from an approved checkout. This opens the local
 Python terminal dialogue; Rust remains responsible for provider evidence,
 authentication, atomic setup, intake, execution, permissions and accounting.

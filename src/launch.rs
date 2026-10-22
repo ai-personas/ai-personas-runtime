@@ -573,10 +573,6 @@ fn start_owned_keyed(
     app.store.require_terminal_invocations()?;
     let work_count =
         u64::try_from(saved.works.len()).map_err(|_| invalid("saved work count overflow"))?;
-    require(
-        work_count < saved.setup.max_works,
-        "work identity limit reached",
-    )?;
     let id = format!("work-{:08}", increment(work_count)?);
     require(
         !saved.works.contains_key(&id)
@@ -700,10 +696,7 @@ fn select_owned(
             let permit = continuation_permit(&state, &actor.0, work);
             if permit
                 && matches!(state.board.work(&wid)?.phase, w::Phase::Open)
-                && state
-                    .work_meta
-                    .get(work)
-                    .is_some_and(|m| m.attempts_left > 0)
+                && state.work_meta.contains_key(work)
             {
                 entry.disposition = SchedulerDisposition::Queued;
             }
@@ -743,7 +736,6 @@ fn reserve_owned(
 ) -> Result<(PrepareRequest, Saved)> {
     let (old, mut saved) = load(app)?;
     saved.execution_provider()?;
-    step_accounting::require_capacity(&saved)?;
     saved.steps = increment(saved.steps)?;
     let id = format!("call-{:08}", saved.steps);
     *saved
@@ -883,10 +875,7 @@ async fn run_with_options<D: Driver>(
     let (_, saved) = load(app)?;
     saved.execution_provider()?;
     require(saved.works.contains_key(work), "unknown launch work")?;
-    let mut remaining = saved.setup.max_considerations;
-    let mut stop = "step_limit";
-    let mut steps = 0;
-    while steps < saved.setup.max_steps {
+    let stop = loop {
         app.publish_completed_host_commands(unix_now()?)?;
         let mut view = result(app, work)?;
         // Scheduling uses trusted current state, never a permission-filtered
@@ -905,13 +894,9 @@ async fn run_with_options<D: Driver>(
             if !handover(app, work)? {
                 return Ok("character_fence");
             }
-            let (count, selected) = select(app, work, remaining, unix_now()?)?;
-            remaining -= count;
+            let (_, selected) = select(app, work, 128, unix_now()?)?;
             let Some(persona) = selected else {
                 if app.has_background_host_commands() {
-                    if remaining == 0 {
-                        return Ok("consideration_bound");
-                    }
                     app.wait_for_host_command().await?;
                     return Ok("jobs_completed");
                 }
@@ -922,7 +907,6 @@ async fn run_with_options<D: Driver>(
                 });
             };
             driver.before_step(app)?;
-            steps += 1;
             let (request, current) = reserve(app, work, &persona, driver.prospective_intake())?;
             let invocation_id = request.id.clone();
             let report = match driver.step(app, request, &current, unix_now()?).await {
@@ -957,25 +941,11 @@ async fn run_with_options<D: Driver>(
         }
         .await;
         match attempt {
-            Ok("jobs_completed") => (),
-            Ok("continue") if remaining > 0 => (),
-            Ok("continue") => {
-                stop = "consideration_bound";
-                break;
-            }
-            Ok(reason) => {
-                stop = reason;
-                break;
-            }
-            Err(error) => {
-                stop = stop_for_error(&error);
-                break;
-            }
+            Ok("jobs_completed" | "continue") => (),
+            Ok(reason) => break reason,
+            Err(error) => break stop_for_error(&error),
         }
-    }
-    if stop == "step_limit" {
-        stop = step_accounting::bound_stop(app)?;
-    }
+    };
     let mut view = result(app, work)?;
     view.stop = Some(stop.into());
     Ok(view)

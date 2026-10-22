@@ -95,9 +95,7 @@ fn validate_saved(
             && setup.max_total_steps > 0
             && setup.max_total_steps
                 <= storage_limits().total.attempts - storage_limits().protected_closeout.attempts
-            && (1..=128).contains(&setup.max_works)
-            && saved.steps <= setup.max_total_steps
-            && saved.works.len() as u64 <= setup.max_works,
+            && (1..=128).contains(&setup.max_works),
         "invalid saved foreground bounds",
     )?;
     let (head, state) = app.load()?;

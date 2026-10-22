@@ -28,8 +28,6 @@ pub(super) async fn run<D: Driver>(
     let (_, saved) = load(app)?;
     saved.execution_provider()?;
     require(saved.works.contains_key(work), "unknown launch work")?;
-    let mut remaining = saved.setup.max_considerations;
-    let mut steps = 0;
     let mut stop = None;
     let mut pending = FuturesUnordered::new();
     let mut owned = BTreeSet::new();
@@ -103,15 +101,12 @@ pub(super) async fn run<D: Driver>(
         while stop.is_none()
             && deferred.is_empty()
             && exclusive.is_empty()
-            && steps < saved.setup.max_steps
-            && remaining > 0
         {
             let mut attempted_id = None;
             let mut needs_exclusive = false;
             let admission = (|| {
                 driver.before_step(app)?;
-                let (count, selected) = select_owned(app, work, remaining, unix_now()?, &owned)?;
-                remaining -= count;
+                let (_, selected) = select_owned(app, work, 128, unix_now()?, &owned)?;
                 let Some(persona) = selected else {
                     return Ok(None);
                 };
@@ -131,7 +126,6 @@ pub(super) async fn run<D: Driver>(
                     return Ok(None);
                 }
                 driver.before_step(app)?;
-                steps += 1;
                 let (request, current) =
                     reserve_owned(app, work, &persona, driver.prospective_intake(), &owned)?;
                 attempted_id = Some(request.id.clone());
@@ -163,17 +157,6 @@ pub(super) async fn run<D: Driver>(
                 }
             }
         }
-        if stop.is_none() {
-            if steps >= saved.setup.max_steps {
-                stop = Some(match step_accounting::bound_stop(app) {
-                    Ok(reason) => reason,
-                    Err(error) => stop_for_error(&error),
-                });
-            } else if remaining == 0 {
-                stop = Some("consideration_bound");
-            }
-        }
-
         if !pending.is_empty() {
             let wake = if stop.is_none() && app.has_background_host_commands() {
                 tokio::select! {

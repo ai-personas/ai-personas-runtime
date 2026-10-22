@@ -849,7 +849,6 @@ pub(crate) fn apply(
             inspected_revisions: PROJECTION_REVISIONS * 2 + 1,
             ..Default::default()
         })
-        && bounded(state, INPUT_LIMIT).is_some()
     {
         let a = admission(&state.personas[&prepared.request.persona], now);
         if let (Ok(permissions), Ok(corpus)) = (Permissions::new(state, &a), corpus(state, &a)) {

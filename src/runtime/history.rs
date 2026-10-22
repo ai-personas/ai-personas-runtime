@@ -17,20 +17,17 @@ const MAX_CURSOR_MEMBERS: usize = 4096;
 const CONTROL_BYTES: usize = 4096;
 
 /// Public accounting only: no retained-history inspection or inferred selection.
-pub(super) fn resource_accounting(available: f::NavigationLimits) -> Value {
+pub(super) fn resource_accounting(_historical_limits: f::NavigationLimits) -> Value {
     let inspected_revisions = PROJECTION_REVISIONS * 2 + 1;
-    let maximum = available
-        .calls
-        .min(available.scanned_bytes / PROJECTION_BYTES)
-        .min(available.inspected_revisions / inspected_revisions);
     json!({
         "operations":["history_query","history_read","history_records_query","history_record_read"],
         "per_operation_reservation":{
             "calls":1,"scanned_bytes":PROJECTION_BYTES,
             "inspected_revisions":inspected_revisions
         },
-        "maximum_operations_before_additional_costs":maximum,
-        "meaning":"Each history operation shares this admission's navigation allowance with all other navigation. Scans, qualification expansion, matches and complete results cost additional resources; this maximum is an upper bound, not a promise. With a maximum of one, choose one query or exact read for this response and wait for fresh supply before further retrieval. An exhausted result establishes no absence of history. No allowance is refilled.",
+        "limits_enforced":false,
+        "maximum_operations_before_additional_costs":null,
+        "meaning":"Navigation use is recorded without a cumulative quota. Page size and available input context determine which complete results can be supplied. Query metadata is not a record body; wait for fresh supply before using an exact reference or claiming to have read its body. An exhausted or omitted result establishes no absence of history.",
         "record_bodies":{
             "adopted_decision":"Original authored choices and reasoning; not proof that every proposed operation executed.",
             "observation":"Original runtime receipt; a metadata-only receipt remains metadata-only after reading it. Reading a history-query receipt does not read the records it lists.",
@@ -475,7 +472,7 @@ fn query(
     let mut members = Membership(Vec::new());
     let mut records = Vec::new();
     let mut view_exposure = Exposure::default();
-    // The fixed projection reservation and bounded State envelope precede both
+    // The fixed projection accounting precedes both
     // paths. Continuation validates every original member, including off-page
     // members, and never enumerates additions to the mailbox.
     if let Some(cursor) = previous {
@@ -799,10 +796,6 @@ pub(super) fn apply(
             inspected_revisions: PROJECTION_REVISIONS * 2 + 1,
             ..Default::default()
         })
-        // This envelope bounds the entire host walk, including membership,
-        // permission metadata, identity hashing and inaccessible entries. The
-        // reservation is constant; no private inventory size is reported.
-        && bounded(state, INPUT_LIMIT).is_some()
     {
         let a = admission(&state.personas[&prepared.request.persona], now);
         if let Ok(permissions) = Permissions::new(state, &a) {

@@ -1540,18 +1540,15 @@ pub struct NavigationUsage {
     pub result_bytes: usize,
 }
 
-/// Host-owned cumulative allowance. Do not construct a new budget to continue the
-/// same operation/episode. Public accounting uses conservative authorization and
-/// closure charges so it does not disclose private corpus/dependency counts.
+/// Host-owned cumulative accounting. Saved allowances do not cap navigation.
+/// Result fitting and requested page sizes are handled by each caller.
 pub struct NavigationBudget {
-    limits: NavigationLimits,
     used: NavigationUsage,
 }
 
 impl NavigationBudget {
-    pub fn new(limits: NavigationLimits) -> Self {
+    pub fn new(_historical_limits: NavigationLimits) -> Self {
         Self {
-            limits,
             used: NavigationUsage::default(),
         }
     }
@@ -1562,18 +1559,17 @@ impl NavigationBudget {
 
     pub fn remaining(&self) -> NavigationLimits {
         NavigationLimits {
-            calls: self.limits.calls - self.used.calls,
-            scanned_bytes: self.limits.scanned_bytes - self.used.scanned_bytes,
-            inspected_revisions: self.limits.inspected_revisions - self.used.inspected_revisions,
-            matches: self.limits.matches - self.used.matches,
-            result_bytes: self.limits.result_bytes - self.used.result_bytes,
+            calls: usize::MAX - self.used.calls,
+            scanned_bytes: usize::MAX - self.used.scanned_bytes,
+            inspected_revisions: usize::MAX - self.used.inspected_revisions,
+            matches: usize::MAX - self.used.matches,
+            result_bytes: usize::MAX - self.used.result_bytes,
         }
     }
 
     /// Charge a complete serialized result for an already admitted operation.
-    /// Counting stops at the smaller of the supplied limit and remaining result
-    /// allowance, without allocating an output copy. Failure debits nothing;
-    /// this method neither admits call/scan work nor refunds earlier charges.
+    /// The caller's result-fitting limit prevents partial input supply, without
+    /// imposing a cumulative navigation quota. Failure records no partial result.
     pub fn charge_serialized_result<T: Serialize + ?Sized>(
         &mut self,
         value: &T,
@@ -1601,34 +1597,16 @@ impl NavigationBudget {
     }
 
     pub(crate) fn charge(&mut self, cost: NavigationUsage) -> bool {
-        fn fits(used: usize, added: usize, limit: usize) -> bool {
-            used <= limit && added <= limit - used
-        }
-        if !fits(self.used.calls, cost.calls, self.limits.calls)
-            || !fits(
-                self.used.scanned_bytes,
-                cost.scanned_bytes,
-                self.limits.scanned_bytes,
-            )
-            || !fits(
-                self.used.inspected_revisions,
-                cost.inspected_revisions,
-                self.limits.inspected_revisions,
-            )
-            || !fits(self.used.matches, cost.matches, self.limits.matches)
-            || !fits(
-                self.used.result_bytes,
-                cost.result_bytes,
-                self.limits.result_bytes,
-            )
-        {
+        // Only a machine counter overflow is unrepresentable. No configured
+        // allowance can stop an otherwise valid navigation operation.
+        let Some(calls) = self.used.calls.checked_add(cost.calls) else { return false };
+        let Some(scanned_bytes) = self.used.scanned_bytes.checked_add(cost.scanned_bytes) else { return false };
+        let Some(inspected_revisions) = self.used.inspected_revisions.checked_add(cost.inspected_revisions) else { return false };
+        let Some(matches) = self.used.matches.checked_add(cost.matches) else { return false };
+        let Some(result_bytes) = self.used.result_bytes.checked_add(cost.result_bytes) else {
             return false;
-        }
-        self.used.calls += cost.calls;
-        self.used.scanned_bytes += cost.scanned_bytes;
-        self.used.inspected_revisions += cost.inspected_revisions;
-        self.used.matches += cost.matches;
-        self.used.result_bytes += cost.result_bytes;
+        };
+        self.used = NavigationUsage { calls, scanned_bytes, inspected_revisions, matches, result_bytes };
         true
     }
 }

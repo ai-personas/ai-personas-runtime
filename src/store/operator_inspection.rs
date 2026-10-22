@@ -10,7 +10,7 @@ impl RuntimeInspection<'_, '_> {
         self.work.meta.epoch
     }
     pub(crate) fn frozen(&self) -> bool {
-        self.work.meta.frozen
+        false
     }
 
     pub(crate) fn invocation(&self, id: &str) -> Result<Option<InvocationRecord>> {

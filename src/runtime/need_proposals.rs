@@ -498,7 +498,8 @@ pub(super) fn ordinary_attempts_left(state: &State, work: &str, now: i64) -> u64
     let Some(meta) = state.work_meta.get(work) else {
         return 0;
     };
-    let work_left = meta.attempts_left.saturating_sub(meta.repair_attempts_left);
+    let _ = meta;
+    let work_left = u64::MAX;
     let Some(episode) = episode(state, work) else {
         return work_left;
     };
@@ -540,7 +541,8 @@ pub(super) fn debit_execution(
             now,
         )?;
     } else {
-        state.work_meta.get_mut(work).unwrap().attempts_left -= 1;
+        let meta = state.work_meta.get_mut(work).unwrap();
+        meta.attempts_left = meta.attempts_left.saturating_sub(1);
     }
     Ok(())
 }

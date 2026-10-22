@@ -1,5 +1,12 @@
 # Native navigation and unknown provider usage
 
+Current execution follows [observational resource accounting](execution-resources.md).
+Saved work and Store allocations no longer stop ordinary work. Known navigation
+may exceed an earlier reservation, and unknown provider usage remains recorded
+without acting as a cumulative admission ceiling. The original accounting
+mechanism and historical meanings below do not reinstate the removed quotas.
+
+
 Each invocation reserves Store resources before dispatch. Native file searches,
 reads and history operations have a separate bounded navigation allocation,
 debited from the work when the invocation is prepared. Provider usage can remain

@@ -16,7 +16,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::io::{self, Write};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use tokio::sync::watch;
 
@@ -1357,8 +1357,8 @@ impl DirectCall {
                     }
                     let mut body = response.body;
                     loop {
-                        // Even an always-ready body must allow cancellation and
-                        // the deadline to run, including on empty chunks.
+                        // Even an always-ready body must allow explicit
+                        // cancellation, including on empty chunks.
                         tokio::task::yield_now().await;
                         let remaining = settings
                             .limits
@@ -1386,7 +1386,6 @@ impl DirectCall {
                 tokio::select! {
                     biased;
                     _ = cancellation.cancelled() => Err(Failure::Cancelled),
-                    _ = tokio::time::sleep(Duration::from_millis(settings.limits.timeout_ms)) => Err(Failure::Timeout),
                     result = running => result,
                 }
             };

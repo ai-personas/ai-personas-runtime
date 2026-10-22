@@ -1,5 +1,11 @@
 # Direct model provider
 
+Ordinary Direct inference now has **no local duration timer**; explicit cancellation
+remains available. The saved `timeout_ms` is historical configuration. Other
+transport enforcement described below remains an [implementation gap](execution-resources.md#remaining-work)
+under the current no-limits requirement.
+
+
 Personas sends one bounded HTTPS Responses request per admitted step. Its runtime owns prompt assembly, tools, memory, decisions, collaboration, assessment, adoption, resource accounting and durable recovery. Codex CLI and app-server execution are absent from product runtime. Engineering tools are separate.
 
 Persona inputs contain the actual admitted capabilities, authority, remaining
