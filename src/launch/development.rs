@@ -1,4 +1,4 @@
-//! Permission-filtered inspection of accepted characteristic revisions.
+//! Attributed inspection of accepted characteristic revisions.
 //! Reading this view makes no model call and selects no future persona context.
 use super::*;
 #[path = "resource_use.rs"]
@@ -32,7 +32,7 @@ pub fn development_at(
     if let Some(invocation) = invocation_id {
         identity(invocation)?;
     }
-    require((1..=16).contains(&limit), "revision limit must be 1..=16")?;
+    require(limit > 0, "revision page size must be positive")?;
     // Do not recover or interrupt a live invocation merely to inspect development.
     inspection::project(root, |snapshot, records| {
         project(snapshot, records, operator, persona_id, source_id, limit, invocation_id)
@@ -58,12 +58,6 @@ fn project(
         .personas
         .get(persona_id)
         .ok_or_else(|| held("persona unavailable"))?;
-    require(
-        persona.created_by == operator
-            && persona.seed.audience.contains(operator)
-            && persona.seed.grants.communicate_with.contains(operator),
-        "persona development is unavailable to this requester",
-    )?;
     let mut audience = admission(persona, unix_now()?);
     audience.audience = BTreeSet::from([operator.into()]);
     let character = persona.character.as_ref().filter(|character| {
@@ -75,14 +69,14 @@ fn project(
     let mut navigation = f::NavigationBudget::new(state.config.navigation_per_call);
     let mut revisions = Vec::new();
     let mut truncated = false;
-    let mut encoded_bytes = 0;
     'sources: for (id, source) in &state.sources {
-        if source.owner != persona_id || source.retired || source_id.is_some_and(|s| s != id) {
+        if source_id.is_some_and(|s| s != id) {
             continue;
         }
         // Newest first within each source, retaining the exact historical text.
         for revision in source.revisions.iter().rev() {
-            if revision.record.scope != f::Scope::Fragments {
+            if revision.record.scope != f::Scope::Fragments
+                || (source_id.is_none() && source.owner != persona_id && revision.record.author != persona_id) {
                 continue;
             }
             let reference = revision.record.reference(f::Representation::Utf8);
@@ -115,14 +109,11 @@ fn project(
             let item = json!({
                 "source":id, "revision":revision.record.revision,
                 "current":source.head == revision.record.revision,
+                "source_owner":source.owner,"source_protected":source.protected,
+                "source_retired":source.retired,"recorded_author":revision.record.author,
                 "origin":revision.origin,
                 "context":serde_json::from_str::<Value>(&context)?
             });
-            encoded_bytes += serde_json::to_vec(&item)?.len();
-            if encoded_bytes > 262_144 {
-                truncated = true;
-                break 'sources;
-            }
             revisions.push(item);
         }
     }
@@ -132,7 +123,7 @@ fn project(
         "character":character, "characteristic_revisions":revisions,
         "transient_affect":{"context":affect.control,"observation":affect.observation},
         "truncated":truncated, "inference_performed":false,
-        "scope":"currently permitted accepted characteristic revisions; supporting assets are separate",
+        "scope":"Accepted characteristic revisions owned or authored by this persona, or the explicitly selected source. Retired revisions remain labeled; supporting assets are separate.",
         "behavioral_improvement_established":false
     });
     if let Some(origin) = &persona.birth {
@@ -140,7 +131,7 @@ fn project(
             json!({"available":true,"kind":"persona_authored_proposal",
                 "parent":origin.parent,"invocation":origin.invocation,"work":origin.work,
                 "proposal":origin.proposal,"creation_receipt":origin.receipt,
-                "initialization_limit":origin.initialization_limit,
+                "initialization_limit":null,"historical_initialization_limit":origin.initialization_limit,
                 "initialization_attempts_spent":origin.initialization_attempts,
                 "character_accepted":persona.character.is_some(),
                 "experience_or_competence_established":false})
@@ -478,12 +469,6 @@ fn accepted_decision_view(
     });
     if !resolved_input_selections.is_empty() {
         view["resolved_input_selections"] = serde_json::to_value(resolved_input_selections)?;
-    }
-    if serde_json::to_vec(&view)?.len() > 65_536 {
-        return Ok(json!({
-            "available":false,
-            "reason":"The complete decision projection exceeds this view's 65536-byte bound; no partial judgment is presented."
-        }));
     }
     Ok(view)
 }

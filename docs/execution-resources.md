@@ -121,12 +121,30 @@ proposals, responses, holders, changes and wait registrations have no fixed
 count/text quota. Session terminals accept any monotonic call-count increase;
 operator session pages have no application page-size or output-byte cap.
 
+Source ownership, protection, retirement and applicability annotations no longer
+block exact reads, explicit revisions, retirement, character-fragment selection
+or warning targets. Every revision retains its actual author and origin; current
+head and immutable-identity checks remain. Retired source metadata remains visible
+to discovery filters. A new explicit write reactivates that source without
+rewriting old revisions. Fragment inventories include all retained source heads
+with exact provenance, without automatically selecting or adopting them.
+
+Warning history, traversal, feedback, maintenance and local evidence projections
+have no application retention or output quota. Warning resolutions record their
+actual author without requiring the original author's identity. Existing exact
+warning revisions and supplied evidence still bind each judgment. Development
+inspection accepts any positive requested page size and retains complete output.
+
+Current affect has no maximum application lifetime. Personas still choose an
+explicit future expiry, and expiration remains effective at that chosen time.
+Multiple updates retain receipts in listed order; the last becomes current.
+The explicit participant-resume request no longer needs a second boolean approval.
+
 ## Remaining work
 
 Removal is still incomplete. Remaining
 application enforcement includes delegated intake authority and one-child workflow
-constraints; explicit optional opportunity and birth workflows; source ownership, protection and ineligibility
-gates; extra operator authorization fields; remaining typed protocol and tool-input
+constraints; explicit optional opportunity and birth workflows; extra operator authorization fields; remaining typed protocol and tool-input
 limits; and additional specialized control/projection limits. These are implementation gaps under the
 new requirement, not exceptions granted by the user. Some earlier documents still
 describe them because those paths remain implemented. They must be removed or

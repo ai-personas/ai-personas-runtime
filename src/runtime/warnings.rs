@@ -7,9 +7,6 @@
 
 use super::*;
 
-const MAX_WARNINGS: usize = 128;
-const MAX_RESOLUTIONS: usize = 64;
-const MAX_WARNING_EVENTS: usize = 1024;
 const ATTRIBUTION: &str = "Accepted primary-authored warning lifecycle judgment. Acceptance establishes recorded authorship and disposition, not content correctness, patch success, or correction-work completion. Historical receipts do not override the current accepted binding snapshot.";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -109,28 +106,16 @@ fn warning_marker(state: &State, reference: &f::Reference) -> bool {
     })
 }
 
-/// Confidentiality is independent of applicability. This traversal retains
-/// source withdrawal, exact policy identity, derivative restrictions, ancestry,
-/// and non-warning accompaniment policies. It does not treat an accepted
-/// semantic ineligibility judgment as revocation of the underlying permission.
-/// Callers must separately enforce AcceptedBinding applicability before use.
+/// Retain exact source ancestry and policy identity independently of warning
+/// applicability. Authored policy and warning judgments impose no access gate.
 pub(super) fn confidentiality(state: &State, input: &Exposure) -> Result<Exposure> {
     let mut result = input.clone();
     let mut pending = input.sources.clone();
     let mut seen = BTreeSet::new();
-    let maximum = state
-        .config
-        .corpus
-        .max_revisions
-        .saturating_add(state.config.corpus.max_closure_references);
     while let Some(reference) = pending.pop() {
         if !seen.insert(reference.clone()) {
             continue;
         }
-        require(
-            seen.len() <= maximum,
-            "warning confidentiality traversal bound",
-        )?;
         let stored = record(state, &reference)?;
         if let Some(inherited) = &stored.exposure {
             extend_exposure(&mut result, inherited);
@@ -171,16 +156,8 @@ pub(super) fn confidentiality(state: &State, input: &Exposure) -> Result<Exposur
                 pending.extend(required.iter().cloned());
             }
         }
-        require(
-            pending.len() <= maximum.saturating_add(state.config.corpus.max_closure_edges),
-            "warning confidentiality edge bound",
-        )?;
     }
     result.sources = seen.into_iter().collect();
-    require(
-        serde_json::to_vec(&result)?.len() <= INPUT_LIMIT,
-        "warning confidentiality manifest bound",
-    )?;
     Ok(result)
 }
 
@@ -342,19 +319,6 @@ fn gate(
     let a = admission(&state.personas[actor], now);
     for target in targets {
         let reference = file_reference(target)?;
-        let source = state
-            .sources
-            .get(&target.source)
-            .ok_or_else(|| held("warning target absent"))?;
-        require(
-            source.owner == *actor,
-            "warning target is not owned by the primary",
-        )?;
-        if source.protected {
-            return Err(RuntimeError::NotReady(
-                "warning changes on protected sources are unsupported; no character-adoption bypass".into(),
-            ));
-        }
         let stored = record(state, &reference)?;
         require(
             stored.record.scope == scope(requested_scope),
@@ -364,24 +328,6 @@ fn gate(
             policy_permitted(state, &stored.record.policy, &a),
             "warning target policy unavailable",
         )?;
-        for persona in state.personas.values() {
-            if let Some(character) = &persona.character {
-                let inherited = confidentiality(state, &character_exposure(character)?)?;
-                if inherited
-                    .sources
-                    .iter()
-                    .any(|root| same_revision(root, &reference))
-                    || character
-                        .own_voice
-                        .iter()
-                        .any(|voice| voice.source == target.source)
-                {
-                    return Err(RuntimeError::NotReady(
-                        "warning changes affecting current character are unsupported; explicit CharacterAdopt does not admit a warning companion in this slice".into(),
-                    ));
-                }
-            }
-        }
     }
     Ok(())
 }
@@ -403,8 +349,7 @@ fn author(
         extend_exposure(&mut exposure, inherited);
     }
     let exposure = confidentiality(state, &exposure)?;
-    // Preserve all current permission checks without demanding generative use
-    // of an ineligible target merely to record its warning or resolution.
+    // Preserve exact policy provenance alongside the authored judgment.
     check_output_policy(
         state,
         policy,
@@ -623,9 +568,7 @@ pub(super) fn context(
     Ok((result, sources.into_iter().collect()))
 }
 
-/// Called only for an unavailable target after Corpus::read admitted its call
-/// and conservative scan reservation. Applicability does not revoke permission
-/// to inspect a warning, but permission alone does not grant result allowance.
+/// Return the complete retained warning account for an unavailable target.
 pub(super) fn unavailable_read(
     state: &State,
     reference: &f::Reference,
@@ -639,10 +582,6 @@ pub(super) fn unavailable_read(
             Vec::new(),
         )
     };
-    let limit = byte_limit.min(navigation.remaining().result_bytes);
-    if limit == 0 {
-        return Ok(unavailable());
-    }
     let mut selected = Vec::new();
     for warning in state.semantic_warnings.values() {
         if warning.targets()?.1.iter().any(|target| {
@@ -668,7 +607,7 @@ pub(super) fn unavailable_read(
     };
     // Count the complete payload, including every history entry and receipt
     // reference. No partial warning set or uncharged expanded view is staged.
-    if !navigation.charge_serialized_result(&diagnostic, limit) {
+    if !navigation.charge_serialized_result(&diagnostic, byte_limit) {
         return Ok(unavailable());
     }
     let payload = serde_json::to_value(&diagnostic)?;
@@ -679,31 +618,6 @@ pub(super) fn unavailable_read(
         .into_iter()
         .collect();
     Ok((payload, sources))
-}
-
-fn check_bounds(state: &State) -> Result<()> {
-    require(
-        state.semantic_warnings.len() <= MAX_WARNINGS,
-        "warning identity bound exhausted",
-    )?;
-    require(
-        state
-            .semantic_warnings
-            .values()
-            .all(|warning| warning.history.len() <= MAX_RESOLUTIONS)
-            && state
-                .semantic_warnings
-                .values()
-                .map(|warning| 1 + warning.history.len())
-                .sum::<usize>()
-                <= MAX_WARNING_EVENTS,
-        "immutable warning history bound exhausted",
-    )?;
-    require(
-        serde_json::to_vec(&state.semantic_warnings)?.len() <= INPUT_LIMIT / 2,
-        "immutable warning snapshot bound exhausted",
-    )?;
-    validate_inventory(state)
 }
 
 pub(super) fn adoption_reason(decision: &p::Decision) -> Option<String> {
@@ -853,10 +767,6 @@ pub(super) fn apply(
                     .cloned()
                     .ok_or_else(|| held("warning history unavailable"))?;
                 require(
-                    warning.authored.persona == prepared.request.persona,
-                    "only the original primary can resolve this warning",
-                )?;
-                require(
                     warning.current_revision() == warning_revision,
                     "stale warning resolution revision",
                 )?;
@@ -970,5 +880,5 @@ pub(super) fn apply(
             _ => (),
         }
     }
-    check_bounds(state)
+    validate_inventory(state)
 }

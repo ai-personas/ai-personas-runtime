@@ -53,8 +53,8 @@ explicitly records a handled or declined disposition with a reason. Unresolved
 feedback remains pending. Exact replay queues nothing twice; conflicting reuse
 of the same identifier fails.
 
-Later inputs retain an explicit pending or none-pending state and bounded native
-receipts for recent handled or declined items. This lets the persona distinguish
+Later inputs retain an explicit pending or none-pending state and complete native
+receipts for handled or declined items. This lets the persona distinguish
 an accepted disposition from its earlier intention to record one. These receipts
 preserve their original permissions and identify the accepting call; they do not
 verify compliance with the feedback or establish requester acceptance.
@@ -125,7 +125,7 @@ including its byte count, exact binding and selected command names. With
 bodies supplied to that call expose commands. Legacy roots retain the full
 interface until explicitly upgraded. Definition supply and accepted command
 execution are separate evidence.
-The bounded input-file choices also record readiness for visible current native
+The input-file choices also record readiness for visible current native
 guides. `supplied_input_file_choices.native_command_readiness` distinguishes
 recorded body/schema supply, missing work-command grants and historical entries
 without readiness metadata. These counts establish neither operation-specific
@@ -133,7 +133,7 @@ authority nor successful use.
 
 The native runtime provides [full host command access by default](host-commands.md),
 including tool installation and use of installed software. The separately granted
-[bounded WebAssembly computation](computation.md) and
+[WebAssembly computation](computation.md) and
 [HTTPS source retrieval](https-retrieval.md) profiles remain available alongside
 internal file, discovery, history and work operations.
 The legacy `Effect` encoding of `work.command.v1` denotes an internal work operation.
@@ -169,10 +169,9 @@ persona, invocation and operation authorship. This is exact storage metadata,
 not a supplied file body or evidence of current selection. Newly named selections
 and file writes require their own current source permissions. If these cannot be
 established, the complete decision view is unavailable; this does not imply that
-a write never happened. The complete decision projection is
-bounded to 64 KiB; if it cannot fit, the view reports it unavailable without
-presenting a partial judgment. Existing source, work and invocation permissions
-remain controlling.
+a write never happened. The complete decision projection has no application byte quota. Exact source,
+work and invocation bindings remain checked. Retired revisions remain available
+and labeled; source ownership and protection are metadata, not access gates.
 
 Per-call accounting separates the retained prompt's instructions/schema, work
 controls, qualified context and separators, alongside the reserved assembly size.
@@ -210,5 +209,5 @@ Keep operational stores, feedback files, model outputs and inspection records
 local. They can contain task content and persona history. The public repository
 documents the commands and contracts rather than individual run records.
 
-See the [runtime reference](../RUNTIME-REFERENCE.md) for feedback limits,
+See the [runtime reference](../RUNTIME-REFERENCE.md) for feedback semantics,
 continuation rules, current permission checks and closure requirements.

@@ -1,10 +1,6 @@
-//! Explicit, bounded dispositions of retained maintenance. No content judgment,
+//! Explicit dispositions of retained maintenance. No content judgment,
 //! transfer, wake, warning transition, or successful repair is inferred here.
 use super::*;
-
-const MAX_RECORDS: usize = 128;
-const MAX_DISPOSITIONS: usize = 256;
-const MAX_RETAINED_BYTES: usize = 262_144;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -34,7 +30,6 @@ fn latest<'a>(focus: &'a Focus, id: &str) -> Option<&'a DispositionReceipt> {
 /// A historical deferral remains open until its owner explicitly accounts for
 /// it. This is disposition bookkeeping, never proof that a repair succeeded.
 pub(super) fn has_unresolved(actor: &str, work: &str, focus: &Focus) -> Result<bool> {
-    bounds(focus)?;
     for (index, record) in focus.protected_maintenance.iter().enumerate() {
         let (id, _) = identity_for(actor, work, index, record)?;
         let Some(receipt) = latest(focus, &id) else { return Ok(true); };
@@ -44,24 +39,6 @@ pub(super) fn has_unresolved(actor: &str, work: &str, focus: &Focus) -> Result<b
         if disposition == p::MaintenanceDisposition::Unresolved { return Ok(true); }
     }
     Ok(false)
-}
-
-fn bounds(focus: &Focus) -> Result<()> {
-    require(
-        focus.protected_maintenance.len() <= MAX_RECORDS
-            && focus.maintenance_dispositions.len() <= MAX_DISPOSITIONS,
-        "maintenance retention record bound",
-    )?;
-    require(
-        serde_json::to_vec(&(
-            &focus.protected_maintenance,
-            &focus.maintenance_exposures,
-            &focus.maintenance_dispositions,
-        ))?
-        .len()
-            <= MAX_RETAINED_BYTES,
-        "maintenance retention byte bound",
-    )
 }
 
 /// Existing legacy records keep their exact bytes and stable owner/work-bound
@@ -168,7 +145,6 @@ pub(super) fn retain_outcomes(
         }
     }
     if changed {
-        bounds(focus)?;
     }
     Ok(())
 }
@@ -299,7 +275,6 @@ pub(super) fn apply(
             .get_mut(work)
             .unwrap();
         focus.maintenance_dispositions.push(receipt);
-        bounds(focus)?;
     }
     Ok(())
 }

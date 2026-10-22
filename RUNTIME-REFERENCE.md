@@ -191,20 +191,16 @@ or `declined` with the persona's reason, and requires that item's full permitted
 body in the current admission. Unresolved items stay pending automatically:
 omit the action until resolution; `pending` is not a valid disposition for
 `ResolveRequesterFeedback`. A disposition is an attributed account, not proof
-of compliance or requester acceptance. At most
-eight items may be pending, within 128 accepted items per persona/work; exhaustion
-refuses new feedback without dropping existing items. Current permission and
-context-size checks still apply. Previously consumed feedback is not retroactively
+of compliance or requester acceptance. Requester feedback has no pending, history, text or context-size quota. Exact
+observation and response bindings still apply. Previously consumed feedback is not retroactively
 declared pending, and replay does not revive a resolved item.
 
 After a disposition, `CONTROL.requester_feedback` continues to report the current
 `pending_state` (`pending` or `none_pending`) and pending queue. It also includes
-up to eight permitted `recent_dispositions`, newest first, within 4 KiB or one
-sixteenth of the context limit. Each receipt identifies the observation, accepting
+all available `recent_dispositions`, newest first, without count or byte quotas. Each receipt identifies the observation, accepting
 invocation, disposition and time; it supplies neither the feedback text nor the
 authored reason. Original observation and disposition restrictions are rechecked
-and inherited. `recent_dispositions_omitted` distinguishes bounded or unavailable
-history. These receipts establish accepted accounting, not compliance or assent.
+and inherited. `recent_dispositions_omitted` identifies unavailable history. These receipts establish accepted accounting, not compliance or assent.
 
 `CONTROL.previous_authored_continuation` carries the exact last accepted persona
 intention, its invocation and its original information lineage when still
@@ -225,9 +221,7 @@ and the recipient's interpretation retain separate provenance and current
 permission checks. Unavailable bodies and interpretations are withheld; nested
 history, source metadata and unsent messages cannot substitute for actual supply.
 
-Up to eight peer messages, each with at most 16 KiB of text, may remain pending.
-The persona/work retains at most 128 disposition records, reserving a final
-disposition slot for every pending item. A pending item needs no repeated command;
+Peer feedback has no pending-message count, text-size or disposition-history quota. A pending item needs no repeated command;
 the recipient can later handle or decline it, or account directly for a newly
 received message. Final dispositions cannot be reopened under the same message
 identity. Retention grants no wake, resources, sender duty, consent or authority.
@@ -1067,15 +1061,15 @@ Adopted blocked/deferred outcomes retain their exact original bytes and exposure
 
 Original records are immutable. Dispositions append exact work authority, persona, invocation, operation, owner epoch, time and inherited exposure; the latest permitted receipt is supplied without claiming verified repair or warning resolution. New writes, `no_change`, stopping and work ending do not resolve a concern. Host ending records the mechanical boundary “remaining maintenance unresolved at work end,” without inventing persona judgment or requiring another reflection call. An unrelated unresolved concern does not add a task-completion gate.
 
-Per persona/work, newly accepted maintenance is limited to 128 original records, 256 disposition receipts, and 262144 serialized bytes including exposure, intersected with existing request, context, State and Store limits. Bounds reject the entire candidate; they do not remove protected history or create funding/wakes. Legacy records remain identifiable without retrospective receipts; missing legacy exposure prevents display and disposition, and a misaligned legacy exposure history cannot accept appended deferrals. Restricted selection repair and a changed-character unit cannot adopt dispositions. Semantic warnings retain their separate lifecycle.
+Maintenance records, exposure and disposition receipts have no application count or byte quota. Retention creates no automatic wake or semantic success claim. Legacy records remain identifiable without retrospective receipts; missing legacy exposure prevents display and disposition, and a misaligned legacy exposure history cannot accept appended deferrals. Restricted selection repair and a changed-character unit cannot adopt dispositions. Semantic warnings retain their separate lifecycle.
 
 ## Explicit semantic warnings
 
-`WarningAdopt` and `WarningResolve` are closed-schema primary-authored operations in an ordinary whole Decision. They identify exact owned file revisions, meaning, actually supplied evidentiary basis, and qualification or ineligibility. This local slice supports all representations/ranges of the named exact revisions. Both operations must be listed in the matching maintenance disposition, obey grants/current source policies and remain inside ordinary admission. Restricted selection repair cannot author or resolve warnings. Protected sources and warnings affecting current character are explicitly unsupported; they cannot bypass `CharacterAdopt`.
+`WarningAdopt` and `WarningResolve` are closed-schema primary-authored operations in an ordinary whole Decision. They identify exact retained file revisions, meaning, actually supplied evidentiary basis, and qualification or ineligibility. This local slice supports all representations/ranges of the named exact revisions. Both operations must be listed in the matching maintenance disposition, retain source provenance and remain inside ordinary admission. Restricted selection repair cannot author or resolve warnings. Peer, protected, retired and current-character sources may be warning targets. The annotation does not itself change any persona's character.
 
-Warning authorship, origin work/invocation, receipt files, exact applicability bindings and append-only resolution history persist separately from the current accepted-binding snapshot. Target bytes remain unchanged. A failed patch or malformed/held response creates no accepted warning. A separately valid, freshly admitted warning decision can follow the failure. Content correction, peer disagreement and correction-work closeout do not automatically resolve a warning. An authorized resolution requires the original primary, the supplied exact current warning revision, a supplied evidentiary basis and an explicit retain/release disposition. Release preserves its exact resolution receipt as required accompaniment and never deletes prior history; replay cannot revive an earlier binding.
+Warning authorship, origin work/invocation, receipt files, exact applicability bindings and append-only resolution history persist separately from the current accepted-binding snapshot. Target bytes remain unchanged. A failed patch or malformed/held response creates no accepted warning. A separately valid, freshly admitted warning decision can follow the failure. Content correction, peer disagreement and correction-work closeout do not automatically resolve a warning. A resolution records its actual author and requires the supplied exact current warning revision, a supplied evidentiary basis and an explicit retain/release disposition. Release preserves its exact resolution receipt as required accompaniment and never deletes prior history; replay cannot revive an earlier binding.
 
-Bounded warning views and exact receipt accompaniment survive restart and old-revision rediscovery. Confidentiality remains checked separately from applicability, so permitted warning metadata can explain an ineligible target without supplying its body. A read diagnostic is expanded only after its call and conservative scan reservation succeed; the complete serialized warning/history payload must fit and is charged against both the read limit and remaining result allowance. Exhaustion or overflow retains only a fixed empty unavailable disposition. Retained read observations keep their full applicability lineage and may still be withheld on later calls, independently of the permitted warning-control view. Missing or denied required accompaniment withholds the bundle. Receipt acceptance records an attributed judgment; it establishes neither content correctness, successful correction nor improvement. Warning identities/history remain finite and share existing State, corpus and Store retention limits.
+Complete warning views and exact receipt accompaniment survive restart and old-revision rediscovery. Retired and ineligible dispositions are attributable annotations, not access gates. Exact source bytes and required qualification bodies remain available with their recorded lineage; genuinely missing or malformed accompaniment cannot be invented. Warning identities, history, traversal and projections have no application count or byte quota. Receipt acceptance records an attributed judgment; it establishes neither content correctness, successful correction nor improvement.
 
 ## Remaining coverage
 

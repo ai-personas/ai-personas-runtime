@@ -34,8 +34,7 @@ impl ParticipantResumeRequest {
         }
         check(self.operator == operator, BoundaryError::Unauthorized)?;
         check(
-            self.authorize_resume
-                && valid_reference(&self.expected_runtime, STATE_ID)
+            valid_reference(&self.expected_runtime, STATE_ID)
                 && valid_reference(&self.expected_launch, ID)
                 && self.expected_runtime.revision < u64::MAX,
             BoundaryError::InvalidRequest,

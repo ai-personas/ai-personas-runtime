@@ -3,7 +3,6 @@
 use super::*;
 
 const PROFILE: &str = "persona-transient-affect-v1";
-const MAX_LIFETIME_SECONDS: i64 = 7 * 24 * 60 * 60;
 const KIND: &str = "affect_update";
 
 #[derive(Serialize, Deserialize)]
@@ -15,13 +14,12 @@ struct Record {
 }
 
 pub(super) fn interface(now: i64) -> Result<Value> {
-    let maximum = now
-        .checked_add(MAX_LIFETIME_SECONDS)
-        .ok_or_else(|| invalid("affect expiry overflow"))?;
     Ok(json!({
         "profile":PROFILE,
-        "maximum_expires_at_unix":maximum,
-        "rule":"Optional affect_update replaces or clears your own current modeled state. Set exactly valence, activation (arousal), and control (perceived control), a stated interpretation, actual supplied observation IDs or [], and an explicit expiry after adoption and no later than maximum_expires_at_unix. Use ordinary words; this is neither felt emotion nor a measurement. Current text is the exact receipt named by transient_affect.observation_id in actual_observations. Expired, unavailable or character-changed state supplies no current affect body. This does not revise stable character or baseline VAD, grant authority, choose a role, or schedule a wake. Do not use contextual state to substitute a new character. Prior accepted receipts remain historical evidence. Fragment and asset maintenance are separate."
+        "context_at_unix":now,
+        "maximum_expires_at_unix":null,
+        "lifetime_quota_enforced":false,
+        "rule":"Optional affect_update replaces or clears your own current modeled state. Set exactly valence, activation (arousal), and control (perceived control), a stated interpretation, actual supplied observation IDs or [], and an explicit expiry after adoption. There is no application maximum lifetime; choose the expiry you intend. Use ordinary words; this is neither felt emotion nor a measurement. Current text is the exact receipt named by transient_affect.observation_id in actual_observations. Expired, unavailable or character-changed state supplies no current affect body. This does not revise stable character or baseline VAD, grant authority, choose a role, or schedule a wake. Prior accepted receipts remain historical evidence. Fragment and asset maintenance are separate."
     }))
 }
 
@@ -124,16 +122,21 @@ pub(super) fn apply(
     decision: &p::Decision,
     now: i64,
 ) -> Result<()> {
-    let Some((id, change)) = decision
-        .operations
-        .iter()
-        .find_map(|operation| match operation {
-            p::Operation::AffectUpdate { id, change } => Some((id, change)),
-            _ => None,
-        })
-    else {
-        return Ok(());
-    };
+    for operation in &decision.operations {
+        if let p::Operation::AffectUpdate { id, change } = operation {
+            apply_change(state, prepared, id, change, now)?;
+        }
+    }
+    Ok(())
+}
+
+fn apply_change(
+    state: &mut State,
+    prepared: &Prepared,
+    id: &str,
+    change: &p::AffectChange,
+    now: i64,
+) -> Result<()> {
     require(
         prepared.request.mode == Mode::Ordinary && prepared.character_revision.is_some(),
         "transient affect requires a continuing ordinary persona",
@@ -159,12 +162,8 @@ pub(super) fn apply(
     } = change
     {
         require(
-            *expires_at_unix > now
-                && *expires_at_unix
-                    <= control["affect_interface"]["maximum_expires_at_unix"]
-                        .as_i64()
-                        .unwrap(),
-            "affect expiry must be future and within the supplied lifetime bound",
+            *expires_at_unix > now,
+            "affect expiry must be future at adoption",
         )?;
         let a = admission(&state.personas[actor], now);
         for id in observations {

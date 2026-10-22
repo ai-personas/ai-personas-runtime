@@ -395,9 +395,9 @@ pub struct AcceptedBinding {
 pub enum BindingDisposition {
     /// Applies to every representation/range of the exact subject revision.
     Qualify { required: Vec<Reference> },
-    /// Exact historical reads remain possible; generative use is ineligible.
+    /// Authored retirement annotation; exact retained bytes remain available.
     Retired { reason: String },
-    /// A safe disposition when a required warning or its basis is unavailable.
+    /// Authored applicability judgment; retained as context, not an access gate.
     Ineligible { reason: String },
     /// Authoritatively adopted format, independent of path, punctuation and digest.
     /// The host authenticates adoption and any subsequent replacement/removal.
@@ -459,6 +459,7 @@ pub struct Corpus {
     limits: CorpusLimits,
     bindings: BTreeMap<(String, String), Vec<AcceptedBinding>>,
     binding_bytes: usize,
+    retired_sources: BTreeSet<String>,
 }
 
 impl Corpus {
@@ -536,18 +537,28 @@ impl Corpus {
             limits,
             bindings: BTreeMap::new(),
             binding_bytes: 0,
+            retired_sources: BTreeSet::new(),
         })
     }
 
     fn material_bytes(&self) -> Result<usize, FilesError> {
+        let retirement_bytes = serialized_len(&self.retired_sources, usize::MAX)
+            .map_err(|_| FilesError::CorpusLimit("retirement metadata serialization"))?;
         self.records.values().try_fold(
-            checked_add(self.policy.encoded_bytes, self.binding_bytes)?,
+            checked_add(checked_add(self.policy.encoded_bytes, self.binding_bytes)?, retirement_bytes)?,
             |total, stored| checked_add(total, stored.encoded_bytes),
         )
     }
 
     pub fn limits(&self) -> &CorpusLimits {
         &self.limits
+    }
+
+    /// Current source retirement is metadata, separate from immutable revision
+    /// hashes. Explicit discovery filters can still select active/retired sources.
+    pub(crate) fn with_retired_sources(mut self, sources: BTreeSet<String>) -> Self {
+        self.retired_sources = sources;
+        self
     }
 
     /// Bounded metadata lookup, not a body read or permission grant. The caller
@@ -711,6 +722,7 @@ impl Corpus {
     }
     fn retired(&self, record: &FileRevision) -> bool {
         record.retired
+            || self.retired_sources.contains(&record.source)
             || self
                 .bindings_for(record)
                 .iter()
@@ -757,9 +769,7 @@ impl Corpus {
         self.policy_permitted(&record.policy, admission, usage)
             && self.bindings_for(record).iter().all(|b| {
                 self.policy_permitted(&b.policy, admission, usage)
-                    && !matches!(b.disposition, BindingDisposition::Ineligible { .. })
             })
-            && (matches!(usage, Usage::Observation) || !self.retired(record))
     }
 
     fn authorized<'a>(
@@ -870,8 +880,8 @@ impl Corpus {
         })
     }
 
-    /// Exact, qualified observation; does not select anything. Retired records may
-    /// be observed as labeled history, but cannot enter generative assembly.
+    /// Exact, qualified observation; does not select anything. Retired records
+    /// remain labeled and available both for observation and assembly.
     /// A read accounts for the complete corpus material used to resolve it,
     /// including an unsuccessful read. These quantities are not resource quotas.
     pub fn read(

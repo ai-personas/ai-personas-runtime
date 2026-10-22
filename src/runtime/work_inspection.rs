@@ -249,8 +249,7 @@ impl<'a> Permissions<'a> {
                 .unwrap_or_default();
             for mode in 0..2 {
                 let node = &mut nodes[position * 2 + mode];
-                node.denied = source.retired
-                    || !permitted(&stored.record.policy)
+                node.denied = !permitted(&stored.record.policy)
                     || (stored.exposure.is_none() && revision_importer(source, stored).is_none());
                 let mut restrictions =
                     vec![scoped_policy("file", name, revision, &stored.record.policy)];
@@ -286,8 +285,6 @@ impl<'a> Permissions<'a> {
                         f::BindingDisposition::Qualify { required } => {
                             links.extend(required.iter().map(|r| (r, mode)))
                         }
-                        f::BindingDisposition::Retired { .. }
-                        | f::BindingDisposition::Ineligible { .. } => node.denied |= mode == 0,
                         #[allow(unreachable_patterns)]
                         _ => (),
                     }
@@ -296,6 +293,7 @@ impl<'a> Permissions<'a> {
                     name,
                     revision,
                     mode,
+                    source.retired,
                     &stored.origin,
                     &stored.exposure,
                     &stored.lineage,

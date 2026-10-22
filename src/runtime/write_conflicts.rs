@@ -1,4 +1,4 @@
-//! Bounded native write-conflict facts from the write plan. The rejected
+//! Exact native write-conflict facts from the write plan. The rejected
 //! response stays rejected; only a fresh, independently admitted decision acts.
 use super::*;
 
@@ -62,10 +62,7 @@ pub(super) fn stale_base(
         let staged = candidate.sources.get(source)?;
         // A prior write in this same rejected response might have moved its head.
         // Such response-local conflicts do not acquire an accepted-base diagnostic.
-        if current.owner != prepared.request.persona
-            || current.retired
-            || current.protected
-            || current.head != staged.head
+        if current.head != staged.head
             || base_revision.as_ref() == Some(&current.head)
         {
             return None;
@@ -121,7 +118,7 @@ fn diagnose(
     let mut targets = Vec::new();
     for id in sources {
         let source = candidate.sources.get(id)?;
-        if source.owner != prepared.request.persona || source.retired {
+        if source.retired {
             return None;
         }
         let head = source
@@ -147,9 +144,6 @@ fn diagnose(
             }
         }
         let current_revision = if let Some(current) = original.sources.get(id) {
-            if current.owner != prepared.request.persona || current.retired {
-                return None;
-            }
             // An unchanged occupant's path comes from this exact accepted head.
             // A changed occupant's proposed path comes from the rejected response;
             // its old head is still the source of the reported current revision.

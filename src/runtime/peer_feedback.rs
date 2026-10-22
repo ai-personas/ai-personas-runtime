@@ -2,10 +2,6 @@
 //! Retention is not a sender commitment, mandate change, or scheduling event.
 use super::*;
 
-const MAX_PENDING: usize = 8;
-const MAX_RECORDS: usize = 128;
-const MAX_PENDING_TEXT_BYTES: usize = 16_384;
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 #[schemars(rename = "PeerFeedbackDisposition")]
@@ -109,12 +105,11 @@ pub(super) fn account(
     let work = &prepared.request.work;
     let focus = &state.personas[actor].focus[work];
     require(
-        focus.peer_feedback.len() < MAX_RECORDS
-            && !focus
+        !focus
                 .peer_feedback
                 .iter()
                 .any(|r| r.observation == observation_id && r.invocation == prepared.request.id),
-        "peer feedback record bound or duplicate disposition in this response",
+        "duplicate peer feedback disposition in this response",
     )?;
     let previous = focus
         .peer_feedback
@@ -145,10 +140,6 @@ pub(super) fn account(
             && observation.payload["sender"] == message.sender
             && observation.payload["text"] == message.text,
         "peer feedback must be an actual message from another persona in this work",
-    )?;
-    require(
-        *disposition != Disposition::Pending || message.text.len() <= MAX_PENDING_TEXT_BYTES,
-        "pending peer feedback text exceeds 16384 bytes; no body is truncated",
     )?;
     let a = admission(&state.personas[actor], now);
     let corpus = corpus(state, &a)?;
@@ -201,11 +192,5 @@ pub(super) fn account(
         .get_mut(work)
         .unwrap();
     focus.peer_feedback.push(receipt);
-    let pending_count = pending(focus).len();
-    // Reserve one final disposition slot for each pending item; an update or
-    // another pending item cannot use the last slots needed to account for it.
-    require(
-        pending_count <= MAX_PENDING && focus.peer_feedback.len() + pending_count <= MAX_RECORDS,
-        "peer feedback retention bound; final disposition slots remain reserved",
-    )
+    Ok(())
 }

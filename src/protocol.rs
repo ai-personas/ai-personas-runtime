@@ -341,15 +341,15 @@ pub enum HistoryRecordReference {
 pub enum AffectChange {
     Set {
         /// Exactly valence, activation (arousal), and control (perceived control).
-        /// Describe the present situation in words; each value is at most 512 bytes.
+        /// Describe the present situation in words, without a text-size quota.
         vad: BTreeMap<String, String>,
-        /// The persona's interpretation of its current circumstances, at most 2048 bytes.
+        /// The persona's interpretation of its current circumstances.
         interpretation: String,
         /// Exact observation IDs actually supplied in this input, or [] for a
         /// stated interpretation without an observation basis. Never invent evidence.
         observations: Vec<String>,
-        /// Absolute UTC Unix seconds, after adoption and no later than the
-        /// supplied affect interface's maximum expiry. Expiry creates no wake.
+        /// Absolute UTC Unix seconds after adoption, chosen by the persona.
+        /// No application maximum lifetime is enforced. Expiry creates no wake.
         expires_at_unix: i64,
     },
     Clear { reason: String },
@@ -2210,7 +2210,6 @@ pub fn validate_decision(
     let mut warning_ids = BTreeSet::new();
     let mut write_paths = BTreeSet::new();
     let mut characters = 0;
-    let mut affects = 0;
     let mut input_nodes = 0;
     for (index, operation) in decision.operations.iter().enumerate() {
         check_operation(operation, index, &mut input_nodes)?;
@@ -2218,12 +2217,6 @@ pub fn validate_decision(
             return Err(invalid("operations", "duplicate operation identifier"));
         }
         match operation {
-            Operation::AffectUpdate { .. } => {
-                affects += 1;
-                if affects > 1 {
-                    return Err(invalid("operations", "at most one transient affect update is allowed"));
-                }
-            }
             Operation::WarningAdopt { warning_id, .. }
             | Operation::WarningResolve { warning_id, .. }
                 if !warning_ids.insert(warning_id.as_str()) =>

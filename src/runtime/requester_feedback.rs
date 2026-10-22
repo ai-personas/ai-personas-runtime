@@ -2,9 +2,6 @@
 //! Only a fresh, explicit primary disposition clears a retained feedback item.
 use super::*;
 
-pub(super) const MAX_PENDING: usize = 8;
-pub(super) const MAX_DISPOSITIONS: usize = 128;
-
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 #[schemars(rename = "RequesterFeedbackDisposition")]
@@ -23,15 +20,6 @@ pub struct Receipt {
     pub reason: String,
     pub at_unix: i64,
     pub exposure: Exposure,
-}
-
-pub(super) fn check_capacity(focus: &Focus) -> Result<()> {
-    require(
-        focus.pending_requester_feedback.len() < MAX_PENDING
-            && focus.pending_requester_feedback.len() + focus.feedback_dispositions.len()
-                < MAX_DISPOSITIONS,
-        "requester feedback disposition capacity exhausted",
-    )
 }
 
 pub(super) fn control(
@@ -58,16 +46,11 @@ pub(super) fn control(
         .collect();
     // Keep the accepted accounting visible after the last pending body leaves
     // context. A previous authored plan to resolve it is not a success receipt.
-    // Only project bounded native metadata; reasons and feedback text remain in
-    // the retained records and do not become an unbounded history in every call.
+    // Project all native disposition metadata. Exact reasons and feedback text
+    // remain separately addressable retained records.
     let mut recent = Vec::new();
     let mut omitted = false;
-    let maximum = 4096.min(state.config.context_bytes / 16);
     for record in focus.feedback_dispositions.iter().rev() {
-        if recent.len() == MAX_PENDING {
-            omitted = true;
-            break;
-        }
         let Some(observation) = state.observations.get(&record.observation) else {
             omitted = true;
             continue;
@@ -91,13 +74,7 @@ pub(super) fn control(
             "observation":record.observation,"invocation":record.invocation,
             "disposition":record.disposition,"at_unix":record.at_unix
         });
-        let mut candidate = recent.clone();
-        candidate.push(value);
-        if serde_json::to_vec(&candidate)?.len() > maximum {
-            omitted = true;
-            continue;
-        }
-        recent = candidate;
+        recent.push(value);
         extend_exposure(exposure, origin);
         extend_exposure(exposure, &record.exposure);
     }
@@ -106,7 +83,7 @@ pub(super) fn control(
         "pending":pending,
         "pending_state":if focus.pending_requester_feedback.is_empty() { "none_pending" } else { "pending" },
         "recent_dispositions":recent,"recent_dispositions_omitted":omitted,
-        "accounting":"pending is the current tracked queue for this actor and work. none_pending means no tracked item currently needs a disposition. recent_dispositions contains accepted native accounting receipts, newest first, with at most eight entries and 4 KiB; it omits the original feedback bodies and authored reasons. An item already disposed of is no longer pending and must not be resolved again. Omitted receipt history establishes no absence of other obligations. Handled records the persona's account, not verified compliance or requester acceptance.",
+        "accounting":"pending is the current tracked queue for this actor and work. none_pending means no tracked item currently needs a disposition. recent_dispositions contains all available accepted native accounting receipts, newest first; original feedback bodies and authored reasons remain separately retained. An item already disposed of is no longer pending and must not be resolved again. Unavailable history establishes no absence of other obligations. Handled records the persona's account, not verified compliance or requester acceptance.",
         "attribution":"Each item's sender identifies its author. Local operator input is attributed to the intake operator; CONTROL.requester identifies the need's requester, who may be a different persona. No item establishes that persona's assent or acceptance.",
         "rule":"The full permitted items are in actual_observations. For resolution copy pending[].observation exactly, including its full prefix; actual_observations[].payload.id is only the requester's input label, not an observation reference. These requester directions remain current across reads, waits and local stops automatically. For an unresolved item, omit resolve_requester_feedback entirely; pending is not a valid disposition for that action. Use it only when recording handled or declined with a reason. Feedback changes no mandate, authority or resources; a disposition is your attributed account, not proof of compliance or requester acceptance."
     }))
@@ -125,10 +102,6 @@ pub(super) fn resolve(
     let actor = &prepared.request.persona;
     let work = &prepared.request.work;
     let focus = &state.personas[actor].focus[work];
-    require(
-        focus.feedback_dispositions.len() < MAX_DISPOSITIONS,
-        "requester feedback disposition capacity exhausted",
-    )?;
     require(
         focus.pending_requester_feedback.contains(observation_id),
         "requester feedback observation is not pending for this actor; copy CONTROL.requester_feedback.pending[].observation exactly, not the payload.id input label",
@@ -189,14 +162,14 @@ pub(super) fn resolve(
     Ok(())
 }
 
-/// A bounded account of the requester's own tracked inputs and the persona's
+/// A complete account of the requester's own tracked inputs and the persona's
 /// attributed dispositions. Never a verdict on whether a requested edit exists.
 pub(super) fn project_for_recipient(
     state: &State,
     work_id: &str,
     recipient: &str,
     now: i64,
-    max_bytes: usize,
+    _max_bytes: usize,
 ) -> Result<Value> {
     let view = |items: Vec<Value>, truncated: bool| {
         json!({
@@ -208,11 +181,7 @@ pub(super) fn project_for_recipient(
     if !state.config.local_recipients.contains(recipient) {
         return Ok(view(Vec::new(), false));
     }
-    if work.participants.len() > 128 || max_bytes < 1024 {
-        return Ok(view(Vec::new(), true));
-    }
     let mut candidates = Vec::new();
-    let mut truncated = false;
     for actor in work.participants.keys() {
         let Some(persona) = state.personas.get(&actor.0) else {
             continue;
@@ -220,15 +189,6 @@ pub(super) fn project_for_recipient(
         let Some(focus) = persona.focus.get(work_id) else {
             continue;
         };
-        if persona.created_by != recipient {
-            continue;
-        }
-        if focus.pending_requester_feedback.len() > MAX_PENDING
-            || focus.feedback_dispositions.len() > MAX_DISPOSITIONS
-        {
-            truncated = true;
-            continue;
-        }
         let mut a = admission(persona, now);
         a.audience = BTreeSet::from([recipient.into()]);
         let inherited = work_exposure(state, work_id)?;
@@ -288,13 +248,8 @@ pub(super) fn project_for_recipient(
         }
     }
     candidates.sort_by(|a, b| (&a.0, &a.1, a.2).cmp(&(&b.0, &b.1, b.2)));
-    let mut left = max_bytes.min(65_536).saturating_sub(512);
     let mut items = Vec::new();
     for (_, _, id, persona, observation, pending, receipt) in candidates {
-        if items.len() == 64 {
-            truncated = true;
-            break;
-        }
         let status = if pending {
             "pending"
         } else {
@@ -304,29 +259,14 @@ pub(super) fn project_for_recipient(
                 None => "disposition_unavailable",
             }
         };
-        let mut item = json!({"persona":persona.seed.id,"label":persona.seed.label,
+        let item = json!({"persona":persona.seed.id,"label":persona.seed.label,
             "observation":id,"input_id":observation.payload["id"],
             "received_at_unix":observation.at_unix,"status":status,
             "feedback_text":observation.payload["text"],"feedback_body_supplied":true,
             "account":receipt.map(|r|json!({"invocation":r.invocation,
                 "at_unix":r.at_unix,"reason":r.reason})),
             "compliance_verified":false,"requester_acceptance_established":false});
-        let mut size = serde_json::to_vec(&item)?.len();
-        if size > left {
-            // Keep the useful pending/disposition metadata if its full text
-            // does not fit. Never present a truncated quote as the full input.
-            item["feedback_text"] = Value::Null;
-            item["feedback_body_supplied"] = json!(false);
-            item["account"] = Value::Null;
-            item["detail_omitted"] = json!("result_byte_bound");
-            size = serde_json::to_vec(&item)?.len();
-            truncated = true;
-        }
-        if size > left {
-            break;
-        }
-        left -= size;
         items.push(item);
     }
-    Ok(view(items, truncated))
+    Ok(view(items, false))
 }

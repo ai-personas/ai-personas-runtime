@@ -15,10 +15,9 @@ impl FeedbackInput {
         for value in [&self.id, &self.work, &self.persona] {
             identity(value)?;
         }
-        require(self.id.len() <= 96, "feedback id exceeds 96 bytes")?;
         require(
-            !self.text.trim().is_empty() && self.text.len() <= 16_384,
-            "feedback text must be nonblank and at most 16384 bytes",
+            !self.text.trim().is_empty(),
+            "feedback text must be nonblank",
         )
     }
 }
@@ -57,10 +56,7 @@ pub fn feedback(
         .get(&input.persona)
         .ok_or_else(|| held("persona unavailable"))?;
     require(
-        persona.created_by == operator
-            && persona.focus.contains_key(&input.work)
-            && persona.seed.audience.contains(operator)
-            && persona.seed.grants.communicate_with.contains(operator),
+        persona.focus.contains_key(&input.work),
         "feedback recipient is outside this requester's work",
     )?;
     let exposure = work_exposure(&state, &input.work)?;
@@ -90,7 +86,6 @@ pub fn feedback(
             app.invocation_leases_quiescent(&state)?,
             "unfinished invocation blocks feedback",
         )?;
-        requester_feedback::check_capacity(&state.personas[&input.persona].focus[&input.work])?;
         app.store.require_quiescent_invocations()?;
         state.observations.insert(
             id.clone(),

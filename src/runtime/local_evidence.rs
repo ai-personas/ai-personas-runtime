@@ -1,6 +1,6 @@
 //! Trusted local mock evidence forwarding. No execution capability or selector.
 //!
-//! A basis records a bounded host attestation about the complete mock input and
+//! A basis records a host attestation about the complete mock input and
 //! its source restrictions. It does not independently authenticate that semantic
 //! relationship. Host authorization remains necessary. Dispatch hosts must check
 //! current work and sources and use the returned exact epoch, not sample a newer
@@ -12,7 +12,6 @@ use crate::mock_effects as m;
 /// recovers the exact object, including the exact result string. This is lossless
 /// object serialization, not a claim to preserve SQLite's JSON lexical layout.
 pub const LOCAL_EVIDENCE_SERIALIZATION: &str = "stored-object-json-lossless-v1";
-const BRIDGE_INPUT_BYTES: usize = 64 * 1024;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -114,12 +113,6 @@ pub struct DeliverPendingMockEventRequest {
     pub max_delivery_bytes: usize,
 }
 
-fn input_bound(value: &impl Serialize) -> Result<()> {
-    require(
-        serde_json::to_vec(value)?.len() <= BRIDGE_INPUT_BYTES,
-        "local evidence input bound",
-    )
-}
 fn mock_error(error: m::MockError) -> RuntimeError {
     match error {
         m::MockError::Store(error) => error.into(),
@@ -237,25 +230,6 @@ impl Runtime {
             requested,
             now,
         )?;
-        let scan = (storage_limits().max_record_bytes as usize)
-            .checked_mul(8)
-            .and_then(|n| n.checked_add(state.config.corpus.max_total_record_bytes))
-            .and_then(|n| n.checked_add(INPUT_LIMIT))
-            .ok_or_else(|| invalid("bridge projection overflow"))?;
-        let inspections = state
-            .config
-            .corpus
-            .max_revisions
-            .checked_add(state.config.corpus.max_closure_references)
-            .ok_or_else(|| invalid("bridge inspection overflow"))?;
-        require(
-            limits.calls > 0
-                && limits.matches > 0
-                && limits.result_bytes > 0
-                && limits.scanned_bytes >= scan
-                && limits.inspected_revisions >= inspections,
-            "local evidence navigation allocation exhausted",
-        )?;
         let navigation_bytes = u64::try_from(limits.scanned_bytes)
             .ok()
             .and_then(|n| {
@@ -306,7 +280,6 @@ impl Runtime {
         now: i64,
     ) -> Result<s::ObjectRef> {
         identity(operator)?;
-        input_bound(&request)?;
         require(now >= 0, "negative evidence time")?;
         text(&request.attestation, 4096)?;
         for id in [
@@ -320,16 +293,8 @@ impl Runtime {
         }
         require(
             request.mock_request.work == request.binding.work
-                && request.mock_request.interface_version == m::INTERFACE_VERSION
-                && request
-                    .mock_request
-                    .request_text
-                    .len()
-                    .checked_add(request.mock_request.inputs.len())
-                    .is_some_and(|n| n <= 16_384)
-                && request.lineage.len() <= 64
-                && request.qualifications.len() <= 64,
-            "mock basis input or lineage bound",
+                && request.mock_request.interface_version == m::INTERFACE_VERSION,
+            "mock basis work or interface mismatch",
         )?;
         text(&request.mock_request.request_text, 16_384)?;
         let hash = digest(&("mock-evidence-basis-v1", operator, &request))?;
@@ -348,7 +313,7 @@ impl Runtime {
         )?;
         check_work_authority(&state, &request.binding)?;
         let work = request.binding.work.clone();
-        let (charged, limits, _) =
+        let (charged, _limits, _) =
             self.reserve_bridge_navigation(&old, &mut state, &work, &hash)?;
         let mut exposure = work_exposure(&state, &work)?;
         exposure.sources.extend(request.lineage.iter().cloned());
@@ -384,10 +349,6 @@ impl Runtime {
                 "mandate_sha256":retained.mandate_sha256,"exposure":retained.exposure,
                 "at_unix":now,"independent_authentication":false}),
         };
-        require(
-            serde_json::to_vec(&object)?.len() <= limits.result_bytes,
-            "mock basis result bound",
-        )?;
         retained.reference = object.exact_ref()?;
         let reference = retained.reference.clone();
         state.local_evidence.bases.insert(id, retained);
@@ -418,7 +379,6 @@ impl Runtime {
     ) -> Result<u64> {
         identity(operator)?;
         require(now >= 0, "negative evidence time")?;
-        input_bound(&(&binding, &reference))?;
         let (old, mut state) = self.load()?;
         check_work_authority(&state, &binding)?;
         let basis = basis(&state, &reference)?.clone();
@@ -473,7 +433,6 @@ impl Runtime {
         now: i64,
     ) -> Result<LocalEvidenceReceipt> {
         identity(operator)?;
-        input_bound(&request)?;
         require(now >= 0, "negative evidence time")?;
         for id in [
             &request.id,
@@ -484,10 +443,6 @@ impl Runtime {
             identity(id)?;
         }
         text(&request.path, 4096)?;
-        require(
-            (1..=BRIDGE_INPUT_BYTES).contains(&request.max_evidence_bytes),
-            "evidence byte bound",
-        )?;
         if let Some(terminal) = &supplied {
             require(
                 terminal.evidence() == &request.evidence
@@ -547,10 +502,8 @@ impl Runtime {
         }
         let bytes = serde_json::to_vec(&proof.object)?;
         require(
-            bytes.len() <= request.max_evidence_bytes
-                && bytes.len() <= state.config.corpus.max_file_bytes
-                && serde_json::from_slice::<s::StoredObject>(&bytes)? == proof.object,
-            "complete lossless terminal evidence exceeds its bound",
+            serde_json::from_slice::<s::StoredObject>(&bytes)? == proof.object,
+            "terminal evidence serialization changed the exact object",
         )?;
         require(
             !state.sources.contains_key(&request.source),
@@ -605,10 +558,6 @@ impl Runtime {
             bytes_sha256,
             file_revision: file.revision.clone(),
         };
-        require(
-            serde_json::to_vec(&(&file, &origin, &receipt))?.len() <= limits.result_bytes,
-            "copied evidence and attribution exceed the navigation result bound",
-        )?;
         state.sources.insert(
             file.source.clone(),
             Source {
@@ -658,11 +607,10 @@ impl Runtime {
     ) -> Result<PendingMockRegistration> {
         identity(operator)?;
         identity(&request.id)?;
-        input_bound(&request)?;
         require(now >= 0, "negative evidence time")?;
         require(
-            (1..=128).contains(&request.participants.len()),
-            "pending mock participant bound",
+            !request.participants.is_empty(),
+            "pending mock dependency needs a participant",
         )?;
         let revision = digest(&("pending-mock-dependency-v1", operator, &request))?;
         let key = pending_key(&request.binding.work, &request.id);
@@ -761,7 +709,6 @@ impl Runtime {
     ) -> Result<LocalEventReceipt> {
         identity(operator)?;
         identity(&request.ingestion_id)?;
-        input_bound(&request)?;
         let (_, state) = self.load()?;
         let ingested = state
             .local_evidence

@@ -7,13 +7,13 @@ optional, attributed interpretation of a situation. It is not a measurement of
 felt emotion, a character revision, a grant of authority, or evidence of learning.
 
 The current state uses the same VAD vocabulary as the baseline: `valence`,
-`activation` (arousal), and `control` (perceived control). Each is a description
-of at most 512 UTF-8 bytes. The interpretation is at most 2,048 bytes. No score,
+`activation` (arousal), and `control` (perceived control). Each is an authored description without a byte quota. The interpretation also
+has no byte quota. No score,
 trait-to-affect formula or automatic decay is applied.
 
 For example, after receiving actual critical feedback, a persona can choose an
-operation of this shape, using the real observation ID and an expiry from its
-current interface:
+operation of this shape, using the real observation ID and a chosen future expiry, informed by
+`CONTROL.affect_interface.context_at_unix`:
 
 ```json
 {
@@ -34,14 +34,14 @@ current interface:
 ```
 
 The timestamp above is illustrative. The actual expiry must be later than
-adoption and no later than `CONTROL.affect_interface.maximum_expires_at_unix`,
-which is seven days after the input's context time. `observations: []` explicitly
+adoption. `CONTROL.affect_interface.maximum_expires_at_unix` is `null`,
+`lifetime_quota_enforced` is `false`, and the application imposes no maximum lifetime. `observations: []` explicitly
 records an interpretation without an observation basis. New read results and
 commands proposed in the same response are not yet supplied observations.
 
 To clear the current state, use `change: {"kind":"clear","reason":"..."}`.
-There can be at most one affect update in a complete Decision. It replaces only
-the acting persona's current state. Ordinary ownership and adoption checks still
+A Decision may contain multiple updates. They are applied in listed order, each
+retaining its own receipt; the last update becomes the acting persona's current state. Ordinary ownership and adoption checks still
 apply. The state is separate from fragment and asset maintenance; both existing
 maintenance dispositions remain required, and an affect update is not a fragment
 mutation to list under `fragment_maintenance.change`.
@@ -56,8 +56,8 @@ remain historical records available through permitted history retrieval.
 cleared, unavailable, bound to a different character, or absent. A current entry
 names its exact receipt in `actual_observations`; that full receipt remains
 supplied while current, including after its initial notification is consumed.
-It can follow the continuing identity into another work only under the current
-source and audience permissions. Required qualifications and later accepted
+It can follow the continuing identity into another work with its exact
+source and audience provenance. Required qualifications and later accepted
 source warnings accompany it. Unavailable state does not become a neutral value.
 
 Expiry omits the state from current affect context without rewriting its receipt,
@@ -76,6 +76,5 @@ justify bypassing character controls; semantic misuse still requires judgment.
 The [development view](persona-development.md) displays the currently permitted
 state separately from character. With `--invocation`, it also shows the exact
 affect status and receipts supplied to that accepted input. Current state and
-historical input remain distinct. Retention uses the existing bounded runtime
-and Store allowances. An update or later supply alone proves neither behavioral
+historical input remain distinct. Retention has no application count or byte quota. An update or later supply alone proves neither behavioral
 influence nor improvement.
