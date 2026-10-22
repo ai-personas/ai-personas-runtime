@@ -443,7 +443,7 @@ fn verified(a: &Attempt) -> Result<bool> {
     else {
         return Ok(false);
     };
-    if crate::protocol::parse_decision(inner.as_bytes(), wire::MAX_CARRIER).is_err() {
+    if crate::protocol::parse_decision(inner.as_bytes()).is_err() {
         return Ok(false);
     }
     Ok(inner == wire::specimen(&a.plan.request.id).map_err(|_| Code::InvalidState)?)

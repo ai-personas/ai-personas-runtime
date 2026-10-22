@@ -150,9 +150,8 @@ fn current_asset<'a>(
             && lineage_permitted(state, std::slice::from_ref(&reference), a),
         "host stdin asset unavailable",
     )?;
-    // The runner consumes these bytes, not the model context. Native corpus
-    // quotas still bound qualification closure; do not impose prompt fit on code
-    // or data that the persona has chosen to pass directly to a host command.
+    // Resolve the complete qualification closure for the exact asset. The
+    // runner consumes these bytes directly, without a corpus or prompt quota.
     f::assemble(
         &corpus(state, a)?,
         std::slice::from_ref(&reference),

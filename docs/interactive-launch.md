@@ -108,6 +108,8 @@ also authorizes its inspection without another approval prompt.
 Saved needs, feedback and answers retain their complete text, including control
 characters. Terminal output renders nonprinting characters as visible escapes;
 it does not reject those inputs or replace their stored content.
+Text validation reports invalid input rather than obsolete size-limit errors.
+Pause and unresolved-execution messages no longer suggest quota extensions.
 
 Select an existing directory containing the four current Rust helpers, or build
 this checkout with locked Cargo dependencies. Relative paths and directory or

@@ -245,7 +245,7 @@ fn decision_record(
     if s::sha256_bytes(authored.as_bytes()) != archive.response_hash {
         return None;
     }
-    let parsed = p::parse_decision(authored.as_bytes(), INPUT_LIMIT).ok()?;
+    let parsed = p::parse_decision(authored.as_bytes()).ok()?;
     if serde_json::to_value(parsed).ok()? != serde_json::to_value(&archive.response).ok()? {
         return None;
     }

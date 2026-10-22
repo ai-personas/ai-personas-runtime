@@ -126,7 +126,7 @@ pub(crate) fn specimen(id: &str) -> Result<String, Failure> {
         operations: Vec::new(),
     };
     let bytes = encoded(&decision, MAX_CARRIER / 2)?;
-    p::parse_decision(&bytes, MAX_CARRIER).map_err(|_| Failure::Configuration)?;
+    p::parse_decision(&bytes).map_err(|_| Failure::Configuration)?;
     String::from_utf8(bytes).map_err(|_| Failure::Configuration)
 }
 

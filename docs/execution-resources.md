@@ -91,6 +91,13 @@ string ceiling. Protocol text and collection maxima no longer reject otherwise
 valid Decisions. Exact identities, duplicate keys, complete JSON and cross-field
 consistency are still checked. Model-input construction now retains complete selected material without a byte quota.
 
+The standalone `ai-personas validate-response FILE` command reads and validates
+the complete regular file. It has no `--max-bytes` option or application byte
+ceiling and does not adopt the response or dispatch any effects.
+All Decision parsing uses the same complete-body interface. Rechecking an
+accepted need proposal binds its exact retained response and adoption proof
+without requiring historical response-size metadata.
+
 General prose and catalogue display labels are not rejected for containing
 control characters in valid JSON text. Launcher inputs likewise retain the
 original text. Terminal presentation shows nonprinting characters as visible

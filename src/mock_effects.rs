@@ -353,7 +353,7 @@ impl<'a> MockHarness<'a> {
         spec: &IntentSpec,
         bytes: &[u8],
     ) -> Result<AdmissionReceipt> {
-        let response = p::parse_decision(bytes, self.bounds.response_bytes)?;
+        let response = p::parse_decision(bytes)?;
         validate_fixture_response(&response, spec)?;
         self.validate_spec(spec)?;
         self.guard(admission, Right::Submit)?;
@@ -1041,7 +1041,7 @@ pub(crate) fn bridge_request(
         snapshot.prerequisites.clone(),
         snapshot.result_bytes,
     );
-    let response = p::parse_decision(snapshot.response_json.as_bytes(), bounds.response_bytes)?;
+    let response = p::parse_decision(snapshot.response_json.as_bytes())?;
     validate_fixture_response(&response, &spec)?;
     ensure(
         response.epoch.checked_add(1) == Some(record.admitted_epoch)

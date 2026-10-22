@@ -277,14 +277,11 @@ fn proof(
         .authored_json
         .as_deref()
         .ok_or_else(|| held("exact raw authored response unavailable"))?;
-    let maximum = prepared
-        .terminal_response_bytes
-        .ok_or_else(|| held("original complete-body bound unavailable"))?;
     require(
         s::sha256_bytes(raw.as_bytes()) == pending.response_sha256,
         "exact authored response hash differs",
     )?;
-    let parsed = p::parse_decision(raw.as_bytes(), maximum)?;
+    let parsed = p::parse_decision(raw.as_bytes())?;
     require(
         parsed == adopted.response
             && adopted.actor == pending.author

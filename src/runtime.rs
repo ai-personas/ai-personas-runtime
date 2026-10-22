@@ -1177,10 +1177,8 @@ fn shape_recovery_observation(
     {
         return Ok(None);
     }
-    let response_limit = prepared.terminal_response_bytes
-        .unwrap_or(RESPONSE_LIMIT).min(RESPONSE_LIMIT);
     let Err(p::ProtocolError::Shape { line, column, rule, hint }) =
-        p::parse_decision(text.as_bytes(), response_limit)
+        p::parse_decision(text.as_bytes())
     else {
         return Ok(None);
     };
@@ -4217,7 +4215,7 @@ impl Runtime {
     /// Validate complete raw fixture bytes first, then dispatch and adopt under
     /// one execution owner. An existing dispatch or uncertain call is not replayed.
     pub fn submit_synthetic(&mut self, id: &str, bytes: &[u8], now: i64) -> Result<AdoptionReport> {
-        let decision = p::parse_decision(bytes, RESPONSE_LIMIT)?;
+        let decision = p::parse_decision(bytes)?;
         let _owner = self.store.acquire_execution_owner()?;
         let invocation = self.store.invocation(id)?;
         let prepared = decode_prepared(&invocation)?;
@@ -4244,7 +4242,7 @@ impl Runtime {
     /// mutation, discovery, read, or communication initiated by this method.
     /// Raw bytes are synthetic input, never authentication of a provider result.
     pub fn adopt_response(&mut self, id: &str, bytes: &[u8], now: i64) -> Result<AdoptionReport> {
-        let decision = p::parse_decision(bytes, RESPONSE_LIMIT)?;
+        let decision = p::parse_decision(bytes)?;
         // Complete-response authentication is a terminal duty. It may consume
         // finite protected reads, but must not require remaining ordinary reads.
         let invocation = self.store.trusted_host().invocation(id)?;
@@ -5651,7 +5649,7 @@ impl Runtime {
         let dispatch = native.dispatch(cancellation.clone());
         let (monitor, event_cursor) = control_monitor.expect("authorized transport control monitor");
         Ok(provider_calls::pending(
-            prepared, native_audit, intent, cancellation, state.config.response_bytes,
+            prepared, native_audit, intent, cancellation,
             monitor, event_cursor, dispatch,
         ))
     }
@@ -5661,7 +5659,7 @@ impl Runtime {
         completion: provider_calls::Completion,
     ) -> Result<AdoptionReport> {
         let provider_calls::Completion {
-            prepared, audit: native_audit, intent, cancellation, response_bytes,
+            prepared, audit: native_audit, intent, cancellation,
             runtime_control_observation, outcome,
         } = completion;
         let output = match outcome
@@ -5712,7 +5710,7 @@ impl Runtime {
         // eligible here; provider streams, reasoning and stderr never enter it.
         let (bytes, parsed) = match inner {
             Ok(bytes) => {
-                let parsed = p::parse_decision(bytes.as_bytes(), response_bytes)
+                let parsed = p::parse_decision(bytes.as_bytes())
                     .map_err(RuntimeError::from);
                 (bytes, parsed)
             }
@@ -10820,7 +10818,7 @@ pub fn unix_now() -> Result<i64> {
 }
 /// Complete unique-key JSON for operator file input.
 pub fn read_json_file<T: DeserializeOwned>(path: &Path, maximum: usize) -> Result<T> {
-    let bytes = read_bounded_file(path, maximum)?;
+    let bytes = read_regular_file(path)?;
     let value = f::parse_json_unique(
         &bytes,
         &f::JsonLimits {
@@ -10833,7 +10831,8 @@ pub fn read_json_file<T: DeserializeOwned>(path: &Path, maximum: usize) -> Resul
     .map_err(|e| invalid(e.to_string()))?;
     Ok(serde_json::from_value(value)?)
 }
-pub fn read_bounded_file(path: &Path, _historical_maximum: usize) -> Result<Vec<u8>> {
+/// Read a complete regular input file without an application byte ceiling.
+pub fn read_regular_file(path: &Path) -> Result<Vec<u8>> {
     let mut file = OpenOptions::new().read(true).open(path)?;
     require(file.metadata()?.is_file(), "input must be a regular file")?;
     let mut bytes = Vec::new();

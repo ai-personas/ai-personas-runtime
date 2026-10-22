@@ -66,7 +66,7 @@ def path_text(value):
             and "\x00" not in value)
 
 
-def safe_text(value, _historical_maximum=32768):
+def safe_text(value):
     return (isinstance(value, str) and bool(value)
             and bool(value.strip()))
 
@@ -352,21 +352,21 @@ def validate_progress(p):
         if item["kind"] == "feedback":
             require(set(request) == {"id", "work", "persona", "text"}
                     and identifier(request["id"]) and identifier(request["persona"])
-                    and safe_text(request["text"], 16384))
+                    and safe_text(request["text"]))
         elif item["kind"] == "answer-question":
             require(set(request) == {"work", "reply"} and isinstance(request["reply"], dict))
             reply = request["reply"]
             require(set(reply) == {"id", "question", "question_revision", "text", "basis"}
-                    and identifier(reply["id"]) and safe_text(reply["question"], 256)
+                    and identifier(reply["id"]) and safe_text(reply["question"])
                     and re.fullmatch(r"[a-f0-9]{64}", reply["question_revision"]) is not None
-                    and safe_text(reply["text"], 8192) and safe_text(reply["basis"], 4096))
+                    and safe_text(reply["text"]) and safe_text(reply["basis"]))
         elif item["kind"] == "amend-work":
             require(set(request) == {"id", "operator", "work", "scope", "invitations", "resume",
                                      "expected_runtime", "expected_launch", "authorize_amend"}
                     and identifier(request["id"]) and request["operator"] == p["operator"]
                     and type(request["authorize_amend"]) is bool
                     and isinstance(request["scope"], dict)
-                    and safe_text(request["scope"].get("request"), 32768)
+                    and safe_text(request["scope"].get("request"))
                     and isinstance(request["invitations"], list)
                     and isinstance(request["resume"], list)
                     and all(identifier(actor) for actor in request["resume"]))
@@ -1390,7 +1390,7 @@ class Dialogue:
         candidates = [p for p in current["participants"] if p.get("resume_candidate")]
         if not candidates:
             self.ui.say("No participant can be resumed here. Ready participants can Continue; "
-                        "work-wide pauses, holds and exhausted resources need their separate controls.")
+                        "work-wide pauses and unresolved execution need their separate controls.")
             return
         persona = self.choose_participant({"participants": candidates})
         if persona is None:
@@ -1415,7 +1415,7 @@ class Dialogue:
         text = self.ui.ask("New complete request (saves the amendment and requests eligible resumption; Enter to cancel):")
         if not text.strip():
             return
-        require(safe_text(text, 32768), "amendment_too_large")
+        require(safe_text(text), "invalid_amendment_text")
         scope["request"] = text
         scope["outcomes"]["result"]["description"] = text
         scope["outcomes"]["result"]["criterion"] = text
@@ -1440,7 +1440,7 @@ class Dialogue:
         text = self.ui.ask(f"Feedback to store for {persona} in {work['id']} (Enter to cancel):")
         if not text.strip():
             return
-        require(safe_text(text, 16384), "feedback_too_large")
+        require(safe_text(text), "invalid_feedback_text")
         self.queue_work_input("feedback", {"id": "feedback-" + uuid.uuid4().hex,
             "work": work["id"], "persona": persona, "text": text})
 
@@ -1499,11 +1499,11 @@ class Dialogue:
         text = self.ui.ask("Your answer to store for the permitted work participants (Enter to cancel):")
         if not text.strip():
             return
-        require(safe_text(text, 8192), "answer_too_large")
+        require(safe_text(text), "invalid_answer_text")
         basis = self.ui.ask("Basis for your answer, such as your preference or an observation (Enter to cancel):")
         if not basis.strip():
             return
-        require(safe_text(basis, 4096), "answer_basis_too_large")
+        require(safe_text(basis), "invalid_answer_basis")
         self.queue_work_input("answer-question", {"work": work, "reply": {
             "id": "answer-" + uuid.uuid4().hex, "question": selected["question"]["id"],
             "question_revision": selected["question_revision"], "text": text, "basis": basis}})
@@ -1703,7 +1703,7 @@ class Dialogue:
                     self.run_work(work["id"], view)
                 else:
                     self.ui.say("No participant is currently eligible. Choose Resume participant for a stopped "
-                                "or individually paused participant. Other holds and limits use the controls in RUNTIME-REFERENCE.md.")
+                                "or individually paused participant. Inspect other holds and unresolved execution using RUNTIME-REFERENCE.md.")
             else:
                 self.ui.say("Choose a listed action.")
 

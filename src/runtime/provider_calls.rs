@@ -12,7 +12,6 @@ pub(in crate::runtime) struct Completion {
     pub audit: provider::RequestAudit,
     pub intent: provider::ProviderIntent,
     pub cancellation: provider::Cancellation,
-    pub response_bytes: usize,
     pub runtime_control_observation: Option<Value>,
     pub outcome: std::result::Result<provider::ProviderOutput, provider::ProviderError>,
 }
@@ -80,7 +79,6 @@ pub(super) fn pending(
     audit: provider::RequestAudit,
     intent: provider::ProviderIntent,
     cancellation: provider::Cancellation,
-    response_bytes: usize,
     mut monitor: s::RuntimeControlMonitor,
     mut event_cursor: usize,
     mut transport: BoxFuture<
@@ -128,7 +126,6 @@ pub(super) fn pending(
                 audit,
                 intent,
                 cancellation,
-                response_bytes,
                 runtime_control_observation,
                 outcome,
             }

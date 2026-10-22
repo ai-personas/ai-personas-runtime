@@ -298,12 +298,11 @@ enum Command {
         apply: bool,
     },
     Schema,
+    /// Validate a complete Decision file without adopting it or dispatching effects.
     ValidateResponse {
         file: PathBuf,
-        #[arg(long, default_value_t = 262_144)]
-        max_bytes: usize,
     },
-    /// Configuration must name explicit source policies and bounds; no access is assumed.
+    /// Initialize exact runtime configuration; saved policies and allocations are metadata.
     InitState {
         config: PathBuf,
     },
@@ -698,7 +697,7 @@ fn readable_result(value: &launch::Output) -> runtime::Result<String> {
             "character_fence" => "An accepted character change requires its next authorized handover.",
             "held" | "held_or_unresolved_invocation" | "invalid_response" => "The latest response was not adopted. Inspect it before explicitly deciding what to do next.",
             "provider_preflight_or_transport_failed" => "The provider could not complete this attempt. Inspect its retained status before recovery.",
-            "selection_overflow" => "Selected context exceeded the available space and requires repair.",
+            "selection_overflow" => "A retained selection overflow was recorded. Current ordinary assembly has no application byte quota; inspect its exact diagnostic and current selections before continuing.",
             "mandatory_context_overflow" => "Context construction failed with a retained overflow diagnostic. Current ordinary assembly has no application byte quota; inspect the exact diagnostic and source binding before continuing.",
             "store_or_resource_limit" => "A Store operation failed. Inspect its retained error and outcome before continuing.",
             _ => "The next step is blocked or unresolved and needs explicit inspection.",
@@ -838,14 +837,9 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             "adopt_response_input":"complete raw Decision JSON",
             "work_capability":{"id":"work.command.v1","binding_revision":runtime::work_binding(),"inputs":runtime::work_schema()}}))
         }
-        Command::ValidateResponse { file, max_bytes } => {
-            if *max_bytes == 0 || *max_bytes > 262_144 {
-                return Err(runtime::RuntimeError::Invalid(
-                    "max-bytes must be 1..=262144".into(),
-                ));
-            }
-            let bytes = runtime::read_bounded_file(file, *max_bytes)?;
-            let decision = protocol::parse_decision(&bytes, *max_bytes)?;
+        Command::ValidateResponse { file } => {
+            let bytes = runtime::read_regular_file(file)?;
+            let decision = protocol::parse_decision(&bytes)?;
             return emit(
                 &serde_json::json!({"structurally_valid":true,"invocation_id":decision.invocation_id,
                 "authorized":false,"adopted":false,"effects_dispatched":false}),
@@ -1236,8 +1230,8 @@ async fn run(cli: Cli) -> runtime::Result<()> {
     let response_bytes = if let Command::AdoptResponse { file, .. }
     | Command::SyntheticSubmit { file, .. } = &cli.command
     {
-        let bytes = runtime::read_bounded_file(file, 262_144)?;
-        protocol::parse_decision(&bytes, 262_144)?;
+        let bytes = runtime::read_regular_file(file)?;
+        protocol::parse_decision(&bytes)?;
         Some(bytes)
     } else {
         None

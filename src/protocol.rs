@@ -758,7 +758,7 @@ pub enum ProtocolError {
 
 /// Parse and validate the complete response without performing any mutation.
 /// No valid prefix is returned if any later part of the response is invalid.
-pub fn parse_decision(bytes: &[u8], _historical_max_bytes: usize) -> Result<Decision, ProtocolError> {
+pub fn parse_decision(bytes: &[u8]) -> Result<Decision, ProtocolError> {
     std::str::from_utf8(bytes).map_err(|error| ProtocolError::InvalidUtf8 {
         offset: error.valid_up_to(),
     })?;
