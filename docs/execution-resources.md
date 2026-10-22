@@ -351,3 +351,5 @@ No compatibility obligation is imposed for this first release. Historical live
 records stay private and keep their actual meanings; source and documentation
 changes do not improve earlier results. Compilation and actual work are used for
 verification; no test cases are required.
+
+CLI help describes current unrestricted execution and labels retained allocation fields as metadata. Optional historical authentication approval flags are hidden from ordinary help; invoking the selected command starts the action.

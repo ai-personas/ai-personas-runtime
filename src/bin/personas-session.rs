@@ -46,9 +46,9 @@ enum Command {
         require_acceptance: bool,
         need: String,
     },
-    /// Run currently eligible participants within the existing work and runtime allowances.
+    /// Run eligible participants and automatically admitted descendants without a call quota.
     ///
-    /// A fresh session consumes a new ID; it grants no resources or participant resume.
+    /// A fresh session records a new identity and preserves participant Stop/Pause.
     /// A stopped or individually paused participant needs an explicit resume first.
     /// Repeating a recorded session ID returns its retained outcome without dispatching.
     Run {
@@ -59,7 +59,7 @@ enum Command {
         /// Retained command-line metadata; invoking run is the explicit action.
         #[arg(long)]
         authorize_run: bool,
-        /// Exact launch reference previously inspected before authorizing this session.
+        /// Exact launch reference previously inspected for this session.
         #[arg(long)]
         expected_launch: Option<PathBuf>,
         /// Exact existing intake grant {id, sha256}; enables no work opportunity by itself.
@@ -73,14 +73,14 @@ enum Command {
         /// Explicit trusted Codex executable; used only for auth-only app-server JSON-RPC.
         #[arg(long, requires_all = ["host_home", "codex_home"], conflicts_with_all = ["vault", "authorize_native"])]
         codex_executable: Option<PathBuf>,
-        /// Explicit non-secret HOME for the authorized auth-only process.
+        /// Explicit non-secret HOME for the selected auth-only process.
         #[arg(long, requires = "codex_executable", conflicts_with_all = ["vault", "authorize_native"])]
         host_home: Option<PathBuf>,
         /// Explicit existing Codex state directory; selecting it does not export its contents.
         #[arg(long, requires = "codex_executable", conflicts_with_all = ["vault", "authorize_native"])]
         codex_home: Option<PathBuf>,
-        /// Authorizes one auth-only status request. Codex may proactively refresh stored credentials
-        /// even though the request sets refreshToken=false.
+        /// Historical command-line metadata. The selected Codex route requests auth status
+        /// and may refresh credentials even when refreshToken=false.
         #[arg(long, requires_all = ["codex_executable", "host_home", "codex_home"], conflicts_with_all = ["vault", "authorize_native"])]
         authorize_codex_auth_only: bool,
     },
@@ -89,12 +89,12 @@ enum Command {
         #[arg(long)]
         id: String,
     },
-    /// Bounded currently permitted messages from a retained session's exact call range. No inference.
+    /// Retained messages from a session's exact call range and requester scope. No inference.
     SessionMessages {
         #[arg(long)]
         id: String,
     },
-    /// Current permission-filtered retained result; no cached private output replay.
+    /// Current retained result in its requester scope; no cached output replay.
     Result { work: String },
     /// Current permitted shared questions, replies and conclusions; no inference.
     Questions { work: String },
@@ -114,7 +114,7 @@ enum Command {
     AmendWork { file: PathBuf },
     /// Reply to an exact shared question without inference or an explicit resume.
     AnswerQuestion { file: PathBuf },
-    /// Explicitly permit one participant to continue under the existing allowances.
+    /// Explicitly resume one participant under its existing work commitment.
     ///
     /// The file contains the exact participant, work and inspected state references.
     /// This starts no inference, lifts no work-wide pause and recovers no failed attempt.

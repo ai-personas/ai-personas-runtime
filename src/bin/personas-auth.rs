@@ -61,9 +61,10 @@ pub(crate) struct Cli {
 enum Command {
     /// Read selected-vault account metadata only. No authentication or network.
     Status,
-    /// Explicitly authorize one new browser sign-in; never opens a browser automatically.
+    /// Start a selected browser sign-in. No inference.
     SignIn {
-        #[arg(long)]
+        /// Historical optional metadata; the selected command starts the action.
+        #[arg(long, hide = true)]
         authorize: bool,
         /// Bind only 127.0.0.1; zero selects an available port.
         #[arg(long, default_value_t = 0)]
@@ -71,12 +72,14 @@ enum Command {
     },
     /// Explicitly renew the selected grant; saved runtime configuration is unchanged.
     Refresh {
-        #[arg(long)]
+        /// Historical optional metadata; the selected command starts the action.
+        #[arg(long, hide = true)]
         authorize: bool,
     },
-    /// Authorize one fixed in-process run using an already configured Store.
+    /// Start one in-process run using an already configured Store.
     NativeRun {
-        #[arg(long)]
+        /// Historical optional metadata; the selected command starts the action.
+        #[arg(long, hide = true)]
         authorize: bool,
         #[arg(long)]
         state_root: PathBuf,

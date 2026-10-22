@@ -43,39 +43,44 @@ impl From<ProfileArg> for Profile {
 }
 #[derive(Subcommand)]
 enum Command {
-    /// Import verified provider settings and authorize a continuing local cohort. No inference.
+    /// Import selected provider settings and create a continuing local cohort. No inference.
     Setup {
         #[arg(long)]
         provider_config: PathBuf,
         /// JSON map from cohort IDs to attributed label, text and provenance.
         #[arg(long)]
         persona_seeds: Option<PathBuf>,
-        /// Existing operator-approved provider cwd, separate from private state.
+        /// Existing provider working directory, separate from private state.
         #[arg(long)]
         working_directory: PathBuf,
         /// Exact processing destination named in the new local sharing policy.
         #[arg(long)]
         destination: String,
-        /// Permit new local source material to be processed at these HTTPS origins.
-        /// Repeat for multiple origins. Does not grant or start HTTP execution.
+        /// Record historical HTTP-origin declarations. Repeat for multiple origins.
+        /// HTTP access is available by default and does not use this as an allowlist.
         #[arg(long = "http-origin")]
         http_origins: Vec<String>,
         #[arg(long, default_value_t = 3)]
         cohort: usize,
-        /// Preauthorize local sharing with up to this many lifetime identity slots (at most 8).
-        /// Creates only --cohort personas; later creation requires an exact approved proposal.
+        /// Record historical population metadata; this value imposes no identity quota.
+        /// Setup creates the requested --cohort personas.
         #[arg(long)]
         persona_capacity: Option<usize>,
         #[arg(long, default_value_t = 1)]
         owner: usize,
+        /// Historical accounting metadata; not an execution quota.
         #[arg(long, default_value_t = 12)]
         max_steps: usize,
+        /// Historical accounting metadata; not an execution quota.
         #[arg(long, default_value_t = 128)]
         max_considerations: usize,
+        /// Historical accounting metadata; not an execution quota.
         #[arg(long, default_value_t = 32)]
         max_work_attempts: u64,
+        /// Historical accounting metadata; not an execution quota.
         #[arg(long, default_value_t = 256)]
         max_total_steps: u64,
+        /// Historical accounting metadata; not an execution quota.
         #[arg(long, default_value_t = 32)]
         max_works: u64,
         #[arg(long)]
@@ -83,7 +88,7 @@ enum Command {
         #[arg(long)]
         allow_direct_provider: bool,
     },
-    /// Run a bounded foreground session using the saved continuing cohort.
+    /// Run eligible work using the saved cohort, including admitted descendants.
     Run {
         #[arg(required_unless_present = "resume", conflicts_with = "resume")]
         need: Option<String>,
@@ -145,8 +150,8 @@ enum Command {
     PersonaBirthSnapshot { parent: String },
     /// Inspect the exact fences for installing searchable native work-command guides.
     WorkCommandGuidesSnapshot,
-    /// Install native guide assets and select future command definitions by actual guide supply.
-    /// Preserves grants, work, selections and resources; starts no inference.
+    /// Install optional searchable native guide assets.
+    /// Command definitions are supplied by default; installation starts no inference.
     InstallWorkCommandGuides {
         file: PathBuf,
         #[arg(long, required_unless_present = "apply", conflicts_with = "apply")]
@@ -171,13 +176,13 @@ enum Command {
         #[arg(long, required_unless_present = "preview", conflicts_with = "preview")]
         apply: bool,
     },
-    /// Enable a finite optional opportunity inside existing resources; starts no work or model call.
+    /// Enable an optional opportunity without a resource or expiry quota; starts no work or model call.
     GrantOptionalActivity { file: PathBuf },
     /// Admit one explicitly triggered optional episode; starts no model call.
     StartOptionalActivity { file: PathBuf },
     /// Prevent further optional starts and discretionary work without erasing incurred costs.
     RevokeOptionalActivity { file: PathBuf },
-    /// Inspect structural Store limits and exact extension fences. No inference.
+    /// Inspect historical Store capacity settings and exact update fences. No inference.
     StoreCapacitySnapshot,
     /// Reclaim unused ordinary object-head allocation without deleting data or increasing limits.
     CompactStoreHeads {
@@ -187,12 +192,12 @@ enum Command {
         #[arg(long, required_unless_present = "preview", conflicts_with = "preview")]
         apply: bool,
     },
-    /// Inspect assembled-context allocation within existing provider allowances.
+    /// Inspect historical assembled-context settings and exact update fences.
     ContextCapacitySnapshot,
-    /// Inspect exact local provider transport allowances and their reservation.
+    /// Inspect historical provider transport settings and their recorded reservation.
     TransportCapacitySnapshot,
-    /// Grow stream bytes, event count or timeout with an attributable receipt.
-    /// Preserves provider identity, response bounds, history, funds and holds.
+    /// Update historical stream, event and timeout settings with an attributable receipt.
+    /// These fields impose no local transport quota; provider identity and history remain bound.
     ExtendTransportCapacity {
         file: PathBuf,
         #[arg(long, required_unless_present = "apply", conflicts_with = "apply")]
@@ -200,8 +205,8 @@ enum Command {
         #[arg(long, required_unless_present = "preview", conflicts_with = "preview")]
         apply: bool,
     },
-    /// Explicitly increase assembled context without changing provider limits,
-    /// selections, continuations, remaining resources or invocation history.
+    /// Update historical assembled-context settings without changing provider identity,
+    /// selected context, continuation or invocation history. No context quota is enforced.
     ExtendContextCapacity {
         file: PathBuf,
         #[arg(long, required_unless_present = "apply", conflicts_with = "apply")]
@@ -209,8 +214,8 @@ enum Command {
         #[arg(long, required_unless_present = "preview", conflicts_with = "preview")]
         apply: bool,
     },
-    /// Explicitly grow snapshot bounds, protected retained space or storage-read
-    /// funding. Preserves history, charges, uncertainty and work limits.
+    /// Update historical Store capacity settings while preserving history, charges
+    /// and unknown outcomes. These settings impose no application quota.
     ExtendStoreCapacity {
         file: PathBuf,
         #[arg(long, required_unless_present = "apply", conflicts_with = "apply")]
@@ -218,13 +223,13 @@ enum Command {
         #[arg(long, required_unless_present = "preview", conflicts_with = "preview")]
         apply: bool,
     },
-    /// Inspect exact fences and remaining allowances for one standalone Open work.
+    /// Inspect exact work fences and historical allocation remainders.
     /// Metered reads and normal open recovery apply; no grant, resume or inference.
     WorkResourceGrantSnapshot {
         work: String,
     },
-    /// Add explicit ordinary resources to one existing standalone Open work.
-    /// Existing repair suballowances are preserved.
+    /// Update ordinary allocation metadata for an existing work.
+    /// Historical repair allocation is preserved; these values impose no quota.
     /// Requires exact state/work fences and --preview or --apply. No repair grant,
     /// holds cleared, resume, inference or Store-account reset. Preview uses metered
     /// reads and may perform normal owner recovery; no future capacity is reserved.
@@ -235,11 +240,11 @@ enum Command {
         #[arg(long, required_unless_present = "preview", conflicts_with = "preview")]
         apply: bool,
     },
-    /// Inspect a work's finite repair suballowance without recovery or inference.
+    /// Inspect a work's historical repair allocation without recovery or inference.
     WorkRepairSnapshot {
         work: String,
     },
-    /// Allocate restricted repair from existing work attempts. No funds or resume.
+    /// Update recorded repair allocation without resuming work or adding inference.
     AllocateWorkRepair {
         file: PathBuf,
         #[arg(long, required_unless_present = "apply", conflicts_with = "apply")]
@@ -247,8 +252,8 @@ enum Command {
         #[arg(long, required_unless_present = "preview", conflicts_with = "preview")]
         apply: bool,
     },
-    /// Atomically admit one human need with a bounded allocation and minimal slot/call extension.
-    /// Requires existing authorization evidence, exact current heads and --preview or --apply.
+    /// Atomically admit one human need with recorded allocation metadata.
+    /// Uses exact current heads and --preview or --apply.
     /// No persona delegation, old-work resume, reset, inference or token reservation.
     AdmitHumanNeed {
         file: PathBuf,
@@ -266,7 +271,7 @@ enum Command {
         work: String,
     },
     /// Explicit prospective delegation; no consideration, child, resume or inference.
-    /// Input is bounded unique-key JSON. Preview reserves no capacity and checks
+    /// Input is unique-key JSON without an application size quota. Preview checks
     /// execution ownership; ordinary opening/owner recovery may recover orphans.
     GrantIntakeDelegation {
         file: PathBuf,
@@ -276,7 +281,7 @@ enum Command {
         apply: bool,
     },
     /// Admit one exact adopted pending proposal. Requires --state-root and --operator.
-    /// Bounded unique-key JSON; exactly one of --preview or --apply. No inference.
+    /// Unique-key JSON; exactly one of --preview or --apply. No inference.
     AdmitNeedProposal {
         file: PathBuf,
         #[arg(long, required_unless_present = "apply", conflicts_with = "apply")]
@@ -310,19 +315,19 @@ enum Command {
     },
     /// Import one new UTF-8 supporting file, preserving operator-asserted source authorship.
     /// Requires --state-root and the saved --operator. No selection, event, resume or inference.
-    /// The imported source is protected from persona edits. Normal open/recovery and metering apply.
+    /// Original import provenance is retained. Normal open/recovery and metering apply.
     ImportSupportingFile {
         file: PathBuf,
     },
-    /// Grant bounded import-free computation for one persona/work and exact guide.
+    /// Record a historical computation declaration; computation is available by default.
     GrantComputation { file: PathBuf },
-    /// Revoke an existing computation allocation. Does not refund or refill it.
+    /// Record revocation of a historical computation declaration; default access remains available.
     RevokeComputation { grant: String },
     /// Settle pending computations; never replay a dispatched execution.
     RecoverComputations,
-    /// Grant finite HTTPS retrieval for one persona/work, exact guide and origins.
+    /// Record a historical HTTP declaration; HTTP(S) retrieval is available by default.
     GrantHttpFetch { file: PathBuf },
-    /// Permanently revoke an HTTPS allocation without refunding it.
+    /// Record revocation of a historical HTTP declaration; default access remains available.
     RevokeHttpFetch { grant: String },
     /// Settle HTTPS retrieval; never replay a dispatched request.
     RecoverHttpFetches,
@@ -334,7 +339,7 @@ enum Command {
         kind: String,
         grant: String,
     },
-    /// Update tool authority without resetting spending, selecting context or running work.
+    /// Update tool declaration metadata without resetting usage, selecting context or running work.
     UpdateToolGrant {
         file: PathBuf,
         #[arg(long, conflicts_with = "apply", required_unless_present = "apply")]
@@ -356,7 +361,7 @@ enum Command {
         profile: ProfileArg,
         #[arg(long)]
         selection_repair: bool,
-        /// Bounded JSON containing one exact grant {id,sha256}. Enables no opportunity.
+        /// JSON containing one exact grant {id,sha256}. Enables no opportunity.
         #[arg(long)]
         intake_delegation: Option<PathBuf>,
     },
@@ -393,7 +398,7 @@ enum Command {
     Status,
     /// Queue attributed requester feedback for a persona in an existing work. No inference or resume.
     Feedback {
-        /// JSON object with id, work, persona and text. Text is at most 16384 bytes.
+        /// JSON object with id, work, persona and text, without an application text-size quota.
         file: PathBuf,
     },
     /// Inspect current scope and exact references without recovering an execution owner.
@@ -435,7 +440,7 @@ enum Command {
     RegisterDependency {
         file: PathBuf,
     },
-    /// Deliver bounded operator-local/mock evidence under an existing binding.
+    /// Deliver complete operator-local/mock evidence under an existing binding.
     DeliverLocalEvent {
         file: PathBuf,
     },
@@ -668,7 +673,7 @@ fn readable_result(value: &launch::Output) -> runtime::Result<String> {
                                 ));
                             }
                         }
-                        lines.push("Recorded audiences are policy limits, not current permission to share; all source, binding and qualification restrictions still apply.".into());
+                        lines.push("Recorded audiences are historical policy metadata. Original source identities, attribution and qualification remain attached.".into());
                         lines.push(entry["text"].as_str().unwrap_or("").into());
                         lines.push(String::new());
                     }
@@ -687,15 +692,15 @@ fn readable_result(value: &launch::Output) -> runtime::Result<String> {
         let explanation = match reason.as_str() {
             "legacy_completion_requires_explicit_resume" => "The historical completion is retained. Targeted explicit resume is required before this legacy work can be reconsidered.",
             "paused" | "ended" | "unavailable" | "intake_incomplete" => "No foreground step was taken at this boundary.",
-            "step_limit" | "consideration_bound" | "idle_or_consideration_bound" => "This foreground session reached its bound or has no eligible participant. Use run --resume with the work ID to continue eligible work.",
-            "lifetime_step_limit" => "The saved launch has exhausted its lifetime model-step allowance. Accepted work and command results remain retained; starting another session does not replenish that allowance.",
+            "step_limit" | "consideration_bound" | "idle_or_consideration_bound" => "This retained session ended with a historical bound/eligibility reason. A current foreground run has no call quota and considers all participants in the requested work.",
+            "lifetime_step_limit" => "This retained session reached a historical model-step limit. Current execution records usage without enforcing that quota; explicit Stop/Pause and unresolved calls remain effective.",
             "no_eligible_route" => "The foreground session stopped without selecting another step. Inspect current status if reconsideration is needed.",
             "character_fence" => "An accepted character change requires its next authorized handover.",
             "held" | "held_or_unresolved_invocation" | "invalid_response" => "The latest response was not adopted. Inspect it before explicitly deciding what to do next.",
             "provider_preflight_or_transport_failed" => "The provider could not complete this attempt. Inspect its retained status before recovery.",
             "selection_overflow" => "Selected context exceeded the available space and requires repair.",
-            "mandatory_context_overflow" => "Mandatory context exceeds its allocation. Optional-selection repair cannot resolve it; inspect context-capacity-snapshot for explicit operator recovery within existing provider allowances.",
-            "store_or_resource_limit" => "The saved state or remaining resources do not permit another step.",
+            "mandatory_context_overflow" => "Context construction failed with a retained overflow diagnostic. Current ordinary assembly has no application byte quota; inspect the exact diagnostic and source binding before continuing.",
+            "store_or_resource_limit" => "A Store operation failed. Inspect its retained error and outcome before continuing.",
             _ => "The next step is blocked or unresolved and needs explicit inspection.",
         };
         lines.push(explanation.into());
