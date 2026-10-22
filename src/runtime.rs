@@ -641,6 +641,8 @@ pub enum RevisionOrigin {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ManagedRevision {
+    /// Compact retained bytes; the FileRevision API and identity stay expanded.
+    #[serde(with = "state_storage::StoredFileRevision")]
     pub record: f::FileRevision,
     pub lineage: Vec<f::Reference>,
     /// Tool inputs whose required accompaniment follows this result. Permission

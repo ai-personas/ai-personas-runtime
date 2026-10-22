@@ -1,6 +1,56 @@
-//! Lossless storage of repeated typed host exposure manifests.
-//! The in-memory State and every historical evidence identity remain expanded.
+//! Lossless storage of file bytes and repeated typed host exposure manifests.
+//! The in-memory State and file-revision identity inputs remain expanded.
 use super::*;
+
+// This adapter applies only to a runtime ManagedRevision. FileRevision's public
+// wire format, content, and computed_revision tuple are deliberately unchanged.
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "f::FileRevision", deny_unknown_fields)]
+pub(super) struct StoredFileRevision {
+    source: String,
+    revision: String,
+    path: String,
+    scope: f::Scope,
+    #[serde(with = "retained_bytes")]
+    bytes: Vec<u8>,
+    author: String,
+    policy: f::Policy,
+    qualifications: Vec<f::Reference>,
+    retired: bool,
+}
+
+mod retained_bytes {
+    use base64::{display::Base64Display, engine::general_purpose::STANDARD, Engine};
+    use serde::{de, Deserialize, Deserializer, Serializer};
+    use std::fmt;
+
+    pub(super) fn serialize<S: Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
+        // Avoid one JSON Value per byte while constructing and cloning State.
+        serializer.collect_str(&Base64Display::new(bytes, &STANDARD))
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
+        struct Bytes;
+        impl<'de> de::Visitor<'de> for Bytes {
+            type Value = Vec<u8>;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("standard padded base64 or retained byte array")
+            }
+
+            fn visit_str<E: de::Error>(self, encoded: &str) -> Result<Self::Value, E> {
+                STANDARD.decode(encoded).map_err(E::custom)
+            }
+
+            fn visit_seq<A: de::SeqAccess<'de>>(self, sequence: A) -> Result<Self::Value, A::Error> {
+                // Earlier immutable snapshots remain readable as recorded;
+                // opening one does not rewrite it or change its exact reference.
+                Vec::<u8>::deserialize(de::value::SeqAccessDeserializer::new(sequence))
+            }
+        }
+        deserializer.deserialize_any(Bytes)
+    }
+}
 
 const POOL: &str = "retained_exposures";
 const REFERENCE: &str = "retained_exposure";
