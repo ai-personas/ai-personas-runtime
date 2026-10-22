@@ -57,6 +57,14 @@ pub(super) fn observation_ids(
             ids.push(record.observation.clone());
         }
     }
+    ids.sort_by(|left, right| {
+        state
+            .observations
+            .get(left)
+            .map(|o| o.at_unix)
+            .cmp(&state.observations.get(right).map(|o| o.at_unix))
+            .then_with(|| left.cmp(right))
+    });
     ids
 }
 
@@ -71,6 +79,24 @@ pub(super) fn control(
     if focus.pending_requester_feedback.is_empty() && focus.feedback_dispositions.is_empty() {
         return Ok(Value::Null);
     }
+    let directions = observation_ids(state, work, focus, a);
+    let latest_received_at = directions
+        .iter()
+        .filter_map(|id| state.observations.get(id).map(|o| o.at_unix))
+        .max();
+    let latest_received: Vec<_> = directions
+        .iter()
+        .filter_map(|id| {
+            let observation = state.observations.get(id)?;
+            (Some(observation.at_unix) == latest_received_at).then(|| {
+                json!({
+                    "observation":id,"received_at_unix":observation.at_unix,
+                    "body_supplied":supplied.contains(id),
+                    "pending":focus.pending_requester_feedback.contains(id)
+                })
+            })
+        })
+        .collect();
     let pending: Vec<Value> = focus
         .pending_requester_feedback
         .iter()
@@ -108,6 +134,8 @@ pub(super) fn control(
         "pending":pending,
         "pending_state":if focus.pending_requester_feedback.is_empty() { "none_pending" } else { "pending" },
         "recent_dispositions":recent,"recent_dispositions_omitted":omitted,
+        "latest_received":latest_received,
+        "direction_order":"Original feedback bodies in actual_observations are ordered by received_at_unix, oldest first, independently of pending/disposition status. latest_received identifies the most recently received timestamp group; equal timestamps do not establish an order within that group. Use later explicit corrections where they supersede older direction, while retaining the original attribution and history.",
         "accounting":"pending is the current tracked queue for this actor and work. none_pending means no tracked item currently needs a disposition. recent_dispositions contains every available accepted account and its exact reason, newest first. feedback_body_supplied identifies original feedback bodies retained in actual_observations after disposition. Use this history to keep requester direction available while continuing the work; a disposition does not erase the direction or prove that a planned edit was completed. Historical items are not newly received and must not be resolved again. Later explicit corrections can supersede older directions. Unavailable history establishes no absence of other obligations. Handled records the persona's account, not verified compliance or requester acceptance.",
         "attribution":"Each item's sender identifies its author. Local operator input is attributed to the intake operator; CONTROL.requester identifies the need's requester, who may be a different persona. No item establishes that persona's assent or acceptance.",
         "rule":"The full permitted items are in actual_observations. For resolution copy pending[].observation exactly, including its full prefix; actual_observations[].payload.id is only the requester's input label, not an observation reference. These requester directions remain current across reads, waits and local stops automatically. For an unresolved item, omit resolve_requester_feedback entirely; pending is not a valid disposition for that action. Use it only when recording handled or declined with a reason. Feedback changes no mandate, authority or resources; a disposition is your attributed account, not proof of compliance or requester acceptance."

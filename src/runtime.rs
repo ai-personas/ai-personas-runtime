@@ -6979,11 +6979,12 @@ fn render_mode_with_history(
         None
     };
     let mut observation_queue = focus.pending_observations.clone();
-    for id in requester_feedback::observation_ids(state, work_id, focus, &a) {
-        if !observation_queue.contains(&id) {
-            observation_queue.push(id);
-        }
-    }
+    let feedback_ids = requester_feedback::observation_ids(state, work_id, focus, &a);
+    let feedback_set: BTreeSet<_> = feedback_ids.iter().collect();
+    // A new pending direction must not precede older completed directions just
+    // because it was already queued. Keep the complete feedback chronology.
+    observation_queue.retain(|id| !feedback_set.contains(id));
+    observation_queue.extend(feedback_ids);
     for id in peer_feedback::observation_ids(state, focus, &a) {
         if !observation_queue.contains(&id) {
             observation_queue.push(id);

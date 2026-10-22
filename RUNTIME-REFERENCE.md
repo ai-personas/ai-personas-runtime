@@ -214,6 +214,9 @@ This keeps requester direction available through later reads and edits after a
 disposition. Historical items do not become pending or newly received again;
 later explicit corrections can supersede older directions. Original observation
 hashes, authorship and disposition provenance remain checked and inherited.
+Feedback bodies are supplied oldest first by receipt time, independently of
+whether they are pending or disposed of. `latest_received` names every item in
+the newest timestamp group; equal timestamps do not invent an ordering.
 `recent_dispositions_omitted` identifies unavailable history. These receipts
 establish accepted accounting, not compliance or assent.
 

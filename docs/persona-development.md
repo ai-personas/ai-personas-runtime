@@ -61,6 +61,9 @@ keeps direction available while later work continues. Historical feedback is
 neither newly received nor pending again, and later corrections can supersede
 older directions. Exact observation hashes, accepting calls and provenance
 remain checked. A receipt does not verify compliance or requester acceptance.
+Feedback bodies remain in receipt-time order, oldest first, including newly
+pending items. `latest_received` identifies the newest timestamp group without
+assigning an order to inputs received at the same timestamp.
 
 Feedback does not resume a stopped persona or replenish its resources. Continue
 through the existing foreground session, explicitly resuming a stopped
