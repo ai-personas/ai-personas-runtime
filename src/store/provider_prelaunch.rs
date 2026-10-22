@@ -111,7 +111,7 @@ impl Work<'_> {
             Some("Runtime authorization rejected before provider launch".into()),
             Some(object.exact_ref()?),
         )?;
-        append(&mut record.history, receipt.clone(), INVOCATION_EVENTS)?;
+        record.history.push(receipt.clone());
         self.update("invocation", &record.id, &record)?;
         // Preserve later measurements or uncertainty. An open reservation moves
         // to Unknown with the same aggregate hold and admitted attempt charge.

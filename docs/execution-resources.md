@@ -25,6 +25,12 @@ actual accounting class in the same transaction. Exact identities, immutable
 revisions, complete-response validation and execution ownership still preserve
 record consistency.
 
+Invocation, intent and reservation histories append every valid lifecycle
+receipt without a fixed event-count cap. Their initial slot counts remain
+accounting estimates. Store reads complete controlling metadata without a fixed
+byte ceiling. A committed pause or closeout slot remains immutable; a valid
+resumption allocates its next slot instead of overwriting an earlier control.
+
 An earlier accounting overrun remains recorded but no longer freezes admission.
 Ledger inspection reports `resource_quotas_enforced: false`, `frozen: false` and
 separately preserves `historical_freeze_recorded`. Measured use beyond an earlier

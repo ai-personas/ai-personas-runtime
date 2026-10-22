@@ -37,6 +37,8 @@ fn supported_schema(version: u32) -> bool {
 const META_CAPACITY: u64 = 16 * 1024;
 const CONTROL_HEADROOM: u64 = 16 * 1024;
 const CELL_ENVELOPE: u64 = 128;
+// Initial accounting estimates, never receipt-history limits. Mutable records
+// retain every valid transition and charge actual byte growth when persisted.
 const INVOCATION_EVENTS: u64 = 8;
 const INTENT_EVENTS: u64 = 6;
 const RESERVATION_EVENTS: u64 = 4;
@@ -95,8 +97,6 @@ pub enum StoreError {
         projected_bytes: u64,
         limit_bytes: u64,
     },
-    #[error("reserved event-history capacity exhausted")]
-    HistoryLimit,
     #[error("permanent identity capacity exhausted")]
     IdentityLimit,
     #[error("invalid lifecycle transition: {0}")]
@@ -908,7 +908,7 @@ impl TrustedHost<'_> {
                 Some(RUNTIME_PLANNING_STARTED.into()),
                 Some(terminal.clone()),
             )?;
-            append(&mut record.history, receipt, INVOCATION_EVENTS)?;
+            record.history.push(receipt);
             work.update("invocation", id, &record)?;
             Ok(true)
         })
@@ -1400,7 +1400,9 @@ impl TrustedHost<'_> {
                 let slot = work.runtime_control_slot(&key, work_id, false, &plan)?;
                 if slot.commit.is_some() {
                     if previous.pause {
-                        return Err(StoreError::HistoryLimit);
+                        return Err(StoreError::InvalidState(
+                            "open work already has a committed pause control".into(),
+                        ));
                     }
                     // The validated next snapshot revision is monotonic. The
                     // old filled cell is never updated, refunded, or reused.
@@ -1441,7 +1443,7 @@ impl TrustedHost<'_> {
                                 None,
                             )?;
                             record.state = InvocationState::Failed;
-                            append(&mut record.history, receipt, INVOCATION_EVENTS)?;
+                            record.history.push(receipt);
                             work.update("invocation", &id, &record)?;
                             work.settle(&record.reservation, Usage::Unknown)?;
                         }
@@ -2050,9 +2052,9 @@ impl Store {
                  BEGIN SELECT RAISE(ABORT,'permanent identity'); END;",
             )?;
             let existing: Option<Vec<u8>> = tx.query_row(
-                "SELECT CASE WHEN length(data)<=?1 THEN data ELSE NULL END FROM store_meta WHERE singleton=1",
-                [META_CAPACITY as i64], |row| row.get::<_, Option<Vec<u8>>>(0),
-            ).optional()?.flatten();
+                "SELECT data FROM store_meta WHERE singleton=1",
+                [], |row| row.get(0),
+            ).optional()?;
             let count: i64 =
                 tx.query_row("SELECT count(*) FROM store_meta", [], |row| row.get(0))?;
             if count == 0 {
@@ -2069,7 +2071,9 @@ impl Store {
                     [encode(&meta, META_CAPACITY)?],
                 )?;
             } else {
-                let bytes = existing.ok_or(StoreError::TooLarge)?;
+                let bytes = existing.ok_or_else(|| StoreError::Corrupt(
+                    "controlling metadata row is missing".into(),
+                ))?;
                 let meta: Meta = decode_json(&bytes)?;
                 if !supported_schema(meta.schema_version) {
                     return Err(StoreError::Unsupported("database schema version"));
@@ -2556,7 +2560,7 @@ impl Store {
                 None,
             )?;
             record.state = InvocationState::Dispatched;
-            append(&mut record.history, receipt.clone(), INVOCATION_EVENTS)?;
+            record.history.push(receipt.clone());
             work.update("invocation", id, &record)?;
             Ok(receipt)
         })
@@ -2594,7 +2598,7 @@ impl Store {
                 None,
                 None,
             )?;
-            append(&mut record.history, receipt.clone(), INVOCATION_EVENTS)?;
+            record.history.push(receipt.clone());
             work.update("invocation", id, &record)?;
             Ok(receipt)
         })
@@ -2628,7 +2632,7 @@ impl Store {
                 None,
                 Some(evidence),
             )?;
-            append(&mut record.history, receipt.clone(), INVOCATION_EVENTS)?;
+            record.history.push(receipt.clone());
             work.update("invocation", id, &record)?;
             Ok(receipt)
         })
@@ -2786,7 +2790,7 @@ impl Store {
                 None,
             )?;
             invocation.state = InvocationState::Adopted;
-            append(&mut invocation.history, receipt.clone(), INVOCATION_EVENTS)?;
+            invocation.history.push(receipt.clone());
             work.update("invocation", &decision.invocation_id, &invocation)?;
             let record = DecisionRecord {
                 invocation_id: decision.invocation_id.clone(),
@@ -2887,7 +2891,7 @@ impl Store {
                 None,
                 None,
             )?;
-            append(&mut record.history, receipt.clone(), INTENT_EVENTS)?;
+            record.history.push(receipt.clone());
             work.update("intent", id, &record)?;
             Ok(receipt)
         })
@@ -2927,7 +2931,7 @@ impl Store {
             work.bump_epoch()?;
             record.state = state;
             let receipt = work.event(EntityId::Intent(id.into()), status, None, Some(evidence))?;
-            append(&mut record.history, receipt.clone(), INTENT_EVENTS)?;
+            record.history.push(receipt.clone());
             work.update("intent", id, &record)?;
             Ok(receipt)
         })
@@ -2953,7 +2957,7 @@ impl Store {
                 Some(reason.into()),
                 None,
             )?;
-            append(&mut record.history, receipt.clone(), INTENT_EVENTS)?;
+            record.history.push(receipt.clone());
             work.update("intent", id, &record)?;
             Ok(receipt)
         })
@@ -3018,7 +3022,7 @@ impl Store {
                         None,
                         Some(observation.evidence.clone()),
                     )?;
-                    append(&mut record.history, receipt.clone(), INVOCATION_EVENTS)?;
+                    record.history.push(receipt.clone());
                     record.reconciliation = Some(observation.clone());
                     work.update("invocation", id, &record)?;
                     Ok(receipt)
@@ -3059,7 +3063,7 @@ impl Store {
                         None,
                         Some(observation.evidence.clone()),
                     )?;
-                    append(&mut record.history, receipt.clone(), INTENT_EVENTS)?;
+                    record.history.push(receipt.clone());
                     record.reconciliation = Some(observation.clone());
                     work.update("intent", id, &record)?;
                     Ok(receipt)
@@ -3339,7 +3343,7 @@ impl<'a> Work<'a> {
         record.response_hash = Some(response_hash.into());
         record.state = InvocationState::Responded;
         let receipt = self.event(subject, ReceiptStatus::Responded, None, Some(evidence))?;
-        append(&mut record.history, receipt.clone(), INVOCATION_EVENTS)?;
+        record.history.push(receipt.clone());
         self.update("invocation", id, &record)?;
         Ok(receipt)
     }
@@ -4148,7 +4152,9 @@ impl<'a> Work<'a> {
                     let key = self.current_runtime_control_key(&requirement.work, ending)?;
                     let slot = self.runtime_control_slot(&key, &requirement.work, ending, plan)?;
                     if slot.commit.is_some() {
-                        return Err(StoreError::HistoryLimit);
+                        return Err(StoreError::InvalidState(
+                            "required runtime control slot is already committed".into(),
+                        ));
                     }
                 }
             }
@@ -4444,7 +4450,7 @@ impl<'a> Work<'a> {
                     None,
                     None,
                 )?;
-                append(&mut record.history, receipt, RESERVATION_EVENTS)?;
+                record.history.push(receipt);
                 self.update("reservation", &key, &record)?;
                 Ok((record, false))
             }
@@ -4505,7 +4511,7 @@ impl<'a> Work<'a> {
                     ReceiptStatus::Settled
                 };
                 let receipt = self.event(EntityId::Reservation(id.clone()), status, None, None)?;
-                append(&mut record.history, receipt, RESERVATION_EVENTS)?;
+                record.history.push(receipt);
                 self.update("reservation", &key, &record)?;
                 Ok((record, overrun))
             }
@@ -4538,7 +4544,7 @@ impl<'a> Work<'a> {
             Some(reason.into()),
             None,
         )?;
-        append(&mut record.history, receipt.clone(), INVOCATION_EVENTS)?;
+        record.history.push(receipt.clone());
         if record.runtime_failure_context.is_some() {
             let capacity = self
                 .cell("invocation", id)?
@@ -4572,7 +4578,7 @@ impl<'a> Work<'a> {
             Some(reason.into()),
             None,
         )?;
-        append(&mut record.history, receipt.clone(), INVOCATION_EVENTS)?;
+        record.history.push(receipt.clone());
         self.update("invocation", id, &record)?;
         Ok(receipt)
     }
@@ -4591,7 +4597,7 @@ impl<'a> Work<'a> {
             Some(reason.into()),
             None,
         )?;
-        append(&mut record.history, receipt.clone(), INTENT_EVENTS)?;
+        record.history.push(receipt.clone());
         self.update("intent", id, &record)?;
         Ok(receipt)
     }
@@ -4652,7 +4658,7 @@ impl<'a> Work<'a> {
             Some("Native navigation charged; other usage remains unknown; work allowances unchanged".into()),
             None,
         )?;
-        append(&mut record.history, receipt, RESERVATION_EVENTS)?;
+        record.history.push(receipt);
         self.update("reservation", &key, &record)
     }
 
@@ -4666,23 +4672,15 @@ impl<'a> Work<'a> {
 }
 
 fn load_meta(connection: &Connection) -> Result<Meta> {
-    let bytes: Option<Vec<u8>> = connection.query_row(
-        "SELECT CASE WHEN length(data)<=?1 THEN data ELSE NULL END FROM store_meta WHERE singleton=1",
-        [META_CAPACITY as i64], |row| row.get(0),
+    let bytes: Vec<u8> = connection.query_row(
+        "SELECT data FROM store_meta WHERE singleton=1",
+        [], |row| row.get(0),
     )?;
-    let meta: Meta = decode_json(&bytes.ok_or(StoreError::TooLarge)?)?;
+    let meta: Meta = decode_json(&bytes)?;
     if !supported_schema(meta.schema_version) {
         return Err(StoreError::Unsupported("database schema version"));
     }
     Ok(meta)
-}
-
-fn append(history: &mut Vec<Receipt>, receipt: Receipt, capacity: u64) -> Result<()> {
-    if history.len() as u64 >= capacity {
-        return Err(StoreError::HistoryLimit);
-    }
-    history.push(receipt);
-    Ok(())
 }
 
 fn receipt_with_status(history: &[Receipt], status: ReceiptStatus) -> Result<Receipt> {
