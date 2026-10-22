@@ -207,6 +207,12 @@ impl Driver for NativeDriver<'_> {
         Ok(())
     }
 
+    fn population_created(&mut self, before: &Saved, after: &Saved) -> Result<()> {
+        require(binding(before)? == self.launch, "creation began under a different launch binding")?;
+        self.launch = binding(after)?;
+        Ok(())
+    }
+
     fn before_step(&mut self, app: &mut Runtime) -> Result<()> {
         let (_, saved) = load(app)?;
         require(

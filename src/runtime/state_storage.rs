@@ -42,6 +42,8 @@ struct ExpandedState {
     host_command_jobs: BTreeMap<String, tools::JobMarker>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     optional_activities: BTreeMap<String, optional_activity::Opportunity>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    persona_creations: BTreeMap<String, launch::persona_birth::Pending>,
     operator_events: Vec<Value>,
 }
 
@@ -215,6 +217,9 @@ fn manifests(
             }
             nested_exposure(episode, "ended", &mut visit)?;
         }
+    }
+    for creation in object_records(state, "persona_creations")? {
+        exposure_field(creation, "exposure", &mut visit)?;
     }
     Ok(())
 }

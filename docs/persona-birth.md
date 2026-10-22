@@ -1,7 +1,8 @@
 # Creating a persona from a persona's proposal
 
 A continuing persona can propose starting traits for a new identity when useful.
-The native creation interface accepts an exact, attributed proposal. Creation is
+The persona's `create_persona` operation accepts an exact, attributed proposal
+during a native session without an operator acceptance step. Creation is
 optional and establishes no profession, membership, responsibility, competence
 or prior experience.
 
@@ -17,7 +18,7 @@ or text-byte quota. They describe the atomic fragment/profile transition and
 its handover to a fresh ordinary decision without repeating superseded source
 permission or finite-resource restrictions.
 
-## Inspect an actual proposal
+## Request creation during ordinary work
 
 Ordinary persona input supplies the optional `persona_birth_proposal` schema.
 The persona can author a JSON supporting file with these nonblank fields:
@@ -36,6 +37,53 @@ Use a complete exact UTF-8 reference from an adopted primary invocation. Its
 bytes must match that parent's accepted `file_write`. A proposed or rejected
 write, or an operator import, does not establish persona authorship. The source
 need not remain its current, unprotected asset head to retain that authorship.
+
+The same ordinary response can save that supporting asset and request creation:
+
+```json
+{
+  "kind": "create_persona",
+  "id": "create-collaborator",
+  "proposal": {
+    "source": "THE_AUTHORED_ASSET_SOURCE",
+    "revision": "proposal-op:THE_FILE_WRITE_OPERATION_ID",
+    "representation": "utf8"
+  },
+  "depends_on": ["THE_FILE_WRITE_OPERATION_ID"]
+}
+```
+
+For an earlier accepted file, use its exact revision and `depends_on: []`.
+Each operation requests one identity. Saving a proposal alone creates nothing.
+There is no operation-count or population quota. Character-changing responses
+fence creation along with other ordinary work; initialization and creation
+remain separate decisions.
+
+Adoption durably retains the request and its resolved file reference. At a
+quiescent boundary, the native session creates the identity and atomically saves
+its seed, immutable receipt, completion marker and parent observation. Retrying
+the session never creates a second identity for that adopted operation. Pending
+requests survive interruption and may be completed by a later session without
+replaying their authoring calls. A new `create_persona` operation requests a new
+identity, even if it references the same proposal.
+
+Use an immediate continuation to receive the `persona_creation` observation.
+It contains the actual child identity and receipt. A subsequent decision can
+invite that identity through `propose_need`; a same-response invitation cannot
+know the uncreated identity. The child receives an ordinary opportunity and
+chooses its character and participation. An adopted creation still completes
+when its parent chooses Stop or Pause; its receipt does not resume the parent.
+Native result views show pending creations, actual children and current initial
+character status even when the parent sends no reply.
+
+Population growth advances only the session's exact appended seed binding and
+currently matching intake-episode fingerprints. It changes no existing seed,
+provider setting, work acceptance or unknown invocation outcome.
+
+## Operator creation from an actual proposal
+
+An operator can also select an existing authored proposal directly. This is an
+alternative entry point, not a required confirmation of a persona operation.
 
 ```sh
 ai-personas --state-root /private/state --operator requester \
@@ -96,6 +144,5 @@ current character and initialization separately from a historical birth receipt.
 
 Existing intake declarations retain their original participants and terms.
 Birth does not rewrite work, invent accepted responsibility or reserve provider
-capacity. The current operator creation route and remaining work-authority
-restrictions are still implementation gaps under the broader no-constraints
-requirement; see [execution resources](execution-resources.md).
+capacity. Remaining work-authority restrictions are tracked in
+[execution resources](execution-resources.md).

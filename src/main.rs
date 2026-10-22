@@ -572,6 +572,18 @@ fn readable_result(value: &launch::Output) -> runtime::Result<String> {
         format!("Work {}", value.work_id),
         human_status(&value.status).into(),
     ];
+    for creation in &value.persona_creations {
+        let parent = creation["parent_label"].as_str().unwrap_or("Persona");
+        let child = &creation["child"];
+        if creation["status"] == "created" {
+            lines.push(format!("{parent} created {} ({}). Initial character: {}. Creation alone accepts no work.",
+                child["label"].as_str().unwrap_or("Persona"),
+                child["persona"].as_str().unwrap_or("unavailable"),
+                if child["character_accepted"] == true { "accepted" } else { "not yet accepted" }));
+        } else {
+            lines.push(format!("{parent}'s adopted creation request is pending; no new identity is recorded yet."));
+        }
+    }
     if let Some(activity) = &value.optional_activity {
         lines.push(format!("Activity phase: {}.", activity["phase"].as_str().unwrap_or("unavailable")));
         if !activity["revoked_at_unix"].is_null() {

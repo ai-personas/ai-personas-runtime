@@ -768,6 +768,9 @@ trait Driver {
         false
     }
     fn select_intake(&mut self, selection: p::need::GrantReference) -> Result<()>;
+    fn population_created(&mut self, _before: &Saved, _after: &Saved) -> Result<()> {
+        Err(held("driver cannot advance a population binding"))
+    }
     fn before_step(&mut self, _app: &mut Runtime) -> Result<()> {
         Ok(())
     }
@@ -818,8 +821,8 @@ fn quiescent_call_allows_peer_progress(app: &mut Runtime, id: &str) -> Result<bo
     let state = app.snapshot()?;
     app.invocation_leases_quiescent(&state)
 }
-async fn run_with<D: Driver>(app: &mut Runtime, work: &str, driver: &mut D) -> Result<Output> {
-    run_with_options(app, work, driver, false).await
+async fn run_with<D: Driver>(app: &mut Runtime, work: &str, driver: &mut D, owner: &s::ExecutionOwner) -> Result<Output> {
+    run_with_options(app, work, driver, owner, false).await
 }
 /// Hold the command scope inside the already acquired execution owner. Both
 /// successful and failed runs drain admitted workers before their final view.
@@ -844,11 +847,11 @@ async fn run_with_owned_commands<D: Driver>(
         && !need_proposals::bound(&state, work)
         && state.board.work(&w::WorkId(work.into()))?.need.optional_activity.is_none();
     let outcome = if independent {
-        parallel::run(&mut scope, work, driver).await
+        parallel::run(&mut scope, work, driver, owner).await
     } else if driver.prospective_intake() || need_proposals::bound(&state, work) {
         delegated::run(&mut scope, work, driver, owner).await
     } else {
-        run_with(&mut scope, work, driver).await
+        run_with(&mut scope, work, driver, owner).await
     };
     while scope.has_background_host_commands() {
         scope.wait_for_host_command().await?;
@@ -863,6 +866,7 @@ async fn run_with_options<D: Driver>(
     app: &mut Runtime,
     work: &str,
     driver: &mut D,
+    owner: &s::ExecutionOwner,
     yield_after_step: bool,
 ) -> Result<Output> {
     let (_, saved) = load(app)?;
@@ -870,6 +874,7 @@ async fn run_with_options<D: Driver>(
     require(saved.works.contains_key(work), "unknown launch work")?;
     let stop = loop {
         app.publish_completed_host_commands(unix_now()?)?;
+        persona_birth::create_pending_for_work_owned(app, work, driver, owner)?;
         let mut view = result(app, work)?;
         // Scheduling uses trusted current state, never a permission-filtered
         // historical result view or an inferred disclosure principal.

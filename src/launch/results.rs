@@ -26,6 +26,8 @@ pub struct Output {
     /// Current native participation, including decisions made without a reply.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub optional_activity: Option<Value>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub persona_creations: Vec<Value>,
     /// Permission-filtered input/disposition history, never proof of compliance.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requester_feedback: Option<Value>,
@@ -119,6 +121,7 @@ pub(super) fn project_state(state: &State, work_id: &str, saved: &Saved, now: i6
         recorded_completion: None,
         optional_activity_ending: None,
         optional_activity: None,
+        persona_creations: Vec::new(),
         requester_feedback: None,
         recorded_task_amendment: None,
         status_delivery: None,
@@ -139,6 +142,30 @@ pub(super) fn project_state(state: &State, work_id: &str, saved: &Saved, now: i6
     result.status = "current-state-unestablished".into();
     result.optional_activity_ending = optional_activity::ending_for_recipient(&state,work_id,&saved.operator,now)?;
     result.optional_activity = optional_activity::participation_for_operator(state, work_id, &saved.operator, now)?;
+    for creation in state.persona_creations.values().filter(|value| value.work == work_id) {
+        let parent = state.personas.get(&creation.parent)
+            .ok_or_else(|| held("creation parent absent"))?;
+        require(parent.created_by == saved.operator, "creation operator mismatch")?;
+        let mut a = admission(parent, now);
+        a.audience = BTreeSet::from([saved.operator.clone()]);
+        if !exposure_permitted(state, &creation.exposure, &a) {
+            continue;
+        }
+        let child = creation.created.as_ref().map(|created| -> Result<Value> {
+            let persona = state.personas.get(&created.persona)
+                .ok_or_else(|| held("created persona absent"))?;
+            require(persona.birth.as_ref().is_some_and(|origin| origin.receipt == created.receipt),
+                "created identity receipt differs")?;
+            Ok(json!({"persona":created.persona,"label":persona.seed.label,
+                "receipt":created.receipt,"character_accepted":persona.character.is_some()}))
+        }).transpose()?;
+        result.persona_creations.push(json!({"id":creation.id,"parent":creation.parent,
+            "parent_label":parent.seed.label,"invocation":creation.invocation,
+            "operation_id":creation.operation.id(),"proposal":creation.proposal,
+            "accepted_at_unix":creation.accepted_at_unix,
+            "status":if child.is_some() {"created"} else {"pending"},"child":child,
+            "creation_implies_work_acceptance":false}));
+    }
     if result.optional_activity_ending.is_some() {
         result.status = "optional-activity-ended-as-recorded".into();
     } else if result.optional_activity.is_some() {

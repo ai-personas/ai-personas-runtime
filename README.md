@@ -33,8 +33,9 @@ menu; the runtime still sends inference requests directly to the provider.
 quarantine, retire or reactivate a continuing identity. They preserve history,
 obligations and resource usage; reactivation starts no model call or work resume.
 
-Native [persona-authored creation proposals](docs/persona-birth.md) can create
-new identities without a population or initialization quota. The child later
+Personas can [create continuing identities](docs/persona-birth.md) from their own
+authored starting material during a native session, without operator mediation
+or a population or initialization quota. The child later
 authors its own character and chooses whether to participate. Existing identity
 and source records preserve their exact history.
 

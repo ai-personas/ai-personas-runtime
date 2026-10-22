@@ -884,6 +884,7 @@ pub struct State {
     pub http_fetch_jobs: BTreeMap<String, http_tools::JobMarker>,
     pub host_command_jobs: BTreeMap<String, tools::JobMarker>,
     pub(crate) optional_activities: BTreeMap<String, optional_activity::Opportunity>,
+    pub(crate) persona_creations: BTreeMap<String, launch::persona_birth::Pending>,
     pub operator_events: Vec<Value>,
 }
 
@@ -2740,6 +2741,7 @@ fn initial_state(config: Config, operator: &str) -> State {
         http_fetch_jobs: BTreeMap::new(),
         host_command_jobs: BTreeMap::new(),
         optional_activities: BTreeMap::new(),
+        persona_creations: BTreeMap::new(),
         operator_events: vec![json!({"kind":"initialization","operator":operator})],
     }
 }
@@ -4391,6 +4393,10 @@ impl Runtime {
                 &response_hash,
                 now,
                 accepted_epoch,
+            )?;
+            launch::persona_birth::stage_pending(
+                &mut next, &prepared, &decision, &report, &accepted_writes,
+                &response_hash, now,
             )?;
             planning_exposure = before_proposal;
             if matches!(report.status, AdoptionStatus::Adopted)
@@ -7417,9 +7423,10 @@ fn render_mode_with_history(
     }
     if ordinary_interfaces {
         core["persona_birth_proposal"] = json!({
+            "operation":"create_persona",
             "proposal_schema":launch::persona_birth::proposal_schema(),
             "remaining_lifetime_slots":null,"population_quota_enforced":false,
-            "rule":"Creation is optional. When useful, author a JSON supporting asset matching this schema and explain its purpose to the requester. A proposal does not establish a new identity, competence, membership, work acceptance or experience. The native creation interface can accept an exact authored proposal without a population or initialization quota. A new persona authors its own initial character when it receives an opportunity. Existing personas and simple work need no creation ritual. Do not invent biography or experience."
+            "rule":"Creation is optional. When useful, author a JSON supporting asset matching this schema and request create_persona with its complete exact UTF-8 reference. You may use revision proposal-op:WRITE_ID and depends_on:[WRITE_ID] for your same-response file_write. Saving a proposal alone creates nothing. The native session completes an adopted create_persona after current calls settle and queues a persona_creation observation with the exact child and receipt. Continue immediate to receive it before proposing an invitation; do not guess the child identity or include it in a same-response invitation. Stop or Pause does not cancel an adopted creation and its receipt does not resume you. Creation has no population or initialization quota. It establishes no competence, membership, work acceptance or experience. The child authors its own initial character when it receives an opportunity and chooses whether to participate. Existing personas and simple work need no creation ritual."
         });
         growth_bytes = growth_bytes.checked_add(serde_json::to_vec(&core["persona_birth_proposal"])?.len())
             .ok_or_else(|| invalid("birth proposal context accounting"))?;
@@ -7429,7 +7436,7 @@ fn render_mode_with_history(
             "proposal":origin.proposal,"initialization_limit":null,
             "historical_initialization_limit":origin.initialization_limit,
             "initialization_attempts_spent":origin.initialization_attempts,
-            "meaning":"Persona-authored starting material accepted by the operator; not prior lived experience, competence or accepted responsibility."});
+            "meaning":"Attributed persona-authored starting material; the exact receipt records who requested creation. It is not prior lived experience, competence or accepted responsibility."});
         growth_bytes = growth_bytes.checked_add(serde_json::to_vec(&core["creation_origin"])?.len())
             .ok_or_else(|| invalid("birth origin context accounting"))?;
     }
@@ -8416,6 +8423,9 @@ fn validate_operation_interfaces(
             }
             p::Operation::ProposeNeed { .. } => {
                 need_proposals::validate_operation(state, prepared, operation, decision)?;
+            }
+            p::Operation::CreatePersona { .. } => {
+                launch::persona_birth::validate_operation(prepared, operation, decision)?;
             }
             operation if host_tools::is_host_command(operation) => {
                 host_tools::validate(prepared, decision, operation)?;

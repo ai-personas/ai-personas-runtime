@@ -42,7 +42,8 @@ pub(super) async fn run<D: Driver>(
             let admitted = intake_delegation::admit_pending_for_work_owned(app, &work, owner)?;
             progress |= !admitted.is_empty();
             let steps_before = load(app)?.1.steps;
-            let output = run_with_options(app, &work, driver, true).await?;
+            let output = run_with_options(app, &work, driver, owner, true).await?;
+            progress |= persona_birth::create_pending_for_work_owned(app, &work, driver, owner)?;
             let admitted = intake_delegation::admit_pending_for_work_owned(app, &work, owner)?;
             progress |= !admitted.is_empty() || load(app)?.1.steps > steps_before;
             if let Some(reason) = output.stop {

@@ -445,8 +445,15 @@ Exact attribution and source bindings remain checked. Optional results also show
 native participation and complete authored continuation reasons when no reply
 was sent; these choices make no claim of an artifact or behavioral improvement.
 
+Personas can request `create_persona` from an exact authored supporting asset
+without an operator approval step. Accepted requests complete at a native
+quiescent boundary; identity, receipt and parent observation commit together.
+The same session can receive the actual child ID and invite it in a fresh
+decision. Creation does not invent initial character or work consent, and
+result views distinguish pending creation from an actual identity.
+
 Removal is still incomplete. Remaining application enforcement includes
-single-episode binding constraints; operator-mediated birth workflows; and
+single-episode binding constraints and
 additional specialized control and workflow gates. These are implementation gaps under the
 new requirement, not exceptions granted by the user. Some earlier documents still
 describe them because those paths remain implemented. They must be removed or

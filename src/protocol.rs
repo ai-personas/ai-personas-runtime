@@ -594,6 +594,17 @@ pub enum Operation {
         proposal: need::Proposal,
         depends_on: Vec<String>,
     },
+    /// Create a continuing identity from your exact authored JSON supporting
+    /// asset matching CONTROL.persona_birth_proposal.proposal_schema. A same-response
+    /// file_write may be referenced with proposal-op:WRITE_ID and depends_on.
+    /// Creation completes after adoption; use its actual receipt in a fresh
+    /// decision before inviting the child. Creation supplies no character or consent.
+    CreatePersona {
+        id: String,
+        proposal: ExactRef,
+        #[serde(default)]
+        depends_on: Vec<String>,
+    },
     /// Applies an offered internal work action. Commands run in listed order
     /// after staged file saves; this is not an external execution dependency.
     /// Only kinds actually supplied in CONTROL.work_capability are available.
@@ -690,6 +701,7 @@ impl Operation {
             | Self::Deliver { id, .. }
             | Self::Effect { id, .. }
             | Self::ProposeNeed { id, .. }
+            | Self::CreatePersona { id, .. }
             | Self::WorkCommand { id, .. } => id,
         }
     }
@@ -716,6 +728,9 @@ impl Operation {
                 (own_voice, Some(Scope::Fragments {}), "own_voice")
             }
             Self::Read { reference, .. } => (std::slice::from_ref(reference), None, "reference"),
+            Self::CreatePersona { proposal, .. } => {
+                (std::slice::from_ref(proposal), Some(Scope::Assets {}), "proposal")
+            }
             Self::Assess { subject, .. } | Self::Deliver { subject, .. } => {
                 (std::slice::from_ref(subject), None, "subject")
             }
@@ -2039,6 +2054,10 @@ fn check_operation(
             proposal.validate()?;
             check_ids(depends_on, 0, &format!("{path}.depends_on"))
         }
+        Operation::CreatePersona { proposal, depends_on, .. } => {
+            check_reference(proposal, &format!("{path}.proposal"))?;
+            check_ids(depends_on, 0, &format!("{path}.depends_on"))
+        }
         Operation::WorkCommand {
             inputs, depends_on, ..
         } => {
@@ -2315,6 +2334,7 @@ pub fn validate_decision(
         if let Operation::Effect { depends_on, .. }
         | Operation::WorkCommand { depends_on, .. }
         | Operation::ProposeNeed { depends_on, .. }
+        | Operation::CreatePersona { depends_on, .. }
         | Operation::WarningAdopt { depends_on, .. }
         | Operation::WarningResolve { depends_on, .. } = operation
         {

@@ -1,7 +1,13 @@
-//! Explicit operator acceptance of exact primary-authored starting material.
+//! Creation from exact primary-authored starting material.
 //! Birth creates a new identity without a population quota, work commitment
 //! or inference. Exact source authorship remains attributed.
 use super::*;
+
+#[path = "persona_birth/pending.rs"]
+mod pending;
+pub(crate) use pending::Pending;
+pub(in crate::runtime) use pending::{stage_pending, validate_operation};
+pub(super) use pending::create_pending_for_work_owned;
 
 const KIND: &str = "persona-birth-v1";
 
@@ -123,6 +129,8 @@ struct Receipt {
     source_body_sha256: String,
     created_at_unix: i64,
     seed_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    creation_operation: Option<pending::Authorship>,
 }
 
 fn receipt_id(id: &str) -> String {
@@ -177,6 +185,7 @@ fn output(receipt: &Receipt, replayed: bool, applied: bool) -> Value {
         "receipt_id":receipt_id(&receipt.request.id),"request_sha256":receipt.request_sha256,
         "source":receipt.request.proposal,"author_invocation":receipt.author_invocation,
         "causal_work":receipt.causal_work,"created_at_unix":receipt.created_at_unix,
+        "creation_operation":receipt.creation_operation,
         "replayed":replayed,"creation_applied":applied,"receipt_retained":applied || replayed,"inference_performed":false,
         "work_created":false,"responsibility_accepted":false,"resources_added":false,
         "initialization_performed":false,"initialization_limit":null,
@@ -208,8 +217,20 @@ pub fn create_at(root: &Path, request: &Request, apply: bool, now: i64) -> Resul
         .store
         .try_execution_owner_without_recovery()?
         .ok_or_else(|| held("execution owner busy"))?;
+    create_owned(&mut app, request, apply, now, None)
+}
+
+fn create_owned(
+    app: &mut Runtime,
+    request: &Request,
+    apply: bool,
+    now: i64,
+    pending: Option<&Pending>,
+) -> Result<Value> {
+    request.validate(&request.operator)?;
+    require(now >= 0, "negative birth time")?;
     let (head, state) = app.load()?;
-    let (launch, saved) = load(&mut app)?;
+    let (launch, saved) = load(app)?;
     authorize(&state, &saved, &request.operator)?;
     let hash = digest(request)?;
     let id = receipt_id(&request.id);
@@ -268,11 +289,12 @@ pub fn create_at(root: &Path, request: &Request, apply: bool, now: i64) -> Resul
     require(
         parent.created_by == request.operator
             && parent.character.is_some()
-            && lifecycle::reason(&state, &request.parent).is_none(),
+            && (pending.is_some() || lifecycle::reason(&state, &request.parent).is_none()),
         "parent is not an eligible continuing persona",
     )?;
     let reference = file_reference(&request.proposal)?;
     let managed = record(&state, &reference)?;
+    require(managed.record.scope == f::Scope::Assets, "birth proposal must be a supporting asset")?;
     let (author, invocation_id, operation_id) = match &managed.origin {
         Some(RevisionOrigin::PersonaInvocation {
             persona,
@@ -309,8 +331,14 @@ pub fn create_at(root: &Path, request: &Request, apply: bool, now: i64) -> Resul
     proposal.validate()?;
     let mut next_saved = saved.clone();
     next_saved.setup.cohort = next_saved.setup.cohort.checked_add(1).ok_or_else(|| invalid("persona identity overflow"))?;
-    let provenance = format!("persona-authored seed; parent {}; invocation {}; exact source {} @ {}; accepted by operator {}; no lived experience established",
-        request.parent, invocation_id, request.proposal.source, request.proposal.revision, request.operator);
+    let creation = pending.map(Pending::authorship);
+    let requested_by = match &creation {
+        Some(authored) => format!("persona {} through invocation {} operation {}",
+            request.parent, authored.invocation, authored.operation_id),
+        None => format!("operator {}", request.operator),
+    };
+    let provenance = format!("persona-authored seed; parent {}; invocation {}; exact source {} @ {}; creation requested by {}; no lived experience established",
+        request.parent, invocation_id, request.proposal.source, request.proposal.revision, requested_by);
     next_saved.setup.persona_seeds.insert(
         request.persona.clone(),
         PersonaSeed {
@@ -327,10 +355,11 @@ pub fn create_at(root: &Path, request: &Request, apply: bool, now: i64) -> Resul
         request_sha256: hash,
         request: request.clone(),
         author_invocation: invocation_id.clone(),
-        causal_work: prepared.request.work.clone(),
+        causal_work: pending.map_or_else(|| prepared.request.work.clone(), |value| value.work.clone()),
         source_body_sha256: s::sha256_bytes(&managed.record.bytes),
         created_at_unix: now,
         seed_sha256: digest(&seed)?,
+        creation_operation: creation,
     };
     let receipt_object = s::StoredObject {
         id,
@@ -343,13 +372,16 @@ pub fn create_at(root: &Path, request: &Request, apply: bool, now: i64) -> Resul
     if let Some(exposure) = &managed.exposure {
         extend_exposure(&mut inherited, exposure);
     }
+    if let Some(pending) = pending {
+        extend_exposure(&mut inherited, &pending.exposure);
+    }
     let mut next = state.clone();
     insert_seed(&mut next, &request.operator, seed)?;
     next.personas.get_mut(&request.persona).unwrap().birth = Some(Origin {
         receipt: receipt_object.exact_ref()?,
         parent: request.parent.clone(),
         invocation: invocation_id.clone(),
-        work: prepared.request.work.clone(),
+        work: receipt.causal_work.clone(),
         proposal: request.proposal.clone(),
         exposure: inherited.clone(),
         initialization_limit: request.initialization_limit,
@@ -398,8 +430,22 @@ pub fn create_at(root: &Path, request: &Request, apply: bool, now: i64) -> Resul
     validate_inventory(&next)?;
     next.operator_events.push(json!({"kind":"persona_birth","operator":request.operator,
         "persona":request.persona,"parent":request.parent,"receipt":receipt_object.exact_ref()?,
+        "creation_operation":receipt.creation_operation,
         "source":request.proposal,"at_unix":now,"resources_added":false,"inference_performed":false,
         "episode_binding_transition":{"from":previous_binding,"to":next_binding,"carried_episodes":carried}}));
+    if let Some(pending) = pending {
+        let retained = next.persona_creations.get(&pending.id)
+            .ok_or_else(|| held("pending creation unavailable"))?;
+        require(digest(retained)? == digest(pending)? && retained.created.is_none(),
+            "pending creation changed")?;
+        let creating = decode_prepared(&app.store.invocation(&pending.invocation)?)?;
+        add_observation(&mut next, &creating, pending.operation.id(), "persona_creation",
+            output(&receipt, false, true), vec![reference.clone()], vec![reference.clone()], now)?;
+        next.persona_creations.get_mut(&pending.id).unwrap().created = Some(pending::Created {
+            persona: request.persona.clone(),
+            receipt: receipt_object.exact_ref()?,
+        });
+    }
     let runtime = state_object(&head, &next)?;
     let launch_object = s::StoredObject {
         id: ID.into(),

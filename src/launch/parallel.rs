@@ -24,8 +24,9 @@ pub(super) async fn run<D: Driver>(
     app: &mut Runtime,
     work: &str,
     driver: &mut D,
+    owner: &s::ExecutionOwner,
 ) -> Result<Output> {
-    run_with_subtree(app, work, driver, None).await
+    run_with_subtree(app, work, driver, Some(owner)).await
 }
 
 pub(super) async fn run_delegated<D: Driver>(
@@ -124,6 +125,7 @@ async fn run_with_subtree<D: Driver>(
                     if let Some(owner) = owner {
                         works = delegated::subtree(&app.snapshot()?, root)?;
                         for work in &works {
+                            persona_birth::create_pending_for_work_owned(app, work, driver, owner)?;
                             intake_delegation::admit_pending_for_work_owned(app, work, owner)?;
                         }
                         works = delegated::subtree(&app.snapshot()?, root)?;

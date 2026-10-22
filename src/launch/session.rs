@@ -658,6 +658,13 @@ impl<D: Driver> Driver for Tracked<'_, D> {
         }
         value
     }
+    fn population_created(&mut self, before: &Saved, after: &Saved) -> Result<()> {
+        let value = self.driver.population_created(before, after);
+        if let Err(error) = &value {
+            self.failure = Some(error_code(error));
+        }
+        value
+    }
     fn before_step(&mut self, app: &mut Runtime) -> Result<()> {
         let value = self.driver.before_step(app);
         if let Err(error) = &value {
@@ -740,6 +747,13 @@ impl Driver for OwnedLive<'_> {
     fn select_intake(&mut self, selection: p::need::GrantReference) -> Result<()> {
         require(self.intake_selection.is_none(), "session already has an intake selection")?;
         self.intake_selection = Some(selection);
+        Ok(())
+    }
+
+    fn population_created(&mut self, before: &Saved, after: &Saved) -> Result<()> {
+        require(execution_binding(before)? == self.binding,
+            "creation began under a different session binding")?;
+        self.binding = execution_binding(after)?;
         Ok(())
     }
 

@@ -1289,6 +1289,15 @@ class Dialogue:
         else:
             self.ui.say(f"Work {work}: {result.get('status', 'unavailable')}. "
                         "Local delivery/attributed completion is not independent quality or human acceptance.")
+        for creation in result.get("persona_creations", []):
+            parent = creation["parent_label"]
+            child = creation.get("child")
+            if child:
+                character = "accepted" if child["character_accepted"] else "not yet accepted"
+                self.ui.say(f"{parent} created {child['label']} ({child['persona']}). "
+                            f"Initial character: {character}. Creation alone accepts no work.")
+            else:
+                self.ui.say(f"{parent}'s adopted creation request is pending; no new identity is recorded yet.")
         messages = result.get("messages", [])
         deliveries = result.get("local_deliveries", [])
         feedback = (result.get("requester_feedback") or {}).get("items", [])
@@ -1863,7 +1872,7 @@ class Dialogue:
             self.ui.say(f"Session finished: {terminal.get('stop')}; last recorded work call: {terminal.get('last_invocation')}.")
         self.session_output(s)
         result = self.session("result", work)
-        if result.get("optional_activity"):
+        if result.get("optional_activity") or result.get("persona_creations"):
             self.output(work, result=result)
 
     def recover_session(self, view):
