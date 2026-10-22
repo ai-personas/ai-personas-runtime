@@ -26,7 +26,6 @@ fn receipt_id(id: &str) -> String {
 
 impl Store {
     pub(crate) fn validate_head_compaction_request(request: &HeadCompactionRequest) -> Result<()> {
-        request.expected_limits.validate()?;
         let valid_id = |value: &str| !value.is_empty()
             && !value.chars().any(|c| c.is_whitespace() || c.is_control());
         if !valid_id(&request.id) || !valid_id(&request.operator)

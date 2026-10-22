@@ -218,15 +218,14 @@ pub(super) fn validate_saved(state: &State, saved: &Saved) -> Result<()> {
     bounded_identity(&provider.effort)?;
     require(
         setup.cohort > 0
-            && (1..=setup.cohort).contains(&setup.owner)
-            && setup.max_considerations > 0,
-        "invalid saved foreground bounds",
+            && (1..=setup.cohort).contains(&setup.owner),
+        "invalid saved cohort or owner",
     )?;
     let config = &state.config;
     require(
         config.persona_capacity == setup.persona_capacity
             && config.max_work_attempts == setup.max_work_attempts,
-        "saved provider exceeds current runtime authorization or bounds",
+        "saved launch allocation metadata differs from runtime configuration",
     )?;
     for id in people(setup.cohort) {
         require(id != saved.operator, "saved operator collides with cohort")?;

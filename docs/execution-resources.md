@@ -35,6 +35,13 @@ accounting estimates. Store reads complete controlling metadata without a fixed
 byte ceiling. A committed pause or closeout slot remains immutable; a valid
 resumption allocates its next slot instead of overwriting an earlier control.
 
+Session terminal inspection and repeated terminal-evidence reservation accept
+cells that grew beyond their initial allocation. Their exact identities,
+accounting class and immutable terminal contents remain checked. Zero historical
+Store maxima, differently ordered byte estimates and a zero saved foreground
+consideration allowance do not block current opening or inspection. Control
+slots use the recorded initial estimate and grow with actual retained content.
+
 Runtime state and the interactive journal no longer require a directory outside
 repositories, a particular owner or private permission bits. Directory aliases
 and parent components resolve to the selected actual location. New directories

@@ -210,6 +210,8 @@ pub enum BudgetClass {
     Closeout,
 }
 
+/// Historical settings and initial allocation estimates, not execution ceilings.
+/// Zero or differently ordered estimates do not prevent opening the exact Store.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Limits {
     pub total: Resources,
@@ -228,8 +230,7 @@ pub struct Limits {
 }
 
 impl Limits {
-    /// A rounded-up sixteenth is protected from new ordinary allocations.
-    /// Derived shares preserve existing Rust literals and serialized limits.
+    /// Historical rounded-up protected share; ordinary use has no quota.
     pub fn protected_closeout_identity_records(&self) -> u64 {
         self.max_identity_records.div_ceil(16)
     }
@@ -237,26 +238,6 @@ impl Limits {
     /// Counts reserved lifecycle slots, whether or not receipts already use them.
     pub fn protected_closeout_history_events(&self) -> u64 {
         self.max_history_events.div_ceil(16)
-    }
-
-    fn validate(&self) -> Result<()> {
-        if !self.protected_closeout.fits(self.total)
-            || self.max_id_bytes == 0
-            || self.max_page_items == 0
-            || self.max_batch_items == 0
-            || self.max_identity_records == 0
-            || self.max_history_events == 0
-            || self.max_body_bytes == 0
-            || self.max_body_bytes.checked_add(CONTROL_HEADROOM).is_none()
-            || self.max_body_bytes + CONTROL_HEADROOM > self.max_record_bytes
-            || self.max_record_bytes > self.max_read_bytes
-            || self.max_read_bytes > self.max_page_bytes
-        {
-            return Err(StoreError::Invalid(
-                "inconsistent or unsupported limits".into(),
-            ));
-        }
-        Ok(())
     }
 }
 
@@ -1977,7 +1958,6 @@ impl Store {
     /// execution ownership. Trusted dispatchers must acquire and retain an
     /// execution owner before dispatch, including on a connection opened earlier.
     pub fn open_for_inspection(path: &Path, limits: Limits) -> Result<Self> {
-        limits.validate()?;
         let path = canonical_database_path(path)?;
         let mut connection = Connection::open_with_flags(
             &path,
@@ -3885,11 +3865,6 @@ impl<'a> Work<'a> {
         class: BudgetClass,
     ) -> Result<()> {
         self.id(id)?;
-        if max_object_bytes == 0 {
-            return Err(StoreError::Invalid(
-                "terminal evidence requires a positive byte bound".into(),
-            ));
-        }
         let capacity = max_object_bytes
             .checked_add(CONTROL_HEADROOM)
             .ok_or(StoreError::Overflow("terminal evidence capacity"))?;
@@ -3898,7 +3873,7 @@ impl<'a> Work<'a> {
             if slot.subject != *subject
                 || slot.max_object_bytes != max_object_bytes
                 || cell.class != class
-                || cell.capacity != capacity
+                || cell.capacity < capacity
                 || cell.slots != 0
             {
                 return Err(StoreError::Conflict(id.into()));
@@ -3943,8 +3918,8 @@ impl<'a> Work<'a> {
             max_object_bytes,
             object: None,
         };
-        // The one permanent identity and the entire possible filled cell,
-        // including wrapper and rewrite headroom, are charged atomically here.
+        // Charge the permanent identity and initial estimate, including wrapper
+        // headroom. Complete evidence can grow the cell with its actual charge.
         self.insert("terminal_evidence", id, &slot, Some(capacity), class, 0)
     }
 
@@ -4004,9 +3979,8 @@ impl<'a> Work<'a> {
         )?;
         if let Some(plan) = &plan {
             if plan.provisioned_at.id != RUNTIME_CONTROL_STATE_ID
-                || plan.max_object_bytes == 0
-                || plan.max_object_bytes.checked_add(RUNTIME_CONTROL_HEADROOM)
-                    != Some(self.limits.max_record_bytes)
+                || plan.max_object_bytes
+                    != self.limits.max_record_bytes.saturating_sub(RUNTIME_CONTROL_HEADROOM)
             {
                 return Err(StoreError::Corrupt("runtime control plan".into()));
             }
@@ -4106,9 +4080,7 @@ impl<'a> Work<'a> {
         let max_object_bytes = self
             .limits
             .max_record_bytes
-            .checked_sub(RUNTIME_CONTROL_HEADROOM)
-            .filter(|n| *n > 0)
-            .ok_or(StoreError::TooLarge)?;
+            .saturating_sub(RUNTIME_CONTROL_HEADROOM);
         let plan = RuntimeControlPlan {
             provisioned_at: object.exact_ref()?,
             operator: operator.into(),

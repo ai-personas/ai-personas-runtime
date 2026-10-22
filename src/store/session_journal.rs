@@ -1,4 +1,4 @@
-//! Bounded, prepaid closeout for one trusted foreground launcher session.
+//! Complete, attributed closeout for one foreground launcher session.
 //! The claim commits before execution. Filling its terminal is observation-only;
 //! it grants no dispatch, recovery, replay, state change, or resource refund.
 use super::*;
@@ -21,9 +21,9 @@ struct SessionTerminalSlot {
 }
 
 impl Store {
-    /// Create the immutable claim and its one terminal allocation atomically,
-    /// from existing Ordinary capacity. Prepay one final launch metadata read
-    /// and the bounded receipt response. Failure admits no session or driver.
+    /// Create the immutable claim and its initial terminal allocation atomically.
+    /// Record an estimate for the final launch read and receipt. The complete
+    /// terminal may grow its allocation; failure admits no session or driver.
     pub(crate) fn claim_launch_session(&mut self, claim: Change, terminal_id: &str) -> Result<()> {
         self.transaction(|work| {
             work.admission()?;
@@ -54,9 +54,8 @@ impl Store {
                 max_launch_bytes: work.limits.max_record_bytes,
                 object: None,
             };
-            // Account conservatively for the final launch head, claim and slot
-            // reads, metadata, and the full bounded session response. No later
-            // ordinary read or allocation is needed to persist/return closeout.
+            // Retain the initial navigation estimate for the final launch head,
+            // claim, slot and response. It does not limit later complete reads.
             let navigation = slot
                 .max_launch_bytes
                 .checked_add(2 * CLAIM_BYTES + 2 * SLOT_BYTES + 2 * META_CAPACITY)
@@ -71,7 +70,7 @@ impl Store {
             work.meta
                 .check_dimension(Resource::NavigationBytes, BudgetClass::Ordinary)?;
             work.bump_epoch()?;
-            // These heads are immutable. Their actual bounded sizes suffice;
+            // These heads are immutable. Their actual sizes suffice;
             // a small claim need not reserve a whole runtime snapshot cell.
             work.insert_exact(
                 "revision",
@@ -131,8 +130,8 @@ impl Store {
             let terminal = build(&launch)?;
             validate_terminal(&terminal, terminal_id, claim)?;
             slot.object = Some(terminal.clone());
-            // This cell already paid for its identity, one history slot, full
-            // possible payload and peak rewrite copy. Freeze can still fill it.
+            // The identity and history slot already exist. A larger complete
+            // terminal grows the allocation and records that actual retention.
             work.update(NAMESPACE, terminal_id, &slot)?;
             Ok(terminal)
         })
@@ -187,13 +186,11 @@ impl Work<'_> {
         let slot: SessionTerminalSlot = decode_json(&cell.data)?;
         self.id(&slot.claim.id)?;
         hash_valid(&slot.claim.sha256)?;
-        if cell.capacity != SLOT_BYTES
+        if cell.capacity < SLOT_BYTES
             || cell.class != BudgetClass::Ordinary
             || cell.slots != 1
             || slot.version != 1
             || slot.claim.revision != 1
-            || slot.max_launch_bytes == 0
-            || slot.max_launch_bytes > self.limits.max_record_bytes
         {
             return Err(StoreError::Corrupt("launch session allocation".into()));
         }

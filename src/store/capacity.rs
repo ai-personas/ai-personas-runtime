@@ -53,7 +53,6 @@ fn receipt_id(id: &str) -> String {
 
 fn proposed_limits(request: &CapacityExtensionRequest) -> Result<Limits> {
     let old = &request.expected_limits;
-    old.validate()?;
     if request.id.is_empty()
         || request.id.chars().any(char::is_whitespace)
         || request.id.chars().any(char::is_control)
@@ -93,9 +92,8 @@ fn proposed_limits(request: &CapacityExtensionRequest) -> Result<Limits> {
     if let Some(bytes) = request.total_retained_bytes {
         next.total.retained_bytes = bytes;
     }
-    // Only explicitly requested storage funding can change a total. More
-    // protected retained space reduces Ordinary's ceiling. Usage is not refunded.
-    next.validate()?;
+    // Only explicitly requested settings change these historical totals.
+    // Neither account has a quota, and recorded usage is not refunded.
     Ok(next)
 }
 
@@ -139,7 +137,6 @@ fn approved_limits(path: &Path, base: &Limits) -> Result<Limits> {
     if !supported_schema(meta.schema_version) {
         return Err(StoreError::Unsupported("database schema version"));
     }
-    meta.limits.validate()?;
     let mut current = meta.limits.clone();
     let mut next = meta.capacity_extension.clone();
     let mut first = true;
@@ -266,8 +263,7 @@ impl Store {
             operator: request.operator.clone(),
             max_object_bytes: limits
                 .max_record_bytes
-                .checked_sub(RUNTIME_CONTROL_HEADROOM)
-                .ok_or(StoreError::TooLarge)?,
+                .saturating_sub(RUNTIME_CONTROL_HEADROOM),
         };
         let requirements = crate::runtime::runtime_control_requirements(&state)?;
         // Load against the old allocation before switching limits. Committed
