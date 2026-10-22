@@ -10,7 +10,7 @@ pub fn validate(request: &s::HeadCompactionRequest, operator: &str) -> Result<()
 
 pub fn compact_at(root: &Path, request: &s::HeadCompactionRequest, apply: bool) -> Result<Value> {
     validate(request, &request.operator)?;
-    let root = secure_state_root(root, false)?;
+    let root = canonical_state_root(root, false)?;
     let mut store = s::Store::open_runtime(&root.join("state.sqlite3"), storage_limits(), false)?;
     let _owner = store.try_execution_owner_without_recovery()?
         .ok_or_else(|| held("execution owner busy"))?;

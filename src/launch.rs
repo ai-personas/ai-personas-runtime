@@ -249,22 +249,10 @@ pub fn state_root(explicit: Option<&Path>) -> Result<PathBuf> {
         None => PathBuf::from(std::env::var_os("HOME").ok_or_else(|| invalid("HOME is absent"))?)
             .join(".local/state"),
     };
-    require(base.is_absolute(), "default state base must be absolute")?;
     Ok(base.join("ai-personas"))
 }
 fn private_tree(path: &Path) -> Result<PathBuf> {
-    if let Err(error) = fs::symlink_metadata(path) {
-        if error.kind() != std::io::ErrorKind::NotFound {
-            return Err(error.into());
-        }
-        let parent = path
-            .parent()
-            .ok_or_else(|| invalid("state parent absent"))?;
-        if !parent.exists() {
-            private_tree(parent)?;
-        }
-    }
-    secure_state_root(path, true)
+    canonical_state_root(path, true)
 }
 fn seed_for(saved: &Saved, provider: &ResearchSettings, id: &str) -> Seed {
     let mut audience: BTreeSet<_> = people(saved.setup.persona_capacity()).into_iter().collect();

@@ -132,7 +132,7 @@ fn decode_extension(object: &StoredObject, reference: &ObjectRef) -> Result<Exte
 /// It supplies no application body or persona context. Normal Store reads remain
 /// metered after opening, and a concurrent migration fails the strict open check.
 fn approved_limits(path: &Path, base: &Limits) -> Result<Limits> {
-    let path = secure_database_path(path)?;
+    let path = canonical_database_path(path)?;
     let db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     db.busy_handler(Some(wait_for_database))?;
     let meta = load_meta(&db)?;

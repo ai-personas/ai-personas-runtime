@@ -78,9 +78,13 @@ The dialogue selects a standard private progress location, creates a new journal
 when needed, and asks for your need. It saves the exact request
 before the next prompt. The default location is
 `$XDG_STATE_HOME/ai-personas-launcher` or `$HOME/.local/state/ai-personas-launcher`.
-An explicit absolute `PERSONAS_LAUNCHER_HOME` selects another location outside
-repositories. The launcher automatically checks the standard XDG state location and then the home state location. Existing progress is reused only when exactly one candidate validates; ambiguous or unsafe existing state blocks instead of relocating or resetting. Launching the dialogue selects this setup action without a second confirmation. Path traversal is descriptor-relative and rejects symlinks; the private leaf remains owned by the effective UID and inaccessible to group/other users. The active checkout itself is excluded, but unrelated repository markers in shared ancestors are not treated as proof that a private child belongs to that checkout. Same-UID processes and root remain trusted and can inspect or alter same-UID data; this is not a defense against hostile same-UID tools or synchronization software. A same-host browser is
-necessary for the secure loopback callback. No credentials are requested here.
+`PERSONAS_LAUNCHER_HOME` selects another host-accessible location, including a
+relative path, directory alias or repository directory. The launcher resolves it
+to an absolute location before saving progress. Without an override it checks the
+standard XDG and home locations. Existing progress is reused when exactly one
+candidate validates; ambiguous or invalid saved state is reported without moving
+or resetting it. Launching the dialogue selects journal creation without a second
+confirmation. Native browser sign-in remains a separate account operation.
 
 ### Automatic persistent progress selection
 
@@ -89,21 +93,17 @@ home `.local/state` directory, in that order. If exactly one valid journal exist
 it reuses that location. If both exist, it blocks rather than guessing; set
 `PERSONAS_LAUNCHER_HOME` to the exact intended existing journal to disambiguate.
 If neither exists, it selects the first available candidate and creates a
-new private journal. It never silently moves, resets, or substitutes for an unsafe
+new journal with private creation defaults. It never silently moves, resets, or substitutes for an invalid
 existing journal. It does not silently choose a temporary directory for durable
 progress.
 
-The active source checkout is excluded. Repository markers in unrelated ancestors
-are not treated alone as proof that a private child is inside the active checkout.
-Intermediate directories may be owned by mapped container UIDs only when they are
-not group/world-writable (except root-owned sticky directories); traversal uses
-opened directory descriptors and rejects symlinks. An ancestor owner can still
-change permissions or rename its directory, so that owner and the host/root remain
-trusted for availability and namespace integrity. The final state leaf is owned by
-the effective UID and mode 0700; files are regular, mode 0600 and single-linked.
-Same-UID processes can still inspect or alter same-UID data, and arbitrary sync or
-backup software may export it. Use standard local state directories, not a repo or
-synced folder. Unsupported or ambiguous state is blocked without resetting it.
+Repository placement, directory ownership and permission bits impose no
+application access gate. Directory aliases are resolved before descriptor-relative
+traversal; the host determines actual access. Newly created directories use mode
+0700 and files use mode 0600. Existing modes are not changed. Journal files retain
+one regular-file identity for atomic replacement and locking; invalid or ambiguous
+saved progress is reported without resetting it. Selecting an existing runtime
+also authorizes its inspection without another approval prompt.
 
 Select an existing directory containing the four current Rust helpers, or build
 this checkout with locked Cargo dependencies. Selected binaries are
@@ -372,8 +372,8 @@ has its own pointer, and all earlier selected sessions remain in `session_histor
 The `session-launch.json` transport file is reconstructed from the exact saved
 session. Writes are atomic, synchronized and guarded by an OS lock;
 malformed/missing progress with retained files is reported without resetting it.
-Stale write files are not silently removed. Private state belongs outside
-repositories. Physical disk and outside copies are not bounded by the launcher.
+Stale write files are not silently removed. Physical disk and outside copies are
+not bounded by the launcher.
 
 If the selected standard state location is rejected by the native vault helper,
 the dialogue stops with `native_vault_location_unsupported`; it does not prompt

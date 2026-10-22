@@ -2749,7 +2749,7 @@ impl Runtime {
     pub fn create(root: &Path, config: Config, operator: &str) -> Result<Self> {
         identity(operator)?;
         config.validate()?;
-        let root = secure_state_root(root, true)?;
+        let root = canonical_state_root(root, true)?;
         let mut store = s::Store::open(&root.join("state.sqlite3"), storage_limits())?;
         if store.read(STATE_ID)?.is_some() {
             return Err(invalid("state already initialized"));
@@ -2776,7 +2776,7 @@ impl Runtime {
     }
     /// Existing-root inspection connection only. No recovery or state export.
     pub(crate) fn inspection_store(root: &Path) -> Result<s::Store> {
-        let root = secure_state_root(root, false)?;
+        let root = canonical_state_root(root, false)?;
         require(root.join("state.sqlite3").is_file(), "state database is missing")?;
         Ok(s::Store::open_runtime(&root.join("state.sqlite3"), storage_limits(), false)?)
     }
@@ -2800,7 +2800,7 @@ impl Runtime {
     pub(crate) fn open_for_launch_snapshot(
         root: &Path,
     ) -> Result<(Self, s::StoredObject, State, u64)> {
-        let root = secure_state_root(root, false)?;
+        let root = canonical_state_root(root, false)?;
         require(
             root.join("state.sqlite3").is_file(),
             "state database is missing",
@@ -2827,7 +2827,7 @@ impl Runtime {
         })
     }
     fn open_in_class(root: &Path, class: s::BudgetClass) -> Result<Self> {
-        let root = secure_state_root(root, false)?;
+        let root = canonical_state_root(root, false)?;
         require(
             root.join("state.sqlite3").is_file(),
             "state database is missing",
@@ -4873,7 +4873,7 @@ impl Runtime {
     /// is returned and charged; this entry point cannot resume or execute work.
     pub fn terminal_evidence_at(root: &Path, id: &str) -> Result<s::StoredObject> {
         identity(id)?;
-        let root = secure_state_root(root, false)?;
+        let root = canonical_state_root(root, false)?;
         require(root.join("state.sqlite3").is_file(), "state database is missing")?;
         let mut app = Self {
             store: s::Store::open_runtime(&root.join("state.sqlite3"), storage_limits(), false)?,
@@ -10840,83 +10840,21 @@ pub fn read_bounded_file(path: &Path, _historical_maximum: usize) -> Result<Vec<
     file.read_to_end(&mut bytes)?;
     Ok(bytes)
 }
-fn absolute_without_symlinks(path: &Path, allow_missing_leaf: bool) -> Result<PathBuf> {
-    let absolute = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        std::env::current_dir()?.join(path)
-    };
-    let mut checked = PathBuf::new();
-    let components: Vec<_> = absolute.components().collect();
-    for (index, component) in components.iter().enumerate() {
-        match component {
-            Component::RootDir | Component::Prefix(_) => checked.push(component.as_os_str()),
-            Component::Normal(part) => checked.push(part),
-            Component::CurDir => continue,
-            Component::ParentDir => {
-                return Err(invalid(
-                    "parent traversal is not supported in managed paths",
-                ))
-            }
-        }
-        match fs::symlink_metadata(&checked) {
-            Ok(meta) => require(!meta.file_type().is_symlink(), "symlink component refused")?,
-            Err(e)
-                if e.kind() == std::io::ErrorKind::NotFound
-                    && allow_missing_leaf
-                    && index + 1 == components.len() => {}
-            Err(e) => return Err(e.into()),
-        }
-    }
-    Ok(checked)
-}
-fn secure_state_root(path: &Path, create: bool) -> Result<PathBuf> {
-    let absolute = absolute_without_symlinks(path, create)?;
-    let cwd = fs::canonicalize(std::env::current_dir()?)?;
-    for ancestor in cwd.ancestors() {
-        if fs::symlink_metadata(ancestor.join(".git")).is_ok() {
-            require(
-                !absolute.starts_with(ancestor),
-                "state must be outside the checkout Git root",
-            )?;
-            break;
-        }
-    }
-    for ancestor in absolute.ancestors() {
-        for marker in [".git", ".hg", ".svn"] {
-            match fs::symlink_metadata(ancestor.join(marker)) {
-                Ok(_) => return Err(invalid("state root is inside a repository")),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
-                Err(e) => return Err(e.into()),
-            }
-        }
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
-        if create && !absolute.exists() {
-            let mut builder = fs::DirBuilder::new();
+fn canonical_state_root(path: &Path, create: bool) -> Result<PathBuf> {
+    if create {
+        let mut builder = fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
             builder.mode(0o700);
-            builder.create(&absolute)?;
         }
-        let metadata = fs::symlink_metadata(&absolute)?;
-        require(
-            metadata.is_dir()
-                && !metadata.file_type().is_symlink()
-                && metadata.permissions().mode() & 0o077 == 0,
-            "state root must be a private directory (0700 or stricter)",
-        )?;
-        require(
-            metadata.uid() == unsafe { libc::geteuid() },
-            "state directory is owned by another OS user",
-        )?;
-        Ok(absolute)
+        builder.create(path)?;
     }
-    #[cfg(not(unix))]
-    {
-        let _ = create;
-        Err(RuntimeError::NotReady(
-            "secure state-root checks are implemented only on Unix".into(),
-        ))
-    }
+    // Resolve the actual directory once so all aliases select the same Store
+    // and execution lock. Placement, ownership and permission bits are not
+    // application gates; the host filesystem determines access.
+    let root = fs::canonicalize(path)?;
+    require(fs::metadata(&root)?.is_dir(), "state root must be a directory")?;
+    Ok(root)
 }

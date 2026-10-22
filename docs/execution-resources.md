@@ -31,6 +31,16 @@ accounting estimates. Store reads complete controlling metadata without a fixed
 byte ceiling. A committed pause or closeout slot remains immutable; a valid
 resumption allocates its next slot instead of overwriting an earlier control.
 
+Runtime state and the interactive journal no longer require a directory outside
+repositories, a particular owner or private permission bits. Directory aliases
+and parent components resolve to the selected actual location. New directories
+and files keep private creation defaults; existing permissions are not changed.
+Store resolves a database symlink before deriving its journal and execution-lock
+paths. SQLite files retain one regular-file identity: hard-link aliases and
+separately aliased sidecars would split its journaling. The execution lock still
+binds the opened file's actual device and inode. Native SIWC vault and installed
+helper validation are separate interfaces with their own current path checks.
+
 An earlier accounting overrun remains recorded but no longer freezes admission.
 Ledger inspection reports `resource_quotas_enforced: false`, `frozen: false` and
 separately preserves `historical_freeze_recorded`. Measured use beyond an earlier

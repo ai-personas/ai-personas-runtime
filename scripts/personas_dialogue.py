@@ -63,8 +63,7 @@ def identifier(value):
 
 def path_text(value):
     return (isinstance(value, str) and value.startswith("/")
-            and not any(ord(c) < 32 or ord(c) == 127 for c in value)
-            and all(p not in ("", ".", "..") for p in value.split("/")[1:]))
+            and "\x00" not in value)
 
 
 def safe_text(value, maximum=32768):
@@ -176,39 +175,22 @@ def readable_delivery(delivery):
         return None
 
 
-def inside_checkout(path):
-    """Reject state inside this checkout; normalize resolution failures to a safe refusal."""
-    try:
-        candidate = Path(path).resolve(strict=False)
-        checkout = Path(__file__).resolve().parents[1]
-        candidate.relative_to(checkout)
-        return True
-    except ValueError:
-        return False
-    except (OSError, RuntimeError):
-        # Symlink loops and platform-specific resolution failures must never
-        # escape the launcher's controlled error path or be treated as absence.
-        raise Blocked("unsafe_private_path") from None
-
-
 class PrivateDirectory:
-    """Descriptor-relative private journal, excluding the active checkout.
+    """Descriptor-relative local state with private creation defaults.
 
-    The private leaf is owned by the effective UID and inaccessible to group/other.
-    Same-UID processes and root remain trusted and can tamper with state; this is
-    not an OS sandbox or rollback protection. Missing/invalid progress is never
-    silently reset. Shared sticky ancestors may contain unrelated repository
-    markers; the active checkout path itself is rejected.
+    Existing ownership, permission bits and repository placement add no access
+    gates. Resolve directory aliases before traversal; missing or invalid saved
+    progress is never silently reset.
     """
     def __init__(self, path, create=False):
-        self.path = Path(path)
-        self.fd = self.open_path(path, create=create)
+        self.path = Path(path).resolve(strict=False)
+        self.fd = self.open_path(self.path, create=create)
 
     @staticmethod
     def open_path(path, create=False, missing_ok=False):
         """Check all existing components; missing_ok is a read-only preflight."""
-        require(path_text(str(path)), "unsafe_private_path")
-        require(not inside_checkout(path), "state_inside_repository")
+        path = Path(path).resolve(strict=False)
+        require(path_text(str(path)), "invalid_state_path")
         require(not (create and missing_ok), "invalid_private_path_check")
         fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
         try:
@@ -225,34 +207,14 @@ class PrivateDirectory:
                     child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
                 os.close(fd)
                 fd = child
-                info = os.fstat(fd)
-                # Descriptor-relative traversal anchors each opened directory. Foreign
-                # owners are allowed only for non-group/world-writable ancestors; they
-                # can still disrupt availability by renaming ancestors, so root/host
-                # and same-UID processes remain trusted. The private leaf is checked
-                # separately for effective-UID ownership and mode 0700.
-                root_sticky = info.st_uid == 0 and bool(info.st_mode & stat.S_ISVTX)
-                require(not (info.st_mode & 0o022) or root_sticky, "writable_path_ancestor")
-            info = os.fstat(fd)
-            require(info.st_uid == os.geteuid() and not info.st_mode & 0o077, "private_directory_permissions")
             return fd
         except BaseException:
             os.close(fd)
             raise
 
     @staticmethod
-    def no_repository(fd):
-        for marker in (".git", ".hg", ".svn"):
-            try:
-                os.stat(marker, dir_fd=fd, follow_symlinks=False)
-            except FileNotFoundError:
-                continue
-            raise Blocked("state_inside_repository")
-
-    @staticmethod
     def file_ok(info, maximum=None):
-        require(stat.S_ISREG(info.st_mode) and info.st_uid == os.geteuid()
-                and info.st_nlink == 1 and not info.st_mode & 0o077, "unsafe_private_file")
+        require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1, "invalid_journal_file")
 
     def read(self, name, maximum=None):
         require(re.fullmatch(r"[a-zA-Z0-9_.-]+", name) is not None)
@@ -266,7 +228,7 @@ class PrivateDirectory:
         return raw
 
     def write(self, name, raw):
-        self.read(name)  # Reject unsafe pre-existing files; never chmod/repair them.
+        self.read(name)  # Validate existing journal identity before atomic replacement.
         temporary = ".write-" + uuid.uuid4().hex
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
                      0o600, dir_fd=self.fd)
@@ -1087,9 +1049,8 @@ class Dialogue:
         elif choice == "e":
             default = Path(os.environ.get("XDG_STATE_HOME", str(Path(os.environ["HOME"]) / ".local/state"))) / "ai-personas"
             path = self.ui.ask(f"Exact private runtime directory [{default}]:").strip() or str(default)
+            path = str(Path(path).resolve(strict=False))
             require(path_text(path), "unsafe_private_path")
-            self.ui.consent("Inspect this selected saved runtime as the named operator? "
-                            "Inspection includes original needs, permissions and metered status; it grants no resume")
             directory = PrivateDirectory(path)
             directory.close()
             self.p["runtime"] = {"path": path, "owned": False}
@@ -2044,6 +2005,8 @@ def progress_candidates():
     """Return deterministic persistent candidates; never choose temporary storage implicitly."""
     explicit = os.environ.get("PERSONAS_LAUNCHER_HOME")
     if explicit is not None:
+        require(bool(explicit) and "\x00" not in explicit, "invalid_explicit_state_path")
+        explicit = str(Path(explicit).resolve(strict=False))
         require(path_text(explicit), "invalid_explicit_private_path")
         return [explicit]
     candidates = []
@@ -2059,13 +2022,12 @@ def progress_candidates():
 def preflight_progress_creation(path):
     """Side-effect-free advisory check of the nearest existing parent descriptor.
 
-    This checks effective write/search access before asking consent. It does not
-    reserve the path or guarantee a later mkdir/write: creation reopens and
-    revalidates every component, so races and quota/read-only failures still fail
-    closed after consent without selecting another journal location.
+    This checks host write/search access before creation. It does not reserve
+    the path or guarantee a later mkdir/write. A filesystem failure never
+    silently selects another journal location.
     """
     require(path_text(str(path)), "unsafe_private_path")
-    parent = Path(path).parent
+    parent = Path(path).resolve(strict=False).parent
     parts = parent.parts[1:]
     try:
         # Resolve platform constants inside the guarded capability boundary:
@@ -2085,14 +2047,6 @@ def preflight_progress_creation(path):
             try:
                 info = os.fstat(child)
                 require(stat.S_ISDIR(info.st_mode), "unsafe_private_path")
-                # Match PrivateDirectory's intermediate-component policy: owner
-                # identity alone is not a security boundary. Reject directories
-                # writable by group/other, except root-owned sticky ancestors.
-                # The final private leaf is separately required to be owned by
-                # this UID and private; same-UID/root remain trusted principals.
-                require(not info.st_mode & 0o022 or
-                        (info.st_uid == 0 and info.st_mode & stat.S_ISVTX),
-                        "writable_path_ancestor")
             except BaseException:
                 os.close(child)
                 raise
@@ -2129,16 +2083,14 @@ def select_progress_directory(ui, default=None):
         return PrivateDirectory(existing[0]), False
     require(safe_missing, "no_supported_persistent_state_location")
     path = safe_missing[0]
-    # Fail before asking consent when the nearest existing parent is read-only.
-    # This is advisory only; create=True repeats descriptor-safe validation.
+    # Check actual host access before creating the selected journal.
     preflight_progress_creation(path)
     ui.say(f"Selected private persistent progress location: {path}")
     ui.say("The journal stores pending requests and operation identities, not credentials.")
-    ui.consent("Create a new private progress journal here? This authorizes no sign-in or model call.")
     try:
         return PrivateDirectory(path, create=True), True
     except (Blocked, OSError):
-        raise Blocked("progress_location_unavailable_after_consent") from None
+        raise Blocked("progress_location_unavailable") from None
 
 
 def main():

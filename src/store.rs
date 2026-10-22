@@ -111,7 +111,7 @@ pub enum StoreError {
     Overrun(ReservationId),
     #[error("supplied limits differ from the durable controlling limits")]
     LimitsMismatch,
-    #[error("insecure database path or permissions: {0:?}")]
+    #[error("invalid database or execution-lock file identity: {0:?}")]
     InsecurePath(PathBuf),
     #[error("unsupported guarantee: {0}")]
     Unsupported(&'static str),
@@ -1845,19 +1845,11 @@ impl ExecutionOwner {
     ))]
     fn try_acquire(database: &Path) -> Result<Option<Self>> {
         use std::os::fd::AsRawFd;
-        use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+        use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
         let parent = database
             .parent()
             .ok_or_else(|| StoreError::InsecurePath(database.into()))?;
-        let parent_metadata = fs::metadata(parent)?;
-        let uid = unsafe { libc::geteuid() };
-        if !parent_metadata.is_dir()
-            || parent_metadata.uid() != uid
-            || parent_metadata.permissions().mode() & 0o077 != 0
-        {
-            return Err(StoreError::InsecurePath(parent.into()));
-        }
         let path = parent.join("execution.lock");
         let file = OpenOptions::new()
             .read(true)
@@ -1865,15 +1857,10 @@ impl ExecutionOwner {
             .create(true)
             .truncate(false)
             .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
+            .custom_flags(libc::O_CLOEXEC | libc::O_NONBLOCK)
             .open(&path)?;
         let metadata = file.metadata()?;
-        if !metadata.is_file()
-            || metadata.nlink() != 1
-            || metadata.uid() != uid
-            || metadata.permissions().mode() & 0o077 != 0
-            || metadata.len() != 0
-        {
+        if !metadata.is_file() {
             return Err(StoreError::InsecurePath(path));
         }
         // flock is associated with this open file description, including between
@@ -1897,9 +1884,8 @@ impl ExecutionOwner {
             _file: file,
             acquiring_pid: unsafe { libc::getpid() } as u32,
         };
-        let linked = fs::symlink_metadata(&path)?;
-        if linked.file_type().is_symlink()
-            || linked.dev() != metadata.dev()
+        let linked = fs::metadata(&path)?;
+        if linked.dev() != metadata.dev()
             || linked.ino() != metadata.ino()
         {
             return Err(StoreError::InsecurePath(path));
@@ -1963,7 +1949,7 @@ fn wait_for_database(_attempt: i32) -> bool {
 impl Store {
     pub(crate) fn runtime_control_monitor(&self) -> Result<RuntimeControlMonitor> {
         let connection = Connection::open_with_flags(
-            secure_database_path(&self.path)?, OpenFlags::SQLITE_OPEN_READ_ONLY,
+            canonical_database_path(&self.path)?, OpenFlags::SQLITE_OPEN_READ_ONLY,
         )?;
         connection.busy_handler(Some(wait_for_database))?;
         Ok(RuntimeControlMonitor {
@@ -1977,10 +1963,10 @@ impl Store {
         TrustedHost { store: self }
     }
 
-    /// The caller enforces placement outside the checkout. On Unix, the immediate
-    /// parent must already be private (0700 or stricter); database and sidecars
-    /// must be regular, singly-linked files with no group/other permissions.
-    /// This does not protect against another process using the same OS account.
+    /// Resolve the selected database to one canonical path. Repository placement,
+    /// ownership and permission bits add no application restrictions. SQLite's
+    /// database and sidecars retain a single regular-file identity so aliases
+    /// cannot split its journaling and execution ownership.
     pub fn open(path: &Path, limits: Limits) -> Result<Self> {
         let mut store = Self::open_for_inspection(path, limits)?;
         store.recover_if_unowned()?;
@@ -1992,7 +1978,7 @@ impl Store {
     /// execution owner before dispatch, including on a connection opened earlier.
     pub fn open_for_inspection(path: &Path, limits: Limits) -> Result<Self> {
         limits.validate()?;
-        let path = secure_database_path(path)?;
+        let path = canonical_database_path(path)?;
         let mut connection = Connection::open_with_flags(
             &path,
             OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
@@ -4810,46 +4796,27 @@ fn sidecar(path: &Path, suffix: &str) -> PathBuf {
     PathBuf::from(name)
 }
 
-#[cfg(unix)]
-fn secure_database_path(path: &Path) -> Result<PathBuf> {
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-    let name = path
-        .file_name()
-        .ok_or_else(|| StoreError::InsecurePath(path.into()))?;
-    let parent = path
-        .parent()
-        .filter(|path| !path.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    let parent = fs::canonicalize(parent)?;
-    let metadata = fs::metadata(&parent)?;
-    if !metadata.is_dir() || metadata.permissions().mode() & 0o077 != 0 {
-        return Err(StoreError::InsecurePath(parent));
-    }
-    let path = parent.join(name);
-    match OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&path)
+fn canonical_database_path(path: &Path) -> Result<PathBuf> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
     {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    match options.open(path) {
         Ok(file) => file.sync_all()?,
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
         Err(error) => return Err(error.into()),
     }
+    // Resolve an existing database symlink before deriving its WAL, shared
+    // memory, rollback journal and execution-lock paths.
+    let path = fs::canonicalize(path)?;
     check_database_files(&path)?;
     Ok(path)
 }
 
-#[cfg(not(unix))]
-fn secure_database_path(_path: &Path) -> Result<PathBuf> {
-    Err(StoreError::Unsupported(
-        "secure database permissions on this platform",
-    ))
-}
-
-#[cfg(unix)]
 fn check_database_files(path: &Path) -> Result<()> {
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
     for candidate in [
         path.to_path_buf(),
         sidecar(path, "-wal"),
@@ -4858,12 +4825,17 @@ fn check_database_files(path: &Path) -> Result<()> {
     ] {
         match fs::symlink_metadata(&candidate) {
             Ok(metadata) => {
-                if !metadata.is_file()
-                    || metadata.file_type().is_symlink()
-                    || metadata.nlink() != 1
-                    || metadata.permissions().mode() & 0o077 != 0
-                {
+                if !metadata.is_file() || metadata.file_type().is_symlink() {
                     return Err(StoreError::InsecurePath(candidate));
+                }
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::MetadataExt;
+                    // Hard-link aliases can give the same database different
+                    // WAL names. Permission bits do not affect this invariant.
+                    if metadata.nlink() != 1 {
+                        return Err(StoreError::InsecurePath(candidate));
+                    }
                 }
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound && candidate != path => {}
@@ -4871,11 +4843,4 @@ fn check_database_files(path: &Path) -> Result<()> {
         }
     }
     Ok(())
-}
-
-#[cfg(not(unix))]
-fn check_database_files(_path: &Path) -> Result<()> {
-    Err(StoreError::Unsupported(
-        "secure database permissions on this platform",
-    ))
 }

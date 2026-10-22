@@ -37,7 +37,7 @@ cargo build --locked --release
 
 These commands build and inspect the helpers. Provider calls and tool execution occur when you start work.
 
-Keep runtime state in a private directory outside source repositories. The normal state root is under `$XDG_STATE_HOME/ai-personas` or `$HOME/.local/state/ai-personas`; `--state-root` selects an explicit private location. The interactive launch journal is separate, under `$XDG_STATE_HOME/ai-personas-launcher` or `$HOME/.local/state/ai-personas-launcher` unless `PERSONAS_LAUNCHER_HOME` selects another location.
+The normal state root is under `$XDG_STATE_HOME/ai-personas` or `$HOME/.local/state/ai-personas`; `--state-root` selects a host-accessible directory. State and launcher journals may live inside repositories or use directory symlinks and parent components. Existing ownership and permission bits add no application access gate; new directories and files use private defaults. The interactive launch journal is separate, under `$XDG_STATE_HOME/ai-personas-launcher` or `$HOME/.local/state/ai-personas-launcher` unless `PERSONAS_LAUNCHER_HOME` selects another location. Startup creates the selected journal without a second approval prompt.
 
 Four command surfaces are important:
 

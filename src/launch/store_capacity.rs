@@ -40,7 +40,7 @@ pub fn snapshot(app: &mut Runtime, operator: &str) -> Result<Value> {
 }
 
 fn open(root: &Path) -> Result<s::Store> {
-    let root = secure_state_root(root, false)?;
+    let root = canonical_state_root(root, false)?;
     Ok(s::Store::open_runtime(
         &root.join("state.sqlite3"),
         storage_limits(),
