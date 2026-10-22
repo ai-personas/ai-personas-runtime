@@ -187,6 +187,20 @@ The capacity view reports null maxima and quota enforcement off. These legacy
 allocation operations are not prerequisites for ordinary execution, and they
 preserve existing consumption and immutable data.
 
+The selected Codex authentication route has no application startup, I/O or
+acquisition timer; JSON-RPC frame, notification and stderr quotas are removed.
+Credential parsing has no token, decoded-payload or account-ID byte limit. The
+provider also accepts complete credential/model/reference identifiers without
+its former length/count caps. Exact account fingerprint, actual credential expiry,
+complete JSON, duplicate keys, protocol order and result bindings still determine
+whether the acquired credential is valid for the selected route. No second
+internal opt-in is needed after selecting that route.
+
+Auth helper stdout/stderr capture has no output quota. Pipe polling drains both
+streams fairly. Process cleanup waits for the actual owned child to exit instead
+of treating a local grace-period expiry as its outcome. Credential-bearing data
+remains private and is not printed in diagnostics.
+
 ## Remaining work
 
 Removal is still incomplete. Remaining

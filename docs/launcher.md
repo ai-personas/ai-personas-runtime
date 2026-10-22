@@ -132,6 +132,9 @@ The wrapper uses `exec`, so runtime stdout/stderr, process identity, exit status
 and signal handling are preserved. It adds no cleanup or recovery trap. Interrupting
 a process does not establish remote cancellation or refund unknown usage.
 The explicit Codex auth-only session route may use app-server for authentication.
+That selected route needs no extra authorization flag and applies no local
+credential-acquisition timer or frame/output quota. Exact account and credential
+expiry bindings remain checked.
 Persona inference uses the native direct-provider path; no automatic provider or
 Codex-inference fallback is used. The [interactive guide](interactive-launch.md)
 describes continuing an existing compatible runtime from the work menu.

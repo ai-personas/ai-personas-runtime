@@ -1,22 +1,12 @@
-//! Opt-in adapter from an authorized Codex auth-status source to Personas' legacy
-//! ChatGPT OAuth credential contract. No app-server calls, environment reads,
-//! JWT signature verification, refresh, or networking occur in this module.
-//!
-//! The trusted host must construct the source only after explicit user consent.
-//! Each load performs one auth-only acquisition; Codex may still proactively
-//! refresh internally even when refreshToken=false. External support for the
-//! deprecated token-output API remains unestablished, so no live source is wired.
-//!
-//! Account ID and expiry are parsed from the same returned access token. Parsing
-//! is bounded and consistency-only; trust in the bearer comes from the authorized
-//! source, not from the decoded JWT claims.
+//! Adapter from the selected Codex auth-status source to native ChatGPT OAuth.
+//! Each load acquires credentials once and binds account and expiry to the same
+//! returned bearer. Parsing imposes no application token or account byte quota.
+//! Decoded claims provide consistency checks; trust comes from the selected source.
 use crate::provider as p;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-const MAX_TOKEN_BYTES: usize = 16_384;
-const MAX_ACCOUNT_BYTES: usize = 512;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CodexAuthMethod { Chatgpt, Unsupported }
@@ -27,26 +17,18 @@ pub(crate) struct AuthStatusSnapshot {
     pub(crate) auth_token: Option<String>,
 }
 
-/// Maximum time allowed for one auth-only acquisition.
-const AUTH_STATUS_ACQUISITION_BUDGET: std::time::Duration =
-    std::time::Duration::from_secs(5);
-
-/// Trusted source, constructed only after explicit user authorization. A real
-/// implementation must request includeToken=true, refreshToken=false once per
-/// load and enforce `timeout` internally. On timeout it must cancel the request
-/// and synchronously clean up before returning `Failure::Timeout`.
-///
-/// For a process-backed source, terminate and reap the child before returning;
-/// never detach a worker or abandon a child. The synchronous CredentialSource
-/// API cannot preempt a nonconforming blocking implementation. This source-side
-/// timeout/cleanup guarantee is mandatory. The adapter also detects a late return
-/// defensively, but that post-return check is not itself a hard timeout. Codex may
-/// proactively refresh internally even when refreshToken=false.
+/// One acquisition from the explicitly selected credential source. Implementations
+/// retain process ownership until the actual result and cleanup are observed.
 pub(crate) trait AuthorizedAuthStatusSource: Send + Sync {
-    fn acquire_bounded(
-        &self,
-        timeout: std::time::Duration,
-    ) -> Result<AuthStatusSnapshot, p::Failure>;
+    fn acquire(&self) -> Result<AuthStatusSnapshot, p::Failure>;
+}
+
+pub(super) fn parse_json(bytes: &[u8]) -> Result<serde_json::Value, p::Failure> {
+    // JsonLimits fields are historical metadata; the shared parser validates
+    // complete JSON and duplicate keys without application parsing quotas.
+    crate::files::parse_json_unique(bytes, &crate::files::JsonLimits {
+        max_source_bytes: 0, max_depth: 0, max_nodes: 0, max_decoded_bytes: 0,
+    }).map_err(|_| p::Failure::InvalidCredential)
 }
 
 pub(crate) struct CodexCredentialSource<S> {
@@ -77,7 +59,7 @@ struct AccessClaims {
 struct AccountClaims { chatgpt_account_id: Option<String> }
 
 fn token_identity_and_expiry(token: &str) -> Result<(String, u64), p::Failure> {
-    if token.is_empty() || token.len() > MAX_TOKEN_BYTES
+    if token.is_empty()
         || !token.bytes().all(|b| b.is_ascii_graphic())
     { return Err(p::Failure::InvalidCredential); }
     let mut parts = token.split('.');
@@ -88,12 +70,11 @@ fn token_identity_and_expiry(token: &str) -> Result<(String, u64), p::Failure> {
         return Err(p::Failure::InvalidCredential);
     }
     let payload = URL_SAFE_NO_PAD.decode(payload).map_err(|_| p::Failure::InvalidCredential)?;
-    if payload.len() > 16_384 { return Err(p::Failure::InvalidCredential); }
-    let claims: AccessClaims = serde_json::from_slice(&payload).map_err(|_| p::Failure::InvalidCredential)?;
+    let claims: AccessClaims = serde_json::from_value(parse_json(&payload)?).map_err(|_| p::Failure::InvalidCredential)?;
     let expiry = claims.exp.and_then(|v| u64::try_from(v).ok()).filter(|v| *v > 0)
         .ok_or(p::Failure::InvalidCredential)?;
     let account = claims.auth.and_then(|a| a.chatgpt_account_id).ok_or(p::Failure::AccountMismatch)?;
-    if account.is_empty() || account.len() > MAX_ACCOUNT_BYTES
+    if account.is_empty()
         || !account.bytes().all(|b| b.is_ascii_graphic())
     { return Err(p::Failure::AccountMismatch); }
     Ok((account, expiry))
@@ -102,67 +83,28 @@ fn token_identity_and_expiry(token: &str) -> Result<(String, u64), p::Failure> {
 fn account_digest(account: &str) -> String { hex::encode(Sha256::digest(account.as_bytes())) }
 
 
-/// Process-backed implementation for a fixed, explicitly authorized helper.
-/// This type is not selected by production code and is exercised only with
-/// synthetic `/bin/sh` fixtures. Never accept its executable/argv from model data.
+/// Process-backed acquisition for an explicitly selected helper executable.
 #[cfg(unix)]
 pub(crate) struct ProcessAuthStatusSource {
     executable: std::path::PathBuf,
     args: Vec<std::ffi::OsString>,
-    timeout_cap: std::time::Duration,
 }
 
 #[cfg(unix)]
 impl ProcessAuthStatusSource {
     pub(crate) fn new(executable: std::path::PathBuf, args: Vec<std::ffi::OsString>) -> Self {
-        Self {
-            executable,
-            args,
-            timeout_cap: AUTH_STATUS_ACQUISITION_BUDGET,
-        }
-    }
-
-    /// Lower per-source deadline for tighter trusted host bounds.
-    /// Production acquisition remains unwired; zero is rejected by the supervisor.
-    pub(crate) fn with_timeout_cap(
-        executable: std::path::PathBuf,
-        args: Vec<std::ffi::OsString>,
-        timeout_cap: std::time::Duration,
-    ) -> Self {
-        Self { executable, args, timeout_cap }
+        Self { executable, args }
     }
 }
 
 #[cfg(unix)]
 impl AuthorizedAuthStatusSource for ProcessAuthStatusSource {
-    fn acquire_bounded(
-        &self,
-        timeout: std::time::Duration,
-    ) -> Result<AuthStatusSnapshot, p::Failure> {
+    fn acquire(&self) -> Result<AuthStatusSnapshot, p::Failure> {
         use std::process::Command;
-        let timeout = timeout.min(AUTH_STATUS_ACQUISITION_BUDGET).min(self.timeout_cap);
         let mut command = Command::new(&self.executable);
         command.args(&self.args);
-        let output = crate::auth::codex_process::run_bounded(
-            &mut command,
-            crate::auth::codex_process::Limits {
-                timeout,
-                stdout_bytes: 32 * 1024,
-                stderr_bytes: 8 * 1024,
-            },
-        )
-        .map_err(|error| match error {
-            crate::auth::codex_process::Error::Timeout
-            | crate::auth::codex_process::Error::CleanupTimeout => p::Failure::Timeout,
-            crate::auth::codex_process::Error::StdoutLimit
-            | crate::auth::codex_process::Error::StderrLimit
-            | crate::auth::codex_process::Error::InvalidLimits => p::Failure::Limit,
-            crate::auth::codex_process::Error::Spawn
-            | crate::auth::codex_process::Error::Io
-            | crate::auth::codex_process::Error::UnsuccessfulExit => {
-                p::Failure::CredentialMissing
-            }
-        })?;
+        let output = crate::auth::codex_process::run(&mut command)
+            .map_err(|_| p::Failure::CredentialMissing)?;
 
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
@@ -171,7 +113,7 @@ impl AuthorizedAuthStatusSource for ProcessAuthStatusSource {
             auth_token: Option<String>,
         }
         // No child output or parser details enter error messages.
-        let wire: WireStatus = serde_json::from_slice(&output.stdout)
+        let wire: WireStatus = serde_json::from_value(parse_json(&output.stdout)?)
             .map_err(|_| p::Failure::InvalidCredential)?;
         let auth_method = match wire.auth_method.as_deref() {
             Some("chatgpt") => Some(CodexAuthMethod::Chatgpt),
@@ -184,11 +126,7 @@ impl AuthorizedAuthStatusSource for ProcessAuthStatusSource {
 
 impl<S: AuthorizedAuthStatusSource> CodexCredentialSource<S> {
     fn acquire_bundle(&self) -> Result<p::CredentialBundle, p::Failure> {
-        let started = std::time::Instant::now();
-        let status = self.source.acquire_bounded(AUTH_STATUS_ACQUISITION_BUDGET)?;
-        if started.elapsed() > AUTH_STATUS_ACQUISITION_BUDGET {
-            return Err(p::Failure::Timeout);
-        }
+        let status = self.source.acquire()?;
         if status.auth_method != Some(CodexAuthMethod::Chatgpt) {
             return Err(p::Failure::GrantMismatch);
         }

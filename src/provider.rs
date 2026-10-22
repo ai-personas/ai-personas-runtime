@@ -118,7 +118,6 @@ pub struct SecretReference {
 impl SecretReference {
     fn valid(&self) -> bool {
         !self.env.is_empty()
-            && self.env.len() <= 128
             && self
                 .env
                 .bytes()
@@ -264,8 +263,7 @@ impl DirectSettings {
         if !self.evidence.efforts.contains(&self.effort) {
             return Err(Failure::EffortUnsupported);
         }
-        if self.evidence.efforts.len() > 64
-            || self.evidence.efforts.iter().any(|s| !identifier(s))
+        if self.evidence.efforts.iter().any(|s| !identifier(s))
             || !digest_string(&self.evidence.catalog_evidence_sha256)
             || !digest_string(&self.evidence.account_sha256)
         {
@@ -617,7 +615,6 @@ impl RetainedResponseId {
     fn from_wire(value: &str) -> Option<Self> {
         (value.starts_with("resp_")
             && value.len() > 5
-            && value.len() <= 128
             && value
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'))
@@ -1413,13 +1410,12 @@ fn grant_matches(mode: AccessMode, grant: Option<OAuthGrant>) -> bool {
             | (AccessMode::PlatformApiKey, None)
     )
 }
-fn secret_valid(secret: &Secret, maximum: usize) -> bool {
+fn secret_valid(secret: &Secret, _historical_maximum: usize) -> bool {
     !secret.0.is_empty()
-        && secret.0.len() <= maximum
         && secret.0.bytes().all(|b| b.is_ascii_graphic())
 }
 fn identifier(s: &str) -> bool {
-    !s.is_empty() && s.len() <= 128 && !s.chars().any(|c| c.is_control() || c.is_whitespace())
+    !s.is_empty() && !s.chars().any(|c| c.is_control() || c.is_whitespace())
 }
 // Closed public Responses effort vocabulary. Unknown provider values must not
 // be echoed into serialized or Debug receipts, even if they resemble identifiers.

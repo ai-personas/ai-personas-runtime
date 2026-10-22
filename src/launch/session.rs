@@ -888,10 +888,7 @@ async fn execute_with_codex_transport(
                     host_home.clone(),
                     codex_home.clone(),
                 );
-                let auth_source = crate::auth::codex_jsonrpc::AuthOnlyJsonRpc::new(
-                    factory,
-                    crate::auth::codex_jsonrpc::AuthOnlyOptIn::after_explicit_user_choice(),
-                );
+                let auth_source = crate::auth::codex_jsonrpc::AuthOnlyJsonRpc::new(factory);
                 let source = Arc::new(crate::auth::codex_adapter::CodexCredentialSource::new(
                     auth_source,
                     settings.evidence.account_sha256.clone(),
