@@ -158,9 +158,10 @@ choose_binary() {
     override=$2
     override_set=$3
     if [ "$override_set" = x ]; then
-        case "$override" in /*) ;; *) fail 'The explicit binary override must be an absolute executable path.' 126 ;; esac
+        [ -n "$override" ] || fail 'The explicit binary override is empty.' 126
         [ -f "$override" ] && [ -x "$override" ] || fail 'The explicit binary override is not executable; no fallback attempted.' 126
         binary=$override
+        case "$binary" in /*) ;; *) binary=./$binary ;; esac
         return
     fi
     binary=$(command -v "$binary_name" 2>/dev/null) || binary=
@@ -171,7 +172,7 @@ choose_binary() {
         return
     fi
     binary=$launcher_dir/target/release/$binary_name
-    [ -f "$binary" ] && [ -x "$binary" ] || fail 'No installed binary found. Add the approved installation to PATH, set its absolute override, or explicitly build with cargo build --locked --release.' 127
+    [ -f "$binary" ] && [ -x "$binary" ] || fail 'No installed binary found. Add an installation to PATH, set its binary override, or explicitly build with cargo build --locked --release.' 127
 }
 
 if [ -n "$vault" ]; then

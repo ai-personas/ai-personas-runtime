@@ -46,7 +46,15 @@ policies. One canonical account path determines its lock, host identity and
 refresh/registration/onboarding sidecars. Sign-in can create missing parent
 directories; other account operations use the selected existing parent. Atomic
 replacement, actual account bindings and unresolved refresh outcomes retain their
-meaning. Installed helper selection remains a separate path interface.
+meaning.
+
+The terminal launcher reads complete selected helper binaries without a size,
+ownership or permission-mode policy. Relative paths and aliases resolve to the
+selected files. Explicit installation selection records the current helper
+digests, including a newer build at the same location. A stable read and, on
+Linux, a sealed ELF snapshot bind execution to those bytes without imposing a
+resource quota. The thin shell wrapper accepts relative executable overrides
+and leaves execute permission to the host.
 
 An earlier accounting overrun remains recorded but no longer freezes admission.
 Ledger inspection reports `resource_quotas_enforced: false`, `frozen: false` and

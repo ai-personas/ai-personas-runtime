@@ -106,7 +106,9 @@ saved progress is reported without resetting it. Selecting an existing runtime
 also authorizes its inspection without another approval prompt.
 
 Select an existing directory containing the four current Rust helpers, or build
-this checkout with locked Cargo dependencies. Selected binaries are
+this checkout with locked Cargo dependencies. Relative paths and directory or
+executable aliases are accepted. Helper selection has no byte-size, ownership or
+permission-mode policy; actual filesystem access still applies. Selected binaries are
 pinned by exact path and SHA-256; changed binaries stop the flow rather than
 silently replacing an installation. Cargo may download locked crates and execute
 build scripts as part of the selected build. The build produces optimized release
@@ -115,8 +117,9 @@ artifacts under the private UI root. Initial compilation can take longer than a
 development build; normal work and inspection use the optimized helpers.
 To select an updated installation for an existing journal, start the launcher
 with `PERSONAS_BIN=/absolute/helper-directory/ai-personas ./personas`. The explicit
-directory takes precedence over the saved installation and uses the same review
-of all four helper hashes. The journal's runtime, pending inputs and session
+directory takes precedence over the saved installation and records the current
+hashes of all four helpers, including an updated build in the same directory.
+The journal's runtime, pending inputs and session
 identities remain intact.
 Toolchain discovery examines every configured candidate without directory-entry,
 candidate-count, version-output or duration caps. Cargo caches, native toolchains
@@ -166,17 +169,15 @@ the menu permits a separately selected session for eligible personas and retains
 every earlier session identity in its history. Every launcher session records an
 explicit authentication route and the inspected launch reference.
 
-Native session claims use version 2. Admission atomically retains the bounded
-claim and prepays one 16 KiB terminal slot, its identity/history capacity, peak
-rewrite copy, and a bounded final metadata read from existing Ordinary resources.
-The final receipt needs no new storage allocation or ordinary read allowance,
-including when work exhausts that allowance or freezes admission. The claim is
-limited to 64 KiB and the terminal to 8 KiB. This protects status recording; it
-does not provide additional model calls or guarantee successful work.
+Native session claims use version 2. Admission atomically retains the exact claim
+and allocates its terminal slot before driver activity. Initial byte and history
+allocations are accounting estimates, not application ceilings. Complete claims,
+terminal records and final metadata reads retain their actual accounting without
+size quotas. A terminal slot is committed once; a new session uses a new identity.
 
 The first release accepts only the current session and launcher-journal formats;
 it includes no reader or migration for earlier development formats. A process
-crash, oversized/corrupt closeout data, or underlying storage failure can still
+crash, corrupt closeout data, or underlying storage failure can still
 leave a terminal unconfirmed; the session identity remains consumed and never
 authorizes replay. Later status inspection spends its own normal read allowance.
 Prepayment is logical resource accounting, not a physical filesystem reservation
@@ -199,22 +200,22 @@ document text, metadata and source attribution without a duplicate numeric byte
 array. The display verifies the package digest and matching artifact text first;
 unrecognized or inconsistent packages keep their original JSON presentation.
 Choose **j** for the original delivery receipt JSON. Both choices request a fresh
-permission-projected result and retain the native result's bounded contents.
+permission-projected result and retain its complete contents.
 
 Messages show their attached exact file references as metadata beside the
 authored text. Those references supply no file body. Repeated copies from the
 same attributed decision and disclosure scope appear together with the recorded
 count and distinct subjects; each underlying message remains in the native JSON.
-The session view applies its call-range and current permission checks before its
-output bound and this formatting. It retains the most recent whole records that
-fit, displays them in call order and marks truncation. Each message keeps its own
+The session view applies its call-range and current permission checks before
+formatting. It retains every matching record and displays them in call order
+without an output quota. Each message keeps its own
 attribution; an earlier successful reply does not become a later call's result.
 
 The native `personas-session session-messages --id SESSION_ID` command provides
-this view without inference, recovery or resume. It derives at most 128 canonical
+this view without inference, recovery or resume. It derives every canonical
 call IDs from the immutable claim and terminal counters, then selects only that
 work's messages addressed and currently permitted to the saved operator. It
-returns at most 128 complete messages within a 1 MiB response envelope. Session
+returns all matching complete messages without a count or byte ceiling. Session
 metadata grants no additional disclosure rights or completion judgment. Missing
 terminals and failed outcomes without final counters return no attributed messages;
 the ordinary `result WORK` interface remains available for permitted history.

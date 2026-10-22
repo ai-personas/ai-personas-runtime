@@ -41,8 +41,8 @@ passed through. Administrative actions remain explicit lower-level commands.
 
 ## Binary selection
 
-For ordinary runs and results, an explicitly set `PERSONAS_BIN` must be an
-absolute path to an executable file. An empty, relative, missing or non-executable
+For ordinary runs and results, an explicitly set `PERSONAS_BIN` selects an
+executable file. Relative paths and aliases are accepted. An empty, missing or non-executable
 override fails without fallback. Without an override, the launcher selects
 `ai-personas` on `PATH`, or, if absent, `target/release/ai-personas` beside this
 checkout's launcher. Native SIWC follows the same rule using `PERSONAS_AUTH_BIN`

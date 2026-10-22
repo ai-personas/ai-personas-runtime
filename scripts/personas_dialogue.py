@@ -472,36 +472,23 @@ class Terminal:
             self.say("Enter nonempty text.")
 
 
-def _linux_open_regular(path):
-    """Descriptor-anchor path traversal and return a validated regular leaf FD.
-
-    At approval time, reject intermediate directories currently writable by
-    unrelated principals, except root-owned sticky shared directories. This is
-    not an immutable-origin guarantee: a foreign owner may later change its
-    directory mode or rename descendants. The saved digest and sealed execution
-    snapshot enforce the approved main-ELF bytes at launch. Host/root and hostile
-    same-UID processes remain trusted; dynamic loader and shared libraries do too.
-    """
+def _open_regular(path):
+    """Resolve the selected alias and anchor reads to its actual regular file."""
     require(all(type(getattr(os, name, None)) is int for name in
                 ("O_DIRECTORY", "O_CLOEXEC", "O_NOFOLLOW", "O_NONBLOCK")),
             "verified_exec_unavailable")
-    p = Path(path)
-    require(p.is_absolute() and all(part not in (".", "..") for part in p.parts),
-            "unsafe_installation_path")
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW
     directory = None
     leaf = None
     try:
+        p = Path(path).resolve(strict=True)
         directory = os.open("/", flags)
         for part in p.parts[1:-1]:
             child = None
             try:
                 child = os.open(part, flags, dir_fd=directory)
                 info = os.fstat(child)
-                root_sticky = info.st_uid == 0 and bool(info.st_mode & stat.S_ISVTX)
-                foreign_owner_can_rename = info.st_uid not in (0, os.geteuid()) and bool(info.st_mode & 0o200)
-                writable_by_group_or_other = bool(info.st_mode & 0o022) and not root_sticky
-                if not stat.S_ISDIR(info.st_mode) or foreign_owner_can_rename or writable_by_group_or_other:
+                if not stat.S_ISDIR(info.st_mode):
                     raise Blocked("unsafe_installation_path")
                 os.close(directory)
                 directory = child
@@ -512,13 +499,10 @@ def _linux_open_regular(path):
         leaf = os.open(p.name, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC | os.O_NOFOLLOW,
                        dir_fd=directory)
         info = os.fstat(leaf)
-        require(stat.S_ISREG(info.st_mode) and info.st_uid in (0, os.geteuid())
-                and not info.st_mode & 0o022
-                and info.st_mode & 0o111 and info.st_size <= 128 * 1024 * 1024,
-                "unsafe_installation")
+        require(stat.S_ISREG(info.st_mode), "invalid_installation")
         result, leaf = (leaf, None)
         return result, info
-    except OSError:
+    except (OSError, RuntimeError):
         raise Blocked("unsafe_installation_path") from None
     finally:
         if leaf is not None:
@@ -528,22 +512,14 @@ def _linux_open_regular(path):
 
 def _digest_fd(fd):
     h = hashlib.sha256()
-    total = 0
     os.lseek(fd, 0, os.SEEK_SET)
     while True:
         part = os.read(fd, 1024 * 1024)
         if not part:
             break
-        total += len(part)
         h.update(part)
     os.lseek(fd, 0, os.SEEK_SET)
     return h.hexdigest()
-
-
-def _check_installation_ancestry(path):
-    # Compatibility name: Linux checks ancestry through open directory FDs in
-    # _linux_open_regular; pathname lstat loops are deliberately not trusted.
-    require(Path(path).is_absolute(), "invalid_installation")
 
 
 def _stable_stat(before, after):
@@ -554,38 +530,15 @@ def _stable_stat(before, after):
 
 
 def binary_digest(path):
-    p = Path(path)
-    require(p.is_absolute(), "invalid_installation")
-    if sys.platform.startswith("linux"):
-        # Descriptor-relative traversal, not a pathname lstat preflight.
-        fd, before = _linux_open_regular(str(p))
-        try:
-            require(before.st_uid in (0, os.geteuid()), "unsafe_installation")
-            digest = _digest_fd(fd)
-            require(_stable_stat(before, os.fstat(fd)), "installation_changed_during_hash")
-            return digest
-        except OSError:
-            raise Blocked("unsafe_installation") from None
-        finally:
-            os.close(fd)
-    for ancestor in (p, *p.parents):
-        info = ancestor.lstat()
-        require(not stat.S_ISLNK(info.st_mode) and info.st_uid in (0, os.geteuid()), "unsafe_installation_path")
-        require(not info.st_mode & 0o022 or
-                (stat.S_ISDIR(info.st_mode) and info.st_uid == 0 and info.st_mode & stat.S_ISVTX),
-                "writable_installation_path")
-    info = p.stat()
-    require(stat.S_ISREG(info.st_mode) and info.st_uid in (0, os.geteuid())
-            and not info.st_mode & 0o022 and os.access(p, os.X_OK)
-            and info.st_size <= 128 * 1024 * 1024, "unsafe_installation")
-    with p.open("rb") as f:
-        h = hashlib.sha256()
-        while True:
-            part = f.read(1024 * 1024)
-            if not part:
-                break
-            h.update(part)
-    return h.hexdigest()
+    fd, before = _open_regular(path)
+    try:
+        digest = _digest_fd(fd)
+        require(_stable_stat(before, os.fstat(fd)), "installation_changed_during_hash")
+        return digest
+    except OSError:
+        raise Blocked("installation_unavailable") from None
+    finally:
+        os.close(fd)
 
 
 class VerifiedExecutable:
@@ -616,11 +569,9 @@ class VerifiedExecutable:
         require(isinstance(expected_digest, str) and re.fullmatch(r"[a-f0-9]{64}", expected_digest),
                 "approved_binary_digest_required")
         require(self.capabilities_available(), "verified_exec_unavailable")
-        source_fd, before = _linux_open_regular(path)
+        source_fd, before = _open_regular(path)
         self.fd = None
         try:
-            require(before.st_uid in (0, os.geteuid()), "unsafe_installation")
-            require(before.st_mode & 0o111 and not before.st_mode & 0o022, "unsafe_installation")
             # Only ELF executables are supported: no shebang/interpreter chain.
             magic = os.read(source_fd, 4)
             require(magic == b"\x7fELF", "verified_exec_format_unsupported")
@@ -833,8 +784,8 @@ class Helpers:
         paths = []
         explicit = os.environ.get("PERSONAS_BIN")
         if explicit is not None:
-            require(path_text(explicit), "invalid_explicit_installation")
-            paths.append(Path(explicit).parent)
+            require(bool(explicit) and "\0" not in explicit, "invalid_explicit_installation")
+            paths.append(Path(explicit).parent.resolve(strict=True))
         installed = shutil.which("ai-personas")
         if installed:
             paths.append(Path(installed).parent)
@@ -849,36 +800,30 @@ class Helpers:
         mapping = {}
         selected_folder = Path(folder).resolve(strict=True)
         for name in NAMES:
-            # Resolve the chosen directory, not each executable leaf: O_NOFOLLOW
-            # must see and reject a symlink at the selected helper name.
+            # Keep the selected name; reads resolve its target before binding
+            # complete bytes to the saved digest and execution snapshot.
             path = selected_folder / name
             mapping[name] = {"path": str(path), "sha256": binary_digest(path)}
-        digest_summary = "; ".join(f"{name}={item['sha256']}" for name, item in mapping.items())
-        self.ui.consent(f"Approve these exact helper bytes from {selected_folder}? SHA-256: {digest_summary}")
         self.j.data["installation"] = mapping
         self.j.save()
 
     def install(self):
         explicit = os.environ.get("PERSONAS_BIN")
         if explicit is not None:
-            require(path_text(explicit), "invalid_explicit_installation")
+            require(bool(explicit) and "\0" not in explicit, "invalid_explicit_installation")
             selected = Path(explicit).parent.resolve(strict=True)
-            installed = self.j.data["installation"]
-            if installed is not None and Path(installed["ai-personas"]["path"]).parent != selected:
-                # An explicit installation choice also applies to a saved
-                # journal. Keep its runtime and pending operation identities.
-                self.ui.say(f"PERSONAS_BIN selects native helpers in {selected}.")
-                self.adopt(selected)
-                return
+            # The explicit choice selects current bytes even if this directory
+            # also held a previously selected build. Other progress is retained.
+            self.ui.say(f"PERSONAS_BIN selects native helpers in {selected}.")
+            self.adopt(selected)
+            return
         if self.j.data["installation"] is not None:
             try:
                 for item in self.j.data["installation"].values():
                     require(binary_digest(item["path"]) == item["sha256"], "approved_binary_changed")
                 return
             except (Blocked, OSError):
-                self.ui.say("An approved helper is missing or changed. It will not execute under the old approval.")
-                self.ui.consent("Choose/build and explicitly approve another installation here? "
-                                "Your runtime, configuration, pending keys and budgets will remain unchanged")
+                self.ui.say("A selected helper is missing or changed. Choose the installation to use.")
                 self.j.data["installation"] = None
                 self.j.save()
         candidates = self.candidates()
@@ -889,8 +834,8 @@ class Helpers:
         if choice.isdecimal() and 1 <= int(choice) <= len(candidates):
             self.adopt(candidates[int(choice) - 1])
         elif choice == "p":
-            folder = self.ui.ask("Absolute directory containing all four current helpers:").strip()
-            require(path_text(folder), "invalid_installation")
+            folder = self.ui.ask("Directory containing all four current helpers:").strip()
+            require(bool(folder) and "\0" not in folder, "invalid_installation")
             self.adopt(Path(folder))
         elif choice == "b":
             candidates = discover_cargo()
