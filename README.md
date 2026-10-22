@@ -22,10 +22,10 @@ call turns that attributed profile into its own characteristic fragments.
 Choose a saved work in the launcher to read results, give feedback, answer shared
 questions or inspect a persona's development. These actions do not start a model
 call. To let a stopped participant respond, choose **Resume participant**, then
-**Continue** to authorize a model session.
+**Continue** to start a model session.
 Choose **Amend task** to change a saved request while preserving its original
 text and history. [Task amendments](docs/task-amendments.md) adopt a new mandate
-and request eligible resumption using the remaining resources.
+and request eligible resumption.
 Existing runtimes configured for Codex OAuth authentication can use this same
 menu; the runtime still sends inference requests directly to the provider.
 
@@ -81,8 +81,8 @@ with attribution and an explicit expiry, separately from their stable character.
 
 Operators can separately enable [voluntary optional activity](docs/optional-activity.md)
 without an assigned topic or deliverable. Personas choose whether to explore or
-talk within that opportunity. Existing foreground work takes priority; activity
-has shared funding, expiry and explicit recurrence bounds.
+talk within that opportunity. Optional activity records usage without a resource, expiry or recurrence quota;
+explicit opportunity/start controls and personal continuation choices remain.
 
 Use `--feedback feedback.json` to give a participant feedback within its existing
 work. The JSON contains `id`, `work`, `persona`, and `text`. Continue the work to
