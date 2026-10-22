@@ -135,15 +135,33 @@ fn archive_cell(
     let row = db.query_row(
         "SELECT length(CAST(data AS BLOB)), CASE WHEN typeof(data)='blob'
              AND capacity>=length(data) AND lane IN (0,1) AND slots=0
-             THEN data ELSE NULL END
+             THEN data ELSE NULL END, capacity
          FROM store_cells WHERE ns=?1 AND k=?2",
         params![namespace, key],
-        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<Vec<u8>>>(1)?)),
+        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<Vec<u8>>>(1)?, row.get::<_, i64>(2)?)),
     ).optional()?;
     charge(inspected_bytes, key.len() as u64)?;
-    if let Some((bytes, body)) = row {
-        charge(inspected_bytes, u64::try_from(bytes).map_err(|_| StoreError::Overflow("archive byte length"))?)?;
-        Ok(Some(body))
+    if let Some((bytes, body, capacity)) = row {
+        let physical_bytes = u64::try_from(bytes)
+            .map_err(|_| StoreError::Overflow("archive byte length"))?;
+        let Some(body) = body else {
+            charge(inspected_bytes, physical_bytes)?;
+            return Ok(Some(None));
+        };
+        let decoded = match revision_storage::decode(namespace, body) {
+            Ok(decoded) => decoded,
+            Err(error) => {
+                charge(inspected_bytes, physical_bytes)?;
+                return Err(error);
+            }
+        };
+        // Archive navigation measures complete logical records, independently
+        // of their physical compression. Retain observed cost on failures too.
+        charge(inspected_bytes, decoded.len() as u64)?;
+        if u64::try_from(capacity).ok().is_none_or(|capacity| decoded.len() as u64 > capacity) {
+            return Ok(Some(None));
+        }
+        Ok(Some(Some(decoded)))
     } else {
         Ok(None)
     }

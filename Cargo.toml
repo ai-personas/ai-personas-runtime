@@ -29,3 +29,4 @@ base64 = "=0.22.1"
 getrandom = "=0.3.4"
 url = "2"
 wasmi = { version = "=2.0.0", default-features = false, features = ["stable", "std", "wat", "validate", "portable-dispatch", "deterministic"] }
+zstd = { version = "=0.14.3", default-features = false, features = ["vendored"] }

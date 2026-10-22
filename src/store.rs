@@ -24,6 +24,7 @@ mod capacity;
 mod head_compaction;
 mod operator_inspection;
 mod provider_prelaunch;
+mod revision_storage;
 mod session_journal;
 mod terminal_inspection;
 pub use capacity::CapacityExtensionRequest;
@@ -3408,7 +3409,7 @@ impl<'a> Work<'a> {
             )
             .optional()?;
         row.map(|(data, capacity, lane, slots)| {
-            let data = data.ok_or(StoreError::TooLarge)?;
+            let data = revision_storage::decode(namespace, data.ok_or(StoreError::TooLarge)?)?;
             let capacity = u64::try_from(capacity)
                 .map_err(|_| StoreError::Corrupt("negative capacity".into()))?;
             let slots = u64::try_from(slots)
@@ -3594,9 +3595,12 @@ impl<'a> Work<'a> {
     }
 
     fn flush(&self) -> Result<()> {
-        // No cell mutation is issued until every operation and quota check passed.
+        // No cell mutation is issued until every operation has been validated.
         let meta = encode(&self.meta, META_CAPACITY)?;
         for ((namespace, key), cell) in &self.pending {
+            // Compression changes physical storage only. Pending cells, logical
+            // allocation, fingerprints and returned-byte charges stay canonical.
+            let stored = revision_storage::encode(namespace, &cell.data)?;
             self.db.execute(
                 "INSERT INTO store_cells(ns,k,data,capacity,lane,slots) VALUES(?1,?2,?3,?4,?5,?6)
                  ON CONFLICT(ns,k) DO UPDATE SET data=excluded.data,capacity=excluded.capacity,
@@ -3604,7 +3608,7 @@ impl<'a> Work<'a> {
                 params![
                     namespace,
                     key,
-                    cell.data,
+                    stored.as_ref(),
                     cell.capacity as i64,
                     if cell.class == BudgetClass::Ordinary {
                         0

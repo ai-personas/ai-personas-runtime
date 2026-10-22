@@ -606,6 +606,10 @@ Do not confuse removal of these gates with a promise of infinite physical resour
 
 Typed protocol schemas and exact semantic prerequisites also remain. A malformed input is not authorized by unrestricted access. A stopped persona is not resumed by a historical allowance. An uncertain command is not safe to replay because quotas are disabled.
 
+New immutable Store revisions use lossless Zstandard compression when the complete encoded representation is smaller than canonical JSON. The versioned storage header records the original byte length and SHA-256; reads recover and verify the complete bytes before JSON decoding and exact-reference validation. Current object heads and control records remain JSON. Existing revisions are never rewritten or deleted by this encoding change.
+
+Revision compression changes physical storage, not the evidence identity or accounting unit. Object references, logical retention allocations and navigation charges still describe complete canonical JSON. Archive reads likewise charge their complete decoded records. The Store footprint reports observed database and sidecar file sizes separately; compression does not promise immediate filesystem reclamation or a fixed total footprint. No history expiry, quota, outcome change or replay follows from compression.
+
 ## 17. Identity lifecycle
 
 Identity status (`active`, `paused`, or `retired`) and quarantine are distinct from work participation and character. An active identity is merely eligible for consideration; it has no automatic work acceptance or inference.
