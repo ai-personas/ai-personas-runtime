@@ -1294,10 +1294,19 @@ class Dialogue:
             child = creation.get("child")
             if child:
                 character = "accepted" if child["character_accepted"] else "not yet accepted"
-                self.ui.say(f"{parent} created {child['label']} ({child['persona']}). "
-                            f"Initial character: {character}. Creation alone accepts no work.")
+                self.ui.say(f"Persona creation: {parent} created {child['label']} ({child['persona']}). "
+                            f"Initial character: {character}.")
+                opportunities = child["work_opportunities"]
+                if not opportunities:
+                    self.ui.say("No work invitation is recorded. Open a task or optional activity "
+                                "to give this persona an opportunity.")
+                for opportunity in opportunities:
+                    acceptance = "accepted" if opportunity["responsibility_accepted"] else "not accepted"
+                    self.ui.say(f"Child work {opportunity['work']}: responsibility {acceptance}; "
+                                f"{opportunity['continuation']}. Open that work to inspect its result.")
             else:
-                self.ui.say(f"{parent}'s adopted creation request is pending; no new identity is recorded yet.")
+                self.ui.say(f"Persona creation: {parent}'s adopted request is pending. "
+                            "Continue this work to finish the recorded creation.")
         messages = result.get("messages", [])
         deliveries = result.get("local_deliveries", [])
         feedback = (result.get("requester_feedback") or {}).get("items", [])

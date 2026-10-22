@@ -75,6 +75,11 @@ chooses its character and participation. An adopted creation still completes
 when its parent chooses Stop or Pause; its receipt does not resume the parent.
 Native result views show pending creations, actual children and current initial
 character status even when the parent sends no reply.
+They separately list the child's work opportunities, current responsibility
+acceptance and authored continuation. Open the listed work to inspect its
+result; when no invitation exists, open a task or optional activity to give the
+new identity an opportunity. The parent task's overall status remains separate
+from these creation and participation facts.
 
 Population growth advances only the session's exact appended seed binding and
 currently matching intake-episode fingerprints. It changes no existing seed,

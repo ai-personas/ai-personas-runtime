@@ -576,12 +576,23 @@ fn readable_result(value: &launch::Output) -> runtime::Result<String> {
         let parent = creation["parent_label"].as_str().unwrap_or("Persona");
         let child = &creation["child"];
         if creation["status"] == "created" {
-            lines.push(format!("{parent} created {} ({}). Initial character: {}. Creation alone accepts no work.",
+            lines.push(format!("Persona creation: {parent} created {} ({}). Initial character: {}.",
                 child["label"].as_str().unwrap_or("Persona"),
                 child["persona"].as_str().unwrap_or("unavailable"),
                 if child["character_accepted"] == true { "accepted" } else { "not yet accepted" }));
+            if let Some(opportunities) = child["work_opportunities"].as_array() {
+                if opportunities.is_empty() {
+                    lines.push("No work invitation is recorded. Open a task or optional activity to give this persona an opportunity.".into());
+                }
+                for opportunity in opportunities {
+                    lines.push(format!("Child work {}: responsibility {}; {}. Open that work to inspect its result.",
+                        opportunity["work"].as_str().unwrap_or("unavailable"),
+                        if opportunity["responsibility_accepted"] == true { "accepted" } else { "not accepted" },
+                        opportunity["continuation"].as_str().unwrap_or("unavailable")));
+                }
+            }
         } else {
-            lines.push(format!("{parent}'s adopted creation request is pending; no new identity is recorded yet."));
+            lines.push(format!("Persona creation: {parent}'s adopted request is pending. Continue this work to finish the recorded creation."));
         }
     }
     if let Some(activity) = &value.optional_activity {

@@ -156,8 +156,27 @@ pub(super) fn project_state(state: &State, work_id: &str, saved: &Saved, now: i6
                 .ok_or_else(|| held("created persona absent"))?;
             require(persona.birth.as_ref().is_some_and(|origin| origin.receipt == created.receipt),
                 "created identity receipt differs")?;
+            let mut opportunities = Vec::new();
+            for (work, focus) in &persona.focus {
+                let board = state.board.work(&w::WorkId(work.clone()))?;
+                if !board.participants.contains_key(&w::PersonaId(created.persona.clone())) {
+                    continue;
+                }
+                let continuation = match focus.continuation {
+                    None => "no authored choice yet",
+                    Some(p::Continuation::Immediate { .. }) => "continuing",
+                    Some(p::Continuation::Stop { .. }) => "stopped",
+                    Some(p::Continuation::Pause { .. }) => "paused",
+                    Some(p::Continuation::Wait { .. }) => "waiting",
+                    Some(p::Continuation::ReconsiderAt { .. }) => "scheduled",
+                };
+                opportunities.push(json!({"work":work,
+                    "responsibility_accepted":board.acceptance(&w::PersonaId(created.persona.clone())).is_some(),
+                    "continuation":continuation,"phase":board.phase}));
+            }
             Ok(json!({"persona":created.persona,"label":persona.seed.label,
-                "receipt":created.receipt,"character_accepted":persona.character.is_some()}))
+                "receipt":created.receipt,"character_accepted":persona.character.is_some(),
+                "work_opportunities":opportunities}))
         }).transpose()?;
         result.persona_creations.push(json!({"id":creation.id,"parent":creation.parent,
             "parent_label":parent.seed.label,"invocation":creation.invocation,
