@@ -400,8 +400,9 @@ fn child_input(
         "kind":"consumption_of_exact_operator_intake_delegation",
         "issuer":grant.operator,"grant":request.grant,"pending":request.pending,
         "purpose":grant.purpose,"boundaries":grant.boundaries,
-        "allowed_participants":grant.allowed_child_participants,
-        "initial_consideration_recipients":grant.initial_consideration_recipients,
+        "historical_allowed_participants":grant.allowed_child_participants,
+        "historical_initial_consideration_recipients":grant.initial_consideration_recipients,
+        "participant_quotas_enforced":false,
         "further_intake_delegation":false,"acceptance_inferred":false
     }))?;
     let origin = w::Origin::Persona(w::PersonaId(pending.author.clone()));
@@ -571,13 +572,6 @@ fn plan(
     )?;
     for invitee in &proposal.invitees {
         lifecycle::require_active(&state, &invitee.persona)?;
-        require(
-            grant
-                .request
-                .allowed_child_participants
-                .contains(&invitee.persona),
-            "child invitee outside delegation",
-        )?;
         let persona = state
             .personas
             .get(&invitee.persona)
@@ -641,13 +635,11 @@ fn plan(
         .ok_or_else(|| held("episode absent"))?
         .record_child(child_binding);
     for invitee in &proposal.invitees {
-        let permitted = need_proposals::initial_allowed(&next, &input.id, &invitee.persona);
         let persona = next
             .personas
             .get_mut(&invitee.persona)
             .ok_or_else(|| held("invitee absent"))?;
-        let enabled = permitted
-            && persona.failed_attempt_hold.is_none()
+        let enabled = persona.failed_attempt_hold.is_none()
             && persona.active_invocation.is_none();
         let focus = persona
             .focus
@@ -859,8 +851,7 @@ pub(in crate::runtime) fn admitted_child_for_run(
     let exposure = work_exposure(&state, work)?;
     require(matches!(current.phase, w::Phase::Open)
         && current.participants.keys().any(|actor| {
-            need_proposals::actor_reason(&state, work, &actor.0).is_none()
-                && state.personas.get(&actor.0).is_some_and(|persona| {
+            state.personas.get(&actor.0).is_some_and(|persona| {
                     persona.active_invocation.is_none() && persona.failed_attempt_hold.is_none()
                         && exposure_permitted(&state, &exposure, &admission(persona, now))
                         && (continuation_permit(&state, &actor.0, work)

@@ -131,12 +131,14 @@ pub struct IntakeDelegationRequest {
     pub activate: bool,
     pub expected: IntakeDelegationFence,
     pub expected_cohort: BTreeSet<String>,
+    /// Historical requester metadata; it does not restrict proposal authors.
     pub requesting_personas: BTreeSet<String>,
     /// Existing works on which a separately admitted decision may propose.
     /// No additional staging work identity is authorized by this list.
     pub proposal_work_ids: BTreeSet<String>,
+    /// Historical participant metadata, not an eligibility restriction.
     pub allowed_child_participants: BTreeSet<String>,
-    /// Separate from participation eligibility; may be empty for dormant intake.
+    /// Historical initial-recipient metadata, not a separate approval gate.
     pub initial_consideration_recipients: BTreeSet<String>,
     pub policy: f::Policy,
     pub destination: String,
@@ -167,15 +169,15 @@ impl IntakeDelegationRequest {
         text(&self.boundaries, 4096)?;
         self.expected.validate()?;
         identities(&self.expected_cohort, 1, 8)?;
-        identities(&self.requesting_personas, 1, 8)?;
+        identities(&self.requesting_personas, 0, 8)?;
         identities(&self.proposal_work_ids, 1, 8)?;
-        identities(&self.allowed_child_participants, 1, 8)?;
+        identities(&self.allowed_child_participants, 0, 8)?;
         identities(&self.initial_consideration_recipients, 0, 8)?;
         require(
             self.requesting_personas.is_subset(&self.expected_cohort)
                 && self.allowed_child_participants.is_subset(&self.expected_cohort)
-                && self.initial_consideration_recipients.is_subset(&self.allowed_child_participants),
-            "requesters and participants must name the exact cohort; initial recipients must be allowed participants",
+                && self.initial_consideration_recipients.is_subset(&self.expected_cohort),
+            "recorded requester, participant and initial-recipient identities must belong to the observed cohort",
         )?;
         identity(&self.destination)?;
         identity(&self.policy.id)?;
@@ -802,23 +804,6 @@ fn issue_availability(
     request
         .episode_ceiling
         .require_within_config(&state.config)?;
-    for id in request
-        .requesting_personas
-        .union(&request.allowed_child_participants)
-    {
-        lifecycle::require_active(state, id)?;
-        let persona = state
-            .personas
-            .get(id)
-            .ok_or_else(|| held("delegation persona absent"))?;
-        require(
-            persona.failed_attempt_hold.is_none()
-                && persona.active_invocation.is_none()
-                && persona.seed.destination == request.destination
-                && policy_permitted(state, &request.policy, &admission(persona, now)),
-            "delegation persona is held, busy or ineligible under current policy",
-        )?;
-    }
     let mut currently_enabled_requesters = BTreeMap::new();
     for id in &request.proposal_work_ids {
         require(!optional_activity::bound(state, id),
@@ -836,22 +821,11 @@ fn issue_availability(
             matches!(work.phase, w::Phase::Open),
             "proposal work is not open",
         )?;
-        let exposure = work_exposure(state, id)?;
-        for actor in &request.requesting_personas {
-            let persona = state
-                .personas
-                .get(actor)
-                .ok_or_else(|| held("requesting persona absent"))?;
-            require(
-                exposure_permitted(state, &exposure, &admission(persona, now)),
-                "proposal work exposure is unavailable to requester",
-            )?;
-        }
         currently_enabled_requesters.insert(
             id.clone(),
-            request
-                .requesting_personas
-                .iter()
+            state
+                .personas
+                .keys()
                 .filter(|actor| enabled(state, id, actor, now))
                 .cloned()
                 .collect::<BTreeSet<_>>(),
@@ -873,10 +847,8 @@ fn issue_availability(
             require(
                 work.version.revision == *expected_work_revision
                     && work.version.epoch == *expected_work_epoch
-                    && available == *expected_remaining
-                    && currently_enabled_requesters.get(work_id)
-                        == Some(&request.requesting_personas),
-                "parent version, remaining funding or enabled requesting opportunity changed",
+                    && available == *expected_remaining,
+                "parent version or recorded remaining funding changed",
             )?;
             Some(available)
         }
@@ -952,7 +924,7 @@ fn validate_receipt(receipt: &IntakeDelegationReceipt) -> Result<()> {
                     && availability
                         .currently_enabled_requesters
                         .values()
-                        .all(|actors| actors.is_subset(&request.requesting_personas)),
+                        .all(|actors| actors.is_subset(&request.expected_cohort)),
                 "invalid issue availability metadata",
             )?;
         }

@@ -159,9 +159,6 @@ fn validate_basis(
         )?;
     }
     let actor = &spec.mock_request.actor;
-    if let Some(reason) = need_proposals::actor_reason(state, &spec.binding.work, actor) {
-        return Err(held(reason));
-    }
     require(
         spec.mock_request.work == spec.binding.work
             && current
@@ -200,8 +197,6 @@ fn pending_visible(
     now: i64,
 ) -> bool {
     dependency.registration.request.participants.contains(actor)
-        && need_proposals::actor_reason(state, &dependency.registration.request.binding.work, actor)
-            .is_none()
         && state.personas.get(actor).is_some_and(|persona| {
             pending_exposure(state, dependency).is_ok_and(|exposure| {
                 exposure_permitted(state, &exposure, &admission(persona, now))

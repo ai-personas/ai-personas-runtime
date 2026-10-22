@@ -296,8 +296,17 @@ children. Snapshot, continuation, accounting, result routing and explicit lease
 recovery cover every admitted child. Native continuation no longer requires a
 positive saved attempt balance or consideration count.
 
+Delegated requester, participant and initial-recipient lists are now historical
+metadata. They may be empty and no longer restrict proposal authors, invitations,
+initial consideration, continuation, targeted resume, events or local evidence.
+Issuing metadata does not require every listed persona to be idle or enabled.
+Arrangement actor pools likewise no longer block accepted participants or their
+chosen decision holders. Actual acceptance, existing Stop/Pause choices, identity
+bindings and unfinished invocation ownership remain. Child allocation metadata
+can also exceed its historical original allocation without invalidating its origin.
+
 Removal is still incomplete. Remaining
-application enforcement includes delegated intake authority, participant and nesting
+application enforcement includes delegated intake authority and nesting
 constraints; explicit optional opportunity and birth workflows; remaining typed protocol and
 tool-input limits; and additional specialized control limits. These are implementation gaps under the
 new requirement, not exceptions granted by the user. Some earlier documents still

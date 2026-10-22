@@ -655,6 +655,13 @@ through later admissions; registry and episode fences identify their current
 state. Child replies and result delivery route through the matching child to its
 requester's parent-work inbox.
 
+The grant's requester, child-participant and initial-recipient lists are historical
+metadata, including empty lists. Any existing persona may be invited, and a new
+invitee receives an initial consideration without a second approval. Current
+Stop/Pause choices and unfinished invocations remain unchanged. PersonaArranged
+eligible lists also do not restrict accepted participants or their chosen
+decision holders; actual personal acceptance still binds each contribution.
+
 Persona-requested children retain the persona as requester and use that persona
 as the delivery target at new admission. Authorized child replies reach the
 requester's existing parent-work inbox while preserving the child attribution.

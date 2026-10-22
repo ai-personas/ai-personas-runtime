@@ -9,8 +9,9 @@ claim that invitees accepted responsibility or completed the request.
 
 Saved source policies and work allocations are provenance rather than execution quotas. Model calls, navigation, metadata retention and episode expiry have no application resource gate.
 An intake grant creates no initial work opportunity. A stopped persona needs a
-separately authorized resume or other eligible opportunity. Child participants
-must currently come from the grant's existing cohort. There is no limit on the
+explicit resume or other eligible opportunity. Saved requester, participant and
+initial-recipient lists are historical metadata. Any existing persona can be
+invited; its actual acceptance and continuation remain its own choices. There is no limit on the
 number of proposals in a decision, pending proposals in an episode, or children
 admitted from its distinct proposals. Saved creation counts are historical
 metadata; reaching zero does not disable proposal authoring or child admission.
@@ -27,8 +28,10 @@ ai-personas --state-root /private/state --operator requester grant-intake-delega
 
 Construct `grant.json` from the exact current snapshot. Its
 [`IntakeDelegationRequest`](../src/launch/intake_delegation.rs) records the
-purpose, boundaries, expiry, policy, authorized proposers, existing parent works,
-allowed child participants, initial consideration recipients and historical allocation metadata.
+purpose, boundaries, expiry, policy, existing parent works, historical proposer,
+participant and initial-recipient lists, and allocation metadata. The three persona
+lists may be empty; they do not restrict who can propose, be invited or consider
+an invitation. Listed identities still refer to the observed cohort.
 The funding record names an exact parent transfer or operator tranche. Saved
 launch ceilings and token attestations are observational; they neither limit
 admission nor establish actual provider usage. Neither a preview nor a grant
@@ -41,15 +44,15 @@ Take another delegation snapshot and copy the granted ID and its entry from
 {"id":"peer-request-opportunity","sha256":"<64 lowercase hexadecimal characters from grant_sha256>"}
 ```
 
-Pass this file to a fresh session on the authorized parent work, using the
+Pass this file to a fresh session on the selected parent work, using the
 provider route already configured for that runtime. For example, with an
 explicit SIWC vault:
 
 ```sh
 personas-session --state-root /private/state --operator requester run \
-  --id parent-request-1 --work work-00000001 --authorize-run \
+  --id parent-request-1 --work work-00000001 \
   --intake-delegation selection.json \
-  --vault /private/auth/vault.json --authorize-native
+  --vault /private/auth/vault.json
 ```
 
 `--intake-delegation` also works with the saved environment route and the explicit
@@ -101,10 +104,14 @@ A parent transfer subtracts the child's allocation from the existing
 parent account. The historical parent remainder saturates at zero. The child receives the requested metadata without being reduced to a finite remainder. Complete episode charge records retain use beyond the original numbers. Admission
 performs no inference and accepts no invitation on an invitee's behalf.
 
-Run a fresh authorized `personas-session run --work CHILD_WORK` to continue the
-child using the configured route. Only separately authorized initial recipients
-can receive its initial consideration. They can accept, decline or stop under
-the ordinary work rules. The proposal, admission, execution, delivery and
+Run a fresh `personas-session run --work CHILD_WORK` to continue the child using
+the configured route. A new invitee receives an initial opportunity without a
+separate initial-recipient approval. It can accept, decline or stop under the
+ordinary work rules. Existing Stop/Pause choices and unfinished invocations are
+not reset by removing the participant gates. The recorded `PersonaArranged`
+eligible list is also metadata: accepted participants can form arrangements
+without membership in that original list, and decision holders must actually
+accept participation. The proposal, admission, execution, delivery and
 completion remain distinct retained facts.
 
 The direct SIWC helper also accepts `native-run --delegation GRANT --child-work
@@ -146,7 +153,7 @@ erasing history. Saved expiry no longer stops preparation or provider dispatch.
 There are no fixed episode, charge, proposal-byte or registry quotas. Existing
 exact evidence, record binding and identity checks remain.
 
-Explicit operator admission, the participant pool and further-delegation
-restrictions remain implementation gaps under the no-limits requirement. Removing
+Explicit operator admission and further-delegation restrictions remain
+implementation gaps under the no-limits requirement. Removing
 proposal and child count limits does not complete the authority and workflow
 changes listed in [execution resources](execution-resources.md).

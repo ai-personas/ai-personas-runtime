@@ -217,13 +217,13 @@ pub(super) fn validate_delegation(
 }
 
 fn validate_rule(w: &Work, rule: &ArrangementDecisionRule) -> Result<()> {
-    let DecisionRule::PersonaArranged { eligible: pool, .. } = &w.mandate().decision_rule else {
+    let DecisionRule::PersonaArranged { .. } = &w.mandate().decision_rule else {
         return Err(WorkError::Unauthorized);
     };
     let holders = rule.holders();
     require(
-        !holders.is_empty() && holders.is_subset(pool),
-        "arrangement decision holders within authorized pool",
+        !holders.is_empty(),
+        "arrangement decision holders",
     )?;
     if let ArrangementDecisionRule::Quorum { minimum, .. } = rule {
         require(
@@ -233,15 +233,6 @@ fn validate_rule(w: &Work, rule: &ArrangementDecisionRule) -> Result<()> {
     }
     for holder in &holders {
         accepted(w, holder)?;
-    }
-    Ok(())
-}
-
-pub(super) fn actor_in_pool(w: &Work, persona: &PersonaId) -> Result<()> {
-    if let DecisionRule::PersonaArranged { eligible, .. } = &w.mandate().decision_rule {
-        if !eligible.contains(persona) {
-            return Err(WorkError::Unauthorized);
-        }
     }
     Ok(())
 }
@@ -271,7 +262,6 @@ fn validate_terms(w: &Work, terms: &ArrangementTerms) -> Result<()> {
     let mut next_outcomes = BTreeSet::new();
     let mut next_roles = BTreeSet::new();
     for (persona, change) in &terms.changes {
-        actor_in_pool(w, persona)?;
         let (id, old) = accepted(w, persona)?;
         if id != &change.prior_acceptance {
             return Err(WorkError::Conflict);
@@ -333,8 +323,6 @@ fn validate_terms(w: &Work, terms: &ArrangementTerms) -> Result<()> {
     }
     let mut transferred = BTreeSet::new();
     for transfer in &terms.artifact_transfers {
-        actor_in_pool(w, &transfer.from)?;
-        actor_in_pool(w, &transfer.to)?;
         accepted(w, &transfer.from)?;
         accepted(w, &transfer.to)?;
         require(transfer.from != transfer.to, "distinct artifact recipient")?;
@@ -388,7 +376,6 @@ pub(super) fn propose(
     terms: ArrangementTerms,
     consent_own: bool,
 ) -> Result<()> {
-    actor_in_pool(w, &by.persona)?;
     accepted(w, &by.persona)?;
     require(
         crate::protocol::check_id(&id.0, "arrangement proposal").is_ok(),
@@ -437,7 +424,6 @@ pub(super) fn decline(
     exact: ExactRef,
     reason: String,
 ) -> Result<()> {
-    actor_in_pool(w, &by.persona)?;
     let (acceptance, _) = accepted(w, &by.persona)?;
     let acceptance = acceptance.clone();
     let proposal = pending(w, &id, &exact)?;
@@ -468,7 +454,6 @@ pub(super) fn decline(
 }
 
 pub(super) fn consent(w: &mut Work, by: &Attribution, id: RecordId, exact: ExactRef) -> Result<()> {
-    actor_in_pool(w, &by.persona)?;
     let (acceptance, _) = accepted(w, &by.persona)?;
     let acceptance = acceptance.clone();
     let proposal = pending(w, &id, &exact)?;

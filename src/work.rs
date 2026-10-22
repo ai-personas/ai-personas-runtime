@@ -143,7 +143,7 @@ pub struct ReviewRole {
 #[allow(clippy::large_enum_variant)]
 pub enum DecisionRule {
     /// Prospective authorization to choose a rule through exact persona consent.
-    /// The pool bounds arrangement actors and authority; it is no quorum or default leader.
+    /// Eligible records the original proposed pool; it is not an actor gate, quorum or default leader.
     PersonaArranged {
         eligible: BTreeSet<PersonaId>,
         delegation: FormationDelegation,
@@ -1645,9 +1645,8 @@ fn validate_mandate(
     }
     match &m.decision_rule {
         DecisionRule::PersonaArranged { eligible, .. } => require(
-            !eligible.is_empty()
-                && eligible.is_subset(personas),
-            "explicit arrangement actor and authority pool",
+            eligible.is_subset(personas),
+            "recorded arrangement persona identities",
         ),
         DecisionRule::Designated(p) => {
             require(personas.contains(p), "designated decision identity")
@@ -1688,7 +1687,6 @@ fn offer(
     from: Option<(PersonaId, RecordId)>,
 ) -> Result<()> {
     require(text(&id.0) && personas.contains(&to), "offer identities")?;
-    arrangements::actor_in_pool(w, &to)?;
     if let DecisionRule::PersonaArranged { delegation, .. } = &w.mandate().decision_rule {
         require(
             terms.outcomes.is_subset(&delegation.allocable_outcomes)
@@ -1768,7 +1766,6 @@ fn accept_offer(
     if arrangement != w.arrangement_ref() {
         return Err(WorkError::Terms);
     }
-    arrangements::actor_in_pool(w, &by.persona)?;
     let o = w
         .offers
         .get(&id)

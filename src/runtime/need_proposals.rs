@@ -7,7 +7,7 @@ const PENDING_KIND: &str = "runtime-pending-need-proposal";
 
 mod child;
 pub(crate) use child::AdmittedChild;
-pub(super) use child::{actor_reason, initial_allowed, is_child, participant_reason};
+pub(super) use child::is_child;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -142,15 +142,6 @@ pub(super) fn subtract(a: WorkAllocation, b: WorkAllocation) -> Result<WorkAlloc
             result_bytes: a.navigation.result_bytes.saturating_sub(b.navigation.result_bytes),
         },
     })
-}
-
-fn fits(a: WorkAllocation, b: WorkAllocation) -> bool {
-    a.attempts <= b.attempts && a.repair_attempts <= b.repair_attempts
-        && a.navigation.calls <= b.navigation.calls
-        && a.navigation.scanned_bytes <= b.navigation.scanned_bytes
-        && a.navigation.inspected_revisions <= b.navigation.inspected_revisions
-        && a.navigation.matches <= b.navigation.matches
-        && a.navigation.result_bytes <= b.navigation.result_bytes
 }
 
 pub(super) fn episode<'a>(state: &'a State, work: &str) -> Option<&'a IntakeEpisode> {
@@ -333,9 +324,8 @@ pub(super) fn attach(
     require(
         grant.active_at(now)
             && grant.sha256()? == selected.sha256
-            && grant.request.requesting_personas.contains(&request.persona)
             && grant.request.proposal_work_ids.contains(&request.work),
-        "exact selected grant does not authorize this proposer and parent",
+        "exact selected grant does not bind this parent",
     )?;
     let parent = state.board.work(&w::WorkId(request.work.clone()))?;
     let meta = &state.work_meta[&request.work];
@@ -515,7 +505,6 @@ pub(super) fn take_navigation(
 
 pub(super) fn interface(
     state: &State,
-    actor: &str,
     work: &str,
     now: i64,
     ordinary: bool,
@@ -527,7 +516,6 @@ pub(super) fn interface(
         || episode.work != work
         || episode.revoked_at_unix.is_some()
         || !episode.grant.active_at(now)
-        || !episode.grant.request.requesting_personas.contains(actor)
     {
         return Ok(None);
     }
@@ -580,23 +568,14 @@ pub(super) fn validate_operation(
             && supplied.terms == episode.grant.request
             && supplied.registry == episode.last_preparation_registry
             && supplied.remaining_after_authoring_admission == episode.remaining
-            && proposal.purpose == episode.grant.request.purpose
-            && episode
-                .grant
-                .request
-                .requesting_personas
-                .contains(&prepared.request.persona),
+            && proposal.purpose == episode.grant.request.purpose,
         "proposal differs from its exact offered interface, purpose or grant",
     )?;
     require(
         proposal.invitees.iter().all(|invitee| {
-            episode
-                .grant
-                .request
-                .allowed_child_participants
-                .contains(&invitee.persona)
+            state.personas.contains_key(&invitee.persona)
         }),
-        "proposal invitee is outside the exact delegation",
+        "proposal invitee is not an existing persona",
     )?;
     for dependency in depends_on {
         require(

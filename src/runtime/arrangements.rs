@@ -346,7 +346,7 @@ pub(super) fn require_preserved_access(
     Ok(())
 }
 
-pub(super) const DUTIES: &str = "Persona arrangements: CONTROL.arrangements reports bounded current work-core metadata; omitted records establish neither absence nor permission. A PersonaArranged mandate delegates only the listed eligible persona pool and supplies no initial owner or decision rule. An accepted participant within that pool may propose exact voluntary commitment changes and an eligible Designated or Quorum rule. An arrangement transfers no file-source ownership, selects no body, supplies no resource or resume permit and wakes no peer. ";
+pub(super) const DUTIES: &str = "Persona arrangements: CONTROL.arrangements reports current work-core metadata; omitted records establish neither absence nor attention. A PersonaArranged mandate records its original eligible list as metadata and supplies no initial owner or decision rule. Any accepted participant may propose exact voluntary commitment changes and a Designated or Quorum rule; holders must actually accept participation. An arrangement transfers no file-source ownership, selects no body, supplies no resource or resume permit and wakes no peer. ";
 
 /// Exact work-record identity. This is not a file reference or an ArtifactKey.
 /// digest is exactly 64 lowercase hexadecimal characters, not a byte array.
@@ -942,6 +942,7 @@ pub(super) fn context(
         "maximum_proposals": null,
         "maximum_projection_bytes": null,
         "quotas_enforced":false,
+        "participant_pool_enforced":false,
         "omission_semantics": "Complete available current work-core metadata without count or byte quotas. Unavailable records establish neither absence nor consent. No file body, peer wake or resume is supplied.",
         "consent_rule": "Copy a supplied proposal id and exact reference to accept or decline for yourself. Merely proposing grants no consent; consent_own=true explicitly consents only for the author. Activation is atomic only after all required personal consents under the immutable formation delegation; every acceptance and current base is rechecked.",
         "joining_rule": "When current_exact is present, a new participant must use work command accept_arranged_offer with offer, terms_revision and arrangement=current_exact to accept the supplied invitation and current arrangement explicitly. Responsibility accept is available only before an arrangement exists. Responsibility decline remains available; inspecting an arrangement is not consent."
