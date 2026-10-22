@@ -1,6 +1,6 @@
 //! A keyed, snapshot-bound targeted resume for the normal work menu.
-//! This route accepts only stopped/paused participants of an Open standalone
-//! work. Recovery, work-wide pause lifting and legacy reopening remain separate.
+//! This route accepts stopped/paused participants of an Open work, including
+//! delegated children. Recovery and work-wide pause lifting remain separate.
 use super::*;
 
 const KIND: &str = "launch-participant-resume-v1";
@@ -66,7 +66,6 @@ pub(super) fn candidate(state: &State, saved: &Saved, work: &str, persona: &str)
     };
     saved.works.contains_key(work)
         && lifecycle::reason(state, persona).is_none()
-        && !need_proposals::is_child(state, work)
         && matches!(board.phase, w::Phase::Open)
         && board
             .participants

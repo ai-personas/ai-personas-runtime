@@ -67,6 +67,9 @@ lifecycle, ownership, admission serial and failure holds remain global. The
 response is applied to the current state and changes its own task's focus;
 queued permissions and context for other tasks are preserved. An amended task
 waits for the persona's existing invocation to settle before it can run.
+This applies to delegated children too: their initial admission remains
+immutable while explicit operator amendments append current scope bindings.
+Their resumption never resumes the parent or implies acceptance of new terms.
 
 Retained `runtime-decision-scope-v1` requests keep their complete actor dependency.
 They are not upgraded retrospectively. A pending v1 or globally scoped call in

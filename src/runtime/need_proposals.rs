@@ -44,7 +44,7 @@ pub(crate) struct IntakeEpisode {
     pub authority: w::ExactRef,
     pub work_epoch: u64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub root_amendments: Vec<RootAmendment>,
+    pub root_amendments: Vec<ScopeAmendment>,
     pub grant: g::IntakeDelegation,
     pub grant_sha256: String,
     pub selected_registry: g::IntakeReference,
@@ -65,7 +65,7 @@ pub(crate) struct IntakeEpisode {
 /// An explicit operator scope transition, retaining the original episode binding.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct RootAmendment {
+pub(crate) struct ScopeAmendment {
     pub request_sha256: String,
     pub mandate_revision: u64,
     pub authority: w::ExactRef,
@@ -83,19 +83,38 @@ impl IntakeEpisode {
     pub(crate) fn child_for(&self, work: &str) -> Option<&AdmittedChild> {
         self.children().find(|child| child.binding.work == work)
     }
+    pub(crate) fn record_amendment(&mut self, work: &str, binding: ScopeAmendment) -> Result<()> {
+        if self.work == work {
+            self.root_amendments.push(binding);
+        } else {
+            self.child.iter_mut().chain(&mut self.additional_children)
+                .find(|child| child.binding.work == work)
+                .ok_or_else(|| held("episode amendment work absent"))?
+                .amendments.push(binding);
+        }
+        Ok(())
+    }
     pub(crate) fn work_binding(&self, work: &str) -> Option<(&w::ExactRef, u64)> {
         if self.work == work {
             Some(self.root_amendments.last().map_or((&self.authority, self.work_epoch),
                 |binding| (&binding.authority, binding.work_epoch)))
         } else {
-            self.child_for(work).map(|child| (&child.authority, child.work_epoch))
+            self.child_for(work).map(|child|
+                child.amendments.last().map_or((&child.authority, child.work_epoch),
+                    |binding| (&binding.authority, binding.work_epoch)))
         }
     }
     pub(crate) fn retained_work_binding(&self, work: &str, authority: &w::ExactRef, epoch: u64) -> bool {
-        self.work_binding(work) == Some((authority, epoch))
-            || (self.work == work && ((&self.authority == authority && self.work_epoch == epoch)
-                || self.root_amendments.iter().any(|binding|
-                    &binding.authority == authority && binding.work_epoch == epoch)))
+        let (original_authority, original_epoch, amendments) = if self.work == work {
+            (&self.authority, self.work_epoch, &self.root_amendments)
+        } else if let Some(child) = self.child_for(work) {
+            (&child.authority, child.work_epoch, &child.amendments)
+        } else {
+            return false;
+        };
+        (original_authority == authority && original_epoch == epoch)
+            || amendments.iter().any(|binding|
+                &binding.authority == authority && binding.work_epoch == epoch)
     }
     pub(crate) fn children_match(&self, grant: &g::IntakeDelegation) -> bool {
         grant
@@ -210,18 +229,8 @@ pub(super) fn validate_state(state: &State) -> Result<()> {
             "invalid retained intake episode",
         )?;
         identity(&episode.work)?;
-        let meta = &state.work_meta[&episode.work];
-        let mut previous_epoch = episode.work_epoch;
-        for binding in &episode.root_amendments {
-            require(meta.amendments.iter().any(|record|
-                record.request_sha256 == binding.request_sha256
-                    && record.mandate_revision == binding.mandate_revision
-                    && record.previous_work_version.epoch == previous_epoch)
-                && binding.authority == episode.authority
-                && binding.work_epoch == increment(previous_epoch)?,
-                "episode amendment differs from its saved operator scope transition")?;
-            previous_epoch = binding.work_epoch;
-        }
+        validate_amendments(state, &episode.work, &episode.authority,
+            episode.work_epoch, &episode.root_amendments)?;
         let mut admissions = BTreeSet::new();
         let mut admitted_proposals = BTreeSet::new();
         for child in episode.children() {
@@ -278,6 +287,31 @@ pub(super) fn validate_state(state: &State) -> Result<()> {
                 "invalid pending proposal reference",
             )?;
         }
+    }
+    Ok(())
+}
+
+fn validate_amendments(
+    state: &State,
+    work: &str,
+    authority: &w::ExactRef,
+    original_epoch: u64,
+    amendments: &[ScopeAmendment],
+) -> Result<()> {
+    let meta = state.work_meta.get(work).ok_or_else(|| held("amended work absent"))?;
+    let board = state.board.work(&w::WorkId(work.into()))?;
+    let mut previous_epoch = original_epoch;
+    for binding in amendments {
+        require(meta.amendments.iter().any(|record|
+            record.request_sha256 == binding.request_sha256
+                && record.mandate_revision == binding.mandate_revision
+                && record.previous_work_version.epoch == previous_epoch)
+            && &binding.authority == authority
+            && binding.work_epoch == increment(previous_epoch)?
+            && board.mandates.get(&binding.mandate_revision)
+                .is_some_and(|mandate| mandate.authority == binding.authority),
+            "episode amendment differs from its saved operator scope transition")?;
+        previous_epoch = binding.work_epoch;
     }
     Ok(())
 }

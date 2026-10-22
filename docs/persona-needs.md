@@ -222,7 +222,11 @@ persona received it; inspect the actual recipient and handoff separately.
 For an active episode, explicit targeted reconsideration uses
 `ai-personas resume --persona PERSONA --work WORK` with the saved state root and
 operator. It rechecks the current episode and preserves remaining resources.
-The keyed `resume-participant` interface currently supports standalone work only.
+The keyed `resume-participant` interface and normal launcher also support
+delegated children. An exact repeat of a resume request returns its receipt
+without renewing the opportunity. An operator can [amend a child task](task-amendments.md)
+with a new explicit mandate and fresh invitations; its original persona-authored
+request and admission receipt remain intact, and its parent is not resumed.
 Operator `feedback` also supports a currently authorized intake episode, after
 checking its exact grant and work authority. It remains explicitly attributed to
 the intake operator and changes no mandate, persona-requester assent or

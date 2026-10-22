@@ -7,6 +7,8 @@ pub(crate) struct AdmittedChild {
     pub binding: g::ConsumedChild,
     pub authority: w::ExactRef,
     pub work_epoch: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub amendments: Vec<ScopeAmendment>,
     /// Missing historical values name the episode's original parent work.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_work: Option<String>,
@@ -59,8 +61,9 @@ pub(super) fn validate(
         .get(&binding.work)
         .ok_or_else(|| held("delegated child allocation absent"))?;
     require(
-        work.current_mandate == 1
-            && matches!(&work.mandate().decision_rule, w::DecisionRule::PersonaArranged { .. })
+        work.mandates.get(&1).is_some_and(|original|
+                original.authority == child.authority
+                    && matches!(&original.decision_rule, w::DecisionRule::PersonaArranged { .. }))
             && work.need.request == meta.original.request
             && meta.authored_origin.as_ref().is_some_and(|origin| {
                 origin["pending"] == serde_json::to_value(&binding.pending).unwrap_or(Value::Null)
@@ -70,5 +73,6 @@ pub(super) fn validate(
             }),
         "delegated child origin changed",
     )?;
-    Ok(())
+    validate_amendments(state, &binding.work, &child.authority,
+        child.work_epoch, &child.amendments)
 }

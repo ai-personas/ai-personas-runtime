@@ -69,6 +69,14 @@ children and prior bindings. Previously unadmitted proposals from the old scope
 remain inspectable as superseded; they are not admitted under the new mandate
 and do not block current proposals. Episode snapshots identify those records.
 
+The same controls apply to a delegated child. Its original persona-authored
+request, parent relation, admission receipt, first mandate and grant remain
+recorded. An operator amendment appends a new scope binding for that child;
+future calls and proposals use it. New invitations require the child's own
+acceptance. Amending or explicitly resuming the child leaves its parent's
+continuation and other work unchanged. A parent's Stop does not prevent work
+that the child independently accepted from continuing.
+
 ## Pending calls and resources
 
 An amendment immediately supersedes old decision authority but lets already
@@ -99,8 +107,8 @@ navigation remain recorded without application quotas. Lifecycle holds, removed 
 and failed-attempt holds remain effective. Full host command access and tool
 installation remain available by default.
 
-This interface covers saved operator tasks, including episode roots. Parent-delegated child tasks and
-optional activity retain separate controls. With current task-scoped Direct
+This interface covers saved tasks, including episode roots and delegated children.
+Optional activity retains its separate controls. With current task-scoped Direct
 admissions, an amendment can save while a participant has a call in another
 task. The existing call retains its authority; the amendment queues resumption
 and reports `awaiting_other_task_invocation`. It starts no second simultaneous

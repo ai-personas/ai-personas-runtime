@@ -626,6 +626,7 @@ fn plan(
         binding: binding.clone(),
         authority: child.mandate().authority.clone(),
         work_epoch: child.version.epoch,
+        amendments: Vec::new(),
         parent_work: Some(pending.parent_work.clone()),
     };
     next.intake_episodes

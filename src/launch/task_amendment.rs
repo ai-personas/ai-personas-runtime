@@ -177,10 +177,6 @@ pub fn amend(root: &Path, operator: &str, request: &Request) -> Result<Value> {
             "transport_cancellation_requested":false,"budget_reset":false}),
         );
     }
-    require(
-        !need_proposals::is_child(&snapshot.state, &request.work),
-        "delegated task amendment requires its parent scope authority",
-    )?;
     let board = snapshot
         .state
         .board
@@ -375,16 +371,18 @@ pub fn amend(root: &Path, operator: &str, request: &Request) -> Result<Value> {
         exposure: inherited,
     };
     let amended = next.board.work(&w::WorkId(request.work.clone()))?;
-    for episode in next.intake_episodes.values_mut().filter(|episode| episode.work == request.work) {
+    for episode in next.intake_episodes.values_mut()
+        .filter(|episode| episode.work_binding(&request.work).is_some())
+    {
         require(episode.work_binding(&request.work)
             == Some((&board.mandate().authority, previous_work_version.epoch)),
-            "episode root binding changed before amendment")?;
-        episode.root_amendments.push(need_proposals::RootAmendment {
+            "episode work binding changed before amendment")?;
+        episode.record_amendment(&request.work, need_proposals::ScopeAmendment {
             request_sha256: record.request_sha256.clone(),
             mandate_revision: revision,
             authority: amended.mandate().authority.clone(),
             work_epoch: amended.version.epoch,
-        });
+        })?;
     }
     next.work_meta
         .get_mut(&request.work)
