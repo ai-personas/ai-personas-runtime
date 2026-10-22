@@ -565,8 +565,10 @@ pub enum Operation {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         reference_handles: Vec<String>,
     },
-    /// Accept or decline one exact supplied pending offer. Here id MUST equal
-    /// the supplied offer id; terms_revision MUST copy its supplied revision.
+    /// Accept or decline one exact pending offer supplied in this invocation.
+    /// Here id MUST equal its supplied offer id. Omit terms_revision or use null
+    /// to bind the exact supplied terms without copying their digest. If provided,
+    /// terms_revision MUST match those supplied terms; it is never repaired.
     /// disposition is exactly accept or decline. Invitation alone is not acceptance.
     /// When CONTROL.arrangements.current_exact is present, accept through the
     /// work command accept_arranged_offer with that exact arrangement instead.
@@ -574,7 +576,8 @@ pub enum Operation {
     Responsibility {
         id: String,
         work_id: String,
-        terms_revision: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        terms_revision: Option<String>,
         disposition: String,
         reason: String,
     },
@@ -2028,7 +2031,9 @@ fn check_operation(
             ..
         } => {
             check_id(work_id, &format!("{path}.work_id"))?;
-            check_accepted_revision(terms_revision, &format!("{path}.terms_revision"))?;
+            if let Some(revision) = terms_revision {
+                check_accepted_revision(revision, &format!("{path}.terms_revision"))?;
+            }
             check_text(
                 disposition,
                 MAX_REASON_BYTES,

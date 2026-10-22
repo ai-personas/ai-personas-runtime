@@ -110,6 +110,10 @@ computation results use `tools/results/`; HTTP results use `tools/http-results/`
 Retained-history queries can also locate the original
 observations and producing invocations. These operations do not run old tools.
 
+Regex discovery can use `{"kind":"regex","pattern":"(?i)birth|creation"}`.
+An omitted `dialect` uses `{"kind":"rust_regex1"}`. Explicit unsupported
+dialects remain errors; the runtime does not reinterpret their patterns.
+
 Discovery returns candidates with exact references. Those references can receive
 current-input handles, after which the persona chooses a read or next-context
 selection. A result is not a supplied body or an automatic endorsement. When

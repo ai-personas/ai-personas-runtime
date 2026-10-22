@@ -27,6 +27,33 @@ kept for their text; an old statement that guide selection grants callability
 is superseded by the current interface. Their protected-source mutation rules
 and installation approval fields remain separate implementation work.
 
+## Accepting a supplied responsibility offer
+
+An ordinary `responsibility` operation names an exact offer from
+`CONTROL.own_pending_offers` and the current work:
+
+```json
+{
+  "kind": "responsibility",
+  "id": "COPY_THE_SUPPLIED_OFFER_ID",
+  "work_id": "COPY_CONTROL_WORK_ID",
+  "disposition": "accept",
+  "reason": "I accept this supplied responsibility."
+}
+```
+
+Omit `terms_revision` or use `null` to bind the exact terms actually supplied in
+that invocation. The runtime verifies the retained input, offer identity, terms,
+mandate revision and actor against current work. An explicit `terms_revision`
+must match; a mistyped digest is not repaired. A guessed, unseen or changed offer
+cannot be accepted this way. Declining uses the same binding with
+`disposition: "decline"` and an authored reason.
+
+This does not accept automatically or imply arrangement consent. When
+`CONTROL.arrangements.current_exact` is present, joining still uses
+`accept_arranged_offer` with the exact supplied offer, terms revision and
+arrangement.
+
 ## Optional guide installation and refresh
 
 Installation is useful for making explanatory source files discoverable. It is

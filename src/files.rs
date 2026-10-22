@@ -1365,9 +1365,10 @@ pub enum SearchSurface {
     Text { representation: Representation },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum RegexDialect {
+    #[default]
     RustRegex1,
     Unsupported { name: String },
 }
@@ -1381,6 +1382,8 @@ pub enum SearchMode {
     },
     Regex {
         pattern: String,
+        /// Defaults to the supported Rust regex dialect, including inline flags.
+        #[serde(default)]
         dialect: RegexDialect,
     },
 }
