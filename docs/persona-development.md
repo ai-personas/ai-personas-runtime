@@ -112,17 +112,31 @@ ai-personas --state-root /private/personas-state --operator requester \
   development PERSONA_ID --source SOURCE_ID --invocation INVOCATION_ID
 ```
 
-The invocation view checks the exact full fragment body in the retained input,
-its accepted response record, and whether a completed direct-provider receipt
-matches that input. It distinguishes selected context from a completed read
-supplied as an observation. Discovery metadata, a selected reference without
-its body, and an uncompleted read do not establish actual supply.
+The invocation view checks characteristic text in the retained input against
+the exact stored representation and range, its accepted response record, and
+whether a completed direct-provider receipt matches that input. Whole UTF-8 files,
+decoded JSON strings and UTF-8 byte ranges remain distinct. Each supplied entry
+reports its exact reference, byte count, text digest, matching retained projection,
+supply routes and qualification roles. `complete_body_in_prepared_input` is true
+only for a whole, un-ranged UTF-8 reference. A matching range is still actual
+characteristic text supplied to the model, even when that flag is false.
+
+The view distinguishes selected or mandatory context from completed reads,
+local dependency observations and tool-result qualifications. Discovery metadata,
+a selected reference without its body, and an uncompleted read do not establish
+actual supply. Entries are limited to the characteristic revisions shown by the
+requested persona/source view; they are not a claim about all sources in the call.
 
 With `--invocation`, `resource_use` also lists supporting files actually supplied
 through qualified context and completed read observations. Each entry includes
 the exact source, revision, representation and range, its path and authorship,
-qualification roles, supply route, byte count and text digest. Full UTF-8 bodies
-are compared with the retained revision. This metadata view does not detach or
+qualification roles, supply route, byte count and text digest. Every entry's
+`exact_projected_body_matched` compares the supplied text with the retained file
+using the same representation decoder and range rules as native reads. JSON-string
+ranges count bytes in the decoded text, not the serialized JSON source.
+`complete_utf8_revision_matched` separately identifies whole, un-ranged UTF-8
+references. A matching projection does not establish whole-file supply.
+This metadata view does not detach or
 display a file's text without its required accompanying material. Exact source provenance and retained-body comparisons still apply. Supporting
 resource metadata has no application entry-count or output-byte quota.
 
@@ -134,11 +148,13 @@ program ran. Compare the supplied instructions with the accepted response and
 the work's actual results to assess skill application.
 
 `supplied_native_work_interface` reports the actual internal command schema,
-including its byte count, exact binding and selected command names. With
-[native work guides](work-command-guides.md), only complete registered guide
-bodies supplied to that call expose commands. Legacy roots retain the full
-interface until explicitly upgraded. Definition supply and accepted command
-execution are separate evidence.
+including its byte count, exact binding and command names. `selection_mode`
+distinguishes an `explicit_command_set` from a `complete_interface` in the
+retained interface metadata. An explicit set does not establish that the persona
+chose those commands or selected guide bodies. Current ordinary inputs supply
+all native work-command definitions by default; [native work guides](work-command-guides.md)
+are optional supporting material. Historical inputs retain their actual schemas.
+Definition supply and accepted command execution are separate evidence.
 The input-file choices also record readiness for visible current native
 guides. `supplied_input_file_choices.native_command_readiness` distinguishes
 recorded body/schema supply, missing work-command grants and historical entries
@@ -146,9 +162,9 @@ without readiness metadata. These counts establish neither operation-specific
 authority nor successful use.
 
 The native runtime provides [full host command access by default](host-commands.md),
-including tool installation and use of installed software. The separately granted
+including tool installation and use of installed software. Default
 [WebAssembly computation](computation.md) and
-[HTTPS source retrieval](https-retrieval.md) profiles remain available alongside
+[HTTPS source retrieval](https-retrieval.md) remain available alongside
 internal file, discovery, history and work operations.
 The legacy `Effect` encoding of `work.command.v1` denotes an internal work operation.
 The view reports supplied computation interfaces, the accepted decision's intent

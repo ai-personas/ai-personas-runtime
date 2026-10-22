@@ -3,6 +3,8 @@
 use super::*;
 #[path = "resource_use.rs"]
 mod resource_use;
+#[path = "supplied_context.rs"]
+mod supplied_context;
 
 pub fn development(
     root: &Path,
@@ -209,71 +211,51 @@ fn invocation_evidence(
     let decoded = request_context::decode(&prepared)?;
     let qualified_bytes = decoded.qualified_bytes;
     let qualified = decoded.qualified;
-    let entries = qualified["entries"]
-        .as_array()
-        .ok_or_else(|| held("qualified input evidence unavailable"))?;
+    require(qualified["entries"].is_array(), "qualified input evidence unavailable")?;
     let instructions = decoded.instructions;
     let control_bytes = decoded.control_bytes;
     let control = decoded.control;
-    let mut supplied = Vec::new();
-    for revision in revisions {
-        let source = revision["source"]
-            .as_str()
-            .ok_or_else(|| invalid("fragment source"))?;
-        let digest = revision["revision"]
-            .as_str()
-            .ok_or_else(|| invalid("fragment revision"))?;
-        let reference = f::Reference::full(source, digest, f::Representation::Utf8);
+    let mut supplied: BTreeMap<f::Reference, Value> = BTreeMap::new();
+    for candidate in supplied_context::entries(&qualified, &control, &prepared, "fragments") {
+        let reference = supplied_context::reference(&candidate)?;
+        if !revisions.iter().any(|revision| {
+            revision["source"] == reference.source && revision["revision"] == reference.revision
+        }) {
+            continue;
+        }
         let stored = record(state, &reference)?;
-        let text = std::str::from_utf8(&stored.record.bytes)
-            .map_err(|_| held("fragment text unavailable"))?;
-        // A source manifest, inventory, selection, or digest alone cannot satisfy
-        // this check: the exact complete body must be in the retained prompt.
-        let matches_body = |entry: &Value| {
-            entry["scope"] == "fragments"
-                && entry["reference"]["source"] == source
-                && entry["reference"]["revision"] == digest
-                && entry["reference"]["representation"] == "utf8"
-                && entry["reference"]["start"].is_null()
-                && entry["reference"]["end"].is_null()
-                && entry["text"] == text
+        let text = candidate.value["text"].as_str()
+            .ok_or_else(|| held("supplied characteristic text unavailable"))?;
+        require(
+            stored.record.scope == f::Scope::Fragments
+                && lineage_permitted(state, std::slice::from_ref(&reference), audience)
+                && f::project_text(&stored.record, &reference, &state.config.corpus.json)
+                    .is_ok_and(|retained| retained == text),
+            "supplied characteristic evidence does not match its exact retained projection",
+        )?;
+        let value = supplied.entry(reference.clone()).or_insert_with(|| json!({
+            "reference":wire_reference(&reference),
+            "origin":stored.origin,
+            "exact_projected_body_matched":true,
+            "complete_body_in_prepared_input":supplied_context::full_utf8(&reference),
+            "supplied_utf8_bytes":text.len(),
+            "supplied_text_sha256":s::sha256_bytes(text.as_bytes()),
+            "supply_routes":[],
+            "different_from_authoring_invocation":matches!(&stored.origin,
+                Some(RevisionOrigin::PersonaInvocation { invocation_id: authoring, .. }) if authoring != invocation_id)
+        }));
+        let mut route = if candidate.route["kind"] == "qualified_context" {
+            json!({"kind":"selected_or_mandatory_context"})
+        } else {
+            candidate.route
         };
-        let mut routes = Vec::new();
-        if entries.iter().any(matches_body) {
-            routes.push(json!({"kind":"selected_or_mandatory_context"}));
-        }
-        // A completed Read reaches a later prompt through a host-rendered
-        // observation even when the persona has not selected that source. Match
-        // only its qualified file entries, never text embedded in old Decisions,
-        // messages, inventory metadata, or a proposed operation.
-        if let Some(observations) = control["actual_observations"].as_array() {
-            for observation in observations {
-                if observation["kind"] == "qualified_read"
-                    && observation["actor"] == persona_id
-                    && observation["work"] == prepared.request.work
-                    && observation["payload"]["result"]["entries"]
-                        .as_array()
-                        .is_some_and(|entries| entries.iter().any(matches_body))
-                {
-                    routes.push(json!({
-                        "kind":"qualified_read",
-                        "observation":observation["id"],
-                        "producing_invocation":observation["invocation"]
-                    }));
-                }
-            }
-        }
-        if !routes.is_empty() {
-            supplied.push(json!({
-                "reference":wire_reference(&reference),
-                "origin":stored.origin,
-                "complete_body_in_prepared_input":true,
-                "supply_routes":routes,
-                "different_from_authoring_invocation":matches!(&stored.origin,
-                    Some(RevisionOrigin::PersonaInvocation { invocation_id: authoring, .. }) if authoring != invocation_id)
-            }));
+        route["roles"] = candidate.value["roles"].clone();
+        let routes = value["supply_routes"].as_array_mut().unwrap();
+        if !routes.contains(&route) {
+            routes.push(route);
         }
     }
+    let supplied = supplied.into_values().collect::<Vec<_>>();
     let receipt = archive
         .provider_observation
         .as_ref()

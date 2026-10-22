@@ -2119,7 +2119,9 @@ fn resolve_pointer<'a>(value: &'a Value, pointer: &str) -> Result<&'a Value, Wit
     Ok(current)
 }
 
-fn project_text(
+/// Decode the exact representation and UTF-8 range. Callers separately check
+/// source identity, qualification closure and the purpose of the observation.
+pub(crate) fn project_text(
     record: &FileRevision,
     reference: &Reference,
     limits: &JsonLimits,

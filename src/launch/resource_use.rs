@@ -17,22 +17,11 @@ pub(super) fn inspect(
     qualified: &Value,
     proof: &s::DecisionRecord,
 ) -> Result<Value> {
-    let candidates = supplied_entries(
-        qualified,
-        control,
-        &prepared.request.persona,
-        &prepared.request.work,
-        &prepared.supplied_observations,
-    );
+    let candidates = supplied_context::entries(qualified, control, prepared, "assets");
     let mut resources = Vec::new();
-    for (entry, route) in candidates {
-        let Ok(reference) = serde_json::from_value::<p::ExactRef>(entry["reference"].clone())
-        else {
-            return Ok(unavailable(
-                "Exact supplied-resource references are unavailable.",
-            ));
-        };
-        let reference = file_reference(&reference)?;
+    for candidate in candidates {
+        let reference = supplied_context::reference(&candidate)?;
+        let entry = candidate.value;
         if !lineage_permitted(state, std::slice::from_ref(&reference), audience) {
             return Ok(unavailable("Supporting-resource evidence is unavailable under current source permissions or retention."));
         }
@@ -40,17 +29,14 @@ pub(super) fn inspect(
         let Some(text) = entry["text"].as_str() else {
             return Ok(unavailable("Exact supplied-resource text is unavailable."));
         };
-        // Full UTF-8 bodies can additionally be compared with the exact retained
-        // file. A JSON-string representation or a range remains a distinct supply
-        // claim; neither is promoted to a complete-file read.
-        let full = reference.representation == f::Representation::Utf8
-            && reference.start.is_none()
-            && reference.end.is_none();
+        // A projection can match its exact retained text without representing
+        // the complete file. Use the file interface's decoder and range rules.
         if stored.record.scope != f::Scope::Assets
-            || (full && stored.record.bytes != text.as_bytes())
+            || !f::project_text(&stored.record, &reference, &state.config.corpus.json)
+                .is_ok_and(|retained| retained == text)
         {
             return Ok(unavailable(
-                "Supplied-resource evidence does not match its retained file.",
+                "Supplied-resource evidence does not match its exact retained projection.",
             ));
         }
         resources.push(json!({
@@ -58,10 +44,11 @@ pub(super) fn inspect(
             "path":stored.record.path,
             "origin":stored.origin,
             "roles":entry["roles"],
-            "supply_route":route,
+            "supply_route":candidate.route,
             "supplied_utf8_bytes":text.len(),
             "supplied_text_sha256":s::sha256_bytes(text.as_bytes()),
-            "complete_utf8_revision_matched":full,
+            "exact_projected_body_matched":true,
+            "complete_utf8_revision_matched":supplied_context::full_utf8(&reference),
             "metadata_only":true
         }));
     }
@@ -70,10 +57,10 @@ pub(super) fn inspect(
             && control["work_capability"]["inputs_schema"] == interface.inputs_schema => {
             json!({"available":true,"capability_id":interface.capability_id,
                 "binding_revision":interface.binding_revision,
-                "selection_mode":if interface.selected_commands.is_some() {"selected_native_work_guides_v1"} else {"legacy_full_work_interface"},
+                "selection_mode":if interface.selected_commands.is_some() {"explicit_command_set"} else {"complete_interface"},
                 "selected_commands":interface.selected_commands,
                 "schema_bytes":serde_json::to_vec(&interface.inputs_schema)?.len(),
-                "meaning":"Definition actually supplied in this admitted input; not work authority, execution or result correctness."})
+                "meaning":"Definition actually supplied in this admitted input. An explicit command set does not establish that the persona chose it or selected guide bodies. This is not work authority, execution or result correctness."})
         }
         _ => json!({"available":false}),
     };
@@ -96,69 +83,8 @@ pub(super) fn inspect(
         "current_runtime_computation":"default full-access host.command.v1 can run installed software; default compute.wasm.v1 remains available; inspect actual intent and terminal receipts",
         "current_runtime_external_tool_execution":"default full-access host.command.v1 permits installation, filesystem, network and subprocess use without a tool grant; default https.get.v1 remains available; inspect actual intent and terminal receipts",
         "skill_application_established":false,
-        "scope":"Supporting-file entries actually present in this call's qualified context, supplied qualified-read observations or tool-result qualifications. Entries retain their exact representation, range and qualification roles. Discovery candidates, next-context proposals, message text and nested history are not counted. This view returns metadata, not detached file content.",
+        "scope":"Supporting-file entries actually present in this call's qualified context, supplied exact-read or local-dependency observations, or tool-result qualifications. Entries retain their exact representation, range and qualification roles. Discovery candidates, next-context proposals, message text and nested history are not counted. This view returns metadata, not detached file content.",
         "limits":"Input supply proves neither application of a skill's instructions nor code, simulator, renderer, shell or external tool execution. The runtime executes internal operations and default full-access host commands, alongside the default WebAssembly and HTTP(S) profiles. work.command.v1 remains internal even when encoded as Effect. Execution intents alone also do not prove dispatch or success. Inspect accepted operations and actual result receipts separately."
     });
     Ok(view)
-}
-
-fn supplied_entries<'a>(
-    qualified: &'a Value,
-    control: &'a Value,
-    persona: &str,
-    work: &str,
-    supplied_observations: &[String],
-) -> Vec<(&'a Value, Value)> {
-    let mut entries = Vec::new();
-    if let Some(values) = qualified["entries"].as_array() {
-        for entry in values.iter().filter(|entry| entry["scope"] == "assets") {
-            entries.push((entry, json!({"kind":"qualified_context"})));
-        }
-    }
-    if let Some(observations) = control["actual_observations"].as_array() {
-        for observation in observations {
-            if (observation["kind"] != "qualified_read"
-                && observation["kind"] != "computation_result"
-                && observation["kind"] != "http_fetch_result"
-                && observation["kind"] != "host_command_result"
-                && observation["kind"] != "affect_update")
-                || observation["actor"] != persona
-                || (observation["work"] != work && observation["kind"] != "affect_update")
-                || !observation["id"]
-                    .as_str()
-                    .is_some_and(|id| supplied_observations.iter().any(|supplied| supplied == id))
-            {
-                continue;
-            }
-            if matches!(observation["kind"].as_str(), Some("computation_result" | "http_fetch_result" | "host_command_result" | "affect_update")) {
-                for bundle in observation["current_required_qualifications"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                {
-                    for entry in bundle["entries"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .filter(|entry| entry["scope"] == "assets")
-                    {
-                        entries.push((entry, json!({"kind":format!("{}_qualification", observation["kind"].as_str().unwrap_or("tool_result")), "observation":observation["id"],
-                            "producing_invocation":observation["invocation"]})));
-                    }
-                }
-            } else if let Some(values) = observation["payload"]["result"]["entries"].as_array() {
-                for entry in values.iter().filter(|entry| entry["scope"] == "assets") {
-                    entries.push((
-                        entry,
-                        json!({
-                            "kind":"qualified_read",
-                            "observation":observation["id"],
-                            "producing_invocation":observation["invocation"]
-                        }),
-                    ));
-                }
-            }
-        }
-    }
-    entries
 }

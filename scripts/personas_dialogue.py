@@ -1617,10 +1617,16 @@ class Dialogue:
             supplied = evidence["supplied_characteristic_revisions"]
             for revision in supplied:
                 ref = revision["reference"]
-                self.ui.say(f"Supplied in full: {ref['source']} @ {ref['revision']}; "
-                            "route: " + json.dumps(revision["supply_routes"], ensure_ascii=False))
+                self.ui.say(f"Characteristic text supplied: {ref['source']} @ {ref['revision']}")
+                self.ui.say("Exact representation and range: " + json.dumps(ref, ensure_ascii=False))
+                self.ui.say(f"Supplied text: {revision['supplied_utf8_bytes']} UTF-8 bytes; "
+                            f"SHA-256 {revision['supplied_text_sha256']}; "
+                            f"exact retained projection matched: {revision['exact_projected_body_matched']}; "
+                            f"complete UTF-8 file supplied: {revision['complete_body_in_prepared_input']}")
+                self.ui.say("Supply routes and qualification roles: "
+                            + json.dumps(revision["supply_routes"], ensure_ascii=False))
             if not supplied:
-                self.ui.say("None of the characteristic revisions in this view was supplied in full to this call.")
+                self.ui.say("No characteristic entries from the revisions in this view were supplied through the routes inspected here.")
             if evidence.get("supplied_transient_affect") is not None:
                 self.development_affect(evidence["supplied_transient_affect"],
                                         evidence.get("supplied_affect_observations", []),
@@ -1654,6 +1660,7 @@ class Dialogue:
             self.ui.say("Exact representation and range: " + json.dumps(ref, ensure_ascii=False))
             self.ui.say(f"Supplied text: {resource['supplied_utf8_bytes']} UTF-8 bytes; "
                         f"SHA-256 {resource['supplied_text_sha256']}; "
+                        f"exact retained projection matched: {resource['exact_projected_body_matched']}; "
                         f"complete UTF-8 revision matched: {resource['complete_utf8_revision_matched']}")
             self.ui.say("Supply route: " + json.dumps(resource["supply_route"], ensure_ascii=False)
                         + "; qualification roles: " + json.dumps(resource["roles"], ensure_ascii=False))
