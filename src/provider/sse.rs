@@ -835,7 +835,7 @@ fn string<'a>(value: &'a Value, key: &'static str) -> Result<&'a str> {
 }
 fn wire_id<'a>(value: &'a Value, key: &'static str) -> Result<&'a str> {
     let id = string(value, key)?;
-    if id.is_empty() || id.len() > 256 || id.chars().any(|c| c.is_control() || c.is_whitespace()) {
+    if id.is_empty() || id.chars().any(|c| c.is_control() || c.is_whitespace()) {
         return Err(protocol("wire_id_invalid").at_field(key));
     }
     Ok(id)

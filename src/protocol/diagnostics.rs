@@ -4,7 +4,7 @@ use serde_path_to_error::{Path, Segment};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ShapeHint {
-    /// A schema-owned top-level member, optionally with a bounded operation index.
+    /// A schema-owned top-level member, optionally with an actual operation index.
     pub section: String,
     /// Fields of this exact known object variant, not a suggested repair.
     pub allowed_fields: Vec<String>,
@@ -35,9 +35,13 @@ impl std::fmt::Display for ShapeHint {
 
 fn object_variant<'a>(schema: &'a Value, all: &'a Value, received: &Value) -> Option<&'a Value> {
     let mut current = schema;
+    let mut visited = BTreeSet::new();
     // Only generated local references and known discriminator variants count.
     // A wrong/unknown tag yields no field list instead of guessing a variant.
-    for _ in 0..8 {
+    loop {
+        if !visited.insert(current as *const Value) {
+            return None;
+        }
         if let Some(reference) = current["$ref"].as_str() {
             let pointer = reference.strip_prefix('#')?;
             current = all.pointer(pointer)?;
@@ -53,13 +57,14 @@ fn object_variant<'a>(schema: &'a Value, all: &'a Value, received: &Value) -> Op
             return current["properties"].as_object().map(|_| current);
         }
     }
-    None
 }
 
 pub(super) fn hint(path: &Path, bytes: &[u8]) -> ShapeHint {
     let mut hint = ShapeHint::default();
-    // Called only after the bounded, duplicate-free whole JSON preflight.
-    let Ok(received) = serde_json::from_slice::<Value>(bytes) else {
+    // Called only after the complete, duplicate-free whole JSON preflight.
+    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    deserializer.disable_recursion_limit();
+    let Ok(received) = Value::deserialize(&mut deserializer) else {
         return hint;
     };
     let schema = decision_schema();
@@ -78,14 +83,11 @@ pub(super) fn hint(path: &Path, bytes: &[u8]) -> ShapeHint {
             target = &received[known];
             if known == "operations" {
                 if let Some(Segment::Seq { index }) = segments.next() {
-                    if *index < MAX_OPERATIONS {
-                        if let Some(operation) =
-                            target.as_array().and_then(|values| values.get(*index))
-                        {
-                            hint.section.push_str(&format!("[{index}]"));
-                            target = operation;
-                            target_schema = &property["items"];
-                        }
+                    if let Some(operation) = target.as_array().and_then(|values| values.get(*index))
+                    {
+                        hint.section.push_str(&format!("[{index}]"));
+                        target = operation;
+                        target_schema = &property["items"];
                     }
                 }
             }
@@ -95,10 +97,7 @@ pub(super) fn hint(path: &Path, bytes: &[u8]) -> ShapeHint {
         let fields = object["properties"]
             .as_object()
             .expect("resolved object properties");
-        // Bound the diagnostic independently of future schema growth.
-        if fields.len() <= 32 && fields.keys().map(String::len).sum::<usize>() <= 512 {
-            hint.allowed_fields = fields.keys().cloned().collect();
-        }
+        hint.allowed_fields = fields.keys().cloned().collect();
     }
     hint
 }

@@ -92,7 +92,6 @@ impl Vault {
 
     fn open_checked(path: &Path) -> Result<Self, AuthError> {
         if !path.is_absolute()
-            || path.as_os_str().as_bytes().len() > 4096
             || path.as_os_str().as_bytes().last() == Some(&b'/')
             || path
                 .components()
@@ -105,7 +104,6 @@ impl Vault {
             .and_then(|name| name.to_str())
             .ok_or(AuthError::Vault)?;
         if name.is_empty()
-            || name.len() > 128
             || name == HOST_NAME
             || name.ends_with(LOCK_SUFFIX)
             || name.ends_with(REGISTRATION_SUFFIX)

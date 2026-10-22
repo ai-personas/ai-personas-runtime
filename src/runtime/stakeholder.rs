@@ -9,14 +9,14 @@ use super::*;
 pub struct HumanStakeholderDecisionRequest {
     pub binding: WorkAuthority,
     pub id: String,
-    /// Exact release identity: 1..256 UTF-8 bytes, without whitespace or controls.
+    /// Exact nonempty release identity, without whitespace or controls.
     pub release: String,
     /// SHA-256 of compact serde_json::Value serialization of the retained Release.
     pub release_sha256: String,
     pub delivery: String,
     pub delivery_receipt: w::ExactRef,
     pub accepts: bool,
-    /// The actual explicit human statement, at most 4096 UTF-8 bytes.
+    /// The complete actual explicit human statement.
     pub statement: String,
 }
 
@@ -48,10 +48,6 @@ impl Runtime {
         p::check_id(&request.release, "release")?;
         identity(&request.delivery)?;
         text(&request.statement, 4096)?;
-        require(
-            serde_json::to_vec(&request)?.len() <= 16_384,
-            "human decision request bound",
-        )?;
         let (old, mut state) = self.load()?;
         check_work_authority(&state, &request.binding)?;
         let work_id = &request.binding.work;

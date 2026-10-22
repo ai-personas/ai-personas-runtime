@@ -723,17 +723,15 @@ impl ImportSupportingFileRequest {
         let record = &self.record;
         if self.operator != operator
             || record.author.is_empty()
-            || record.author.len() > 128
             || record.author.chars().any(|c| c.is_control() || c.is_whitespace())
             || record.scope != files::Scope::Assets
             || record.retired
             || record.bytes.is_empty()
-            || record.bytes.len() > 32_768
             || std::str::from_utf8(&record.bytes).is_err()
             || record.computed_revision()? != record.revision
         {
             return Err(runtime::RuntimeError::Invalid(
-                "supporting import requires the matching operator, an explicit source author identity, one live UTF-8 asset of 1..=32768 bytes, and its exact computed revision".into(),
+                "supporting import requires the matching operator, an explicit source author identity, one nonempty live UTF-8 asset, and its exact computed revision".into(),
             ));
         }
         Ok(())

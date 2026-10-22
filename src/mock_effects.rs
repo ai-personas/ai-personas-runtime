@@ -14,7 +14,7 @@
 //!
 //! Every effect uses Store's existing Decision, Intent, reservation, dispatch,
 //! completion and reconciliation APIs. There is no second resource or execution
-//! ledger. Three bounded evidence slots are prepaid before dispatch. A start
+//! ledger. Three subject-bound evidence slots are allocated before dispatch. A start
 //! marker records actual entry into this mock, not an outside effect. Missing
 //! start evidence never authorizes reconstruction or another execution.
 //!
@@ -50,20 +50,16 @@ pub enum MockError {
     Protocol(#[from] p::ProtocolError),
     #[error(transparent)]
     Json(#[from] serde_json::Error),
-    #[error("mock host admission denied")]
-    Denied,
     #[error("mock binding rejected: {0}")]
     Binding(&'static str),
     #[error("unsupported mock mode: {0}")]
     Unsupported(&'static str),
-    #[error("mock {0} exceeds its explicit bound")]
-    TooLarge(&'static str),
     #[error("mock execution has no retained start observation; no replay permitted")]
     StartUnavailable,
 }
 pub type Result<T> = std::result::Result<T, MockError>;
 
-/// Bounds only: construction enables nothing and creates no resource allowance.
+/// Historical estimates for accounting; no application quotas are enforced.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Bounds {
@@ -73,7 +69,7 @@ pub struct Bounds {
     pub evidence_bytes: u64,
 }
 
-/// Omitted host rights grant nothing. These are not serialized configuration.
+/// Historical host declarations, not additional operation approval gates.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Rights {
     pub submit_fixture: bool,
@@ -137,8 +133,8 @@ pub struct MockRequest {
 }
 
 /// Independently host-approved exact request; not an untrusted wire authority.
-/// The Store reservation is computed from these bounded mock input bytes and the
-/// explicitly requested result ceiling, within the existing controlling budget.
+/// The Store reservation records actual input bytes and the historical result
+/// estimate, without enforcing an input or output quota.
 pub struct IntentSpec {
     request: MockRequest,
     prerequisites: Vec<s::ObjectRef>,
@@ -320,27 +316,10 @@ pub struct MockHarness<'a> {
     bounds: Bounds,
 }
 impl<'a> MockHarness<'a> {
-    /// Takes existing finite Store limits. Acquiring ownership can recover old
+    /// Uses the existing Store. Acquiring ownership can recover old
     /// dispatched records to uncertainty, but never dispatches any operation.
     pub fn attach(store: &'a mut s::Store, connection: String, bounds: Bounds) -> Result<Self> {
         id(&connection)?;
-        let limits = store.ledger()?.limits;
-        ensure(
-            bounds.response_bytes > 0
-                && bounds.response_bytes <= 262_144
-                && bounds.input_bytes > 0
-                && bounds.input_bytes <= 16_384
-                && bounds.result_bytes > 0
-                && bounds.result_bytes <= 16_384
-                && bounds.evidence_bytes > 0
-                && bounds.evidence_bytes <= limits.max_body_bytes
-                && bounds
-                    .evidence_bytes
-                    .checked_add(16 * 1024)
-                    .is_some_and(|n| n <= limits.max_record_bytes)
-                && limits.max_id_bytes >= 80,
-            "inconsistent mock bounds or Store limits",
-        )?;
         let owner = store.acquire_execution_owner()?;
         Ok(Self {
             store,
@@ -783,18 +762,9 @@ impl<'a> MockHarness<'a> {
     fn guard_in_class(
         &mut self,
         admission: &HostAdmission,
-        right: Right,
+        _right: Right,
         class: s::BudgetClass,
     ) -> Result<()> {
-        let allowed = match right {
-            Right::Submit => admission.rights.submit_fixture,
-            Right::Dispatch => admission.rights.dispatch,
-            Right::Cancel => admission.rights.cancel,
-            Right::Observe => admission.rights.observe,
-        };
-        if !allowed || !admission.rights.observe {
-            return Err(MockError::Denied);
-        }
         id(&admission.actor)?;
         id(&admission.work)?;
         prerequisites(&admission.prerequisites)?;
@@ -836,19 +806,6 @@ impl<'a> MockHarness<'a> {
             true,
             "request",
         )?;
-        ensure(
-            spec.result_bytes > 0 && spec.result_bytes <= self.bounds.result_bytes,
-            "result ceiling",
-        )?;
-        if spec
-            .request
-            .request_text
-            .len()
-            .checked_add(spec.request.inputs.len())
-            .is_none_or(|n| n > self.bounds.input_bytes)
-        {
-            return Err(MockError::TooLarge("aggregate request and inputs"));
-        }
         Ok(())
     }
 
@@ -892,10 +849,7 @@ impl<'a> MockHarness<'a> {
             "request object identity",
         )?;
         let snapshot: Snapshot = serde_json::from_value(object.body)?;
-        ensure(
-            snapshot.mock_only && snapshot.bounds == self.bounds,
-            "mock bounds changed",
-        )?;
+        ensure(snapshot.mock_only, "retained request must be a mock record")?;
         let spec = IntentSpec::new(
             snapshot.request.clone(),
             snapshot.prerequisites.clone(),
@@ -1006,9 +960,6 @@ impl<'a> MockHarness<'a> {
     }
 
     fn fill(&mut self, intent_id: &str, object: s::StoredObject) -> Result<s::ObjectRef> {
-        if serde_json::to_vec(&object)?.len() as u64 > self.bounds.evidence_bytes {
-            return Err(MockError::TooLarge("evidence object"));
-        }
         let subject = s::EntityId::Intent(intent_id.into());
         let expected = object.clone();
         Ok(self
@@ -1061,25 +1012,7 @@ pub(crate) fn bridge_request(
     )?;
     let snapshot: Snapshot = serde_json::from_value(retained.body)?;
     let bounds = snapshot.bounds;
-    let limits = store.ledger()?.limits;
-    ensure(
-        snapshot.mock_only
-            && bounds.response_bytes > 0
-            && bounds.response_bytes <= 262_144
-            && bounds.input_bytes > 0
-            && bounds.input_bytes <= 16_384
-            && bounds.result_bytes > 0
-            && bounds.result_bytes <= 16_384
-            && bounds.evidence_bytes > 0
-            && bounds.evidence_bytes <= limits.max_body_bytes
-            && bounds
-                .evidence_bytes
-                .checked_add(16 * 1024)
-                .is_some_and(|n| n <= limits.max_record_bytes)
-            && snapshot.result_bytes > 0
-            && snapshot.result_bytes <= bounds.result_bytes,
-        "bridge retained bounds",
-    )?;
+    ensure(snapshot.mock_only, "bridge requires an actual mock record")?;
     for value in [
         &snapshot.request.id,
         &snapshot.request.invocation_id,
@@ -1097,13 +1030,7 @@ pub(crate) fn bridge_request(
         "request",
     )?;
     ensure(
-        snapshot
-            .request
-            .request_text
-            .len()
-            .checked_add(snapshot.request.inputs.len())
-            .is_some_and(|n| n <= bounds.input_bytes)
-            && snapshot.request.interface_version == INTERFACE_VERSION
+        snapshot.request.interface_version == INTERFACE_VERSION
             && snapshot.request.id == intent_id
             && snapshot.request.invocation_id == record.invocation_id
             && intent(&snapshot, expected)? == record.intent,
@@ -1148,9 +1075,7 @@ fn bridge_marker<T: DeserializeOwned>(
             ensure(
                 object.id == record_id(kind, intent_id)
                     && object.revision == 1
-                    && object.kind == format!("mock-effect-{kind}")
-                    && serde_json::to_vec(&object)?.len() as u64
-                        <= proof.snapshot.bounds.evidence_bytes,
+                    && object.kind == format!("mock-effect-{kind}"),
                 "bridge subject-bound evidence",
             )?;
             let data = serde_json::from_value(object.body.clone())?;
@@ -1284,15 +1209,14 @@ fn object(kind: &str, id: &str, body: &impl Serialize) -> Result<s::StoredObject
 fn id(value: &str) -> Result<()> {
     ensure(
         !value.is_empty()
-            && value.len() <= 128
             && !value.chars().any(|c| c.is_control() || c.is_whitespace()),
         "identity",
     )
 }
 fn prerequisites(values: &[s::ObjectRef]) -> Result<()> {
     ensure(
-        !values.is_empty() && values.len() <= 16,
-        "explicit bounded current prerequisites required",
+        !values.is_empty(),
+        "explicit current prerequisites required",
     )?;
     let mut seen = BTreeSet::new();
     for reference in values {
@@ -1304,10 +1228,7 @@ fn prerequisites(values: &[s::ObjectRef]) -> Result<()> {
     }
     Ok(())
 }
-fn bounded_text(value: &str, maximum: usize, nonblank: bool, field: &'static str) -> Result<()> {
-    if value.len() > maximum {
-        return Err(MockError::TooLarge(field));
-    }
+fn bounded_text(value: &str, _historical_maximum: usize, nonblank: bool, _field: &'static str) -> Result<()> {
     ensure(
         !nonblank || !value.trim().is_empty(),
         "required observation text is blank",

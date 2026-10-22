@@ -251,10 +251,7 @@ fn validate_receipt(receipt: &ProviderMigrationReceipt) -> Result<()> {
             "invalid migration receipt binding transition",
         )?;
     }
-    require(
-        serde_json::to_vec(receipt)?.len() <= 64 * 1024,
-        "migration receipt exceeds bound",
-    )
+    Ok(())
 }
 
 fn replay(

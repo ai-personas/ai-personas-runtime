@@ -1,7 +1,5 @@
-//! Explicit one-page discovery with bounded, host-retained continuation.
+//! Explicit one-page discovery with host-retained continuation.
 use super::*;
-
-const MAX_RETAINED_CURSORS: usize = 128;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -12,7 +10,8 @@ pub(crate) struct Cursor {
 
 /// Ordinary adoption consumes supplied observations before navigation. Preserve
 /// only pending observations and supplied handles explicitly requested by this
-/// response, so abandoned handles cannot occupy the bounded map indefinitely.
+/// response. Cursor availability follows its actual supplied observation, with
+/// no application count ceiling.
 /// This is staged with adoption; held, character-fenced and repair responses
 /// never commit this cleanup.
 pub(super) fn retain_for_response(focus: &mut Focus, prepared: &Prepared, decision: &p::Decision) {
@@ -147,7 +146,6 @@ pub(super) fn execute(
             let next = page
                 .next
                 .as_ref()
-                .filter(|_| cursors.len() < MAX_RETAINED_CURSORS)
                 .map(|next| {
                     cursors.insert(
                         next_handle.clone(),

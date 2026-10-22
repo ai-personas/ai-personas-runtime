@@ -1297,22 +1297,18 @@ fn check_ids(values: &[String], minimum: usize, path: &str) -> Result<(), Protoc
 // Do not relax general identifiers or admit aliases.
 // The runtime still checks exact supplied membership, attribution and current
 // exposure; recognizing this spelling establishes no evidence authority.
-fn legacy_components<'a>(value: &'a str, prefix: &str, limits: &[usize]) -> Option<Vec<&'a str>> {
+fn legacy_components<'a>(value: &'a str, prefix: &str, count: usize) -> Option<Vec<&'a str>> {
     let mut rest = value.strip_prefix(prefix)?;
-    let mut parts = Vec::with_capacity(limits.len());
-    for maximum in limits {
+    let mut parts = Vec::with_capacity(count);
+    for _ in 0..count {
         let (length, tail) = rest.strip_prefix(':')?.split_once(':')?;
         if length.is_empty()
-            || length.len() > 3
             || length.starts_with('0')
             || !length.bytes().all(|b| b.is_ascii_digit())
         {
             return None;
         }
         let length = length.parse::<usize>().ok()?;
-        if length > *maximum {
-            return None;
-        }
         let part = tail.get(..length)?;
         if part.is_empty() || part.chars().any(|c| c.is_whitespace() || c.is_control()) {
             return None;
@@ -1324,7 +1320,7 @@ fn legacy_components<'a>(value: &'a str, prefix: &str, limits: &[usize]) -> Opti
 }
 
 fn legacy_observation_id(value: &str) -> bool {
-    legacy_components(value, "11:observation", &[MAX_ID_BYTES; 3]).is_some()
+    legacy_components(value, "11:observation", 3).is_some()
         || legacy_message_id(value)
 }
 
@@ -1338,7 +1334,7 @@ pub(crate) fn check_history_message_id(value: &str, path: &str) -> Result<(), Pr
 
 pub(crate) fn check_history_observation_id(value: &str, path: &str) -> Result<(), ProtocolError> {
     if legacy_observation_id(value)
-        || legacy_components(value, "11:local-event", &[MAX_ID_BYTES; 3]).is_some()
+        || legacy_components(value, "11:local-event", 3).is_some()
     {
         Ok(())
     } else {
@@ -1393,20 +1389,16 @@ pub(crate) fn check_history_reference(
 fn legacy_message_id(value: &str) -> bool {
     // Local messages are also exact recipient observations. Their second part
     // is the canonical operation or reply tuple, never a free-form alias.
-    let Some(parts) = legacy_components(
-        value,
-        "7:message",
-        &[MAX_ID_BYTES, MAX_ID_BYTES + 16, MAX_ID_BYTES],
-    ) else {
+    let Some(parts) = legacy_components(value, "7:message", 3) else {
         return false;
     };
-    if legacy_components(parts[1], "9:operation", &[MAX_ID_BYTES]).is_some() {
+    if legacy_components(parts[1], "9:operation", 1).is_some() {
         return true;
     }
-    legacy_components(parts[1], "5:reply", &[3]).is_some_and(|reply| {
+    legacy_components(parts[1], "5:reply", 1).is_some_and(|reply| {
         reply[0]
             .parse::<usize>()
-            .is_ok_and(|index| index < MAX_COLLECTION_ITEMS && index.to_string() == reply[0])
+            .is_ok_and(|index| index.to_string() == reply[0])
     })
 }
 

@@ -247,6 +247,27 @@ not invalidate an already retained exact plan. Renewal does not require fresh
 proof. Missing or historical proof stays unverified or historical, and native
 inspection separately reports which optional observations are recorded.
 
+Additional identifier and record ceilings are removed: provider wire IDs,
+credential-vault path/name lengths, imported supporting-asset authors and bodies,
+human stakeholder statements/requests and provider-migration receipts. Exact
+UTF-8, identity, digest, attribution and current-record bindings remain checked.
+The filesystem or provider may still reject an actual path or request.
+
+Discovery retains every continuation produced by a response without a cursor
+count ceiling; each handle still belongs to its actual supplied observation.
+Length-prefixed historical observation/message IDs have no component or reply-index
+quota. Diagnostic shape hints inspect the actual operation index and complete
+known field list, following schema references with cycle detection instead of a
+depth cap. Current persona instructions no longer advertise removed navigation,
+source-ID, metadata or history-page ceilings.
+
+The local-only mock evidence adapter also treats its saved byte estimates and
+host-right booleans as historical metadata. Input, result, evidence, identifier
+and prerequisite quotas are disabled, including during retained-evidence reads.
+Exact request, subject, epoch, prerequisite, dispatch, cancellation and terminal
+bindings remain. This adapter still produces explicitly labeled mock records;
+it cannot establish real external execution or human consent.
+
 ## Remaining work
 
 Removal is still incomplete. Remaining
