@@ -226,6 +226,12 @@ unrecognized or inconsistent packages keep their original JSON presentation.
 Choose **j** for the original delivery receipt JSON. Both choices request a fresh
 permission-projected result and retain its complete contents.
 
+Results expose the current retained task phase as `recorded_phase` and show
+`open`, `paused`, or an ending status when no delivery or completion status
+takes precedence. A historical completion or local delivery remains explicit,
+with the current phase shown alongside it. An open task does not mean that a
+persona is currently running, and a creation receipt does not complete the task.
+
 Messages show their attached exact file references as metadata beside the
 authored text. Those references supply no file body. Repeated copies from the
 same attributed decision and disclosure scope appear together with the recorded

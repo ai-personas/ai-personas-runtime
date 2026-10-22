@@ -1287,8 +1287,11 @@ class Dialogue:
             self.ui.say(f"Work {work}: the optional activity ended as recorded. "
                         "No artifact or later benefit was required or established.")
         else:
-            self.ui.say(f"Work {work}: {result.get('status', 'unavailable')}. "
-                        "Local delivery/attributed completion is not independent quality or human acceptance.")
+            status = result.get("status", "unavailable")
+            self.ui.say(f"Work {work}: {status}.")
+            phase = result.get("recorded_phase")
+            if phase and phase != status:
+                self.ui.say(f"Recorded work phase: {phase}.")
         for creation in result.get("persona_creations", []):
             parent = creation["parent_label"]
             child = creation.get("child")

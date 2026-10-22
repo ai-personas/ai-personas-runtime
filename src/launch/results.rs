@@ -16,6 +16,7 @@ pub struct HumanDecisionPointer {
 pub struct Output {
     pub work_id: String,
     pub status: String,
+    /// Phase in the current retained snapshot, not a quality or completion judgment.
     pub recorded_phase: Option<String>,
     pub focus_release: Option<String>,
     pub completion_supported: Option<bool>,
@@ -136,10 +137,21 @@ pub(super) fn project_state(state: &State, work_id: &str, saved: &Saved, now: i6
     let Ok(work) = state.board.work(&w::WorkId(work_id.into())) else {
         return Ok(result);
     };
-    // The result interface has historical per-record disclosure authority, not
-    // an independently retained basis for current global phase/attempt status.
-    // Explicit trusted operator status remains a separate interface.
-    result.status = "current-state-unestablished".into();
+    // The operator can inspect the current task snapshot. Its phase is distinct
+    // from a persona's continuation and any historical completion or delivery.
+    let phase = match &work.phase {
+        w::Phase::Open => "open",
+        w::Phase::Paused { .. } => "paused",
+        w::Phase::Ended { .. } => "ended",
+        w::Phase::Completed { .. } => "completed",
+    };
+    result.recorded_phase = Some(phase.into());
+    result.status = match &work.phase {
+        w::Phase::Ended { kind: w::EndingKind::Canceled, .. } => "canceled",
+        w::Phase::Ended { kind: w::EndingKind::Unfinished, .. } => "ended-unfinished",
+        w::Phase::Completed { .. } => "completed-as-recorded",
+        _ => phase,
+    }.into();
     result.optional_activity_ending = optional_activity::ending_for_recipient(&state,work_id,&saved.operator,now)?;
     result.optional_activity = optional_activity::participation_for_operator(state, work_id, &saved.operator, now)?;
     for creation in state.persona_creations.values().filter(|value| value.work == work_id) {
@@ -258,7 +270,7 @@ pub(super) fn project_state(state: &State, work_id: &str, saved: &Saved, now: i6
         } else if acceptance_unestablished {
             "delivered-acceptance-unestablished"
         } else {
-            "delivered-current-state-unestablished"
+            "delivered"
         }
         .into();
         if let Some(evidence) = evidence {

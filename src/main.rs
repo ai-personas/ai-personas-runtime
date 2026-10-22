@@ -507,9 +507,11 @@ fn human_status(status: &str) -> &str {
         "completed-as-recorded" => "Completion was recorded; current support has not been re-established.",
         "delivered-acceptance-unestablished" => "A local result is available; the permitted evidence does not establish required human acceptance.",
         "delivered-unfinished" => "A local result is available; work remains unfinished.",
-        "delivered-current-state-unestablished" => "A local result was delivered; current work state is not established.",
-        "current-state-unestablished" => "Current work state is not established by this result view.",
+        "delivered" => "A local result was delivered.",
+        "open" => "Work is open.",
         "paused" => "Work is paused.",
+        "canceled" => "Work was canceled.",
+        "ended" => "Work has ended.",
         "ended-unfinished" => "Work ended without completion.",
         "optional-activity-ended-as-recorded" => "The optional activity ended. No artifact or later benefit was required or established.",
         "optional-activity" => "Optional activity: each persona chooses whether to participate and when to stop.",
@@ -572,6 +574,9 @@ fn readable_result(value: &launch::Output) -> runtime::Result<String> {
         format!("Work {}", value.work_id),
         human_status(&value.status).into(),
     ];
+    if let Some(phase) = value.recorded_phase.as_ref().filter(|phase| *phase != &value.status) {
+        lines.push(format!("Recorded work phase: {phase}."));
+    }
     for creation in &value.persona_creations {
         let parent = creation["parent_label"].as_str().unwrap_or("Persona");
         let child = &creation["child"];

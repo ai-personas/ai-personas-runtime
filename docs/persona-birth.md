@@ -80,6 +80,10 @@ acceptance and authored continuation. Open the listed work to inspect its
 result; when no invitation exists, open a task or optional activity to give the
 new identity an opportunity. The parent task's overall status remains separate
 from these creation and participation facts.
+The JSON result reports each creation's `status` as `pending` or `created` and
+the current task's `recorded_phase`. An open task can contain a successfully
+created persona whose own accepted contribution has stopped; these records
+describe different events and do not imply whole-task completion.
 
 Population growth advances only the session's exact appended seed binding and
 currently matching intake-episode fingerprints. It changes no existing seed,
