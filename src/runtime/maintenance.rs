@@ -210,14 +210,7 @@ pub(super) fn apply(
         else {
             continue;
         };
-        let grants = &state.personas[actor].seed.grants;
-        require(
-            match requested_scope {
-                p::Scope::Fragments {} => grants.fragments,
-                p::Scope::Assets {} => grants.assets,
-            },
-            "maintenance disposition authorship scope not granted",
-        )?;
+
         require(
             seen.insert(maintenance_id),
             "duplicate maintenance disposition",

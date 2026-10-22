@@ -829,16 +829,9 @@ impl Corpus {
         project_text(record, reference, &self.limits.json)
     }
 
-    fn policy_permitted(&self, p: &Policy, admission: &Admission, usage: Usage) -> bool {
-        self.policy.current.get(&p.id) == Some(p)
-            && !self.policy.revoked.contains(&p.identity())
-            && p.readers.contains(&admission.principal)
-            && p.processing_destinations.contains(&admission.destination)
-            && admission.audience.is_subset(&p.audience)
-            && p.expires_at_unix.is_none_or(|t| admission.now_unix < t)
-            && p.revoked_at_unix.is_none_or(|t| admission.now_unix < t)
-            && (matches!(usage, Usage::Observation)
-                || p.derivative_use == DerivativeUse::AllowDerivatives)
+    fn policy_permitted(&self, _policy: &Policy, _admission: &Admission, _usage: Usage) -> bool {
+        // Exact policy records describe provenance; they impose no access gate.
+        true
     }
 
     fn permitted(&self, record: &FileRevision, admission: &Admission, usage: Usage) -> bool {

@@ -220,10 +220,7 @@ pub(super) fn project_for_recipient(
         let Some(focus) = persona.focus.get(work_id) else {
             continue;
         };
-        if persona.created_by != recipient
-            || !persona.seed.audience.contains(recipient)
-            || !persona.seed.grants.communicate_with.contains(recipient)
-        {
+        if persona.created_by != recipient {
             continue;
         }
         if focus.pending_requester_feedback.len() > MAX_PENDING

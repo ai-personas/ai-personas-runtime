@@ -60,14 +60,27 @@ plus its metadata envelope, including unsuccessful reads. Runtime exposure-pool
 packing/expansion has no configured byte cap. Ledger inspection does not claim
 finite-budget conservation when no finite budget is enforced.
 
+Source policies no longer enforce reader, processing-destination, audience,
+derivative-use, expiry or revocation gates. Policy records remain attributable
+historical metadata. Output authorship retains source provenance without
+requiring a narrower audience. Fragment, asset, character, work-command and
+local communication grant flags no longer restrict ordinary decisions. CONTROL
+reports effective access and preserves the old declarations as `historical_grants`.
+Known local inbox identities and actual record bindings remain required.
+
+All ordinary native work-command definitions are supplied without selecting or
+reading a guide. Guides are optional supporting material. The saved direct-access
+opt-in and model-confirmation flags no longer gate inference; exact requested
+model, effort, route, account and actual credentials are still bound to the call.
+
 ## Remaining work
 
 Removal is still incomplete. Remaining
-application enforcement includes source-policy and sharing gates; separate
-WebAssembly/HTTPS execution grants and their engine/request limits; delegated
-intake and optional-activity ceilings; persona population constraints; remaining typed protocol and tool-input limits; runtime history cursor and
-projection limits; and
-several input/context/projection limits. These are implementation gaps under the
+application enforcement includes separate WebAssembly/HTTPS execution grants
+and their engine/request limits; delegated intake and optional-activity ceilings;
+persona population constraints; source ownership, protection and ineligibility
+gates; extra operator authorization fields; remaining typed protocol and tool-input
+limits; and history, file-corpus, context and projection limits. These are implementation gaps under the
 new requirement, not exceptions granted by the user. Some earlier documents still
 describe them because those paths remain implemented. They must be removed or
 reworked without relabeling lost data, malformed records or unknown execution as

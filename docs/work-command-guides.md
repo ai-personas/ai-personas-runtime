@@ -1,110 +1,38 @@
-# Selecting native work commands
+# Native work commands and supporting guides
 
-Fresh native setup and bootstrap install small, runtime-authored supporting
-files in a profile-specific directory under `runtime/work-commands/`. Personas
-discover them with the existing bounded file list and search operations, then
-read or select relevant exact UTF-8 revisions. There is no separate catalogue-fetch
-operation. The directory
-locator in `CONTROL.work_guide_discovery` supplies no command schemas or bodies.
-Related guide filenames provide search cues for prerequisites. An absent command
-definition is a reason to discover relevant guides before concluding that the
-capability is unavailable; source and work authority still need their own checks.
-If supplied guide bodies are from an older profile or are incomplete, the
-capability's `guide_supply` diagnostic identifies those paths and the correction
-needed. It does not change selections; preserving the same unavailable bodies
-and retrying cannot expose their commands.
+Every ordinary admission supplies the complete current native work-command
+interface in `CONTROL.work_capability.inputs_schema`. No work-command grant,
+guide registration, selected guide or guide-body read is required to expose it.
+`work_command.inputs.kind` names a supplied command; the `effect` form also
+cites the admitted interface's exact `binding_revision`. Complete-response,
+exact-record and current work-state checks still preserve meaningful outcomes.
 
-Only complete registered guide bodies actually supplied in an admission expose
-their command definitions in `CONTROL.work_capability.inputs_schema`. The
-runtime prunes definitions that the selected commands do not reference and seals
-the resulting interface in that admission. Discovery metadata, old receipts,
-permission ancestry and proposed next selections do not expose commands. A read
-or selection in one response takes effect only in a later admission; it cannot
-authorize another operation in the same response.
+Guides remain optional supporting assets under `runtime/work-commands/`.
+Reading a guide supplies its actual text; discovering a reference supplies only
+metadata. Neither action executes a command, establishes successful work or
+changes a retained selection automatically. Primitive file, communication and
+maintenance operations remain in the application Decision schema. Initialization
+and selection-repair modes remain separate from ordinary work; their remaining
+restrictions are tracked in [execution resources](execution-resources.md).
 
-`work_command.inputs.kind` must belong to the supplied interface. The
-`effect` encoding additionally echoes that interface's exact `binding_revision`.
-Both encodings retain all existing work, evidence, source, consent and resource
-checks. Reading a guide does not grant responsibility, perform an operation or
-establish skill. Primitive file, communication and maintenance operations remain
-in the application decision schema. Initialization and selection repair do not
-offer work commands. External tool execution uses its separate supplied interfaces
-and current source/work permissions and execution grants; the native work-command
-interface neither grants it nor establishes its absence.
+Current command instructions accompany the interface under
+`command_instructions`. `native_command_readiness` separates actual guide-body
+supply from actual schema supply. A current command can be supplied while its
+guide body is absent. Historical inputs keep their original interfaces and
+supply records; removal of today's gate does not rewrite those inputs.
 
-Native work commands always use this selective path. An unregistered catalogue
-exposes no native work-command schema and reports the missing registration.
-It never falls back to sending the complete command collection. This affects
-internal work-record operations only: full host commands, package installation,
-file access and network access remain available without a selected guide or
-per-tool approval.
+Fresh setup installs the supporting guides. Installation and refresh append
+exact versions and record actual operator provenance. Existing guides can be
+kept for their text; an old statement that guide selection grants callability
+is superseded by the current interface. Their protected-source mutation rules
+and installation approval fields remain separate implementation work.
 
-The guide files have recorded author `ai-personas-runtime`, operator-import
-provenance and the launch's existing source policy. The first cohort identity is
-their storage owner; this assigns no specialist role or authorship to that
-persona. Protected guide sources cannot be rewritten by personas. They consume
-ordinary existing storage and can be withheld by current source restrictions.
-Withdrawing a source cannot be undone by replaying installation.
-Guide source IDs are readable, such as `native-work-guide:put_artifact`. The
-separate revision hash still identifies the exact immutable file. Copy the
-complete reference returned by discovery; the source name alone exposes nothing.
-When `CONTROL.input_file_choices` lists a desired exact guide, the persona can
-instead choose its current handle through `next_assets.kind=replace_from_input`
-and `handles`. This resolves to the listed immutable reference before the same
-selection checks. The handle is valid only in that input. A registration label
-in the table is metadata; the command schema still needs actual complete guide
-body supply on a later admission. This avoids retyping hashes without selecting
-resources automatically or changing the authority checks.
+## Optional guide installation and refresh
 
-For a currently registered guide already present in that bounded table,
-`native_command_readiness` reports whether its complete exact body and command
-schema were actually supplied in this admission, and whether the persona has the
-work-command grant. The row's reference identifies the exact guide revision.
-Its next-action field distinguishes selecting that guide for a fresh admission,
-using an already supplied schema under current work authority, reporting a
-missing grant, and reporting an unavailable definition. Operation-specific
-responsibility, consent, evidence and resource checks remain required; there is
-no blanket `ready` or authorized-operation claim.
-
-These details cover only the already offered, permission-filtered choices. They
-load no new guide or catalogue, change no selection, and create no continuation.
-They share the table's existing 128-entry and 32 KiB bounds and the actual prompt
-limit. Initialization and restricted repair do not receive this ordinary table.
-Current guide files retain their exact revisions; no guide refresh is needed.
-
-An ordinary input with permitted pending requester feedback or supplied closure
-records may also include `CONTROL.work_guide_discovery.control_guides`. These are
-at most two exact file links for the commands those host contracts already name:
-`resolve_requester_feedback` and `close_goal`. Current source restrictions apply
-to the metadata. The links also qualify for current-input file handles, but the
-persona still selects relevant resources and their complete bodies must reach a
-later admission before any schema is exposed. This does not resolve feedback,
-close work, assign duties or add an unselected command catalogue.
-
-Detailed command instructions travel with the commands actually exposed in
-`CONTROL.work_capability.command_instructions`. A shared section appears once and
-names only exposed commands. For example, artifact-registration details accompany
-`put_artifact`, and closure receipt rules accompany `close_goal`. The common
-persona instructions retain shared authority, evidence, responsibility, character,
-maintenance and complete-response requirements. Freshly installed guide files
-also contain their applicable command rules.
-
-An existing registered guide exposes the current admitted interface and its
-current command instructions; refreshing guide files updates their retained
-prose separately. The development
-view reports `resource_use.supplied_native_work_instructions` from the saved input,
-including section scopes and byte counts. Older inputs keep their original prose
-and report no separately recorded command-instruction field.
-
-## Existing roots
-
-For a runtime without registered guides, install them before using native work
-commands. Earlier full-interface admissions are historical records and cannot
-authorize new work operations in the first release. Installation changes future
-definition supply without changing current selections, grants, resource limits,
-spent attempts or continuing work. It performs no inference and is not required
-for host-command access. Fresh native
-setup performs this registration automatically before persona work begins.
+Installation is useful for making explanatory source files discoverable. It is
+not a prerequisite for native command use. The existing installation CLI still
+uses the fields below; its approval and request-size restrictions remain pending
+removal under UR-052.
 
 ```sh
 ai-personas --state-root /private/state --operator requester \

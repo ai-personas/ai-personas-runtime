@@ -265,8 +265,7 @@ pub(super) fn validate_saved(state: &State, saved: &Saved) -> Result<()> {
     bounded_identity(&provider.model)?;
     bounded_identity(&provider.effort)?;
     require(
-        setup.share_cohort
-            && (1..=8).contains(&setup.cohort)
+        (1..=8).contains(&setup.cohort)
             && (1..=setup.cohort).contains(&setup.owner)
             && (1..=128).contains(&setup.max_steps)
             && (1..=128).contains(&setup.max_considerations)
@@ -278,8 +277,7 @@ pub(super) fn validate_saved(state: &State, saved: &Saved) -> Result<()> {
     )?;
     let config = &state.config;
     require(
-        config.allow_direct_provider
-            && config.persona_capacity == setup.persona_capacity
+        config.persona_capacity == setup.persona_capacity
             && (setup.cohort..=8).contains(&setup.persona_capacity())
             && config.max_work_attempts == setup.max_work_attempts,
         "saved provider exceeds current runtime authorization or bounds",

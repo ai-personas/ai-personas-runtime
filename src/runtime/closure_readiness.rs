@@ -462,9 +462,6 @@ pub(super) fn recorded_completion_for_recipient(
         let Some(author) = state.personas.get(&by.persona.0) else {
             continue;
         };
-        if !author.seed.audience.contains(recipient) {
-            continue;
-        }
         let mut a = admission(author, now);
         a.audience = BTreeSet::from([recipient.to_owned()]);
         let record =

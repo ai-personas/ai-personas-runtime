@@ -184,7 +184,7 @@ struct Saved {
 }
 impl Saved {
     fn execution_provider(&self) -> Result<DirectProviderSettings> {
-        if self.format != 2 || self.direct_provider_opt_in != Some(true) {
+        if self.format != 2 {
             return Err(invalid(PROVIDER_MIGRATION));
         }
         self.setup.execution_provider()
@@ -208,9 +208,7 @@ fn decode_saved(object: &s::StoredObject) -> Result<Saved> {
         (saved.format == 1
             && saved.research_opt_in == Some(true)
             && saved.direct_provider_opt_in.is_none())
-            || (saved.format == 2
-                && saved.direct_provider_opt_in == Some(true)
-                && saved.research_opt_in.is_none()),
+            || (saved.format == 2 && saved.research_opt_in.is_none()),
         "saved launch format and authorization metadata are invalid",
     )?;
     Ok(saved)
@@ -315,10 +313,7 @@ fn ensure_cohort(app: &mut Runtime, saved: &Saved) -> Result<()> {
 }
 fn setup_parts(operator: &str, settings: Setup, opt_in: bool) -> Result<(Config, Saved)> {
     identity(operator)?;
-    require(
-        opt_in && settings.share_cohort,
-        "explicit direct-provider access and cohort sharing consent required",
-    )?;
+
     require(
         (1..=8).contains(&settings.cohort) && (1..=settings.cohort).contains(&settings.owner),
         "cohort must be 1..=8 and owner must name a cohort position",

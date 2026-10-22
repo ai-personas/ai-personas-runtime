@@ -252,35 +252,7 @@ impl<'a> Permissions<'a> {
                     .map(|event| (event.marker.source.as_str(), event.marker.revision.as_str())),
             );
         }
-        let policies: BTreeMap<_, _> = state
-            .config
-            .policies
-            .active_policies
-            .iter()
-            .map(|policy| (policy.id.as_str(), policy))
-            .collect();
-        let permitted = |policy: &f::Policy| {
-            policies
-                .get(policy.id.as_str())
-                .is_some_and(|current| *current == policy)
-                && !state
-                    .config
-                    .policies
-                    .revoked_policies
-                    .contains(&policy.identity())
-                && policy.readers.contains(&admission.principal)
-                && policy
-                    .processing_destinations
-                    .contains(&admission.destination)
-                && admission.audience.is_subset(&policy.audience)
-                && policy.derivative_use == f::DerivativeUse::AllowDerivatives
-                && policy
-                    .expires_at_unix
-                    .is_none_or(|t| admission.now_unix < t)
-                && policy
-                    .revoked_at_unix
-                    .is_none_or(|t| admission.now_unix < t)
-        };
+        let permitted = |policy: &f::Policy| policy_permitted(state, policy, admission);
         for (position, (name, source, stored)) in revisions.iter().enumerate() {
             let revision = stored.record.revision.as_str();
             let attached = bindings

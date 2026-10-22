@@ -86,8 +86,7 @@ fn validate_saved(
     let settings = saved.execution_provider()?;
     let setup = &saved.setup;
     require(
-        setup.share_cohort
-            && (1..=8).contains(&setup.cohort)
+        (1..=8).contains(&setup.cohort)
             && (1..=setup.cohort).contains(&setup.owner)
             && (1..=128).contains(&setup.max_steps)
             && (1..=128).contains(&setup.max_considerations)
@@ -102,8 +101,7 @@ fn validate_saved(
     let config = &state.config;
     config.validate()?;
     require(
-        config.allow_direct_provider
-            && config.persona_capacity == setup.persona_capacity
+        config.persona_capacity == setup.persona_capacity
             && (setup.cohort..=8).contains(&setup.persona_capacity())
             && !config.require_physical_hard_bound
             && !config.require_token_hard_bound

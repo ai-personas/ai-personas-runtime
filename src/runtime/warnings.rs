@@ -338,14 +338,7 @@ fn gate(
         "warning changes require ordinary mode",
     )?;
     let actor = &prepared.request.persona;
-    let grants = &state.personas[actor].seed.grants;
-    require(
-        match requested_scope {
-            p::Scope::Fragments {} => grants.fragments,
-            p::Scope::Assets {} => grants.assets,
-        },
-        "warning authorship scope not granted",
-    )?;
+
     let a = admission(&state.personas[actor], now);
     for target in targets {
         let reference = file_reference(target)?;
@@ -403,10 +396,7 @@ fn author(
     now: i64,
 ) -> Result<WarningAuthorship> {
     let persona = &state.personas[&prepared.request.persona];
-    require(
-        persona.seed.grants.write_policies.contains(&policy.id),
-        "warning write policy not granted",
-    )?;
+
     let mut exposure = prepared_exposure(prepared)?.clone();
     exposure.sources.extend(extra.iter().cloned());
     if let Some(inherited) = inherited {

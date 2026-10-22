@@ -141,10 +141,7 @@ fn validate_request(request: &ProviderMigrationRequest, now: i64) -> Result<Stri
     reference(&request.expected_launch, ID)?;
     binding_bounds(&request.expected_persona_bindings)?;
     require(now >= 0, "negative migration time")?;
-    require(
-        request.allow_direct_provider && request.model_confirmed,
-        "explicit direct-provider opt-in and model confirmation required",
-    )?;
+
     request.provider.validate()?;
     digest(&serde_json::to_value(request)?)
 }

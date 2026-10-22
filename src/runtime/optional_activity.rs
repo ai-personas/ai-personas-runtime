@@ -528,9 +528,7 @@ pub(crate) fn ending_for_recipient(
             };
             let mut view = admission(persona, now);
             view.audience = BTreeSet::from([recipient.into()]);
-            persona.seed.audience.contains(recipient)
-                && persona.seed.grants.communicate_with.contains(recipient)
-                && exposure_permitted(state, &opportunity.exposure, &view)
+            exposure_permitted(state, &opportunity.exposure, &view)
                 && exposure_permitted(state, &ending.exposure, &view)
         });
     Ok(permitted.then(|| json!({"opportunity":opportunity.reference,"episode":episode.trigger,

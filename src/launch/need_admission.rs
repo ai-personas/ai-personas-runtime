@@ -643,11 +643,7 @@ fn plan(
         &digest(&input)?,
         &grant.request.policy,
     ));
-    let expires_at_unix = exposure
-        .policies
-        .iter()
-        .filter_map(|restriction| policy_deadline(&restriction.policy))
-        .fold(grant.request.expires_at_unix, i64::min);
+    let expires_at_unix = grant.request.expires_at_unix;
     let binding = ConsumedChild {
         work: input.id.clone(),
         admission_id: request.id.clone(),

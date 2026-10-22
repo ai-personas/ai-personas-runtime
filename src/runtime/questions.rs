@@ -116,13 +116,6 @@ fn visible(state: &State, origin: &Origin, viewer: &str, a: &f::Admission) -> bo
     let Some(author) = state.personas.get(&origin.source_principal) else {
         return false;
     };
-    if !origin.audience.contains(viewer)
-        || (viewer != origin.source_principal
-            && (!author.seed.audience.contains(viewer)
-                || !author.seed.grants.communicate_with.contains(viewer)))
-    {
-        return false;
-    }
     let mut recipient = a.clone();
     if !state.personas.contains_key(viewer) {
         if !state.config.local_recipients.contains(viewer) {
@@ -234,12 +227,7 @@ fn supplied(prepared: &Prepared, question: &Question) -> Result<Value> {
 }
 
 fn origin(state: &State, prepared: &Prepared, now: i64) -> Result<Origin> {
-    let persona = &state.personas[&prepared.request.persona];
-    let mut audience: BTreeSet<String> = prepared
-        .audience
-        .intersection(&persona.seed.grants.communicate_with)
-        .cloned()
-        .collect();
+    let mut audience = prepared.audience.clone();
     audience.insert(prepared.request.persona.clone());
     Ok(Origin {
         author: prepared.request.persona.clone(),
