@@ -61,7 +61,9 @@ fn tool_result_origins(control: &Value, reference: &f::Reference) -> Result<Vec<
         if let Some(results) = control[field]["retained_results"].as_array() {
             for result in results {
                 let source = serde_json::from_value::<p::ExactRef>(result["source"].clone())?;
-                if file_reference(&source)? != *reference {
+                // A decoded field or byte range has the same producing
+                // execution as its immutable result document.
+                if source.source != reference.source || source.revision != reference.revision {
                     continue;
                 }
                 let text = |key: &str| -> Result<String> {
@@ -220,7 +222,16 @@ fn candidates(control: &Value, qualified: &Value) -> Result<Candidates> {
                 }
                 Some("accepted_file_write") => candidates.add(&observation["payload"]["source"])?,
                 Some("host_command_result") => {
-                    candidates.add(&observation["payload"]["inputs"]["stdin_asset"]["reference"])?;
+                    let payload = &observation["payload"];
+                    candidates.add(&payload["inputs"]["stdin_asset"]["reference"])?;
+                    candidates.add(&payload["context_projection"]["retained_result"]["source"])?;
+                    if payload["context_projection"]["format"] == "host-command-pending-reference-v1" {
+                        candidates.add(&payload["inputs"]["command_reference"])?;
+                        candidates.add(&payload["inputs"]["stdin_reference"])?;
+                        for stream in ["stdout", "stderr"] {
+                            candidates.entries(&payload["result"][stream]["segments"], "text_reference")?;
+                        }
+                    }
                 }
                 Some("qualified_read" | "selection_repair_read" | "local_dependency_event") => {
                     candidates.bundle(&observation["payload"]["result"])?;

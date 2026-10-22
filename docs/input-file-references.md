@@ -63,6 +63,11 @@ as reference offers. Offering metadata loads no additional file body and does
 not choose context, execute a tool or add funding. Its bytes and source
 restrictions enter the normal admission accounting.
 
+When a pending host result uses `result_context: "reference"`, its exact command,
+literal stdin and output-string references also receive handles. Select these
+to receive the corresponding decoded text in a later context, or read an exact
+reference directly. The whole result document remains a separate choice.
+
 For an exact retained tool-result reference, `tool_result_origins` repeats the
 tool family, producing invocation, operation, intent and recorded state already
 present in the current host projection. This puts the producing invocation next
@@ -70,6 +75,8 @@ to the handle so the persona can distinguish several retained results from the
 same tool. Table order does not identify the newest or requested result. The
 metadata supplies no result body, and absent historical origin metadata remains
 absent during inspection.
+Decoded fields and ranges of the same immutable result retain that document's
+producing invocation and operation metadata.
 
 The retained table and provider-bound input must agree before a handle resolves.
 Unknown, omitted-table or older-invocation handles are rejected. The original
