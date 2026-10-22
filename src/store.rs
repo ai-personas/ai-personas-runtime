@@ -337,7 +337,6 @@ pub(crate) struct NeedAdmissionGuard {
     pub(crate) invocation: InvocationRecord,
     pub(crate) decision: DecisionRecord,
     pub(crate) checked_at_unix: i64,
-    pub(crate) expires_at_unix: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -3668,10 +3667,11 @@ impl<'a> Work<'a> {
         // while the IMMEDIATE transaction still excludes concurrent writers.
         let now =
             crate::runtime::unix_now().map_err(|error| StoreError::Invalid(error.to_string()))?;
-        if guard.checked_at_unix < 0 || now < guard.checked_at_unix || now >= guard.expires_at_unix
-        {
+        // The saved delegation expiry is historical metadata, not a deadline
+        // for admitting an actually adopted proposal.
+        if guard.checked_at_unix < 0 || now < guard.checked_at_unix {
             return Err(StoreError::Invalid(
-                "need admission time or expiry changed".into(),
+                "need admission clock moved before its checked time".into(),
             ));
         }
         Ok(result)

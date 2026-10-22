@@ -595,7 +595,6 @@ fn plan(
         &digest(&input)?,
         &grant.request.policy,
     ));
-    let expires_at_unix = grant.request.expires_at_unix;
     let binding = ConsumedChild {
         work: input.id.clone(),
         admission_id: request.id.clone(),
@@ -744,7 +743,6 @@ fn plan(
             invocation: proof.invocation,
             decision: proof.decision,
             checked_at_unix: now,
-            expires_at_unix,
         },
     })
 }
