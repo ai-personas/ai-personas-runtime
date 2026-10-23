@@ -169,6 +169,7 @@ async fn run_opened(
         provider,
         launch,
         config,
+        validated_runtime: None,
         intake_selection,
     };
     driver.before_step(app)?;
@@ -191,6 +192,7 @@ struct NativeDriver<'a> {
     provider: provider::DirectProvider,
     launch: serde_json::Value,
     config: serde_json::Value,
+    validated_runtime: Option<s::ObjectRef>,
     intake_selection: Option<p::need::GrantReference>,
 }
 
@@ -222,9 +224,11 @@ impl Driver for NativeDriver<'_> {
             binding(&saved)? == self.launch,
             "saved launch binding changed",
         )?;
-        let (head, _) = app.load()?;
+        let configuration_matches = app.runtime_configuration_matches(
+            &self.config, &mut self.validated_runtime,
+        )?;
         require(
-            head.body["config"] == self.config,
+            configuration_matches,
             "saved runtime configuration changed",
         )?;
         self.source.check().map_err(rejected)
@@ -292,6 +296,7 @@ pub(super) async fn run_session_owned(
         provider,
         launch: binding(&saved)?,
         config,
+        validated_runtime: None,
         intake_selection: intake_selection.cloned(),
     };
     driver.before_step(app)?;

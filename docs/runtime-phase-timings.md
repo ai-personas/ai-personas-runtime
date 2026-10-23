@@ -36,6 +36,10 @@ does not replace the operation's result.
 | `state.pack_exposures` | Identify repeated exposures and build their retained pool |
 | `runtime.save` | Construct and commit a state object through the ordinary save path |
 | `runtime.commit_state` | Compare and swap that constructed state object |
+| `runtime.check_configuration` | Read and verify the current runtime configuration for a live driver |
+| `runtime.fingerprint_state` | Bind the complete current stored object to its exact reference |
+| `runtime.binding_head_unchanged` | Reuse this driver's successful validation of that same exact reference |
+| `runtime.validate_binding_head` | Fully decode and validate a new reference before comparing configuration |
 
 These are elapsed wall times, not CPU time. Nested phases overlap: do not add
 `runtime.load` to its children or `runtime.save` to the serialization and commit
@@ -49,3 +53,19 @@ scheduling, provider transport, host effects or storage. Use repeated loads and
 their measured phases to locate costs in actual retained work before attributing
 a slow session to the provider. Logging and unrelated concurrent work can affect
 timings. No performance improvement or causal comparison follows from one run.
+
+Live session and native-provider binding checks always read the current stored
+runtime object and compare its configuration with the driver's original value.
+They retain only the exact reference of a successfully decoded, validated and
+matching head. The reference binds identity, revision, kind and the entire
+canonical JSON body. Repeated checks of that identical reference can omit typed
+state decoding. Every changed reference, including changes outside configuration,
+requires full decoding and intake validation again. A failed decode or mismatched
+configuration never updates the remembered reference. Each driver starts without
+one; nothing is persisted or shared with another driver.
+
+This reuse applies only to the binding check. Ordinary state loads, preparation,
+adoption, ownership and freshness checks retain their existing behavior. Store
+reads and their accounting still occur on every binding check. The new timing
+phases distinguish actual reuse from validation of a changed head; both remain
+nested within `runtime.check_configuration`.

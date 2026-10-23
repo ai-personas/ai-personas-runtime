@@ -732,6 +732,7 @@ struct OwnedLive<'a> {
     provider: provider::DirectProvider,
     binding: Value,
     config: Value,
+    validated_runtime: Option<s::ObjectRef>,
     intake_selection: Option<p::need::GrantReference>,
 }
 fn execution_binding(saved: &Saved) -> Result<Value> {
@@ -765,9 +766,11 @@ impl Driver for OwnedLive<'_> {
 
     fn before_step(&mut self, app: &mut Runtime) -> Result<()> {
         let (_, saved) = load(app)?;
-        let (head, _) = app.load()?;
+        let configuration_matches = app.runtime_configuration_matches(
+            &self.config, &mut self.validated_runtime,
+        )?;
         require(
-            execution_binding(&saved)? == self.binding && head.body["config"] == self.config,
+            execution_binding(&saved)? == self.binding && configuration_matches,
             "session binding changed",
         )
     }
@@ -815,6 +818,7 @@ pub(super) async fn run_environment_owned(
         provider: saved.execution_provider()?.build(&state.config)?,
         binding: execution_binding(&saved)?,
         config: head.body["config"].clone(),
+        validated_runtime: None,
         intake_selection: None,
     };
     run_with_owned_commands(app, work, &mut driver, owner).await
@@ -888,6 +892,7 @@ async fn execute_with_codex_transport(
                 provider: saved.execution_provider()?.build(&state.config)?,
                 binding: execution_binding(&saved)?,
                 config: head.body["config"].clone(),
+                validated_runtime: None,
                 intake_selection: request.intake_delegation.clone(),
             };
             drive(app, &request.work, &mut driver, owner).await
@@ -950,6 +955,7 @@ async fn execute_with_codex_transport(
                     provider: build_codex_provider(&settings, &state.config, source, codex_transport.clone())?,
                     binding: execution_binding(&saved)?,
                     config: head.body["config"].clone(),
+                    validated_runtime: None,
                     intake_selection: request.intake_delegation.clone(),
                 };
                 drive(app, &request.work, &mut driver, owner).await

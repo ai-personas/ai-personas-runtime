@@ -2913,19 +2913,55 @@ impl Runtime {
     }
     fn load_in_class(&mut self, class: s::BudgetClass) -> Result<(s::StoredObject, State)> {
         phase_timing::measure("runtime.load", || {
-            let object = phase_timing::measure("runtime.read_state", || match class {
-                s::BudgetClass::Ordinary => self.store.read(STATE_ID),
-                s::BudgetClass::Closeout => self.store.trusted_host().read(STATE_ID),
-            })?
-            .ok_or_else(|| held("state missing"))?;
-            let body = phase_timing::measure("runtime.clone_state_json", || {
-                Ok::<_, RuntimeError>(object.body.clone())
-            })?;
-            let state = state_storage::decode(body)?;
-            phase_timing::measure("runtime.validate_intake_state", || {
-                need_proposals::validate_state(&state)
-            })?;
+            let object = self.read_state_in_class(class)?;
+            let state = Self::decode_loaded_state(&object)?;
             Ok((object, state))
+        })
+    }
+    fn read_state_in_class(&mut self, class: s::BudgetClass) -> Result<s::StoredObject> {
+        phase_timing::measure("runtime.read_state", || match class {
+            s::BudgetClass::Ordinary => self.store.read(STATE_ID),
+            s::BudgetClass::Closeout => self.store.trusted_host().read(STATE_ID),
+        })?
+        .ok_or_else(|| held("state missing"))
+    }
+    fn decode_loaded_state(object: &s::StoredObject) -> Result<State> {
+        let body = phase_timing::measure("runtime.clone_state_json", || {
+            Ok::<_, RuntimeError>(object.body.clone())
+        })?;
+        let state = state_storage::decode(body)?;
+        phase_timing::measure("runtime.validate_intake_state", || {
+            need_proposals::validate_state(&state)
+        })?;
+        Ok(state)
+    }
+    // A driver's binding check needs the current configuration, not an owned
+    // copy of every retained persona, source and observation. Reuse validation
+    // only for the exact complete object already decoded by this driver.
+    fn runtime_configuration_matches(
+        &mut self,
+        expected: &Value,
+        validated: &mut Option<s::ObjectRef>,
+    ) -> Result<bool> {
+        phase_timing::measure("runtime.check_configuration", || {
+            let object = self.read_state_in_class(s::BudgetClass::Ordinary)?;
+            let reference = phase_timing::measure("runtime.fingerprint_state", || object.exact_ref())?;
+            let unchanged = validated.as_ref() == Some(&reference);
+            let phase = if unchanged {
+                "runtime.binding_head_unchanged"
+            } else {
+                "runtime.validate_binding_head"
+            };
+            phase_timing::measure(phase, || {
+                if !unchanged {
+                    Self::decode_loaded_state(&object)?;
+                }
+                let matches = object.body["config"] == *expected;
+                if matches {
+                    *validated = Some(reference);
+                }
+                Ok(matches)
+            })
         })
     }
     fn save(&mut self, old: &s::StoredObject, state: &State) -> Result<s::BatchReceipt> {
