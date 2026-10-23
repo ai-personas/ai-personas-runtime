@@ -58,7 +58,14 @@ names its exact receipt in `actual_observations`; that full receipt remains
 supplied while current, including after its initial notification is consumed.
 It can follow the continuing identity into another work with its exact
 source and audience provenance. Required qualifications and later accepted
-source warnings accompany it. Unavailable state does not become a neutral value.
+source warnings accompany it. New receipts derive that accompaniment from the
+exact file bodies actually supplied to the authoring decision, including supplied
+qualification bodies. They retain those references for later warning projection.
+The complete input provenance remains separate: an ancestral source reference or
+discovery metadata alone does not request that source's body or qualifications.
+The authored observation IDs describe the stated basis; they do not erase other
+actually supplied inputs. Earlier receipts retain their recorded qualifications
+and provenance without migration. Unavailable state does not become a neutral value.
 Historical source-policy, ownership, protection and reader declarations do not
 gate access. Exact receipt hashes, attribution and qualification bindings remain
 required; missing or inconsistent records are not replaced with invented state.

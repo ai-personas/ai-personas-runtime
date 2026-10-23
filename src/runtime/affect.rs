@@ -207,7 +207,11 @@ fn apply_change(
     };
     // Whole-response adoption retains this receipt and current pointer together.
     // The existing owner/decision fences serialize all changes to this persona.
-    let qualifications = tools::qualifications(state, &prepared.sources);
+    // Only actually supplied bodies determine required accompaniment. The
+    // observation retains the complete input exposure separately; historical
+    // provenance and discovery metadata do not request their source bodies.
+    let qualification_sources = tools::qualification_inputs(prepared, &[])?;
+    let qualifications = tools::qualifications(state, &qualification_sources);
     add_observation(
         state,
         prepared,
@@ -223,7 +227,7 @@ fn apply_change(
         .observations
         .get_mut(&receipt_id)
         .unwrap()
-        .qualification_sources = Some(prepared.sources.clone());
+        .qualification_sources = Some(qualification_sources);
     state.personas.get_mut(actor).unwrap().transient_affect = Some(receipt_id);
     Ok(())
 }
