@@ -108,8 +108,14 @@ fn delivery(
     Ok(a)
 }
 pub(super) fn project(app: &mut Runtime, work_id: &str, saved: &Saved) -> Result<Output> {
-    let state = app.snapshot()?;
-    project_state(&state, work_id, saved, unix_now()?)
+    app.store.trusted_host().runtime_projection(u64::MAX, |runtime, launch, records| {
+        let state = Runtime::decode_inspection_state(&runtime)?;
+        let current = decode_saved(&launch)?;
+        require(current.operator == saved.operator, "result operator changed")?;
+        let mut output = project_state(&state, work_id, &current, unix_now()?)?;
+        feedback::append_view(&mut output, &state, &current.operator, records)?;
+        Ok::<_, RuntimeError>(output)
+    })?
 }
 pub(super) fn project_state(state: &State, work_id: &str, saved: &Saved, now: i64) -> Result<Output> {
     require(saved.works.contains_key(work_id), "unknown launch work")?;

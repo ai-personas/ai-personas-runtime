@@ -637,6 +637,9 @@ fn readable_result(value: &launch::Output) -> runtime::Result<String> {
             for item in items {
                 let label = item["label"].as_str().unwrap_or("Persona");
                 let status = match item["status"].as_str() {
+                    Some("queued") => "has feedback waiting for delivery after the active work settles",
+                    Some("delivery_unavailable") => "could not receive this retained input; inspect its delivery reason",
+                    Some("superseded") => "has an earlier direction retained as replaced history",
                     Some("pending") => "has not yet accounted for this feedback",
                     Some("handled") => "marked this feedback handled",
                     Some("declined") => "declined this feedback",

@@ -2,7 +2,7 @@
 use super::*;
 
 pub(crate) struct RuntimeInspection<'a, 'db> {
-    work: &'a Work<'db>,
+    pub(super) work: &'a Work<'db>,
 }
 
 impl RuntimeInspection<'_, '_> {

@@ -25,6 +25,7 @@ mod head_compaction;
 mod operator_inspection;
 mod provider_prelaunch;
 mod revision_storage;
+mod requester_feedback;
 mod session_journal;
 mod terminal_inspection;
 pub use capacity::CapacityExtensionRequest;

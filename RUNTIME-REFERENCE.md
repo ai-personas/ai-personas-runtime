@@ -388,6 +388,14 @@ history queries and reads identify its replacement without reactivating it.
 Feedback does not resume a stopped persona or amend the mandate. See
 [requester feedback](docs/requester-feedback.md) for the native input and dialogue flow.
 
+Feedback intake remains available during an active foreground session. Exact
+inputs are retained in an independent inbox and delivered after admitted calls
+and host commands settle. Queuing changes neither an existing prompt nor the
+semantic runtime state. Native receipts and result views distinguish queued,
+delivered and unavailable inputs, including explicitly queued replacements.
+Delivery preserves arrival time and records its own time; keyed replay creates
+no duplicate observation or inference. Stopped personas retain their Stop.
+
 Peer feedback becomes a continuing item only when the recipient chooses to account for it as pending. Ordinary conversation does not automatically create that obligation.
 
 ### 8.2 Local messages

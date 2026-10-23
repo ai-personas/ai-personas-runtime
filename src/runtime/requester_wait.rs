@@ -31,7 +31,9 @@ pub(super) fn satisfy(state: &mut State, id: &str, requester: &str, now: i64) ->
     let actor = &observation.actor;
     require(
         matches(&observation, work, actor, requester)
-            && observation.at_unix == now
+            // A queued input retains its arrival time. This function is called
+            // only when its observation is first installed, not on inbox replay.
+            && observation.at_unix <= now
             && state.work_meta[work].intake_operator == requester,
         "requester wait requires a newly deposited bound input",
     )?;

@@ -1036,8 +1036,10 @@ async fn run_session_bound(
 /// Session terminals deliberately retain no messages, artifact bodies or secrets.
 pub fn result_view(root: &Path, operator: &str, work: &str) -> BoundaryResult<Output> {
     valid_id(work)?;
-    project_view(root, operator, |snapshot, _| {
-        Ok(results::project_state(&snapshot.state, work, &snapshot.saved, unix_now()?)?)
+    project_view(root, operator, |snapshot, records| {
+        let mut result = results::project_state(&snapshot.state, work, &snapshot.saved, unix_now()?)?;
+        feedback::append_view(&mut result, &snapshot.state, operator, records)?;
+        Ok(result)
     })
 }
 

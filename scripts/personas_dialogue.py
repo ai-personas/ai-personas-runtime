@@ -1418,6 +1418,11 @@ class Dialogue:
         self.j.save()
         self.ui.say("Your input is retained. " + ("The same input was already recorded. "
                     if receipt.get("replayed") else "") + "No model call was started.")
+        if item["kind"] == "feedback" and receipt.get("queued"):
+            self.ui.say("It is queued for delivery after the current calls and commands settle. "
+                        "The current model input is unchanged; a stopped participant is not resumed.")
+        elif item["kind"] == "feedback" and receipt.get("delivery", {}).get("kind") == "unavailable":
+            self.ui.say("Delivery is unavailable: " + receipt["delivery"]["reason"])
         if receipt.get("existing_waits_satisfied", 0):
             self.ui.say("It satisfied an existing requester-input wait. Choose Continue when you want work to proceed.")
         else:
@@ -1505,10 +1510,12 @@ class Dialogue:
         require(safe_text(text), "invalid_feedback_text")
         result = self.session("result", "--", work["id"])
         current = [item for item in (result.get("requester_feedback") or {}).get("items", [])
-                   if item.get("persona") == persona and item.get("status") != "superseded"]
+                   if item.get("persona") == persona
+                   and item.get("status") not in ("superseded", "delivery_unavailable")
+                   and item.get("queued_current_direction", True)]
         supersedes = []
         if current:
-            self.ui.say("Earlier feedback that is still current:")
+            self.ui.say("Earlier current or queued feedback without a later replacement:")
             for index, item in enumerate(current, 1):
                 self.ui.say(f"{index}. {item['feedback_text']}")
             choice = self.ui.ask("Enter numbers of feedback this message replaces, separated by spaces, "

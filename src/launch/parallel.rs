@@ -123,6 +123,7 @@ async fn run_with_subtree<D: Driver>(
                     require(pending.is_empty(), "subtree changed while transports were owned")?;
                     driver.before_step(app)?;
                     if let Some(owner) = owner {
+                        feedback::deliver(app, owner, unix_now()?)?;
                         works = delegated::subtree(&app.snapshot()?, root)?;
                         for work in &works {
                             app.retire_ready_rejected_continuations(work, unix_now()?)?;

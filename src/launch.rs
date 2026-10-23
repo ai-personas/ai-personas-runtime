@@ -836,6 +836,7 @@ async fn run_with_owned_commands<D: Driver>(
     owner: &s::ExecutionOwner,
 ) -> Result<Output> {
     driver.before_step(app)?;
+    feedback::deliver(app, owner, unix_now()?)?;
     if !driver.prospective_intake() {
         if let Some(selection) =
             intake_delegation::default_for_work_owned(app, work, owner, unix_now()?)?
@@ -866,6 +867,7 @@ async fn run_with_owned_commands<D: Driver>(
     while scope.has_background_host_commands() {
         scope.wait_for_host_command().await?;
     }
+    feedback::deliver(&mut scope, owner, unix_now()?)?;
     let output = outcome?;
     let mut final_view = result(&mut scope, work)?;
     final_view.stop = output.stop;
@@ -885,6 +887,7 @@ async fn run_with_options<D: Driver>(
     let stop = loop {
         app.publish_completed_host_commands(unix_now()?)?;
         app.retire_ready_rejected_continuations(work, unix_now()?)?;
+        feedback::deliver(app, owner, unix_now()?)?;
         persona_birth::create_pending_for_work_owned(app, work, driver, owner)?;
         let mut view = result(app, work)?;
         // Scheduling uses trusted current state, never a permission-filtered
@@ -982,9 +985,11 @@ fn stop_for_error(error: &RuntimeError) -> &'static str {
 /// Fresh bounded result projection; opening performs no owner recovery.
 pub fn result_at(root: &Path, operator: Option<&str>, work: &str) -> Result<Output> {
     identity(work)?;
-    inspection::project(root, |snapshot, _| {
+    inspection::project(root, |snapshot, records| {
         require(operator.is_none_or(|value| value == snapshot.saved.operator), "saved operator mismatch")?;
-        results::project_state(&snapshot.state, work, &snapshot.saved, unix_now()?)
+        let mut result = results::project_state(&snapshot.state, work, &snapshot.saved, unix_now()?)?;
+        feedback::append_view(&mut result, &snapshot.state, &snapshot.saved.operator, records)?;
+        Ok(result)
     })
 }
 
