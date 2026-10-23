@@ -9,6 +9,7 @@
 //! remote outcome or authorize replay. Explicit controls retain their actual
 //! request and result; accounting changes alone do not advance semantic epochs.
 //!
+use crate::phase_timing;
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
@@ -733,6 +734,33 @@ struct Cell {
 }
 
 impl Cell {
+    fn from_storage(
+        namespace: &str,
+        data: Option<Vec<u8>>,
+        capacity: i64,
+        lane: i64,
+        slots: i64,
+    ) -> Result<Self> {
+        let data = data.ok_or(StoreError::TooLarge)?;
+        let capacity = u64::try_from(capacity)
+            .map_err(|_| StoreError::Corrupt("negative capacity".into()))?;
+        let slots = u64::try_from(slots)
+            .map_err(|_| StoreError::Corrupt("negative event slots".into()))?;
+        if data.len() as u64 > capacity {
+            return Err(StoreError::Corrupt("cell capacity".into()));
+        }
+        let data = revision_storage::decode(namespace, data, capacity)?;
+        if data.len() as u64 > capacity {
+            return Err(StoreError::Corrupt("decoded cell capacity".into()));
+        }
+        let class = match lane {
+            0 => BudgetClass::Ordinary,
+            1 => BudgetClass::Closeout,
+            _ => return Err(StoreError::Corrupt("budget lane".into())),
+        };
+        Ok(Self { data, capacity, class, slots })
+    }
+
     fn charge(&self, namespace: &str, key: &str) -> Result<u64> {
         self.capacity
             .checked_add(namespace.len() as u64)
@@ -2064,7 +2092,9 @@ impl Store {
     }
 
     fn recover_if_unowned(&mut self) -> Result<()> {
-        if let Some(_owner) = ExecutionOwner::try_acquire(&self.path)? {
+        if let Some(_owner) = phase_timing::measure("store.try_recovery_owner", || {
+            ExecutionOwner::try_acquire(&self.path)
+        })? {
             self.recover_dispatched()?;
         }
         Ok(())
@@ -3198,23 +3228,29 @@ impl Store {
     }
 
     fn recover_dispatched(&mut self) -> Result<()> {
-        self.transaction(|work| {
-            let mut invocations = Vec::new();
-            let mut intents = Vec::new();
-            for id in work.keys("invocation")? {
-                let record: InvocationRecord = work.required("invocation", &id)?;
-                if record.state == InvocationState::Dispatched {
-                    invocations.push(id);
-                } else if record.state == InvocationState::Prepared {
-                    work.finish_recorded_runtime_prelaunch(&record)?;
-                }
-            }
-            for id in work.keys("intent")? {
-                let record: IntentRecord = work.required("intent", &id)?;
-                if record.state == IntentState::Dispatched {
-                    intents.push(id);
-                }
-            }
+        phase_timing::measure("store.recover_dispatched", || self.transaction(|work| {
+            let invocations = phase_timing::measure("store.scan_recovery_invocations", || {
+                let mut invocations = Vec::new();
+                work.visit_records("invocation", |work, id, record: InvocationRecord| {
+                    if record.state == InvocationState::Dispatched {
+                        invocations.push(id);
+                    } else if record.state == InvocationState::Prepared {
+                        work.finish_recorded_runtime_prelaunch(&record)?;
+                    }
+                    Ok(())
+                })?;
+                Ok::<_, StoreError>(invocations)
+            })?;
+            let intents = phase_timing::measure("store.scan_recovery_intents", || {
+                let mut intents = Vec::new();
+                work.visit_records("intent", |_work, id, record: IntentRecord| {
+                    if record.state == IntentState::Dispatched {
+                        intents.push(id);
+                    }
+                    Ok(())
+                })?;
+                Ok::<_, StoreError>(intents)
+            })?;
             if !invocations.is_empty() || !intents.is_empty() {
                 work.bump_epoch()?;
             }
@@ -3231,7 +3267,7 @@ impl Store {
                 )?;
             }
             Ok(())
-        })
+        }))
     }
 }
 
@@ -3416,31 +3452,37 @@ impl<'a> Work<'a> {
             )
             .optional()?;
         row.map(|(data, capacity, lane, slots)| {
-            let data = data.ok_or(StoreError::TooLarge)?;
-            let capacity = u64::try_from(capacity)
-                .map_err(|_| StoreError::Corrupt("negative capacity".into()))?;
-            let slots = u64::try_from(slots)
-                .map_err(|_| StoreError::Corrupt("negative event slots".into()))?;
-            if data.len() as u64 > capacity {
-                return Err(StoreError::Corrupt("cell capacity".into()));
-            }
-            let data = revision_storage::decode(namespace, data, capacity)?;
-            if data.len() as u64 > capacity {
-                return Err(StoreError::Corrupt("decoded cell capacity".into()));
-            }
-            let class = match lane {
-                0 => BudgetClass::Ordinary,
-                1 => BudgetClass::Closeout,
-                _ => return Err(StoreError::Corrupt("budget lane".into())),
-            };
-            Ok(Cell {
-                data,
-                capacity,
-                class,
-                slots,
-            })
+            Cell::from_storage(namespace, data, capacity, lane, slots)
         })
         .transpose()
+    }
+
+    /// Visit the same durable keys as keys(namespace), with current pending
+    /// replacements taking precedence as in cell(). Only the current record is
+    /// decoded; earlier visitor changes stay pending until the outer commit.
+    fn visit_records<T: DeserializeOwned>(
+        &mut self,
+        namespace: &str,
+        mut visit: impl FnMut(&mut Self, String, T) -> Result<()>,
+    ) -> Result<()> {
+        // Copy the connection borrow so the cursor does not borrow Work itself.
+        let db = self.db;
+        let mut statement = db.prepare(
+            "SELECT k,data,capacity,lane,slots FROM store_cells WHERE ns=?1 ORDER BY k",
+        )?;
+        let mut rows = statement.query([namespace])?;
+        while let Some(row) = rows.next()? {
+            let id: String = row.get(0)?;
+            let cell = match self.pending.get(&(namespace.into(), id.clone())) {
+                Some(cell) => cell.clone(),
+                None => Cell::from_storage(
+                    namespace, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?,
+                )?,
+            };
+            let record = decode_json(&cell.data)?;
+            visit(self, id, record)?;
+        }
+        Ok(())
     }
 
     fn get<T: DeserializeOwned>(&self, namespace: &str, key: &str) -> Result<Option<T>> {

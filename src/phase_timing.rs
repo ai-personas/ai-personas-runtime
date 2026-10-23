@@ -6,7 +6,7 @@ use std::time::Instant;
 static ENABLED: OnceLock<bool> = OnceLock::new();
 static SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
-pub(super) fn measure<T, E>(
+pub(crate) fn measure<T, E>(
     phase: &'static str,
     operation: impl FnOnce() -> Result<T, E>,
 ) -> Result<T, E> {

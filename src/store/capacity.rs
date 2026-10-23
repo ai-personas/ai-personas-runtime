@@ -168,12 +168,18 @@ fn approved_limits(path: &Path, base: &Limits) -> Result<Limits> {
 
 impl Store {
     pub(crate) fn open_runtime(path: &Path, base: Limits, recover: bool) -> Result<Self> {
-        let limits = approved_limits(path, &base)?;
-        let mut store = Self::open_for_inspection(path, limits)?;
-        if recover {
-            store.recover_if_unowned()?;
-        }
-        Ok(store)
+        phase_timing::measure("store.open_runtime", || {
+            let limits = phase_timing::measure("store.validate_capacity_chain", || {
+                approved_limits(path, &base)
+            })?;
+            let mut store = phase_timing::measure("store.open_connection", || {
+                Self::open_for_inspection(path, limits)
+            })?;
+            if recover {
+                store.recover_if_unowned()?;
+            }
+            Ok(store)
+        })
     }
 
     /// Narrow host-control inspection, including when Ordinary reads are spent.

@@ -38,7 +38,7 @@ pub mod launch;
 pub use launch::step_accounting::LaunchStepAllowance;
 mod stakeholder;
 mod state_storage;
-mod phase_timing;
+use crate::phase_timing;
 mod tools;
 mod http_tools;
 mod host_tools;
