@@ -89,8 +89,6 @@ pub mod persona_lifecycle;
 pub mod persona_birth;
 #[path = "launch/work_command_guides.rs"]
 pub mod work_command_guides;
-#[path = "launch/transport_capacity.rs"]
-pub mod transport_capacity;
 pub use work_resource_grant::{
     grant_work_resources, preview_work_resource_grant, work_resource_grant_snapshot,
     WorkResourceGrantFence, WorkResourceGrantOutcome, WorkResourceGrantReceipt,
@@ -156,7 +154,15 @@ impl SavedSetup {
         {
             return Err(invalid(PROVIDER_MIGRATION));
         }
-        let provider: DirectProviderSettings = serde_json::from_value(self.provider.clone())
+        // Existing saved declarations remain intact. Current inference reads
+        // only its account/route/model configuration, not obsolete limit data.
+        // The public DirectSettings input still rejects the removed field.
+        let mut current = self.provider.clone();
+        current
+            .as_object_mut()
+            .ok_or_else(|| invalid(PROVIDER_MIGRATION))?
+            .remove("limits");
+        let provider: DirectProviderSettings = serde_json::from_value(current)
             .map_err(|_| invalid(PROVIDER_MIGRATION))?;
         provider
             .validate()
@@ -335,11 +341,6 @@ fn setup_parts(operator: &str, settings: Setup) -> Result<(Config, Saved)> {
     config.allow_direct_provider = true;
     config.max_work_attempts = 0;
     settings.provider.validate()?;
-    // Preserve transport-output accounting from the provider's historical
-    // stream estimate. These numbers impose no execution quota.
-    config.transport_output_reserve_bytes = config
-        .transport_output_reserve_bytes
-        .max(settings.provider.limits.max_stream_bytes as u64);
 
     let working = fs::canonicalize(&settings.working_directory)?;
     require(working.is_dir(), "working directory must exist")?;

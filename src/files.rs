@@ -748,14 +748,7 @@ impl Corpus {
                 )
             })
         {
-            parse_json_unique(&record.bytes, &self.limits.json).map_err(|error| match error {
-                JsonProfileError::LimitExceeded | JsonProfileError::InvalidLimits => {
-                    WithholdReason::RepresentationLimit
-                }
-                JsonProfileError::InvalidJson | JsonProfileError::DuplicateKey => {
-                    WithholdReason::InvalidJson
-                }
-            })?;
+            parse_json_unique(&record.bytes).map_err(|_| WithholdReason::InvalidJson)?;
         }
         project_text(record, reference, &self.limits.json)
     }
@@ -1926,34 +1919,28 @@ impl Corpus {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
 pub enum JsonProfileError {
-    #[error("invalid JSON profile limits")]
-    InvalidLimits,
-    #[error("JSON profile resource limit exceeded")]
-    LimitExceeded,
     #[error("invalid UTF-8 JSON or non-scalar string escape")]
     InvalidJson,
     #[error("duplicate decoded object member name")]
     DuplicateKey,
 }
 
-struct JsonState<'a> {
-    _historical_limits: &'a JsonLimits,
+struct JsonState {
     failure: Option<JsonProfileError>,
 }
 
-impl JsonState<'_> {
+impl JsonState {
     fn fail<E: de::Error>(&mut self, error: JsonProfileError) -> E {
         self.failure = Some(error);
         E::custom("JSON profile rejected input")
     }
 }
 
-struct JsonSeed<'a, 'b> {
-    state: &'a mut JsonState<'b>,
-    depth: usize,
+struct JsonSeed<'a> {
+    state: &'a mut JsonState,
 }
 
-impl<'de> DeserializeSeed<'de> for JsonSeed<'_, '_> {
+impl<'de> DeserializeSeed<'de> for JsonSeed<'_> {
     type Value = Value;
 
     fn deserialize<D>(self, deserializer: D) -> Result<Value, D::Error>
@@ -1962,17 +1949,15 @@ impl<'de> DeserializeSeed<'de> for JsonSeed<'_, '_> {
     {
         deserializer.deserialize_any(JsonVisitor {
             state: self.state,
-            depth: self.depth,
         })
     }
 }
 
-struct JsonVisitor<'a, 'b> {
-    state: &'a mut JsonState<'b>,
-    depth: usize,
+struct JsonVisitor<'a> {
+    state: &'a mut JsonState,
 }
 
-impl<'de> Visitor<'de> for JsonVisitor<'_, '_> {
+impl<'de> Visitor<'de> for JsonVisitor<'_> {
     type Value = Value;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -2017,7 +2002,6 @@ impl<'de> Visitor<'de> for JsonVisitor<'_, '_> {
         let mut values = Vec::new();
         while let Some(value) = sequence.next_element_seed(JsonSeed {
             state: &mut *self.state,
-            depth: self.depth + 1,
         })? {
             values.push(value);
         }
@@ -2032,7 +2016,6 @@ impl<'de> Visitor<'de> for JsonVisitor<'_, '_> {
             }
             let value = object.next_value_seed(JsonSeed {
                 state: &mut *self.state,
-                depth: self.depth + 1,
             })?;
             values.insert(key, value);
         }
@@ -2045,19 +2028,15 @@ impl<'de> Visitor<'de> for JsonVisitor<'_, '_> {
 /// without imposing application byte, nesting, node or string limits.
 /// Only string-valued projections are exposed by file operations; numeric values
 /// are not offered as an exact lexical representation by this module.
-pub fn parse_json_unique(bytes: &[u8], limits: &JsonLimits) -> Result<Value, JsonProfileError> {
+pub fn parse_json_unique(bytes: &[u8]) -> Result<Value, JsonProfileError> {
     if std::str::from_utf8(bytes).is_err() {
         return Err(JsonProfileError::InvalidJson);
     }
-    let mut state = JsonState {
-        _historical_limits: limits,
-        failure: None,
-    };
+    let mut state = JsonState { failure: None };
     let mut deserializer = serde_json::Deserializer::from_slice(bytes);
     deserializer.disable_recursion_limit();
     let parsed = JsonSeed {
         state: &mut state,
-        depth: 1,
     }
     .deserialize(&mut deserializer);
     let value = match parsed {
@@ -2127,21 +2106,14 @@ fn resolve_pointer<'a>(value: &'a Value, pointer: &str) -> Result<&'a Value, Wit
 pub(crate) fn project_text(
     record: &FileRevision,
     reference: &Reference,
-    limits: &JsonLimits,
+    _historical_limits: &JsonLimits,
 ) -> Result<String, WithholdReason> {
     let full = match &reference.representation {
         Representation::Utf8 => std::str::from_utf8(&record.bytes)
             .map_err(|_| WithholdReason::InvalidUtf8)?
             .to_owned(),
         Representation::JsonString { pointer } => {
-            let value = parse_json_unique(&record.bytes, limits).map_err(|error| match error {
-                JsonProfileError::LimitExceeded | JsonProfileError::InvalidLimits => {
-                    WithholdReason::RepresentationLimit
-                }
-                JsonProfileError::InvalidJson | JsonProfileError::DuplicateKey => {
-                    WithholdReason::InvalidJson
-                }
-            })?;
+            let value = parse_json_unique(&record.bytes).map_err(|_| WithholdReason::InvalidJson)?;
             resolve_pointer(&value, pointer)?
                 .as_str()
                 .ok_or(WithholdReason::Unsupported)?

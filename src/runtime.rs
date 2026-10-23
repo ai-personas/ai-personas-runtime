@@ -120,17 +120,9 @@ pub fn provider_schema() -> Value {
 
 /// Decode the complete carrier exactly once. Inner validation is deliberately
 /// separate so its exact decoded bytes, including whitespace, retain identity.
-pub fn decode_provider_carrier(bytes: &[u8], maximum: usize) -> Result<String> {
-    let value = f::parse_json_unique(
-        bytes,
-        &f::JsonLimits {
-            max_source_bytes: maximum,
-            max_depth: 4,
-            max_nodes: 8,
-            max_decoded_bytes: maximum,
-        },
-    )
-    .map_err(|e| invalid(format!("provider carrier: {e}")))?;
+pub fn decode_provider_carrier(bytes: &[u8]) -> Result<String> {
+    let value = f::parse_json_unique(bytes)
+        .map_err(|e| invalid(format!("provider carrier: {e}")))?;
     let object = value
         .as_object()
         .ok_or_else(|| invalid("provider carrier must be an object"))?;
@@ -147,7 +139,7 @@ pub fn decode_provider_carrier(bytes: &[u8], maximum: usize) -> Result<String> {
 
 /// Interpret only the response format bound to this exact admission. Direct
 /// JSON keeps the original UTF-8 bytes; it performs no repair or reserialization.
-fn decode_provider_decision(bytes: &[u8], schema: &Value, maximum: usize) -> Result<String> {
+fn decode_provider_decision(bytes: &[u8], schema: &Value) -> Result<String> {
     if schema == &provider::json_object_schema() {
 
         String::from_utf8(bytes.to_vec()).map_err(|_| invalid("provider decision is not UTF-8"))
@@ -156,7 +148,7 @@ fn decode_provider_decision(bytes: &[u8], schema: &Value, maximum: usize) -> Res
             schema == &provider_schema(),
             "unsupported provider response schema",
         )?;
-        decode_provider_carrier(bytes, maximum)
+        decode_provider_carrier(bytes)
     }
 }
 
@@ -5709,7 +5701,6 @@ impl Runtime {
         let inner = decode_provider_decision(
             output.response.as_bytes(),
             &prepared.output_schema,
-            intent.max_response_bytes,
         );
         let inner_hash = inner
             .as_ref()
@@ -10913,18 +10904,10 @@ pub fn unix_now() -> Result<i64> {
     i64::try_from(seconds).map_err(|_| invalid("clock overflow"))
 }
 /// Complete unique-key JSON for operator file input.
-pub fn read_json_file<T: DeserializeOwned>(path: &Path, maximum: usize) -> Result<T> {
+pub fn read_json_file<T: DeserializeOwned>(path: &Path, _historical_maximum: usize) -> Result<T> {
     let bytes = read_regular_file(path)?;
-    let value = f::parse_json_unique(
-        &bytes,
-        &f::JsonLimits {
-            max_source_bytes: maximum,
-            max_depth: 64,
-            max_nodes: 131_072,
-            max_decoded_bytes: maximum,
-        },
-    )
-    .map_err(|e| invalid(e.to_string()))?;
+    let value = f::parse_json_unique(&bytes)
+        .map_err(|e| invalid(e.to_string()))?;
     Ok(serde_json::from_value(value)?)
 }
 /// Read a complete regular input file without an application byte ceiling.

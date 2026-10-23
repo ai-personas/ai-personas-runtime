@@ -166,17 +166,6 @@ enum Command {
     },
     /// Inspect historical assembled-context settings and exact update fences.
     ContextCapacitySnapshot,
-    /// Inspect historical provider transport settings and their recorded reservation.
-    TransportCapacitySnapshot,
-    /// Update historical stream, event and timeout settings with an attributable receipt.
-    /// These fields impose no local transport quota; provider identity and history remain bound.
-    ExtendTransportCapacity {
-        file: PathBuf,
-        #[arg(long, required_unless_present = "apply", conflicts_with = "apply")]
-        preview: bool,
-        #[arg(long, required_unless_present = "preview", conflicts_with = "preview")]
-        apply: bool,
-    },
     /// Update historical assembled-context settings without changing provider identity,
     /// selected context, continuation or invocation history. No context quota is enforced.
     ExtendContextCapacity {
@@ -1079,24 +1068,6 @@ async fn run(cli: Cli) -> runtime::Result<()> {
     } else {
         None
     };
-    let transport_capacity_request = if let Command::ExtendTransportCapacity {
-        file, preview, apply,
-    } = &cli.command {
-        if preview == apply {
-            return Err(argument("exactly one of --preview or --apply"));
-        }
-        let value: serde_json::Value = runtime::read_json_file(file, 16_384)?;
-        for path in ["", "/expected_runtime", "/expected_launch", "/expected_limits", "/new_limits"] {
-            if !value.pointer(path).is_some_and(serde_json::Value::is_object) {
-                return Err(argument("transport capacity request requires JSON objects"));
-            }
-        }
-        let request: launch::transport_capacity::TransportCapacityRequest = serde_json::from_value(value)?;
-        request.validate(operator)?;
-        Some(request)
-    } else {
-        None
-    };
     let context_capacity_request = if let Command::ExtendContextCapacity {
         file, preview, apply,
     } = &cli.command {
@@ -1339,17 +1310,6 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         Command::ContextCapacitySnapshot => {
             return emit(&launch::context_capacity::snapshot_at(root, operator)?);
         }
-        Command::TransportCapacitySnapshot => {
-            return emit(&launch::transport_capacity::snapshot_at(root, operator)?);
-        }
-        Command::ExtendTransportCapacity { apply, .. } => {
-            return emit(&launch::transport_capacity::extend_at(
-                root,
-                transport_capacity_request.as_ref().expect("transport request validated"),
-                *apply,
-                runtime::unix_now()?,
-            )?);
-        }
         Command::ExtendContextCapacity { apply, .. } => {
             return emit(&launch::context_capacity::extend_at(
                 root,
@@ -1431,9 +1391,6 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         }
         Command::PersonaBirthSnapshot { .. } | Command::CreatePersonaFromProposal { .. } => {
             unreachable!("birth handled before ordinary open")
-        }
-        Command::TransportCapacitySnapshot | Command::ExtendTransportCapacity { .. } => {
-            unreachable!("transport capacity handled before ordinary open")
         }
         Command::StoreCapacitySnapshot | Command::ExtendStoreCapacity { .. } => {
             unreachable!("capacity control handled before ordinary open")

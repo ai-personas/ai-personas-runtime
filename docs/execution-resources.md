@@ -22,6 +22,20 @@ allowance. It replaces the stale `repair_funding` guidance in new inputs.
 
 ## Implemented removal
 
+Current Direct provider settings no longer require or accept historical
+`limits`. Onboarding stops generating those estimates, and ProviderIntent
+contains only model and effort. Serialization, stream collection and complete
+response decoding no longer carry unused quota arguments. The obsolete
+transport-capacity snapshot and extension APIs are removed, with their earlier
+records left intact. Existing launches project current account/route/model
+settings from their original declaration without rewriting it. New setup uses
+ordinary runtime accounting estimates rather than a declared stream ceiling.
+
+The shared unique-key JSON parser also takes bytes without a quota object or
+unused nesting counter. Its provider, OAuth, operator-input and file-projection
+callers still reject invalid JSON and duplicate decoded member names. No larger
+fixed parsing allowance replaces the removed argument.
+
 Pending requester or peer feedback records no longer impose a blanket closure or
 retirement prerequisite. They remain visible with their actual bodies, status and
 attributed dispositions. This removes a bookkeeping requirement without changing

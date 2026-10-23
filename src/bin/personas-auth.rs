@@ -576,16 +576,8 @@ pub(crate) fn jwks_url(configuration: &[u8]) -> Result<Url> {
         issuer: String,
         jwks_uri: String,
     }
-    let value = ai_personas::files::parse_json_unique(
-        configuration,
-        &ai_personas::files::JsonLimits {
-            max_source_bytes: 0,
-            max_depth: 0,
-            max_nodes: 0,
-            max_decoded_bytes: 0,
-        },
-    )
-    .map_err(|_| AuthError::Protocol)?;
+    let value = ai_personas::files::parse_json_unique(configuration)
+        .map_err(|_| AuthError::Protocol)?;
     let document: Configuration = serde_json::from_value(value).map_err(|_| AuthError::Protocol)?;
     if document.issuer != ISSUER {
         return Err(AuthError::Identity);

@@ -600,16 +600,8 @@ async fn send_tokens(
 }
 
 fn decode_json<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, AuthError> {
-    let value = crate::files::parse_json_unique(
-        bytes,
-        &crate::files::JsonLimits {
-            max_source_bytes: 0,
-            max_depth: 0,
-            max_nodes: 0,
-            max_decoded_bytes: 0,
-        },
-    )
-    .map_err(|_| AuthError::Protocol)?;
+    let value = crate::files::parse_json_unique(bytes)
+        .map_err(|_| AuthError::Protocol)?;
     serde_json::from_value(value).map_err(|_| AuthError::Protocol)
 }
 

@@ -102,6 +102,14 @@ identity still identify the actual call. This is the first-release request/API;
 obsolete setup inputs are not accepted as compatibility aliases or silently
 converted into a changed replay of an earlier request.
 
+Current Direct provider settings contain `mode`, `model`, `effort`,
+`credentials` and `evidence`, without a `limits` object. The evidence fields
+identify the actual account and transport; optional capability observations do
+not gate inference. Continuing launches preserve their original declarations
+and exclude historical limit metadata from the current execution projection.
+The obsolete transport-capacity snapshot and extension commands are removed.
+See [direct provider configuration](docs/direct-provider.md#configuration-and-evidence).
+
 For manually managed stores, the core commands remain available:
 
 ```sh

@@ -6,6 +6,14 @@ and a transport probe are optional. Neither is required to configure or use the
 provider. The [terminal dialogue](interactive-launch.md) uses this backend;
 `personas-auth` handles sign-in and refresh. No runtime Store is opened here.
 
+Generated settings contain mode, model, effort, credentials and account/route
+evidence. They contain no `limits` object or invented historical quota estimates.
+Current Direct input rejects that removed member; earlier declarations remain
+in their original saved runtime records. The shared request serializer, stream
+collector and JSON parser no longer take unused quota arguments. Optional probe
+planning still retains its own historical fields; it is separate from ordinary
+provider configuration and is not a prerequisite for native work.
+
 ## Provider contract and observed usage
 
 The official [sign-in contract](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)

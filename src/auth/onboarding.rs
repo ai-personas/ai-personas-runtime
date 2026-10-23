@@ -120,16 +120,7 @@ fn digest<T: Serialize + ?Sized>(value: &T) -> Result<String> {
     Ok(hash(&encode(value)?))
 }
 fn unique(bytes: &[u8], _historical_maximum: usize) -> Result<Value> {
-    crate::files::parse_json_unique(
-        bytes,
-        &crate::files::JsonLimits {
-            max_source_bytes: 0,
-            max_depth: 32,
-            max_nodes: 65_536,
-            max_decoded_bytes: 0,
-        },
-    )
-    .map_err(|_| Code::InvalidState)
+    crate::files::parse_json_unique(bytes).map_err(|_| Code::InvalidState)
 }
 
 struct Now(u64);
@@ -439,7 +430,7 @@ fn verified(a: &Attempt) -> Result<bool> {
     let Some(carrier) = o.carrier.as_ref() else {
         return Ok(false);
     };
-    let Ok(inner) = crate::runtime::decode_provider_carrier(carrier.as_bytes(), wire::MAX_CARRIER)
+    let Ok(inner) = crate::runtime::decode_provider_carrier(carrier.as_bytes())
     else {
         return Ok(false);
     };
@@ -769,7 +760,7 @@ impl Backend {
                     terminal.completed_carrier_sha256 = Some(hash(body.as_bytes()));
                     terminal.completed_carrier_bytes = Some(body.len());
                     let safe =
-                        crate::runtime::decode_provider_carrier(body.as_bytes(), wire::MAX_CARRIER)
+                        crate::runtime::decode_provider_carrier(body.as_bytes())
                             .ok()
                             .and_then(|s| unique(s.as_bytes(), wire::MAX_CARRIER).ok())
                             .is_some_and(|v| !contains_secret(&v, &access, 0));
@@ -940,26 +931,9 @@ fn native_settings(model: &str, effort: &str, access: Access) -> Result<p::Direc
             catalog_evidence_sha256: None,
             structured_output_evidence_sha256: None,
         },
-        limits: native_limits(),
     };
     settings.validate().map_err(|_| Code::InvalidState)?;
     Ok(settings)
-}
-fn native_limits() -> p::Limits {
-    // Historical settings only; Direct transport does not enforce these quotas.
-    p::Limits {
-        timeout_ms: 300_000,
-        max_prompt_bytes: 196_608,
-        max_schema_bytes: 65_536,
-        max_schema_nodes: 10_000,
-        max_schema_depth: 64,
-        max_request_bytes: 524_288,
-        max_response_bytes: 32_768,
-        max_stream_bytes: 1_048_576,
-        // A completed event includes the full provider output envelope.
-        max_event_bytes: 524_288,
-        max_events: 10_000,
-    }
 }
 fn bind_account(j: &Journal, a: &Access) -> Result<()> {
     check(

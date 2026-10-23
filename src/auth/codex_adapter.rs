@@ -24,11 +24,8 @@ pub(crate) trait AuthorizedAuthStatusSource: Send + Sync {
 }
 
 pub(super) fn parse_json(bytes: &[u8]) -> Result<serde_json::Value, p::Failure> {
-    // JsonLimits fields are historical metadata; the shared parser validates
-    // complete JSON and duplicate keys without application parsing quotas.
-    crate::files::parse_json_unique(bytes, &crate::files::JsonLimits {
-        max_source_bytes: 0, max_depth: 0, max_nodes: 0, max_decoded_bytes: 0,
-    }).map_err(|_| p::Failure::InvalidCredential)
+    // Validate complete JSON and duplicate keys without parsing quotas.
+    crate::files::parse_json_unique(bytes).map_err(|_| p::Failure::InvalidCredential)
 }
 
 pub(crate) struct CodexCredentialSource<S> {

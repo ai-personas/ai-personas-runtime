@@ -1,5 +1,5 @@
-use super::{Failure, Limits, RetainedResponseId, StreamDiagnostic, Usage};
-use crate::files::{parse_json_unique, JsonLimits, JsonProfileError};
+use super::{Failure, RetainedResponseId, StreamDiagnostic, Usage};
+use crate::files::{parse_json_unique, JsonProfileError};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -156,7 +156,7 @@ pub(super) struct Collector {
     pub usage: Usage,
 }
 impl Collector {
-    pub fn new(model: &str, _historical_limits: &Limits) -> Self {
+    pub fn new(model: &str) -> Self {
         Self {
             model: model.into(),
             allow_thin_completed: false,
@@ -355,19 +355,8 @@ impl Collector {
         self.stage = "event";
         self.events += 1;
         self.event_index = Some(self.events as u64);
-        let event = parse_json_unique(
-            bytes,
-            &JsonLimits {
-                max_source_bytes: bytes.len(),
-                max_depth: 64,
-                max_nodes: 65_536,
-                max_decoded_bytes: bytes.len(),
-            },
-        )
-        .map_err(|error| {
+        let event = parse_json_unique(bytes).map_err(|error| {
             protocol(match error {
-                JsonProfileError::InvalidLimits => "event_json_limits_invalid",
-                JsonProfileError::LimitExceeded => "event_json_limit",
                 JsonProfileError::InvalidJson => "event_json_invalid",
                 JsonProfileError::DuplicateKey => "event_json_duplicate_key",
             })

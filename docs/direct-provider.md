@@ -3,7 +3,8 @@
 Direct inference has no application duration, prompt/schema/request-byte,
 response-byte, stream-byte, event-size, event-count or output-item quota.
 Explicit cancellation and actual provider/network outcomes remain effective.
-Saved `limits` values are historical estimates. Other runtime restrictions remain
+Current provider input contains no limit declarations. Previously saved `limits`
+values remain historical records. Other runtime restrictions remain
 [implementation gaps](execution-resources.md#remaining-work).
 
 Personas sends one HTTPS Responses request per admitted step. Its runtime owns prompt assembly, tools, memory, decisions, collaboration, assessment, adoption, resource accounting and durable recovery. Codex CLI and app-server execution are absent from product runtime. Engineering tools are separate.
@@ -32,14 +33,30 @@ These modes never substitute for one another. A missing credential, unsupported 
 
 ## Configuration and evidence
 
-[`DirectSettings`](../src/provider.rs) requires `mode`, `model`, `effort`, `credentials`, `evidence`, and `limits`. There is no default model or access mode. Credential references name explicit environment variables for the selected secret and account; secret values do not belong in configuration, diagnostics or receipts. OAuth provenance and expiry must originate in the application's separately authorized access action. This provider implements no login, client registration, refresh, credential-file import or token extraction.
+[`DirectSettings`](../src/provider.rs) requires `mode`, `model`, `effort`,
+`credentials` and `evidence`. It has no `limits` field, and onboarding no longer
+invents historical limit estimates for new settings. There is no default model
+or access mode. Credential references identify the selected secret source and
+account; secret values do not belong in configuration, diagnostics or receipts.
+OAuth provenance and expiry come from the actual access action. This provider
+implements no login, client registration, refresh, credential-file import or
+token extraction.
+
+The first-release public input rejects the removed `limits` member. Continuing
+launch records retain their exact original provider declaration; a private
+execution projection excludes that historical member before reading current
+settings. This does not rewrite a saved declaration or an earlier request,
+response or configuration digest. New preparation hashes the actual current
+settings and immutable transport profile. New setup uses the runtime's ordinary
+accounting reservation estimate, without deriving it from a provider limit.
 
 The `evidence` object binds the selected mode, immutable transport profile, model and fixed account fingerprint. Its `efforts` collection and catalog/structured-output digests are optional historical observations: omit them, use an empty collection or null digests when no evidence is retained. Preparation requires neither a catalogue entry, an evidenced effort nor a successful capability probe. A present digest still identifies an exact retained observation; it cannot authenticate that observation or promise future support. An environment variable name alone cannot establish account binding. The exact requested model, effort and response contract remain unchanged when evidence is absent, and actual provider rejection is retained without substitution.
 
 Native settings inspection reports `capability_evidence_required: false` and separately states whether catalogue, structured-output and requested-effort observations are recorded. These fields describe saved metadata; inspection performs no inference or capability verification.
 
-Transport and onboarding retain complete responses without enforcing the saved
-size or timeout fields. Reads use ordinary chunks; a chunk size is not a total
+Transport and onboarding retain complete responses without accepting size or
+timeout quota arguments in their serializer or stream collector. Reads use
+ordinary chunks; a chunk size is not a total
 stream cap. The collector still requires a complete, coherent provider response
 and EOF. A partial stream remains partial. Exact model/account/request bindings,
 duplicate-key rejection and whole-Decision structure remain checked.
@@ -48,16 +65,19 @@ Runtime context assembly and corpus retention also have no application byte or
 record quota. Provider account, rate and context outcomes are reported as observed;
 removing local quotas does not change the external service.
 
-Historical `transport-capacity-snapshot` and `extend-transport-capacity` commands
-remain present, but extending those saved values is no longer necessary to pass
-ordinary transport. They do not repair an incomplete historical response or
-resume a stopped actor. Reservations remain accounting estimates, not enforced
-resource allowances; actual known use and unknown provider exposure stay distinct.
-These metadata APIs accept zero or changed values without fixed byte, event or
-timeout maxima or an increase requirement. Current episode launch bindings carry
-forward when only transport metadata changes. Context metadata updates likewise
-require no prompt/output allowance calculation or provider migration. Their
-snapshots explicitly report that application quotas are disabled.
+The obsolete `transport-capacity-snapshot` and `extend-transport-capacity`
+commands and their implementation have been removed. Earlier receipts and saved
+declarations remain in retained history; they are not replayed or rewritten.
+Reservations remain accounting estimates; actual known use and unknown provider
+exposure stay distinct. Context metadata updates still require no prompt/output
+allowance calculation or provider migration, and their snapshots report that
+application quotas are disabled.
+
+The shared unique-key JSON parser takes complete bytes without a quota object.
+Provider events, carrier decoding, OAuth status and token responses, operator
+input and file projections use that same parser. Invalid UTF-8, duplicate decoded
+keys, unpaired surrogates and trailing data remain errors; a valid response is
+not truncated or repaired to fit a historical allowance.
 
 Use setup and `step --profile direct`. Saved `allow_direct_provider`, cohort-sharing and model-confirmation flags are historical declarations rather than access gates. Existing working-directory arguments remain compatibility metadata; the provider does not read that directory or transmit it.
 

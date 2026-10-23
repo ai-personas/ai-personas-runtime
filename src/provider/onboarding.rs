@@ -6,9 +6,7 @@ use super::*;
 pub(crate) const CATALOG_URL: &str = "https://api.openai.com/v1/models";
 pub(crate) const CATALOG_BYTES: usize = 65_536;
 pub(crate) const PROBE_PROFILE: &str = "personas-siwc-carrier-probe-v1";
-pub(crate) const MAX_REQUEST: usize = 16_384;
 pub(crate) const MAX_CARRIER: usize = 8_192;
-pub(crate) const MAX_STREAM: usize = 262_144;
 
 pub(crate) struct CatalogResponse {
     pub status: u16,
@@ -80,21 +78,6 @@ impl Transport for ReqwestTransport {
     }
 }
 
-pub(crate) fn limits(timeout_ms: u64) -> Limits {
-    Limits {
-        timeout_ms,
-        max_prompt_bytes: 8_192,
-        max_schema_bytes: 4_096,
-        max_schema_nodes: 256,
-        max_schema_depth: 16,
-        max_request_bytes: MAX_REQUEST,
-        max_response_bytes: MAX_CARRIER,
-        max_stream_bytes: MAX_STREAM,
-        max_event_bytes: 32_768,
-        max_events: 2_048,
-    }
-}
-
 /// Exact mechanical echo specimen. It is never adopted as a persona response.
 pub(crate) fn specimen(id: &str) -> Result<String, Failure> {
     use crate::protocol as p;
@@ -125,7 +108,7 @@ pub(crate) fn specimen(id: &str) -> Result<String, Failure> {
         reply: p::ReplyDisposition::None { reason },
         operations: Vec::new(),
     };
-    let bytes = encoded(&decision, MAX_CARRIER / 2)?;
+    let bytes = encoded(&decision)?;
     p::parse_decision(&bytes).map_err(|_| Failure::Configuration)?;
     String::from_utf8(bytes).map_err(|_| Failure::Configuration)
 }
@@ -134,29 +117,25 @@ pub(crate) fn request(
     id: &str,
     model: &str,
     effort: &str,
-    timeout_ms: u64,
+    _historical_timeout_ms: u64,
 ) -> Result<Vec<u8>, Failure> {
     if !identifier(id) || !identifier(model) || reported_effort_label(effort).is_none() {
         return Err(Failure::Configuration);
     }
-    let bounds = limits(timeout_ms);
     let schema = crate::runtime::provider_schema();
-    schema_bytes(&schema, &bounds)?;
+    schema_bytes(&schema)?;
     let prompt = format!("Isolated transport conformance echo, not persona judgment. Do not reason about or execute the specimen. Return only the object required by text.format. Its decision_json string must contain exactly the following UTF-8 JSON bytes:\n{}", specimen(id)?);
     // The shared serializer, instructions and route preserve this historical
     // strict-carrier probe. Native persona calls now request direct JSON objects.
     // This probe establishes only its own response shape and reported effort.
     // max_output_tokens is NOT supported by the SIWC preview.
-    encoded(
-        &response_only_body(
-            &AccessMode::SiwcOAuth.wire_profile(),
-            model,
-            effort,
-            &prompt,
-            &schema,
-        ),
-        MAX_REQUEST,
-    )
+    encoded(&response_only_body(
+        &AccessMode::SiwcOAuth.wire_profile(),
+        model,
+        effort,
+        &prompt,
+        &schema,
+    ))
 }
 
 pub(crate) fn expiry_guard(
@@ -248,13 +227,12 @@ pub(crate) async fn probe(
     body: Vec<u8>,
     bearer: Secret,
     model: &str,
-    timeout_ms: u64,
+    _historical_timeout_ms: u64,
     _historical_observed_token_limit: u64,
     guard: Arc<IntakeLaunchGuard>,
     cancellation: Cancellation,
 ) -> Observation {
-    let bounds = limits(timeout_ms);
-    let mut collector = sse::Collector::new(model, &bounds).with_mode(AccessMode::SiwcOAuth);
+    let mut collector = sse::Collector::new(model).with_mode(AccessMode::SiwcOAuth);
     let started = tokio::time::Instant::now();
     let mut http_status = None;
     let mut eof = false;

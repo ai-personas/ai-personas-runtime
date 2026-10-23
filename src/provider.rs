@@ -199,22 +199,6 @@ pub struct CapabilityEvidence {
     pub structured_output_evidence_sha256: Option<String>,
 }
 
-/// Saved historical estimates; ordinary transport does not enforce these as quotas.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Limits {
-    pub timeout_ms: u64,
-    pub max_prompt_bytes: usize,
-    pub max_schema_bytes: usize,
-    pub max_schema_nodes: usize,
-    pub max_schema_depth: usize,
-    pub max_request_bytes: usize,
-    pub max_response_bytes: usize,
-    pub max_stream_bytes: usize,
-    pub max_event_bytes: usize,
-    pub max_events: usize,
-}
-
 #[derive(Clone, Debug, Serialize)]
 pub struct DirectSettings {
     pub mode: AccessMode,
@@ -222,7 +206,6 @@ pub struct DirectSettings {
     pub effort: String,
     pub credentials: CredentialReference,
     pub evidence: CapabilityEvidence,
-    pub limits: Limits,
 }
 impl<'de> Deserialize<'de> for DirectSettings {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
@@ -234,12 +217,11 @@ impl<'de> Deserialize<'de> for DirectSettings {
             effort: String,
             credentials: CredentialReference,
             evidence: CapabilityEvidence,
-            limits: Limits,
         }
         let value = Value::deserialize(deserializer)?;
         let document: Document = serde_json::from_value(value).map_err(|_| {
             serde::de::Error::custom(
-                "direct provider settings require an explicit mode, model, effort, credential references, account/route binding and historical limits; catalogue and capability observations are optional",
+                "direct provider settings require an explicit mode, model, effort, credential references and account/route binding; catalogue and capability observations are optional",
             )
         })?;
         Ok(Self {
@@ -248,7 +230,6 @@ impl<'de> Deserialize<'de> for DirectSettings {
             effort: document.effort,
             credentials: document.credentials,
             evidence: document.evidence,
-            limits: document.limits,
         })
     }
 }
@@ -773,10 +754,6 @@ pub fn json_object_schema() -> Value {
 pub struct ProviderIntent {
     pub model: String,
     pub effort: String,
-    pub max_prompt_bytes: usize,
-    pub max_request_bytes: usize,
-    pub max_response_bytes: usize,
-    pub max_stream_bytes: usize,
 }
 /// Implementations are trusted host components, not public result-ingress APIs.
 pub trait ModelProvider: Send + Sync {
@@ -1052,13 +1029,10 @@ impl DirectProvider {
     ) -> Result<Self, ProviderError> {
         settings.validate()?;
         let configuration_sha256 = digest(
-            &encoded(
-                &json!({
-                    "settings": &settings,
-                    "transport_profile": settings.mode.wire_profile(),
-                }),
-                32_768,
-            )
+            &encoded(&json!({
+                "settings": &settings,
+                "transport_profile": settings.mode.wire_profile(),
+            }))
             .map_err(ProviderError::Rejected)?,
         );
         Ok(Self {
@@ -1185,32 +1159,24 @@ impl ModelProvider for DirectProvider {
         ProviderIntent {
             model: s.model.clone(),
             effort: s.effort.clone(),
-            max_prompt_bytes: s.limits.max_prompt_bytes,
-            max_request_bytes: s.limits.max_request_bytes,
-            max_response_bytes: s.limits.max_response_bytes,
-            max_stream_bytes: s.limits.max_stream_bytes,
         }
     }
     fn prepare(&self, request: ProviderRequest) -> Result<Box<dyn PreparedCall>, ProviderError> {
         let prepare = || -> Result<DirectCall, Failure> {
             let settings = &self.inner.settings;
-            let limits = &settings.limits;
             if request.prompt.trim().is_empty() || !identifier(&request.invocation_id) {
                 return Err(Failure::Configuration);
             }
-            let schema = schema_bytes(&request.output_schema, limits)?;
+            let schema = schema_bytes(&request.output_schema)?;
             let (_, account) = self.inner.credentials(None)?;
             let profile = settings.mode.wire_profile();
-            let body = encoded(
-                &response_only_body(
-                    &profile,
-                    &settings.model,
-                    &settings.effort,
-                    &request.prompt,
-                    &request.output_schema,
-                ),
-                limits.max_request_bytes,
-            )?;
+            let body = encoded(&response_only_body(
+                &profile,
+                &settings.model,
+                &settings.effort,
+                &request.prompt,
+                &request.output_schema,
+            ))?;
             let audit = RequestAudit {
                 invocation_id: request.invocation_id.clone(),
                 prompt_sha256: digest(request.prompt.as_bytes()),
@@ -1289,8 +1255,7 @@ impl DirectCall {
                 .credentials(Some(&account))
                 .map_err(|failure| attempt_error(failure, receipt.clone()))?;
             let settings = &inner.settings;
-            let mut collector =
-                sse::Collector::new(&settings.model, &settings.limits).with_mode(settings.mode);
+            let mut collector = sse::Collector::new(&settings.model).with_mode(settings.mode);
             let started = tokio::time::Instant::now();
             let result = {
                 let running = async {
@@ -1427,15 +1392,12 @@ fn digest_string(s: &str) -> bool {
 fn digest(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
-fn encoded<T: Serialize + ?Sized>(
-    value: &T,
-    _historical_maximum: usize,
-) -> Result<Vec<u8>, Failure> {
+fn encoded<T: Serialize + ?Sized>(value: &T) -> Result<Vec<u8>, Failure> {
     serde_json::to_vec(value).map_err(|_| Failure::Configuration)
 }
-fn schema_bytes(value: &Value, limits: &Limits) -> Result<Vec<u8>, Failure> {
+fn schema_bytes(value: &Value) -> Result<Vec<u8>, Failure> {
     if !value.is_object() {
         return Err(Failure::Configuration);
     }
-    encoded(value, limits.max_schema_bytes)
+    encoded(value)
 }
