@@ -496,6 +496,13 @@ pub(crate) struct AuthoredContinuation {
     pub value: p::Continuation,
     pub exposure: Exposure,
 }
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct WorkJudgmentOrigin {
+    pub invocation: String,
+    pub admitted_work_version: w::Version,
+    pub mandate_revision: u64,
+}
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Focus {
@@ -532,6 +539,10 @@ pub struct Focus {
     pub(crate) peer_feedback: Vec<peer_feedback::Receipt>,
     pub protected_maintenance: Vec<Value>,
     pub last_judgment: Option<p::WorkDisposition>,
+    /// Recorded with the accepted judgment, under its existing exposure. Older
+    /// judgments retain unknown origin; current scope cannot supply their basis.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) judgment_origin: Option<WorkJudgmentOrigin>,
     #[serde(default)]
     pub selection_fit: Option<SelectionFit>,
     #[serde(default)]
@@ -6992,7 +7003,15 @@ fn render_mode_with_history(
     let last_judgment = match (&focus.last_judgment, &focus.judgment_exposure) {
         (Some(judgment), Some(inherited)) if exposure_permitted(state, inherited, &a) => {
             extend_exposure(&mut exposure, inherited);
-            serde_json::to_value(judgment)?
+            let mandate_relation = match &focus.judgment_origin {
+                Some(origin) if origin.mandate_revision == work.current_mandate => "same_mandate",
+                Some(_) => "different_mandate",
+                None => "origin_unrecorded",
+            };
+            json!({"value":judgment,"origin":focus.judgment_origin,
+                "current_mandate_revision":work.current_mandate,
+                "mandate_relation":mandate_relation,
+                "meaning":"Historical accepted persona judgment based on information supplied then. A different mandate does not establish completion of the current request; the same mandate does not resolve later feedback or results. Missing origin establishes neither invocation nor mandate. Decide afresh using the current request and observations."})
         }
         (None, _) => Value::Null,
         _ => json!({"status":"withheld_unavailable","body_supplied":false}),
@@ -8762,6 +8781,9 @@ fn plan_response(
         // no-op adoption. Later failure rolls this back with the candidate state.
         closure_readiness::retain_supplied(&mut state, prepared)?;
     }
+    // The response's current-authority check preserves its admitted mandate,
+    // including for task-scoped calls that allow independent peer progress.
+    let judgment_mandate = original.board.work(&w::WorkId(work_id.clone()))?.current_mandate;
     {
         let focus = state
             .personas
@@ -8779,6 +8801,11 @@ fn plan_response(
             discovery::retain_for_response(focus, prepared, decision);
             history::retain_for_response(focus, prepared, decision);
             focus.last_judgment = Some(decision.work.clone());
+            focus.judgment_origin = Some(WorkJudgmentOrigin {
+                invocation: prepared.request.id.clone(),
+                admitted_work_version: prepared.work_version,
+                mandate_revision: judgment_mandate,
+            });
             focus.judgment_exposure = Some(prepared_exposure(prepared)?.clone());
             focus.continuation = Some(decision.continuation.clone());
             focus.authored_continuation = Some(AuthoredContinuation {
@@ -10917,6 +10944,7 @@ fn apply_work_actions(
                 && focus.continuation.is_none()
                 && focus.protected_maintenance.is_empty()
                 && focus.last_judgment.is_none()
+                && focus.judgment_origin.is_none()
                 && focus.selection_fit.is_none()
                 && focus.repair_trigger.is_none()
                 && focus.judgment_exposure.is_none()

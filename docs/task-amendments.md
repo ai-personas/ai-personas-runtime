@@ -124,3 +124,18 @@ task's focus; their recorded authority is not silently reinterpreted.
 New persona inputs supply `CONTROL.task_amendment`. Results expose the author's
 `recorded_task_amendment` separately from earlier replies and deliveries, which
 do not prove completion of the amended task.
+
+`CONTROL.last_attributed_work_judgment` supplies the previous accepted judgment
+as `value`, with an `origin` recording its invocation, admitted work version and
+mandate revision. `mandate_relation` says whether that judgment came from the
+`same_mandate` or a `different_mandate` than `current_mandate_revision`. A matching
+mandate does not establish that later feedback or results have been considered.
+The persona decides what the current request requires; this history does not
+accept a new offer, close work, resolve feedback or resume participation.
+
+Judgments retained before origin recording have `origin: null` and
+`mandate_relation: "origin_unrecorded"`. The runtime preserves their bodies and
+does not infer provenance from the latest continuation or current scope.
+Character-only adoption and selection repair retain the previous ordinary
+judgment and its origin together. A new ordinary judgment replaces both only
+when the complete response is adopted.
