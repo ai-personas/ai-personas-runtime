@@ -69,3 +69,11 @@ adoption, ownership and freshness checks retain their existing behavior. Store
 reads and their accounting still occur on every binding check. The new timing
 phases distinguish actual reuse from validation of a changed head; both remain
 nested within `runtime.check_configuration`.
+
+Computing a stored object's exact reference streams canonical JSON into SHA-256
+through a small buffer. It borrows the complete body instead of cloning another
+JSON tree and allocating a complete serialized byte vector. Object keys are
+sorted at every level, including builds using `serde_json/preserve_order`; array
+order and scalar encoding are preserved. Identity, revision, kind and every body
+field still contribute to the same digest. This changes fingerprint allocation,
+not the reference format, storage encoding, validation or navigation accounting.

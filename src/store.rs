@@ -22,6 +22,7 @@ use thiserror::Error;
 mod archive_history;
 mod capacity;
 mod head_compaction;
+mod object_fingerprint;
 mod operator_inspection;
 mod provider_prelaunch;
 mod revision_storage;
@@ -293,7 +294,7 @@ impl StoredObject {
         Ok(ObjectRef {
             id: self.id.clone(),
             revision: self.revision,
-            sha256: fingerprint(self, u64::MAX)?,
+            sha256: object_fingerprint::compute(self)?,
         })
     }
 }
