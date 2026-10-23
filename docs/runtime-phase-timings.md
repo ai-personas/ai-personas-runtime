@@ -82,19 +82,24 @@ a slow session to the provider. Logging and unrelated concurrent work can affect
 timings. No performance improvement or causal comparison follows from one run.
 
 Live session and native-provider binding checks read the complete current object
-bytes in a normal Store transaction, including cell metadata checks. A private
-read identity binds the lookup key, SHA-256 of every recorded byte, and the
-canonical returned-byte charge measured when that object was decoded. A driver
-retains it only after typed state and intake validation succeed and configuration
-matches the driver's expected value.
+bytes in a normal Store transaction, including cell metadata checks. Here,
+object bytes mean the complete logical record returned after physical storage
+decoding, before JSON parsing. Each read independently validates the physical
+encoding and cell metadata; the identity does not hash the physical storage
+envelope. A private read identity binds the lookup key, SHA-256 of every logical
+record byte, and the canonical returned-byte charge measured when that object
+was decoded. A driver retains it only after typed state and intake validation
+succeed and configuration matches the driver's expected value.
 
 An identical subsequent read can omit JSON parsing, canonical remeasurement and
 typed state decoding. It still hashes all current bytes, checks current cell
 metadata, compares the expected configuration and charges the complete canonical
 result size once. Changes anywhere in the record require fresh decoding and
 validation, even if the revision or configuration text is unchanged. A different
-JSON encoding also takes that path. Missing or malformed records and changed
-configuration retain their actual errors or mismatch; no failed check replaces
+JSON encoding also takes that path. A physical representation change alone may
+reuse validation if the newly validated, decoded logical bytes are identical.
+Missing or malformed records and changed configuration retain their actual
+errors or mismatch; no failed check replaces
 the remembered successful validation. Each driver starts without this metadata.
 It stores no retained body, adds no persistent index and shares nothing with a
 different driver.
