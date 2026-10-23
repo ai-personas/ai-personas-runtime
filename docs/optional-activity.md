@@ -63,13 +63,13 @@ endings. Reads are metered and perform no inference. The request is the
 | --- | --- |
 | `id`, `operator` | Opportunity identity and saved operator. |
 | `authorization_reference`, `authorize_optional_activity` | Retained issue metadata; the boolean adds no authorization gate. |
-| `participants` | A nonempty set of existing personas in the saved cohort. |
+| `participants` | The nonempty initial invitation set. Accepted participants can invite other known personas later. |
 | `policy_id`, `sources` | Attributed policy and exact supporting references. References do not automatically supply their bodies. |
 | `not_before_unix` | Requested earliest start, in UTC seconds. |
 | `expires_at_unix`, `episode_seconds` | Historical timing metadata, without automatic expiry enforcement. |
 | `minimum_interval_seconds`, `max_episodes` | Historical recurrence metadata, without interval or count enforcement. |
 | `allocation`, `per_episode` | Historical `WorkAllocation` values; zero is allowed. They are not execution quotas. |
-| `model`, `effort`, `destination` | Exact saved inference binding. Registration does not migrate it. |
+| `model`, `effort`, `destination` | Exact saved inference binding at registration. Later calls use the current configured binding, including an explicit migration. |
 
 A `WorkAllocation` contains `attempts`, `repair_attempts` and `navigation` with
 `calls`, `scanned_bytes`, `inspected_revisions`, `matches` and `result_bytes`.
@@ -103,6 +103,20 @@ Each invitation assigns no outcome, review or delivery duty. Messages can addres
 any known local recipient. Every response retains the ordinary work, maintenance
 and next-context dispositions. No change and no engagement are legitimate.
 
+An accepted participant can use the ordinary `invite` work command to approach
+another known persona. Its first invitation makes that persona eligible to
+consider the offer under its own lifecycle and invocation state. The original
+opportunity list does not exclude later invitees. An invitation does not accept
+the offer, take over another invocation, or resume an existing Stop or Pause in
+this activity. CONTROL and native activity snapshots show the current work
+participants separately from the original invitation set. End-of-activity
+accounting includes every current participant.
+
+The opportunity retains its original model, effort and destination as registration
+history. A later explicit provider migration does not make the activity unusable;
+new calls bind the current configured inference settings through ordinary
+preparation. Earlier calls retain the settings and outcomes that produced them.
+
 Stop and Pause remain effective. Once every invited participant has authored
 Stop and all executions have terminal results, the host can record
 `optional-activity-ended-as-recorded`. An uncertain execution remains uncertain;
@@ -122,7 +136,7 @@ numbers no longer create provider dispatch deadlines.
 
 The native entry point handles registration and admission in one command.
 There is no background timer or automatic recurrence; choosing another activity
-opens another opportunity. Participants retain their lifecycle and exact
-inference bindings. Optional work can request ordinary child work through the
+opens another opportunity. Participants retain their lifecycle and each call's exact
+inference binding. Optional work can request ordinary child work through the
 native delegation interface. Remaining workflow restrictions are tracked in
 [execution resources](execution-resources.md); removal is not complete.

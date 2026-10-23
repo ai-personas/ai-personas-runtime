@@ -458,6 +458,15 @@ the selected participants once and retain the keyed request. Participant holds
 and lifecycle states are checked at invocation scheduling, so one unavailable
 invitee does not block the others. Existing work and unknown calls remain unchanged.
 
+The optional opportunity's initial invitation list no longer acts as a participant
+allowlist. Accepted participants can invite another known persona, whose ordinary
+first-invitation opportunity is considered against the current work. CONTROL and
+native snapshots distinguish current participants from the initial invitation set;
+ending still accounts for every current participant. Original inference settings
+remain registration history rather than blocking activity after an explicit
+provider migration. Fresh preparation binds the actual current settings, and
+invitations preserve existing Stop/Pause and unfinished invocation ownership.
+
 Saved result views retain all available messages, deliveries, feedback and
 completion records without a byte or entry-count cap. Historical communication
 grant and audience declarations do not hide a message addressed to the requester.

@@ -81,6 +81,8 @@ pub fn optional_activity_snapshot(app: &mut Runtime, operator: &str, now: i64) -
             });
             episodes.push(json!({"trigger":episode.trigger,"work":episode.work,
                 "started_at_unix":episode.started_at_unix,"expires_at_unix":episode.expires_at_unix,
+                "current_participants":state.board.work(&w::WorkId(episode.work.clone()))?
+                    .participants.keys().map(|actor| &actor.0).collect::<Vec<_>>(),
                 "allocation":episode.allocation,
                 "admissions":admissions,
                 "recorded_ending":ending.map(|e| json!({"invocation":e.invocation,"at_unix":e.at_unix,"reason":e.reason})),
@@ -103,6 +105,7 @@ pub fn optional_activity_snapshot(app: &mut Runtime, operator: &str, now: i64) -
         "navigation_per_call":state.config.navigation_per_call,
         "historical_per_episode_allocation":WorkAllocation::configured(&state.config),
         "resource_quotas_enforced":false,"automatic_expiry_enforced":false,
+        "participant_allowlist_enforced":false,"registration_inference_binding_enforced_on_future_calls":false,
         "opportunities":opportunities,"inference_performed":false,
         "funding":"Saved allocations and remaining values are historical metadata. Execution is recorded without application quotas. This inspection reserves nothing and makes no claim about provider capacity."}),
     )
@@ -317,7 +320,7 @@ fn input(
     id: &str,
 ) -> Result<NeedInput> {
     let prose = "An optional opportunity is available. Choose whether to engage in self-directed exploration, reflection or social exchange, what to pursue, whom to approach, and when to stop. There is no assigned topic, artifact, review, delivery or productivity requirement. Other personas may decline or remain silent. Continue from your accepted character and actual experience. Source policies retain provenance without restricting access or sharing.";
-    let boundaries = "Voluntary activity under its exact opportunity and participant binding. Calls, tools and navigation have no application quota, expiry or foreground-priority gate. Explicit Stop, Pause and revocation remain effective. No recurrence is scheduled by this admission.";
+    let boundaries = "Voluntary activity under its exact opportunity and current work participation. Accepted participants may invite other known personas; the initial invitees are not an allowlist. Each call uses its persona's current configured inference binding. Calls, tools and navigation have no application quota, expiry or foreground-priority gate. Explicit Stop, Pause and revocation remain effective. No recurrence is scheduled by this admission.";
     let authorization = serde_json::to_string(&json!({"kind":"authorized_optional_episode",
         "opportunity":activity.opportunity,"episode":activity.episode,"expires_at_unix":activity.expires_at_unix,
         "authorization_reference":request.authorization_reference,"operator":saved.operator}))?;
@@ -445,24 +448,14 @@ fn start_owned(
             "active invocation requires completion or reconciliation",
         )?;
         app.store.require_quiescent_invocations()?;
-        let provider = saved.execution_provider()?;
-        require(
-            provider.model == grant.model
-                && provider.effort == grant.effort
-                && saved.setup.destination == grant.destination,
-            "optional inference binding changed",
-        )?;
         for id in &grant.participants {
             let persona = state
                 .personas
                 .get(id)
                 .ok_or_else(|| held("optional participant unavailable"))?;
             require(
-                persona.seed.requested_model == grant.model
-                    && persona.seed.requested_effort == grant.effort
-                    && persona.seed.destination == grant.destination
-                    && exposure_permitted(&state, &opportunity.exposure, &admission(persona, now)),
-                "optional participant inference or source binding changed",
+                exposure_permitted(&state, &opportunity.exposure, &admission(persona, now)),
+                "optional participant source binding unavailable",
             )?;
         }
         // Invitations do not acquire a persona's invocation lease or resume an

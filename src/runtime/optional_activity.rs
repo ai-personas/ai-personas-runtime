@@ -218,12 +218,13 @@ pub(crate) fn require_current(state: &State, work: &str, actor: &str, now: i64) 
     lifecycle::require_active(state, actor)?;
     let (opportunity, episode) = binding(state, work)?;
     let request = &opportunity.request;
+    let current = state.board.work(&w::WorkId(work.into()))?;
     require(
         opportunity.revoked_at_unix.is_none()
             && episode.ended.is_none()
             && request.not_before_unix <= now
             && episode.started_at_unix <= now
-            && request.participants.contains(actor),
+            && current.participants.contains_key(&w::PersonaId(actor.into())),
         "optional-activity opportunity is no longer eligible",
     )?;
     let persona = state
@@ -231,11 +232,8 @@ pub(crate) fn require_current(state: &State, work: &str, actor: &str, now: i64) 
         .get(actor)
         .ok_or_else(|| held("optional participant unavailable"))?;
     require(
-        persona.seed.requested_model == request.model
-            && persona.seed.requested_effort == request.effort
-            && persona.seed.destination == request.destination
-            && exposure_permitted(state, &opportunity.exposure, &admission(persona, now)),
-        "optional-activity inference or source authority changed",
+        exposure_permitted(state, &opportunity.exposure, &admission(persona, now)),
+        "optional-activity source binding unavailable",
     )?;
     Ok(())
 }
@@ -311,12 +309,18 @@ pub(crate) fn control(state: &State, work: &str) -> Result<Value> {
         return Ok(Value::Null);
     }
     let (opportunity, episode) = binding(state, work)?;
+    let participants: Vec<_> = state.board.work(&w::WorkId(work.into()))?
+        .participants.keys().map(|actor| &actor.0).collect();
     Ok(
         json!({"opportunity":opportunity.reference,"episode":episode.trigger,
         "expires_at_unix":null,"historical_expires_at_unix":episode.expires_at_unix,
-        "resource_quotas_enforced":false,"participants":opportunity.request.participants,
+        "resource_quotas_enforced":false,"participants":participants,
+        "initial_invitees":opportunity.request.participants,
+        "inference_at_registration":{"model":opportunity.request.model,
+            "effort":opportunity.request.effort,"destination":opportunity.request.destination},
         "operator":opportunity.request.operator,
-        "communication":"Messages and replies may address any known local recipient. Availability creates no duty to respond.",
+        "communication":"Messages and replies may address any known local recipient. Accepted participants may invite other known personas through the ordinary invite command. Initial invitees are registration history, not a participant allowlist. A new invitation does not accept an offer or resume an existing Stop or Pause. Availability creates no duty to respond.",
+        "inference":"Each new call uses the persona's current configured inference binding. The model, effort and destination recorded at opportunity registration do not prevent a later explicit migration.",
         "purpose":"Optional self-directed activity. No assigned topic, artifact, review or delivery. Choose whether to engage, whom to approach, what to explore or discuss, and when to stop. Silence or refusal creates no duty. Other participants choose independently.",
         "funding":"Model calls, tools and navigation are recorded without application quotas or automatic expiry. Saved allocations remain historical metadata. Explicit revocation and authored Stop or Pause remain effective. Starting an episode does not schedule recurrence.",
         "ending":"Choose Stop when you want to end participation. The host can record the activity ended once all invited participants have stopped and all executions are settled. No release, delivery, CloseGoal, artifact or characteristic edit is required. An ended activity establishes neither improvement nor task fulfillment.",
