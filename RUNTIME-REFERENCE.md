@@ -413,6 +413,9 @@ results. Supplied feedback offers those references in `CONTROL.input_file_choice
 without loading their bodies or changing optional selections. The persona still
 chooses useful reads and context. Intake verifies existing source/revision
 identity; delivery and replay preserve it even when the source head advances.
+Current feedback and persona-message attachments also make that known source's
+current head available in mutation metadata and file choices. This is a separate
+reference, not a replacement of the cited revision or an automatic body read.
 
 Feedback intake remains available during an active foreground session. Exact
 inputs are retained in an independent inbox and delivered after admitted calls

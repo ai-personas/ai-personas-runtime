@@ -50,6 +50,18 @@ pub(super) fn observation_references(
                 serde_json::from_value(observation.payload["source"].clone())?;
             visible.insert(file_reference(&reference)?);
         }
+        "received_local_operator_feedback" | "received_local_persona_message"
+        | "received_child_work_message" => {
+            // A citation already identifies this source. Offer its current
+            // mutation metadata without replacing the cited immutable revision,
+            // reading either body, or treating the rest of its lineage as inventory.
+            if let Some(references) = observation.payload["file_references"].as_array() {
+                for value in references {
+                    let reference: p::ExactRef = serde_json::from_value(value.clone())?;
+                    visible.insert(file_reference(&reference)?);
+                }
+            }
+        }
         "discovery" => {
             // Search provenance includes all consulted sources. Only actual hits
             // are observed candidates; never turn the consulted scope into inventory.

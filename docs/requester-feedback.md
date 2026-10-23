@@ -40,6 +40,14 @@ recipient's `CONTROL.input_file_choices` when that feedback is supplied. A later
 replacement carries only its own attachments; superseded attachments stay in
 the original history and do not become new directions.
 
+An attached revision can become older than its source's head after an edit.
+Supplied feedback also exposes `file_mutation_metadata.current_head` for that
+already identified source. The file-choice table offers that current full UTF-8
+reference alongside the unchanged attachment when they differ. A body read is
+not required to obtain this metadata. Choose the historical revision when its
+content is the subject, or the current head when maintaining the present file.
+This same distinction applies to exact file citations in persona messages.
+
 Attaching a reference supplies metadata without reading its body, selecting it,
 or changing a stopped persona's continuation. The persona chooses whether to
 read or select it; reading checks the requested representation, range and
