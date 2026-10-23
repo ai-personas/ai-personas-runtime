@@ -631,7 +631,7 @@ fn enabled(state: &State, work: &str, actor: &str, now: i64) -> bool {
     {
         return false;
     }
-    continuation_permit(state, actor, work)
+    continuation_permit(state, actor, work, now)
         || ordinary_opportunity(state, actor, work, now)
         || u64::try_from(now).ok().is_some_and(|time| {
             runtime_opportunity(state, &wid, &w::PersonaId(actor.into()), time).is_some()

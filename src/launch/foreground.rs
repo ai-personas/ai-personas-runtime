@@ -51,7 +51,7 @@ pub(super) fn select(
             }
             let opportunity = runtime_opportunity(&state, &wid, &actor, time);
             let mut entry = scheduler_entry(&state, wid.clone(), actor.clone(), opportunity, now)?;
-            if continuation_permit(&state, &actor.0, work) && state.work_meta.contains_key(work) {
+            if continuation_permit(&state, &actor.0, work, now) && state.work_meta.contains_key(work) {
                 entry.disposition = SchedulerDisposition::Queued;
             }
             if matches!(entry.disposition, SchedulerDisposition::Queued) {

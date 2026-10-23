@@ -2446,14 +2446,14 @@ fn active_invocations(state: &State) -> BTreeMap<String, String> {
         })
         .collect()
 }
-fn continuation_permit(state: &State, actor: &str, work: &str) -> bool {
+fn continuation_permit(state: &State, actor: &str, work: &str, now: i64) -> bool {
     if lifecycle::reason(state, actor).is_some() { return false; }
     if host_tools::require_settled(state, actor, work).is_err() { return false; }
-    if optional_activity::route_reason(state, work, actor, unix_now().unwrap_or(-1)).is_some() {
+    if optional_activity::route_reason(state, work, actor, now).is_some() {
         return false;
     }
     if need_proposals::bound(state, work)
-        && need_proposals::route_reason(state, work, unix_now().unwrap_or(-1)).is_some()
+        && need_proposals::route_reason(state, work, now).is_some()
     {
         return false;
     }
@@ -3905,7 +3905,7 @@ impl Runtime {
             "persona has a current invocation or an acknowledged failed-attempt hold",
         )?;
         require(
-            continuation_permit(&state, &request.persona, &request.work)
+            continuation_permit(&state, &request.persona, &request.work, now)
                 || (request.mode == Mode::Ordinary
                     && ordinary_opportunity(&state, &request.persona, &request.work, now)),
             "explicit resume or currently eligible accepted ordinary continuation required",
@@ -5615,7 +5615,7 @@ impl Runtime {
                     let (_, fresh) = self.load()?;
                     let eligible = fresh.work_meta.contains_key(&candidate.work)
                         && !need_proposals::bound(&fresh, &candidate.work)
-                        && continuation_permit(&fresh, &candidate.persona, &candidate.work)
+                        && continuation_permit(&fresh, &candidate.persona, &candidate.work, now)
                         && fresh.personas.get(&candidate.persona).is_some_and(|persona| {
                             persona.active_invocation.is_none()
                                 && persona.failed_attempt_hold.is_none()

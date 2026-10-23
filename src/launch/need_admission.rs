@@ -937,7 +937,7 @@ pub(in crate::runtime) fn admitted_child_for_run(
             state.personas.get(&actor.0).is_some_and(|persona| {
                     persona.active_invocation.is_none() && persona.failed_attempt_hold.is_none()
                         && exposure_permitted(&state, &exposure, &admission(persona, now))
-                        && (continuation_permit(&state, &actor.0, work)
+                        && (continuation_permit(&state, &actor.0, work, now)
                             || ordinary_opportunity(&state, &actor.0, work, now))
                 })
         }), "named delegation has no actual enabled child opportunity; no inference or implicit resume authorized")?;

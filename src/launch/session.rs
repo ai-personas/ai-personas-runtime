@@ -1431,7 +1431,7 @@ fn inspect_snapshot(
                 && settings.credential_status != CredentialStatus::SavedExpiryElapsed
                 && phase == WorkPhase::Open
                 && (matches!(entry.disposition, SchedulerDisposition::Queued)
-                    || continuation_permit(&state, &actor, id));
+                    || continuation_permit(&state, &actor, id, now));
             let active_invocation = persona
                 .active_invocation
                 .as_deref()
