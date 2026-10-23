@@ -47,12 +47,19 @@ An ordinary `responsibility` operation names an exact offer from
 ```json
 {
   "kind": "responsibility",
-  "id": "COPY_THE_SUPPLIED_OFFER_ID",
+  "id": "respond-to-maintenance-offer",
+  "offer_id": "COPY_THE_SUPPLIED_OFFER_ID",
   "work_id": "COPY_CONTROL_WORK_ID",
   "disposition": "accept",
   "reason": "I accept this supplied responsibility."
 }
 ```
+
+`id` is the persona's unique operation label, as for other operations.
+`offer_id` is a separate required reference to the chosen supplied offer.
+The runtime does not infer it from the operation label or choose an offer when
+it is absent. Earlier retained responses keep their original wire fields;
+fresh responses use the current schema.
 
 Omit `terms_revision` or use `null` to bind the exact terms actually supplied in
 that invocation. The runtime verifies the retained input, offer identity, terms,

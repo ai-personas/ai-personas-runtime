@@ -47,7 +47,7 @@ fn variants(schema: &Value) -> Result<&Vec<Value>> {
         .ok_or_else(|| invalid("native work schema is not a tagged union"))?;
     require(
         !variants.is_empty(),
-        "native work definition count exceeds its bound",
+        "native work schema contains no command definitions",
     )?;
     Ok(variants)
 }

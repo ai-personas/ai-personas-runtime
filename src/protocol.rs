@@ -576,7 +576,7 @@ pub enum Operation {
         reference_handles: Vec<String>,
     },
     /// Accept or decline one exact pending offer supplied in this invocation.
-    /// Here id MUST equal its supplied offer id. Omit terms_revision or use null
+    /// id labels this operation; offer_id names the supplied offer. Omit terms_revision or use null
     /// to bind the exact supplied terms without copying their digest. If provided,
     /// terms_revision MUST match those supplied terms; it is never repaired.
     /// disposition is exactly accept or decline. Invitation alone is not acceptance.
@@ -584,7 +584,15 @@ pub enum Operation {
     /// work command accept_arranged_offer with that exact arrangement instead.
     /// This operation cannot imply arrangement consent; decline remains available.
     Responsibility {
+        /// Your unique operation label, independent of the offered commitment.
         id: String,
+        /// Copy CONTROL.own_pending_offers[].id exactly. This required reference
+        /// chooses the offer; the operation id never substitutes for it.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "String", required)]
+        // Absence is readable in retained archives, but current validation below
+        // rejects it. Never infer an offer from an old operation label.
+        offer_id: Option<String>,
         work_id: String,
         #[serde(default)]
         terms_revision: Option<String>,
@@ -870,9 +878,10 @@ fn same_container_shapes(received: &Value, typed: &Value) -> bool {
             match typed.get(key) {
                 Some(field) => same_container_shapes(value, field),
                 // The typed decoder already rejects unknown fields. Optional
-                // handle lists serialize with Vec::is_empty; an explicitly
-                // supplied [] is the same legal value as their omitted default.
-                None => value.as_array().is_some_and(Vec::is_empty),
+                // lists/fields can omit []/null from serialization. The typed
+                // decoder has already checked their types; current required
+                // references are checked by validate_decision below.
+                None => value.is_null() || value.as_array().is_some_and(Vec::is_empty),
             }
         }),
         (Value::Array(received), Value::Array(typed)) => {
@@ -2038,12 +2047,18 @@ fn check_operation(
             check_handles(reference_handles, 0, 32, &format!("{path}.reference_handles"))
         }
         Operation::Responsibility {
+            offer_id,
             work_id,
             terms_revision,
             disposition,
             reason,
             ..
         } => {
+            let offer_id = offer_id.as_deref().ok_or_else(|| invalid(
+                &format!("{path}.offer_id"),
+                "required supplied offer reference; id labels the operation",
+            ))?;
+            check_id(offer_id, &format!("{path}.offer_id"))?;
             check_id(work_id, &format!("{path}.work_id"))?;
             if let Some(revision) = terms_revision {
                 check_accepted_revision(revision, &format!("{path}.terms_revision"))?;

@@ -330,6 +330,12 @@ A work invitation is voluntary. Before ordinary shared-work commands or active c
 
 Accepted commitment terms are exact and remain distinct from outcome ownership, review roles, result decision authority, artifact ownership, and file-source ownership.
 
+For `responsibility`, `id` labels the operation and the required `offer_id`
+copies the chosen `CONTROL.own_pending_offers[].id`. The runtime never uses an
+operation label as an offer reference. `work_id` names the current work;
+omitting `terms_revision` or using `null` binds the exact supplied terms.
+Acceptance remains voluntary, and current arrangement consent is separate.
+
 Typical native work commands include:
 
 - asking, answering, and concluding shared questions
@@ -345,7 +351,7 @@ Typical native work commands include:
 - releasing and delivering it
 - closing a goal when fresh exact closure prerequisites are supplied
 
-Commands are exposed through the current `work.command.v1` schema. Their `inputs` must match that schema exactly. `depends_on` names only same-response `file_write` or `file_import` operations whose proposed revisions the command consumes; it is not a general command-order graph.
+All implemented commands are callable under the admitted `work.command.v1` contract. Their `inputs` must match the current command shape. Complete selected guide bodies supply detailed schemas; an absent optional definition does not prevent direct use of a known shape. `depends_on` names only same-response `file_write` or `file_import` operations whose proposed revisions the command consumes; it is not a general command-order graph.
 
 ### 8.1 Questions and feedback
 
