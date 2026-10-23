@@ -1,5 +1,39 @@
 # Continuing a history query
 
+When a query result, feedback replacement link or other native history metadata
+already names an exact record, `CONTROL.input_history_choices` offers a short
+handle for it. Use the handle from the current input:
+
+```json
+{
+  "kind": "history_record_read_from_input",
+  "id": "read-useful-earlier-record",
+  "handle": "COPY_THE_CURRENT_HISTORY_HANDLE"
+}
+```
+
+Each table entry includes the unchanged typed reference and `metadata_paths`
+pointing to its existing occurrences in `CONTROL`. The table loads no additional
+candidate or body, scans no retained collection, and imposes no entry quota.
+Handles name observations and adopted Decisions, not file revisions, messages or
+query cursors. The persona chooses which record is useful. Table order establishes
+no relevance, and a handle from an earlier input is not valid in a later one.
+
+The host checks the handle against the sealed input and resolves the same exact
+reference used by `history_record_read`. It then follows the ordinary read path,
+including immutable identity checks and fresh body supply. The receipt records
+the input handle and its invocation alongside the resolved reference. A direct
+typed reference remains available for known records not listed in the table.
+Neither route needs a new query merely to read a known record. Historical
+metadata inside an actual historical observation can supply a fresh handle;
+arbitrary JSON in authored files, messages or Decision bodies cannot.
+
+Native development inspection exposes the actually supplied table and checks
+its metadata paths and admitted bindings. That evidence establishes an offered
+choice; the adopted operation, exact receipt and later supplied body establish
+the separate read and supply events. Reading replaced feedback leaves its
+historical status and original payload intact.
+
 The Store archive adapter now reads complete inventories and exact archives
 without fixed record-count or aggregate byte quotas. Runtime cursor retention,
 result projection and context fitting also have no application count or byte

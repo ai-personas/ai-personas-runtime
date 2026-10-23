@@ -5,6 +5,7 @@
 use super::work_inspection::{bounded, Permissions, PROJECTION_BYTES, PROJECTION_REVISIONS};
 use super::*;
 pub(super) mod records;
+pub(super) mod input;
 
 // Per focus, including duplicate memberships in separate handles. The byte
 // cap covers the complete serialized handle map, not just member identities.
@@ -18,7 +19,7 @@ const CONTROL_BYTES: usize = 4096;
 pub(super) fn resource_accounting(_historical_limits: f::NavigationLimits) -> Value {
     let inspected_revisions = PROJECTION_REVISIONS * 2 + 1;
     json!({
-        "operations":["history_query","history_read","history_records_query","history_record_read"],
+        "operations":["history_query","history_read","history_records_query","history_record_read","history_record_read_from_input"],
         "per_operation_reservation":{
             "calls":1,"scanned_bytes":PROJECTION_BYTES,
             "inspected_revisions":inspected_revisions

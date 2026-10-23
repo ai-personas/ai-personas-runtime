@@ -58,6 +58,11 @@ Copy one directly into `history_record_read.reference` when its body is useful.
 A known reference needs no new query. A replacement link itself supplies no
 original or successor body.
 
+For a reference listed in `CONTROL.input_history_choices`, prefer
+`history_record_read_from_input` with its current handle. This avoids retyping
+the digest while retaining the exact record identity. See
+[history navigation](history-navigation.md) for handle scope and read receipts.
+
 In the dialogue's feedback flow, choose any earlier directions that the new
 message replaces. Pressing Enter at that choice preserves them all. Replacements
 are explicit requester choices; the host does not infer them from wording,

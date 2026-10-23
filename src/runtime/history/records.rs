@@ -816,6 +816,21 @@ pub(crate) fn apply(
     store: &mut s::Store,
     material: &mut Material,
 ) -> Result<bool> {
+    let resolved;
+    let input_handle = match operation {
+        p::Operation::HistoryRecordReadFromInput { handle, .. } => Some(handle.as_str()),
+        _ => None,
+    };
+    let operation = match operation {
+        p::Operation::HistoryRecordReadFromInput { id, handle } => {
+            resolved = p::Operation::HistoryRecordRead {
+                id: id.clone(),
+                reference: super::input::resolve(prepared, handle)?,
+            };
+            &resolved
+        }
+        _ => operation,
+    };
     require(
         prepared.history_records_interface.as_deref() == Some(INTERFACE),
         "retained record retrieval was not offered by this admission",
@@ -1041,6 +1056,10 @@ pub(crate) fn apply(
                 });
             }
         }
+    }
+    if let Some(handle) = input_handle {
+        output.payload["input_handle"] = json!(handle);
+        output.payload["input_invocation"] = json!(prepared.request.id);
     }
     planning_exposure.include(&consulted);
     // Account the actual fresh projection, while retaining only the reference.

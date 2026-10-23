@@ -71,6 +71,7 @@ pub(super) fn inspect(
         "supplied_native_work_interface":native_work_interface,
         "supplied_native_work_instructions":work_instructions::inspect(prepared, control)?,
         "supplied_input_file_choices":input_files::inspect(prepared, control)?,
+        "supplied_input_history_choices":history::input::inspect(prepared, control)?,
         "execution_intents_in_accepted_decision":proof.intent_ids.len(),
         "supplied_computation_interfaces":prepared.computation_interfaces,
         "supplied_http_fetch_interfaces":prepared.http_fetch_interfaces,

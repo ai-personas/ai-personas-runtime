@@ -529,6 +529,14 @@ pub enum Operation {
         id: String,
         reference: HistoryRecordReference,
     },
+    /// Read the exact record named by a handle in this admission's
+    /// CONTROL.input_history_choices. Prefer this for a listed record instead
+    /// of copying its digest. A handle supplies no body and does not choose a
+    /// latest revision; the ordinary exact history-read checks still apply.
+    HistoryRecordReadFromInput {
+        id: String,
+        handle: String,
+    },
     /// One bounded page from this invocation's work. Copy returned cursors exactly;
     /// results become available only through a fresh request's protected observations.
     InspectWork {
@@ -710,6 +718,7 @@ impl Operation {
             | Self::HistoryRead { id, .. }
             | Self::HistoryRecordsQuery { id, .. }
             | Self::HistoryRecordRead { id, .. }
+            | Self::HistoryRecordReadFromInput { id, .. }
             | Self::Communicate { id, .. }
             | Self::Responsibility { id, .. }
             | Self::Assess { id, .. }
@@ -1904,6 +1913,7 @@ fn check_operation(
             Ok(())
         }
         Operation::HistoryRecordRead { reference, .. } => check_history_reference(reference, &path),
+        Operation::HistoryRecordReadFromInput { handle, .. } => check_id(handle, &format!("{path}.handle")),
         Operation::HistoryRead {
             message_id, sha256, ..
         } => {

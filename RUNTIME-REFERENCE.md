@@ -471,6 +471,10 @@ History is a supporting-resource interface, not automatic memory or character.
 - `history_query` searches retained messages where the current actor is sender or recipient.
 - `history_read` supplies one exact original attributed message after a query.
 - `history_records_query` searches retained observations or authored adopted Decisions.
+- `history_record_read_from_input` reads a listed record by its current
+  `CONTROL.input_history_choices` handle, preserving its exact identity without
+  requiring the persona to retype a digest. The table contains only references
+  already supplied in native history metadata; it is not a retained catalogue.
 - `history_record_read` supplies one exact typed record.
 
 Message literal and regex matching use compact JSON tuples. Messages without
