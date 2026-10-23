@@ -8249,6 +8249,7 @@ fn select(
     old: &Option<Vec<Selected>>,
     serial: u64,
     prepared: &Prepared,
+    decision: &p::Decision,
     proposals: &BTreeMap<String, String>,
     reduction_only: bool,
 ) -> Result<Option<Vec<Selected>>> {
@@ -8259,15 +8260,15 @@ fn select(
             Ok(Some(current))
         }
         p::SelectionIntent::Clear { .. } => Ok(Some(Vec::new())),
-        p::SelectionIntent::Replace { .. } | p::SelectionIntent::ReplaceFromInput { .. } => {
-            let references = match intent {
-                p::SelectionIntent::Replace { references, .. } => references.clone(),
-                p::SelectionIntent::ReplaceFromInput { handles, .. } => input_files::resolve(prepared, handles)?,
-                _ => unreachable!("replacement variant"),
-            };
+        p::SelectionIntent::Replace { .. } | p::SelectionIntent::ReplaceFromInput { .. }
+        | p::SelectionIntent::ReplaceFromSavedFiles { .. } => {
+            let references = input_files::replacement_references(prepared, decision, intent)?
+                .expect("replacement variant");
+            let references = references.iter().map(|reference| resolve(reference, proposals))
+                .collect::<Result<Vec<_>>>()?;
+            p::validate_selected_references(&references)?;
             let mut result = Vec::new();
-            for reference in &references {
-                let reference = resolve(reference, proposals)?;
+            for reference in references {
                 if reduction_only {
                     // Conservative first implementation: subsets of whole exact
                     // entries only. No range narrowing, new source or lifetime renewal.
@@ -8297,7 +8298,7 @@ fn check_replacement(
     which: f::Scope,
     now: i64,
 ) -> Result<()> {
-    if !matches!(intent, p::SelectionIntent::Replace { .. } | p::SelectionIntent::ReplaceFromInput { .. }) {
+    if !matches!(intent, p::SelectionIntent::Replace { .. } | p::SelectionIntent::ReplaceFromInput { .. } | p::SelectionIntent::ReplaceFromSavedFiles { .. }) {
         return Ok(());
     }
     let persona = &state.personas[&prepared.request.persona];
@@ -8340,7 +8341,7 @@ fn check_aggregate_replacement(
             _ => continue,
         };
         require(
-            !matches!(intent, p::SelectionIntent::Replace { .. } | p::SelectionIntent::ReplaceFromInput { .. }),
+            !matches!(intent, p::SelectionIntent::Replace { .. } | p::SelectionIntent::ReplaceFromInput { .. } | p::SelectionIntent::ReplaceFromSavedFiles { .. }),
             "replacement selection is unavailable under the combined context allowance",
         )?;
         if matches!(intent, p::SelectionIntent::Preserve { .. }) {
@@ -8645,6 +8646,7 @@ fn plan_response(
         &previous_focus.fragments,
         prepared.admission_serial,
         prepared,
+        decision,
         &proposals,
         character_changed,
     )?;
@@ -8653,6 +8655,7 @@ fn plan_response(
         &previous_focus.assets,
         prepared.admission_serial,
         prepared,
+        decision,
         &proposals,
         character_changed,
     )?;
@@ -9059,8 +9062,11 @@ fn plan_response(
                     subject,
                     text,
                     reference_handles,
+                    reference_operations,
                 } => {
-                    let references = input_files::resolve_output(prepared, reference_handles)?;
+                    let references = input_files::resolve_message_references(
+                        prepared, decision, &proposals, reference_handles, reference_operations,
+                    )?;
                     deposit_message(
                         &mut state, prepared, &composite_id("operation", &[id]),
                         recipient, subject, text, &references, now,
@@ -9117,8 +9123,10 @@ fn plan_response(
                 planning_exposure.include(exposure);
             }
         }
-        if let p::ReplyDisposition::Authored { audience, text, reference_handles } = &decision.reply {
-            let references = input_files::resolve_output(prepared, reference_handles)?;
+        if let p::ReplyDisposition::Authored { audience, text, reference_handles, reference_operations } = &decision.reply {
+            let references = input_files::resolve_message_references(
+                prepared, decision, &proposals, reference_handles, reference_operations,
+            )?;
             planning_exposure.unknown();
             for (index, recipient) in audience.iter().enumerate() {
                 deposit_message(
@@ -9292,6 +9300,7 @@ fn plan_selection_repair(
         &previous.fragments,
         prepared.admission_serial,
         prepared,
+        decision,
         &proposals,
         true,
     )?;
@@ -9300,6 +9309,7 @@ fn plan_selection_repair(
         &previous.assets,
         prepared.admission_serial,
         prepared,
+        decision,
         &proposals,
         true,
     )?;
@@ -9555,13 +9565,19 @@ fn validate_messages(
 ) -> Result<()> {
     let mut recipients = Vec::new();
     for operation in &decision.operations {
-        if let p::Operation::Communicate { recipient, reference_handles, .. } = operation {
+        if let p::Operation::Communicate { recipient, reference_handles, reference_operations, .. } = operation {
             input_files::resolve_output(prepared, reference_handles)?;
+            for id in reference_operations {
+                p::saved_file_reference(&decision.operations, id, None)?;
+            }
             recipients.push(recipient);
         }
     }
-    if let p::ReplyDisposition::Authored { audience, reference_handles, .. } = &decision.reply {
+    if let p::ReplyDisposition::Authored { audience, reference_handles, reference_operations, .. } = &decision.reply {
         input_files::resolve_output(prepared, reference_handles)?;
+        for id in reference_operations {
+            p::saved_file_reference(&decision.operations, id, None)?;
+        }
         recipients.extend(audience);
     }
     for recipient in recipients {

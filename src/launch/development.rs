@@ -331,17 +331,20 @@ fn accepted_decision_view(
         ("fragments", &archive.response.next_fragments),
         ("assets", &archive.response.next_assets),
     ] {
-        let references = match selection {
-            p::SelectionIntent::Replace { references, .. } => references.clone(),
-            p::SelectionIntent::ReplaceFromInput { handles, .. } => {
+        let references = input_files::replacement_references(
+            prepared, &archive.response, selection,
+        )?.unwrap_or_default();
+        match selection {
+            p::SelectionIntent::ReplaceFromInput { handles, .. }
+            | p::SelectionIntent::ReplaceFromSavedFiles { input_handles: handles, .. }
+                if !handles.is_empty() => {
                 let references = input_files::resolve(prepared, handles)?;
                 resolved_input_selections.insert(scope, handles.iter().zip(&references)
                     .map(|(handle, reference)| json!({"handle":handle,"reference":reference,"metadata_only":true}))
                     .collect::<Vec<_>>());
-                references
             }
-            _ => Vec::new(),
-        };
+            _ => (),
+        }
         for reference in &references {
             if reference.revision.starts_with(p::PROPOSED_REVISION_PREFIX)
                 || reference.revision.starts_with(p::PROPOSED_OPERATION_PREFIX)

@@ -320,12 +320,30 @@ Optional next-context choices are work-scoped and explicit:
 
 - `preserve` retains an initialized choice without renewing a `next_call` lifetime.
 - `replace` or `replace_from_input` chooses exact revisions.
+- `replace_from_saved_files` chooses full UTF-8 files saved by exact operation IDs
+  in this response, optionally combined with current `input_handles`.
 - `clear` chooses no optional context.
 
 Reading a file or receiving tool output does not add it to those selections.
 Preserving an empty selection keeps it empty. To keep useful current material
 alongside a later result, choose its exact reference or current input-file handle
 in the next-context replacement, including other references still needed.
+
+For `replace_from_saved_files`, each `files` entry names an `operation` from the
+same response's `file_write` or `file_import` operations and an optional
+`lifetime` (`work` or `next_call`). The host derives the source ID and binds the
+accepted revision. The new files and optional `input_handles` form the complete
+replacement set; a save does not automatically select itself. Scope, exact
+identity, nonoverlap and lifetime checks still apply after revision binding.
+
+`communicate` and an authored `reply` also accept `reference_operations`, a list
+of exact file-save operation IDs. The host attaches their accepted full UTF-8
+references beside the unchanged message text. These can accompany current
+`reference_handles`; neither path reads a body or changes selections. Local
+saves are staged before messages in the same atomic acceptance, so no extra
+admission is needed merely to obtain a new file's citation. A rejected save
+creates no message or citation. `communicate` still has no `depends_on` member;
+its file references derive the necessary prerequisites.
 
 Each `CONTROL.input_file_choices` entry reports `context_state` independently
 of its identity. `exact_body_supplied` means that exact representation and range

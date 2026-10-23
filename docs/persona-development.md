@@ -110,9 +110,22 @@ Keep useful discovery cues in the maintained text and choose a descriptive path.
 Preserve the distinction between earlier evidence and current conclusions when
 combining notes. Source identity stays stable across revisions and path changes;
 an old exact reference continues to name the earlier revision. Select the new
-revision explicitly when it is needed next: a same-response
-`proposal-op:WRITE_OPERATION_ID` binds to that accepted save in `next_fragments`
-or `next_assets`. Preserving the old selection does not advance it to a new head.
+revision explicitly when it is needed next. `next_fragments` and `next_assets`
+can use `kind: replace_from_saved_files`, with `files` entries naming each exact
+file-save `operation` and optional `lifetime`. Include useful current input
+handles in `input_handles` to retain them alongside the new files. The host
+derives each source from its save operation and binds its accepted full UTF-8
+revision, avoiding repeated source IDs or hashes. Literal exact references with
+`proposal-op:WRITE_OPERATION_ID` remain available for other representations or
+ranges. Preserving the old selection does not advance it to a new head.
+
+To send an exact citation to a newly saved note immediately, use
+`reference_operations` on `communicate` or an authored `reply`, naming the exact
+`file_write` or `file_import` IDs. The host attaches accepted references after
+the local saves succeed, alongside any current `reference_handles`. Do not add
+`depends_on` to `communicate`; operation references derive those prerequisites.
+This supplies citation metadata without reading or selecting a body, and local
+deposit still does not establish recipient attention or acceptance.
 
 List each maintenance operation in the matching maintenance outcome. Changes to
 the persona's currently designated own-voice sources require a coherent

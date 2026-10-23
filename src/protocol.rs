@@ -170,12 +170,33 @@ pub enum SelectionIntent {
     /// source identities or revision hashes. Each handle names one immutable
     /// reference already shown in this input; it is not a path, search, latest
     /// revision, body read or permission grant. Handles from earlier admissions
-    /// are invalid. Use replace for a new same-response file or a different range.
+    /// are invalid. Use replace_from_saved_files for new same-response files,
+    /// or replace for a different range.
     /// Existing selection lifetimes are retained in the named references.
     ReplaceFromInput {
         reason: String,
         handles: Vec<String>,
     },
+    /// Select full UTF-8 files saved by exact file_write or file_import operation
+    /// IDs in this response. The host derives each source and binds its accepted
+    /// revision; do not repeat source IDs or invent hashes. Optional input_handles
+    /// retain useful current-input references alongside the new files. This
+    /// replaces the complete optional set and does not read a body into this call.
+    ReplaceFromSavedFiles {
+        reason: String,
+        files: Vec<SavedFileSelection>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        input_handles: Vec<String>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SavedFileSelection {
+    /// Exact ID of a file_write or file_import operation in this response.
+    pub operation: String,
+    /// Optional selection lifetime: work or next_call. Omitted/null uses work.
+    pub lifetime: Option<String>,
 }
 
 /// Ranges are nonempty, half-open intervals in the named representation's
@@ -253,6 +274,11 @@ pub enum ReplyDisposition {
         /// Use these for exact citations instead of retyping hashes in prose.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         reference_handles: Vec<String>,
+        /// Exact file_write or file_import operation IDs in this response. The
+        /// host attaches their accepted full UTF-8 references without reading
+        /// bodies or retyping source IDs/hashes. Can accompany reference_handles.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        reference_operations: Vec<String>,
     },
 }
 
@@ -577,6 +603,11 @@ pub enum Operation {
         /// or supplied. Prefer handles to retyping source identities and hashes.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         reference_handles: Vec<String>,
+        /// Exact same-response file_write or file_import IDs. Attach their
+        /// accepted full UTF-8 references; no extra receipt-only call is needed.
+        /// These references derive prerequisites without a depends_on field.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        reference_operations: Vec<String>,
     },
     /// Accept or decline one exact pending offer supplied in this invocation.
     /// id labels this operation; offer_id names the supplied offer. Omit terms_revision or use null
@@ -1058,6 +1089,28 @@ pub fn proposed_file_revision(operation: &Operation) -> Option<String> {
         PROPOSED_REVISION_PREFIX,
         hex::encode(Sha256::digest(bytes))
     ))
+}
+
+/// A declared operation reference binds to that exact local save proposal.
+/// This is not a current-head lookup or evidence that the save was accepted.
+pub(crate) fn saved_file_reference(
+    operations: &[Operation],
+    operation_id: &str,
+    lifetime: Option<String>,
+) -> Result<ExactRef, ProtocolError> {
+    let save = operations.iter().find(|operation| operation.id() == operation_id)
+        .and_then(Operation::file_save)
+        .ok_or_else(|| invalid("file_operation_reference", "reference must name an exact file_write or file_import operation in this response"))?;
+    let reference = ExactRef {
+        source: save.source.clone(),
+        revision: format!("{PROPOSED_OPERATION_PREFIX}{operation_id}"),
+        representation: "utf8".into(),
+        start: None,
+        end: None,
+        lifetime,
+    };
+    check_reference(&reference, "file_operation_reference")?;
+    Ok(reference)
 }
 
 struct Preflight<'a> {
@@ -1635,6 +1688,17 @@ fn check_selection(selection: &SelectionIntent, path: &str) -> Result<(), Protoc
             check_text(reason, MAX_REASON_BYTES, &format!("{path}.reason"))?;
             check_handles(handles, 1, MAX_COLLECTION_ITEMS, &format!("{path}.handles"))
         }
+        SelectionIntent::ReplaceFromSavedFiles { reason, files, input_handles } => {
+            check_text(reason, MAX_REASON_BYTES, &format!("{path}.reason"))?;
+            check_ids(&files.iter().map(|file| file.operation.clone()).collect::<Vec<_>>(),
+                1, &format!("{path}.files"))?;
+            for file in files {
+                if let Some(lifetime) = &file.lifetime {
+                    check_text(lifetime, MAX_REASON_BYTES, &format!("{path}.files.lifetime"))?;
+                }
+            }
+            check_handles(input_handles, 0, MAX_COLLECTION_ITEMS, &format!("{path}.input_handles"))
+        }
     }
 }
 
@@ -1673,10 +1737,11 @@ fn check_continuation(continuation: &Continuation) -> Result<(), ProtocolError> 
 fn check_reply(reply: &ReplyDisposition) -> Result<(), ProtocolError> {
     match reply {
         ReplyDisposition::None { reason } => check_text(reason, MAX_REASON_BYTES, "reply.reason"),
-        ReplyDisposition::Authored { audience, text, reference_handles } => {
+        ReplyDisposition::Authored { audience, text, reference_handles, reference_operations } => {
             check_ids(audience, 1, "reply.audience")?;
             check_text(text, MAX_TEXT_BYTES, "reply.text")?;
-            check_handles(reference_handles, 0, 32, "reply.reference_handles")
+            check_handles(reference_handles, 0, 32, "reply.reference_handles")?;
+            check_ids(reference_operations, 0, "reply.reference_operations")
         }
     }
 }
@@ -2042,12 +2107,14 @@ fn check_operation(
             subject,
             text,
             reference_handles,
+            reference_operations,
             ..
         } => {
             check_id(recipient, &format!("{path}.recipient"))?;
             check_text(subject, MAX_REASON_BYTES, &format!("{path}.subject"))?;
             check_text(text, MAX_TEXT_BYTES, &format!("{path}.text"))?;
-            check_handles(reference_handles, 0, 32, &format!("{path}.reference_handles"))
+            check_handles(reference_handles, 0, 32, &format!("{path}.reference_handles"))?;
+            check_ids(reference_operations, 0, &format!("{path}.reference_operations"))
         }
         Operation::Responsibility {
             offer_id,
@@ -2378,6 +2445,16 @@ pub fn validate_decision(
                 }
             }
         }
+        if let Operation::Communicate { reference_operations, .. } = operation {
+            for id in reference_operations {
+                let reference = saved_file_reference(&decision.operations, id, None)?;
+                let prerequisite = link_reference(&reference, None,
+                    &format!("operations[{index}].reference_operations"),
+                    &proposals, &decision.operations)?
+                    .expect("saved-file references always name a proposal");
+                graph[index].insert(prerequisite);
+            }
+        }
         if let Operation::Effect { depends_on, .. }
         | Operation::WorkCommand { depends_on, .. }
         | Operation::ProposeNeed { depends_on, .. }
@@ -2419,6 +2496,11 @@ pub fn validate_decision(
             }
         }
     }
+    if let ReplyDisposition::Authored { reference_operations, .. } = &decision.reply {
+        for id in reference_operations {
+            saved_file_reference(&decision.operations, id, None)?;
+        }
+    }
     for (selection, scope, path) in [
         (
             &decision.next_fragments,
@@ -2441,6 +2523,14 @@ pub fn validate_decision(
                     &proposals,
                     &decision.operations,
                 )?;
+            }
+        }
+        if let SelectionIntent::ReplaceFromSavedFiles { files, .. } = selection {
+            for file in files {
+                let reference = saved_file_reference(
+                    &decision.operations, &file.operation, file.lifetime.clone(),
+                )?;
+                link_reference(&reference, Some(scope), path, &proposals, &decision.operations)?;
             }
         }
     }
