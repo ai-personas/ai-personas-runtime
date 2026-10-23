@@ -356,9 +356,13 @@ def validate_progress(p):
         request = item["request"]
         require(isinstance(request, dict) and identifier(request.get("work")))
         if item["kind"] == "feedback":
-            require(set(request) == {"id", "work", "persona", "text"}
+            require({"id", "work", "persona", "text"} <= set(request)
+                    <= {"id", "work", "persona", "text", "supersedes"}
                     and identifier(request["id"]) and identifier(request["persona"])
                     and safe_text(request["text"]))
+            replaced = request.get("supersedes", [])
+            require(isinstance(replaced, list) and all(identifier(value) for value in replaced)
+                    and len(set(replaced)) == len(replaced))
         elif item["kind"] == "answer-question":
             require(set(request) == {"work", "reply"} and isinstance(request["reply"], dict))
             reply = request["reply"]
@@ -1315,11 +1319,14 @@ class Dialogue:
         feedback = (result.get("requester_feedback") or {}).get("items", [])
         if feedback:
             pending = sum(item.get("status") == "pending" for item in feedback)
-            self.ui.say(f"Visible requester feedback: {pending} pending, {len(feedback) - pending} with a recorded or unavailable disposition. "
+            superseded = sum(item.get("status") == "superseded" for item in feedback)
+            self.ui.say(f"Visible requester feedback: {pending} pending, {superseded} replaced, "
+                        f"{len(feedback) - pending - superseded} with a recorded or unavailable disposition. "
                         "A persona's account does not establish that a requested artifact change was made.")
             for item in feedback:
                 status = {"pending": "has not yet accounted for this feedback",
                           "handled": "marked this feedback handled",
+                          "superseded": "has earlier feedback explicitly replaced by your later direction",
                           "declined": "declined this feedback"}.get(item.get("status"), "has no currently available feedback disposition")
                 self.ui.say(f"{item['label']} {status}.")
                 if item.get("feedback_body_supplied"):
@@ -1496,8 +1503,28 @@ class Dialogue:
         if not text.strip():
             return
         require(safe_text(text), "invalid_feedback_text")
-        self.queue_work_input("feedback", {"id": "feedback-" + uuid.uuid4().hex,
-            "work": work["id"], "persona": persona, "text": text})
+        result = self.session("results", "--", work["id"])
+        current = [item for item in (result.get("requester_feedback") or {}).get("items", [])
+                   if item.get("persona") == persona and item.get("status") != "superseded"]
+        supersedes = []
+        if current:
+            self.ui.say("Earlier feedback that is still current:")
+            for index, item in enumerate(current, 1):
+                self.ui.say(f"{index}. {item['feedback_text']}")
+            choice = self.ui.ask("Enter numbers of feedback this message replaces, separated by spaces, "
+                                 "or Enter to keep all earlier directions. Their original history is retained:")
+            if choice.strip():
+                numbers = choice.split()
+                require(all(value.isascii() and value.isdigit() for value in numbers), "invalid_feedback_selection")
+                selected = [int(value) for value in numbers]
+                require(len(set(selected)) == len(selected)
+                        and all(1 <= value <= len(current) for value in selected), "invalid_feedback_selection")
+                supersedes = [current[value - 1]["observation"] for value in selected]
+        request = {"id": "feedback-" + uuid.uuid4().hex,
+                   "work": work["id"], "persona": persona, "text": text}
+        if supersedes:
+            request["supersedes"] = supersedes
+        self.queue_work_input("feedback", request)
 
     def questions(self, work):
         result = self.session("questions", "--", work)

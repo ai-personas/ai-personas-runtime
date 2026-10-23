@@ -8,12 +8,21 @@ pub struct FeedbackInput {
     pub work: String,
     pub persona: String,
     pub text: String,
+    /// Exact earlier feedback observation IDs whose directions this input replaces.
+    /// Original observations and any persona accounts remain retained history.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub supersedes: Vec<String>,
 }
 
 impl FeedbackInput {
     pub fn validate(&self) -> Result<()> {
         for value in [&self.id, &self.work, &self.persona] {
             identity(value)?;
+        }
+        let mut seen = BTreeSet::new();
+        for id in &self.supersedes {
+            identity(id)?;
+            require(seen.insert(id), "duplicate superseded feedback observation")?;
         }
         require(
             !self.text.trim().is_empty(),
@@ -65,12 +74,33 @@ pub fn feedback(
         "feedback work is not currently permitted for this persona",
     )?;
     let id = bounded_composite_id("operator-feedback", &[operator, &input.id]);
-    let payload = json!({
+    let mut superseded = Vec::new();
+    for previous in &input.supersedes {
+        let observation = state.observations.get(previous)
+            .ok_or_else(|| held("superseded feedback observation missing"))?;
+        require(
+            observation.id == *previous && previous != &id
+                && observation.kind == "received_local_operator_feedback"
+                && observation.actor == input.persona && observation.work == input.work
+                && observation.invocation.is_none()
+                && observation.payload["sender"] == operator
+                && observation.payload["recipient"] == input.persona
+                && observation.payload["work"] == input.work,
+            "supersedes must name this requester's exact earlier feedback to this persona and work",
+        )?;
+        let (reference, _) = history::records::observation_identity(observation)
+            .ok_or_else(|| held("superseded feedback identity unavailable"))?;
+        superseded.push(reference);
+    }
+    let mut payload = json!({
         "id":input.id,"sender":operator,"recipient":input.persona,
         "work":input.work,"text":input.text,
         "origin":"local_operator_input","independently_authenticated":false,
         "changes_mandate_or_authority":false
     });
+    if !superseded.is_empty() {
+        payload["supersedes"] = json!(superseded);
+    }
     let replayed = if let Some(existing) = state.observations.get(&id) {
         require(
             existing.kind == "received_local_operator_feedback"
@@ -82,6 +112,15 @@ pub fn feedback(
         )?;
         true
     } else {
+        let focus = &state.personas[&input.persona].focus[&input.work];
+        for previous in &input.supersedes {
+            require(
+                !focus.feedback_replacements.contains_key(previous)
+                    && (focus.pending_requester_feedback.contains(previous)
+                        || focus.feedback_dispositions.iter().any(|record| &record.observation == previous)),
+                "supersedes must name a current tracked direction; inspect its replacement before replacing it again",
+            )?;
+        }
         require(
             app.invocation_leases_quiescent(&state)?,
             "unfinished invocation blocks feedback",
@@ -110,12 +149,25 @@ pub fn feedback(
             .focus
             .get_mut(&input.work)
             .unwrap();
+        for previous in &superseded {
+            let p::HistoryRecordReference::Observation { observation_id: previous_id, .. } = previous else {
+                return Err(held("feedback replacement requires an observation"));
+            };
+            focus.feedback_replacements.insert(previous_id.clone(), requester_feedback::Replacement {
+                reference: previous.clone(),
+                successor: id.clone(),
+                at_unix: now,
+            });
+            focus.pending_requester_feedback.remove(previous_id);
+            focus.pending_observations.retain(|queued| queued != previous_id);
+        }
         focus.pending_observations.push(id.clone());
         focus.pending_requester_feedback.insert(id.clone());
         requester_wait::satisfy(&mut state, &id, operator, now)?;
         state.operator_events.push(json!({
             "kind":"work_feedback","operator":operator,"observation":id,
-            "work":input.work,"recipient":input.persona,"at_unix":now
+            "work":input.work,"recipient":input.persona,"at_unix":now,
+            "superseded_feedback":superseded
         }));
         app.save(&old, &state)?;
         false
@@ -125,6 +177,9 @@ pub fn feedback(
         "supply":"pending fresh permitted admission","persona_resumed":false,
         "retained_until_explicit_disposition":state.personas[&input.persona].focus[&input.work]
             .pending_requester_feedback.contains(&id),
-        "inference_performed":false,"budget_reset":false
+        "inference_performed":false,"budget_reset":false,
+        "superseded_observations":input.supersedes,
+        "current_direction":!state.personas[&input.persona].focus[&input.work].feedback_replacements.contains_key(&id),
+        "original_observations_and_accounts_retained":true
     }))
 }

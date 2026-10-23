@@ -146,6 +146,19 @@ fn key(reference: &p::HistoryRecordReference) -> String {
     }
 }
 
+/// One immutable observation identity shared by history queries and explicit
+/// feedback replacement links. Current projection annotations are not its body.
+pub(crate) fn observation_identity(
+    observation: &Observation,
+) -> Option<(p::HistoryRecordReference, usize)> {
+    let canonical = serde_json::to_value(observation).ok()?;
+    let bytes = bounded(&("history-observation-record-v1", canonical), INPUT_LIMIT)?;
+    Some((p::HistoryRecordReference::Observation {
+        observation_id: observation.id.clone(),
+        sha256: s::sha256_bytes(&bytes),
+    }, bytes.len()))
+}
+
 fn observation_record(
     state: &State,
     actor: &str,
@@ -162,14 +175,7 @@ fn observation_record(
     {
         return None;
     }
-    // Value objects use serde_json's sorted maps. The domain and complete retained
-    // record (including original restrictions) define the immutable digest.
-    let canonical = serde_json::to_value(observation).ok()?;
-    let bytes = bounded(&("history-observation-record-v1", canonical), INPUT_LIMIT)?;
-    let reference = p::HistoryRecordReference::Observation {
-        observation_id: id.into(),
-        sha256: s::sha256_bytes(&bytes),
-    };
+    let (reference, body_bytes) = observation_identity(observation)?;
     let mut original_exposure = observation.exposure.clone().unwrap_or_default();
     original_exposure
         .sources
@@ -178,7 +184,7 @@ fn observation_record(
         .sources
         .extend(observation.qualified_roots.iter().cloned());
     let exposure = permissions.exposure(&original_exposure)?;
-    let (body, exposure, roots) = if full {
+    let (body, mut exposure, roots) = if full {
         observation_projection::project(state, observation, a, corpus).ok()?
     } else {
         (Value::Null, exposure, observation.qualified_roots.clone())
@@ -186,6 +192,10 @@ fn observation_record(
     let mut metadata = json!({"reference":reference,"actor":observation.actor,"work":observation.work,
         "producing_invocation":observation.invocation,"kind":observation.kind,"at_unix":observation.at_unix,
         "consuming_invocation":"not inferred from producing invocation"});
+    if let Some((status, lineage)) = requester_feedback::current_status(state, observation, a).ok()? {
+        metadata["requester_feedback_status"] = status;
+        extend_exposure(&mut exposure, &lineage);
+    }
     if observation.exposure.is_none() {
         metadata["source_lineage_status"] = json!("unknown");
     }
@@ -201,7 +211,7 @@ fn observation_record(
             .cloned()
             .map(|r| vec![r])
             .collect(),
-        body_bytes: bytes.len(),
+        body_bytes,
     })
 }
 

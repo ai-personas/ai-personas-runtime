@@ -379,7 +379,14 @@ feedback accounting and already authored matching message waits. Receiving a
 question or reply creates no participation, acceptance, Stop/Pause override or
 new model opportunity. Operator question replies use the same thread routing.
 
-Requester feedback remains pending until the addressed persona explicitly records `handled` or `declined`. A disposition is an attributed account, not proof of compliance or acceptance. The original body remains available in later context. Feedback does not resume a stopped persona or amend the mandate.
+Requester feedback remains pending until the addressed persona records `handled`
+or `declined`, or its author explicitly replaces it with later feedback. A persona
+account alone keeps the direction in later context and is not proof of compliance.
+Explicit replacement removes the earlier direction from automatic context while
+retaining its exact observation and all persona accounts in history. Native
+history queries and reads identify its replacement without reactivating it.
+Feedback does not resume a stopped persona or amend the mandate. See
+[requester feedback](docs/requester-feedback.md) for the native input and dialogue flow.
 
 Peer feedback becomes a continuing item only when the recipient chooses to account for it as pending. Ordinary conversation does not automatically create that obligation.
 

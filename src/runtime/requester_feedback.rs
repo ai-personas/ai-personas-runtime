@@ -1,5 +1,5 @@
-//! Requester direction remains available across reads and accepted dispositions.
-//! A disposition clears the pending queue, without removing its original body.
+//! Requester direction persists until explicitly replaced by its author.
+//! Persona accounts do not erase directions; replacements preserve their history.
 use super::*;
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -20,6 +20,87 @@ pub struct Receipt {
     pub reason: String,
     pub at_unix: i64,
     pub exposure: Exposure,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Replacement {
+    pub reference: p::HistoryRecordReference,
+    pub successor: String,
+    pub at_unix: i64,
+}
+
+/// Verify the recorded explicit replacement against both immutable observations.
+/// A persona's handled/declined account never creates this relationship.
+pub(super) fn replacement<'a>(
+    state: &'a State,
+    observation: &Observation,
+) -> Result<Option<(&'a Replacement, &'a Observation)>> {
+    let Some(focus) = state.personas.get(&observation.actor)
+        .and_then(|persona| persona.focus.get(&observation.work)) else {
+        return Ok(None);
+    };
+    let Some(record) = focus.feedback_replacements.get(&observation.id) else {
+        return Ok(None);
+    };
+    let successor = state.observations.get(&record.successor)
+        .ok_or_else(|| held("replacement feedback observation missing"))?;
+    let (reference, _) = history::records::observation_identity(observation)
+        .ok_or_else(|| held("replacement feedback identity unavailable"))?;
+    let reference_value = serde_json::to_value(&reference)?;
+    require(
+        observation.kind == "received_local_operator_feedback"
+            && successor.kind == observation.kind
+            && observation.invocation.is_none() && successor.invocation.is_none()
+            && successor.id != observation.id
+            && successor.actor == observation.actor && successor.work == observation.work
+            && successor.payload["sender"] == observation.payload["sender"]
+            && successor.payload["recipient"] == observation.payload["recipient"]
+            && successor.at_unix == record.at_unix
+            && reference == record.reference
+            && successor.payload["supersedes"].as_array().is_some_and(|items| {
+                items.contains(&reference_value)
+            }),
+        "feedback replacement binding changed",
+    )?;
+    Ok(Some((record, successor)))
+}
+
+/// Current context annotation, outside the original immutable feedback payload.
+/// History retrieval may supply a replaced body without reviving its direction.
+pub(super) fn current_status(
+    state: &State,
+    observation: &Observation,
+    a: &f::Admission,
+) -> Result<Option<(Value, Exposure)>> {
+    if observation.kind != "received_local_operator_feedback" {
+        return Ok(None);
+    }
+    let mut inherited = Exposure::default();
+    let replaced = replacement(state, observation)?;
+    let tracked = state.personas.get(&observation.actor)
+        .and_then(|persona| persona.focus.get(&observation.work))
+        .is_some_and(|focus| focus.pending_requester_feedback.contains(&observation.id)
+            || focus.feedback_dispositions.iter().any(|record| record.observation == observation.id)
+            || focus.feedback_replacements.contains_key(&observation.id));
+    let successor = if let Some((record, successor)) = replaced {
+        let origin = successor.exposure.as_ref()
+            .ok_or_else(|| held("replacement feedback lineage missing"))?;
+        require(exposure_permitted(state, origin, a), "replacement feedback unavailable")?;
+        extend_exposure(&mut inherited, origin);
+        let (reference, _) = history::records::observation_identity(successor)
+            .ok_or_else(|| held("successor feedback identity unavailable"))?;
+        Some(json!({"observation":successor.id,"sender":successor.payload["sender"],
+            "reference":reference,
+            "received_at_unix":record.at_unix,"body_supplied_by_this_annotation":false}))
+    } else {
+        None
+    };
+    Ok(Some((json!({
+        "current_direction":tracked.then_some(successor.is_none()),"superseded_by":successor,
+        "history_retained":true,"changes_mandate_or_authority":false,
+        "reading_is_not_reactivation":true,"completion_verified":false
+    }), inherited)))
 }
 
 fn retained_observation<'a>(
@@ -47,7 +128,7 @@ pub(super) fn observation_ids(
     work: &str,
     focus: &Focus,
     a: &f::Admission,
-) -> Vec<String> {
+) -> Result<Vec<String>> {
     let mut seen = focus.pending_requester_feedback.clone();
     let mut ids: Vec<_> = seen.iter().cloned().collect();
     for record in &focus.feedback_dispositions {
@@ -57,7 +138,15 @@ pub(super) fn observation_ids(
             ids.push(record.observation.clone());
         }
     }
-    ids.sort_by(|left, right| {
+    let mut current = Vec::new();
+    for id in ids {
+        let observation = state.observations.get(&id)
+            .ok_or_else(|| held("tracked requester feedback missing"))?;
+        if replacement(state, observation)?.is_none() {
+            current.push(id);
+        }
+    }
+    current.sort_by(|left, right| {
         state
             .observations
             .get(left)
@@ -65,7 +154,7 @@ pub(super) fn observation_ids(
             .cmp(&state.observations.get(right).map(|o| o.at_unix))
             .then_with(|| left.cmp(right))
     });
-    ids
+    Ok(current)
 }
 
 pub(super) fn control(
@@ -79,7 +168,7 @@ pub(super) fn control(
     if focus.pending_requester_feedback.is_empty() && focus.feedback_dispositions.is_empty() {
         return Ok(Value::Null);
     }
-    let directions = observation_ids(state, work, focus, a);
+    let directions = observation_ids(state, work, focus, a)?;
     let latest_received_at = directions
         .iter()
         .filter_map(|id| state.observations.get(id).map(|o| o.at_unix))
@@ -117,6 +206,9 @@ pub(super) fn control(
             omitted = true;
             continue;
         };
+        if replacement(state, observation)?.is_some() {
+            continue;
+        }
         let value = json!({
             "observation":record.observation,"invocation":record.invocation,
             "disposition":record.disposition,"at_unix":record.at_unix,
@@ -135,10 +227,10 @@ pub(super) fn control(
         "pending_state":if focus.pending_requester_feedback.is_empty() { "none_pending" } else { "pending" },
         "recent_dispositions":recent,"recent_dispositions_omitted":omitted,
         "latest_received":latest_received,
-        "direction_order":"Original feedback bodies in actual_observations are ordered by received_at_unix, oldest first, independently of pending/disposition status. latest_received identifies the most recently received timestamp group; equal timestamps do not establish an order within that group. Use later explicit corrections where they supersede older direction, while retaining the original attribution and history.",
-        "accounting":"pending is the current tracked queue for this actor and work. none_pending means no tracked item currently needs a disposition. recent_dispositions contains every available accepted account and its exact reason, newest first. feedback_body_supplied identifies original feedback bodies retained in actual_observations after disposition. Use this history to keep requester direction available while continuing the work; a disposition does not erase the direction or prove that a planned edit was completed. Historical items are not newly received and must not be resolved again. Later explicit corrections can supersede older directions. Unavailable history establishes no absence of other obligations. Handled records the persona's account, not verified compliance or requester acceptance.",
+        "direction_order":"Current feedback bodies in actual_observations are ordered by received_at_unix, oldest first, independently of pending/disposition status. latest_received identifies the newest current timestamp group; equal timestamps do not establish an order. Explicitly replaced directions remain in history and are not automatically supplied as current feedback.",
+        "accounting":"pending is the current tracked queue for this actor and work. none_pending means no tracked item currently needs an account. recent_dispositions retains available persona accounts for directions still current, newest first. Handled or declined does not itself remove the original direction or prove compliance. An explicit requester replacement removes the earlier direction from this automatic context and pending queue; its original body and all persona accounts remain discoverable through retained history. Do not resolve historical accounts again or treat replacement as work completion.",
         "attribution":"Each item's sender identifies its author. Local operator input is attributed to the intake operator; CONTROL.requester identifies the need's requester, who may be a different persona. No item establishes that persona's assent or acceptance.",
-        "rule":"The full permitted items are in actual_observations. For resolution copy pending[].observation exactly, including its full prefix; actual_observations[].payload.id is only the requester's input label, not an observation reference. These requester directions remain current across reads, waits and local stops automatically. For an unresolved item, omit resolve_requester_feedback entirely; pending is not a valid disposition for that action. Use it only when recording handled or declined with a reason. Feedback changes no mandate, authority or resources; a disposition is your attributed account, not proof of compliance or requester acceptance."
+        "rule":"Current feedback bodies are in actual_observations. For resolution copy pending[].observation exactly, including its full prefix; payload.id is only the requester's input label. These directions survive reads, waits, stops and persona accounts until their author explicitly replaces them. A supersedes entry is an exact history reference; copy it into history_record_read.reference when its body is useful, without a new query. The link supplies no earlier body. History reads label replaced feedback with requester_feedback_status and do not reactivate it. For unresolved feedback omit resolve_requester_feedback; pending is not a valid disposition. Neither a persona account nor requester replacement changes the mandate, authority, resources, continuation or verified completion."
     }))
 }
 
@@ -252,6 +344,7 @@ pub(super) fn project_for_recipient(
             .pending_requester_feedback
             .iter()
             .chain(focus.feedback_dispositions.iter().map(|r| &r.observation))
+            .chain(focus.feedback_replacements.keys())
             .collect();
         for id in ids {
             let Some(observation) = state.observations.get(id) else {
@@ -276,6 +369,9 @@ pub(super) fn project_for_recipient(
             // the next. Every body has its own retained permission ancestry.
             let mut permitted = inherited.clone();
             extend_exposure(&mut permitted, exposure);
+            let (feedback_status, status_lineage) = current_status(state, observation, &a)?
+                .ok_or_else(|| held("feedback status unavailable"))?;
+            extend_exposure(&mut permitted, &status_lineage);
             if !exposure_permitted(state, &permitted, &a) {
                 continue;
             }
@@ -297,13 +393,16 @@ pub(super) fn project_for_recipient(
                 observation,
                 pending,
                 receipt,
+                feedback_status,
             ));
         }
     }
     candidates.sort_by(|a, b| (&a.0, &a.1, a.2).cmp(&(&b.0, &b.1, b.2)));
     let mut items = Vec::new();
-    for (_, _, id, persona, observation, pending, receipt) in candidates {
-        let status = if pending {
+    for (_, _, id, persona, observation, pending, receipt, feedback_status) in candidates {
+        let status = if feedback_status["current_direction"] == false {
+            "superseded"
+        } else if pending {
             "pending"
         } else {
             match receipt.map(|r| &r.disposition) {
@@ -316,8 +415,10 @@ pub(super) fn project_for_recipient(
             "observation":id,"input_id":observation.payload["id"],
             "received_at_unix":observation.at_unix,"status":status,
             "feedback_text":observation.payload["text"],"feedback_body_supplied":true,
+            "current_direction":feedback_status["current_direction"],
+            "superseded_by":feedback_status["superseded_by"],
             "account":receipt.map(|r|json!({"invocation":r.invocation,
-                "at_unix":r.at_unix,"reason":r.reason})),
+                "disposition":r.disposition,"at_unix":r.at_unix,"reason":r.reason})),
             "compliance_verified":false,"requester_acceptance_established":false});
         items.push(item);
     }

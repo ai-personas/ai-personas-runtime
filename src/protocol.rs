@@ -520,7 +520,9 @@ pub enum Operation {
         /// Copy next_cursor or retry_cursor. To change the query, use null.
         cursor: Option<String>,
     },
-    /// Exact typed identity from a permitted query; later fresh supply rechecks access.
+    /// Exact typed identity from supplied metadata, such as a history query or
+    /// feedback replacement link. A known reference needs no new query;
+    /// later fresh supply rechecks access.
     /// Reading a metadata-only observation does not supply the file, message or
     /// Decision body it describes. Read the exact record of the desired kind.
     HistoryRecordRead {

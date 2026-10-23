@@ -514,12 +514,16 @@ pub struct Focus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) authored_continuation: Option<AuthoredContinuation>,
     pub pending_observations: Vec<String>,
-    /// New requester feedback stays in current context until explicitly disposed.
+    /// Feedback remains pending until a persona account or explicit requester replacement.
     /// Ordinary observation consumption cannot erase an unresolved direction.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub(crate) pending_requester_feedback: BTreeSet<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) feedback_dispositions: Vec<requester_feedback::Receipt>,
+    /// Explicit requester replacements, separate from persona-authored accounts.
+    /// Original observations and dispositions remain immutable history.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) feedback_replacements: BTreeMap<String, requester_feedback::Replacement>,
     /// Recipient-authored peer feedback dispositions; pending bodies remain current.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) peer_feedback: Vec<peer_feedback::Receipt>,
@@ -6953,7 +6957,7 @@ fn render_mode_with_history(
         None
     };
     let mut observation_queue = focus.pending_observations.clone();
-    let feedback_ids = requester_feedback::observation_ids(state, work_id, focus, &a);
+    let feedback_ids = requester_feedback::observation_ids(state, work_id, focus, &a)?;
     let feedback_set: BTreeSet<_> = feedback_ids.iter().collect();
     // A new pending direction must not precede older completed directions just
     // because it was already queued. Keep the complete feedback chronology.

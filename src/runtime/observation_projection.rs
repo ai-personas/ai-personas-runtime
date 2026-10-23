@@ -155,6 +155,10 @@ pub(super) fn project(
     let mut value = json!({"id":observation.id,"actor":observation.actor,"work":observation.work,
         "invocation":observation.invocation,"kind":observation.kind,"at_unix":observation.at_unix,
         "payload":payload,"current_required_qualifications":qualifications});
+    if let Some((status, lineage)) = requester_feedback::current_status(state, observation, a)? {
+        value["requester_feedback_status"] = status;
+        extend_exposure(&mut inherited, &lineage);
+    }
     if observation.exposure.is_none() {
         value["source_lineage_status"] = json!("unknown");
     }
