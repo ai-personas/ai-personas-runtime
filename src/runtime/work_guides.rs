@@ -59,12 +59,11 @@ fn kind(variant: &Value) -> Result<&str> {
 }
 
 /// Keep only named variants and the definitions reachable from those variants.
-/// Neither names nor a valid schema bypass the sealed admitted interface.
+/// Definition supply is independent of the complete admitted invocation contract.
 pub(super) fn selected_schema(commands: &BTreeSet<String>) -> Result<Value> {
-    require(
-        !commands.is_empty(),
-        "empty or oversized native work selection",
-    )?;
+    if commands.is_empty() {
+        return Ok(Value::Null);
+    }
     let mut schema = work_schema();
     let known = variants(&schema)?
         .iter()
@@ -139,7 +138,7 @@ fn guide_text(variant: &Value) -> Result<String> {
         .collect::<Vec<_>>()
         .join(", ");
     let command_rules = work_instructions::guide_text(command);
-    Ok(format!("# Native internal work command: {command}\n\n{description}\n\nInput field names for discovery: {}.\n\nRelated guide filenames in this directory: {links}. Use ordinary file discovery to locate relevant prerequisites and their exact current revisions. These are navigation cues, not required selections or an assigned workflow. All native command definitions are supplied directly in the current interface; these guides are optional supporting material.\n\n{command_rules}This runtime-authored supporting guide is not a persona's character, experience, grant or execution record. Read or select its complete exact UTF-8 revision through the ordinary file interface. CONTROL.work_capability supplies every current native input schema without a guide-selection gate. Copy that admitted schema and current work references; the guide alone cannot authorize a command. Exact work records, whole-response consistency and actual execution outcomes still apply. No external software is invoked by this internal command.\n", names.join(", ")))
+    Ok(format!("# Native internal work command: {command}\n\n{description}\n\nInput field names for discovery: {}.\n\nRelated guide filenames in this directory: {links}. Use ordinary file discovery to locate relevant prerequisites and their exact current revisions. These are navigation cues, not required selections or an assigned workflow. These guides select detailed current definitions and instructions into a fresh input; they are optional supporting material, not an invocation allowlist.\n\n{command_rules}This runtime-authored supporting guide is not a persona's character, experience, grant or execution record. Read or select its complete exact UTF-8 revision through the ordinary file interface. When this exact current guide is supplied completely, CONTROL.work_capability.inputs_schema supplies this command definition. All implemented native commands remain callable under the admitted contract without a guide. Use a known current shape directly, or obtain a useful guide when uncertain. Copy exact current work references; guide text is neither acceptance nor an execution result. Exact work records, whole-response consistency and actual execution outcomes still apply. No external software is invoked by this internal command.\n", names.join(", ")))
 }
 
 fn records(
@@ -187,12 +186,12 @@ pub(in crate::runtime) fn installation_summary(
     policy_id: &str,
 ) -> Result<Value> {
     let (directory, records) = records(state, owner, policy_id)?;
-    Ok(json!({"selective_work_commands":false,"directory":directory,
+    Ok(json!({"selective_work_commands":true,"command_selection_limits_invocation":false,"directory":directory,
         "guide_count":records.len(),
         "guide_body_bytes":records.iter().map(|(_, record)|record.bytes.len()).sum::<usize>(),
         "author":AUTHOR,"owner":owner,"policy_id":policy_id,
         "inference_performed":false,"resources_added":false,
-        "meaning":"Native supporting guides consume existing storage. Guide bodies are supplied only by actual reads or selections. All current native command schemas are supplied independently of guide body choice. A guide is not an execution record."}))
+        "meaning":"Native supporting guides consume storage. Their actual complete supply selects detailed schemas and instructions for that input. Every implemented native command remains callable without a guide or grant; the admitted contract binds its current definition. A guide is not an execution record."}))
 }
 
 /// Stage in a private candidate; the caller must atomically save it with the
@@ -327,7 +326,7 @@ pub(in crate::runtime) fn install(
 pub(super) fn control(state: &State) -> Option<Value> {
     state.work_guides.as_ref().map(|catalog|json!({
         "mode":"selected_native_work_guides_v1","scope":"assets","directory":directory(catalog),
-        "rule":"Guides in this directory are optional supporting material. All native work-command schemas are supplied directly in CONTROL.work_capability; reading or selecting a guide is not required to expose a command. Metadata links do not supply guide bodies or perform operations. Choose relevant supporting material using ordinary file discovery, reads and selections."
+        "rule":"Guides in this directory are optional supporting material. Read or select relevant complete exact guide bodies to receive their detailed current command schemas and instructions in a fresh input. Metadata links supply neither body nor schema. All implemented native work commands remain callable under CONTROL.work_capability's admitted contract without selecting a guide; if you already know the current input shape, use it directly. If uncertain, choose useful guides through ordinary file discovery, exact reads or next_assets. A guide or definition is not an execution result."
     }))
 }
 
@@ -363,7 +362,11 @@ pub(super) fn capability(
 ) -> Result<Value> {
     let mut value = match interface {
         Some(interface) => json!({"id":interface.capability_id,
-            "binding_revision":interface.binding_revision,"inputs_schema":interface.inputs_schema}),
+            "binding_revision":interface.binding_revision,
+            "invocation_contract":interface.invocation_contract,
+            "inputs_schema":interface.inputs_schema,"definition_commands":interface.selected_commands,
+            "definition_selection_limits_invocation":false,
+            "rule":"All implemented native work commands are callable under this exact admitted contract. inputs_schema supplies only definitions selected through complete registered guide bodies; null means no detailed definition was selected. Missing schema supply is not a permission gate. Use a known current shape directly, or obtain a useful guide when uncertain. Work records, exact references, complete response validation and actual operation semantics still apply."}),
         None => json!({"enabled":false,
             "reason":"This invocation mode does not supply ordinary work commands. Guide registration or selection does not change that mode."}),
     };
@@ -410,20 +413,25 @@ pub(super) fn capability(
                 "unavailable_supplied_guides":unavailable.into_iter()
                     .map(|(path, reason)|json!({"path":path,"reason":reason})).collect::<Vec<_>>(),
                 "truncated":false,
-                "rule":"These actually supplied guide bodies do not match complete current registered guide references. Find relevant current guides if their explanatory text is useful. Native command definitions are supplied independently of these bodies. This diagnostic changes no selection or execution record."});
+                "rule":"These supplied guide bodies do not match complete current registered references, so they select no detailed native schema. Find a current guide when its definition or explanation is useful. All implemented native commands remain callable under the admitted contract; this diagnostic changes no selection or execution record."});
         }
     }
     Ok(value)
 }
 
 pub(super) fn exposed(
-    _state: &State,
+    state: &State,
     _actor: &str,
-    _bodies: &BTreeSet<f::Reference>,
+    bodies: &BTreeSet<f::Reference>,
     _now: i64,
 ) -> Result<Option<WorkInterface>> {
-    let schema = work_schema();
-    let commands = variants(&schema)?.iter().map(|variant| kind(variant).map(str::to_owned))
-        .collect::<Result<BTreeSet<_>>>()?;
+    let mut commands = BTreeSet::new();
+    if let Some(catalog) = &state.work_guides {
+        for (command, reference) in &catalog.guides {
+            if bodies.contains(&file_reference(reference)?) {
+                commands.insert(command.clone());
+            }
+        }
+    }
     Ok(Some(WorkInterface::selected(commands)?))
 }

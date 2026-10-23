@@ -630,13 +630,15 @@ pub enum Operation {
     },
     /// Applies an offered internal work action. Commands run in listed order
     /// after staged file saves; this is not an external execution dependency.
-    /// Only kinds actually supplied in CONTROL.work_capability are available.
-    /// If it is disabled, first discover/read/select registered supporting guides;
-    /// a same-response read or future selection cannot expose a command now.
+    /// All implemented commands are callable under CONTROL.work_capability's
+    /// admitted contract. Detailed schemas are selectively supplied; a known
+    /// current shape needs no guide read. Discover/read/select useful native
+    /// guides for a fresh definition when uncertain.
     WorkCommand {
         id: String,
-        /// Match CONTROL.work_capability.inputs_schema exactly. Where that
-        /// action permits an earlier local record, cite its inner record ID.
+        /// Use the command's current exact input shape. Selectively supplied
+        /// definitions appear in CONTROL.work_capability.inputs_schema. Where
+        /// the action permits an earlier local record, cite its inner record ID.
         inputs: Value,
         /// Only file_write/file_import operation IDs whose proposed revisions this command
         /// consumes. Defaults to [] when omitted; never name another work_command here.

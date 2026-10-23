@@ -54,13 +54,17 @@ pub(super) fn inspect(
     }
     let native_work_interface = match &prepared.work_interface {
         Some(interface) if control["work_capability"]["binding_revision"] == interface.binding_revision
+            && control["work_capability"]["invocation_contract"].as_str() == interface.invocation_contract.as_deref()
             && control["work_capability"]["inputs_schema"] == interface.inputs_schema => {
             json!({"available":true,"capability_id":interface.capability_id,
                 "binding_revision":interface.binding_revision,
-                "selection_mode":if interface.selected_commands.is_some() {"explicit_command_set"} else {"complete_interface"},
+                "invocation_contract":interface.invocation_contract,
+                "definition_selection_limits_invocation":if interface.invocation_contract.as_deref() == Some(WORK_INVOCATION_CONTRACT) {Some(false)} else {None::<bool>},
+                "selection_mode":if interface.invocation_contract.as_deref() == Some(WORK_INVOCATION_CONTRACT) {"guide_body_definitions"} else if interface.selected_commands.is_some() {"explicit_command_set"} else {"complete_interface"},
                 "selected_commands":interface.selected_commands,
+                "schema_supplied":!interface.inputs_schema.is_null(),
                 "schema_bytes":serde_json::to_vec(&interface.inputs_schema)?.len(),
-                "meaning":"Definition actually supplied in this admitted input. An explicit command set does not establish that the persona chose it or selected guide bodies. This is not work authority, execution or result correctness."})
+                "meaning":"Invocation contract and detailed definition supply actually retained in this input. Under unrestricted-native-work-command-v1 the binding covers all implemented commands, while selected_commands names supplied definitions only; null inputs_schema supplies none. Historical inputs retain their actual contract and schemas. Definition supply is not execution, acceptance or result correctness."})
         }
         _ => json!({"available":false}),
     };

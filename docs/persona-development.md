@@ -190,17 +190,19 @@ saved program or supplied guide does not prove that a skill was applied or a
 program ran. Compare the supplied instructions with the accepted response and
 the work's actual results to assess skill application.
 
-`supplied_native_work_interface` reports the actual internal command schema,
-including its byte count, exact binding and command names. `selection_mode`
-distinguishes an `explicit_command_set` from a `complete_interface` in the
-retained interface metadata. An explicit set does not establish that the persona
-chose those commands or selected guide bodies. Current ordinary inputs supply
-all native work-command definitions by default; [native work guides](work-command-guides.md)
-are optional supporting material. Historical inputs retain their actual schemas.
+`supplied_native_work_interface` reports the actual invocation contract and supplied
+internal command definitions, including byte counts, binding and command names.
+`selection_mode: guide_body_definitions` identifies current supply from complete
+registered guide bodies. All implemented commands remain callable independently
+of this definition selection. A null schema supplies no detailed definition.
+Historical `explicit_command_set` and `complete_interface` records retain their
+actual schemas and original contract; an explicit set alone does not establish
+primary selection. [Native work guides](work-command-guides.md) explain how
+ordinary reads and next-context choices select detailed definitions.
 Definition supply and accepted command execution are separate evidence.
 The input-file choices also record readiness for visible current native
 guides. `supplied_input_file_choices.native_command_readiness` distinguishes
-recorded body/schema supply, missing work-command grants and historical entries
+recorded body/schema supply, historical grant metadata and historical entries
 without readiness metadata. These counts establish neither operation-specific
 authority nor successful use.
 

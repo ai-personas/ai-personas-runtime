@@ -6,11 +6,12 @@ use super::*;
 const INTERFACE: &str = "input-file-choices-v2";
 const LEGACY_INTERFACE: &str = "input-file-choices-v1";
 const OUTPUT_RULE: &str = "Host-command inputs.stdin_asset may use {kind:input_file,handle:CURRENT_HANDLE} to pass a full UTF-8 supporting asset directly as command stdin without copying its body. This consumes the asset as execution input, not as model context. This v2 table also supports file_write.qualification_handles, file_import.qualification_handles, communicate.reference_handles and reference_handles on an authored reply. Choose the listed handles instead of copying source IDs or hashes. Qualifications join the exact literal qualifications. The canonical qualifications already identify a file's exact supporting sources; refer to those qualifications in file prose instead of retyping their IDs or hashes. Message references are attached as canonical file_references beside the unchanged authored text; do not repeat their hashes in prose. For retained tool results, tool_result_origins identifies the actual tool family and producing invocation beside the handle. Match the requested invocation; table order does not identify the latest or required result. Provenance metadata supplies no body. A citation proves no reading and establishes no correctness or acceptance. Handles name only references offered in this admission, never a new same-response file. Existing permissions and complete-response validation still apply. Selection lifetimes do not become citation or qualification lifetimes. Earlier v1 tables permit next-context selection only.";
-const RULE: &str = "For next_fragments or next_assets, prefer {kind: replace_from_input, reason: your reason, handles: [exact listed handles]} when the desired references are listed here. Each handle names the exact reference beside it in this admission only. Choose relevant entries yourself. This table is file metadata, not a corpus catalogue or supplied bodies. A registered native-command guide is optional supporting material: current work-command schemas are supplied without a guide-selection or work-command-grant gate. Use the exact admitted schema and work references. Reading a guide does not perform a command or establish successful execution. Older handles are invalid; use file discovery for unlisted resources. Omission does not establish absence.";
+const RULE: &str = "For next_fragments or next_assets, prefer {kind: replace_from_input, reason: your reason, handles: [exact listed handles]} when the desired references are listed here. Each handle names the exact reference beside it in this admission only. Choose relevant entries yourself. This table is file metadata, not a corpus catalogue or supplied bodies. A registered native-command guide is optional supporting material: its complete body supply selects the detailed current schema and instructions. A known current command remains callable without selecting its guide. If uncertain, select or read a useful guide; metadata alone supplies no definition. Use exact current inputs and work references. Reading a guide does not perform a command or establish successful execution. Older handles are invalid; use file discovery for unlisted resources. Omission does not establish absence.";
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum NextCommandAction {
+    UseKnownCommandOrSelectGuideForDefinition,
     SelectThisExactGuideForFreshAdmission,
     UseSuppliedSchemaWithCurrentWorkAuthority,
     ReportMissingWorkCommandGrant,
@@ -104,6 +105,8 @@ fn command_readiness(
         NextCommandAction::ReportMissingWorkCommandGrant
     } else if input_schema_supplied {
         NextCommandAction::UseSuppliedSchemaWithCurrentWorkAuthority
+    } else if control["work_capability"]["invocation_contract"] == WORK_INVOCATION_CONTRACT {
+        NextCommandAction::UseKnownCommandOrSelectGuideForDefinition
     } else if !guide_body_supplied {
         NextCommandAction::SelectThisExactGuideForFreshAdmission
     } else {

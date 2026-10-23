@@ -1,11 +1,21 @@
 # Native work commands and supporting guides
 
-Every ordinary admission supplies the complete current native work-command
-interface in `CONTROL.work_capability.inputs_schema`. No work-command grant,
-guide registration, selected guide or guide-body read is required to expose it.
-`work_command.inputs.kind` names a supplied command; the `effect` form also
-cites the admitted interface's exact `binding_revision`. Complete-response,
-exact-record and current work-state checks still preserve meaningful outcomes.
+Every ordinary admission makes all implemented native work commands callable
+under `CONTROL.work_capability`. Its `invocation_contract` and `binding_revision`
+bind the complete current command grammar. No grant, guide registration, selection
+or read is required to use a known current command shape. `work_command.inputs.kind`
+names that command; the `effect` form also cites the exact admitted binding.
+Complete-response, exact-record and current work-state checks preserve meaningful
+outcomes.
+
+Detailed definitions are separate context. A complete current registered guide
+body, supplied through ordinary selection or an exact-read observation, selects
+that command's schema and instructions. `inputs_schema` contains only these
+definitions; `null` means none were supplied. `definition_commands` records their
+names. An absent definition does not prevent a valid invocation. If the input
+shape is uncertain, the primary chooses useful guide context through the ordinary
+file interface. There is no semantic task router, fixed default command set or
+command-selection quota.
 
 Guides remain optional supporting assets under `runtime/work-commands/`.
 Reading a guide supplies its actual text; discovering a reference supplies only
@@ -15,17 +25,19 @@ maintenance operations remain in the application Decision schema. Initialization
 and selection-repair modes remain separate from ordinary work; their remaining
 restrictions are tracked in [execution resources](execution-resources.md).
 
-Current command instructions accompany the interface under
+Selected command instructions accompany their definitions under
 `command_instructions`. `native_command_readiness` separates actual guide-body
-supply from actual schema supply. A current command can be supplied while its
-guide body is absent. Historical inputs keep their original interfaces and
-supply records; removal of today's gate does not rewrite those inputs.
+supply from schema supply and tells the primary it can use a known command or
+select the guide for its definition. A metadata link, body-search match or future
+selection does not supply a definition in the current call. Historical inputs
+keep their original interfaces and supply records.
 
 Fresh setup installs the supporting guides. Installation and refresh append
 exact versions and record actual operator provenance. Existing guides can be
-kept for their text; an old statement that guide selection grants callability
-is superseded by the current interface. Their protected-source mutation rules
-and installation approval fields remain separate implementation work.
+kept for their text; older statements that guide selection grants callability,
+or that every definition is automatically supplied, are superseded by the
+current interface. Refresh installs current explanatory text while preserving
+earlier exact revisions and selections.
 
 ## Accepting a supplied responsibility offer
 
@@ -57,9 +69,9 @@ arrangement.
 ## Optional guide installation and refresh
 
 Installation is useful for making explanatory source files discoverable. It is
-not a prerequisite for native command use. The existing installation CLI still
-uses the fields below; its approval and request-size restrictions remain pending
-removal under UR-052.
+not a prerequisite for native command use. The installation CLI retains the
+fields below as attribution; `authorize_installation` is optional metadata and
+adds no approval gate.
 
 ```sh
 ai-personas --state-root /private/state --operator requester \
@@ -79,8 +91,9 @@ Copy the returned runtime and launch references into a request:
 }
 ```
 
-Use the actual snapshot revisions and complete digests. The request must fit
-16 KiB. Preview returns the proposed qualified guide bodies and reserves nothing.
+Use the actual snapshot revisions and complete digests. There is no application
+request-byte cap. Preview returns the proposed qualified guide bodies and
+reserves nothing.
 
 ```sh
 ai-personas --state-root /private/state --operator requester \
@@ -89,7 +102,10 @@ ai-personas --state-root /private/state --operator requester \
   install-work-command-guides installation.json --apply
 ```
 
-Apply requires unchanged fences, execution ownership and terminal invocations.
+Apply requires unchanged fences, execution ownership and quiescent invocations.
+An older uncertain call may retain its own persona's lease; it does not block
+guide installation when no transport or adoption owns an unfinished operation.
+That old call is neither replayed nor reconciled by installation.
 The guide sources, catalogue, launch revision and receipt commit together. An
 exact request replay returns its historical receipt without changing current
 sources or resources. A different request under the same ID is rejected.
@@ -98,24 +114,26 @@ profile directory, preserving old files, exact references and their restrictions
 For a current named guide source, refresh appends an immutable revision and
 advances its head. It cannot overwrite an unrelated source or rewind an older
 revision. Historical sources with earlier opaque IDs remain retained too.
-Only the current registered guide revisions expose commands. Preserved selections
-of older guides may therefore need replacement through the persona's ordinary
-next-context choices. Installation refuses to replace withdrawn or restricted
-current guides. The host registry connects exact guide references to native definitions;
-an arbitrary authored file cannot add a command.
+Only complete current registered guide revisions select detailed definitions.
+Preserved selections of older guides can be replaced through the persona's
+ordinary next-context choices when current definitions are useful. Exact source
+identities prevent installation from overwriting an unrelated source. The host
+registry connects exact guide references to native definitions; an arbitrary
+authored file cannot add a command.
 
 ## Inspect actual use
 
 Settings report `selective_work_commands` and `work_guide_directory`. For an
 accepted call, the development view's
 `resource_use.supplied_native_work_interface` reports the interface actually
-present in the retained input: its selection mode, selected command names,
-binding and serialized schema bytes. The supporting-resource entries show the
+present in the retained input: its invocation contract, definition-selection mode,
+selected command names, binding and serialized schema bytes. A null schema has
+four serialized bytes and supplies no command definition. The supporting-resource entries show the
 exact guide bodies supplied through context or read observations. Compare this
 with the accepted operations and work result to establish application.
 `supplied_input_file_choices.native_command_readiness` counts the readiness
 entries actually recorded in that input, including supplied bodies/schemas and
-missing grants. Older registered choices without these entries remain explicitly
+historical grant metadata. Older registered choices without these entries remain explicitly
 unrecorded; inspection does not reconstruct their readiness from current state.
 
 Selective supply reduces the command catalogue included in an individual input

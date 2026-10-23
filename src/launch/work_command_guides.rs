@@ -173,8 +173,8 @@ pub fn install_at(root: &Path, request: &Request, apply: bool, now: i64) -> Resu
         "native-guide installation snapshot changed",
     )?;
     require(
-        active_invocations(&state).is_empty(),
-        "active invocation blocks native-guide installation",
+        app.invocation_leases_quiescent(&state)?,
+        "unfinished invocation blocks native-guide installation",
     )?;
     app.store.require_quiescent_invocations()?;
     let mut next = state.clone();

@@ -135,8 +135,15 @@ local communication grant flags no longer restrict ordinary decisions. CONTROL
 reports effective access and preserves the old declarations as `historical_grants`.
 Known local inbox identities and actual record bindings remain required.
 
-All ordinary native work-command definitions are supplied without selecting or
-reading a guide. Guides are optional supporting material. The saved direct-access
+All implemented native work commands are callable without selecting or reading
+a guide. Detailed schemas and instructions follow complete current guide bodies
+actually selected or read into the input; a known command shape can be used
+directly. The admitted contract binds the complete command grammar independently
+of definition supply. No fixed command set or selection quota is imposed, and
+an empty definition selection leaves native invocation available. Historical
+inputs retain their actual contracts. Native guide refresh preserves older
+uncertain persona calls while requiring quiescent execution and adoption.
+The saved direct-access
 opt-in and model-confirmation flags no longer gate inference; exact requested
 model, effort, route, account and actual credentials are still bound to the call.
 
