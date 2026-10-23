@@ -108,6 +108,14 @@ and failed-attempt holds remain effective. Full host command access and tool
 installation remain available by default.
 
 This interface covers saved tasks, including episode roots and delegated children.
+
+Amending a task does not silently replace requester feedback. Review current
+directions, including handled items, and name any replacements explicitly in
+[new feedback](requester-feedback.md). Feedback received with a recorded mandate
+keeps that exact receipt context after amendment, delivery and replay. Its
+current view distinguishes an earlier mandate from the present one without
+deciding whether the direction still applies. Older unrecorded origins remain
+unknown.
 Optional activity retains its separate controls. With current task-scoped Direct
 admissions, an amendment can save while a participant has a call in another
 task. The existing call retains its authority; the amendment queues resumption

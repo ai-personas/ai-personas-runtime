@@ -2,6 +2,43 @@
 //! Persona accounts do not erase directions; replacements preserve their history.
 use super::*;
 
+/// The exact mandate observed when feedback entered the durable inbox.
+/// Delivery and later work must not rebind the original direction to a new task.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ReceivedMandate {
+    revision: u64,
+    sha256: String,
+}
+
+pub(crate) fn capture_mandate(state: &State, work: &str) -> Result<ReceivedMandate> {
+    let mandate = state.board.work(&w::WorkId(work.into()))?.mandate();
+    Ok(ReceivedMandate { revision: mandate.revision, sha256: digest(mandate)? })
+}
+
+pub(crate) fn received_mandate(observation: &Observation) -> Result<Option<ReceivedMandate>> {
+    observation.payload.get("received_mandate").cloned()
+        .map(serde_json::from_value).transpose().map_err(Into::into)
+}
+
+/// Compare retained receipt context with current state, without inferring the
+/// feedback's meaning or treating an amendment as an implicit replacement.
+pub(crate) fn mandate_context(state: &State, observation: &Observation) -> Result<Value> {
+    let work = state.board.work(&w::WorkId(observation.work.clone()))?;
+    let received = received_mandate(observation)?;
+    let relation = if let Some(origin) = &received {
+        let mandate = work.mandates.get(&origin.revision)
+            .ok_or_else(|| held("feedback received mandate unavailable"))?;
+        require(mandate.revision == origin.revision && digest(mandate)? == origin.sha256,
+            "feedback received mandate binding changed")?;
+        if origin.revision == work.current_mandate { "same_mandate" } else { "different_mandate" }
+    } else {
+        "origin_unrecorded"
+    };
+    Ok(json!({"received_mandate":received,"current_mandate_revision":work.current_mandate,
+        "mandate_relation":relation}))
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 #[schemars(rename = "RequesterFeedbackDisposition")]
@@ -98,6 +135,7 @@ pub(super) fn current_status(
     };
     Ok(Some((json!({
         "current_direction":tracked.then_some(successor.is_none()),"superseded_by":successor,
+        "mandate_context":mandate_context(state, observation)?,
         "history_retained":true,"changes_mandate_or_authority":false,
         "reading_is_not_reactivation":true,"completion_verified":false
     }), inherited)))
@@ -230,6 +268,7 @@ pub(super) fn control(
         "direction_order":"Current feedback bodies in actual_observations are ordered by received_at_unix, oldest first, independently of pending/disposition status. latest_received identifies the newest current timestamp group; equal timestamps do not establish an order. Explicitly replaced directions remain in history and are not automatically supplied as current feedback.",
         "accounting":"pending is the current tracked queue for this actor and work. none_pending means that queue is empty, not that the work is complete. A pending record alone does not block closure or retirement; accepted outcomes, delivery and unresolved execution remain separate. Closing work or retiring does not resolve or erase the record. recent_dispositions retains available persona accounts for directions still current, newest first. Handled or declined does not itself remove the original direction or prove compliance. An explicit requester replacement removes the earlier direction from this automatic context and pending queue; its original body and all persona accounts remain discoverable through retained history. Do not resolve historical accounts again or treat replacement as work completion.",
         "attribution":"Each item's sender identifies its author. Local operator input is attributed to the intake operator; CONTROL.requester identifies the need's requester, who may be a different persona. No item establishes that persona's assent or acceptance.",
+        "mandate_context":"Each feedback status identifies the exact mandate recorded at receipt and its relation to the current mandate. Different means received under another mandate, not automatically obsolete or replaced; same does not prove current relevance or fulfillment. Missing origin stays unrecorded. Judge applicability from the actual text, current request and explicit replacements. Do not attribute an earlier report to a newer direction or repeat completed work merely because the earlier direction remains retained.",
         "rule":"Current feedback bodies are in actual_observations. For resolution copy pending[].observation exactly, including its full prefix; payload.id is only the requester's input label. These directions survive reads, waits, stops and persona accounts until their author explicitly replaces them. A supersedes entry is an exact history reference. When its body is useful, prefer its handle in CONTROL.input_history_choices with history_record_read_from_input; otherwise copy the exact reference into history_record_read.reference. Neither route needs a new query for a known reference. The link supplies no earlier body. History reads label replaced feedback with requester_feedback_status and do not reactivate it. For unresolved feedback omit resolve_requester_feedback; pending is not a valid disposition. Neither a persona account nor requester replacement changes the mandate, authority, resources, continuation or verified completion."
     }))
 }
@@ -421,6 +460,7 @@ pub(super) fn project_for_recipient(
             "file_references":observation.payload.get("file_references").cloned().unwrap_or_else(|| json!([])),
             "file_bodies_supplied_by_attachment":false,
             "current_direction":feedback_status["current_direction"],
+            "mandate_context":feedback_status["mandate_context"],
             "superseded_by":feedback_status["superseded_by"],
             "account":receipt.map(|r|json!({"invocation":r.invocation,
                 "disposition":r.disposition,"at_unix":r.at_unix,"reason":r.reason})),

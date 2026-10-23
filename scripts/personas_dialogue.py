@@ -83,6 +83,19 @@ def terminal_text(value):
                    else json.dumps(c, ensure_ascii=True)[1:-1] for c in str(value))
 
 
+def feedback_mandate_summary(item):
+    context = item.get("mandate_context") or {}
+    received = context.get("received_mandate")
+    if received is None:
+        return "Task revision at feedback receipt was not recorded."
+    original = received["revision"]
+    current = context["current_mandate_revision"]
+    if original == current:
+        return f"Received during the current task revision ({current})."
+    return (f"Received during task revision {original}; current task revision is {current}. "
+            "Review whether the direction still applies; only an explicit replacement removes it.")
+
+
 def readable_messages(messages, show_invocation=False):
     """Render already-permitted messages, preserving citations and copy counts.
 
@@ -1329,6 +1342,7 @@ class Dialogue:
                           "superseded": "has earlier feedback explicitly replaced by your later direction",
                           "declined": "declined this feedback"}.get(item.get("status"), "has no currently available feedback disposition")
                 self.ui.say(f"{item['label']} {status}.")
+                self.ui.say(feedback_mandate_summary(item))
                 if item.get("feedback_body_supplied"):
                     self.ui.say("Your feedback: " + item["feedback_text"])
                 if item.get("file_references"):
@@ -1522,6 +1536,7 @@ class Dialogue:
             self.ui.say("Earlier current or queued feedback without a later replacement:")
             for index, item in enumerate(current, 1):
                 self.ui.say(f"{index}. {item['feedback_text']}")
+                self.ui.say(feedback_mandate_summary(item))
             choice = self.ui.ask("Enter numbers of feedback this message replaces, separated by spaces, "
                                  "or Enter to keep all earlier directions. Their original history is retained:")
             if choice.strip():

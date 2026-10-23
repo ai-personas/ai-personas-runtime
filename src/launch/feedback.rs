@@ -149,6 +149,7 @@ fn authorize(state: &State, saved: &Saved, operator: &str, input: &FeedbackInput
 fn observation(
     state: &State, operator: &str, input: &FeedbackInput, now: i64,
     mut exposure: Exposure, queued: &[InputRecord],
+    received_mandate: Option<requester_feedback::ReceivedMandate>,
 ) -> Result<Observation> {
     let id = bounded_composite_id("operator-feedback", &[operator, &input.id]);
     let mut superseded = Vec::new();
@@ -168,6 +169,7 @@ fn observation(
     let mut payload = json!({"id":input.id,"sender":operator,"recipient":input.persona,
         "work":input.work,"text":input.text,"origin":"local_operator_input",
         "independently_authenticated":false,"changes_mandate_or_authority":false});
+    if let Some(mandate) = received_mandate { payload["received_mandate"] = json!(mandate); }
     if !superseded.is_empty() { payload["supersedes"] = json!(superseded); }
     let sources = input.file_references.iter().map(file_reference).collect::<Result<Vec<_>>>()?;
     if !sources.is_empty() {
@@ -194,13 +196,14 @@ fn current_targets(state: &State, input: &FeedbackInput, queued: &[InputRecord])
     Ok(())
 }
 
-fn view(state: &State, record: &InputRecord, receipt: Option<s::ObjectRef>, replayed: bool) -> Value {
+fn view(state: &State, record: &InputRecord, receipt: Option<s::ObjectRef>, replayed: bool) -> Result<Value> {
     let queued = matches!(record.delivery, Delivery::Queued);
     let delivered = matches!(record.delivery, Delivery::Delivered { .. });
     let focus = state.personas.get(&record.input.persona).and_then(|p| p.focus.get(&record.input.work));
-    json!({"observation":record.observation.id,"work":record.input.work,"persona":record.input.persona,
+    Ok(json!({"observation":record.observation.id,"work":record.input.work,"persona":record.input.persona,
         "replayed":replayed,"receipt":receipt,"delivery":record.delivery,"queued":queued,
         "received_context":record.received_context,
+        "mandate_context":requester_feedback::mandate_context(state, &record.observation)?,
         "file_references":record.input.file_references,
         "file_bodies_supplied_by_attachment":false,"context_selection_changed":false,
         "supply":if queued {"retained for delivery at a settled decision boundary"} else if delivered {
@@ -209,7 +212,7 @@ fn view(state: &State, record: &InputRecord, receipt: Option<s::ObjectRef>, repl
         "retained_until_explicit_disposition":queued || (delivered && focus.is_some_and(|f| f.pending_requester_feedback.contains(&record.observation.id))),
         "superseded_observations":record.input.supersedes,
         "current_direction":if delivered {focus.map(|f| !f.feedback_replacements.contains_key(&record.observation.id))} else {None},
-        "original_observations_and_accounts_retained":true})
+        "original_observations_and_accounts_retained":true}))
 }
 
 /// Persist the exact input independently of execution ownership. An idle owner
@@ -224,18 +227,25 @@ pub fn feedback(app: &mut Runtime, operator: &str, input: &FeedbackInput, now: i
         if records.object(&id)?.is_some() {
             let (head, retained) = entry(records, &id)?;
             require(retained.operator == operator && retained.input == *input, "feedback identity conflict")?;
-            return Ok::<_, RuntimeError>((view(&state, &retained, Some(head.exact_ref()?), true), Vec::new()));
+            return Ok::<_, RuntimeError>((view(&state, &retained, Some(head.exact_ref()?), true)?, Vec::new()));
         }
         let (old, mut inbox) = inbox(records)?;
         let queued = inbox.pending.values().map(|id| entry(records, id).map(|(_, value)| value)).collect::<Result<Vec<_>>>()?;
-        let observation = observation(&state, operator, input, now, exposure, &queued)?;
+        // Capture once at receipt, including when delivery must wait. An exact
+        // replay of an older observation preserves its recorded or absent origin.
+        let observation_id = bounded_composite_id("operator-feedback", &[operator, &input.id]);
+        let received_mandate = match state.observations.get(&observation_id) {
+            Some(existing) => requester_feedback::received_mandate(existing)?,
+            None => Some(requester_feedback::capture_mandate(&state, &input.work)?),
+        };
+        let observation = observation(&state, operator, input, now, exposure, &queued, received_mandate)?;
         if let Some(existing) = state.observations.get(&observation.id) {
             require(existing.kind == observation.kind && existing.actor == observation.actor
                 && existing.work == observation.work && existing.invocation.is_none()
                 && existing.payload == observation.payload, "feedback identity conflict")?;
             let retained = InputRecord { operator: operator.into(), input: input.clone(), observation: existing.clone(),
                 sequence: 0, received_context: None, delivery: Delivery::Delivered { at_unix: existing.at_unix } };
-            return Ok((view(&state, &retained, None, true), Vec::new()));
+            return Ok((view(&state, &retained, None, true)?, Vec::new()));
         }
         current_targets(&state, input, &queued)?;
         inbox.sequence = increment(inbox.sequence)?;
@@ -253,7 +263,7 @@ pub fn feedback(app: &mut Runtime, operator: &str, input: &FeedbackInput, now: i
             }), delivery: Delivery::Queued };
         inbox.pending.insert(record.sequence, id.clone());
         let input_change = change(None, &id, INPUT_KIND, &record)?;
-        let result = view(&state, &record, Some(input_change.object.exact_ref()?), false);
+        let result = view(&state, &record, Some(input_change.object.exact_ref()?), false)?;
         Ok((result, vec![input_change, change(old.as_ref(), INBOX, INBOX, &inbox)?]))
     };
     let result = app.store.feedback_transaction(None, enqueue)??;
@@ -264,7 +274,7 @@ pub fn feedback(app: &mut Runtime, operator: &str, input: &FeedbackInput, now: i
         return app.store.feedback_transaction(None, |runtime, _, records| {
             let state = Runtime::decode_inspection_state(&runtime)?;
             let (head, record) = entry(records, &id)?;
-            Ok::<_, RuntimeError>((view(&state, &record, Some(head.exact_ref()?), result["replayed"] == true), Vec::new()))
+            Ok::<_, RuntimeError>((view(&state, &record, Some(head.exact_ref()?), result["replayed"] == true)?, Vec::new()))
         })?;
     }
     Ok(result)
@@ -274,8 +284,10 @@ fn install(state: &mut State, saved: &Saved, record: &InputRecord, now: i64) -> 
     let input = &record.input;
     authorize(state, saved, &record.operator, input, now)?;
     let original = &record.observation;
+    requester_feedback::mandate_context(state, original)?;
     let expected = observation(state, &record.operator, input, original.at_unix,
-        original.exposure.clone().ok_or_else(|| held("queued feedback provenance missing"))?, &[])?;
+        original.exposure.clone().ok_or_else(|| held("queued feedback provenance missing"))?, &[],
+        requester_feedback::received_mandate(original)?)?;
     require(digest(&expected)? == digest(original)?, "queued feedback observation binding changed")?;
     if let Some(existing) = state.observations.get(&original.id) {
         return require(digest(existing)? == digest(original)?, "feedback observation conflict");
@@ -383,6 +395,7 @@ pub(super) fn append_view(
             "feedback_text":record.input.text,"status":if waiting {"queued"} else {"delivery_unavailable"},
             "file_references":record.input.file_references,"file_bodies_supplied_by_attachment":false,
             "delivery":record.delivery,"receipt":head.exact_ref()?,"current_direction":null,
+            "mandate_context":requester_feedback::mandate_context(state, &record.observation)?,
             "queued_current_direction":waiting && !replacements.contains_key(&record.observation.id),
             "replacement_queued_by":replacements.get(&record.observation.id),
             "received_at_unix":record.observation.at_unix,"account":null,

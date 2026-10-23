@@ -82,6 +82,21 @@ records the runtime and launch references and the actual invocation states seen
 at receipt. `queued: true` means retained input awaiting delivery, not an
 observation already supplied to the persona.
 
+New inputs also retain `received_mandate`, the revision and digest of the exact
+task mandate observed at receipt. Persona feedback status, intake receipts and
+work results expose `mandate_context`: that original binding, the current
+mandate revision and `same_mandate`, `different_mandate` or `origin_unrecorded`.
+Delivery after an amendment keeps the receipt's original binding. Exact replay
+does not recapture it. Earlier records without this fact remain unrecorded;
+the runtime does not infer an origin from timestamps or today's task.
+
+This is arrival context, not an interpretation of which work the text concerns.
+A different mandate does not automatically replace a direction, and the same
+mandate does not prove relevance or fulfillment. Inspect all current directions,
+including handled ones, when changing tasks, and explicitly replace those that
+the new request supersedes. Personas use the actual text and current task to
+judge applicability; retained directions do not require repeating completed work.
+
 The foreground owner delivers ready inputs in arrival order after its current
 calls and host commands settle, before another round of decisions and before its
 final result. When no owner is running, intake can deliver immediately after
@@ -128,7 +143,7 @@ queued directions when choosing which earlier inputs a later message replaces. N
 history queries and exact history reads remain available. Their current
 `requester_feedback_status` annotation identifies an explicit replacement without
 changing the immutable original payload or treating a history read as a new
-instruction.
+instruction. It also reports the receipt's mandate context when recorded.
 
 The new feedback body's `supersedes` entries and a status annotation's
 `superseded_by.reference` use the same typed exact references as native history.
