@@ -12,6 +12,12 @@ scope, maintenance accounting and conflicts follow the existing file-save rules.
 The source must already exist. A missing, null, stale or same-response base is
 not replaced with a newer head.
 
+Choose the operation for the intended change. For a localized correction,
+use a short unique passage with `file_edit`. For a complete rewrite, use
+`file_write` with the same source, scope and path, the exact current
+`base_revision`, and only the complete new `text`. Reproducing an entire old
+document as `old_text` adds unnecessary copying and opportunities for a mismatch.
+
 Each `edits` entry contains `old_text` and `new_text`:
 
 - `old_text` must be nonempty and occur exactly once in the immutable base.
@@ -30,6 +36,13 @@ There is no edit-count or text-size quota. The exact-match rules establish which
 bytes the persona requested to change. They do not establish that the correction
 is useful or accurate. Errors identify the operation and edit index without
 copying the match or replacement text into the diagnostic.
+
+A missing-match diagnostic also reports when the replacement already occurs
+somewhere in the base. That observation does not prove it is in the intended
+location or that an earlier edit succeeded. Inspect the actual current body and
+accepted save and communication receipts before retrying. A rejected complete
+decision adopts none of its proposed saves, messages or maintenance dispositions;
+previously accepted changes and messages keep their actual outcomes.
 
 The revision's `native_file_edit` origin records the persona, invocation,
 operation and exact base reference. The accepted response retains the original

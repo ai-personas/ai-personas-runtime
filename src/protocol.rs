@@ -429,6 +429,9 @@ pub enum Operation {
     /// Source ownership, protection and retirement are metadata, not write gates.
     /// A revision preserves the source owner, records its actual author and makes
     /// a retired source current again. Use the exact current head as the base.
+    /// For a full replacement, keep the existing source, scope and path, copy
+    /// its exact base_revision, and supply only the complete new text. There is
+    /// no old_text to reproduce. Use file_edit for localized replacements.
     /// Reuse an exact saved reference when no content change is needed.
     /// A supporting-file save does not require put_artifact, release, delivery
     /// or a work-completion judgment. Register a work artifact only when that
@@ -470,6 +473,10 @@ pub enum Operation {
     /// matches must not overlap. All matches use the base, never the result of
     /// another edit. Untouched bytes are preserved. The complete edit must
     /// change the bytes; reuse the exact reference when no change is needed.
+    /// Choose short, unique exact passages for localized changes. For a full
+    /// rewrite, file_write with the same source and exact base_revision avoids
+    /// reproducing the entire old body. A missing match rejects the complete
+    /// decision; inspect the current body and accepted receipts before retrying.
     /// This saves a new revision through the same atomic adoption, selection
     /// and citation paths as file_write. It does not write a host file.
     FileEdit {

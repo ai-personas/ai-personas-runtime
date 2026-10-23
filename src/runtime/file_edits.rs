@@ -8,8 +8,14 @@ pub(super) fn apply(base: &f::FileRevision, operation: &str, edits: &[p::TextEdi
     for (index, edit) in edits.iter().enumerate() {
         let first_char = edit.old_text.chars().next()
             .ok_or_else(|| held(format!("file_edit {operation}.edits[{index}].old_text: empty match")))?;
-        let start = text.find(&edit.old_text)
-            .ok_or_else(|| held(format!("file_edit {operation}.edits[{index}].old_text: no exact base match")))?;
+        let start = text.find(&edit.old_text).ok_or_else(|| {
+            let hint = if !edit.new_text.is_empty() && text.contains(&edit.new_text) {
+                "replacement text already occurs somewhere in the base; this alone does not prove the intended edit was applied. Inspect the current body and accepted receipts before repeating the decision"
+            } else {
+                "copy a unique passage from the exact base for a local edit; for a full rewrite use file_write with the same source and exact base_revision, supplying only the complete new text"
+            };
+            held(format!("file_edit {operation}.edits[{index}].old_text: no exact base match; {hint}"))
+        })?;
         // Look after the first character, not after the whole match: overlapping
         // occurrences also make an edit ambiguous. Every offset is a UTF-8 boundary.
         require(!text[start + first_char.len_utf8()..].contains(&edit.old_text),
