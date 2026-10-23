@@ -381,7 +381,7 @@ existing supported controls. A local network failure can still have unknown
 remote outcome and usage. Peer progress neither reconciles that failure nor
 releases its actor, repeats its request or replenishes resources. Complete
 rejected responses can retain an already accepted ordinary continuation under
-the [foreground continuation rules](../RUNTIME-REFERENCE.md#foreground-cohort-workflow).
+the [failure and recovery rules](../RUNTIME-REFERENCE.md#18-failure-and-recovery-principles).
 [Runtime reference](../RUNTIME-REFERENCE.md) documents the
 operator controls; [provider onboarding](provider-onboarding.md) describes probe
 evidence and [activation](activation.md) covers same-account renewal/migration.

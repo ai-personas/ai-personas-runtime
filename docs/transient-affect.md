@@ -72,9 +72,10 @@ The persona can author a fresh interpretation in a later ordinary decision.
 Transient updates do not impose the effective-character barrier on other lawful
 operations in that ordinary decision, or cancel already accepted host commands.
 They do not change stable traits, baseline VAD, permissions, accepted obligations,
-continuation or the model. Initialization and restricted selection repair cannot
-update affect. Calling a replacement character an affect interpretation cannot
-justify bypassing character controls; semantic misuse still requires judgment.
+continuation or the model. Initialization establishes character before a later
+ordinary decision can update current affect. New calls have no restricted-repair
+mode. Calling a replacement character an affect interpretation does not change
+its meaning or bypass the character-adoption ordering rule.
 
 The [development view](persona-development.md) displays the current
 state separately from character. With `--invocation`, it also shows the exact

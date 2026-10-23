@@ -32,8 +32,9 @@ Reading a guide supplies its actual text; discovering a reference supplies only
 metadata. Neither action executes a command, establishes successful work or
 changes a retained selection automatically. Primitive file, communication and
 maintenance operations remain in the application Decision schema. Initialization
-and selection-repair modes remain separate from ordinary work; their remaining
-restrictions are tracked in [execution resources](execution-resources.md).
+first establishes the accepted character, then a fresh decision receives it.
+New calls have no restricted selection-repair mode; see
+[execution resources](execution-resources.md).
 
 Selected command instructions accompany their definitions under
 `command_instructions`. `native_command_readiness` separates actual guide-body

@@ -358,8 +358,6 @@ enum Command {
         invocation: String,
         #[arg(long, value_enum)]
         profile: ProfileArg,
-        #[arg(long)]
-        selection_repair: bool,
         /// JSON containing one exact grant {id,sha256}. Enables no opportunity.
         #[arg(long)]
         intake_delegation: Option<PathBuf>,
@@ -493,8 +491,6 @@ enum Command {
         provider_config: PathBuf,
         #[arg(long)]
         working_directory: PathBuf,
-        #[arg(long)]
-        selection_repair: bool,
         /// Explicit episode selection for this existing opportunity; no implicit resume.
         #[arg(long)]
         intake_delegation: Option<PathBuf>,
@@ -899,7 +895,6 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         }
         Command::Schema => {
             return emit(&serde_json::json!({"decision":protocol::decision_schema(),
-            "selection_repair_decision":protocol::selection_repair_schema(),
             "provider_transport":provider::json_object_schema(),
             "provider_text_format":{"type":"json_object"},
             "legacy_provider_transport":runtime::provider_schema(),
@@ -1612,7 +1607,6 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             work,
             invocation,
             profile,
-            selection_repair,
             intake_delegation: _,
         } => {
             let request = PrepareRequest {
@@ -1620,11 +1614,7 @@ async fn run(cli: Cli) -> runtime::Result<()> {
                 persona,
                 work,
                 profile: profile.into(),
-                mode: if selection_repair {
-                    Mode::SelectionRepair
-                } else {
-                    Mode::Ordinary
-                },
+                mode: Mode::Ordinary,
             };
             let prepared = match intake_selection {
                 Some(selection) => app.prepare_with_intake_delegation(request, selection, now)?,
@@ -1733,7 +1723,6 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             profile,
             provider_config,
             working_directory,
-            selection_repair,
             intake_delegation: _,
         } => {
             let profile: Profile = profile.into();
@@ -1748,11 +1737,7 @@ async fn run(cli: Cli) -> runtime::Result<()> {
                 persona,
                 work,
                 profile,
-                mode: if selection_repair {
-                    Mode::SelectionRepair
-                } else {
-                    Mode::Ordinary
-                },
+                mode: Mode::Ordinary,
             };
             let report = match intake_selection {
                 Some(selection) => {

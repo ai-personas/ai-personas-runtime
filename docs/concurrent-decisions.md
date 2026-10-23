@@ -7,8 +7,8 @@ resource or nesting quota.
 
 The independent coordinator holds the Store's execution owner, prepares each
 request, awaits transport futures and adopts completed responses one at a time.
-Each persona retains one current primary invocation. First-character,
-responsibility-acceptance and selection-repair transitions run alone because
+Each persona retains one current primary invocation. First-character and
+responsibility-acceptance transitions run alone because
 subsequent decisions must receive their changed shared state. Optional-activity
 admissions also run alone because they seal shared lifecycle state. Foreground
 work is not a background service across roots.
@@ -31,7 +31,7 @@ edits. They are snapshots at admission, and can change while inference runs.
 An intention does not establish current execution, availability, successful work,
 agreement, a new commitment or permission to edit a peer's files. The runtime
 assigns no role or task from this projection. Other tasks, private context and
-in-flight requests are excluded. Initialization and restricted repair omit it.
+in-flight requests are excluded. Initialization omits it. Historical restricted-repair inputs retain their original projections; new calls use ordinary mode.
 
 ## Freshness and evidence
 

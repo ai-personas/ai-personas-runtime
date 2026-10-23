@@ -136,6 +136,7 @@ accept a new offer, close work, resolve feedback or resume participation.
 Judgments retained before origin recording have `origin: null` and
 `mandate_relation: "origin_unrecorded"`. The runtime preserves their bodies and
 does not infer provenance from the latest continuation or current scope.
-Character-only adoption and selection repair retain the previous ordinary
-judgment and its origin together. A new ordinary judgment replaces both only
+Character-only adoption retains the previous ordinary judgment and its origin
+together. Historical selection-repair records keep that same distinction; no new
+restricted-repair calls are admitted. A new ordinary judgment replaces both only
 when the complete response is adopted.

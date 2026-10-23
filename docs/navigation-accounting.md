@@ -28,8 +28,9 @@ These counters are logical native-operation charges, not physical disk reads,
 model tokens or money. Some graph projections retain conservative charges.
 File reads and discovery now account for the complete retained corpus used to
 construct their view; subject scans and returned bytes are additional charges.
-Selection repair also records its declared projection envelope. Store
-record reads are metered separately and are not included again. Character-only
+Historical selection-repair receipts retain their declared projection envelope;
+new calls use ordinary mode without that restricted projection. Store record
+reads are metered separately and are not included again. Character-only
 adoption fences ordinary navigation and records a zero native-operation charge.
 
 The reservation can remain `Uncertain` after its navigation charge is known:

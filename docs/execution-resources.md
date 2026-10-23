@@ -7,6 +7,15 @@ the requested behavior.
 
 ## Implemented removal
 
+Fresh admissions use ordinary mode, including recovery after actual provider or
+host failure. The CLI no longer exposes `--selection-repair` or its restricted
+decision schema. The Rust preparation API rejects that retired mode before
+preparation writes or provider dispatch, and Direct preparation no longer
+switches to it after an overflow error. Historical triggers and receipts retain
+their exact meaning; they do not restrict a new ordinary decision. Recovery can
+include persona-chosen context changes, maintenance, tools or communication,
+without a repair-only workflow or application attempt allowance.
+
 Ordinary launches no longer stop at session, consideration, lifetime or work
 attempt ceilings. Initial character authorship also has no attempt quota.
 Its model instructions and evidence-identifier descriptions no longer repeat
