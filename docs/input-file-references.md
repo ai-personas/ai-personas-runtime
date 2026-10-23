@@ -12,6 +12,7 @@ The `input-file-choices-v2` interface supports these uses:
 |---|---|
 | `next_assets` or `next_fragments`, with `kind: replace_from_input` and `handles` | Select the exact references for later context under the normal scope, lifetime and admission checks. |
 | `file_write.qualification_handles` | Add the chosen exact references to the write's literal `qualifications`. |
+| `file_edit.qualification_handles` | Add the chosen exact references to the edited revision's literal `qualifications`. |
 | `file_import.qualification_handles` | Add the chosen exact references to an imported asset's literal `qualifications`. |
 | Host-command `inputs.stdin_asset` with `kind: input_file` and `handle` | Pass the exact full UTF-8 supporting asset as command stdin without copying its body into the response. This does not select model context. |
 | `communicate.reference_handles` | Attach canonical `file_references` to the deposited message. |

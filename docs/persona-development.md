@@ -98,6 +98,11 @@ retirement are metadata, not application write gates. An accepted revision keeps
 the original source owner, records the actual author and reactivates a retired
 source. Active paths must remain distinct within that recorded owner and scope.
 
+For a small correction, [file_edit](native-file-edits.md) can replace exact text
+against the current base without re-authoring the whole file. It preserves all
+untouched bytes and records their base provenance separately from the authored
+edits. It uses the same maintenance, character-adoption and save-reference paths.
+
 To reorganize a file, write a new revision of the same source at the intended
 relative native path. To combine material, write the maintained text and decide
 which superseded sources should leave the active collection. `file_retire` uses
@@ -121,7 +126,7 @@ ranges. Preserving the old selection does not advance it to a new head.
 
 To send an exact citation to a newly saved note immediately, use
 `reference_operations` on `communicate` or an authored `reply`, naming the exact
-`file_write` or `file_import` IDs. The host attaches accepted references after
+`file_write`, `file_edit` or `file_import` IDs. The host attaches accepted references after
 the local saves succeed, alongside any current `reference_handles`. Do not add
 `depends_on` to `communicate`; operation references derive those prerequisites.
 This supplies citation metadata without reading or selecting a body, and local

@@ -1,12 +1,17 @@
 # Native file write conflicts
 
-`file_write.source` or `file_import.source` identifies a native file. Its `path` is unique among the
+The `source` on `file_write`, `file_edit` or `file_import` identifies a native file. Its `path` is unique among the
 active sources belonging to that persona in the same scope. Creating a different
 source at an occupied path does not overwrite the existing file. To revise a
 file, reuse its source and exact current `base_revision`. To create a separate
 file, choose an unused path. A missing or null `base_revision` means creation;
 it does not request the latest revision of an existing source. Retiring a source
 keeps its immutable evidence.
+
+`file_edit` always requires an accepted base and cannot create a source. Its
+exact matches are resolved only after that base passes the current-head check.
+A stale base never triggers a fuzzy match or an automatic edit of the latest
+head. See [native text edits](native-file-edits.md).
 
 The runtime checks paths after staging the allowed writes and retirements for
 the complete decision. A valid move, path swap, or retirement and replacement

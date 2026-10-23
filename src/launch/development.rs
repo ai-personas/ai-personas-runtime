@@ -242,7 +242,8 @@ fn invocation_evidence(
             "supplied_text_sha256":s::sha256_bytes(text.as_bytes()),
             "supply_routes":[],
             "different_from_authoring_invocation":matches!(&stored.origin,
-                Some(RevisionOrigin::PersonaInvocation { invocation_id: authoring, .. }) if authoring != invocation_id)
+                Some(RevisionOrigin::PersonaInvocation { invocation_id: authoring, .. }
+                    | RevisionOrigin::NativeFileEdit { invocation_id: authoring, .. }) if authoring != invocation_id)
         }));
         let mut route = if candidate.route["kind"] == "qualified_context" {
             json!({"kind":"selected_or_mandatory_context"})
@@ -349,7 +350,7 @@ fn accepted_decision_view(
             if reference.revision.starts_with(p::PROPOSED_REVISION_PREFIX)
                 || reference.revision.starts_with(p::PROPOSED_OPERATION_PREFIX)
             {
-                // Same-response FileWrite policies and retained origins are
+                // Same-response save policies and retained origins are
                 // checked below before any of this projection is returned.
                 continue;
             }
@@ -391,13 +392,14 @@ fn accepted_decision_view(
             {
                 return Ok(unavailable());
             }
-            // Never infer successful storage from an authored FileWrite alone.
+            // Never infer successful storage from an authored save alone.
             // A currently retained exact origin corroborates the adoption report.
             let retained = if applied {
                 state.sources.get(source).and_then(|source| {
                     source.revisions.iter().find(|stored| {
                         matches!(&stored.origin,
                             Some(RevisionOrigin::PersonaInvocation { persona, invocation_id, operation_id }
+                                | RevisionOrigin::NativeFileEdit { persona, invocation_id, operation_id, .. }
                                 | RevisionOrigin::HostFileImport { persona, invocation_id, operation_id, .. })
                             if persona == &archive.actor
                                 && invocation_id == &archive.response.invocation_id

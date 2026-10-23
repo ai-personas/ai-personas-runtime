@@ -222,6 +222,7 @@ pub(super) fn seal_intents(
                 .iter()
                 .find_map(|candidate| match candidate {
                     p::Operation::FileWrite { id, source, .. }
+                    | p::Operation::FileEdit { id, source, .. }
                     | p::Operation::FileImport { id, source, .. } if id == dependency => Some(source),
                     _ => None,
                 })

@@ -304,6 +304,12 @@ Native file identities are source IDs, not paths. Paths are human-facing organiz
 
 `file_write` writes native UTF-8 content. It does not write the host filesystem. Use `host.command.v1` for host files.
 
+`file_edit` applies exact text replacements to an existing native UTF-8 revision.
+Each `old_text` must occur once in the specified current base; matches must not
+overlap. All replacements use that unchanged base and preserve every other byte.
+The saved revision retains its base provenance and the persona's authored edits.
+See [native text edits](docs/native-file-edits.md) for the full contract.
+
 `file_import` copies an existing regular UTF-8 host file into the native asset store while preserving observed bytes and import provenance. It does not move the host file, execute it, or make the imported bytes persona-authored. A file produced by a host command can be imported only after its result is observed in a fresh decision.
 
 Discovery is explicit and lexical:
@@ -330,7 +336,7 @@ alongside a later result, choose its exact reference or current input-file handl
 in the next-context replacement, including other references still needed.
 
 For `replace_from_saved_files`, each `files` entry names an `operation` from the
-same response's `file_write` or `file_import` operations and an optional
+same response's `file_write`, `file_edit` or `file_import` operations and an optional
 `lifetime` (`work` or `next_call`). The host derives the source ID and binds the
 accepted revision. The new files and optional `input_handles` form the complete
 replacement set; a save does not automatically select itself. Scope, exact

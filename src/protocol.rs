@@ -51,7 +51,7 @@ pub struct Decision {
     /// response with change.operation_ids, including edits made for this task.
     pub fragment_maintenance: Maintenance,
     /// Account for every supporting-asset mutation in this response, including
-    /// task deliverable edits. Each file_import and each file_write with scope assets belongs in
+    /// task deliverable edits. Each file_import and each file_write/file_edit with scope assets belongs in
     /// change.operation_ids; revising an existing file is still a change.
     pub asset_maintenance: Maintenance,
     pub next_fragments: SelectionIntent,
@@ -177,7 +177,7 @@ pub enum SelectionIntent {
         reason: String,
         handles: Vec<String>,
     },
-    /// Select full UTF-8 files saved by exact file_write or file_import operation
+    /// Select full UTF-8 files saved by exact file_write, file_edit or file_import operation
     /// IDs in this response. The host derives each source and binds its accepted
     /// revision; do not repeat source IDs or invent hashes. Optional input_handles
     /// retain useful current-input references alongside the new files. This
@@ -193,7 +193,7 @@ pub enum SelectionIntent {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct SavedFileSelection {
-    /// Exact ID of a file_write or file_import operation in this response.
+    /// Exact ID of a file_write, file_edit or file_import operation in this response.
     pub operation: String,
     /// Optional selection lifetime: work or next_call. Omitted/null uses work.
     pub lifetime: Option<String>,
@@ -207,9 +207,9 @@ pub struct SavedFileSelection {
 #[serde(deny_unknown_fields)]
 pub struct ExactRef {
     /// Exact source identity, copied unchanged from an accepted reference or the
-    /// referenced same-response FileWrite.source. A path or similar name is not a binding.
+    /// referenced same-response file-save source. A path or similar name is not a binding.
     pub source: String,
-    /// An observed accepted revision or proposal-op:<exact FileWrite operation id>
+    /// An observed accepted revision or proposal-op:<exact file-save operation id>
     /// for a new same-response file. Never invent a hash or use a bare operation id.
     pub revision: String,
     pub representation: String,
@@ -274,7 +274,7 @@ pub enum ReplyDisposition {
         /// Use these for exact citations instead of retyping hashes in prose.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         reference_handles: Vec<String>,
-        /// Exact file_write or file_import operation IDs in this response. The
+        /// Exact file_write, file_edit or file_import operation IDs in this response. The
         /// host attaches their accepted full UTF-8 references without reading
         /// bodies or retyping source IDs/hashes. Can accompany reference_handles.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -465,6 +465,28 @@ pub enum Operation {
         qualification_handles: Vec<String>,
         policy_id: String,
     },
+    /// Edit an existing native UTF-8 file against its exact accepted current
+    /// base. Each old_text must occur exactly once in that unchanged base;
+    /// matches must not overlap. All matches use the base, never the result of
+    /// another edit. Untouched bytes are preserved. The complete edit must
+    /// change the bytes; reuse the exact reference when no change is needed.
+    /// This saves a new revision through the same atomic adoption, selection
+    /// and citation paths as file_write. It does not write a host file.
+    FileEdit {
+        id: String,
+        scope: Scope,
+        source: String,
+        /// Relative native-store path, with the same rules as file_write.
+        path: String,
+        /// Required exact accepted current head. No latest-head substitution,
+        /// fuzzy match, source creation or same-response base is performed.
+        base_revision: String,
+        edits: Vec<TextEdit>,
+        qualifications: Vec<ExactRef>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        qualification_handles: Vec<String>,
+        policy_id: String,
+    },
     /// Copy an existing regular UTF-8 host file into a native supporting asset without
     /// rewriting its contents. This is asset maintenance, never a character
     /// fragment or a claim that you authored the imported bytes. Reads happen
@@ -603,7 +625,7 @@ pub enum Operation {
         /// or supplied. Prefer handles to retyping source identities and hashes.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         reference_handles: Vec<String>,
-        /// Exact same-response file_write or file_import IDs. Attach their
+        /// Exact same-response file_write, file_edit or file_import IDs. Attach their
         /// accepted full UTF-8 references; no extra receipt-only call is needed.
         /// These references derive prerequisites without a depends_on field.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -682,7 +704,7 @@ pub enum Operation {
         /// definitions appear in CONTROL.work_capability.inputs_schema. Where
         /// the action permits an earlier local record, cite its inner record ID.
         inputs: Value,
-        /// Only file_write/file_import operation IDs whose proposed revisions this command
+        /// Only file_write/file_edit/file_import operation IDs whose proposed revisions this command
         /// consumes. Defaults to [] when omitted; never name another work_command here.
         /// Ordered local commands need no command-to-command depends_on edge.
         /// Reading or executing something does not supply its result until a
@@ -698,7 +720,7 @@ pub enum Operation {
         binding_revision: String,
         inputs: Value,
         /// Follow this capability's supplied dependency contract. For
-        /// work.command.v1, name only consumed file_write/file_import proposals; use [] for
+        /// work.command.v1, name only consumed file_write/file_edit/file_import proposals; use [] for
         /// ordered local commands that consume no same-response file save.
         /// Defaults to [] when omitted. Actual consumed save prerequisites must
         /// still be named explicitly; no dependency is inferred from list order.
@@ -707,8 +729,20 @@ pub enum Operation {
     },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct TextEdit {
+    /// Nonempty exact text occurring once in the immutable base. Include
+    /// enough unchanged surrounding text to distinguish repeated passages.
+    pub old_text: String,
+    /// Replacement text; empty deletes the match. Include the surrounding
+    /// text again when it should remain. No whitespace normalization occurs.
+    pub new_text: String,
+}
+
 pub(crate) enum FileContent<'a> {
     Authored(&'a str),
+    Edits(&'a [TextEdit]),
     Host { path: &'a str, expected_sha256: Option<&'a str> },
 }
 
@@ -718,7 +752,7 @@ pub(crate) struct FileSave<'a> {
     pub scope: Scope,
     pub source: &'a String,
     pub path: &'a String,
-    pub base_revision: &'a Option<String>,
+    pub base_revision: Option<&'a String>,
     pub content: FileContent<'a>,
     pub qualifications: &'a [ExactRef],
     pub qualification_handles: &'a [String],
@@ -730,13 +764,19 @@ impl Operation {
         match self {
             Self::FileWrite { id, scope, source, path, base_revision, text,
                 qualifications, qualification_handles, policy_id } => Some(FileSave {
-                    id, scope:*scope, source, path, base_revision,
+                    id, scope:*scope, source, path, base_revision:base_revision.as_ref(),
                     content:FileContent::Authored(text), qualifications,
+                    qualification_handles, policy_id,
+                }),
+            Self::FileEdit { id, scope, source, path, base_revision, edits,
+                qualifications, qualification_handles, policy_id } => Some(FileSave {
+                    id, scope:*scope, source, path, base_revision:Some(base_revision),
+                    content:FileContent::Edits(edits), qualifications,
                     qualification_handles, policy_id,
                 }),
             Self::FileImport { id, source, path, base_revision, host_path, expected_sha256,
                 qualifications, qualification_handles, policy_id } => Some(FileSave {
-                    id, scope:Scope::Assets {}, source, path, base_revision,
+                    id, scope:Scope::Assets {}, source, path, base_revision:base_revision.as_ref(),
                     content:FileContent::Host { path:host_path, expected_sha256:expected_sha256.as_deref() },
                     qualifications, qualification_handles, policy_id,
                 }),
@@ -751,6 +791,7 @@ impl Operation {
             | Self::WarningResolve { id, .. }
             | Self::MaintenanceDispose { id, .. }
             | Self::FileWrite { id, .. }
+            | Self::FileEdit { id, .. }
             | Self::FileImport { id, .. }
             | Self::FileRetire { id, .. }
             | Self::CharacterAdopt { id, .. }
@@ -779,6 +820,7 @@ impl Operation {
     pub fn maintenance_scope(&self) -> Option<Scope> {
         match self {
             Self::FileWrite { scope, .. }
+            | Self::FileEdit { scope, .. }
             | Self::FileRetire { scope, .. }
             | Self::WarningAdopt { scope, .. }
             | Self::WarningResolve { scope, .. }
@@ -791,7 +833,8 @@ impl Operation {
 
     fn references(&self) -> (&[ExactRef], Option<Scope>, &'static str) {
         match self {
-            Self::FileWrite { qualifications, .. } | Self::FileImport { qualifications, .. } => (qualifications, None, "qualifications"),
+            Self::FileWrite { qualifications, .. } | Self::FileEdit { qualifications, .. }
+            | Self::FileImport { qualifications, .. } => (qualifications, None, "qualifications"),
             Self::CharacterAdopt { own_voice, .. } => {
                 (own_voice, Some(Scope::Fragments {}), "own_voice")
             }
@@ -1100,7 +1143,7 @@ pub(crate) fn saved_file_reference(
 ) -> Result<ExactRef, ProtocolError> {
     let save = operations.iter().find(|operation| operation.id() == operation_id)
         .and_then(Operation::file_save)
-        .ok_or_else(|| invalid("file_operation_reference", "reference must name an exact file_write or file_import operation in this response"))?;
+        .ok_or_else(|| invalid("file_operation_reference", "reference must name an exact file_write, file_edit or file_import operation in this response"))?;
     let reference = ExactRef {
         source: save.source.clone(),
         revision: format!("{PROPOSED_OPERATION_PREFIX}{operation_id}"),
@@ -1878,7 +1921,7 @@ fn check_operation(
             check_text(reason, MAX_REASON_BYTES, &format!("{path}.reason"))?;
             check_maintenance_evidence(evidence, &format!("{path}.evidence"))
         }
-        Operation::FileWrite { .. } | Operation::FileImport { .. } => {
+        Operation::FileWrite { .. } | Operation::FileEdit { .. } | Operation::FileImport { .. } => {
             let FileSave { source, path:target, base_revision, content,
                 qualifications, qualification_handles, policy_id, .. } = operation.file_save().unwrap();
             check_id(source, &format!("{path}.source"))?;
@@ -1889,9 +1932,19 @@ fn check_operation(
                     "expected a canonical relative native-store path; use host.command.v1 for host filesystem writes",
                 ));
             }
-            check_base(base_revision, &format!("{path}.base_revision"))?;
+            if let Some(base) = base_revision {
+                check_accepted_revision(base, &format!("{path}.base_revision"))?;
+            }
             match content {
                 FileContent::Authored(text) => check_text(text, MAX_TEXT_BYTES, &format!("{path}.text"))?,
+                FileContent::Edits(edits) => {
+                    check_count(edits.len(), 1, MAX_COLLECTION_ITEMS, &format!("{path}.edits"))?;
+                    for (index, edit) in edits.iter().enumerate() {
+                        if edit.old_text.is_empty() {
+                            return Err(invalid(&format!("{path}.edits[{index}].old_text"), "edit match text must be nonempty"));
+                        }
+                    }
+                }
                 FileContent::Host { path:host_path, expected_sha256 } => {
                     check_text(host_path, MAX_REASON_BYTES, &format!("{path}.host_path"))?;
                     if let Some(hash) = expected_sha256 {
@@ -2345,7 +2398,7 @@ pub fn validate_decision(
                     "multiple transitions name the same warning identity",
                 ));
             }
-            Operation::FileWrite { .. } | Operation::FileImport { .. } => {
+            Operation::FileWrite { .. } | Operation::FileEdit { .. } | Operation::FileImport { .. } => {
                 let FileSave { source, scope, path, .. } = operation.file_save().unwrap();
                 if !mutation_sources.insert(source.as_str()) {
                     return Err(invalid(
@@ -2480,7 +2533,7 @@ pub fn validate_decision(
                 {
                     return Err(invalid(
                         &format!("operations[{index}].depends_on"),
-                        "work command prerequisites may name file_write or file_import operations only; local commands run in listed order without command-to-command dependencies",
+                        "work command prerequisites may name file_write, file_edit or file_import operations only; local commands run in listed order without command-to-command dependencies",
                     ));
                 }
                 if matches!(

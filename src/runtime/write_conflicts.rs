@@ -63,7 +63,7 @@ pub(super) fn stale_base(
         // A prior write in this same rejected response might have moved its head.
         // Such response-local conflicts do not acquire an accepted-base diagnostic.
         if current.head != staged.head
-            || base_revision.as_ref() == Some(&current.head)
+            || base_revision == Some(&current.head)
         {
             return None;
         }
@@ -79,7 +79,7 @@ pub(super) fn stale_base(
             diagnostic: Diagnostic::StaleBase {
                 source: source.clone(),
                 operation: id.clone(),
-                supplied_revision: base_revision.clone(),
+                supplied_revision: base_revision.cloned(),
                 current_revision: current.head.clone(),
             },
             additional_exposure: expanded_exposure(original, &roots).ok()?,
