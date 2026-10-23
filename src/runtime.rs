@@ -2830,7 +2830,7 @@ impl Runtime {
         Ok(s::Store::open_runtime(&root.join("state.sqlite3"), storage_limits(), false)?)
     }
     pub(crate) fn decode_inspection_state(object: &s::StoredObject) -> Result<State> {
-        let state = state_storage::decode(object.body.clone())?;
+        let state = state_storage::decode(&object.body)?;
         need_proposals::validate_state(&state)?;
         state.config.validate()?;
         require(state.format == 1, "unsupported runtime state version")?;
@@ -2926,10 +2926,7 @@ impl Runtime {
         .ok_or_else(|| held("state missing"))
     }
     fn decode_loaded_state(object: &s::StoredObject) -> Result<State> {
-        let body = phase_timing::measure("runtime.clone_state_json", || {
-            Ok::<_, RuntimeError>(object.body.clone())
-        })?;
-        let state = state_storage::decode(body)?;
+        let state = state_storage::decode(&object.body)?;
         phase_timing::measure("runtime.validate_intake_state", || {
             need_proposals::validate_state(&state)
         })?;

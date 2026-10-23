@@ -26,11 +26,10 @@ does not replace the operation's result.
 
 | Phase | Measured work |
 | --- | --- |
-| `runtime.load` | Read, clone, decode and validate one runtime state load |
+| `runtime.load` | Read, decode and validate one runtime state load |
 | `runtime.read_state` | Store read and its normal navigation accounting |
-| `runtime.clone_state_json` | Clone the stored JSON body for typed decoding |
-| `state.unpack_exposures` | Validate and expand retained exposure references |
-| `state.deserialize_expanded` | Deserialize the expanded JSON into typed state |
+| `state.validate_exposure_pool` | Validate pooled manifests and index their exact typed-field uses |
+| `state.deserialize_borrowed` | Decode typed state from the borrowed stored body and validated references |
 | `runtime.validate_intake_state` | Validate retained intake episodes and bindings |
 | `state.serialize_expanded` | Build expanded JSON from typed state |
 | `state.pack_exposures` | Identify repeated exposures and build their retained pool |
@@ -77,3 +76,20 @@ sorted at every level, including builds using `serde_json/preserve_order`; array
 order and scalar encoding are preserved. Identity, revision, kind and every body
 field still contribute to the same digest. This changes fingerprint allocation,
 not the reference format, storage encoding, validation or navigation accounting.
+
+State decoding also borrows the stored JSON body. It validates each pooled
+exposure's digest and typed shape, every reference, and use of every pool entry
+before decoding. Packing and decoding share one explicit inventory of typed
+exposure fields. Only those exact locations can resolve through the pool;
+similarly shaped authored JSON, payloads and historical records remain literal.
+The pool is omitted only from the root state view. Native JSON key, scalar and
+enum decoding still applies, and the resulting State owns its data as before.
+
+The borrowed view exists for one decode and never changes the stored body or
+persists a cache. Direct state loads no longer create a cloned body or an expanded
+JSON tree. General deserialization still materializes its incoming JSON once,
+and state serialization still constructs and packs expanded JSON. Older builds
+emit `runtime.clone_state_json`, `state.unpack_exposures`, and
+`state.deserialize_expanded`; those phases are replaced by the two borrowed-state
+phases above. This allocation change alone does not establish an overall speed
+or peak-memory improvement.
