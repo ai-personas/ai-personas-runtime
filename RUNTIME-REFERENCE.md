@@ -322,6 +322,19 @@ Optional next-context choices are work-scoped and explicit:
 - `replace` or `replace_from_input` chooses exact revisions.
 - `clear` chooses no optional context.
 
+Reading a file or receiving tool output does not add it to those selections.
+Preserving an empty selection keeps it empty. To keep useful current material
+alongside a later result, choose its exact reference or current input-file handle
+in the next-context replacement, including other references still needed.
+
+Each `CONTROL.input_file_choices` entry reports `context_state` independently
+of its identity. `exact_body_supplied` means that exact representation and range
+appears in current qualified context or read results. A pending tool observation
+may supply output text without the separate retained result document.
+`preserve_keeps_selection` means an existing direct optional selection survives
+this admission's lifetime boundary. It does not count mandatory context or
+qualification routes, select anything, or guarantee future supply.
+
 Mandatory own voice remains supplied independently of optional fragment selection. Metadata inventories and input-file handles do not supply bodies. A selected file is supplied only when later context assembly includes its exact qualified body.
 
 ## 8. Work, responsibility, and collaboration

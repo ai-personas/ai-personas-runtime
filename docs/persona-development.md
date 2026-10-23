@@ -206,6 +206,16 @@ recorded body/schema supply, historical grant metadata and historical entries
 without readiness metadata. These counts establish neither operation-specific
 authority nor successful use.
 
+`supplied_input_file_choices.context_state` summarizes the body and selection
+facts actually supplied beside the input-file handles. It counts exact bodies
+present in qualified context or read results separately from optional selections
+that survive `preserve`, including bodies supplied without such a selection.
+These are counts of offered entries, not unique documents. Mandatory character
+and qualification supply are separate from optional selection. A pending tool
+observation can carry output without supplying its whole retained result file.
+Historical entries without these fields remain unknown; current state is never
+used to fill them in. This metadata does not change the persona's choices.
+
 The native runtime provides [full host command access by default](host-commands.md),
 including tool installation and use of installed software. Default
 [WebAssembly computation](computation.md) and

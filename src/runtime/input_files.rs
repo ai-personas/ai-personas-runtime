@@ -6,7 +6,7 @@ use super::*;
 const INTERFACE: &str = "input-file-choices-v2";
 const LEGACY_INTERFACE: &str = "input-file-choices-v1";
 const OUTPUT_RULE: &str = "Host-command inputs.stdin_asset may use {kind:input_file,handle:CURRENT_HANDLE} to pass a full UTF-8 supporting asset directly as command stdin without copying its body. This consumes the asset as execution input, not as model context. This v2 table also supports file_write.qualification_handles, file_import.qualification_handles, communicate.reference_handles and reference_handles on an authored reply. Choose the listed handles instead of copying source IDs or hashes. Qualifications join the exact literal qualifications. The canonical qualifications already identify a file's exact supporting sources; refer to those qualifications in file prose instead of retyping their IDs or hashes. Message references are attached as canonical file_references beside the unchanged authored text; do not repeat their hashes in prose. For retained tool results, tool_result_origins identifies the actual tool family and producing invocation beside the handle. Match the requested invocation; table order does not identify the latest or required result. Provenance metadata supplies no body. A citation proves no reading and establishes no correctness or acceptance. Handles name only references offered in this admission, never a new same-response file. Existing permissions and complete-response validation still apply. Selection lifetimes do not become citation or qualification lifetimes. Earlier v1 tables permit next-context selection only.";
-const RULE: &str = "For next_fragments or next_assets, prefer {kind: replace_from_input, reason: your reason, handles: [exact listed handles]} when the desired references are listed here. Each handle names the exact reference beside it in this admission only. Choose relevant entries yourself. This table is file metadata, not a corpus catalogue or supplied bodies. A registered native-command guide is optional supporting material: its complete body supply selects the detailed current schema and instructions. A known current command remains callable without selecting its guide. If uncertain, select or read a useful guide; metadata alone supplies no definition. Use exact current inputs and work references. Reading a guide does not perform a command or establish successful execution. Older handles are invalid; use file discovery for unlisted resources. Omission does not establish absence.";
+const RULE: &str = "For next_fragments or next_assets, prefer {kind: replace_from_input, reason: your reason, handles: [exact listed handles]} when the desired references are listed here. Each handle names the exact reference beside it in this admission only. Choose relevant entries yourself. context_state.exact_body_supplied identifies this exact representation and range in current qualified context or read results. A pending tool observation can contain output without supplying its separate retained result document. context_state.preserve_keeps_selection identifies an existing optional selection whose lifetime reaches the next admission. These are independent facts: reading a file or receiving tool output does not select it. Preserve retains only existing selections, so preserving an empty selection keeps it empty. To use a current body alongside a later result, select its handle now; replace_from_input replaces the whole optional set, so include other references still needed. Selection does not rerun a tool. This table loads no bodies or additional catalogue. A registered native-command guide is optional supporting material: its complete body supply selects the detailed current schema and instructions. A known current command remains callable without selecting its guide. If uncertain, select or read a useful guide; metadata alone supplies no definition. Use exact current inputs and work references. Reading a guide does not perform a command or establish successful execution. Older handles are invalid; use a known exact reference or file discovery for other resources. Omission does not establish absence.";
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -50,6 +50,29 @@ struct ToolResultOrigin {
     operation: String,
     intent: String,
     state: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ContextState {
+    exact_body_supplied: bool,
+    preserve_keeps_selection: bool,
+}
+
+/// Optional roots that remain active after this admission without replacement.
+/// Match immutable file identity, representation and range, not a handle's
+/// lifetime spelling. Mandatory context and qualifications are separate routes.
+fn preserved_selections(control: &Value) -> Result<BTreeSet<f::Reference>> {
+    let mut references = BTreeSet::new();
+    for scope in ["fragments", "assets"] {
+        for entry in control["selection_state"][scope].as_array().into_iter().flatten() {
+            if entry["preserved_for_next_admission"] == true {
+                let reference: p::ExactRef = serde_json::from_value(entry["reference"].clone())?;
+                references.insert(file_reference(&reference)?);
+            }
+        }
+    }
+    Ok(references)
 }
 
 fn tool_result_origins(control: &Value, reference: &f::Reference) -> Result<Vec<ToolResultOrigin>> {
@@ -128,6 +151,10 @@ struct Choice {
     reference: p::ExactRef,
     scope: f::Scope,
     path: String,
+    /// Facts supplied with this admission. Missing historical fields remain
+    /// unknown; inspection never reconstructs them from current selections.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    context_state: Option<ContextState>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     currently_registered_native_command: Option<String>,
     /// Historical admissions retain their original, unknown readiness state.
@@ -264,6 +291,7 @@ pub(super) fn offer(
     _historical_available_bytes: usize,
 ) -> Result<Option<(Value, BTreeMap<String, p::ExactRef>, Exposure)>> {
     let candidates = candidates(control, qualified)?;
+    let preserved = preserved_selections(control)?;
     let mut offered = Offered {
         interface: INTERFACE.into(),
         invocation_id: invocation.into(),
@@ -296,6 +324,10 @@ pub(super) fn offer(
             reference,
             scope: stored.record.scope,
             path: stored.record.path.clone(),
+            context_state: Some(ContextState {
+                exact_body_supplied: supplied_bodies.contains(&exact),
+                preserve_keeps_selection: preserved.contains(&exact),
+            }),
             currently_registered_native_command: command,
             native_command_readiness,
             tool_result_origins,
@@ -431,11 +463,21 @@ pub(crate) fn inspect(prepared: &Prepared, control: &Value) -> Result<Value> {
         .iter()
         .filter_map(|choice| choice.native_command_readiness.as_ref())
         .collect();
+    let context: Vec<_> = choices.iter().filter_map(|choice| choice.context_state.as_ref()).collect();
     Ok(json!({"available":!prepared.input_file_choices.is_empty(),
         "interface":control["input_file_choices"]["interface"],"count":prepared.input_file_choices.len(),
         "output_reference_handles_supplied":control["input_file_choices"]["interface"] == INTERFACE,
         "entries_with_supplied_tool_result_origins":choices.iter()
             .filter(|choice| !choice.tool_result_origins.is_empty()).count(),
+        "context_state":{
+            "recorded_entries":context.len(),
+            "exact_body_supplied_entries":context.iter().filter(|entry|entry.exact_body_supplied).count(),
+            "preserve_keeps_selection_entries":context.iter().filter(|entry|entry.preserve_keeps_selection).count(),
+            "supplied_without_preserved_selection_entries":context.iter()
+                .filter(|entry|entry.exact_body_supplied && !entry.preserve_keeps_selection).count(),
+            "entries_without_context_state":choices.len() - context.len(),
+            "meaning":"Facts actually supplied beside each handle. Body supply covers its exact representation and range; a pending tool observation may supply text without its result document. Preserve counts only direct optional selections whose lifetimes reach the next admission, not mandatory context or qualification routes. Counts do not predict a later input or change selection. Historical omissions remain unknown."
+        },
         "native_command_readiness":{
             "recorded_entries":readiness.len(),
             "guide_body_supplied_entries":readiness.iter().filter(|entry|entry.guide_body_supplied).count(),
