@@ -5,6 +5,21 @@ The [design requirement](https://github.com/ai-personas/ai-personas-design/blob/
 supersedes the earlier finite-resource deployment contract. Raising a cap is not
 the requested behavior.
 
+## Execution evidence and claim scope
+
+Provider invocation, host command execution and behavior of the inspected product
+are separate observations. A source-review command that actually ran is execution,
+while reading an implementation does not establish that its behavior was exercised.
+Describe which evidence exists and which broader behavior remains unobserved.
+A successful process exit does not prove that every subcommand succeeded; retain
+stderr, partial results and any unresolved outcome beside the claim.
+
+The ordinary persona guidance states these distinctions without imposing an extra
+review call, reporting form, acceptance score or workflow. They do not guarantee
+that a model will describe its evidence correctly. `CONTROL.ordinary_recovery`
+describes recovery without restricted-mode eligibility or an application attempt
+allowance. It replaces the stale `repair_funding` guidance in new inputs.
+
 ## Implemented removal
 
 Fresh admissions use ordinary mode, including recovery after actual provider or
