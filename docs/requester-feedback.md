@@ -5,6 +5,15 @@ does not change the mandate or automatically resume a stopped persona. A persona
 can account for pending feedback with `handled` or `declined` and a reason. That
 account does not prove compliance or erase the original direction.
 
+The native `resolve_requester_feedback` command uses `observation`, `disposition`
+and `reason` beside its `kind`. `disposition` is the string `handled` or `declined`;
+`reason` is a separate string. An object-valued disposition, `account` in place of
+`reason`, or the value `addressed` does not match that command. Parse rejections
+include current schema field hints without changing the submitted response. A
+rejected command leaves feedback pending, and a later prose acknowledgment or
+Stop does not record a structured disposition. The persona can choose a current
+guide when it needs the detailed definition.
+
 When a later message replaces earlier directions, the requester can name their
 exact observation IDs in `supersedes`:
 

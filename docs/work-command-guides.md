@@ -8,6 +8,16 @@ names that command; the `effect` form also cites the exact admitted binding.
 Complete-response, exact-record and current work-state checks preserve meaningful
 outcomes.
 
+When native command deserialization fails, the rejection retains the original
+error and adds the known command's allowed fields. Missing required fields and
+immediate primitive or enum mismatches name their `inputs` field and schema-owned
+expected shape or values. For example, an object-valued requester-feedback
+disposition identifies `inputs.disposition` and its allowed string values. This
+is a diagnostic from the current schema, not a corrected command or a successful
+disposition. The complete response stays rejected; an independently admitted
+fresh decision may use the hint or obtain a useful guide. Existing failure and
+continuation rules remain unchanged, and historical errors are not rewritten.
+
 Detailed definitions are separate context. A complete current registered guide
 body, supplied through ordinary selection or an exact-read observation, selects
 that command's schema and instructions. `inputs_schema` contains only these

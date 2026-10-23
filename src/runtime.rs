@@ -25,6 +25,7 @@ mod history;
 mod initialization;
 mod work_guides;
 mod work_instructions;
+mod work_input_diagnostics;
 mod input_files;
 mod intake;
 pub use intake::WorkAllocation;
@@ -2022,7 +2023,8 @@ fn action(value: &Value) -> Result<WorkAction> {
     // Every input type denies unknown fields. Optional fields follow the schema's
     // absent/null equivalence. BTreeSet deserialization alone would silently
     // remove duplicates; check raw cardinality while allowing any unique order.
-    let parsed: WorkAction = serde_json::from_value(value.clone())?;
+    let parsed: WorkAction = serde_json::from_value(value.clone())
+        .map_err(|error| work_input_diagnostics::enrich(value, error))?;
     arrangements::validate_action(value, &parsed)?;
     questions::validate(&parsed)?;
     let unique = |raw: &Value, count: usize| -> Result<()> {
