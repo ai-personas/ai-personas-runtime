@@ -12,7 +12,8 @@ use std::path::PathBuf;
     about = "Operator-only saved-launch inspection, keyed intake and single-use sessions"
 )]
 struct Cli {
-    /// Required for every operation: absolute runtime state directory, not the launcher journal.
+    /// Runtime state directory for each operation. Relative paths and symlinks
+    /// resolve to the actual directory.
     #[arg(long, global = true)]
     state_root: Option<PathBuf>,
     /// Required for every operation: operator attribution matching the runtime or bootstrap request.
