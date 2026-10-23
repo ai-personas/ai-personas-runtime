@@ -111,25 +111,15 @@ pub struct PersonaSeed {
     pub text: String,
     pub provenance: String,
 }
+/// Current creation choices. Historical quota and permission declarations are
+/// retained in saved records, not requested again as fresh setup inputs.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Setup {
     pub cohort: usize,
-    /// Historical population declaration; it does not cap future identities.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub persona_capacity: Option<usize>,
-    pub owner: usize,
     pub destination: String,
     pub provider: DirectProviderSettings,
     pub working_directory: PathBuf,
-    pub share_cohort: bool,
-    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-    pub http_origins: BTreeSet<String>,
-    pub max_steps: usize,
-    pub max_considerations: usize,
-    pub max_work_attempts: u64,
-    pub max_total_steps: u64,
-    pub max_works: u64,
 }
 const PROVIDER_MIGRATION: &str = "saved provider is incompatible with direct HTTP execution; explicitly migrate provider mode and authorization while preserving history, counters, grants and unresolved attempts; existing records remain readable through open/result";
 
@@ -316,30 +306,22 @@ fn ensure_cohort(app: &mut Runtime, saved: &Saved) -> Result<()> {
     }
     Ok(())
 }
-fn setup_parts(operator: &str, settings: Setup, opt_in: bool) -> Result<(Config, Saved)> {
+fn setup_parts(operator: &str, settings: Setup) -> Result<(Config, Saved)> {
     identity(operator)?;
 
-    require(
-        settings.cohort > 0 && (1..=settings.cohort).contains(&settings.owner),
-        "cohort must be nonempty and owner must name a cohort position",
-    )?;
-    let capacity = settings.persona_capacity.unwrap_or(settings.cohort).max(settings.cohort);
-    let ids = people(capacity);
+    require(settings.cohort > 0, "cohort must be nonempty")?;
+    let ids = people(settings.cohort);
     require(
         !ids.iter().any(|id| id == operator),
         "requester collides with a cohort identity",
     )?;
     let mut audience: BTreeSet<_> = ids.iter().cloned().collect();
     audience.insert(operator.into());
-    require(settings.http_origins.iter().all(|origin| crate::http_fetch::valid_origin(origin)),
-        "historical HTTP origins must be canonical")?;
-    let mut processing_destinations = settings.http_origins.clone();
-    processing_destinations.insert(settings.destination.clone());
     let policy = f::Policy {
         id: POLICY.into(),
         revision: "1".into(),
         readers: ids.into_iter().collect(),
-        processing_destinations,
+        processing_destinations: BTreeSet::from([settings.destination.clone()]),
         audience,
         derivative_use: f::DerivativeUse::AllowDerivatives,
         expires_at_unix: None,
@@ -350,26 +332,41 @@ fn setup_parts(operator: &str, settings: Setup, opt_in: bool) -> Result<(Config,
         revoked_policies: BTreeSet::new(),
     });
     config.local_recipients = BTreeSet::from([operator.into()]);
-    config.persona_capacity = settings.persona_capacity;
     config.allow_direct_provider = true;
-    config.max_work_attempts = settings.max_work_attempts;
+    config.max_work_attempts = 0;
     settings.provider.validate()?;
-    // The operator's validated provider settings define the possible transport
-    // output for each attempt. Reserve that exposure from the existing Store
-    // allowance instead of rejecting an otherwise valid fresh setup against a
-    // smaller default. This does not increase the controlling resource totals.
+    // Preserve transport-output accounting from the provider's historical
+    // stream estimate. These numbers impose no execution quota.
     config.transport_output_reserve_bytes = config
         .transport_output_reserve_bytes
         .max(settings.provider.limits.max_stream_bytes as u64);
 
     let working = fs::canonicalize(&settings.working_directory)?;
     require(working.is_dir(), "working directory must exist")?;
-    let settings: SavedSetup = serde_json::from_value(serde_json::to_value(settings)?)?;
+    // Keep the retained record shape and old values on continuation. Fresh
+    // setup declares no quota: zero allocation metadata never limits calls.
+    // The historical owner position assigns no responsibility or review role.
+    let settings = SavedSetup {
+        cohort: settings.cohort,
+        persona_capacity: None,
+        persona_seeds: BTreeMap::new(),
+        owner: 1,
+        destination: settings.destination,
+        provider: serde_json::to_value(settings.provider)?,
+        working_directory: settings.working_directory,
+        share_cohort: true,
+        http_origins: BTreeSet::new(),
+        max_steps: 0,
+        max_considerations: 0,
+        max_work_attempts: config.max_work_attempts,
+        max_total_steps: 0,
+        max_works: 0,
+    };
     settings.execution_provider()?;
     let saved = Saved {
         format: 2,
         operator: operator.into(),
-        direct_provider_opt_in: Some(opt_in),
+        direct_provider_opt_in: None,
         research_opt_in: None,
         setup: settings,
         working_directory: working,
@@ -379,8 +376,8 @@ fn setup_parts(operator: &str, settings: Setup, opt_in: bool) -> Result<(Config,
     Ok((config, saved))
 }
 
-pub fn setup(root: &Path, operator: &str, settings: Setup, opt_in: bool) -> Result<Runtime> {
-    setup_with_seeds(root, operator, settings, opt_in, BTreeMap::new())
+pub fn setup(root: &Path, operator: &str, settings: Setup) -> Result<Runtime> {
+    setup_with_seeds(root, operator, settings, BTreeMap::new())
 }
 
 /// Select creation material only while creating a fresh cohort. Continuing
@@ -389,10 +386,9 @@ pub fn setup_with_seeds(
     root: &Path,
     operator: &str,
     settings: Setup,
-    opt_in: bool,
     seeds: BTreeMap<String, PersonaSeed>,
 ) -> Result<Runtime> {
-    let (config, mut saved) = setup_parts(operator, settings, opt_in)?;
+    let (config, mut saved) = setup_parts(operator, settings)?;
     install_persona_seeds(&mut saved, seeds)?;
     let root = private_tree(root)?;
     let mut app = Runtime::create(&root, config, operator)?;

@@ -13,6 +13,13 @@ reserved slots or launch allowance are exhausted. Existing seeds, audience
 declarations and grants retain their exact historical contents as the cohort
 grows. Source policies are provenance, not access restrictions.
 
+For persona creation, fresh setup takes the number of initial identities and
+their attributed profiles. It has no separate capacity or reserved future positions.
+The retained capacity field is absent for a new setup; earlier declarations
+remain attributable without limiting later persona creation.
+The birth snapshot reports a missing historical capacity as null, rather than
+inventing a capacity declaration from the current cohort size.
+
 Initial-character instructions also impose no operation-count, collection-size
 or text-byte quota. They describe the atomic fragment/profile transition and
 its handover to a fresh ordinary decision without repeating superseded source

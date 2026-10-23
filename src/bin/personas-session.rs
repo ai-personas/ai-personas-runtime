@@ -28,9 +28,6 @@ enum Command {
         file: PathBuf,
         #[arg(long)]
         preview: bool,
-        /// Retained command-line metadata; invoking bootstrap applies setup unless --preview is selected.
-        #[arg(long)]
-        authorize_setup: bool,
     },
     /// No owner recovery, credential resolution, grants or inference. Metered reads.
     Inspect {
@@ -183,7 +180,6 @@ async fn main() {
         Command::Bootstrap {
             file,
             preview,
-            authorize_setup: _,
         } => {
             let result = (|| -> session::BoundaryResult<serde_json::Value> {
                 let request: ai_personas::launch::bootstrap::Request =

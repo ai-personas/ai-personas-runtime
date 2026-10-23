@@ -123,6 +123,13 @@ as historical settings, not replenished or rewritten. New CONTROL and native
 settings views label the removed quota enforcement. The launcher no longer asks
 for these caps or a second approval after Continue.
 
+Fresh `Setup` inputs and the setup CLI no longer include those quota declarations
+or a separate population capacity. The interactive bootstrap also stops
+manufacturing them. Internal allocation metadata starts at zero for new setups,
+and new work can begin with zero historical attempts remaining. Actual calls
+still increment their usage records. Existing saved values and prior receipts
+retain their original meaning; removing current controls does not rewrite them.
+
 Provider transport and its onboarding stream no longer apply local duration,
 prompt/schema/request, response, stream/event or output-item quotas. Whole-response
 JSON validation and Store decoding have no configured byte, node, nesting or

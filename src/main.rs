@@ -56,37 +56,9 @@ enum Command {
         /// Exact processing destination named in the new local sharing policy.
         #[arg(long)]
         destination: String,
-        /// Record historical HTTP-origin declarations. Repeat for multiple origins.
-        /// HTTP access is available by default and does not use this as an allowlist.
-        #[arg(long = "http-origin")]
-        http_origins: Vec<String>,
+        /// Number of continuing personas to create, not a population ceiling.
         #[arg(long, default_value_t = 3)]
         cohort: usize,
-        /// Record historical population metadata; this value imposes no identity quota.
-        /// Setup creates the requested --cohort personas.
-        #[arg(long)]
-        persona_capacity: Option<usize>,
-        #[arg(long, default_value_t = 1)]
-        owner: usize,
-        /// Historical accounting metadata; not an execution quota.
-        #[arg(long, default_value_t = 12)]
-        max_steps: usize,
-        /// Historical accounting metadata; not an execution quota.
-        #[arg(long, default_value_t = 128)]
-        max_considerations: usize,
-        /// Historical accounting metadata; not an execution quota.
-        #[arg(long, default_value_t = 32)]
-        max_work_attempts: u64,
-        /// Historical accounting metadata; not an execution quota.
-        #[arg(long, default_value_t = 256)]
-        max_total_steps: u64,
-        /// Historical accounting metadata; not an execution quota.
-        #[arg(long, default_value_t = 32)]
-        max_works: u64,
-        #[arg(long)]
-        share_cohort: bool,
-        #[arg(long)]
-        allow_direct_provider: bool,
     },
     /// Run eligible work using the saved cohort, including admitted descendants.
     Run {
@@ -827,17 +799,7 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             persona_seeds,
             working_directory,
             destination,
-            http_origins,
             cohort,
-            persona_capacity,
-            owner,
-            max_steps,
-            max_considerations,
-            max_work_attempts,
-            max_total_steps,
-            max_works,
-            share_cohort,
-            allow_direct_provider,
         } => {
             let root = launch::state_root(cli.state_root.as_deref())?;
             let operator = cli
@@ -846,24 +808,15 @@ async fn run(cli: Cli) -> runtime::Result<()> {
                 .ok_or_else(|| argument("--operator"))?;
             let settings = launch::Setup {
                 cohort: *cohort,
-                persona_capacity: *persona_capacity,
-                owner: *owner,
                 destination: destination.clone(),
-                http_origins: http_origins.iter().cloned().collect(),
                 provider: runtime::read_json_file(provider_config, 262_144)?,
                 working_directory: working_directory.clone(),
-                share_cohort: *share_cohort,
-                max_steps: *max_steps,
-                max_considerations: *max_considerations,
-                max_work_attempts: *max_work_attempts,
-                max_total_steps: *max_total_steps,
-                max_works: *max_works,
             };
             let seeds = match persona_seeds {
                 Some(path) => runtime::read_json_file(path, 65_536)?,
                 None => Default::default(),
             };
-            launch::setup_with_seeds(&root, operator, settings, *allow_direct_provider, seeds)?;
+            launch::setup_with_seeds(&root, operator, settings, seeds)?;
             return emit(&serde_json::json!({"setup_saved":true,"inference_performed":false}));
         }
         Command::Run {

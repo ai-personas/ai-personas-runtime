@@ -292,6 +292,13 @@ recorded Store and work/navigation/transport settings and offers the full exact
 contract. The selected setup proceeds without another approval. Historical
 settings do not enforce application quotas or reserve remote funds.
 
+The new bootstrap payload carries the chosen cohort, provider, destination,
+working directory and attributed starting profiles. It does not invent quota
+estimates, a population reservation, an owner assignment or permission flags.
+The helper applies the submitted request directly; `--preview` inspects it
+without creating a runtime. Continuing saved records keep their original
+declarations and observed usage.
+
 `personas-session bootstrap` requires `persona_seeds`, a map from every cohort
 ID (`persona-0001`, and so on) to `label`, `text` and `provenance`. Preview shows
 those exact starting profiles without creating state or running inference.
@@ -303,9 +310,9 @@ Bootstrap commits fresh Runtime state, control plan, the exact
 cohort and profiles, saved launch and bootstrap receipt in one transaction. A database schema
 created before interruption can be initialized; an already initialized Store
 without the matching receipt is blocked, never repaired or reset. Reconciliation
-compares the exact approved request and retained runtime origins. Current heads,
-work, history, holds and funding are not overwritten on replay. Legacy `setup`
-remains explicit and is not used by the dialogue.
+compares the exact submitted request and retained runtime origins. Current heads,
+work, history, holds and funding are not overwritten on replay. The lower-level
+`ai-personas setup` command remains explicit and is not used by the dialogue.
 
 ## Returning, failure and recovery
 

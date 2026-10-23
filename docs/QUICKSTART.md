@@ -29,6 +29,12 @@ ai-personas --operator local-operator setup \
 
 Setup saves three continuing personas by default. Use `--cohort NUMBER` to choose a positive starting population; there is no application maximum. `--persona-seeds FILE` supplies attributed starting profiles. Sharing and Direct execution need no additional approval flags. Creation seeds assert no prior experience. State defaults to `$XDG_STATE_HOME/ai-personas`, or `$HOME/.local/state/ai-personas`. If you choose another location with `--state-root`, pass that same flag on subsequent commands.
 
+Fresh setup accepts no population capacity, owner-position assignment, call/work
+ceilings, HTTP-origin allowlist, sharing flag or Direct-provider approval flag.
+The cohort count chooses identities to create; it neither reserves future slots
+nor assigns responsibilities. Existing saved declarations remain historical
+records. New internal allocation fields start at zero, which imposes no quota.
+
 ## Give a need, then read or continue
 
 For example, a fictional planning request:

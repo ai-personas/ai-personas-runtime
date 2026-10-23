@@ -13,7 +13,6 @@ pub struct Request {
     /// Attributed starting profiles for every member of this fresh cohort.
     /// They are creation input, never accepted character or prior experience.
     pub persona_seeds: BTreeMap<String, PersonaSeed>,
-    pub allow_direct_provider: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -35,11 +34,7 @@ pub struct Outcome {
 
 fn prepared(request: &Request) -> Result<(Config, Saved)> {
     identity(&request.id)?;
-    let (config, mut saved) = setup_parts(
-        &request.operator,
-        request.setup.clone(),
-        request.allow_direct_provider,
-    )?;
+    let (config, mut saved) = setup_parts(&request.operator, request.setup.clone())?;
     require(
         request.persona_seeds.len() == saved.setup.cohort,
         "atomic setup requires a starting profile for every cohort member",
@@ -48,8 +43,8 @@ fn prepared(request: &Request) -> Result<(Config, Saved)> {
     config.validate()?;
     Ok((config, saved))
 }
-/// Exact prospective local grants and controlling limits. No private Store is
-/// created/opened and no credential is resolved. This is not authorization.
+/// Prospective setup, profiles and accounting metadata. No private Store is
+/// created/opened and no credential is resolved or inference performed.
 pub fn preview(request: &Request) -> Result<Value> {
     let (config, saved) = prepared(request)?;
     let provider = saved.execution_provider()?;
@@ -59,7 +54,7 @@ pub fn preview(request: &Request) -> Result<Value> {
         "persona_seeds": saved.setup.persona_seeds,
         "seed_grants": seed_for(&saved, &provider, &people(saved.setup.cohort)[0]).grants,
         "created_personas": people(saved.setup.cohort),
-        "sharing_identity_slots": people(saved.setup.persona_capacity()),
+        "initial_audience_personas": people(saved.setup.cohort),
         "remaining_persona_slots": null,"population_quota_enforced":false,
         "native_work_guides":work_command_guides::fresh_summary(&config, &saved)?,
         "inference_performed": false, "authority_granted": false,

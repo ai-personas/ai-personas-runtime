@@ -84,7 +84,23 @@ ai-personas --state-root /absolute/private/runtime result "$WORK_ID" --json
 
 Set `WORK_ID` to the work identity returned by the run. The optional `--persona-seeds` file maps cohort IDs such as `persona-0001` to objects containing `label`, `text`, and `provenance`; omitted profiles use attributable generic creation material on this lower-level route. The default cohort contains three identities.
 
-`--share-cohort`, `--allow-direct-provider`, saved owner fields, model-confirmation booleans, and similar values survive as historical declarations. They are not second approval gates under the current access model. The exact provider settings, requested model and effort, account binding, credentials, destination, and work identity still bind the actual call.
+The current `Setup` input contains `cohort`, `destination`, `provider` and
+`working_directory`. Starting profiles are supplied separately. It has no
+population capacity, owner-position assignment, call/work ceilings, HTTP-origin
+allowlist or sharing switch. The CLI removes the corresponding options and the
+extra Direct-provider approval flag. Bootstrap likewise needs no
+`allow_direct_provider` field or `--authorize-setup` flag: invoking it applies
+the request, while `--preview` only inspects the proposed setup.
+
+Earlier saved quota, owner and permission declarations remain historical
+records. New setup initializes internal allocation metadata to zero, population
+capacity to absent, and sharing to enabled; it records no separate provider
+opt-in decision. The retained owner position assigns no work or review role.
+Zero metadata does not prevent initial or later calls. Current provider settings,
+requested model and effort, account binding, credentials, destination and work
+identity still identify the actual call. This is the first-release request/API;
+obsolete setup inputs are not accepted as compatibility aliases or silently
+converted into a changed replay of an earlier request.
 
 For manually managed stores, the core commands remain available:
 

@@ -325,7 +325,7 @@ pub struct Config {
     pub corpus: f::CorpusLimits,
     pub policies: f::PolicySnapshot,
     pub local_recipients: BTreeSet<String>,
-    /// Optional lifetime population capacity preauthorized at fresh launch setup.
+    /// Historical population declaration; never an identity or creation quota.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub persona_capacity: Option<usize>,
     /// Historical metadata only; this flag no longer authorizes a live adapter.

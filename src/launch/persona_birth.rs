@@ -177,7 +177,7 @@ pub fn snapshot_at(root: &Path, operator: &str, parent: &str) -> Result<Value> {
         "expected_runtime":intake_delegation::IntakeReference::of(&head)?,
         "expected_launch":intake_delegation::IntakeReference::of(&launch)?,
         "created_personas":saved.setup.cohort,"lifetime_persona_capacity":null,
-        "historical_persona_capacity":saved.setup.persona_capacity(),"population_quota_enforced":false,
+        "historical_persona_capacity":saved.setup.persona_capacity,"population_quota_enforced":false,
         "next_persona":format!("persona-{:04}",saved.setup.cohort.checked_add(1).ok_or_else(|| invalid("persona identity overflow"))?),
         "proposal_schema":proposal_schema(),"initialization_limit_range":null,
         "steps_spent":saved.steps,"max_total_steps":saved.setup.max_total_steps,

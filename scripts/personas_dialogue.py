@@ -1224,7 +1224,7 @@ class Dialogue:
             cohort = self.ui.number("Number of continuing personas", 2, 1, None)
             noun = "persona" if cohort == 1 else "personas"
             self.ui.say(f"Proposed local cohort: {cohort} continuing {noun} and you, without assigned owner/reviewer roles. "
-                        "Grants permit their own fragments, assets, character proposals, work commands and cohort messages. "
+                        "They can maintain their own character and supporting resources, work together and communicate. "
                         "Host command access is enabled by default: personas can install and use tools with this host account and environment.")
             self.ui.say("Give each persona a name and starting profile. Describe openness, conscientiousness, "
                         "extraversion, agreeableness and sensitivity to stress (OCEAN), plus initial mood, "
@@ -1238,13 +1238,10 @@ class Dialogue:
                 profile = self.ui.bounded_text(f"Starting profile for {label}:", 16384)
                 seeds[persona] = {"label": label, "text": profile,
                                   "provenance": f"Starting profile supplied by {self.p['operator']} during setup; no prior experience asserted."}
-            attempts, total, steps, works = 16, 64, 4, 8  # Historical estimates, not quotas.
             request = {"id": "bootstrap-" + uuid.uuid4().hex, "operator": self.p["operator"],
                        "persona_seeds": seeds,
-                       "allow_direct_provider": True, "setup": {"cohort": cohort, "owner": 1,
-                       "destination": "openai-siwc", "provider": settings, "working_directory": str(self.checkout),
-                       "share_cohort": True, "max_steps": steps, "max_considerations": 128,
-                       "max_work_attempts": attempts, "max_total_steps": total, "max_works": works}}
+                       "setup": {"cohort": cohort, "destination": "openai-siwc", "provider": settings,
+                                 "working_directory": str(self.checkout)}}
             self.j.keep("bootstrap", request, request["id"])
         path, request = self.j.document("bootstrap")
         preview = self.session("bootstrap", path, "--preview")
@@ -1262,7 +1259,7 @@ class Dialogue:
             self.ui.say(json.dumps(preview, ensure_ascii=False, indent=2))
         self.p["setup_authorized"] = True
         self.j.save()
-        self.session("bootstrap", path, "--authorize-setup")
+        self.session("bootstrap", path)
         # No UI 'setup complete' flag: every return/restart consults Runtime.
 
     def inspect(self, after=None):
@@ -2026,7 +2023,7 @@ class Dialogue:
             # Recorded consent is for these exact immutable request bytes. Actual
             # setup completion is established only by the runtime-owned receipt.
             path, _ = self.j.document("bootstrap")
-            self.session("bootstrap", path, "--authorize-setup")
+            self.session("bootstrap", path)
         elif self.p["runtime"]["owned"]:
             require(not (root / "state.sqlite3").exists(), "unrecognized_existing_runtime")
             self.bootstrap()
