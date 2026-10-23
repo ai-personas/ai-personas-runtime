@@ -1503,7 +1503,7 @@ class Dialogue:
         if not text.strip():
             return
         require(safe_text(text), "invalid_feedback_text")
-        result = self.session("results", "--", work["id"])
+        result = self.session("result", "--", work["id"])
         current = [item for item in (result.get("requester_feedback") or {}).get("items", [])
                    if item.get("persona") == persona and item.get("status") != "superseded"]
         supersedes = []
