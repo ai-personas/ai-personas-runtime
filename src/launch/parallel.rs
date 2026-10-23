@@ -38,28 +38,6 @@ pub(super) async fn run_delegated<D: Driver>(
     run_with_subtree(app, work, driver, Some(owner)).await
 }
 
-fn next_pair(
-    app: &mut Runtime,
-    works: &[String],
-    after: &mut usize,
-    owned: &BTreeSet<String>,
-    visited: &BTreeSet<(String, String)>,
-) -> Result<Option<(String, String)>> {
-    for _ in 0..works.len() {
-        let work = &works[*after % works.len()];
-        *after = (*after + 1) % works.len();
-        let state = app.snapshot()?;
-        if !matches!(state.board.work(&w::WorkId(work.clone()))?.phase, w::Phase::Open) {
-            continue;
-        }
-        let (_, persona) = select_owned_except(app, work, unix_now()?, owned, visited)?;
-        if let Some(persona) = persona {
-            return Ok(Some((work.clone(), persona)));
-        }
-    }
-    Ok(None)
-}
-
 async fn run_with_subtree<D: Driver>(
     app: &mut Runtime,
     root: &str,
@@ -160,24 +138,17 @@ async fn run_with_subtree<D: Driver>(
             let mut needs_exclusive = false;
             let admission = (|| {
                 driver.before_step(app)?;
-                let selected = next_pair(app, &works, &mut after, &owned, &visited)?;
-                let Some((work, persona)) = selected else {
+                let (_, selected) = foreground::select(
+                    app, &works, &mut after, unix_now()?, &owned, &visited,
+                )?;
+                let Some(candidate) = selected else {
                     return Ok(None);
                 };
                 // First responsibility acceptance changes shared work authority.
                 // Give unaccepted participants a current serial opportunity;
                 // already accepted independent peers may overlap afterward.
-                let state = app.snapshot()?;
-                let current_work = state
-                    .board
-                    .work(&w::WorkId(work.clone()))?;
-                needs_exclusive = current_work.need.optional_activity.is_some()
-                    || current_work
-                    .acceptance(&w::PersonaId(persona.clone()))
-                    .is_none()
-                    || state.personas[&persona].focus[&work]
-                        .repair_trigger
-                        .is_some();
+                let foreground::Candidate { work, persona, requires_exclusive } = candidate;
+                needs_exclusive = requires_exclusive;
                 if needs_exclusive && !pending.is_empty() {
                     return Ok(None);
                 }

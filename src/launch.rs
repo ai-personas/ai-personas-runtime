@@ -4,6 +4,8 @@ use super::*;
 mod results;
 #[path = "launch/parallel.rs"]
 mod parallel;
+#[path = "launch/foreground.rs"]
+mod foreground;
 #[path = "launch/delegated.rs"]
 mod delegated;
 #[path = "launch/step_accounting.rs"]
@@ -655,69 +657,11 @@ fn select_owned(
     now: i64,
     owned: &BTreeSet<String>,
 ) -> Result<Pick> {
-    select_owned_except(app, work, now, owned, &BTreeSet::new())
-}
-fn select_owned_except(
-    app: &mut Runtime,
-    work: &str,
-    now: i64,
-    owned: &BTreeSet<String>,
-    visited: &BTreeSet<(String, String)>,
-) -> Result<Pick> {
-    let time = u64::try_from(now).map_err(|_| invalid("negative scheduling time"))?;
-    let (head, state) = app.load()?;
-    require(
-        app.invocation_leases_owned(&state, owned)?,
-        "unfinished invocation requires completion or explicit recovery",
+    let mut after = 0;
+    let (considered, selected) = foreground::select(
+        app, &[work.into()], &mut after, now, owned, &BTreeSet::new(),
     )?;
-    let (old, mut cursor) = app.load_scheduler()?;
-    let work_id = w::WorkId(work.into());
-    let current = state.board.work(&work_id)?;
-    let after = cursor.foreground_after.get(work)
-        .map(|actor| (work_id.clone(), w::PersonaId(actor.clone())))
-        .or_else(|| cursor.after.clone().filter(|(id, _)| id == &work_id));
-    let pairs = || current.participants.keys().map(|actor| (work_id.clone(), actor.clone()));
-    // A foreground run selects from its complete work, in circular identity
-    // order. An inspection page elsewhere in the runtime cannot hide a runnable
-    // participant or make this run report a false lack of eligible work.
-    let page = pairs()
-        .filter(|pair| after.as_ref().is_none_or(|last| pair > last))
-        .chain(pairs().filter(|pair| after.as_ref().is_some_and(|last| pair <= last)));
-    let mut selected = None;
-    cursor.last.clear();
-    for (wid, actor) in page {
-        if visited.contains(&(wid.0.clone(), actor.0.clone())) {
-            continue;
-        }
-        let opportunity = runtime_opportunity(&state, &wid, &actor, time);
-        let mut entry = scheduler_entry(&state, wid.clone(), actor.clone(), opportunity, now)?;
-        if wid.0 == work {
-            let permit = continuation_permit(&state, &actor.0, work);
-            if permit
-                && matches!(state.board.work(&wid)?.phase, w::Phase::Open)
-                && state.work_meta.contains_key(work)
-            {
-                entry.disposition = SchedulerDisposition::Queued;
-            }
-            if matches!(entry.disposition, SchedulerDisposition::Queued) {
-                selected = Some(actor.0.clone());
-            }
-        }
-        cursor.foreground_after.insert(wid.0.clone(), actor.0.clone());
-        cursor.after = Some((wid, actor));
-        cursor.considered = increment(cursor.considered)?;
-        cursor.last.push(entry);
-        if selected.is_some() {
-            break;
-        }
-    }
-    let considered = cursor.last.len();
-    if considered > 0 {
-        let mut change = scheduler_change(old.as_ref(), &cursor)?;
-        change.depends_on.push(head.exact_ref()?);
-        app.store.compare_and_swap_batch(vec![change])?;
-    }
-    Ok((considered, selected))
+    Ok((considered, selected.map(|candidate| candidate.persona)))
 }
 fn reserve(
     app: &mut Runtime,

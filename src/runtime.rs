@@ -2117,6 +2117,23 @@ pub struct SchedulerState {
     pub considered: u64,
     /// Last consideration operation; earlier receipts remain in Store journals.
     pub last: Vec<SchedulerConsideration>,
+    /// Exact basis of the last committed foreground scan. Other scheduler
+    /// operations retain this historical receipt without claiming a new scan.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_foreground_scan: Option<ForegroundScan>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForegroundScan {
+    pub runtime: s::ObjectRef,
+    pub works: Vec<String>,
+    pub started_after: usize,
+    pub next_after: usize,
+    pub visited: BTreeSet<(String, String)>,
+    pub owned_invocations: BTreeSet<String>,
+    pub at_unix: i64,
+    pub selected: Option<(String, String)>,
+    pub requires_exclusive: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

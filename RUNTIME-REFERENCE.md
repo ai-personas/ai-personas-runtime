@@ -537,6 +537,18 @@ Protected pause and unfinished closeout preserve actual state; they do not claim
 
 Native foreground runs inspect the complete participant list of each requested work in circular identity order, without a fixed scan cutoff. Each work retains its own participant cursor across descendant turns and restarts. Independent Direct calls can overlap across the root and its descendants. Each scheduling round visits eligible task/persona pairs and drains its transports before admitting new children; rounds continue while work can advance, without a round or call quota.
 
+One foreground selection pass reads one runtime snapshot for its complete work
+scan, participant checks and selected call's exclusivity requirement. It commits
+the accumulated cursor changes against that exact runtime head. A concurrent
+state change rejects the stale cursor update; actual call preparation still
+reads and validates current state. This avoids repeatedly decoding retained
+history for each candidate without introducing a cache or changing eligibility.
+The scheduler's `last` list records the complete committed pass, and
+`last_foreground_scan` records its exact runtime reference, work order, rotation,
+already visited pairs, owned calls and chosen candidate. A candidate is not an
+admitted or executed call. Other scheduler operations retain this explicitly
+historical foreground receipt.
+
 The lower-level scheduler interface is explicit and local:
 
 ```sh

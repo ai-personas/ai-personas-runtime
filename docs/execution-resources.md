@@ -423,6 +423,16 @@ hide an eligible persona from a foreground run. The participant cursor is retain
 separately for each work, so visiting descendants does not reset the parent's
 rotation or repeatedly prefer its first eligible persona.
 
+The foreground pass uses one runtime snapshot and one consideration time across
+its work scan. Participant checks and the chosen call's exclusivity requirement
+reuse that snapshot. The accumulated cursor update binds its exact runtime head;
+an intervening state change rejects the update, and provider preparation still
+validates current state independently. Retained history is neither omitted nor
+truncated to reduce processing. No snapshot cache survives the pass.
+`last_foreground_scan` retains the exact basis and chosen candidate, while the
+scheduler's `last` entries cover the complete committed pass. Selection itself
+does not establish admission, model execution or responsibility acceptance.
+
 Native foreground work no longer needs an initial delegation grant or selection
 file. The driver records a deterministic source under its existing execution
 owner for an unbound open work, then selects its exact reference
