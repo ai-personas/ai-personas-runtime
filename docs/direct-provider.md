@@ -55,11 +55,14 @@ The `evidence` object binds the selected mode, immutable transport profile, mode
 Native settings inspection reports `capability_evidence_required: false` and separately states whether catalogue, structured-output and requested-effort observations are recorded. These fields describe saved metadata; inspection performs no inference or capability verification.
 
 Transport and onboarding retain complete responses without accepting size or
-timeout quota arguments in their serializer or stream collector. Reads use
-ordinary chunks; a chunk size is not a total
-stream cap. The collector still requires a complete, coherent provider response
-and EOF. A partial stream remains partial. Exact model/account/request bindings,
-duplicate-key rejection and whole-Decision structure remain checked.
+timeout quota arguments in their serializer or stream collector. Each transport
+read accepts the next chunk actually supplied by the HTTP client; no requested
+chunk size acts as a per-read rejection threshold or total stream cap. The
+collector still requires a complete, coherent provider response and EOF. A
+partial stream remains partial. Exact model/account/request bindings,
+duplicate-key rejection and whole-Decision structure remain checked. An actual
+counter overflow is reported as an unrepresentable observation, not as an
+application resource quota.
 
 Runtime context assembly and corpus retention also have no application byte or
 record quota. Provider account, rate and context outcomes are reported as observed;
@@ -120,7 +123,7 @@ flight concurrently. Each call retains its own request, receipt and single-use
 authority; adoption remains sequential. See [concurrent decisions](concurrent-decisions.md)
 for freshness, accounting, compatibility and the paths that remain sequential.
 
-## Wire and stream limits
+## Wire and stream validation
 
 New persona admissions request the complete Decision directly with `text.format: {"type":"json_object"}`. The prompt supplies `APPLICATION_DECISION_SCHEMA`; the native parser validates the entire received object, including duplicate keys, required fields, tagged variants and cross-field rules, before any adoption. JSON mode alone does not establish application-schema validity. It removes the extra escaping layer that a JSON-string carrier imposed on scripts and other text.
 

@@ -67,10 +67,7 @@ impl Transport for ReqwestTransport {
             Ok(CatalogResponse {
                 status: response.status().as_u16(),
                 unencoded_json: json && identity,
-                body: Box::new(ReqwestBody {
-                    response,
-                    pending: bytes::Bytes::new(),
-                }),
+                body: Box::new(ReqwestBody { response }),
             })
         })
     }
@@ -174,6 +171,7 @@ pub(crate) enum WireFailure {
     Http,
     Protocol,
     Limit,
+    Unrepresentable,
     Transport,
     Binding,
 }
@@ -185,6 +183,7 @@ fn classify(f: Failure, status: Option<u16>) -> WireFailure {
         Failure::HttpStatus if matches!(status, Some(401 | 403)) => WireFailure::Denied,
         Failure::HttpStatus => WireFailure::Http,
         Failure::Limit => WireFailure::Limit,
+        Failure::Unrepresentable => WireFailure::Unrepresentable,
         Failure::Network => WireFailure::Transport,
         Failure::Binding | Failure::ReportedEffortMismatch | Failure::ReportedModelMismatch => {
             WireFailure::Binding
@@ -257,12 +256,8 @@ pub(crate) async fn probe(
             let mut stream = response.body;
             loop {
                 tokio::task::yield_now().await;
-                let maximum = 8_192;
-                match stream.read(maximum).await? {
+                match stream.read().await? {
                     Some(bytes) => {
-                        if bytes.len() > maximum {
-                            return Err(Failure::Limit);
-                        }
                         hash.update(&bytes);
                         collector.push(&bytes)?;
                     }

@@ -519,8 +519,11 @@ pub enum Failure {
     HttpStatus,
     #[error("HTTP response was not an unencoded SSE stream")]
     ContentType,
+    // Historical receipts retain this label; current stream counting uses Unrepresentable.
     #[error("local resource limit exceeded")]
     Limit,
+    #[error("observed value cannot be represented")]
+    Unrepresentable,
     #[error("Responses stream contract was not satisfied")]
     Protocol,
     #[error("provider reported failure, refusal or unsupported output")]
@@ -836,10 +839,10 @@ pub struct HttpResponse {
     pub is_unencoded_sse: bool,
     pub body: Box<dyn HttpBody>,
 }
-/// The returned slice must be at most maximum bytes. Empty chunks are permitted;
-/// None alone establishes EOF. Implementations must stop local work when dropped.
+/// Each read returns the next chunk available from the transport. Empty chunks are
+/// permitted; None alone establishes EOF. Implementations must stop local work when dropped.
 pub trait HttpBody: Send {
-    fn read(&mut self, maximum: usize) -> BoxFuture<'_, Result<Option<Vec<u8>>, Failure>>;
+    fn read(&mut self) -> BoxFuture<'_, Result<Option<Vec<u8>>, Failure>>;
 }
 pub trait HttpTransport: Send + Sync {
     fn post(&self, request: HttpRequest) -> BoxFuture<'_, Result<HttpResponse, Failure>>;
@@ -955,10 +958,7 @@ impl ReqwestTransport {
             Ok(HttpResponse {
                 status,
                 is_unencoded_sse: permits_unencoded_sse(response.headers(), mode),
-                body: Box::new(ReqwestBody {
-                    response,
-                    pending: bytes::Bytes::new(),
-                }),
+                body: Box::new(ReqwestBody { response }),
             })
         })
     }
@@ -989,23 +989,16 @@ fn permits_unencoded_sse(headers: &reqwest::header::HeaderMap, mode: AccessMode)
 }
 struct ReqwestBody {
     response: reqwest::Response,
-    pending: bytes::Bytes,
 }
 impl HttpBody for ReqwestBody {
-    fn read(&mut self, maximum: usize) -> BoxFuture<'_, Result<Option<Vec<u8>>, Failure>> {
+    fn read(&mut self) -> BoxFuture<'_, Result<Option<Vec<u8>>, Failure>> {
         Box::pin(async move {
-            if maximum == 0 {
-                return Err(Failure::Limit);
-            }
-            // Return empty chunks to the caller so its cancellation/deadline can run.
-            if self.pending.is_empty() {
-                match self.response.chunk().await.map_err(|_| Failure::Network)? {
-                    Some(bytes) => self.pending = bytes,
-                    None => return Ok(None),
-                }
-            }
-            let count = maximum.min(self.pending.len());
-            Ok(Some(self.pending.split_to(count).to_vec()))
+            // Return each chunk supplied by reqwest without imposing an application size.
+            self.response
+                .chunk()
+                .await
+                .map(|chunk| chunk.map(|bytes| bytes.to_vec()))
+                .map_err(|_| Failure::Network)
         })
     }
 }
@@ -1291,13 +1284,8 @@ impl DirectCall {
                         // Even an always-ready body must allow explicit
                         // cancellation, including on empty chunks.
                         tokio::task::yield_now().await;
-                        // A read chunk size is transport batching, not a stream quota.
-                        let maximum = 8192;
-                        match body.read(maximum).await? {
+                        match body.read().await? {
                             Some(bytes) => {
-                                if bytes.len() > maximum {
-                                    return Err(collector.transport_limit(true));
-                                }
                                 collector.push(&bytes)?;
                             }
                             None => {

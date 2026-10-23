@@ -15,6 +15,7 @@ impl From<Failure> for StreamFailure {
             failure,
             rule: match failure {
                 Failure::Limit => "resource_limit",
+                Failure::Unrepresentable => "observed_count_unrepresentable",
                 Failure::RemoteFailure => "remote_or_unsupported_output",
                 Failure::ReportedModelMismatch => "reported_model_mismatch",
                 Failure::ReportedEffortMismatch => "reported_effort_mismatch",
@@ -31,9 +32,9 @@ fn protocol(rule: &'static str) -> StreamFailure {
         field: None,
     }
 }
-fn limit(rule: &'static str, field: &'static str) -> StreamFailure {
+fn unrepresentable(rule: &'static str, field: &'static str) -> StreamFailure {
     StreamFailure {
-        failure: Failure::Limit,
+        failure: Failure::Unrepresentable,
         rule,
         field: Some(field),
     }
@@ -249,20 +250,6 @@ impl Collector {
         self.remote_error_type_sha256 = unknown_error_digest(error_type, self.remote_error_type);
         self.remote_error_code_sha256 = unknown_error_digest(code, self.remote_error_code);
     }
-    pub fn transport_limit(&mut self, oversized_chunk: bool) -> Failure {
-        if let Some(failure) = self.failure {
-            return failure.failure;
-        }
-        self.stage = "transport_read";
-        self.event_index = None;
-        self.event_type = None;
-        self.event_type_sha256 = None;
-        self.retain_failure(if oversized_chunk {
-            limit("transport_chunk_exceeds_requested_bound", "chunk_bytes")
-        } else {
-            limit("stream_budget_exhausted_before_eof", "max_stream_bytes")
-        })
-    }
     fn receipt_response_id(&self) -> Option<&str> {
         // A later rejected created snapshot cannot replace an established ID.
         self.response_id
@@ -281,7 +268,9 @@ impl Collector {
         self.observed = self
             .observed
             .checked_add(bytes.len())
-            .ok_or_else(|| limit("stream_byte_count_overflow", "stream_bytes"))?;
+            .ok_or_else(|| {
+                unrepresentable("stream_byte_count_unrepresentable", "stream_bytes")
+            })?;
         for &byte in bytes {
             self.frame_bytes += 1;
             if byte != b'\n' {

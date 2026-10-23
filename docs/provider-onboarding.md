@@ -147,15 +147,19 @@ request, carrier, stream, event and observed-token quotas do not restrict it.
 Complete EOF and consistent provider usage remain required for proof. Generated
 runtime settings contain only the current five provider fields.
 
-The secret-free `<vault>.onboarding` sidecar retains immutable plan IDs,
+The private mode-0600 `<vault>.onboarding` sidecar retains immutable plan IDs,
 the current catalogue, claims and outcomes without a plan-count or byte quota.
 There is no automatic eviction, reset or ID reuse. Vault credential, registration
 and journal reads and writes also have no application byte quota.
 Local settings/output, exact completed carrier, reported usage, request and
 stream digests, timestamps and status are retained; reasoning streams are not.
-The journal includes a one-way credential-generation commitment, never token
-values. Malformed carrier or known secret echoes are withheld with a digest and
-byte count, never promoted to proof. Machine output contains no carrier bodies.
+The journal includes a one-way credential-generation commitment rather than a
+copy of the selected vault credential. Provider-returned catalogue and completed
+carrier bytes are retained exactly and can themselves contain sensitive text,
+including echoed token material, so the journal must be protected like other
+private authentication state. Malformed carriers remain retained but are marked
+rejected and cannot become proof. Historical withheld outcomes remain readable.
+Machine output contains no carrier bodies.
 
 Publication uses the vault's descriptor-anchored mode-0600 staging, file fsync,
 atomic replacement and directory fsync under its account lock. The selected

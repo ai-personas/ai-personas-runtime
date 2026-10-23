@@ -52,6 +52,8 @@ pub enum Code {
     RemoteTokenBoundUnsupported,
     #[error("local_bound_exceeded")]
     Limit,
+    #[error("observed_value_unrepresentable")]
+    Unrepresentable,
     #[error("key_bound_to_different_request")]
     KeyConflict,
     #[error("plan_unavailable")]
@@ -134,7 +136,6 @@ struct Access {
     credential_sha256: String,
     expires_at_unix: u64,
     bearer: p::Secret,
-    redactions: Vec<p::Secret>,
 }
 opaque_debug!(Access);
 trait AccessSource: Send + Sync {
@@ -156,41 +157,9 @@ impl AccessSource for SelectedVault {
             credential_sha256,
             expires_at_unix: record.expires_at_unix(),
             bearer: p::Secret::new(handoff.access_token),
-            redactions: vec![
-                p::Secret::new(record.data.access_token.clone()),
-                p::Secret::new(record.data.refresh_token.clone()),
-                p::Secret::new(record.data.id_token.clone()),
-            ],
         })
     }
 }
-fn contains_secret(value: &Value, access: &Access, depth: usize) -> bool {
-    match value {
-        Value::String(s) => {
-            if access.redactions.iter().any(|v| s.contains(v.expose())) {
-                return true;
-            }
-            // Also inspect JSON strings embedded in the carrier, after decoding
-            // escapes. Non-JSON text is never interpreted as executable material.
-            if s.starts_with('{') || s.starts_with('[') {
-                if let Ok(v) = unique(s.as_bytes()) {
-                    return contains_secret(&v, access, depth + 1);
-                }
-            }
-            false
-        }
-        Value::Array(a) => a.iter().any(|v| contains_secret(v, access, depth + 1)),
-        Value::Object(o) => o.iter().any(|(k, v)| {
-            access
-                .redactions
-                .iter()
-                .any(|secret| k.contains(secret.expose()))
-                || contains_secret(v, access, depth + 1)
-        }),
-        _ => false,
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelChoice {
@@ -571,20 +540,15 @@ impl Backend {
             let mut bytes = Vec::new();
             loop {
                 tokio::task::yield_now().await;
-                let maximum = 8_192;
-                match stream.read(maximum).await.map_err(|_| Code::Network)? {
-                    Some(part) => {
-                        check(part.len() <= maximum, Code::Limit)?;
-                        bytes.extend_from_slice(&part);
-                    }
+                match stream.read().await.map_err(|_| Code::Network)? {
+                    Some(part) => bytes.extend_from_slice(&part),
                     None => break,
                 }
             }
             Ok::<_, Code>(bytes)
         };
         let bytes = operation.await?;
-        let value = unique(&bytes).map_err(|_| Code::CatalogueUnavailable)?;
-        check(!contains_secret(&value, &access, 0), Code::BodyWithheld)?;
+        unique(&bytes).map_err(|_| Code::CatalogueUnavailable)?;
         let fresh = self.access()?;
         check(
             fresh.credential_sha256 == access.credential_sha256,
@@ -715,13 +679,14 @@ impl Backend {
         };
         match operation {
             Err(code) => terminal.code = Some(code),
-            Ok(mut o) => {
+            Ok(o) => {
                 terminal.code = o.failure.map(|f| match f {
                     wire::WireFailure::Cancelled => Code::Cancelled,
                     wire::WireFailure::Timeout => Code::Timeout,
                     wire::WireFailure::Denied => Code::Denied,
                     wire::WireFailure::Expired => Code::CredentialExpired,
                     wire::WireFailure::Limit => Code::Limit,
+                    wire::WireFailure::Unrepresentable => Code::Unrepresentable,
                     wire::WireFailure::Http | wire::WireFailure::Transport => Code::Network,
                     wire::WireFailure::Protocol | wire::WireFailure::Binding => {
                         Code::ResponseRejected
@@ -730,20 +695,12 @@ impl Backend {
                 if let Some(body) = &o.carrier {
                     terminal.completed_carrier_sha256 = Some(hash(body.as_bytes()));
                     terminal.completed_carrier_bytes = Some(body.len());
-                    let safe =
-                        crate::runtime::decode_provider_carrier(body.as_bytes())
-                            .ok()
-                            .and_then(|s| unique(s.as_bytes()).ok())
-                            .is_some_and(|v| !contains_secret(&v, &access, 0));
-                    if !safe
-                        || contains_secret(
-                            &serde_json::to_value(&o).map_err(|_| Code::InvalidState)?,
-                            &access,
-                            0,
-                        )
-                    {
-                        o.carrier = None;
-                        terminal.code = Some(Code::BodyWithheld);
+                    let valid = crate::runtime::decode_provider_carrier(body.as_bytes())
+                        .ok()
+                        .and_then(|s| unique(s.as_bytes()).ok())
+                        .is_some();
+                    if !valid {
+                        terminal.code.get_or_insert(Code::ResponseRejected);
                     }
                 }
                 terminal.observation = Some(o);
