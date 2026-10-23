@@ -69,6 +69,18 @@ reads and their accounting still occur on every binding check. The new timing
 phases distinguish actual reuse from validation of a changed head; both remain
 nested within `runtime.check_configuration`.
 
+Store transactions also count ordinary records and their history slots, checking
+those totals against controlling metadata. A covering SQLite index on `lane` and
+`slots` lets this query read the required fields without scanning record bodies.
+The counts are recomputed in each transaction's current snapshot; they are not
+cached across transactions. SQLite maintains the index with each cell change.
+
+Opening a database creates the index if absent, including for an existing Store.
+The index uses additional SQLite pages and has an initial construction cost. It
+does not add logical Store records or change object bytes, canonical navigation
+charges or accounting checks. Query plans and actual command timings can show
+the indexed path's use; the index alone does not establish a whole-session speedup.
+
 Computing a stored object's exact reference streams canonical JSON into SHA-256
 through a small buffer. It borrows the complete body instead of cloning another
 JSON tree and allocating a complete serialized byte vector. Object keys are

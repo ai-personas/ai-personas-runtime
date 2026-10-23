@@ -1996,6 +1996,8 @@ impl Store {
                      slots INTEGER NOT NULL CHECK(slots>=0),
                      PRIMARY KEY(ns,k), CHECK(length(data)<=capacity)
                  ) WITHOUT ROWID;
+                 CREATE INDEX IF NOT EXISTS store_cells_lane_slots
+                 ON store_cells(lane,slots);
                  CREATE TRIGGER IF NOT EXISTS immutable_store_cells
                  BEFORE UPDATE ON store_cells
                  WHEN OLD.ns IN ('revision','decision','runtime_control_plan')
@@ -3323,6 +3325,9 @@ impl<'a> Work<'a> {
             return Err(StoreError::LimitsMismatch);
         }
         let original_meta = encode(&meta, META_CAPACITY)?;
+        // The covering lane/slots index avoids scanning record bodies. Counts
+        // still come from this transaction's current SQLite snapshot, and SQLite
+        // maintains the index atomically with every cell insertion or update.
         let (ordinary_identities, ordinary_history_slots): (i64, i64) = db.query_row(
             "SELECT count(*),COALESCE(sum(slots),0) FROM store_cells WHERE lane=0",
             [],
