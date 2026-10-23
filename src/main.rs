@@ -15,7 +15,7 @@ use std::path::PathBuf;
     about = "Explicit, transactional local AI Personas application"
 )]
 struct Cli {
-    /// External private state directory. Relative paths are accepted; symlinks and repository paths are refused.
+    /// State directory. Relative paths and symlinks resolve to the actual directory.
     #[arg(long, global = true)]
     state_root: Option<PathBuf>,
     /// Operator attribution, never persona authorship or proof of external authentication.
@@ -50,7 +50,7 @@ enum Command {
         /// JSON map from cohort IDs to attributed label, text and provenance.
         #[arg(long)]
         persona_seeds: Option<PathBuf>,
-        /// Existing provider working directory, separate from private state.
+        /// Existing working directory retained as canonical setup metadata.
         #[arg(long)]
         working_directory: PathBuf,
         /// Exact processing destination named in the new local sharing policy.

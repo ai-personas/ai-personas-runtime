@@ -395,10 +395,6 @@ pub fn setup_with_seeds(
     let (config, mut saved) = setup_parts(operator, settings, opt_in)?;
     install_persona_seeds(&mut saved, seeds)?;
     let root = private_tree(root)?;
-    require(
-        !saved.working_directory.starts_with(&root) && !root.starts_with(&saved.working_directory),
-        "provider working directory and private state must be separate",
-    )?;
     let mut app = Runtime::create(&root, config, operator)?;
     save(&mut app, None, &saved)?;
     ensure_cohort(&mut app, &saved)?;

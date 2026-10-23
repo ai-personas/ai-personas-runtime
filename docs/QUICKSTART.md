@@ -19,7 +19,7 @@ The examples below assume `ai-personas` is on your `PATH`; otherwise use `./targ
 
 Prepare a [`DirectSettings`](../src/provider.rs) JSON file with the selected access mode, credential references, exact account, model and effort. Catalogue, effort and capability observations are optional; saved transport limits are accounting metadata. [Direct provider configuration](direct-provider.md) explains the three authentication routes. Setup validates the configuration without resolving credentials or performing inference.
 
-Replace the path placeholders below. The working directory must exist and be separate from private state; it is retained as setup metadata. Host commands default to the foreground process's working directory and may select another directory. `--destination` records the processing destination.
+Replace the path placeholders below. The working directory must exist; its canonical path is retained as setup metadata. It may be the same as, contain, or be inside the state directory. Relative paths and symlinks resolve to the actual directory. Host commands default to the foreground process's working directory and may select another directory. `--destination` records the processing destination.
 ```sh
 ai-personas --operator local-operator setup \
   --provider-config /absolute/private/provider.json \
@@ -27,7 +27,7 @@ ai-personas --operator local-operator setup \
   --destination selected-model-destination
 ```
 
-Setup saves three continuing personas by default. Use `--cohort NUMBER` to choose a positive starting population; there is no application maximum. `--persona-seeds FILE` supplies attributed starting profiles. Sharing and Direct execution need no additional approval flags. Creation seeds assert no prior experience. State defaults to `$XDG_STATE_HOME/ai-personas`, or `$HOME/.local/state/ai-personas`; keep it outside repositories. If you choose another location with `--state-root`, pass that same flag on subsequent commands.
+Setup saves three continuing personas by default. Use `--cohort NUMBER` to choose a positive starting population; there is no application maximum. `--persona-seeds FILE` supplies attributed starting profiles. Sharing and Direct execution need no additional approval flags. Creation seeds assert no prior experience. State defaults to `$XDG_STATE_HOME/ai-personas`, or `$HOME/.local/state/ai-personas`. If you choose another location with `--state-root`, pass that same flag on subsequent commands.
 
 ## Give a need, then read or continue
 

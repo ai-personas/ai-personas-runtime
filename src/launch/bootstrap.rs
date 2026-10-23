@@ -80,10 +80,6 @@ fn apply_with(
 ) -> Result<Outcome> {
     let (config, saved) = prepared(request)?;
     let root = private_tree(root)?;
-    require(
-        !saved.working_directory.starts_with(&root) && !root.starts_with(&saved.working_directory),
-        "working directory and private state must be separate",
-    )?;
     let mut store = s::Store::open_for_inspection(&root.join("state.sqlite3"), storage_limits())?;
     let _owner = store
         .try_execution_owner_without_recovery()?

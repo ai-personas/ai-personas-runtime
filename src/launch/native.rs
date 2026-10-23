@@ -116,10 +116,7 @@ fn validate_saved(
     }
     let working = fs::canonicalize(&saved.working_directory)?;
     require(
-        working == saved.working_directory
-            && working.is_dir()
-            && !working.starts_with(app.state_root())
-            && !app.state_root().starts_with(&working),
+        working == saved.working_directory && working.is_dir(),
         "saved working directory binding changed",
     )?;
     Ok((settings, head.body["config"].clone()))
