@@ -17,7 +17,13 @@ cargo build --locked --release
 
 The examples below assume `ai-personas` is on your `PATH`; otherwise use `./target/release/ai-personas` from the checkout.
 
-Prepare a [`DirectSettings`](../src/provider.rs) JSON file with the selected access mode, credential references, exact account, model and effort. Catalogue, effort and capability observations are optional; saved transport limits are accounting metadata. [Direct provider configuration](direct-provider.md) explains the three authentication routes. Setup validates the configuration without resolving credentials or performing inference.
+Prepare a [`DirectSettings`](../src/provider.rs) JSON file with `mode`, `model`,
+`effort`, `credentials` and `evidence` for the selected account and route. Current
+settings contain no `limits` object; only earlier saved runtime declarations may
+retain those historical values. Catalogue, effort and capability observations
+are optional. [Direct provider configuration](direct-provider.md) explains the
+three authentication routes. Setup validates the configuration without resolving
+credentials or performing inference.
 
 Replace the path placeholders below. The working directory must exist; its canonical path is retained as setup metadata. It may be the same as, contain, or be inside the state directory. Relative paths and symlinks resolve to the actual directory. Host commands default to the foreground process's working directory and may select another directory. `--destination` records the processing destination.
 ```sh

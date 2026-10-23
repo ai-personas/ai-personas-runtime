@@ -97,7 +97,9 @@ For an unconfigured Store, follow the explicit `setup` command in the
 [command-line quickstart](QUICKSTART.md#explicit-command-line-setup). The required
 [`DirectSettings`](../src/provider.rs) file must name one access mode, real
 credential references, the exact selected model/effort and account/route
-bindings. Capability observations are optional and saved limits are metadata.
+bindings. Capability observations are optional. Current settings reject a
+`limits` member; only earlier saved runtime declarations may retain historical
+limit metadata.
 [Direct provider configuration](direct-provider.md)
 describes this contract. Setup validates settings without resolving credentials
 or making model requests; it cannot prove that live access works. The launcher
