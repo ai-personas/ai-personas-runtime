@@ -996,6 +996,14 @@ pub fn decision_schema() -> Value {
     schema
 }
 
+/// State the exact response identity for this admission in any presentation
+/// subset. These constants do not replace parsing or current-state validation.
+pub(crate) fn bind_decision_schema(mut schema: Value, invocation: &str, epoch: u64) -> Value {
+    schema["properties"]["invocation_id"]["const"] = Value::from(invocation);
+    schema["properties"]["epoch"]["const"] = Value::from(epoch);
+    schema
+}
+
 /// Present only implemented ordinary runtime operations. The generic protocol
 /// also describes Deliver, which has no release binding and cannot be adopted
 /// by this runtime. Need proposals require a separately offered intake interface.

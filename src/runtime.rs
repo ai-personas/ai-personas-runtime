@@ -7324,16 +7324,24 @@ fn render_mode_with_history(
         arrangements::DUTIES
     };
     let repair_schema = repair_navigation
-        .map(|_| serde_json::to_string(&p::selection_repair_schema()))
+        .map(|_| serde_json::to_string(&p::bind_decision_schema(
+            p::selection_repair_schema(), invocation, epoch,
+        )))
         .transpose()?;
     let mut work_interface = None;
     let need_interface =
         need_proposals::interface(state, work_id, now, ordinary_interfaces)?;
-    let application_schema = serde_json::to_string(&if initializing {
+    let application_schema = if initializing {
         p::initialization_schema()
     } else {
         p::ordinary_schema(need_interface.is_some())
-    })?;
+    };
+    // Admission constants are dynamic framing, not fixed-contract growth.
+    // The complete bound schema still contributes to actual prompt size.
+    let application_schema_contract_bytes = serde_json::to_vec(&application_schema)?.len();
+    let application_schema = serde_json::to_string(&p::bind_decision_schema(
+        application_schema, invocation, epoch,
+    ))?;
     if let Some(interface) = &need_interface {
         exposure.policies.push(scoped_policy(
             "intake-delegation",
@@ -7531,7 +7539,7 @@ fn render_mode_with_history(
     let mut fixed_contract_bytes = [
         duties.len(),
         arrangement_duties.len(),
-        application_schema.len(),
+        application_schema_contract_bytes,
         schema_bytes,
         serde_json::to_vec(&work_attempt_accounting)?.len(),
         launch_step_allowance.map_or(0, |_| launch::step_accounting::RULE.len()),
