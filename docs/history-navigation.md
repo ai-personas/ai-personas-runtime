@@ -19,6 +19,13 @@ Handles name observations and adopted Decisions, not file revisions, messages or
 query cursors. The persona chooses which record is useful. Table order establishes
 no relevance, and a handle from an earlier input is not valid in a later one.
 
+A listed record can already have its body in the current input. In an actual
+`history_record_read` observation, `payload.body_supplied: true` means the body at
+`payload.record.historical_record` is supplied now. Use that body directly; the
+handle does not require another read. A body received only in an earlier input
+is not supplied again by listing its reference. Query descriptors and artifact
+receipts have their own metadata contracts and do not establish body supply.
+
 The host checks the handle against the sealed input and resolves the same exact
 reference used by `history_record_read`. It then follows the ordinary read path,
 including immutable identity checks and fresh body supply. The receipt records
