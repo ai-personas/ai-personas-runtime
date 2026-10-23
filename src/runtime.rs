@@ -2724,6 +2724,13 @@ pub struct Runtime {
     host_command_background: Option<host_tools::Background>,
 }
 
+/// A driver's successfully decoded and matching configuration. The read
+/// identity covers the complete stored object, not just its configuration.
+pub(crate) struct ValidatedConfiguration {
+    read: s::ObjectReadIdentity,
+    expected: Value,
+}
+
 /// Explicit trusted-host closeout access. This handle exposes no preparation,
 /// resume, adoption, or general state-inspection API. Authority comes from the
 /// host selecting this interface, never from serialized state or model output.
@@ -2945,33 +2952,29 @@ impl Runtime {
         })?;
         Ok(state)
     }
-    // A driver's binding check needs the current configuration, not an owned
-    // copy of every retained persona, source and observation. Reuse validation
-    // only for the exact complete object already decoded by this driver.
+    // Recheck complete current bytes; only an identical previously decoded
+    // record can reuse validation. Changes anywhere require a fresh decode.
     fn runtime_configuration_matches(
         &mut self,
         expected: &Value,
-        validated: &mut Option<s::ObjectRef>,
+        validated: &mut Option<ValidatedConfiguration>,
     ) -> Result<bool> {
         phase_timing::measure("runtime.check_configuration", || {
-            let object = self.read_state_in_class(s::BudgetClass::Ordinary)?;
-            let reference = phase_timing::measure("runtime.fingerprint_state", || object.exact_ref())?;
-            let unchanged = validated.as_ref() == Some(&reference);
-            let phase = if unchanged {
-                "runtime.binding_head_unchanged"
-            } else {
-                "runtime.validate_binding_head"
-            };
-            phase_timing::measure(phase, || {
-                if !unchanged {
+            match self.store.read_observed_object(STATE_ID, validated.as_ref().map(|known| &known.read))? {
+                s::ObjectRead::Absent => Err(held("state missing")),
+                s::ObjectRead::Unchanged => phase_timing::measure("runtime.binding_head_unchanged", || {
+                    let known = validated.as_ref().ok_or_else(|| held("validated configuration absent"))?;
+                    Ok(known.expected == *expected)
+                }),
+                s::ObjectRead::Present { object, identity } => phase_timing::measure("runtime.validate_binding_head", || {
                     Self::decode_loaded_state(&object)?;
-                }
-                let matches = object.body["config"] == *expected;
-                if matches {
-                    *validated = Some(reference);
-                }
-                Ok(matches)
-            })
+                    let matches = object.body["config"] == *expected;
+                    if matches {
+                        *validated = Some(ValidatedConfiguration { read: identity, expected: expected.clone() });
+                    }
+                    Ok(matches)
+                }),
+            }
         })
     }
     fn save(&mut self, old: &s::StoredObject, state: &State) -> Result<s::BatchReceipt> {

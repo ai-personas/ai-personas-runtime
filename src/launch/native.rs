@@ -192,7 +192,7 @@ struct NativeDriver<'a> {
     provider: provider::DirectProvider,
     launch: serde_json::Value,
     config: serde_json::Value,
-    validated_runtime: Option<s::ObjectRef>,
+    validated_runtime: Option<ValidatedConfiguration>,
     intake_selection: Option<p::need::GrantReference>,
 }
 

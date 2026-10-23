@@ -732,7 +732,7 @@ struct OwnedLive<'a> {
     provider: provider::DirectProvider,
     binding: Value,
     config: Value,
-    validated_runtime: Option<s::ObjectRef>,
+    validated_runtime: Option<ValidatedConfiguration>,
     intake_selection: Option<p::need::GrantReference>,
 }
 fn execution_binding(saved: &Saved) -> Result<Value> {

@@ -24,6 +24,7 @@ mod archive_history;
 mod capacity;
 mod head_compaction;
 mod object_fingerprint;
+mod observed_object;
 mod operator_inspection;
 mod provider_prelaunch;
 mod revision_storage;
@@ -33,6 +34,7 @@ mod terminal_inspection;
 pub use capacity::CapacityExtensionRequest;
 pub use head_compaction::HeadCompactionRequest;
 pub(crate) use operator_inspection::RuntimeInspection;
+pub(crate) use observed_object::{ObjectRead, ObjectReadIdentity};
 
 const SCHEMA_VERSION: u32 = 2;
 fn supported_schema(version: u32) -> bool {
@@ -3779,6 +3781,10 @@ impl<'a> Work<'a> {
 
     fn returned<T: Serialize>(&mut self, value: &T, _historical_bound: u64, class: BudgetClass) -> Result<()> {
         let bytes = serialized_size(value)?;
+        self.charge_returned_bytes(bytes, class)
+    }
+
+    fn charge_returned_bytes(&mut self, bytes: u64, class: BudgetClass) -> Result<()> {
         let account = self.meta.account_mut(class);
         account.consumed.navigation_bytes = account
             .consumed

@@ -43,9 +43,13 @@ does not replace the operation's result.
 | `runtime.save` | Construct and commit a state object through the ordinary save path |
 | `runtime.commit_state` | Compare and swap that constructed state object |
 | `runtime.check_configuration` | Read and verify the current runtime configuration for a live driver |
-| `runtime.fingerprint_state` | Bind the complete current stored object to its exact reference |
-| `runtime.binding_head_unchanged` | Reuse this driver's successful validation of that same exact reference |
-| `runtime.validate_binding_head` | Fully decode and validate a new reference before comparing configuration |
+| `store.read_object_bytes` | Read complete current object bytes and validate cell metadata |
+| `store.fingerprint_object_bytes` | Hash all bytes of the current object record |
+| `store.reuse_observed_object` | Charge the prior canonical result size for an identical current read |
+| `store.decode_observed_object` | Decode a new or changed object record |
+| `store.measure_observed_object` | Measure that decoded object's canonical navigation charge |
+| `runtime.binding_head_unchanged` | Reuse this driver's validation of identical current bytes and compare its expected configuration |
+| `runtime.validate_binding_head` | Fully decode and validate changed state before comparing configuration |
 
 These are elapsed wall times, not CPU time. Nested phases overlap: do not add
 `runtime.load` to its children or `runtime.save` to the serialization and commit
@@ -77,21 +81,32 @@ their measured phases to locate costs in actual retained work before attributing
 a slow session to the provider. Logging and unrelated concurrent work can affect
 timings. No performance improvement or causal comparison follows from one run.
 
-Live session and native-provider binding checks always read the current stored
-runtime object and compare its configuration with the driver's original value.
-They retain only the exact reference of a successfully decoded, validated and
-matching head. The reference binds identity, revision, kind and the entire
-canonical JSON body. Repeated checks of that identical reference can omit typed
-state decoding. Every changed reference, including changes outside configuration,
-requires full decoding and intake validation again. A failed decode or mismatched
-configuration never updates the remembered reference. Each driver starts without
-one; nothing is persisted or shared with another driver.
+Live session and native-provider binding checks read the complete current object
+bytes in a normal Store transaction, including cell metadata checks. A private
+read identity binds the lookup key, SHA-256 of every recorded byte, and the
+canonical returned-byte charge measured when that object was decoded. A driver
+retains it only after typed state and intake validation succeed and configuration
+matches the driver's expected value.
 
-This reuse applies only to the binding check. Ordinary state loads, preparation,
-adoption, ownership and freshness checks retain their existing behavior. Store
-reads and their accounting still occur on every binding check. The new timing
-phases distinguish actual reuse from validation of a changed head; both remain
-nested within `runtime.check_configuration`.
+An identical subsequent read can omit JSON parsing, canonical remeasurement and
+typed state decoding. It still hashes all current bytes, checks current cell
+metadata, compares the expected configuration and charges the complete canonical
+result size once. Changes anywhere in the record require fresh decoding and
+validation, even if the revision or configuration text is unchanged. A different
+JSON encoding also takes that path. Missing or malformed records and changed
+configuration retain their actual errors or mismatch; no failed check replaces
+the remembered successful validation. Each driver starts without this metadata.
+It stores no retained body, adds no persistent index and shares nothing with a
+different driver.
+
+This reuse applies only to configuration binding checks. Ordinary state loads,
+preparation, adoption, ownership and freshness checks retain their existing
+behavior. The current read remains mandatory, so neither an old revision number
+nor a cached success alone establishes current state. The navigation charge is
+the existing logical canonical-result charge, not physical I/O, tokens or money.
+Earlier builds emit `runtime.fingerprint_state` while parsing and fingerprinting
+the complete stored object on every binding check; current timing phases separate
+raw reads, byte hashing, decoding and reuse inside `runtime.check_configuration`.
 
 Store transactions also count ordinary records and their history slots, checking
 those totals against controlling metadata. A covering SQLite index on `lane` and
