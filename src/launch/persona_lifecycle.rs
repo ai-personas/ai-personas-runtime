@@ -267,7 +267,7 @@ pub fn change_at(root: &Path, request: &Request, apply: bool, now: i64) -> Resul
                 "failed-attempt disposition blocks retirement",
             )?;
             require(lifecycle::retirement_blockers(&state, &request.persona)?.is_empty(),
-                "retirement requires disposition of accepted work, consequential feedback, maintenance and execution; inspect persona-lifecycle-snapshot")?;
+                "retirement requires disposition of accepted work, maintenance and execution; inspect persona-lifecycle-snapshot")?;
             record.status = lifecycle::Status::Retired;
             record.retirement = Some(notice.clone());
         }

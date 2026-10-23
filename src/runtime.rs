@@ -1541,8 +1541,8 @@ pub enum WorkAction {
     /// automatically across reads/waits: omit this action until resolved.
     /// Unlike AccountPeerFeedback, this action does not accept pending.
     /// This records your account, not requester acceptance, compliance or success.
-    /// Resolve all your pending items before proposing CloseGoal; a same-response
-    /// resolution may precede CloseGoal. Other closure gates still apply.
+    /// A pending record alone does not block closure or retirement. Actual
+    /// accepted outcomes, delivery and unresolved execution remain separate.
     ResolveRequesterFeedback {
         /// Copy CONTROL.requester_feedback.pending[].observation exactly,
         /// including its full prefix. The requester input label in
@@ -1563,7 +1563,8 @@ pub enum WorkAction {
     /// Use a separate communicate operation for an actual reply.
     /// It creates no wake or funding. Message bodies and dispositions are retained
     /// without an application count or byte quota.
-    /// Resolve pending items before CloseGoal; final dispositions cannot be reopened.
+    /// Pending records alone do not block closure or retirement. Final
+    /// dispositions cannot be reopened.
     AccountPeerFeedback {
         /// Exact top-level id of a supplied local peer or child-work message.
         /// Pending items also expose it as CONTROL.peer_feedback.pending[].observation.
@@ -10369,11 +10370,6 @@ fn apply_work_actions(
                     shared: w::RecordId(shared.clone()),
                 }),
                 WorkAction::CloseGoal { release } => {
-                    require(
-                        state.personas[&actor.0].focus[&wid.0].pending_requester_feedback.is_empty()
-                            && !peer_feedback::has_pending(&state.personas[&actor.0].focus[&wid.0]),
-                        "resolve current retained feedback explicitly before proposing closure",
-                    )?;
                     closure_readiness::require_supplied(state, prepared, release, now)?;
                     commands.push(w::Command::CloseGoal {
                         release: w::RecordId(release.clone()),
@@ -10513,16 +10509,6 @@ fn apply_work_actions(
             _ => None,
         })
         .collect();
-    if commands
-        .iter()
-        .any(|command| matches!(command, w::Command::CloseGoal { .. }))
-    {
-        let focus = &state.personas[&actor.0].focus[&wid.0];
-        require(
-            focus.pending_requester_feedback.is_empty() && !peer_feedback::has_pending(focus),
-            "closure cannot leave retained feedback pending in the final response",
-        )?;
-    }
     state.board.apply_response_with_message_waits(
         &context,
         w::DecisionResponse {

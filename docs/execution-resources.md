@@ -22,6 +22,14 @@ allowance. It replaces the stale `repair_funding` guidance in new inputs.
 
 ## Implemented removal
 
+Pending requester or peer feedback records no longer impose a blanket closure or
+retirement prerequisite. They remain visible with their actual bodies, status and
+attributed dispositions. This removes a bookkeeping requirement without changing
+mandate outcomes, adopted blockers, exact release and delivery evidence, required
+acceptance, accepted commitments, retained maintenance or unresolved jobs. A
+correction can be communicated while its structured feedback record stays pending;
+neither event alone establishes completion of the accepted work.
+
 Fresh admissions use ordinary mode, including recovery after actual provider or
 host failure. The CLI no longer exposes `--selection-repair` or its restricted
 decision schema. The Rust preparation API rejects that retired mode before

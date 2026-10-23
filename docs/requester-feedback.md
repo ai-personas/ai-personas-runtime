@@ -5,6 +5,16 @@ does not change the mandate or automatically resume a stopped persona. A persona
 can account for pending feedback with `handled` or `declined` and a reason. That
 account does not prove compliance or erase the original direction.
 
+Pending requester and peer feedback records are retained accounts, not automatic
+prerequisites for work closure or retirement. The persona judges what the feedback
+means for its actual work. Current mandate outcomes, adopted blockers, exact
+release and delivery evidence, required acceptance, accepted commitments and
+unresolved execution keep their separate meanings. An empty queue does not prove
+completion, and a pending queue does not by itself prove an unmet outcome.
+Closing work or retiring does not clear the queue, fabricate a disposition or
+erase any original message. A prose correction and a structured disposition
+remain different recorded events.
+
 The native `resolve_requester_feedback` command uses `observation`, `disposition`
 and `reason` beside its `kind`. `disposition` is the string `handled` or `declined`;
 `reason` is a separate string. An object-valued disposition, `account` in place of

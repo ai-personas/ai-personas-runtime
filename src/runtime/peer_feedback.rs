@@ -35,10 +35,6 @@ fn pending(focus: &Focus) -> BTreeMap<&str, &Receipt> {
     current
 }
 
-pub(super) fn has_pending(focus: &Focus) -> bool {
-    !pending(focus).is_empty()
-}
-
 fn visible(state: &State, record: &Receipt, a: &f::Admission) -> bool {
     exposure_permitted(state, &record.exposure, a)
         && state
@@ -83,7 +79,7 @@ pub(super) fn control(
     }
     Ok(json!({
         "interface":"peer-feedback-disposition-v1","pending":items,
-        "rule":"You chose these peer messages as consequential unresolved feedback. Their full permitted bodies remain in actual_observations across reads, waits and local stops. Leave them pending without another operation, or use account_peer_feedback to record handled or declined with a reason. Resolve your pending items before CloseGoal. This is your attributed account, not proof of compliance, sender agreement, requester acceptance or changed authority. Retention creates no wake or funding."
+        "rule":"You chose these peer messages as consequential unresolved feedback. Their full bodies remain in actual_observations across reads, waits and local stops. Leave them pending without another operation, or use account_peer_feedback to record handled or declined with a reason. A pending record alone does not block closure or retirement; accepted outcomes, delivery and unresolved execution remain separate. Closing work or retiring does not resolve or erase the record. This is your attributed account, not proof of compliance, sender agreement, requester acceptance or changed authority. Retention creates no wake or model call."
     }))
 }
 

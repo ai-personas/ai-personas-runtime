@@ -707,7 +707,7 @@ Legacy identities can be provisioned with protected pause and quarantine control
 
 Pause and quarantine fence new preparation, dispatch, adoption, targeted resume, delegated intake, and tool dispatch while preserving obligations and unresolved execution. Reactivation changes identity status only. Quarantine release removes quarantine only. Neither resumes work or replays an operation.
 
-Retirement still requires actual disposition of accepted commitments, consequential pending feedback, maintenance, and unfinished jobs. An unfinished work ending does not discharge responsibility. Historical sources and character remain attributable after retirement.
+Retirement still requires actual disposition of accepted commitments, maintenance and unfinished jobs. Pending requester or peer feedback records alone do not block retirement or work closure; those records remain attributable with their actual status. An unfinished work ending does not discharge responsibility. Historical sources and character remain attributable after retirement.
 
 ## 18. Failure and recovery principles
 

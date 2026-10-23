@@ -286,9 +286,6 @@ pub(crate) fn retirement_blockers(
         }
     }
     for (id, focus) in &persona.focus {
-        if !focus.pending_requester_feedback.is_empty() || peer_feedback::has_pending(focus) {
-            blockers.push((id.clone(), "consequential feedback is unresolved"));
-        }
         if maintenance::has_unresolved(actor, id, focus)? {
             blockers.push((id.clone(), "retained maintenance is unresolved"));
         }
