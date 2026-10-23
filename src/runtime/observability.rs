@@ -2,6 +2,50 @@
 //! These projections never select, refresh, read a new body, or grant authority.
 use super::*;
 
+pub(super) const NAVIGATION_ACCOUNTING_SCOPE: &str =
+    "Native navigation only. This record does not report provider usage or whether a model call completed.";
+
+/// A host-authenticated completed transport becomes ordinary pending evidence
+/// only if its candidate state is adopted. No authored claim or later effect
+/// supplies these fields; the original terminal record remains authoritative.
+pub(super) fn model_call_receipt(
+    state: &mut State,
+    prepared: &Prepared,
+    terminal: &s::ObjectRef,
+    receipt: &Value,
+    now: i64,
+) -> Result<()> {
+    let payload = json!({
+        "execution_profile":prepared.request.profile,
+        "completion_kind":receipt["kind"],
+        "synthetic":receipt["synthetic"],
+        "terminal_evidence":terminal,
+        "prompt_sha256":prepared.prompt_sha256,
+        "response_sha256":receipt["inner_sha256"].as_str()
+            .or_else(|| receipt["transport_sha256"].as_str()),
+        "requested_model":prepared.requested_model,
+        "requested_effort":prepared.requested_effort,
+        "reported_model":receipt["reported_model"],
+        "reported_effort":receipt["reported_effort"],
+        "transport_profile":receipt["audit"]["transport_profile"],
+        "provider_request_sha256":receipt["audit"]["request_sha256"],
+        "transport_response_bytes":receipt["transport_response_bytes"],
+        "completion_disposition":receipt["completion_disposition"],
+        "provider_reported_usage":receipt["usage"],
+        "provider_attempt":{
+            "dispatch_may_have_begun":receipt["attempt"]["dispatch_may_have_begun"],
+            "response_completed":receipt["attempt"]["response_completed"],
+            "stream_eof":receipt["attempt"]["stream_eof"],
+            "http_status":receipt["attempt"]["http_status"],
+            "elapsed_ms":receipt["attempt"]["elapsed_ms"],
+            "stream_bytes_observed":receipt["attempt"]["stream_bytes_observed"]
+        },
+        "scope":"Completion of this named response is separate from any tool effect, inspected feature or later call. Provider identity and usage remain attributed reports; unknown charges remain unknown."
+    });
+    add_observation(state, prepared, "host-model-call", "model_call_receipt",
+        payload, Vec::new(), Vec::new(), now)
+}
+
 pub(super) fn selection_state(
     state: &State,
     focus: &Focus,

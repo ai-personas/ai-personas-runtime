@@ -100,6 +100,25 @@ remain separate, with the original response bytes and attribution preserved.
 A `Responded` transport is not substantive adoption or permission to replay. Earlier missing
 responses remain missing and uncertain attempts still require reconciliation.
 
+An adopted response now queues a `model_call_receipt` observation for the same
+persona and work. It identifies the completed invocation and exact terminal
+record, prompt and response hashes, execution profile, requested and reported
+model/effort, transport observations and provider-reported usage. Synthetic
+submissions remain explicitly synthetic; unavailable provider fields are null.
+The receipt reaches the next eligible input through ordinary observations and
+remains available through retained history. It neither resumes a stopped persona
+nor requires another call just to inspect it.
+
+This metadata comes from the already retained host transport receipt and commits
+with the accepted candidate state. A failed plan leaves its original terminal
+evidence without a fabricated adoption observation. The named call's completed
+response does not prove that a proposed tool effect ran, that inspected source
+behavior executed, that its claims were correct or that a later call completed.
+Provider identity and token counts remain attributed provider reports; unknown
+charges stay unknown. Navigation observations describe navigation only. Older
+records retain their original payloads, and no missing historical receipt is
+backfilled. The projection does not include response bodies or credential data.
+
 When runtime authorization rejects a prepared request before dispatch, its actual
 no-launch receipt, Failed invocation status and unknown-usage hold commit together
 using prepaid records. Cleanup does not need navigation capacity to return the

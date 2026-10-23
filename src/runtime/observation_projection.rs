@@ -118,7 +118,7 @@ pub(super) fn project(
     inherited.sources.extend(exact.iter().cloned());
     let mut payload = if observation.kind == "host_accounting" {
         json!({"reserved_allowance":observation.payload["reserved_allowance"],
-            "allowance_refunded":false,"provider_usage":"unknown",
+            "allowance_refunded":false,"scope":observability::NAVIGATION_ACCOUNTING_SCOPE,
             "actual_navigation":"retained for operator accounting; not supplied to inference"})
     } else {
         observation.payload.clone()
