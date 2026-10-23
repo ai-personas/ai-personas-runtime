@@ -7,7 +7,7 @@ use super::*;
 #[path = "need_admission.rs"]
 mod need_admission;
 pub(in crate::runtime) use need_admission::admitted_child_for_run;
-pub(super) use need_admission::admit_pending_for_work_owned;
+pub(super) use need_admission::{admit_pending_for_work_owned, has_pending_for_work};
 pub use need_admission::{
     admit_need_proposal, preview_admit_need_proposal, AdmitNeedProposalOutcome,
     AdmitNeedProposalReceipt, AdmitNeedProposalRequest,

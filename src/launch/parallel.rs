@@ -20,6 +20,15 @@ enum Wake {
     Jobs(Result<()>),
 }
 
+fn maintenance_state(app: &mut Runtime) -> Result<State> {
+    phase_timing::measure("launch.maintenance_state", || {
+        let (head, state) = app.load()?;
+        require(head.id == STATE_ID && head.kind == "runtime-state" && state.format == 1,
+            "invalid runtime state")?;
+        Ok(state)
+    })
+}
+
 pub(super) async fn run<D: Driver>(
     app: &mut Runtime,
     work: &str,
@@ -102,13 +111,33 @@ async fn run_with_subtree<D: Driver>(
                     driver.before_step(app)?;
                     if let Some(owner) = owner {
                         feedback::deliver(app, owner, unix_now()?)?;
-                        works = delegated::subtree(&app.snapshot()?, root)?;
+                        let mut state = maintenance_state(app)?;
+                        works = delegated::subtree(&state, root)?;
                         for work in &works {
-                            app.retire_ready_rejected_continuations(work, unix_now()?)?;
-                            persona_birth::create_pending_for_work_owned(app, work, driver, owner)?;
-                            intake_delegation::admit_pending_for_work_owned(app, work, owner)?;
+                            let calls = rejected_continuation::active_invocations_for_work(&state, work)?;
+                            // Empty maintenance checks share this round's current
+                            // snapshot. Release it before helpers that can mutate
+                            // state, then reload even if they make no change.
+                            if !calls.is_empty() {
+                                drop(state);
+                                phase_timing::measure("launch.maintenance_rejections", ||
+                                    app.retire_ready_rejected_continuations(work, calls, unix_now()?))?;
+                                state = maintenance_state(app)?;
+                            }
+                            if persona_birth::has_pending_for_work(&state, work) {
+                                drop(state);
+                                phase_timing::measure("launch.maintenance_creation", ||
+                                    persona_birth::create_pending_for_work_owned(app, work, driver, owner))?;
+                                state = maintenance_state(app)?;
+                            }
+                            if intake_delegation::has_pending_for_work(&state, work) {
+                                drop(state);
+                                phase_timing::measure("launch.maintenance_admission", ||
+                                    intake_delegation::admit_pending_for_work_owned(app, work, owner))?;
+                                state = maintenance_state(app)?;
+                            }
                         }
-                        works = delegated::subtree(&app.snapshot()?, root)?;
+                        works = delegated::subtree(&state, root)?;
                     }
                     for work in &works {
                         if !handover(app, work)? {

@@ -136,6 +136,11 @@ pub(in crate::runtime) fn stage_pending(
     Ok(())
 }
 
+/// Inspect pending creation metadata without loading another copy of history.
+pub(in crate::runtime::launch) fn has_pending_for_work(state: &State, work: &str) -> bool {
+    state.persona_creations.values().any(|value| value.work == work && value.created.is_none())
+}
+
 /// No provider call is replayed. A committed creation marks the request complete
 /// in the same transaction as the identity, receipt and parent observation.
 pub(in crate::runtime::launch) fn create_pending_for_work_owned<D: Driver>(

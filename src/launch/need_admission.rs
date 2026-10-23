@@ -809,6 +809,15 @@ pub fn admit_need_proposal(
     execute(app, request, now, true)
 }
 
+/// A conservative inspection of the current snapshot. The admission helper must
+/// still read exact proposal bodies and check their current parent bindings.
+pub(in crate::runtime::launch) fn has_pending_for_work(state: &State, work: &str) -> bool {
+    state.intake_episodes.values().any(|episode|
+        episode.work_binding(work).is_some() && episode.revoked_at_unix.is_none()
+            && episode.pending_proposals().any(|reference|
+                !episode.children().any(|child| &child.binding.pending == reference)))
+}
+
 /// Called only by a native foreground driver holding this Store's execution owner.
 /// Every transaction is derived from an actual adopted proposal. If it cannot
 /// commit, that immutable proposal stays pending; no model request is replayed.

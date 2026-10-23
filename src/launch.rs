@@ -823,7 +823,8 @@ async fn run_with_options<D: Driver>(
     require(saved.works.contains_key(work), "unknown launch work")?;
     let stop = loop {
         app.publish_completed_host_commands(unix_now()?)?;
-        app.retire_ready_rejected_continuations(work, unix_now()?)?;
+        let calls = rejected_continuation::active_invocations_for_work(&app.snapshot()?, work)?;
+        app.retire_ready_rejected_continuations(work, calls, unix_now()?)?;
         feedback::deliver(app, owner, unix_now()?)?;
         persona_birth::create_pending_for_work_owned(app, work, driver, owner)?;
         let mut view = result(app, work)?;

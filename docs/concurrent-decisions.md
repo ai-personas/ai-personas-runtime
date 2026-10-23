@@ -21,6 +21,23 @@ parent from indefinitely refilling the pending set ahead of child admission.
 Children still require their exact adopted proposal and a separate atomic receipt;
 parent and child continuations are independent.
 
+At the quiescent maintenance boundary, one current snapshot supplies the subtree,
+active-invocation candidates and checks for pending persona creation and child
+admission. Empty checks reuse that snapshot. A potential maintenance action drops
+it before entering the existing helper, which loads current state and validates
+the actual invocation, proposal and transaction bindings. The coordinator reloads
+after each such helper, including one that makes no change, and derives the next
+subtree from the latest snapshot. It does not keep an extra history copy alive
+through those helpers or reuse this view across rounds. Selection and preparation
+still inspect current state independently.
+
+Optional `launch.maintenance_state` timing events measure these actual snapshot
+loads. The `launch.maintenance_rejections`, `launch.maintenance_creation` and
+`launch.maintenance_admission` events identify invoked helpers, including any
+that return without a change. Their nested runtime phases overlap with their
+durations; adding them together would double-count elapsed work. Native timing
+observations do not by themselves establish a controlled performance improvement.
+
 Ordinary inputs can include `CONTROL.collaborators`: other current-work
 participants, their labels and current acceptance IDs, and their latest accepted
 continuation with its authoring invocation. The snapshot has no application

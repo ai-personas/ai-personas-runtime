@@ -2,14 +2,20 @@
 //! The foreground driver may then reconsider the previously accepted route.
 use super::*;
 
+pub(super) fn active_invocations_for_work(state: &State, work: &str) -> Result<BTreeSet<String>> {
+    Ok(state.board.work(&w::WorkId(work.into()))?.participants.keys()
+        .filter_map(|actor| state.personas.get(&actor.0)?.active_invocation.clone())
+        .collect())
+}
+
 impl Runtime {
     /// Revisit retained completed rejections at a quiescent foreground boundary.
     /// A previous session can have ended before its lease became retireable.
-    pub(super) fn retire_ready_rejected_continuations(&mut self, work: &str, now: i64) -> Result<()> {
-        let state = self.snapshot()?;
-        let calls = state.board.work(&w::WorkId(work.into()))?.participants.keys()
-            .filter_map(|actor| state.personas.get(&actor.0)?.active_invocation.clone())
-            .collect::<BTreeSet<_>>();
+    /// Snapshot candidates only select work to inspect; each retirement still
+    /// validates the current invocation and runtime state before changing it.
+    pub(super) fn retire_ready_rejected_continuations(
+        &mut self, work: &str, calls: BTreeSet<String>, now: i64,
+    ) -> Result<()> {
         for id in calls {
             let invocation = match self.store.trusted_host().invocation(&id) {
                 Ok(invocation) => invocation,

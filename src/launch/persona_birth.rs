@@ -7,7 +7,7 @@ use super::*;
 mod pending;
 pub(crate) use pending::Pending;
 pub(in crate::runtime) use pending::{stage_pending, validate_operation};
-pub(super) use pending::create_pending_for_work_owned;
+pub(super) use pending::{create_pending_for_work_owned, has_pending_for_work};
 
 const KIND: &str = "persona-birth-v1";
 
