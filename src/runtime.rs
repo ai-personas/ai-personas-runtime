@@ -3979,14 +3979,9 @@ impl Runtime {
         )?;
         require(
             continuation_permit(&state, &request.persona, &request.work, now)
-                || (request.mode == Mode::Ordinary
-                    && ordinary_opportunity(&state, &request.persona, &request.work, now)),
+                || ordinary_opportunity(&state, &request.persona, &request.work, now),
             "explicit resume or currently eligible accepted ordinary continuation required",
         )?;
-        if request.mode == Mode::SelectionRepair {
-            require(persona.character.is_some() && persona.focus[&request.work].repair_trigger.is_some(),
-                "selection repair requires a recorded ordinary overflow after accepted selection and mandatory growth")?;
-        }
         let work = state.board.work(&w::WorkId(request.work.clone()))?;
         require(matches!(work.phase, w::Phase::Open), "work is not open")?;
         require(
@@ -3997,16 +3992,12 @@ impl Runtime {
         let work_version = work.version;
         // Capture this admission's trigger before episode debits or continuation
         // consumption can make the next admission ineligible.
-        let admitted_opportunity = if request.mode == Mode::Ordinary {
-            runtime_opportunity(
-                &state,
-                &w::WorkId(request.work.clone()),
-                &w::PersonaId(request.persona.clone()),
-                u64::try_from(now).map_err(|_| invalid("negative work time"))?,
-            )
-        } else {
-            None
-        };
+        let admitted_opportunity = runtime_opportunity(
+            &state,
+            &w::WorkId(request.work.clone()),
+            &w::PersonaId(request.persona.clone()),
+            u64::try_from(now).map_err(|_| invalid("negative work time"))?,
+        );
         let episode_admission =
             need_proposals::attach(self, &mut state, &request, intake_selection.as_ref(), now)?;
         let navigation = if episode_admission {
@@ -4040,20 +4031,6 @@ impl Runtime {
                 state.config.navigation_per_call,
             )
         };
-        if request.mode == Mode::SelectionRepair {
-            check_repair_projection(&state, navigation)?;
-            if !episode_admission {
-                // Preserve the existing non-episode repair checkpoint semantics.
-                let charged_object = state_object(&old, &state)?;
-                let receipt = self.save(&old, &state)?;
-                require(
-                    receipt.epoch == increment(start_epoch)?,
-                    "concurrent transition during repair navigation allocation",
-                )?;
-                old = charged_object;
-                start_epoch = receipt.epoch;
-            }
-        }
         let unadmitted = state.clone();
         // The previous admitted call consumed next_call lifetimes even if its
         // response was rejected. Derive a witness only for that exact expiry
@@ -4092,9 +4069,6 @@ impl Runtime {
         if !episode_admission {
             let meta = state.work_meta.get_mut(&request.work).unwrap();
             meta.attempts_left = meta.attempts_left.saturating_sub(1);
-            if request.mode == Mode::SelectionRepair {
-                meta.repair_attempts_left = meta.repair_attempts_left.saturating_sub(1);
-            }
         }
         optional_activity::record_admission(&mut state, &request, now)?;
         let epoch = increment(start_epoch)?;
@@ -4106,83 +4080,47 @@ impl Runtime {
             &request.work,
             now,
         );
-        let rendering = if request.mode == Mode::SelectionRepair {
-            render_mode_with_history(
-                &state,
-                &history_material,
-                &request.persona,
-                &request.work,
-                &request.id,
-                epoch,
-                now,
-                true,
-                Some(navigation),
-                Some(navigation),
-                launch_step_allowance.as_ref(),
-            )
-        } else {
-            render_with_history(
-                &state,
-                &history_material,
-                &request.persona,
-                &request.work,
-                &request.id,
-                epoch,
-                now,
-                true,
-                Some(navigation),
-                launch_step_allowance.as_ref(),
-            )
-        };
+        let rendering = render_with_history(
+            &state,
+            &history_material,
+            &request.persona,
+            &request.work,
+            &request.id,
+            epoch,
+            now,
+            true,
+            Some(navigation),
+            launch_step_allowance.as_ref(),
+        );
         let rendered = match rendering {
             Ok(rendered) => rendered,
             Err(error) => {
-                if request.mode == Mode::Ordinary {
-                    // Retain the actual host diagnostic and allocated navigation,
-                    // never the tentative ownership or attempt deductions.
-                    let mut failed = unadmitted;
-                    let focus = failed
-                        .personas
-                        .get_mut(&request.persona)
-                        .unwrap()
-                        .focus
-                        .get_mut(&request.work)
-                        .unwrap();
-                    focus.repair_trigger = overflow_trigger(
-                        &state.personas[&request.persona].focus[&request.work],
-                        &error,
-                    );
-                    self.save(&old, &failed)?;
-                }
+                // Retain the actual host diagnostic and allocated navigation,
+                // never the tentative ownership or attempt deductions.
+                let mut failed = unadmitted;
+                let focus = failed
+                    .personas
+                    .get_mut(&request.persona)
+                    .unwrap()
+                    .focus
+                    .get_mut(&request.work)
+                    .unwrap();
+                focus.repair_trigger = overflow_trigger(
+                    &state.personas[&request.persona].focus[&request.work],
+                    &error,
+                );
+                self.save(&old, &failed)?;
                 return Err(error);
             }
         };
-        if request.mode == Mode::SelectionRepair {
-            let trigger = state.personas[&request.persona].focus[&request.work]
-                .repair_trigger
-                .as_ref()
-                .unwrap();
-            require(
-                trigger.selection_sha256 == rendered.selection_sha256
-                    && material_grew(
-                        rendered.growth_bytes,
-                        rendered.fixed_contract_bytes,
-                        trigger.accepted_growth_bytes,
-                        trigger.accepted_fixed_contract_bytes,
-                    )
-                    && rendered.ordinary_total > state.config.context_bytes,
-                "recorded selection overflow is no longer the current repair condition",
-            )?;
-        } else {
-            state
-                .personas
-                .get_mut(&request.persona)
-                .unwrap()
-                .focus
-                .get_mut(&request.work)
-                .unwrap()
-                .repair_trigger = None;
-        }
+        state
+            .personas
+            .get_mut(&request.persona)
+            .unwrap()
+            .focus
+            .get_mut(&request.work)
+            .unwrap()
+            .repair_trigger = None;
         if let Some(w::Opportunity {
             cause: w::OpportunityCause::Event(key),
             ..
@@ -4216,9 +4154,9 @@ impl Runtime {
             prompt: rendered.prompt,
             prompt_encoding: rendered.prompt_encoding,
             output_schema: provider::json_object_schema(),
-            reconsideration_interface: (request.mode == Mode::Ordinary && persona.character.is_some())
+            reconsideration_interface: persona.character.is_some()
                 .then(|| RECONSIDERATION_INTERFACE.into()),
-            history_records_interface: (request.mode == Mode::Ordinary && persona.character.is_some())
+            history_records_interface: persona.character.is_some()
                 .then(|| history::records::INTERFACE.into()),
             work_interface: rendered.work_interface,
             input_file_choices: rendered.input_file_choices,
@@ -10954,10 +10892,10 @@ pub fn readiness() -> Value {
         "limits":["hard remote model context bounds unsupported","strict live guarantees are not established",
             "exact model availability requires verified operator configuration; no implicit model substitution","logical retention only; no physical hard bound",
             "tokens, billing, hidden provider inputs, remote retention and remote stop remain unverified",
-            "selection repair supports explicit whole-entry reductions and exact reads; historical repair allocations do not limit ordinary work",
+            "new admissions use ordinary mode; restricted selection-repair entry points are retired; historical repair receipts and triggers do not restrict current work",
             "runtime admission, work debit, ownership, invocation and terminal capacity commit atomically; prior navigation preparation remains charged",
             "persisted per-work foreground rotation without scan quotas; lower-level scheduler preparation alone launches no provider; foreground and session coordinators launch direct calls",
-            "scheduler progress requires successful persistence and continuing eligibility; one current invocation per persona; intake episodes currently use sequential primary calls; unknown outcomes remain retained",
+            "scheduler progress requires successful persistence and continuing eligibility; one current invocation per persona; independent Direct calls may overlap across work and delegated descendants; unknown outcomes remain retained",
             "exact-file and admitted pending-mock dependencies; local evidence requires explicit host lineage/policy attestation and applied Store terminal proof; no external subscriptions or independent authentication",
             "event observations cannot adopt or resolve applicability warnings",
             "external effects and exports remain unsupported by this scheduler/event interface",
