@@ -8,6 +8,10 @@ pub struct FeedbackInput {
     pub work: String,
     pub persona: String,
     pub text: String,
+    /// Existing exact native files addressed by this feedback. These identify
+    /// offered choices; attaching a reference neither reads nor selects its body.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub file_references: Vec<p::ExactRef>,
     /// Exact earlier feedback observation IDs whose directions this input replaces.
     /// Original observations and any persona accounts remain retained history.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -18,6 +22,11 @@ impl FeedbackInput {
     pub fn validate(&self) -> Result<()> {
         for value in [&self.id, &self.work, &self.persona] {
             identity(value)?;
+        }
+        p::validate_attached_references(&self.file_references)?;
+        for reference in &self.file_references {
+            require(reference.lifetime.is_none(),
+                "feedback file references have no context-selection lifetime")?;
         }
         let mut seen = BTreeSet::new();
         for id in &self.supersedes {
@@ -129,12 +138,17 @@ fn authorize(state: &State, saved: &Saved, operator: &str, input: &FeedbackInput
     require(persona.focus.contains_key(&input.work), "feedback recipient is outside this requester's work")?;
     let exposure = work_exposure(state, &input.work)?;
     require(exposure_permitted(state, &exposure, &admission(persona, now)), "feedback work unavailable")?;
+    for reference in &input.file_references {
+        // Bind an existing immutable revision, never a path, proposal or head.
+        // Reading later checks the actual representation, range and qualifications.
+        record(state, &file_reference(reference)?)?;
+    }
     Ok(exposure)
 }
 
 fn observation(
     state: &State, operator: &str, input: &FeedbackInput, now: i64,
-    exposure: Exposure, queued: &[InputRecord],
+    mut exposure: Exposure, queued: &[InputRecord],
 ) -> Result<Observation> {
     let id = bounded_composite_id("operator-feedback", &[operator, &input.id]);
     let mut superseded = Vec::new();
@@ -155,9 +169,16 @@ fn observation(
         "work":input.work,"text":input.text,"origin":"local_operator_input",
         "independently_authenticated":false,"changes_mandate_or_authority":false});
     if !superseded.is_empty() { payload["supersedes"] = json!(superseded); }
+    let sources = input.file_references.iter().map(file_reference).collect::<Result<Vec<_>>>()?;
+    if !sources.is_empty() {
+        payload["file_references"] = json!(input.file_references);
+        exposure.sources.extend(sources.iter().cloned());
+        exposure.sources.sort();
+        exposure.sources.dedup();
+    }
     Ok(Observation { id, actor: input.persona.clone(), work: input.work.clone(), invocation: None,
         kind: "received_local_operator_feedback".into(), at_unix: now, payload,
-        sources: Vec::new(), exposure: Some(exposure), qualified_roots: Vec::new(), qualification_sources: None })
+        sources, exposure: Some(exposure), qualified_roots: Vec::new(), qualification_sources: None })
 }
 
 fn current_targets(state: &State, input: &FeedbackInput, queued: &[InputRecord]) -> Result<()> {
@@ -180,6 +201,8 @@ fn view(state: &State, record: &InputRecord, receipt: Option<s::ObjectRef>, repl
     json!({"observation":record.observation.id,"work":record.input.work,"persona":record.input.persona,
         "replayed":replayed,"receipt":receipt,"delivery":record.delivery,"queued":queued,
         "received_context":record.received_context,
+        "file_references":record.input.file_references,
+        "file_bodies_supplied_by_attachment":false,"context_selection_changed":false,
         "supply":if queued {"retained for delivery at a settled decision boundary"} else if delivered {
             "pending fresh permitted admission"} else {"not delivered; inspect delivery reason"},
         "persona_resumed":false,"inference_performed":false,"budget_reset":false,
@@ -358,6 +381,7 @@ pub(super) fn append_view(
         items.push(json!({"observation":record.observation.id,"persona":record.input.persona,
             "label":state.personas.get(&record.input.persona).map(|p| &p.seed.label),
             "feedback_text":record.input.text,"status":if waiting {"queued"} else {"delivery_unavailable"},
+            "file_references":record.input.file_references,"file_bodies_supplied_by_attachment":false,
             "delivery":record.delivery,"receipt":head.exact_ref()?,"current_direction":null,
             "queued_current_direction":waiting && !replacements.contains_key(&record.observation.id),
             "replacement_queued_by":replacements.get(&record.observation.id),

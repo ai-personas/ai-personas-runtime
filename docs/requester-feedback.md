@@ -25,6 +25,29 @@ personas-session --state-root /private/state --operator requester feedback feedb
 ai-personas --state-root /private/state --operator requester feedback feedback.json
 ```
 
+The native JSON input also accepts `file_references`, an optional array of exact
+native file references copied from an accepted file receipt, message, or resource
+view. Each names `source`, immutable `revision`, `representation`, and optional
+`start` and `end`; omit `lifetime` or use null. It is an attachment, not a
+context-selection request. A host path or a same-response proposal is not an
+existing native revision.
+
+Attach the exact file you mean when asking for an update or review. Intake checks
+that its source and revision exist and retains that exact reference with your
+text. Delivery and replay never substitute a newer head. The reference appears
+beside the feedback in receipts and results and becomes a candidate in the
+recipient's `CONTROL.input_file_choices` when that feedback is supplied. A later
+replacement carries only its own attachments; superseded attachments stay in
+the original history and do not become new directions.
+
+Attaching a reference supplies metadata without reading its body, selecting it,
+or changing a stopped persona's continuation. The persona chooses whether to
+read or select it; reading checks the requested representation, range and
+qualifications. Ordinary context routes can independently supply the same body.
+Changed attachments under an existing feedback ID are an identity conflict.
+The dialogue displays attachments; use either native JSON entry point to author
+them.
+
 Feedback can arrive during a foreground run. Intake stores the exact attributed
 input in a durable inbox without acquiring the execution owner, changing the
 runtime's semantic epoch, or modifying an admitted model request. Its receipt

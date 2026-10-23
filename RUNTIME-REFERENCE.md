@@ -407,6 +407,13 @@ history queries and reads identify its replacement without reactivating it.
 Feedback does not resume a stopped persona or amend the mandate. See
 [requester feedback](docs/requester-feedback.md) for the native input and dialogue flow.
 
+Feedback can attach existing exact native files through `file_references`.
+The immutable references remain beside its attributed text in receipts and
+results. Supplied feedback offers those references in `CONTROL.input_file_choices`
+without loading their bodies or changing optional selections. The persona still
+chooses useful reads and context. Intake verifies existing source/revision
+identity; delivery and replay preserve it even when the source head advances.
+
 Feedback intake remains available during an active foreground session. Exact
 inputs are retained in an independent inbox and delivered after admitted calls
 and host commands settle. Queuing changes neither an existing prompt nor the

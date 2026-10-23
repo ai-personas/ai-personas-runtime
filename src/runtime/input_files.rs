@@ -262,7 +262,8 @@ fn candidates(control: &Value, qualified: &Value) -> Result<Candidates> {
                 Some("qualified_read" | "selection_repair_read" | "local_dependency_event") => {
                     candidates.bundle(&observation["payload"]["result"])?;
                 }
-                Some("received_local_persona_message" | "received_child_work_message") => {
+                Some("received_local_persona_message" | "received_child_work_message"
+                    | "received_local_operator_feedback") => {
                     if let Some(references) = observation["payload"]["file_references"].as_array() {
                         for reference in references {
                             candidates.add(reference)?;

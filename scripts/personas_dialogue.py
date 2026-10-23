@@ -1331,6 +1331,10 @@ class Dialogue:
                 self.ui.say(f"{item['label']} {status}.")
                 if item.get("feedback_body_supplied"):
                     self.ui.say("Your feedback: " + item["feedback_text"])
+                if item.get("file_references"):
+                    self.ui.say("Attached exact file references (metadata, not supplied content):")
+                    for reference in item["file_references"]:
+                        self.ui.say(json.dumps(reference, ensure_ascii=False, sort_keys=True))
                 if item.get("account"):
                     self.ui.say(item["label"] + "'s account: " + item["account"]["reason"])
         for part in readable_messages(messages):

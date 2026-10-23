@@ -647,6 +647,10 @@ fn readable_result(value: &launch::Output) -> runtime::Result<String> {
                 };
                 lines.push(format!("{label} {status}."));
                 if let Some(text) = item["feedback_text"].as_str() { lines.push(format!("Your feedback: {text}")); }
+                if let Some(references) = item["file_references"].as_array().filter(|refs| !refs.is_empty()) {
+                    lines.push("Attached exact file references (metadata, not supplied content):".into());
+                    for reference in references { lines.push(serde_json::to_string(reference)?); }
+                }
                 if let Some(reason) = item["account"]["reason"].as_str() { lines.push(format!("{label}'s account: {reason}")); }
             }
         }

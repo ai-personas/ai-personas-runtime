@@ -357,11 +357,14 @@ pub(super) fn project_for_recipient(
                 || observation.payload["sender"] != recipient
                 || observation.payload["recipient"] != actor.0
                 || observation.payload["work"] != work_id
-                || !observation.sources.is_empty()
                 || !observation.qualified_roots.is_empty()
             {
                 continue;
             }
+            let references: Vec<p::ExactRef> = serde_json::from_value(
+                observation.payload.get("file_references").cloned().unwrap_or_else(|| json!([])))?;
+            let sources = references.iter().map(file_reference).collect::<Result<Vec<_>>>()?;
+            require(observation.sources == sources, "feedback file reference lineage changed")?;
             let Some(exposure) = observation.exposure.as_ref() else {
                 continue;
             };
@@ -415,6 +418,8 @@ pub(super) fn project_for_recipient(
             "observation":id,"input_id":observation.payload["id"],
             "received_at_unix":observation.at_unix,"status":status,
             "feedback_text":observation.payload["text"],"feedback_body_supplied":true,
+            "file_references":observation.payload.get("file_references").cloned().unwrap_or_else(|| json!([])),
+            "file_bodies_supplied_by_attachment":false,
             "current_direction":feedback_status["current_direction"],
             "superseded_by":feedback_status["superseded_by"],
             "account":receipt.map(|r|json!({"invocation":r.invocation,
