@@ -8,8 +8,8 @@ Saved `limits` values are historical estimates. Other runtime restrictions remai
 
 Personas sends one HTTPS Responses request per admitted step. Its runtime owns prompt assembly, tools, memory, decisions, collaboration, assessment, adoption, resource accounting and durable recovery. Codex CLI and app-server execution are absent from product runtime. Engineering tools are separate.
 
-Persona inputs contain the actual admitted capabilities, authority, remaining
-resources and observations. The operator's `readiness` diagnostic is separate;
+Persona inputs contain the actual admitted capabilities, current work,
+observational resource accounting and received results. The operator's `readiness` diagnostic is separate;
 its descriptions of other transports and lower-level interfaces are not sent
 as persona instructions. The absence of provider-hosted tools does not remove
 the runtime's default host command access.
@@ -63,16 +63,18 @@ Use setup and `step --profile direct`. Saved `allow_direct_provider`, cohort-sha
 
 ## Migration and recovery
 
-New launch metadata uses format 2. Format-1 historical launch records and their opaque provider settings remain readable through `open`/`result`; those reads do not resolve credentials. Legacy CLI configuration and legacy execution profiles fail closed. Explicit provider/model migration is not implemented by silently changing settings: it must preserve Store history, character and asset identities, counters, remaining allowances, stopped work, responsibilities and unresolved attempts. Existing exact persona model/effort bindings still apply. No automatic conversion, reset, new grant or historical receipt rewrite occurs. Missing historical terminal bodies stay missing.
+New launch metadata uses format 2. Format-1 historical launch records and their opaque provider settings remain readable through `open`/`result`; those reads do not resolve credentials. Legacy CLI configuration and legacy execution profiles fail closed. Explicit provider/model migration is not implemented by silently changing settings: it preserves Store history, character and asset identities, recorded usage and historical allocations, stopped work, responsibilities and unresolved attempts. Existing exact persona model/effort bindings still apply. No automatic conversion, usage reset or historical receipt rewrite occurs. Missing historical terminal bodies stay missing.
 
-Native admission retains execution ownership, exact prompt/response-contract binding, resource reservation and durable dispatch before transmission. Transport completion precedes whole-Decision acceptance. An invalid complete Decision is held with its complete exact terminal body. Possible submission followed by timeout, cancellation or transport failure remains uncertain; neither replay nor remote cancellation is inferred. Time-limited live exposure remains rejected until a final egress expiry guard is available.
+Native admission retains execution ownership, exact prompt/response-contract binding, accounting reservations and durable dispatch before transmission. Transport completion precedes whole-Decision acceptance. An invalid complete Decision is held with its complete exact terminal body. Possible submission followed by cancellation or transport failure remains uncertain; neither replay nor remote cancellation is inferred. Historical source-policy lifetimes do not impose an application egress gate. Actual credential expiry and provider outcomes remain distinct.
 
-A first complete provider response fills its prepaid terminal slot and records
+A first complete provider response fills its retained terminal slot and records
 the response digest before any metered invocation read for adoption or rejection.
 The runtime checks the exact admitted request inside that same transaction.
-Exhausted navigation can still prevent subsequent planning or adoption; the
-retained transport remains `Responded`, with its original bytes and attribution.
-This is not substantive adoption or permission to replay. Earlier missing
+Navigation use is recorded without an application allowance or exhaustion gate.
+Later planning or adoption can still fail because of invalid output, changed
+state or an actual host failure. The retained transport and adoption disposition
+remain separate, with the original response bytes and attribution preserved.
+A `Responded` transport is not substantive adoption or permission to replay. Earlier missing
 responses remain missing and uncertain attempts still require reconciliation.
 
 When runtime authorization rejects a prepared request before dispatch, its actual
@@ -89,8 +91,9 @@ To inspect an existing invocation's exact transport receipt, use
 This host inspection charges the canonical returned evidence bytes to Closeout
 navigation. It resolves retained references internally without returning the full
 runtime state, prepared request or adoption archive. The command performs no
-owner recovery or inference. Historical reference and expiry checks still apply,
-and a receipt larger than the remaining allowance remains unavailable.
+owner recovery or inference. Exact retained reference and receipt bindings still
+apply. There is no application receipt-size or remaining-navigation gate;
+missing or inconsistent evidence remains unavailable.
 
 Owned native foreground sessions can keep independent personas' direct calls in
 flight concurrently. Each call retains its own request, receipt and single-use
@@ -107,7 +110,7 @@ Within an authorized foreground session, a complete rejected ordinary decision
 can release its failed local invocation when the persona already has an accepted
 ordinary continuation. The runtime records the exact rejection and preserves that
 continuation unchanged. Normal selection may admit a new decision with the actual
-failure observations, using the remaining session, work and Store allowances.
+failure observations, recording usage without session, work or Store quotas.
 This is a new invocation and response, not replay of the rejected request or its
 proposed operations. It does not revive a stopped persona, repeat a consumed timed
 opportunity, recover an incomplete transport, or continue a cancelled response.
@@ -128,11 +131,11 @@ The exact native prompt is a user input-text message. A fixed JSON-output instru
 
 The saved `output_schema` is `{"type":"object"}` for direct Decision transport. Its audit digest identifies that response contract; the serialized provider request binds the actual JSON mode. Historical admissions and the isolated onboarding echo retain the strict `{"decision_json":"..."}` carrier. Response decoding follows the exact admitted format, never a guessed fallback. Direct responses retain their original UTF-8 bytes without reserialization; historical carriers are decoded once. Completion receipts identify `direct_decision_json_v1` or `decision_json_string_v1`, and the exact application bytes still receive the same complete parser.
 
-Completion requires one completed assistant output-text message, consistent response/model/item identity, agreement with observed text deltas, and EOF after the terminal event. OAuth routes may omit the response Content-Type header; the same complete SSE validation still applies. A conflicting media type, duplicate headers or encoded body remains invalid. Refusals, returned tools, unsupported snapshots, malformed streams, duplicate/conflicting terminals, trailing errors, incomplete output and exhausted limits fail closed. Reasoning is never adopted as a response.
+Completion requires one completed assistant output-text message, consistent response/model/item identity, agreement with observed text deltas, and EOF after the terminal event. OAuth routes may omit the response Content-Type header; the same complete SSE validation still applies. A conflicting media type, duplicate headers or encoded body remains invalid. Refusals, returned tools, unsupported snapshots, malformed streams, duplicate/conflicting terminals, trailing errors and incomplete output retain their actual failures. Reasoning is never adopted as a response.
 
-Bounded `keepalive` events may carry only their type and optional sequence/response
-identity. They supply no output, usage or completion and do not reset the transfer
-deadline. Sequence and identity checks still apply, and a heartbeat after terminal
+`keepalive` events may carry only their type and optional sequence/response
+identity. They supply no output, usage or completion. The application imposes no
+event-count quota or transfer deadline. Sequence and identity checks still apply, and a heartbeat after terminal
 completion remains invalid. Unknown event types and heartbeat payloads remain refused.
 
 Cancellation stops local request/stream work; remote cancellation is unconfirmed. Byte counters concern local encoded payloads and delivered response bytes, not TLS overhead, operating-system or HTTP-client buffers, hidden provider context or hard remote token limits. Missing usage counters remain unknown, separately from zero, and charges remain unknown. Provider-reported model identity is evidence of a report, not independent proof of the served model.
