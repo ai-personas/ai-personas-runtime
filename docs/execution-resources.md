@@ -43,7 +43,7 @@ resume a stopped actor or replay a failed or uncertain invocation.
 Native navigation records use without enforcing its saved call, scan, match,
 revision or result-byte allocation. Requested page sizes decide which results are supplied; there is no application
 model-input fitting quota. The history adapter no longer rejects
-an entire runtime merely because unrelated retained state exceeds4MiB.
+an entire runtime merely because unrelated retained state exceeds 4 MiB.
 
 Store accounting retains consumed, reserved and uncertain quantities without
 applying cumulative resource, identity or history-slot quotas. Complete cells
