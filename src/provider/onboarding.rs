@@ -4,9 +4,7 @@
 use super::*;
 
 pub(crate) const CATALOG_URL: &str = "https://api.openai.com/v1/models";
-pub(crate) const CATALOG_BYTES: usize = 65_536;
 pub(crate) const PROBE_PROFILE: &str = "personas-siwc-carrier-probe-v1";
-pub(crate) const MAX_CARRIER: usize = 8_192;
 
 pub(crate) struct CatalogResponse {
     pub status: u16,
@@ -117,7 +115,6 @@ pub(crate) fn request(
     id: &str,
     model: &str,
     effort: &str,
-    _historical_timeout_ms: u64,
 ) -> Result<Vec<u8>, Failure> {
     if !identifier(id) || !identifier(model) || reported_effort_label(effort).is_none() {
         return Err(Failure::Configuration);
@@ -221,14 +218,11 @@ impl fmt::Debug for Observation {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) async fn probe(
     transport: &dyn Transport,
     body: Vec<u8>,
     bearer: Secret,
     model: &str,
-    _historical_timeout_ms: u64,
-    _historical_observed_token_limit: u64,
     guard: Arc<IntakeLaunchGuard>,
     cancellation: Cancellation,
 ) -> Observation {

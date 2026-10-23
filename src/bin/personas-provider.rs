@@ -26,13 +26,8 @@ mod cli {
             effort: String,
         },
         /// Read the selected account's LIVE catalogue. No inference.
-        Catalogue {
-            #[arg(long)]
-            authorize_read: bool,
-            #[arg(long)]
-            retain_private_evidence: bool,
-        },
-        /// Retain a plan and return its exact consent digest; no inference.
+        Catalogue,
+        /// Retain a plan and return its exact request identity digest; no inference.
         Plan {
             #[arg(long)]
             id: String,
@@ -43,15 +38,6 @@ mod cli {
             /// Unverified candidate, not an assertion of model support. No default.
             #[arg(long)]
             effort: String,
-            #[arg(long, default_value_t = 0)]
-            timeout_ms: u64,
-            /// Historical metadata; no observed-token threshold is enforced.
-            #[arg(long, default_value_t = 0)]
-            max_observed_total_tokens: u64,
-            #[arg(long)]
-            require_remote_token_hard_bound: bool,
-            #[arg(long)]
-            retain_private_evidence: bool,
         },
         /// Consume one exact plan once; MAY consume plan usage. No automatic retries.
         Probe {
@@ -59,12 +45,6 @@ mod cli {
             id: String,
             #[arg(long)]
             plan_sha256: String,
-            #[arg(long)]
-            authorize_one_request: bool,
-            #[arg(long)]
-            retain_private_evidence: bool,
-            #[arg(long)]
-            acknowledge_uncapped_remote_usage: bool,
         },
         /// Retained historical metadata only. Never replays or resolves credentials.
         ProbeStatus {
@@ -98,51 +78,23 @@ mod cli {
         let mut host = backend::Backend::open(vault)?;
         match cli.command {
             Command::Configure { model, effort } => value(host.configure(&model, &effort)?),
-            Command::Catalogue {
-                authorize_read,
-                retain_private_evidence,
-            } => value(
-                host.catalogue(authorize_read, retain_private_evidence)
-                    .await?,
-            ),
+            Command::Catalogue => value(host.catalogue().await?),
             Command::Plan {
                 id,
                 catalogue_sha256,
                 model,
                 effort,
-                timeout_ms,
-                max_observed_total_tokens,
-                require_remote_token_hard_bound,
-                retain_private_evidence,
-            } => value(host.plan(
-                backend::PlanRequest {
-                    id,
-                    catalogue_sha256,
-                    model,
-                    effort,
-                    timeout_ms,
-                    max_observed_total_tokens,
-                    require_remote_token_hard_bound,
-                },
-                retain_private_evidence,
-            )?),
+            } => value(host.plan(backend::PlanRequest {
+                id,
+                catalogue_sha256,
+                model,
+                effort,
+            })?),
             Command::Probe {
                 id,
                 plan_sha256,
-                authorize_one_request,
-                retain_private_evidence,
-                acknowledge_uncapped_remote_usage,
             } => value(
-                host.execute(
-                    &id,
-                    &plan_sha256,
-                    backend::ProbeConsent {
-                        authorize_one_request,
-                        retain_private_evidence,
-                        acknowledge_uncapped_remote_usage,
-                    },
-                    cancellation,
-                )
+                host.execute(&id, &plan_sha256, cancellation)
                 .await?,
             ),
             Command::ProbeStatus { id, plan_sha256 } => {

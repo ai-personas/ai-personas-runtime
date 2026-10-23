@@ -11,8 +11,8 @@ evidence. They contain no `limits` object or invented historical quota estimates
 Current Direct input rejects that removed member; earlier declarations remain
 in their original saved runtime records. The shared request serializer, stream
 collector and JSON parser no longer take unused quota arguments. Optional probe
-planning still retains its own historical fields; it is separate from ordinary
-provider configuration and is not a prerequisite for native work.
+planning likewise contains only actual request choices. It is separate from
+ordinary provider configuration and is not a prerequisite for native work.
 
 ## Provider contract and observed usage
 
@@ -35,9 +35,8 @@ Inference uses only public `POST https://api.openai.com/v1/responses`, with
 **SIWC does not support `max_output_tokens`.** This is explicit in the official
 [preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations).
 A server-enforced token/dollar ceiling is therefore not implemented or claimed.
-Application duration, byte and observed-token quotas are disabled. Historical
-timeout, token-threshold and hard-bound request fields are optional metadata;
-they do not reject a plan or its completed response. The view reports
+Application duration, byte and observed-token quotas are disabled. Current plans
+contain no timeout, token-threshold or requested hard-bound fields. The view reports
 `resource_quotas_enforced: false`, null byte maxima and no remote token or dollar
 hard bound. Closing a local connection does not establish remote cancellation.
 
@@ -59,9 +58,9 @@ commands need no second authorization flag.
 | Method | Effect and result |
 | --- | --- |
 | `configure(model, effort)` | Returns settings for the explicit choices and current vault identity, with no catalogue/probe prerequisites or network requests. Capability digests are null and the evidenced-effort set is empty. |
-| `catalogue(authorize_read, retain_private_evidence)` | A live GET and complete private catalogue retention, without local size, count or duration quotas. Returns exact selectable choices and an evidence digest. |
-| `plan(PlanRequest, retain_private_evidence)` | Persists an immutable plan under an exact ID; returns the bound account/model/effort, plan digest, cost notice and disabled-quota view. No inference. |
-| `execute(id, plan_sha256, ProbeConsent, Cancellation)` | Consumes the exact plan durably before possible transmission, then attempts at most one request. The explicit command needs no additional confirmation flags; exact evidence is retained. |
+| `catalogue()` | A live GET and complete private catalogue retention, without local size, count or duration quotas. Returns exact selectable choices and an evidence digest. |
+| `plan(PlanRequest)` | Persists an immutable plan under an exact ID; returns the bound account/model/effort, plan digest, cost notice and disabled-quota view. No inference. |
+| `execute(id, plan_sha256, Cancellation)` | Consumes the exact plan durably before possible transmission, then attempts at most one request. The explicit command needs no additional confirmation flags; exact evidence is retained. |
 | `probe_status(id, plan_sha256)` | Returns retained historical metadata without resolving credentials or dispatching. |
 | `configuration(id, plan_sha256)` | Optionally attaches exact completed proof for the current credential generation to typed settings. It uses the retained plan's optional catalogue, independently of the latest catalogue. No runtime write. |
 | `renewal_status(&saved_settings)` | Read-only same-account/expiry comparison. Reports optional proof status separately; fresh evidence is never required. No credential or runtime modification. |
@@ -73,10 +72,9 @@ cooperative sign-in/refresh writers. Busy is not permission to recover an owner.
 `PlanRequest` requires `id`, `model` and `effort`. `catalogue_sha256` may be omitted
 or null. When supplied, it must name the exact retained catalogue for the selected
 account and credential generation; the plan keeps that catalogue's full record.
-Its historical
-`timeout_ms`, `max_observed_total_tokens` and `require_remote_token_hard_bound`
-fields default to zero/false and do not impose quotas. There is no model
-or effort default. `effort_candidates_unverified` in catalogue output is only
+Those are its four current fields; the strict input decoder rejects obsolete
+quota members. There is no model or effort default.
+`effort_candidates_unverified` in catalogue output is only
 an illustrative list, not a required or provider-supported-effort list.
 The user may enter any nonempty model and effort identifiers without whitespace
 or control characters. Exact reported effort is retained without a closed local
@@ -119,13 +117,19 @@ browsing or a capability check.
 
 `plan` requires explicit `--id`, `--model` and `--effort`.
 `--catalogue-sha256` is optional.
-The old `--timeout-ms` and `--max-observed-total-tokens` arguments are optional
-metadata and default to zero.
-`probe` requires the exact returned `--id` and `--plan-sha256`. The former
-`--authorize-one-request`, `--retain-private-evidence` and
-`--acknowledge-uncapped-remote-usage` flags are optional metadata. Account,
-model, effort, request and recorded metadata are bound by that digest.
+`probe` requires the exact returned `--id` and `--plan-sha256`. The old timeout,
+observed-token, requested-hard-bound, authorization and evidence-retention flags
+are removed. Account, model, effort, request and actual credential expiry are
+bound by the plan digest. The deadline is the credential's real expiry, with no
+separate application authorization deadline.
 No token, API key, executable, or alternate endpoint argument exists.
+
+The dialogue creates the same four-field request and passes only the current
+CLI arguments. Selecting an action is the request; no inert second-consent
+method or fabricated approval is recorded. First-release interfaces do not
+accept obsolete plan or dialogue-probe fields as compatibility aliases. Earlier
+files keep their bytes and original interpretation; they are not rewritten into
+new requests, new digests or fresh dispatches.
 
 Both `configure` and `configuration` return settings in `data`, without modifying
 a runtime. The dialogue saves the exact generated settings before cohort setup.
@@ -141,7 +145,7 @@ five-minute plan deadline. The selected account, credential generation and actua
 credential expiry still have to match. Each request identity is consumed once;
 request, carrier, stream, event and observed-token quotas do not restrict it.
 Complete EOF and consistent provider usage remain required for proof. Generated
-runtime transport settings retain historical values without quota enforcement.
+runtime settings contain only the current five provider fields.
 
 The secret-free `<vault>.onboarding` sidecar retains immutable plan IDs,
 the current catalogue, claims and outcomes without a plan-count or byte quota.

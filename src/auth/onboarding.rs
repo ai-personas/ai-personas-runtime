@@ -119,7 +119,7 @@ fn encode<T: Serialize + ?Sized>(value: &T) -> Result<Vec<u8>> {
 fn digest<T: Serialize + ?Sized>(value: &T) -> Result<String> {
     Ok(hash(&encode(value)?))
 }
-fn unique(bytes: &[u8], _historical_maximum: usize) -> Result<Value> {
+fn unique(bytes: &[u8]) -> Result<Value> {
     crate::files::parse_json_unique(bytes).map_err(|_| Code::InvalidState)
 }
 
@@ -173,7 +173,7 @@ fn contains_secret(value: &Value, access: &Access, depth: usize) -> bool {
             // Also inspect JSON strings embedded in the carrier, after decoding
             // escapes. Non-JSON text is never interpreted as executable material.
             if s.starts_with('{') || s.starts_with('[') {
-                if let Ok(v) = unique(s.as_bytes(), wire::MAX_CARRIER) {
+                if let Ok(v) = unique(s.as_bytes()) {
                     return contains_secret(&v, access, depth + 1);
                 }
             }
@@ -208,7 +208,7 @@ struct Catalogue {
 }
 fn models(body: &str) -> Result<Vec<ModelChoice>> {
     let value =
-        unique(body.as_bytes(), wire::CATALOG_BYTES).map_err(|_| Code::CatalogueUnavailable)?;
+        unique(body.as_bytes()).map_err(|_| Code::CatalogueUnavailable)?;
     let entries = value
         .get("models")
         .and_then(Value::as_array)
@@ -286,14 +286,6 @@ pub struct PlanRequest {
     pub catalogue_sha256: Option<String>,
     pub model: String,
     pub effort: String,
-    /// Historical request metadata; no local timeout or token quota is enforced.
-    #[serde(default)]
-    pub timeout_ms: u64,
-    #[serde(default)]
-    pub max_observed_total_tokens: u64,
-    /// Historical metadata. The view reports the actual lack of remote hard bounds.
-    #[serde(default)]
-    pub require_remote_token_hard_bound: bool,
 }
 impl PlanRequest {
     fn validate(&self) -> Result<()> {
@@ -315,7 +307,6 @@ pub struct ProbePlan {
     pub credential_sha256: String,
     pub credential_expires_at_unix: u64,
     pub created_at_unix: u64,
-    pub authorization_deadline_unix: u64,
     pub request_sha256: String,
     pub schema_sha256: String,
 }
@@ -336,12 +327,6 @@ pub struct PlanView {
     pub maximum_stream_bytes: Option<usize>,
     pub remote_token_hard_bound: bool,
     pub dollar_hard_bound: bool,
-}
-#[derive(Clone, Copy, Default)]
-pub struct ProbeConsent {
-    pub authorize_one_request: bool,
-    pub retain_private_evidence: bool,
-    pub acknowledge_uncapped_remote_usage: bool,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -546,7 +531,7 @@ impl Backend {
             });
         };
         let j: Journal =
-            serde_json::from_value(unique(&bytes, 0)?).map_err(|_| Code::InvalidState)?;
+            serde_json::from_value(unique(&bytes)?).map_err(|_| Code::InvalidState)?;
         validate_journal(&j)?;
         Ok(j)
     }
@@ -560,11 +545,7 @@ impl Backend {
             })
     }
     /// Explicit catalogue read; exact private evidence is retained by default.
-    pub async fn catalogue(
-        &mut self,
-        _authorize_read: bool,
-        _retain_private_evidence: bool,
-    ) -> Result<CatalogueView> {
+    pub async fn catalogue(&mut self) -> Result<CatalogueView> {
         let mut j = self.read()?;
         let access = self.access()?;
         bind_account(&j, &access)?;
@@ -602,7 +583,7 @@ impl Backend {
             Ok::<_, Code>(bytes)
         };
         let bytes = operation.await?;
-        let value = unique(&bytes, wire::CATALOG_BYTES).map_err(|_| Code::CatalogueUnavailable)?;
+        let value = unique(&bytes).map_err(|_| Code::CatalogueUnavailable)?;
         check(!contains_secret(&value, &access, 0), Code::BodyWithheld)?;
         let fresh = self.access()?;
         check(
@@ -622,13 +603,9 @@ impl Backend {
         self.save(&j)?;
         Ok(view)
     }
-    /// Persist an exact plan, not inference consent. Changed contents under a key
+    /// Persist an exact plan without dispatch. Changed contents under a key
     /// conflict even after credential rotation or after its result is retained.
-    pub fn plan(
-        &mut self,
-        request: PlanRequest,
-        _retain_private_evidence: bool,
-    ) -> Result<PlanView> {
+    pub fn plan(&mut self, request: PlanRequest) -> Result<PlanView> {
         request.validate()?;
         let mut j = self.read()?;
         if let Some(old) = j.attempts.get(&request.id) {
@@ -650,7 +627,6 @@ impl Backend {
             &request.id,
             &request.model,
             &request.effort,
-            request.timeout_ms,
         )
         .map_err(|_| Code::InvalidRequest)?;
         let now = self.now()?;
@@ -661,7 +637,6 @@ impl Backend {
             credential_sha256: access.credential_sha256,
             credential_expires_at_unix: access.expires_at_unix,
             created_at_unix: now,
-            authorization_deadline_unix: access.expires_at_unix,
             request_sha256: hash(&body),
             schema_sha256: digest(&crate::runtime::provider_schema())?,
         };
@@ -689,7 +664,6 @@ impl Backend {
         &mut self,
         id: &str,
         plan_sha256: &str,
-        _consent: ProbeConsent,
         cancellation: p::Cancellation,
     ) -> Result<ProbeStatus> {
         let mut j = self.read()?;
@@ -706,7 +680,6 @@ impl Backend {
             id,
             &plan.request.model,
             &plan.request.effort,
-            plan.request.timeout_ms,
         )
         .map_err(|_| Code::InvalidState)?;
         check(hash(&body) == plan.request_sha256, Code::InvalidState)?;
@@ -726,8 +699,6 @@ impl Backend {
                     body,
                     current.bearer.clone(),
                     &plan.request.model,
-                    plan.request.timeout_ms,
-                    plan.request.max_observed_total_tokens,
                     guard,
                     cancellation,
                 )
@@ -762,7 +733,7 @@ impl Backend {
                     let safe =
                         crate::runtime::decode_provider_carrier(body.as_bytes())
                             .ok()
-                            .and_then(|s| unique(s.as_bytes(), wire::MAX_CARRIER).ok())
+                            .and_then(|s| unique(s.as_bytes()).ok())
                             .is_some_and(|v| !contains_secret(&v, &access, 0));
                     if !safe
                         || contains_secret(
@@ -1019,8 +990,7 @@ fn validate_journal(j: &Journal) -> Result<()> {
                 && is_hash(&p.account_sha256)
                 && is_hash(&p.credential_sha256)
                 && p.created_at_unix > 0
-                && p.authorization_deadline_unix > p.created_at_unix
-                && p.authorization_deadline_unix <= p.credential_expires_at_unix
+                && p.credential_expires_at_unix > p.created_at_unix
                 && p.schema_sha256 == digest(&crate::runtime::provider_schema())?
                 && p.request_sha256
                     == hash(
@@ -1028,7 +998,6 @@ fn validate_journal(j: &Journal) -> Result<()> {
                             key,
                             &p.request.model,
                             &p.request.effort,
-                            p.request.timeout_ms,
                         )
                         .map_err(|_| Code::InvalidState)?,
                     ),

@@ -339,13 +339,10 @@ def validate_progress(p):
     for probe in p["probes"]:
         require(isinstance(probe, dict) and set(probe) == {"request", "view", "attempted"})
         q = probe["request"]
-        require(isinstance(q, dict) and set(q) == {"id", "catalogue_sha256", "model", "effort", "timeout_ms",
-                                                  "max_observed_total_tokens", "require_remote_token_hard_bound"})
+        require(isinstance(q, dict) and set(q) == {"id", "catalogue_sha256", "model", "effort"})
         require(identifier(q["id"]) and q["id"] not in seen and provider_label(q["model"])
                 and provider_label(q["effort"])
-                and type(q["timeout_ms"]) is int and q["timeout_ms"] >= 0
-                and type(q["max_observed_total_tokens"]) is int and q["max_observed_total_tokens"] >= 0
-                and type(q["require_remote_token_hard_bound"]) is bool and type(probe["attempted"]) is bool
+                and type(probe["attempted"]) is bool
                 and (q["catalogue_sha256"] is None
                      or (isinstance(q["catalogue_sha256"], str)
                          and re.fullmatch(r"[a-f0-9]{64}", q["catalogue_sha256"]) is not None)))
@@ -475,10 +472,6 @@ class Terminal:
             raise Halt()
         require(line.endswith(b"\n"), "incomplete_input")
         return line[:-1].decode("utf-8")
-
-    def consent(self, text):
-        # The selected menu action is the request. No second approval is needed.
-        pass
 
     def number(self, text, default, low, high):
         while True:
@@ -867,11 +860,8 @@ class Helpers:
             if not candidates:
                 self.ui.say("No Cargo candidate was found on PATH or in the configured Rustup toolchain root. "
                             "Install or repair Rust 1.88+ and the native C toolchain/linker under host policy, "
-                            "or choose an approved existing helper directory. No installer was run.")
+                            "or choose an existing helper directory. No installer was run.")
                 return self.install()
-            self.ui.consent("Build optimized helpers from this exact checkout with locked Cargo dependencies, Cargo parallelism and no debug symbols? "
-                            "Cargo may download locked crates and execute their build scripts. No sudo/system installation. "
-                            "Build/cache files consume disk; failure preserves your need")
             target = self.j.directory.path / "build"
             env = self.environment()
             for k in ("CARGO_HOME", "RUSTUP_HOME"):
@@ -1077,8 +1067,6 @@ class Dialogue:
             if choice not in ("s", "r"):
                 raise Halt()
             command = "sign-in" if choice == "s" else "refresh"
-            self.ui.consent(f"Authorize {command} for this exact vault and private credential storage? "
-                            "Sign-in uses your browser on this host. Renewal never changes saved runtime pins")
             # The auth helper alone displays its generated URL on stderr, never in
             # a journal or returned UI log. Never retry exchange/refresh on error.
             self.h.call("personas-auth", ["--vault", self.p["vault"], command],
@@ -1102,11 +1090,8 @@ class Dialogue:
 
     def new_probe(self):
         model, effort = self.select_provider()
-        # Saved fields remain request metadata; application quotas are disabled.
-        timeout, tokens = 0, 0
         request = {"id": "probe-" + uuid.uuid4().hex, "catalogue_sha256": None,
-                   "model": model, "effort": effort, "timeout_ms": timeout,
-                   "max_observed_total_tokens": tokens, "require_remote_token_hard_bound": False}
+                   "model": model, "effort": effort}
         probe = {"request": request, "view": None, "attempted": False}
         self.p["probes"].append(probe)
         self.j.save()
@@ -1168,8 +1153,7 @@ class Dialogue:
             q = probe["request"]
             if probe["view"] is None:
                 args = ["plan", "--id", q["id"],
-                        "--model", q["model"], "--effort", q["effort"], "--timeout-ms", str(q["timeout_ms"]),
-                        "--max-observed-total-tokens", str(q["max_observed_total_tokens"])]
+                        "--model", q["model"], "--effort", q["effort"]]
                 if q["catalogue_sha256"] is not None:
                     args += ["--catalogue-sha256", q["catalogue_sha256"]]
                 try:
@@ -1477,7 +1461,6 @@ class Dialogue:
         persona = self.choose_participant({"participants": candidates})
         if persona is None:
             return
-        self.ui.consent(f"Resume {persona} for {work['id']}? Starting a model session remains a separate choice")
         self.queue_work_input("resume-participant", {"id": "resume-" + uuid.uuid4().hex,
             "operator": self.p["operator"], "work": work["id"], "persona": persona,
             "expected_runtime": view["runtime"], "expected_launch": view["launch"],
@@ -1989,8 +1972,6 @@ class Dialogue:
         self.ui.say("Exact pending need:\n" + need["text"])
         if not need["shared"]:
             need["require_acceptance"] = self.ui.ask("Require your explicit acceptance of the eventual exact release? [yes/NO]").strip().lower() == "yes"
-            self.ui.consent("Share and durably submit this exact need to the saved cohort and provider within its existing "
-                            "permissions and per-work budget? Includes voluntary arrangement formation; no assigned roles or extra effects")
             need["shared"] = True
             self.j.save()
         args = ["intake", "--id", need["id"]]
@@ -2020,7 +2001,7 @@ class Dialogue:
         # Only a new UI-owned root is eligible for atomic fresh bootstrap. An
         # existing unrecognized database is never assumed to be partial setup.
         if self.p["runtime"]["owned"] and self.p["setup_authorized"]:
-            # Recorded consent is for these exact immutable request bytes. Actual
+            # The selected action retains these exact immutable request bytes. Actual
             # setup completion is established only by the runtime-owned receipt.
             path, _ = self.j.document("bootstrap")
             self.session("bootstrap", path)
@@ -2085,7 +2066,7 @@ class Dialogue:
                 work_id = self.submit_pending(pending[0])
                 after = None
                 self.output(work_id)
-                # Explicit run consent follows intake. The runtime still decides
+                # The explicit run choice follows intake. The runtime still decides
                 # admission; the UI cannot wake Stop or override a hold.
                 self.run_work(work_id, self.inspect())
             elif choice == "more" and view.get("next_after"):
