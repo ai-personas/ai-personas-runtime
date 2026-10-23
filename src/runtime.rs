@@ -38,6 +38,7 @@ pub mod launch;
 pub use launch::step_accounting::LaunchStepAllowance;
 mod stakeholder;
 mod state_storage;
+mod phase_timing;
 mod tools;
 mod http_tools;
 mod host_tools;
@@ -2911,14 +2912,21 @@ impl Runtime {
         self.load_in_class(s::BudgetClass::Ordinary)
     }
     fn load_in_class(&mut self, class: s::BudgetClass) -> Result<(s::StoredObject, State)> {
-        let object = match class {
-            s::BudgetClass::Ordinary => self.store.read(STATE_ID),
-            s::BudgetClass::Closeout => self.store.trusted_host().read(STATE_ID),
-        }?
-        .ok_or_else(|| held("state missing"))?;
-        let state = state_storage::decode(object.body.clone())?;
-        need_proposals::validate_state(&state)?;
-        Ok((object, state))
+        phase_timing::measure("runtime.load", || {
+            let object = phase_timing::measure("runtime.read_state", || match class {
+                s::BudgetClass::Ordinary => self.store.read(STATE_ID),
+                s::BudgetClass::Closeout => self.store.trusted_host().read(STATE_ID),
+            })?
+            .ok_or_else(|| held("state missing"))?;
+            let body = phase_timing::measure("runtime.clone_state_json", || {
+                Ok::<_, RuntimeError>(object.body.clone())
+            })?;
+            let state = state_storage::decode(body)?;
+            phase_timing::measure("runtime.validate_intake_state", || {
+                need_proposals::validate_state(&state)
+            })?;
+            Ok((object, state))
+        })
     }
     fn save(&mut self, old: &s::StoredObject, state: &State) -> Result<s::BatchReceipt> {
         self.save_in_class(old, state, s::BudgetClass::Ordinary)
@@ -2933,16 +2941,20 @@ impl Runtime {
         state: &State,
         class: s::BudgetClass,
     ) -> Result<s::BatchReceipt> {
-        self.store
-            .compare_and_swap_batch_in_class(
-                vec![s::Change {
-                    expected_revision: Some(old.revision),
-                    object: state_object(old, state)?,
-                    depends_on: Vec::new(),
-                }],
-                class,
-            )
-            .map_err(Into::into)
+        phase_timing::measure("runtime.save", || {
+            let object = state_object(old, state)?;
+            phase_timing::measure("runtime.commit_state", || {
+                self.store.compare_and_swap_batch_in_class(
+                    vec![s::Change {
+                        expected_revision: Some(old.revision),
+                        object,
+                        depends_on: Vec::new(),
+                    }],
+                    class,
+                )
+                .map_err(Into::into)
+            })
+        })
     }
     /// Operator inspection only. Do not expose this API as a persona tool.
     pub fn snapshot(&mut self) -> Result<State> {

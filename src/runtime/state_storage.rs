@@ -364,9 +364,10 @@ impl Serialize for State {
         &self,
         serializer: S,
     ) -> std::result::Result<S::Ok, S::Error> {
-        let expanded = ExpandedState::serialize(self, serde_json::value::Serializer)
-            .map_err(serde::ser::Error::custom)?;
-        pack(expanded)
+        let expanded = phase_timing::measure("state.serialize_expanded", || {
+            ExpandedState::serialize(self, serde_json::value::Serializer)
+        }).map_err(serde::ser::Error::custom)?;
+        phase_timing::measure("state.pack_exposures", || pack(expanded))
             .map_err(serde::ser::Error::custom)?
             .serialize(serializer)
     }
@@ -375,7 +376,8 @@ impl Serialize for State {
 /// Store heads are already parsed JSON. Do not deserialize Value into another
 /// Value before decoding the typed state; that repeats the entire tree walk.
 pub(super) fn decode(value: Value) -> serde_json::Result<State> {
-    ExpandedState::deserialize(unpack(value)?)
+    let expanded = phase_timing::measure("state.unpack_exposures", || unpack(value))?;
+    phase_timing::measure("state.deserialize_expanded", || ExpandedState::deserialize(expanded))
 }
 
 impl<'de> Deserialize<'de> for State {

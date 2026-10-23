@@ -77,6 +77,8 @@ skill application. Actual executions retain their intents and observed results.
 
 [Inspect persona development](docs/persona-development.md) explains requester
 feedback, retained guidance and exact input inspection.
+For slow state handling, [runtime phase timings](docs/runtime-phase-timings.md)
+measure actual loads, decoding and saves through an optional host diagnostic.
 Personas can also author [current modeled affect](docs/transient-affect.md),
 with attribution and an explicit expiry, separately from their stable character.
 
