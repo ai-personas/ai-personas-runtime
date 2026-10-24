@@ -5594,7 +5594,7 @@ impl Runtime {
             let (_, fresh) = self.load()?;
             self.current(&fresh, &prepared, unix_now()?)?;
             optional_activity::require_current(&fresh, &prepared.request.work, &prepared.request.persona, unix_now()?)?;
-            expanded_exposure(&fresh, prepared_exposure(&prepared)?)?;
+            check_exposure(&fresh, prepared_exposure(&prepared)?)?;
             // Source and episode expiry settings do not impose transport deadlines.
             control_monitor = Some((self.store.runtime_control_monitor()?, fresh.operator_events.len()));
             self.store.dispatch_invocation(&prepared.request.id)?;
@@ -6336,13 +6336,24 @@ fn character_exposure(character: &Character) -> Result<Exposure> {
     })
 }
 fn expanded_exposure(state: &State, input: &Exposure) -> Result<Exposure> {
+    trace_exposure::<true>(state, &input.sources, &input.policies)
+}
+fn check_exposure(state: &State, input: &Exposure) -> Result<()> {
+    trace_exposure::<false>(state, &input.sources, &[]).map(|_| ())
+}
+fn trace_exposure<const RETAIN: bool>(
+    state: &State,
+    sources: &[f::Reference],
+    policies: &[ScopedPolicy],
+) -> Result<Exposure> {
     // The visited set is the complete final source list. Do not repeatedly
     // merge and sort an intermediate list that would be replaced at the end.
+    // Validation follows every edge but needs no returned sources or policies.
     let mut result = Exposure {
         sources: Vec::new(),
-        policies: input.policies.clone(),
+        policies: if RETAIN { policies.to_vec() } else { Vec::new() },
     };
-    let mut pending = input.sources.clone();
+    let mut pending = sources.to_vec();
     let mut seen = BTreeSet::new();
     while let Some(reference) = pending.pop() {
         if !seen.insert(reference.clone()) {
@@ -6351,8 +6362,10 @@ fn expanded_exposure(state: &State, input: &Exposure) -> Result<Exposure> {
 
         let stored = record(state, &reference)?;
         if let Some(inherited) = &stored.exposure {
-            let inherited = warnings::inherited_exposure(state, &reference, inherited)?;
-            extend_policies(&mut result.policies, &inherited.policies);
+            let inherited = warnings::inherited_exposure::<RETAIN>(state, &reference, inherited)?;
+            if RETAIN {
+                extend_policies(&mut result.policies, &inherited.policies);
+            }
             pending.extend(inherited.sources.iter().cloned());
         } else {
             require(
@@ -6360,14 +6373,16 @@ fn expanded_exposure(state: &State, input: &Exposure) -> Result<Exposure> {
                 "revision has unknown exposure lineage",
             )?;
         }
-        let restriction = scoped_policy(
-            "file",
-            &reference.source,
-            &reference.revision,
-            &stored.record.policy,
-        );
-        if !result.policies.contains(&restriction) {
-            result.policies.push(restriction);
+        if RETAIN {
+            let restriction = scoped_policy(
+                "file",
+                &reference.source,
+                &reference.revision,
+                &stored.record.policy,
+            );
+            if !result.policies.contains(&restriction) {
+                result.policies.push(restriction);
+            }
         }
         pending.extend(stored.lineage.iter().cloned());
         pending.extend(stored.record.qualifications.iter().cloned());
@@ -6376,14 +6391,16 @@ fn expanded_exposure(state: &State, input: &Exposure) -> Result<Exposure> {
             .iter()
             .filter(|b| b.source == reference.source && b.file_revision == reference.revision)
         {
-            let restriction = scoped_policy(
-                "accepted-binding",
-                &binding.id,
-                &binding.revision,
-                &binding.policy,
-            );
-            if !result.policies.contains(&restriction) {
-                result.policies.push(restriction);
+            if RETAIN {
+                let restriction = scoped_policy(
+                    "accepted-binding",
+                    &binding.id,
+                    &binding.revision,
+                    &binding.policy,
+                );
+                if !result.policies.contains(&restriction) {
+                    result.policies.push(restriction);
+                }
             }
             match &binding.disposition {
                 f::BindingDisposition::Qualify { required } => {
@@ -6395,26 +6412,18 @@ fn expanded_exposure(state: &State, input: &Exposure) -> Result<Exposure> {
         }
 
     }
-    result.sources = seen.into_iter().collect();
+    if RETAIN {
+        result.sources = seen.into_iter().collect();
+    }
 
     Ok(result)
 }
-fn exposure_permitted(state: &State, exposure: &Exposure, a: &f::Admission) -> bool {
-    expanded_exposure(state, exposure).is_ok_and(|e| {
-        e.policies
-            .iter()
-            .all(|r| policy_permitted(state, &r.policy, a))
-    })
+fn exposure_permitted(state: &State, exposure: &Exposure, _a: &f::Admission) -> bool {
+    // Policies retain attribution but impose no access gate (UR-052).
+    check_exposure(state, exposure).is_ok()
 }
-fn lineage_permitted(state: &State, roots: &[f::Reference], a: &f::Admission) -> bool {
-    exposure_permitted(
-        state,
-        &Exposure {
-            sources: roots.to_vec(),
-            policies: Vec::new(),
-        },
-        a,
-    )
+fn lineage_permitted(state: &State, roots: &[f::Reference], _a: &f::Admission) -> bool {
+    trace_exposure::<false>(state, roots, &[]).is_ok()
 }
 
 fn revision_importer<'a>(source: &'a Source, stored: &'a ManagedRevision) -> Option<&'a str> {
@@ -7703,9 +7712,7 @@ fn render_mode_with_history(
             extend_exposure(&mut combined, &peer_exposure);
             combined.sources.extend(sources.iter().cloned());
             combined.sources.extend(assembly.entries.iter().map(|entry| entry.reference.clone()));
-            if expanded_exposure(state, &combined)
-                    .is_ok_and(|value| exposure_permitted(state, &value, &a))
-            {
+            if exposure_permitted(state, &combined, &a) {
                 let extra = candidate_total.checked_sub(ordinary_total)
                     .ok_or_else(|| invalid("collaborator context accounting"))?;
                 ordinary_prompt = candidate_prompt;
@@ -7756,9 +7763,7 @@ fn render_mode_with_history(
             extend_exposure(&mut combined, &inherited);
             combined.sources.extend(sources.iter().cloned());
             combined.sources.extend(assembly.entries.iter().map(|entry| entry.reference.clone()));
-            if expanded_exposure(state, &combined)
-                    .is_ok_and(|value| exposure_permitted(state, &value, &a))
-            {
+            if exposure_permitted(state, &combined, &a) {
                 require(candidate_total >= ordinary_total, "input file choice accounting")?;
                 ordinary_prompt = candidate_prompt;
                 ordinary_encoding = candidate_encoding;
@@ -7859,11 +7864,8 @@ fn render_mode_with_history(
         (ordinary_prompt, ordinary_encoding, ordinary_total)
     };
     exposure.sources.extend(sources.iter().cloned());
+    // Successful expansion already validates this exact immutable snapshot.
     let exposure = expanded_exposure(state, &exposure)?;
-    require(
-        exposure_permitted(state, &exposure, &a),
-        "complete supplied exposure unavailable",
-    )?;
     Ok(Rendered {
         computation_interfaces,
         http_fetch_interfaces,
@@ -7962,8 +7964,7 @@ fn check_output_policy(
     _a: &f::Admission,
 ) -> Result<()> {
     // Retain resolvable attribution without restricting the output's audience.
-    expanded_exposure(state, inputs)?;
-    Ok(())
+    check_exposure(state, inputs)
 }
 
 fn apply_writes(

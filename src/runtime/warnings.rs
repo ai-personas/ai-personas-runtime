@@ -109,11 +109,15 @@ fn warning_marker(state: &State, reference: &f::Reference) -> bool {
 /// Retain exact source ancestry and policy identity independently of warning
 /// applicability. Authored policy and warning judgments impose no access gate.
 pub(super) fn confidentiality(state: &State, input: &Exposure) -> Result<Exposure> {
+    trace_confidentiality::<true>(state, input)
+}
+
+fn trace_confidentiality<const RETAIN: bool>(state: &State, input: &Exposure) -> Result<Exposure> {
     // Sources come from the completed traversal, while policy order preserves
     // the input followed by the same first-seen inherited records.
     let mut result = Exposure {
         sources: Vec::new(),
-        policies: input.policies.clone(),
+        policies: if RETAIN { input.policies.clone() } else { Vec::new() },
     };
     let mut pending = input.sources.clone();
     let mut seen = BTreeSet::new();
@@ -123,7 +127,9 @@ pub(super) fn confidentiality(state: &State, input: &Exposure) -> Result<Exposur
         }
         let stored = record(state, &reference)?;
         if let Some(inherited) = &stored.exposure {
-            extend_policies(&mut result.policies, &inherited.policies);
+            if RETAIN {
+                extend_policies(&mut result.policies, &inherited.policies);
+            }
             pending.extend(inherited.sources.iter().cloned());
         } else {
             require(
@@ -131,14 +137,16 @@ pub(super) fn confidentiality(state: &State, input: &Exposure) -> Result<Exposur
                 "warning source has unknown exposure lineage",
             )?;
         }
-        let restriction = scoped_policy(
-            "file",
-            &reference.source,
-            &reference.revision,
-            &stored.record.policy,
-        );
-        if !result.policies.contains(&restriction) {
-            result.policies.push(restriction);
+        if RETAIN {
+            let restriction = scoped_policy(
+                "file",
+                &reference.source,
+                &reference.revision,
+                &stored.record.policy,
+            );
+            if !result.policies.contains(&restriction) {
+                result.policies.push(restriction);
+            }
         }
         pending.extend(stored.lineage.iter().cloned());
         pending.extend(stored.record.qualifications.iter().cloned());
@@ -148,34 +156,38 @@ pub(super) fn confidentiality(state: &State, input: &Exposure) -> Result<Exposur
             if warning_binding(state, &binding.id) {
                 continue;
             }
-            let restriction = scoped_policy(
-                "accepted-binding",
-                &binding.id,
-                &binding.revision,
-                &binding.policy,
-            );
-            if !result.policies.contains(&restriction) {
-                result.policies.push(restriction);
+            if RETAIN {
+                let restriction = scoped_policy(
+                    "accepted-binding",
+                    &binding.id,
+                    &binding.revision,
+                    &binding.policy,
+                );
+                if !result.policies.contains(&restriction) {
+                    result.policies.push(restriction);
+                }
             }
             if let f::BindingDisposition::Qualify { required } = &binding.disposition {
                 pending.extend(required.iter().cloned());
             }
         }
     }
-    result.sources = seen.into_iter().collect();
+    if RETAIN {
+        result.sources = seen.into_iter().collect();
+    }
     Ok(result)
 }
 
 /// Only protected, exactly identified lifecycle receipts use this projection.
 /// Recompute their source confidentiality on every access; flattening here does
 /// not remove the stored source references or authorize their payload supply.
-pub(super) fn inherited_exposure<'a>(
+pub(super) fn inherited_exposure<'a, const RETAIN: bool>(
     state: &State,
     reference: &f::Reference,
     inherited: &'a Exposure,
 ) -> Result<std::borrow::Cow<'a, Exposure>> {
     if warning_marker(state, reference) {
-        let mut checked = confidentiality(state, inherited)?;
+        let mut checked = trace_confidentiality::<RETAIN>(state, inherited)?;
         checked.sources.clear();
         Ok(std::borrow::Cow::Owned(checked))
     } else {
@@ -450,13 +462,9 @@ fn combined_exposure(warning: &SemanticWarning) -> Exposure {
     result
 }
 
-fn visible(state: &State, warning: &SemanticWarning, a: &f::Admission) -> bool {
-    confidentiality(state, &combined_exposure(warning)).is_ok_and(|exposure| {
-        exposure
-            .policies
-            .iter()
-            .all(|restriction| policy_permitted(state, &restriction.policy, a))
-    })
+fn visible(state: &State, warning: &SemanticWarning, _a: &f::Admission) -> bool {
+    // Visibility needs exact ancestry, not a discarded policy projection.
+    trace_confidentiality::<false>(state, &combined_exposure(warning)).is_ok()
 }
 
 // Borrow authored fields and stream history so capped serialization can reject

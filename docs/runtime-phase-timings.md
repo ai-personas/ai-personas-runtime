@@ -260,3 +260,12 @@ errors remain part of the walk. Unchanged inherited exposures are borrowed;
 warning markers still obtain their freshly computed projection. No validation
 result survives the call. Corpus, rendering and planning timings include this
 work; they do not isolate its contribution or establish a whole-session gain.
+
+Lineage checks that discard the expanded result use the same traversal without
+collecting policy records or a final source vector. This includes per-revision
+corpus eligibility, predispatch exposure checks and output attribution checks.
+Policies impose no access gate, but exact source and revision lookup, known
+lineage, qualification edges and fresh warning ancestry remain required. Full
+expansion retains all provenance in the same order. Rendering validates optional
+metadata once and uses its final full expansion without repeating that successful
+walk against the same immutable state. Later calls still validate their own state.
