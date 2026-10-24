@@ -2023,13 +2023,24 @@ class Dialogue:
                   for participant in participants
                   if (attempt := participant.get("active_invocation"))
                   and attempt["state"] in ("Prepared", "Dispatched", "Responded")]
+        tool_states = {"Admitted": "queued", "Dispatched": "awaiting outcome",
+                       "Succeeded": "publishing result", "Failed": "publishing failure",
+                       "Canceled": "publishing cancellation", "Uncertain": "outcome unresolved"}
+        tools = [f"{participant['label']} ({command['operation']}, "
+                 f"{tool_states.get(command['state'], command['state'])})"
+                 for participant in participants
+                 for command in participant["pending_host_commands"]]
         held = [participant["label"] for participant in participants
                 if participant.get("failed_attempt_hold")]
         recovery = [participant["label"] for participant in participants
                     if participant.get("resume_recovery")
                     and not participant.get("failed_attempt_hold")]
-        status = ("Working: " + "; ".join(active) if active else
-                  "No model call currently active for this work; waiting for the session result.")
+        activity = []
+        if active:
+            activity.append("Working: " + "; ".join(active))
+        if tools:
+            activity.append("Pending tool commands: " + "; ".join(tools))
+        status = ". ".join(activity) + "." if activity else "Waiting for the session's next recorded activity or outcome."
         status += f" Recorded call attempts in this runtime: {snapshot['settings']['steps']}."
         if recovery:
             status += (" Call failures retained for recovery: " + ", ".join(recovery)

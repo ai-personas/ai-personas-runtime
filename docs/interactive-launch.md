@@ -233,8 +233,11 @@ explicit authentication route and the inspected launch reference.
 
 While a session runs, the launcher checks its current work status every 15 seconds
 and displays changed activity, with a status reminder each minute. It names active
-persona calls, recorded attempts, and participants needing attention. These are
-current observations, not proof of task completion. An unavailable status read
+persona calls, pending host commands, recorded attempts, and participants needing
+attention, including identities invited after initial setup. Tool status comes
+from the retained dispatch record; an outstanding command is not proof that its
+process is still alive or that it succeeded. These are current observations, not
+proof of task completion. An unavailable status read
 does not interrupt or replay the original session; the launcher keeps waiting for
 that helper's outcome. Status reads perform no inference.
 

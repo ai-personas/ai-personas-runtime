@@ -1249,6 +1249,14 @@ pub enum ContinuationStatus {
     PersonaStop,
 }
 #[derive(Clone, Debug, Serialize)]
+pub struct PendingHostCommandView {
+    pub intent: String,
+    pub invocation: String,
+    pub operation: String,
+    /// Durable dispatch status, not proof that a process is still alive.
+    pub state: s::IntentState,
+}
+#[derive(Clone, Debug, Serialize)]
 pub struct ParticipantView {
     pub persona: String,
     pub label: String,
@@ -1259,6 +1267,8 @@ pub struct ParticipantView {
     pub failed_attempt_hold: Option<String>,
     pub failed_attempt_acknowledgment: Option<s::ObjectRef>,
     pub active_invocation: Option<AttemptView>,
+    /// Commands whose complete result has not yet been published to this work.
+    pub pending_host_commands: Vec<PendingHostCommandView>,
     /// Candidate only. Not admission, a provider check, or a grant to resume Stop.
     pub eligible_candidate: bool,
     /// Explicit targeted resume only; no inference or replay of old operations.
@@ -1434,8 +1444,9 @@ fn inspect_snapshot(
             w::Phase::Completed { .. } => WorkPhase::LegacyCompleted,
         };
         let mut participants = Vec::new();
-        // Saved cohort only. No archive scan or enumeration of private assets.
-        for actor in people(saved.setup.cohort) {
+        // Current participants include identities created or invited after setup.
+        // No archive scan or enumeration of their private assets is needed.
+        for actor in work.participants.keys().map(|actor| actor.0.clone()) {
             let persona = state
                 .personas
                 .get(&actor)
@@ -1478,6 +1489,30 @@ fn inspect_snapshot(
             let resume_candidate = !frozen
                 && leases_quiescent
                 && participant_resume::candidate(&state, &saved, id, &actor, resume_recovery.as_ref());
+            let mut pending_host_commands = Vec::new();
+            for (intent, job) in state.host_command_jobs.iter().filter(|(_, job)| {
+                job.work == *id && job.actor == actor
+                    && (job.observation.is_none() || job.result_source.is_none())
+            }) {
+                // The marker can precede dispatch or result publication. Read
+                // the intent in this same transaction for its actual status.
+                let retained = records.intent(intent)?;
+                check(
+                    retained.intent.id == *intent
+                        && retained.invocation_id == job.invocation
+                        && retained.intent.body["actor"] == actor
+                        && retained.intent.body["work"] == *id
+                        && retained.intent.body["invocation"] == job.invocation
+                        && retained.intent.body["operation"] == job.operation,
+                    BoundaryError::InvalidState,
+                )?;
+                pending_host_commands.push(PendingHostCommandView {
+                    intent: intent.clone(),
+                    invocation: job.invocation.clone(),
+                    operation: job.operation.clone(),
+                    state: retained.state,
+                });
+            }
             participants.push(ParticipantView {
                 label: persona.seed.label.clone(),
                 lifecycle: lifecycle::projection(persona),
@@ -1494,6 +1529,7 @@ fn inspect_snapshot(
                     .as_ref()
                     .map(|h| h.acknowledgment.clone()),
                 active_invocation,
+                pending_host_commands,
                 eligible_candidate,
                 resume_candidate,
                 resume_recovery,
