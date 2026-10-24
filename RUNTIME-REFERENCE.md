@@ -610,6 +610,16 @@ ai-personas --state-root /private/state --operator local-operator \
 
 Protected pause and unfinished closeout preserve actual state; they do not claim completion or resolve unknown effects.
 
+The interactive launcher's **Resume participant** also offers definite local
+rejections: a complete provider response that was rejected before adoption, or
+a call rejected before provider launch. Its keyed `personas-session
+resume-participant` request binds the inspected runtime and launch references.
+The failed call and exact terminal are checked again when the recovery commits.
+The next decision receives the actual failure; old actions are not replayed and
+recorded usage is preserved. Repeating the request returns its original receipt
+without granting another resume. Use Continue afterward to start eligible work.
+Unknown provider outcomes require their separate reconciliation controls.
+
 ## 13. Scheduler, dependencies, and local events
 
 Native foreground runs inspect the complete participant list of each requested work in circular identity order, without a fixed scan cutoff. Each work retains its own participant cursor across descendant turns and restarts. Independent Direct calls can overlap across the root and its descendants. Each scheduling round visits eligible task/persona pairs and drains its transports before admitting new children; rounds continue while work can advance, without a round or call quota.

@@ -1384,15 +1384,27 @@ class Dialogue:
                     and receipt.get("id") == request["id"]
                     and receipt.get("inference_performed") is False
                     and receipt.get("budget_reset") is False
+                    and receipt.get("replay_authorized") is False
+                    and type(receipt.get("replayed")) is bool
                     and type(receipt.get("resume_recorded")) is bool
-                    and receipt.get("snapshot_changed") is (not receipt["resume_recorded"]),
+                    and receipt.get("snapshot_changed") is (not receipt["resume_recorded"])
+                    and receipt.get("persona_resumed") is
+                        (receipt["resume_recorded"] and not receipt["replayed"]),
                     "resume_receipt_mismatch")
+            recovery = receipt.get("recovery")
+            require(recovery is None or (isinstance(recovery, dict)
+                    and recovery.get("kind") in ("complete_response_rejected", "provider_prelaunch_rejection")
+                    and isinstance(recovery.get("invocation"), str)
+                    and isinstance(recovery.get("terminal"), dict)), "resume_receipt_mismatch")
+            require(receipt.get("recovery_performed") is
+                    (recovery is not None and not receipt["replayed"]), "resume_receipt_mismatch")
             if receipt["resume_recorded"]:
                 recorded = receipt.get("receipt")
-                require(isinstance(recorded, dict) and recorded.get("request") == request,
+                require(isinstance(recorded, dict) and recorded.get("request") == request
+                        and recorded.get("recovery") == recovery,
                         "resume_receipt_mismatch")
             else:
-                require(receipt.get("persona_resumed") is False, "resume_receipt_mismatch")
+                require(recovery is None, "resume_receipt_mismatch")
             item["delivered"] = True
             self.j.save()
             if receipt["resume_recorded"]:
@@ -1400,6 +1412,13 @@ class Dialogue:
                             ("This is the earlier receipt; it did not resume the participant again. "
                              if receipt.get("replayed") else "") +
                             "Choose Continue to review current eligibility and start a model session.")
+                if recovery is not None:
+                    if receipt["replayed"]:
+                        self.ui.say(f"The original recovery retained the rejection from {recovery['invocation']}. "
+                                    "This receipt does not queue that failure again.")
+                    else:
+                        self.ui.say(f"The rejection from {recovery['invocation']} is retained for the next decision. "
+                                    "Its proposed actions were not replayed.")
             else:
                 self.ui.say("The work changed before this resume could apply. Nobody was resumed. "
                             "Choose Resume participant again to review the current state.")
@@ -1438,6 +1457,12 @@ class Dialogue:
         for i, participant in enumerate(participants, 1):
             self.ui.say(f"{i}: {participant.get('label', participant['persona'])} "
                         f"({participant['persona']}) — {participant['continuation']}")
+            recovery = participant.get("resume_recovery")
+            if recovery is not None:
+                reason = ("complete response rejected before actions"
+                          if recovery["kind"] == "complete_response_rejected"
+                          else "call rejected before provider launch")
+                self.ui.say(f"   {recovery['invocation']}: {reason}; the next decision receives the failure.")
         choice = self.ui.ask("Participant number (Enter to go back):").strip()
         if not choice:
             return None
@@ -1809,8 +1834,9 @@ class Dialogue:
                 if current is not None and self.eligible(view, current):
                     self.run_work(work["id"], view)
                 else:
-                    self.ui.say("No participant is currently eligible. Choose Resume participant for a stopped "
-                                "or individually paused participant. Inspect other holds and unresolved execution using RUNTIME-REFERENCE.md.")
+                    self.ui.say("No participant is currently eligible. Choose Resume participant for a stopped, "
+                                "individually paused or definitively rejected participant. "
+                                "Inspect other holds and unresolved execution using RUNTIME-REFERENCE.md.")
             else:
                 self.ui.say("Choose a listed action.")
 
@@ -1943,7 +1969,16 @@ class Dialogue:
         s = self.p["session"]
         if s is None:
             return
-        status = self.session_output(s)
+        try:
+            status = self.session_output(s)
+        except Blocked as error:
+            # Current runtime inspection already succeeded. A failed historical
+            # view supplies no outcome or retry permission for this exact session,
+            # but must not hide independently selectable current work.
+            self.ui.say(f"Previous session {s['id']} could not be displayed ({error.code}). "
+                        "Its saved identity is retained and will not be resubmitted. "
+                        "The work list below uses the current runtime state.")
+            return
         self.ui.say(f"Previous session {s['id']}: {status['status']}")
         if status["status"] == "outcome_unrecorded":
             self.ui.say("This session has no retained terminal outcome. Its exact identity remains saved and is not replayed. "

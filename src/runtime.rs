@@ -5176,28 +5176,9 @@ impl Runtime {
                                 "provider outcome remains uncertain; resume cannot authorize another attempt")?;
                         }
                         if let Ok(evidence) = terminal {
-                            let observation_id = composite_id("terminal-recovery", &[&id]);
-                            require(!state.observations.contains_key(&observation_id), "recovery observation identity conflict")?;
-                            state.observations.insert(observation_id.clone(), Observation {
-                                id: observation_id.clone(), actor: persona.into(), work: work.into(), invocation: Some(id.clone()),
-                                kind: "terminal_recovery".into(), at_unix: unix_now()?,
-                                payload: json!({"terminal":terminal_diagnostic(&evidence.body),"terminal_evidence":evidence.exact_ref()?,"disposition":{"state":inv.state,"adoption_error":observability::adoption_error(&inv, &evidence)?},
-                                    "acknowledged_by":operator,"provider_usage":"unknown","replay_authorized":false}),
-                                sources: prepared.sources.clone(), exposure: failure_recovery_exposure(&inv, &evidence, &prepared)?, qualified_roots: Vec::new(),
-                                qualification_sources: None,
-                            });
-                            state.personas.get_mut(persona).unwrap().focus.get_mut(work)
-                                .ok_or_else(|| held("work focus absent"))?.pending_observations.push(observation_id);
-                            if let Some(correction) =
-                                recovery_correction_observation(&inv, &evidence, &prepared, unix_now()?)?
-                            {
-                                let correction_id = correction.id.clone();
-                                require(!state.observations.contains_key(&correction_id),
-                                    "recovery correction observation identity conflict")?;
-                                state.observations.insert(correction_id.clone(), correction);
-                                state.personas.get_mut(persona).unwrap().focus.get_mut(work)
-                                    .ok_or_else(|| held("work focus absent"))?.pending_observations.push(correction_id);
-                            }
+                            rejected_continuation::record_explicit_recovery(
+                                &mut state, operator, &inv, &prepared, &evidence, unix_now()?,
+                            )?;
                         }
                     }
                     // Abandonment of Prepared/Responded records is staged in

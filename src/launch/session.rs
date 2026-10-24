@@ -9,7 +9,7 @@
 use super::*;
 #[path = "session_resume.rs"]
 mod participant_resume;
-pub use participant_resume::{resume_participant, ParticipantResumeRequest};
+pub use participant_resume::{resume_participant, ParticipantRecovery, ParticipantResumeRequest};
 #[path = "session_messages.rs"]
 mod messages;
 pub use messages::{session_messages, SessionMessages};
@@ -1259,8 +1259,11 @@ pub struct ParticipantView {
     pub active_invocation: Option<AttemptView>,
     /// Candidate only. Not admission, a provider check, or a grant to resume Stop.
     pub eligible_candidate: bool,
-    /// Explicit targeted resume only; no inference, recovery or funding promise.
+    /// Explicit targeted resume only; no inference or replay of old operations.
     pub resume_candidate: bool,
+    /// A definite rejected call, verified against its retained terminal here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resume_recovery: Option<ParticipantRecovery>,
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct WorkView {
@@ -1466,9 +1469,10 @@ fn inspect_snapshot(
                 .map(|id| retained_attempt(records, &mut attempts, id))
                 .transpose()?
                 .flatten();
+            let resume_recovery = participant_resume::recovery_snapshot(state, records, id, &actor)?;
             let resume_candidate = !frozen
                 && leases_quiescent
-                && participant_resume::candidate(&state, &saved, id, &actor);
+                && participant_resume::candidate(&state, &saved, id, &actor, resume_recovery.as_ref());
             participants.push(ParticipantView {
                 label: persona.seed.label.clone(),
                 lifecycle: lifecycle::projection(persona),
@@ -1487,6 +1491,7 @@ fn inspect_snapshot(
                 active_invocation,
                 eligible_candidate,
                 resume_candidate,
+                resume_recovery,
             });
         }
         let last = saved.works.get(id).cloned().flatten();

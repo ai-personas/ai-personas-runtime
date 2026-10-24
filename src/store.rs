@@ -1320,6 +1320,41 @@ impl TrustedHost<'_> {
         self.commit_runtime_resume_bound(expected, object, work_id, recovery, &[])
     }
 
+    /// A keyed launcher resume commits its receipt and state together. Known
+    /// rejection recovery also binds the unchanged failed call and terminal,
+    /// preserving any measured usage or recording an unsettled outcome as unknown.
+    pub(crate) fn commit_participant_resume(
+        &mut self,
+        changes: Vec<Change>,
+        recovery: Option<(&InvocationRecord, &ObjectRef)>,
+    ) -> Result<BatchReceipt> {
+        self.store.transaction(|work| {
+            work.admission()?;
+            work.require_quiescent_invocations()?;
+            if let Some((expected, terminal)) = recovery {
+                let invocation: InvocationRecord = work.required("invocation", &expected.id)?;
+                live_invocation(&invocation)?;
+                if invocation != *expected || invocation.state != InvocationState::Failed {
+                    return Err(StoreError::Conflict(expected.id.clone()));
+                }
+                let evidence = work.terminal_evidence(
+                    &EntityId::Invocation(expected.id.clone()), &terminal.id,
+                )?.ok_or_else(|| StoreError::Missing(terminal.id.clone()))?;
+                if evidence.exact_ref()? != *terminal {
+                    return Err(StoreError::Conflict(terminal.id.clone()));
+                }
+                work.mark_usage_unknown_if_open(&invocation.reservation)?;
+            }
+            let candidates = work.validate_changes(&changes)?;
+            for change in &changes {
+                work.dependencies(&change.depends_on, &candidates)?;
+            }
+            work.bump_epoch()?;
+            let objects = work.apply_changes(&changes, BudgetClass::Ordinary)?;
+            Ok(BatchReceipt { epoch: work.meta.epoch, objects })
+        })
+    }
+
     /// Operator scope changes share resume's existing accounting and control-slot
     /// renewal. Pending invocations are preserved for actual terminal settlement.
     pub(crate) fn commit_runtime_amendment(

@@ -27,6 +27,9 @@ menu, **r: results** shows permitted work history and qualified deliveries.
 **c: continue** requests a fresh session without application call quotas. For a stopped or individually paused participant, first choose
 **u: resume participant**, then **c**. Resume grants that participant permission
 to continue; it starts no inference and does not lift a work-wide pause.
+The same menu offers participants whose complete response was rejected locally
+or whose call was rejected before provider launch. Their next decision receives
+the retained failure. Unknown provider outcomes still require reconciliation.
 
 **m: amend task** saves a complete replacement request for a standard task,
 preserves the original request, and requests eligible resumption under a new
@@ -344,9 +347,10 @@ Selecting a work opens its action menu:
   decisions, locally applied or fenced operations, and per-call input accounting.
   Retained file-write metadata is checked separately. This does not establish improvement.
 - **u: resume participant** lets you choose a stopped or individually paused
-  participant in an Open work and explicitly allow a fresh decision. It starts
-  no model call. The menu shows names alongside identities and rechecks the
-  exact work state before applying the choice.
+  participant, or one with a definitively rejected call, in an Open work and
+  explicitly allow a fresh decision. It starts no model call. The menu shows
+  names, identities and any recoverable rejection, then rechecks the exact work
+  state and terminal evidence before applying the choice.
 - **c: continue** rechecks current eligibility before running the selected session.
   Resume a stopped participant with **u** first. Work-wide pauses and failed-attempt
   holds use their separate controls. Historical resource settings impose no quotas.
@@ -369,6 +373,12 @@ Resume commits its state transition and immutable receipt together. Repeating th
 request returns that earlier receipt without resuming anyone again, even if the
 persona has since stopped. An unapplied request whose exact state has changed is
 reported as stale; review the current participant list before choosing again.
+For a rejected call, that transaction also clears its active lease, preserves
+the immutable failure and measured usage, and queues the actual failure and any
+available correction for the next decision. Unsettled usage remains unknown.
+Neither the rejected response's actions nor its continuation are adopted. A
+repeated request returns the original recovery receipt even if a later call has
+failed; recovering that later failure requires a new explicit choice.
 Older journals acquire an empty optional input field without changing their
 runtime, pending needs, sessions or permissions. Input text and files stay private.
 
@@ -378,15 +388,18 @@ execution owners, and errors remain static machine codes. The explicit native
 CLI and thin-wrapper commands remain available.
 
 Unknown probes and sessions retain their exact identities and outcomes without
-blocking separately selected work. An unfinished invocation or recorded local
+blocking separately selected work. If a previous session's retained view cannot
+be read or validated, the launcher reports that failure and keeps its identity
+without resubmitting it; the current work list remains available after a
+successful runtime inspection. An unfinished invocation or recorded local
 failure holds its own persona. Eligible peers can continue in the current session
 or a separately selected one without a session allowance. The menu
 uses each participant's current eligibility, even when a peer still has a failed
 invocation. Requester feedback, question replies and a targeted resume of an
 otherwise eligible stopped peer remain available after local execution ends.
 
-Work-wide pauses and failed-persona recovery use their
-existing supported controls. A local network failure can still have unknown
+Work-wide pauses, failed-attempt holds and unknown outcomes use their
+separate controls. A local network failure can still have unknown
 remote outcome and usage. Peer progress neither reconciles that failure nor
 releases its actor, repeats its request or replenishes resources. Complete
 rejected responses can retain an already accepted ordinary continuation under

@@ -129,7 +129,9 @@ enum Command {
     /// Explicitly resume one participant under its existing work commitment.
     ///
     /// The file contains the exact participant, work and inspected state references.
-    /// This starts no inference, lifts no work-wide pause and recovers no failed attempt.
+    /// A definitively rejected response or prelaunch rejection can be retired here;
+    /// its failure is retained for the next decision. Unknown outcomes stay unresolved.
+    /// This starts no inference and lifts no work-wide pause.
     /// Use a new run session afterward to consider eligible participants. Replaying an
     /// already applied resume request does not resume a participant again.
     ResumeParticipant { file: PathBuf },
