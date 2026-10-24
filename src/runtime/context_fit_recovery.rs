@@ -80,9 +80,9 @@ pub(super) fn observation(
     };
     let mandatory_fit = diagnostic.mandatory_bytes <= diagnostic.limit_bytes;
     let detail = if mandatory_fit {
-        "The rejected decision's proposed future ordinary context exceeded its byte limit; its mandatory context fit that limit. No substantive operation from that decision was adopted. Choose the optional next_fragments and next_assets deliberately under current rules, reducing or clearing them when they are no longer needed. A selected asset includes its complete required qualification bundle, not only its own text. Clearing an optional selection does not delete an accepted file or erase evidence. Preserve mandatory duties and qualifications; never truncate a bundle. Return a complete new Decision for the fresh invocation if currently authorized, or state the actual remaining blocker."
+        "The rejected decision's proposed future ordinary context exceeded the byte limit recorded at that historical rejection; its mandatory context fit that historical limit. No substantive operation from that decision was adopted. Current admissions have no application context quota. Choose useful next_fragments and next_assets using the current task and available evidence. Each selected asset includes its complete required qualification bundle. Clearing an optional selection does not delete an accepted file or erase evidence. Preserve mandatory duties and qualifications; never truncate a bundle. Return a complete new Decision for the current invocation."
     } else {
-        "The rejected decision's proposed future ordinary context exceeded its byte limit, including its mandatory material. No substantive operation from that decision was adopted. Clearing optional selections alone would not have made that proposed mandatory state fit. Preserve mandatory duties and qualifications; never truncate a bundle. Consider a currently authorized change that keeps the resulting state admissible, or report the actual capacity or authority blocker."
+        "The rejected decision's proposed future ordinary context, including its mandatory material, exceeded the byte limit recorded at that historical rejection. No substantive operation from that decision was adopted. Clearing optional selections alone would not have satisfied that historical limit. Current admissions have no application context quota; the old measurement does not require reducing current context or obtaining another allowance. Choose useful context while preserving mandatory duties and complete qualifications. Report actual provider or host failures if they occur, and return a complete new Decision for the current invocation."
     };
     Ok(Some(Observation {
         id: composite_id("context-fit-correction", &[&invocation.id]),
@@ -95,11 +95,12 @@ pub(super) fn observation(
             "code":"rejected_prospective_context_v1",
             "terminal":terminal,"measured_at_rejection":diagnostic,
             "mandatory_fit_at_rejection":mandatory_fit,
-            "scope":"Exact historical prospective context measured before substantive adoption. These sizes do not describe or reserve the next admission.",
+            "scope":"Exact historical prospective context measured before substantive adoption. These sizes do not describe, reserve or limit the current admission.",
+            "application_context_quota_enforced":false,
             "detail":detail,
-            "authority":"This diagnostic grants no automatic retry, repair admission, continuation, extra resources, work evidence or completion.",
+            "continuation":"This diagnostic does not resume stopped participation, replay rejected operations or establish work results. Current authored continuation and cancellation still apply.",
             "response_body_supplied":false,"replay_authorized":false,
-            "source_permissions_rechecked_on_supply":true
+            "source_lineage_rechecked_on_supply":true,"access_policy_enforced":false
         }),
         sources: exposure.sources.clone(),
         exposure: Some(exposure),

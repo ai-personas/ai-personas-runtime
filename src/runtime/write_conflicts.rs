@@ -300,10 +300,10 @@ pub(super) fn observation(
             "code":code,"terminal":terminal,
             "at_rejection":conflict,
             "detail":detail,
-            "scope":"The metadata describes the rejected plan and accepted revisions at that time; it does not reserve a path or establish current revisions. No operation in the rejected decision was adopted. If currently authorized, return a complete fresh Decision.",
-            "authority":"This diagnostic grants no continuation, extra resources or replay authorization.",
+            "scope":"The metadata describes the rejected plan and accepted revisions at that time; it does not reserve a path or establish current revisions. No operation in the rejected decision was adopted. Use current state when authoring a complete fresh Decision.",
+            "continuation":"This diagnostic does not resume stopped participation or replay rejected operations. Current authored continuation and cancellation still apply.",
             "response_body_supplied":false,"replay_authorized":false,
-            "source_permissions_rechecked_on_supply":true
+            "source_lineage_rechecked_on_supply":true,"access_policy_enforced":false
         }),
         sources: prepared.sources.clone(),
         exposure: Some(exposure),

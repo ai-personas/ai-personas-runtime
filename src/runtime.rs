@@ -1110,7 +1110,7 @@ fn recovery_correction_observation(
         at_unix: now,
         payload: json!({
             "code":ProtocolCorrection::CloseGoalRecordNotSupplied,
-            "detail":"The rejected decision requested CloseGoal without its matching record in that admission's CONTROL.closure_readiness.records. No substantive operation from that rejected decision was adopted. Newly created release and delivery receipts require acceptance and supply in a fresh admission before CloseGoal. Independently judge fulfillment and current authorization. Existing permissions and remaining resources still govern the next admission. This correction is neither a closure receipt nor permission to close.",
+            "detail":"The rejected decision requested CloseGoal without its matching record in that admission's CONTROL.closure_readiness.records. No substantive operation from that rejected decision was adopted. Newly created release and delivery receipts require acceptance and supply in a fresh admission before CloseGoal. Independently judge fulfillment against the current request and accepted obligations. There is no application call, navigation or failure-context allowance to replenish. Current state bindings, authored continuation and cancellation still apply. This correction establishes neither closure nor fulfillment.",
             "scope":"static admitted-request protocol correction only",
             "response_body_supplied":false,
             "replay_authorized":false

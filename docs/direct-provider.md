@@ -162,6 +162,14 @@ New [native file write conflicts](native-file-conflicts.md), including occupied
 paths and stale base revisions, can supply exact conflicting source metadata to
 that fresh decision without adopting or rewriting the failed response.
 
+Recovery guidance identifies old context-quota rejections as historical. Their
+recorded measurements remain unchanged; they do not impose a quota or require
+another allowance for the current decision. Newly generated correction
+observations describe exact source-lineage checks separately from disabled
+access-policy enforcement. They do not resume stopped work, replay a rejected
+operation or establish completion. Existing observation bodies keep their
+original text; actual provider and host failures remain distinct outcomes.
+
 Ordinary work-command inputs are parsed and validated against the admitted
 interface before checks of current state. A complete rejection for malformed
 inputs therefore retains its request-bound diagnostic, which the existing
