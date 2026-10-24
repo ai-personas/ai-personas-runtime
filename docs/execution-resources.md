@@ -20,6 +20,12 @@ that a model will describe its evidence correctly. `CONTROL.ordinary_recovery`
 describes recovery without restricted-mode eligibility or an application attempt
 allowance. It replaces the stale `repair_funding` guidance in new inputs.
 
+The guidance also distinguishes the actual request from a persona's provisional
+scope. A concept label or disclaimer does not establish sufficiency. Inspection,
+correction and integration needed for the existing request need no new user
+prompt. Personas judge useful completion, partial delivery, actual blockers and
+optional extensions themselves; the runtime prescribes no domain-specific checks.
+
 ## Implemented removal
 
 Current Direct provider settings no longer require or accept historical

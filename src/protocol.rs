@@ -105,6 +105,8 @@ pub enum WorkDisposition {
     /// Your contribution satisfies the requested scope with its stated limits.
     /// Unknowns explicitly allowed by the need may remain in a sufficient result;
     /// do not invent additional deliverables or stakeholder acceptance requirements.
+    /// A self-chosen preliminary scope or disclaimer does not discharge the actual
+    /// request. Inspection and correction needed for it require no new request.
     /// This attributed judgment does not perform shared selection, release,
     /// delivery or CloseGoal, whose actual authority and evidence gates still apply.
     IndividualSufficient {
