@@ -1,6 +1,6 @@
 # AI Personas Runtime — Operator Reference
 
-This reference describes the current operator-facing runtime. The [design requirements](https://github.com/ai-personas/ai-personas-design/blob/4b4be296e71acefdcadd58957751d7ec9df44d7f/USER-REQUIREMENTS.md) define the intended product; the remaining implementation gaps are listed below.
+This reference describes the current operator-facing runtime. The [design requirements](https://github.com/ai-personas/ai-personas-design/blob/ef6d8f438cde9d5d81b5b4495a95ce3469c89598/USER-REQUIREMENTS.md) define the intended product; the remaining implementation gaps are listed below.
 
 The current requirement is unrestricted application execution. Saved quotas, budgets, allowances, participant lists, requester lists, allowed-child lists, initial-recipient lists, creation counts, expiry values, and historical resource allocations remain attributable metadata, but they are not current application gates in this revision. Exact identities, current state references, accepted responsibility, personal consent, actual credentials, operation schemas, durable intent records, complete responses, Stop and Pause, and real host or provider outcomes still matter.
 
@@ -310,7 +310,7 @@ Each dimension is described semantically in words. Initialization proposes the o
 
 Once accepted, the current character is authoritative. The historical seed is no longer continuing guidance. Later stable-character adoption is discretionary and must use the exact current base revision. An effective character change is fenced: the same response cannot also perform ordinary reads, work commands, replies, waits, or unrelated maintenance. A fresh decision is required under the adopted character.
 
-An ordinary character-only adoption retains the explicit participant resume that admitted its decision, as well as any still eligible prior ordinary continuation. This lets the required fresh decision address already resumed work without another operator resume. The permission remains bound to the actual admission and current work controls; initial handover and elapsed reconsideration retain their separate conditions. See [persona development](docs/persona-development.md).
+An accepted ordinary character-only adoption provides one fresh decision under the accepted character and current work controls, including after explicit resume or elapsed reconsideration. Preparation consumes the handoff permission without rearming the timer, creating an operator resume or accepting the fenced continuation. Prior authored continuation keeps its actual provenance, and initialization retains its separate handover. See [persona development](docs/persona-development.md).
 
 Current modeled affect is separate. An ordinary `affect_update` can set or clear a transient interpretation with explicit VAD words, source observations, and expiry. It does not change stable character, grant authority, choose work, or schedule a wake.
 
