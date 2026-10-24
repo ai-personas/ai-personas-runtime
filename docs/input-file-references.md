@@ -6,6 +6,16 @@ in that input. A handle includes the invocation identity, for example
 `call-00000042:f3`. It resolves only against that admission's retained table.
 It never means a current head, a file path, or a similar source name.
 
+`context_state.exact_body_supplied` and
+`context_state.preserve_keeps_selection` describe separate facts. A current
+read or complete host-output field can supply text without selecting it for
+the next call. Host-result text fields have individual JSON-string handles,
+so a persona can carry a useful stdout or stderr excerpt alongside a later
+result without keeping the whole command document. Select those handles with
+`replace_from_input`; include any other references still needed because this
+replaces the complete optional set. Preserving an empty selection keeps it
+empty, and “already supplied” does not establish later body supply.
+
 The `input-file-choices-v2` interface supports these uses:
 
 | Field | Result |

@@ -220,6 +220,13 @@ This metadata view does not detach or
 display a file's text without its required accompanying material. Exact source provenance and retained-body comparisons still apply. Supporting
 resource metadata has no application entry-count or output-byte quota.
 
+`resource_use.pending_host_result_text` separately reports actual inline
+command, stdin, stdout and stderr strings from complete-v2 host-result
+projections. It compares each exact JSON-string reference with retained bytes
+and reports the observation, producing invocation, size and hash. This is
+current body supply; the accepted next-context choice and later supplied
+resource establish whether the persona carried it forward.
+
 Use this evidence to distinguish finding a candidate, selecting a resource for
 the next call, actually supplying its body, and carrying out its instructions.
 Skill guides, scripts and tool definitions remain supporting assets. A filename,

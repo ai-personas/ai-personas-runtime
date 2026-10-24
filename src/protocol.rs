@@ -54,7 +54,12 @@ pub struct Decision {
     /// task deliverable edits. Each file_import and each file_write/file_edit with scope assets belongs in
     /// change.operation_ids; revising an existing file is still a change.
     pub asset_maintenance: Maintenance,
+    /// Choose characteristic material for the next call. Current body supply
+    /// and next-call selection are separate; no_change does not imply clear.
     pub next_fragments: SelectionIntent,
+    /// Choose supporting material still useful on the next call, including
+    /// exact already-supplied tool-output fields. Pending results are consumed
+    /// after this accepted decision; they are not a continuing conversation.
     pub next_assets: SelectionIntent,
     pub continuation: Continuation,
     /// Explicit communication disposition. Use none when no additional reply
@@ -160,7 +165,10 @@ pub enum SelectionIntent {
     /// tool results do not add selections; preserving an empty set keeps it empty.
     /// Use replace or replace_from_input to carry useful current bodies forward.
     Preserve { reason: String },
-    /// Clear optional context only, even if uninitialized; CharacterAdopt.own_voice remains mandatory.
+    /// Clear optional context, even if uninitialized. Receiving an observation
+    /// or reading a file does not keep it in the next input. Select any useful
+    /// current material before a later result needs it; "already supplied"
+    /// refers to this input only. CharacterAdopt.own_voice remains mandatory.
     Clear { reason: String },
     /// Choose relevant exact optional references, including retained material from
     /// earlier work and authorized same-response proposals. Reuse needs no new edit

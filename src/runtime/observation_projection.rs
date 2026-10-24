@@ -8,19 +8,20 @@ pub(super) fn project_pending(
     a: &f::Admission,
     observation_corpus: &f::Corpus,
 ) -> Result<(Value, Exposure, Vec<f::Reference>, Vec<f::Reference>)> {
-    let (mut value, mut inherited, exact) = project(state, observation, a, observation_corpus)?;
-    let metadata = host_tools::pending_projection(
+    let (mut value, mut inherited, mut exact) = project(state, observation, a, observation_corpus)?;
+    let projected = host_tools::pending_projection(
         state,
         observation,
         a,
         &mut value["payload"],
     )?;
-    inherited.sources.extend(metadata.iter().cloned());
+    inherited.sources.extend(projected.references.iter().cloned());
+    exact.extend(projected.supplied_text);
     Ok((
         value,
         expanded_exposure(state, &inherited)?,
         exact,
-        metadata,
+        projected.references,
     ))
 }
 

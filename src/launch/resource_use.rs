@@ -52,6 +52,23 @@ pub(super) fn inspect(
             "metadata_only":true
         }));
     }
+    let mut pending_host_result_text = Vec::new();
+    for (reference, text, route) in host_tools::supplied_fields(control, prepared)? {
+        if !lineage_permitted(state, std::slice::from_ref(&reference), audience) {
+            return Ok(unavailable("Inline host-result evidence is unavailable under current source permissions or retention."));
+        }
+        let stored = record(state, &reference)?;
+        if stored.record.scope != f::Scope::Assets
+            || !f::project_text(&stored.record, &reference, &state.config.corpus.json)
+                .is_ok_and(|retained| retained == text) {
+            return Ok(unavailable("Inline host-result text does not match its exact retained projection."));
+        }
+        pending_host_result_text.push(json!({"reference":wire_reference(&reference),
+            "path":stored.record.path,"origin":stored.origin,"supply_route":route,
+            "supplied_utf8_bytes":text.len(),"supplied_text_sha256":s::sha256_bytes(text.as_bytes()),
+            "exact_projected_body_matched":true,"complete_utf8_revision_matched":false,
+            "metadata_only":true}));
+    }
     let native_work_interface = match &prepared.work_interface {
         Some(interface) if control["work_capability"]["binding_revision"] == interface.binding_revision
             && control["work_capability"]["invocation_contract"].as_str() == interface.invocation_contract.as_deref()
@@ -70,6 +87,7 @@ pub(super) fn inspect(
     };
     let view = json!({
         "available":true,
+        "pending_host_result_text":pending_host_result_text,
         "supplied_launch_step_allowance":control["launch_step_allowance"],
         "supplied_supporting_resources":resources,
         "supplied_native_work_interface":native_work_interface,
@@ -88,7 +106,7 @@ pub(super) fn inspect(
         "current_runtime_computation":"default full-access host.command.v1 can run installed software; default compute.wasm.v1 remains available; inspect actual intent and terminal receipts",
         "current_runtime_external_tool_execution":"default full-access host.command.v1 permits installation, filesystem, network and subprocess use without a tool grant; default https.get.v1 remains available; inspect actual intent and terminal receipts",
         "skill_application_established":false,
-        "scope":"Supporting-file entries actually present in this call's qualified context, supplied exact-read or local-dependency observations, or tool-result qualifications. Entries retain their exact representation, range and qualification roles. Discovery candidates, next-context proposals, message text and nested history are not counted. This view returns metadata, not detached file content.",
+        "scope":"Supporting-file entries actually present in this call's qualified context, supplied exact-read or local-dependency observations, or tool-result qualifications. Entries retain their exact representation, range and qualification roles. pending_host_result_text separately lists exact inline fields from complete-v2 host observations. Discovery candidates, next-context proposals, message text and nested history are not counted. This view returns metadata, not detached file content.",
         "limits":"Input supply proves neither application of a skill's instructions nor code, simulator, renderer, shell or external tool execution. The runtime executes internal operations and default full-access host commands, alongside the default WebAssembly and HTTP(S) profiles. work.command.v1 remains internal even when encoded as Effect. Execution intents alone also do not prove dispatch or success. Inspect accepted operations and actual result receipts separately."
     });
     Ok(view)

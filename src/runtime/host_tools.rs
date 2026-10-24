@@ -6,6 +6,7 @@ mod context;
 mod input;
 pub(super) use background::Background;
 pub(super) use context::pending_projection;
+pub(super) use context::supplied_fields;
 
 const RESULT_CAPACITY: u64 = 256 * 1024;
 

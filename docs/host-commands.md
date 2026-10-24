@@ -194,11 +194,16 @@ historical bytes.
 
 With `result_context: "complete"`, pending observations supply all retained
 command, literal stdin and captured output text. Asset stdin stays an exact input
-receipt. `context_projection.format` is `host-command-pending-complete-v1`.
-Historical observations without a choice keep this complete projection.
+receipt. `context_projection.format` is `host-command-pending-complete-v2`.
+Each supplied command, literal stdin and output segment also has its exact
+decoded-string reference, byte count, hash and `*_supplied: true`. These fields
+appear in `CONTROL.input_file_choices` as individually selectable excerpts;
+their `context_state.exact_body_supplied` is true. The whole result document
+remains a separate reference whose body is not supplied by this projection.
+Historical observations without a choice keep the complete context choice.
 
 With `result_context: "reference"`, pending observations supply execution metadata
-and text references. The format is `host-command-pending-reference-v1`.
+and text references. The format is `host-command-pending-reference-v2`.
 `inputs.command` and literal `inputs.stdin` become `command_reference` and
 `stdin_reference`, with UTF-8 byte counts, SHA-256 and supplied flags. Every output
 segment replaces `text` with `text_reference`, `text_utf8_bytes`, `text_sha256`
@@ -217,6 +222,29 @@ Both projections include the original observation payload digest and exact
 result reference. Reference metadata does not supply a body or select it
 implicitly. Capture completeness does not establish that text reached a later
 model input. Reading results never repeats the command.
+
+A pending result is consumed after the decision receiving it is accepted.
+`context_projection.context_lifetime` makes this explicit. “Already supplied”
+means present in that request; it does not carry the output into the next one.
+When a later image review, action or reply will need a current output excerpt,
+select its handle in `next_assets`. The persona can retain just stderr, a useful
+stdout segment or a chosen range instead of the whole command record. For
+example, an existing field containing output hashes can remain selected while
+the next request receives a newly captured image. No rewrite or new native file
+is required merely to keep that exact field available.
+
+`preserve` retains existing optional selections; `clear` removes them. Neither
+receiving a result nor preserving an empty selection selects its fields.
+The persona chooses useful lifetime, replacement, removal or a supporting note.
+This does not create an automatic failure memory, a tool blacklist or a required
+maintenance edit. A later exact read can recover omitted output without running
+the original command again.
+
+Native development inspection lists `resource_use.pending_host_result_text`
+for actual complete-v2 fields. It checks each supplied string against the exact
+retained JSON-string projection and reports hashes, sizes and producing
+invocations. Older admitted formats retain their original evidence; inspection
+does not invent field references or later selection for them.
 
 Results are also available as exact supporting assets under `tools/results/`.
 These are runtime asset paths, not files beneath the host working directory.
