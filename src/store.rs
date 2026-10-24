@@ -1601,8 +1601,6 @@ impl TrustedHost<'_> {
                 return Err(StoreError::Conflict(request.id.clone()));
             }
             let next = crate::runtime::runtime_control_object(&current, &request.control)?;
-            work.body(&next.body)?;
-            encode(&next, slot.max_object_bytes)?;
             work.bump_epoch()?;
             work.meta.sequence = work
                 .meta
@@ -2439,10 +2437,6 @@ impl Store {
                     .checked_add(terminal_slots.len())
                     .ok_or(StoreError::Overflow("atomic admission item count"))?,
             )?;
-            work.body(&spec.request)?;
-            for change in &changes {
-                work.body(&change.object.body)?;
-            }
             let admission_hash = fingerprint(
                 &(
                     "atomic-invocation-admission-v1",
@@ -2688,12 +2682,6 @@ impl Store {
                     .checked_add(decision.intents.len())
                     .ok_or(StoreError::Overflow("decision item count"))?,
             )?;
-            for change in &decision.changes {
-                work.body(&change.object.body)?;
-            }
-            for intent in &decision.intents {
-                work.body(&intent.body)?;
-            }
             let decision_hash = fingerprint(&decision, work.limits.max_page_bytes)?;
             if let Some(existing) =
                 work.get::<DecisionRecord>("decision", &decision.invocation_id)?
@@ -3400,10 +3388,6 @@ impl<'a> Work<'a> {
         Ok(())
     }
 
-    fn body(&self, body: &Value) -> Result<()> {
-        encode(body, self.limits.max_body_bytes).map(|_| ())
-    }
-
     fn page_limit(&self, limit: u32) -> Result<()> {
         if limit == 0 {
             return Err(StoreError::Invalid("page limit".into()));
@@ -3818,13 +3802,14 @@ impl<'a> Work<'a> {
         &self,
         changes: &'changes [Change],
     ) -> Result<BTreeMap<String, &'changes StoredObject>> {
+        // Bodies are already typed JSON. Their complete content is serialized
+        // for required fingerprints and persistence, without a size-only probe.
         self.batch_limit(changes.len())?;
         let mut candidates = BTreeMap::new();
         for change in changes {
             let object = &change.object;
             self.id(&object.id)?;
             self.id(&object.kind)?;
-            self.body(&object.body)?;
             if self.cell("terminal_evidence", &object.id)?.is_some()
                 || self.cell(session_journal::NAMESPACE, &object.id)?.is_some()
             {
@@ -3991,7 +3976,6 @@ impl<'a> Work<'a> {
     {
         self.id(&object.id)?;
         self.id(&object.kind)?;
-        self.body(&object.body)?;
         if object.revision != 1 {
             return Err(StoreError::Invalid(
                 "terminal evidence uses exactly revision one".into(),
@@ -4006,7 +3990,6 @@ impl<'a> Work<'a> {
         {
             return Err(StoreError::Corrupt("terminal evidence allocation".into()));
         }
-        encode(&object, slot.max_object_bytes)?;
         if slot
             .object
             .as_ref()
@@ -4271,7 +4254,6 @@ impl<'a> Work<'a> {
         atomic_admission_hash: Option<String>,
     ) -> Result<InvocationRecord> {
         self.id(&spec.id)?;
-        self.body(&spec.request)?;
         let prepare_hash = fingerprint(&spec, self.limits.max_page_bytes)?;
         if let Some(record) = self.get::<InvocationRecord>("invocation", &spec.id)? {
             if record.prepare_hash != prepare_hash

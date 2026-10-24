@@ -172,6 +172,15 @@ change batch instead of cloning its complete body into a candidate map.
 Dependency checks fingerprint that borrowed candidate directly. Dependencies
 outside the batch still load the current stored object in the same transaction.
 The borrowed view ends with the batch; it does not cache validation across
-transactions or omit current-head, revision, duplicate, body or exact-reference
+transactions or omit current-head, revision, duplicate or exact-reference
 checks. This removes temporary copies without changing committed bytes, retained
 history or accounting. Actual latency and memory effects require observation.
+
+Store admission, adoption and evidence persistence no longer serialize JSON
+bodies or complete objects merely to discard the bytes from historical size
+checks. These inputs already contain typed JSON values. Required fingerprints
+and durable record encoding still serialize the complete content, propagate
+errors and participate in the same atomic transaction. Identity, revision,
+dependency, terminal authentication and duplicate checks remain in place. This
+removes obsolete quota preflights without changing canonical records or actual
+allocation accounting; it does not establish a measured performance improvement.
