@@ -160,6 +160,23 @@ emit `runtime.clone_state_json`, `state.unpack_exposures`, and
 phases above. This allocation change alone does not establish an overall speed
 or peak-memory improvement.
 
+Session opening can reuse the complete runtime state already read and validated
+by the launch snapshot opener. It reads the saved launch and checks the semantic
+epoch before authorizing the operator against that opening view. An unchanged
+epoch avoids a second full runtime load solely for opening authorization. A
+concurrent semantic change releases the opening view and takes the existing
+fresh authorization path. Session claims and later mutations still obtain their
+own current state; this reuse ends with the opening call.
+
+Provider construction retains only its owned configuration and launch bindings.
+The construction state and stored-object bodies are released before the session
+awaits its driver. Foreground route selection similarly releases its snapshot
+before entering the selected run, and the initial provider/model check releases
+its state before request preparation. Later binding, preparation, dispatch and
+adoption checks keep their fresh reads and exact-reference checks. This shortens
+temporary lifetimes; it does not share a mutable state snapshot across calls or
+change supplied context. Whole-session memory effects still require observation.
+
 Runtime creation, atomic launch bootstrap and later state-object construction
 take the packed JSON value directly from the same constructor used by State's
 general serialization adapter. They do not serialize an already packed value

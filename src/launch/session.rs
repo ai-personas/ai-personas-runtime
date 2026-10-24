@@ -163,8 +163,17 @@ fn project_view<T: Serialize>(
 }
 fn open(root: &Path, operator: &str) -> BoundaryResult<Runtime> {
     valid_id(operator)?;
-    let mut app = Runtime::open_for_launch_inspection(root)?;
-    authorized(&mut app, operator)?;
+    let (mut app, _, state, epoch) = Runtime::open_for_launch_snapshot(root)?;
+    let (_, saved) = load(&mut app)?;
+    if app.store.epoch()? == epoch {
+        authorize_snapshot(&state, &saved, operator)?;
+    } else {
+        // Concurrent writes take the existing fresh authorization path.
+        // Release the opening view before loading its replacement.
+        drop(state);
+        drop(saved);
+        authorized(&mut app, operator)?;
+    }
     Ok(app)
 }
 
@@ -821,6 +830,11 @@ pub(super) async fn run_environment_owned(
         validated_runtime: None,
         intake_selection: None,
     };
+    // The driver owns its small bindings. Do not retain the construction
+    // snapshot throughout every transport, adoption and subsequent round.
+    drop(state);
+    drop(head);
+    drop(saved);
     run_with_owned_commands(app, work, &mut driver, owner).await
 }
 
@@ -882,6 +896,8 @@ async fn execute_with_codex_transport(
         runtime.exact_ref()? == retained.runtime && launch.exact_ref()? == retained.launch,
         "saved session binding changed before driver construction",
     )?;
+    drop(runtime);
+    drop(launch);
     let owner = &claim.owner;
     match &request.route {
         SessionRoute::SavedEnvironment => {
@@ -895,6 +911,9 @@ async fn execute_with_codex_transport(
                 validated_runtime: None,
                 intake_selection: request.intake_delegation.clone(),
             };
+            drop(state);
+            drop(head);
+            drop(saved);
             drive(app, &request.work, &mut driver, owner).await
         }
         SessionRoute::NativeSiwc { vault } => {
@@ -958,6 +977,9 @@ async fn execute_with_codex_transport(
                     validated_runtime: None,
                     intake_selection: request.intake_delegation.clone(),
                 };
+                drop(state);
+                drop(head);
+                drop(saved);
                 drive(app, &request.work, &mut driver, owner).await
             }
             #[cfg(not(unix))]

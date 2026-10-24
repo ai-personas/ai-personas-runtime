@@ -5547,6 +5547,9 @@ impl Runtime {
                 && intent.effort == persona.seed.requested_effort,
             "provider configuration must retain the exact requested model and effort",
         )?;
+        // Preparation loads its own current state. Release this provider-binding
+        // snapshot before constructing that request and its admission candidate.
+        drop(state);
 
         match self.store.invocation(&request.id) {
             Err(s::StoreError::Missing(_)) => (),
