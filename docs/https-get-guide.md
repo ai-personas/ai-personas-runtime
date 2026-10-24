@@ -2,11 +2,12 @@
 
 Use the current `https.get.v1` definition supplied in
 `CONTROL.http_fetch_capabilities`. It is available by default; no grant, guide
-selection, origin list or attempt allowance is needed. Copy the supplied
-`capability_id` and `binding_revision` into an `effect`, with empty `depends_on`
+selection, origin list or attempt allowance is needed. Use the supplied
+`capability_id` in an `effect`, with empty `depends_on`
 and `{"url":"https://host.example/path"}` as `inputs`. Replace the URL with the
 actual source. HTTP and HTTPS, IP literals, local addresses and custom ports are
-supported. Multiple independent requests can appear in one Decision.
+supported. Multiple independent requests can appear in one Decision. The runtime
+binds the exact admitted interface; do not include `binding_revision`.
 
 There is no application URL/body size or local duration quota. The client
 follows redirects and uses environment proxies, requests identity encoding,

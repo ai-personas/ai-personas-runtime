@@ -4,7 +4,9 @@ Every ordinary admission makes all implemented native work commands callable
 under `CONTROL.work_capability`. Its `invocation_contract` and `binding_revision`
 bind the complete current command grammar. No grant, guide registration, selection
 or read is required to use a known current command shape. `work_command.inputs.kind`
-names that command; the `effect` form also cites the exact admitted binding.
+names that command. The `effect` form selects `capability_id: "work.command.v1"`
+and resolves the same retained interface. Neither form includes an authored
+`binding_revision`; the runtime checks the admitted binding itself.
 Complete-response, exact-record and current work-state checks preserve meaningful
 outcomes.
 

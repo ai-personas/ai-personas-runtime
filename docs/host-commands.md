@@ -14,14 +14,13 @@ also supplied by default; historical grant declarations do not restrict access.
 
 ## Invocation
 
-Use an `effect` operation with the supplied capability ID and binding revision:
+Use an `effect` operation with the supplied capability ID:
 
 ```json
 {
   "kind": "effect",
   "id": "inspect-tools",
   "capability_id": "host.command.v1",
-  "binding_revision": "COPY_THE_CURRENT_BINDING",
   "inputs": {
     "command": "python3 --version",
     "result_context": "complete",
@@ -32,6 +31,13 @@ Use an `effect` operation with the supplied capability ID and binding revision:
   "depends_on": []
 }
 ```
+
+The capability ID selects the unique interface retained for this invocation.
+The runtime checks its complete binding, including the runner, input schema,
+shell and default working directory, against the current implementation. Each
+accepted job retains that exact interface. Do not put `binding_revision` in the
+operation; it is internal runtime evidence, not an authored argument. A missing
+or ambiguous admitted interface is rejected before any effect is staged.
 
 For `effect` and `work_command`, omitting the operation's `depends_on` means
 an empty prerequisite list. Put it beside `inputs`, not inside the command

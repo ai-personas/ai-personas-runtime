@@ -193,7 +193,7 @@ pub(super) fn validate(
     _now: i64,
 ) -> Result<()> {
     let p::Operation::Effect {
-        binding_revision,
+        capability_id,
         inputs,
         depends_on,
         ..
@@ -205,11 +205,11 @@ pub(super) fn validate(
         prepared.request.mode == Mode::Ordinary,
         "http_fetch unavailable in this mode",
     )?;
-    let offered = prepared
-        .http_fetch_interfaces
-        .iter()
-        .find(|i| &i.binding_revision == binding_revision)
-        .ok_or_else(|| held("http_fetch callable was not supplied by this admission"))?;
+    let offered = effect_interfaces::supplied(
+        prepared.http_fetch_interfaces.iter()
+            .filter(|interface| &interface.capability_id == capability_id),
+        capability_id,
+    )?;
     require(
         default_interface()? == *offered,
         "http_fetch implementation or interface changed",
@@ -241,19 +241,18 @@ pub(super) fn stage(
         validate(state, prepared, decision, operation, now)?;
         let p::Operation::Effect {
             id,
-            binding_revision,
+            capability_id,
             inputs,
             ..
         } = operation
         else {
             unreachable!()
         };
-        let offered = prepared
-            .http_fetch_interfaces
-            .iter()
-            .find(|i| &i.binding_revision == binding_revision)
-            .unwrap()
-            .clone();
+        let offered = effect_interfaces::supplied(
+            prepared.http_fetch_interfaces.iter()
+                .filter(|interface| &interface.capability_id == capability_id),
+            capability_id,
+        )?.clone();
         let input: Inputs = serde_json::from_value(inputs.clone())?;
         let a = admission(&state.personas[&prepared.request.persona], now);
         let exposure = prepared_exposure(prepared)?.clone();

@@ -723,8 +723,9 @@ pub enum Operation {
     /// host shell access, including installing and running tools, without a grant.
     Effect {
         id: String,
+        /// Select the unique interface with this ID retained for the current
+        /// invocation. The runtime binds its exact revision; do not echo a hash.
         capability_id: String,
-        binding_revision: String,
         inputs: Value,
         /// Follow this capability's supplied dependency contract. For
         /// work.command.v1, name only consumed file_write/file_edit/file_import proposals; use [] for
@@ -2254,12 +2255,10 @@ fn check_operation(
         }
         Operation::Effect {
             capability_id,
-            binding_revision,
             depends_on,
             ..
         } => {
             check_id(capability_id, &format!("{path}.capability_id"))?;
-            check_accepted_revision(binding_revision, &format!("{path}.binding_revision"))?;
             check_ids(depends_on, 0, &format!("{path}.depends_on"))?;
             Ok(())
         }

@@ -72,7 +72,7 @@ pub(super) fn validate(
     operation: &p::Operation,
 ) -> Result<()> {
     let p::Operation::Effect {
-        binding_revision,
+        capability_id,
         inputs,
         depends_on,
         ..
@@ -80,14 +80,17 @@ pub(super) fn validate(
     else {
         return Err(held("host command absent"));
     };
-    let offered = prepared
-        .host_command_interface
-        .as_ref()
-        .ok_or_else(|| held("host command interface was not supplied in this input"))?;
     require(
-        prepared.request.mode == Mode::Ordinary
-            && offered.binding_revision == *binding_revision
-            && *offered == interface()?,
+        prepared.request.mode == Mode::Ordinary,
+        "host command unavailable in this mode",
+    )?;
+    let offered = effect_interfaces::supplied(
+        prepared.host_command_interface.iter()
+            .filter(|interface| &interface.capability_id == capability_id),
+        capability_id,
+    )?;
+    require(
+        *offered == interface()?,
         "host command interface changed",
     )?;
     let input: input::Inputs = serde_json::from_value(inputs.clone())?;

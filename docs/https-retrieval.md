@@ -5,11 +5,13 @@ Ordinary requests supply the current definition in
 `CONTROL.http_fetch_capabilities` without a grant, guide, origin list or expiry.
 Historical grant declarations remain metadata and do not restrict requests.
 
-Invoke `effect` with the supplied `capability_id` and `binding_revision`, an
+Invoke `effect` with the supplied `capability_id`, an
 empty `depends_on`, and `{"url":"https://host.example/path"}` as `inputs`.
 Use the actual source URL. Multiple independent HTTP or computation operations
 may appear in the same complete Decision. Results arrive after adoption and
-must be interpreted in a later Decision.
+must be interpreted in a later Decision. The runtime resolves the unique interface
+retained for this invocation and checks its complete binding against the current
+implementation. Do not include `binding_revision` in the operation.
 
 The client has no application URL, response-body, header-value, DNS-address-count,
 origin, address, port or duration quota. It accepts IP literals and local

@@ -5,7 +5,9 @@
 `CONTROL.computation_capabilities`, without a grant or selected guide. Historical
 grant records remain metadata and do not restrict execution.
 
-Invoke `effect` with the supplied `capability_id` and `binding_revision`. Its
+Invoke `effect` with the supplied `capability_id`. The runtime resolves the unique
+interface retained for this invocation and verifies its complete binding against
+the current implementation. Do not include `binding_revision` in the operation. Its
 `inputs` contains `program`, an exact full UTF-8 asset reference, and `input`, a
 string. A same-response `file_write` can provide the program: use its
 `proposal-op:SAVE_ID` reference and include `SAVE_ID` in `depends_on`. The host

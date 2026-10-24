@@ -159,7 +159,6 @@ impl IntentSpec {
         p::Operation::Effect {
             id: self.request.id.clone(),
             capability_id: INTERFACE_VERSION.into(),
-            binding_revision: INTERFACE_VERSION.into(),
             inputs: serde_json::to_value(&self.request)
                 .expect("MockRequest has only JSON-serializable string fields"),
             depends_on: Vec::new(),
