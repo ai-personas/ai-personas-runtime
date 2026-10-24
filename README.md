@@ -17,7 +17,7 @@ Follow the sign-in and setup prompts. You need Unix, Python 3.9+, eligible Sign 
 Choose each persona's name and starting traits during setup. Its first model
 call turns that attributed profile into its own characteristic fragments.
 
-[Launch help](docs/interactive-launch.md) · [Canonical design](https://github.com/ai-personas/ai-personas-design/tree/bbe3d1abe80181110b8a41585e3d2c15688e20df) · [Developer details](RUNTIME-REFERENCE.md)
+[Launch help](docs/interactive-launch.md) · [Canonical design](https://github.com/ai-personas/ai-personas-design/tree/4b4be296e71acefdcadd58957751d7ec9df44d7f) · [Developer details](RUNTIME-REFERENCE.md)
 
 Choose a saved work in the launcher to read results, give feedback, answer shared
 questions or inspect a persona's development. These actions do not start a model
