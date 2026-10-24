@@ -28,6 +28,14 @@ context interfaces for detailed operations. It does not impose a fixed sequence,
 reviewer, quality score or compulsory fragment edit. Actual autonomous performance
 still has to be observed separately from externally coached results.
 
+The persona judges intended use and how the result's parts work together, and
+identifies the actual contribution and artifact revision in peer exchanges.
+Participants in one work may be producing different alternatives. Captured
+observations remain evidence of their observed state; a new invocation alone
+does not require repeating an inspection. The persona decides when uncertainty
+or an intervening change warrants another check, including checks combined with
+an intended host action. These instructions supply no task-specific diagnosis.
+
 Operation objects use only the members of their declared kind; explanatory
 notes belong in `work.reason`. The schema also asks personas to judge actual
 output against the request, inspect the properties they claim, and account for
