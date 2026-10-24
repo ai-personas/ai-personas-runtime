@@ -49,8 +49,12 @@ operation and exact base reference. The accepted response retains the original
 edit list; the base remains immutable. Lineage and exposure include that base,
 even when its complete body was not supplied to the current model call. Context
 attribution describes persona-authored edits with inherited bytes, rather than
-claiming that the persona newly authored the entire result. This origin does not
-satisfy the separate requirement for a fully authored persona-birth proposal.
+claiming that the persona newly authored the entire result. An accepted edit can
+supply a [persona-creation proposal](persona-birth.md): creation verifies the
+accepted authoring operation and recomputes its bytes from the retained exact
+base. The same response can reference the edit's proposal alias with its save
+dependency; an earlier accepted edit uses its exact stored revision. An import
+alone does not establish primary authorship.
 
 An edit participates in the same atomic save plan as `file_write` and
 `file_import`. `replace_from_saved_files`, Communicate and authored Reply can
