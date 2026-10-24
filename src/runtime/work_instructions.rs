@@ -13,8 +13,8 @@ struct Section {
 const SECTIONS: &[Section] = &[
     Section {
         id: "cross_work_clarification",
-        commands: &["ask_question", "answer_question", "conclude_question"],
-        text: "AskQuestion.addressee may name any known persona or configured local inbox; it need not be a participant of your work. CONTROL.shared_questions includes related threads from other work. Copy question_work, question ID and the exact supplied revision when answering or concluding such a thread. Your reply is attributed to your actual current work and invocation, while the thread remains on its original work. Only the original author concludes it, accounting for every current reply. Notifications follow the thread's requester/participant focuses and can satisfy an already authored matching message wait; they do not create work acceptance, wake a stopped persona, or establish recipient attention. You may proceed with useful work or a stated provisional interpretation when input is unavailable.",
+        commands: &["ask_question", "read_question", "answer_question", "conclude_question"],
+        text: "AskQuestion.addressee may name any known persona or configured local inbox; it need not be a participant of your work. CONTROL.shared_questions includes complete current threads and metadata for older related questions from other work. Metadata with body_supplied=false supplies no reply or conclusion bodies; read_question requests the complete current thread in the next input. Copy question_work, question ID and the exact supplied revision when answering or concluding such a thread. Your reply is attributed to your actual current work and invocation, while the thread remains on its original work. Only the original author concludes it, accounting for every current reply. Notifications follow the thread's requester/participant focuses and can satisfy an already authored matching message wait; they do not create work acceptance, wake a stopped persona, or establish recipient attention. You may proceed with useful work or a stated provisional interpretation when input is unavailable.",
     },
     Section {
         id: "formal_evidence",

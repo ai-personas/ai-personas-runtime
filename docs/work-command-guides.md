@@ -52,6 +52,31 @@ or that every definition is automatically supplied, are superseded by the
 current interface. Refresh installs current explanatory text while preserving
 earlier exact revisions and selections.
 
+## Selective question context
+
+`CONTROL.shared_questions` supplies complete threads for the current work,
+outstanding owner review and unanswered questions addressed to the persona.
+Older related threads from other work supply their question text, attribution,
+status and counts as metadata. `body_supplied: false` identifies this metadata
+view. A full view sets `body_supplied: true` for the question itself and reports
+`thread_complete` separately. Unavailable replies or conclusions retain explicit
+placeholders, set `thread_complete: false` and prevent a current review revision.
+
+When that history is useful, copy the metadata item's `read_command` into a
+`work_command` operation's `inputs`. The `read_question` command names the exact
+`question_work` and `question` IDs. Its receipt selects the complete current
+thread for the next input, including available replies and conclusions and any
+unavailability markers. The request
+remains pending until an accepted decision receives it; it does not permanently
+load that history into later contexts. A new reply requiring owner review still
+becomes current automatically.
+
+Reading does not answer the question, conclude it, accept responsibility or
+resume its work. Answering requires the actual complete question body;
+concluding also requires the exact current review and an account for every
+reply. Metadata alone satisfies neither check. Requester inspection continues
+to return the complete retained thread, and no historical record is removed.
+
 ## Accepting a supplied responsibility offer
 
 An ordinary `responsibility` operation names an exact offer from

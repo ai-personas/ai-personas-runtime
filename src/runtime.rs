@@ -1493,6 +1493,13 @@ pub enum WorkAction {
     /// State why it matters, affected claims, needed evidence and any conditional
     /// interpretation; human_input_required explains an actual human-only need.
     AskQuestion(QuestionInput),
+    /// Request one question's complete current thread in the next input.
+    /// Copy these fields from a shared_questions metadata item's read_command.
+    /// This selects context only; it does not answer, conclude, join or resume work.
+    ReadQuestion {
+        question_work: String,
+        question: String,
+    },
     /// Reply to an exact question actually supplied in CONTROL.shared_questions.
     /// Copy question_work to answer a thread from your current work without joining it.
     /// Include your attributed basis. A peer cannot provide human consent or
@@ -7041,7 +7048,9 @@ fn render_mode_with_history(
     }
     let peer_feedback_control =
         peer_feedback::control(state, focus, &a, &observation_ids, &mut exposure)?;
-    let shared_questions = questions::context_view(state, work_id, actor, &a, &mut exposure)?;
+    let shared_questions = questions::context_view(
+        state, work_id, actor, &a, &mut exposure, &observation_ids,
+    )?;
     let offers = work
         .offers
         .iter()
@@ -10008,9 +10017,9 @@ fn apply_work_actions(
                 .get(id)
                 .ok_or_else(|| held("capability was not validated"))?
             {
-                action @ (WorkAction::AskQuestion(_) | WorkAction::AnswerQuestion(_)
+                action @ (WorkAction::AskQuestion(_) | WorkAction::ReadQuestion { .. } | WorkAction::AnswerQuestion(_)
                     | WorkAction::ConcludeQuestion(_)) => {
-                    questions::apply(state, prepared, action, now)?;
+                    questions::apply(state, prepared, id, action, now)?;
                 }
                 WorkAction::ResolveRequesterFeedback { observation, disposition, reason } => {
                     requester_feedback::resolve(state, prepared, observation, disposition, reason, now)?;

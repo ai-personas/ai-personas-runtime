@@ -147,10 +147,12 @@ fn append_view(
     exposure: &mut Exposure,
     items: &mut Vec<Value>,
     related_only: bool,
+    requested: &BTreeSet<(String, String)>,
 ) -> Result<()> {
     let questions = &state.work_meta[work].questions;
     for question in questions.values() {
-        if related_only && question.origin.author != viewer
+        let selected = requested.contains(&(work.to_owned(), question.input.id.clone()));
+        if related_only && !selected && question.origin.author != viewer
             && question.input.addressee != viewer
             && !question.replies.iter().any(|reply| reply.origin.author == viewer)
         {
@@ -189,6 +191,28 @@ fn append_view(
             last.and_then(|c| c.input.replies.get(&reply.input.id))
                 .is_none_or(|account| account.disposition == QuestionReplyDisposition::Unresolved)
         });
+        let owner_review_pending = last.is_none() || pending;
+        // Keep outstanding decisions visible across work. Merely having
+        // answered an older thread does not make its full history current need.
+        let needs_attention = (question.origin.author == viewer && owner_review_pending)
+            || (question.input.addressee == viewer
+                && !question.replies.iter().any(|reply| reply.origin.author == viewer)
+                && last.is_none_or(|c| !matches!(c.input.disposition,
+                    QuestionDisposition::Answered | QuestionDisposition::Withdrawn)));
+        if related_only && !selected && !needs_attention {
+            items.push(json!({
+                "question_work":work,"question_id":question.input.id,
+                "text":question.input.text,"question_revision":question_revision(question)?,
+                "owner":question.origin.author,"addressee":question.input.addressee,
+                "attribution":attribution(&question.origin),
+                "owner_review_pending":if complete {Some(owner_review_pending)} else {None},
+                "latest_disposition":if complete {last.map(|c| &c.input.disposition)} else {None},
+                "reply_count":replies.len(),"conclusion_count":conclusions.len(),
+                "body_supplied":false,"thread_complete":false,
+                "read_command":{"kind":"read_question","question_work":work,"question":question.input.id}
+            }));
+            continue;
+        }
         items.push(json!({
             "question_work":work,
             "question":question.input,"question_revision":question_revision(question)?,
@@ -198,8 +222,8 @@ fn append_view(
                 .acceptance(&w::PersonaId(question.origin.author.clone())).is_some(),
             "replies":replies,"conclusions":conclusions,
             "review_revision":if complete {Some(digest(question)?)} else {None},
-            "owner_review_pending":if complete {Some(last.is_none() || pending)} else {None},
-            "body_supplied":true
+            "owner_review_pending":if complete {Some(owner_review_pending)} else {None},
+            "body_supplied":true,"thread_complete":complete
         }));
     }
     Ok(())
@@ -208,23 +232,30 @@ fn append_view(
 fn projected_view(items: Vec<Value>) -> Value {
     if items.is_empty() { return Value::Null; }
     json!({"interface":"shared-questions-v1","items":items,
-        "rule":"Questions and replies remain current after inbox acknowledgment. This context includes this work's questions and questions elsewhere that you authored, were addressed, or answered. Copy question_work with the exact question and revision when answering or concluding from another work. Attribution identifies actual authoring work separately. Asking, answering and receiving clarification create no participation or continuation in another work. The original author assesses every reply's basis with conclude_question and an explicit account per reply. The basis is its author's statement: a source citation there does not prove that its body was supplied or read. Inspect actual evidence before accepting consequential claims. A later reply creates a new outstanding author decision. Asking does not make an answer a blocking dependency or create a wake. Choose useful independent progress, provisional interpretation, waiting or stopping yourself. A human-input requirement cannot be satisfied by peer confidence, silence or an assumption. Conclusions are attributed interpretations, never mandate changes, verified facts, consent, releases or automatic permission. Keep affected claims conditional and reconsider them when new input conflicts."})
+        "rule":"Questions and replies remain retained after inbox acknowledgment. Full views are supplied for this work, outstanding owner review, unanswered questions addressed to you, and explicit reads. body_supplied=true identifies the question body; thread_complete separately reports whether every reply and conclusion is available. Missing entries remain explicit placeholders and prevent a current review revision. Other related threads supply metadata only: body_supplied=false is not the question's evidence, replies or conclusions. To read one, copy its read_command as work_command.inputs; the next input supplies the current full view, including any unavailability markers. This request lasts until supplied in an accepted decision, without selecting a permanent history. No read is needed when the full thread is already supplied. Copy question_work with the exact question and revision when answering or concluding from another work. Attribution identifies actual authoring work separately. Asking, answering and reading create no participation or continuation in another work. The original author assesses every reply's basis with conclude_question and an explicit account per reply. A cited source does not prove its body was supplied or read. A later reply creates a new outstanding author decision. Asking does not create a blocking dependency or wake. Choose useful independent progress, provisional interpretation, waiting or stopping yourself. Peer confidence, silence and assumptions cannot satisfy a human-only need. Conclusions are attributed interpretations, never mandate changes, verified facts, consent, releases or automatic permission. Keep affected claims conditional and reconsider them when new input conflicts."})
 }
 
 pub(crate) fn view(state: &State, work: &str, viewer: &str, a: &f::Admission,
     exposure: &mut Exposure) -> Result<Value>
 {
     let mut items = Vec::new();
-    append_view(state, work, viewer, a, exposure, &mut items, false)?;
+    append_view(state, work, viewer, a, exposure, &mut items, false, &BTreeSet::new())?;
     Ok(projected_view(items))
 }
 
 pub(super) fn context_view(state: &State, work: &str, viewer: &str, a: &f::Admission,
-    exposure: &mut Exposure) -> Result<Value>
+    exposure: &mut Exposure, observation_ids: &[String]) -> Result<Value>
 {
+    let requested: BTreeSet<_> = observation_ids.iter().filter_map(|id| {
+        let observation = state.observations.get(id)?;
+        if observation.kind != "question_context_request" || observation.actor != viewer
+            || observation.work != work { return None; }
+        Some((observation.payload["question_work"].as_str()?.to_owned(),
+            observation.payload["question"].as_str()?.to_owned()))
+    }).collect();
     let mut items = Vec::new();
     for id in state.work_meta.keys() {
-        append_view(state, id, viewer, a, exposure, &mut items, id != work)?;
+        append_view(state, id, viewer, a, exposure, &mut items, id != work, &requested)?;
     }
     Ok(projected_view(items))
 }
@@ -287,6 +318,10 @@ pub(super) fn validate(action: &WorkAction) -> Result<()> {
             }
         }
         WorkAction::AnswerQuestion(input) => validate_reply(input)?,
+        WorkAction::ReadQuestion { question_work, question } => {
+            identity(question_work)?;
+            p::check_id(question, "question.id")?;
+        }
         WorkAction::ConcludeQuestion(input) => {
             p::check_id(&input.question, "question.id")?;
             if let Some(work) = &input.question_work { identity(work)?; }
@@ -378,11 +413,13 @@ fn validate_views(state: &State, work: &str, now: i64) -> Result<()> {
 pub(super) fn apply(
     state: &mut State,
     prepared: &Prepared,
+    operation_id: &str,
     action: &WorkAction,
     now: i64,
 ) -> Result<()> {
     validate(action)?;
     let work = match action {
+        WorkAction::ReadQuestion { question_work, .. } => Some(question_work.as_str()),
         WorkAction::AnswerQuestion(input) => input.question_work.as_deref(),
         WorkAction::ConcludeQuestion(input) => input.question_work.as_deref(),
         _ => None,
@@ -395,6 +432,21 @@ pub(super) fn apply(
     )?;
     let authored = origin(state, prepared, now)?;
     match action {
+        WorkAction::ReadQuestion { question, .. } => {
+            let question = state.work_meta[work].questions.get(question)
+                .ok_or_else(|| held("question unavailable"))?;
+            require(visible(state, &question.origin, actor,
+                &admission(&state.personas[actor], now)), "question unavailable")?;
+            let payload = json!({"question_work":work,"question":question.input.id,
+                "requested_question_revision":question_revision(question)?,
+                "result":"next_input_current_full_thread"});
+            let inherited = question.origin.exposure.clone();
+            add_observation(state, prepared, operation_id, "question_context_request",
+                payload, Vec::new(), Vec::new(), now)?;
+            let id = observation_id(&prepared.request.id, "question_context_request", operation_id);
+            extend_exposure(state.observations.get_mut(&id).unwrap().exposure.as_mut().unwrap(), &inherited);
+            return Ok(());
+        }
         WorkAction::AskQuestion(input) => {
             require(
                 !state.work_meta[work].questions.contains_key(&input.id),

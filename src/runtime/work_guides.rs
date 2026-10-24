@@ -98,9 +98,10 @@ fn purpose(command: &str) -> &'static str {
 
 fn related(command: &str) -> &'static [&'static str] {
     match command {
-        "ask_question" => &["answer_question", "conclude_question"],
-        "answer_question" => &["conclude_question"],
-        "conclude_question" => &["ask_question"],
+        "ask_question" => &["read_question", "answer_question", "conclude_question"],
+        "read_question" => &["answer_question", "conclude_question"],
+        "answer_question" => &["read_question", "conclude_question"],
+        "conclude_question" => &["ask_question", "read_question"],
         "resolve_requester_feedback" | "account_peer_feedback" => {
             &["put_artifact", "record_model_evidence"]
         }
