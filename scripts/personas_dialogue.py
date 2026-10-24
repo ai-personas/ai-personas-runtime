@@ -909,7 +909,7 @@ class Helpers:
                 os.killpg(proc.pid, signal.SIGKILL)
                 proc.wait()
 
-    def call(self, name, args, timeout=None, auth_display=False, on_wait=None):
+    def call(self, name, args, timeout=None, auth_display=False, on_wait=None, on_input=None):
         item = self.j.data["installation"][name]
         verified = None
         executable = item["path"]
@@ -936,13 +936,22 @@ class Helpers:
         try:
             with selectors.DefaultSelector() as poll:
                 poll.register(proc.stdout, selectors.EVENT_READ, out)
+                streams = 1
                 if proc.stderr:
                     poll.register(proc.stderr, selectors.EVENT_READ, err)
-                while poll.get_map():
+                    streams += 1
+                if on_input is not None:
+                    poll.register(sys.stdin, selectors.EVENT_READ, None)
+                while streams:
                     for key, _ in poll.select(0.2):
+                        if key.data is None:
+                            if proc.poll() is not None or on_input() is False:
+                                poll.unregister(key.fileobj)
+                            continue
                         part = os.read(key.fd, 8192)
                         if not part:
                             poll.unregister(key.fileobj)
+                            streams -= 1
                         else:
                             key.data.extend(part)
                     if on_wait is not None and proc.poll() is None and time.monotonic() >= next_update:
@@ -985,9 +994,10 @@ class Dialogue:
         self.j, self.h, self.ui, self.checkout = journal, helpers, ui, checkout
         self.p = journal.data
 
-    def session(self, *args, timeout=None, on_wait=None):
+    def session(self, *args, timeout=None, on_wait=None, on_input=None):
         return self.h.call("personas-session", ["--state-root", self.p["runtime"]["path"],
-                            "--operator", self.p["operator"], *args], timeout=timeout, on_wait=on_wait)
+                            "--operator", self.p["operator"], *args], timeout=timeout,
+                           on_wait=on_wait, on_input=on_input)
 
     def provider(self, *args, timeout=None):
         return self.h.call("personas-provider", ["--vault", self.p["vault"], *args], timeout=timeout)
@@ -1499,8 +1509,12 @@ class Dialogue:
     def choose_participant(self, work):
         participants = work["participants"]
         for i, participant in enumerate(participants, 1):
+            attempt = participant.get("active_invocation")
+            status = (self.attempt_status(attempt) if attempt and
+                      attempt["state"] in ("Prepared", "Dispatched", "Responded") else
+                      participant["continuation"].replace("_", " "))
             self.ui.say(f"{i}: {participant.get('label', participant['persona'])} "
-                        f"({participant['persona']}) — {participant['continuation']}")
+                        f"({participant['persona']}) — {status}")
             recovery = participant.get("resume_recovery")
             if recovery is not None:
                 reason = ("complete response rejected before actions"
@@ -1942,16 +1956,24 @@ class Dialogue:
         self.ui.say("Choose r in the work menu for the full reply history, feedback accounts and qualified deliveries.")
         return outcome
 
-    def work_progress(self, work):
+    def work_snapshot(self, work):
         after = None
         while True:
             snapshot = self.inspect(after)
             current = next((item for item in snapshot["works"] if item["id"] == work), None)
             if current is not None or not snapshot.get("next_after"):
-                break
+                return current, snapshot
             after = snapshot["next_after"]
+
+    @staticmethod
+    def attempt_status(attempt):
+        return {"Prepared": "preparing the call", "Dispatched": "waiting for the model",
+                "Responded": "applying the response"}.get(attempt["state"], attempt["status"])
+
+    def work_progress(self, work):
+        current, snapshot = self.work_snapshot(work)
         participants = [] if current is None else current["participants"]
-        active = [f"{participant['label']} ({attempt['id']}, {attempt['status']})"
+        active = [f"{participant['label']} ({attempt['id']}, {self.attempt_status(attempt)})"
                   for participant in participants
                   if (attempt := participant.get("active_invocation"))
                   and attempt["state"] in ("Prepared", "Dispatched", "Responded")]
@@ -1964,6 +1986,37 @@ class Dialogue:
         if attention:
             status += " Participants needing attention: " + ", ".join(attention) + "."
         return status
+
+    def live_input(self, work):
+        # This is the original foreground session. Input commands only inspect
+        # or queue user input; none starts, restarts or resumes an invocation.
+        try:
+            choice = self.ui.ask("While running:").strip().lower()
+            if choice == "r":
+                self.output(work)
+            elif choice == "q":
+                self.questions(work)
+            elif choice == "f":
+                current, _ = self.work_snapshot(work)
+                require(current is not None, "work_unavailable")
+                self.feedback(current)
+            elif choice == "i":
+                if self.pending_work_input() is not None:
+                    self.deliver_work_input()
+                else:
+                    self.ui.say("No input is waiting for delivery confirmation.")
+            elif choice:
+                self.ui.say("Use r: results; q: questions and answers; f: feedback; i: confirm pending input.")
+            else:
+                self.ui.say(self.work_progress(work))
+        except Halt:
+            self.ui.say("Terminal input closed; waiting for the running session's outcome.")
+            return False
+        except (Blocked, OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
+            code = error.code if isinstance(error, Blocked) else "live_input_unavailable"
+            self.ui.say(f"Input action could not finish: {code}. The session is still running. "
+                        "Any unconfirmed input is retained; use i to check that same input.")
+        return True
 
     def run_work(self, work, view, reuse=False):
         settings = view["settings"]
@@ -2013,10 +2066,20 @@ class Dialogue:
                      "--codex-home", route["codex_home"]]
             if route["authorize_codex_auth_only"]:
                 args += ["--authorize-codex-auth-only"]
+        # Work messages can be read while the session is running. Do not label
+        # them as a completed session's output or reconstruct a terminal range.
+        seen_messages = None
+        try:
+            seen_messages = {message["id"] for message in self.session("result", work).get("messages", [])}
+        except (Blocked, OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+            pass
         self.ui.say(f"Submitting {s['id']}. Waiting for its recorded native outcome.")
+        self.ui.say("New replies appear as work continues. Type r for results, q for questions and answers, "
+                    "f for feedback, or i to confirm pending input, then press Enter.")
         last_update = [None, 0.0]
 
         def report_progress():
+            nonlocal seen_messages
             # Read-only status of this same live helper. A failed observation
             # never cancels, replays or creates another session.
             try:
@@ -2027,10 +2090,25 @@ class Dialogue:
             if status != last_update[0] or now - last_update[1] >= 60:
                 self.ui.say(status)
                 last_update[:] = [status, now]
+            try:
+                messages = self.session("result", work).get("messages", [])
+                if seen_messages is not None:
+                    fresh = [message for message in messages if message["id"] not in seen_messages]
+                    if fresh:
+                        self.ui.say(f"New replies for {work}:")
+                        for part in readable_messages(fresh, show_invocation=True):
+                            self.ui.say(part)
+                if seen_messages is None:
+                    seen_messages = set()
+                seen_messages.update(message["id"] for message in messages)
+            except (Blocked, OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+                # Inspection failure cannot terminate or replay the live run.
+                pass
 
         # Host commands have no default duration limit. Wait for the native
         # session's outcome; explicit interruption still stops this helper.
-        outcome = self.session(*args, timeout=None, on_wait=report_progress)
+        outcome = self.session(*args, timeout=None, on_wait=report_progress,
+                               on_input=lambda: self.live_input(work))
         self.session_binding(outcome, s)
         require(outcome.get("status") == "finished", "session_outcome_unknown_no_replay")
         terminal = outcome["terminal"]["outcome"]

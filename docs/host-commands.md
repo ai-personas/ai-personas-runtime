@@ -61,8 +61,9 @@ available.
 `PATH`; it can invoke package managers and other installed software directly.
 The interactive launcher preserves that environment when starting native helpers,
 including package-manager, proxy and tool settings.
-`working_directory` defaults to the native process directory displayed in the
-interface. Relative paths resolve against that directory. `stdin` optionally
+`working_directory` defaults to the saved task directory displayed in the
+interface (or the foreground directory without a saved launch). Relative paths
+resolve against that directory. `stdin` optionally
 supplies UTF-8 input. A persona may choose `timeout_seconds`; omission or `null`
 means no timeout. A chosen timeout stops that command's process group.
 The interactive launcher waits for the native foreground session without adding
@@ -79,6 +80,13 @@ operations may be submitted in one decision and execute in their listed order.
 Shell environment changes last for that command; persist reusable settings in
 host files or source them in later commands. Native supporting assets remain
 separate from host filesystem files.
+
+Host files are shared and mutable. Participants use the same configured task
+directory; commands do not receive a private copy or a filesystem transaction.
+The supplied interface makes this explicit so personas can choose useful
+coordination and inspect current versions before editing or judging a package.
+A retained command result or image capture describes the bytes observed then;
+it does not establish the current contents of a path that another command changed.
 
 Use [host-file imports](host-file-imports.md) to retain an existing UTF-8 guide,
 script, note or data file as an exact native supporting asset for later selection

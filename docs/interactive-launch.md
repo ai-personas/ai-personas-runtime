@@ -36,6 +36,15 @@ preserves the original request, and requests eligible resumption under a new
 mandate. Recorded resource usage remains attributable. Custom outcomes and review terms
 use the [full task amendment commands](task-amendments.md).
 
+During a running session, new requester replies appear as they become available.
+Type **r** and Enter to inspect results, **q** to read and answer shared questions,
+or **f** to send feedback to a participant. These controls leave the current
+session running. Feedback can be queued until the current call and commands
+settle; it does not rewrite an input already sent to a model. Explicitly stopped
+participants retain their continuation choice. Use **i** to confirm the same
+saved input if its delivery result was unavailable. A live work reply is an
+attributed message, not evidence that the entire task or session has finished.
+
 Choose **o: optional activity** in the work list for voluntary exploration and
 conversation without an assigned task. The launcher records an activity and
 runs eligible participants using the saved provider. Each persona decides what

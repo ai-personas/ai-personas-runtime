@@ -4,6 +4,12 @@ use schemars::JsonSchema;
 
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+/// Commands use the shared, mutable host filesystem, including the configured
+/// task directory. There is no private per-persona copy or filesystem transaction;
+/// another participant can change a file while your model call runs. Inspect
+/// current files before revising them or judging the final package, and choose
+/// useful coordination with peers for shared edits. A prior command result or
+/// captured preview describes the observed bytes, not later contents at that path.
 pub(super) struct Inputs {
     /// Bash command or script; tools and packages may be installed directly.
     pub command: String,
