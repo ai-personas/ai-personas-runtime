@@ -17,6 +17,20 @@ pub(super) fn supplied<'a, T: 'a>(
     Ok(interface)
 }
 
+/// Decode against the exact input definition admitted to this invocation.
+/// No current work, asset, host directory or implementation binding is read.
+/// Borrow the JSON value so scripts and data do not need an intermediate clone.
+pub(super) fn inputs<T: serde::de::DeserializeOwned + schemars::JsonSchema>(
+    admitted_schema: &Value,
+    received: &Value,
+) -> Result<T> {
+    require(
+        *admitted_schema == serde_json::to_value(schemars::schema_for!(T))?,
+        "admitted capability input definition differs from the current decoder",
+    )?;
+    Ok(T::deserialize(received)?)
+}
+
 /// The runtime retains the complete binding in Prepared and in each accepted
 /// job. The authored operation selects it by ID, without repeating its digest.
 pub(super) fn definition(interface: &impl Serialize) -> Result<Value> {

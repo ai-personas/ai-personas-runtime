@@ -185,26 +185,14 @@ pub(super) fn is_http_fetch(operation: &p::Operation) -> bool {
     matches!(operation, p::Operation::Effect { capability_id, .. } if capability_id == c::PROFILE)
 }
 
-pub(super) fn validate(
-    _state: &State,
-    prepared: &Prepared,
-    _decision: &p::Decision,
+fn current_interface<'a>(
+    prepared: &'a Prepared,
     operation: &p::Operation,
-    _now: i64,
-) -> Result<()> {
-    let p::Operation::Effect {
-        capability_id,
-        inputs,
-        depends_on,
-        ..
-    } = operation
+) -> Result<&'a HttpFetchInterface> {
+    let p::Operation::Effect { capability_id, .. } = operation
     else {
         return Err(held("http_fetch operation absent"));
     };
-    require(
-        prepared.request.mode == Mode::Ordinary,
-        "http_fetch unavailable in this mode",
-    )?;
     let offered = effect_interfaces::supplied(
         prepared.http_fetch_interfaces.iter()
             .filter(|interface| &interface.capability_id == capability_id),
@@ -214,13 +202,35 @@ pub(super) fn validate(
         default_interface()? == *offered,
         "http_fetch implementation or interface changed",
     )?;
-    let input: Inputs = serde_json::from_value(inputs.clone())?;
+    Ok(offered)
+}
+
+fn checked_inputs(prepared: &Prepared, operation: &p::Operation) -> Result<Inputs> {
+    let p::Operation::Effect { capability_id, inputs, depends_on, .. } = operation else {
+        return Err(held("http_fetch operation absent"));
+    };
+    require(prepared.request.mode == Mode::Ordinary, "http_fetch unavailable in this mode")?;
+    let offered = effect_interfaces::supplied(
+        prepared.http_fetch_interfaces.iter()
+            .filter(|interface| &interface.capability_id == capability_id),
+        capability_id,
+    )?;
+    let input: Inputs = effect_interfaces::inputs(&offered.inputs_schema, inputs)?;
     c::parse_url(&input.url).map_err(held)?;
     require(
         depends_on.is_empty(),
         "HTTPS retrieval takes no operation dependencies",
     )?;
-    Ok(())
+    Ok(input)
+}
+
+pub(super) fn validate_inputs(prepared: &Prepared, operation: &p::Operation) -> Result<()> {
+    checked_inputs(prepared, operation).map(|_| ())
+}
+
+pub(super) fn validate(prepared: &Prepared, operation: &p::Operation) -> Result<()> {
+    current_interface(prepared, operation)?;
+    validate_inputs(prepared, operation)
 }
 
 /// Stage the exact URL and exposure with the complete decision.
@@ -238,22 +248,15 @@ pub(super) fn stage(
         .iter()
         .filter(|o| allowed.contains(o.id()) && is_http_fetch(o))
     {
-        validate(state, prepared, decision, operation, now)?;
+        let offered = current_interface(prepared, operation)?.clone();
+        let input = checked_inputs(prepared, operation)?;
         let p::Operation::Effect {
             id,
-            capability_id,
-            inputs,
             ..
         } = operation
         else {
             unreachable!()
         };
-        let offered = effect_interfaces::supplied(
-            prepared.http_fetch_interfaces.iter()
-                .filter(|interface| &interface.capability_id == capability_id),
-            capability_id,
-        )?.clone();
-        let input: Inputs = serde_json::from_value(inputs.clone())?;
         let a = admission(&state.personas[&prepared.request.persona], now);
         let exposure = prepared_exposure(prepared)?.clone();
         let exposure = expanded_exposure(state, &exposure)?;

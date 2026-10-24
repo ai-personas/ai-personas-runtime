@@ -171,14 +171,19 @@ access-policy enforcement. They do not resume stopped work, replay a rejected
 operation or establish completion. Existing observation bodies keep their
 original text; actual provider and host failures remain distinct outcomes.
 
-Ordinary work-command inputs are parsed and validated against the admitted
-interface before checks of current state. A complete rejection for malformed
-inputs therefore retains its request-bound diagnostic, which the existing
-continuation can receive in a fresh decision. Current work authority, source and
-Board failures retain their own provenance checks. Decisions proposing character
-adoption skip this preflight and retain the existing character fence before work
-commands are validated. Complete Decision structural validation and previously
-retained failures are unchanged.
+Ordinary native work, host-command, HTTP and computation inputs are parsed and
+validated against the admitted input definition before checks of current state.
+These checks use the authored response and exact admitted request, including
+local save dependencies; they do not read current native asset bodies or the
+host working directory. A complete rejection for an input-shape or local
+dependency error therefore retains its request-bound diagnostic, which an
+existing continuation can receive in a fresh decision. Semantic conversion and
+availability of retained asset references remain staging checks, alongside
+materialization. Current implementation bindings, work authority and Board
+failures retain their separate checks and provenance.
+Decisions proposing character adoption skip this preflight and establish the
+character fence before any remaining tool inputs are validated. Complete
+Decision structural validation and previously retained failures are unchanged.
 
 The exact native prompt is a user input-text message. A fixed JSON-output instruction and exact requested reasoning effort are bound to the request. No tools, previous response, conversation, hidden agent history or remote output-token cap are added. The immutable wire profile fixes method, endpoint, non-secret header policy, message role and instructions. Traditional routing uses truthful application identity and its explicit beta header; mode-specific headers cannot leak into the public routes.
 

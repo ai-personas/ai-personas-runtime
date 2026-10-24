@@ -66,24 +66,14 @@ pub(super) fn is_host_command(operation: &p::Operation) -> bool {
     matches!(operation, p::Operation::Effect { capability_id, .. } if capability_id == h::PROFILE)
 }
 
-pub(super) fn validate(
-    prepared: &Prepared,
-    decision: &p::Decision,
+fn current_interface<'a>(
+    prepared: &'a Prepared,
     operation: &p::Operation,
-) -> Result<()> {
-    let p::Operation::Effect {
-        capability_id,
-        inputs,
-        depends_on,
-        ..
-    } = operation
+) -> Result<&'a HostCommandInterface> {
+    let p::Operation::Effect { capability_id, .. } = operation
     else {
         return Err(held("host command absent"));
     };
-    require(
-        prepared.request.mode == Mode::Ordinary,
-        "host command unavailable in this mode",
-    )?;
     let offered = effect_interfaces::supplied(
         prepared.host_command_interface.iter()
             .filter(|interface| &interface.capability_id == capability_id),
@@ -93,7 +83,24 @@ pub(super) fn validate(
         *offered == interface()?,
         "host command interface changed",
     )?;
-    let input: input::Inputs = serde_json::from_value(inputs.clone())?;
+    Ok(offered)
+}
+
+fn checked_inputs(
+    prepared: &Prepared,
+    decision: &p::Decision,
+    operation: &p::Operation,
+) -> Result<input::Inputs> {
+    let p::Operation::Effect { capability_id, inputs, depends_on, .. } = operation else {
+        return Err(held("host command absent"));
+    };
+    require(prepared.request.mode == Mode::Ordinary, "host command unavailable in this mode")?;
+    let offered = effect_interfaces::supplied(
+        prepared.host_command_interface.iter()
+            .filter(|interface| &interface.capability_id == capability_id),
+        capability_id,
+    )?;
+    let input: input::Inputs = effect_interfaces::inputs(&offered.inputs_schema, inputs)?;
     require(
         !input.command.is_empty() && !input.command.contains('\0'),
         "host command is empty or contains NUL",
@@ -103,7 +110,25 @@ pub(super) fn validate(
             "host command dependencies name accepted local saves; combine shell steps in one script")?;
     }
     input.validate(prepared, decision, depends_on)?;
-    Ok(())
+    Ok(input)
+}
+
+/// Request-only validation; native stdin asset materialization remains in stage.
+pub(super) fn validate_inputs(
+    prepared: &Prepared,
+    decision: &p::Decision,
+    operation: &p::Operation,
+) -> Result<()> {
+    checked_inputs(prepared, decision, operation).map(|_| ())
+}
+
+pub(super) fn validate(
+    prepared: &Prepared,
+    decision: &p::Decision,
+    operation: &p::Operation,
+) -> Result<()> {
+    current_interface(prepared, operation)?;
+    validate_inputs(prepared, decision, operation)
 }
 
 pub(super) fn stage(
@@ -120,12 +145,11 @@ pub(super) fn stage(
         .iter()
         .filter(|o| allowed.contains(o.id()) && is_host_command(o))
     {
-        validate(prepared, decision, operation)?;
-        let p::Operation::Effect { id, inputs, .. } = operation else {
+        let offered = current_interface(prepared, operation)?.clone();
+        let authored = checked_inputs(prepared, decision, operation)?;
+        let p::Operation::Effect { id, .. } = operation else {
             unreachable!()
         };
-        let offered = prepared.host_command_interface.as_ref().unwrap().clone();
-        let authored: input::Inputs = serde_json::from_value(inputs.clone())?;
         let result_context = Some(authored.result_context);
         let (input, stdin_asset) = authored.materialize(state, prepared, proposals, now)?;
         let requested = input

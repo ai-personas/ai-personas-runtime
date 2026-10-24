@@ -716,6 +716,7 @@ pub enum Operation {
         /// Use the command's current exact input shape. Selectively supplied
         /// definitions appear in CONTROL.work_capability.inputs_schema. Where
         /// the action permits an earlier local record, cite its inner record ID.
+        /// depends_on belongs beside inputs on this operation, never inside it.
         inputs: Value,
         /// Only file_write/file_edit/file_import operation IDs whose proposed revisions this command
         /// consumes. Defaults to [] when omitted; never name another work_command here.
@@ -732,6 +733,8 @@ pub enum Operation {
         /// Select the unique interface with this ID retained for the current
         /// invocation. The runtime binds its exact revision; do not echo a hash.
         capability_id: String,
+        /// Match the selected capability's inputs_schema. Put depends_on beside
+        /// inputs on this effect operation, never inside the input object.
         inputs: Value,
         /// Follow this capability's supplied dependency contract. For
         /// work.command.v1, name only consumed file_write/file_edit/file_import proposals; use [] for

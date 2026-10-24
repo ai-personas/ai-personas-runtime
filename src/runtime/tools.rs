@@ -229,26 +229,14 @@ pub(super) fn is_computation(operation: &p::Operation) -> bool {
     matches!(operation, p::Operation::Effect { capability_id, .. } if capability_id == c::PROFILE)
 }
 
-pub(super) fn validate(
-    _state: &State,
-    prepared: &Prepared,
-    decision: &p::Decision,
+fn current_interface<'a>(
+    prepared: &'a Prepared,
     operation: &p::Operation,
-    _now: i64,
-) -> Result<()> {
-    let p::Operation::Effect {
-        capability_id,
-        inputs,
-        depends_on,
-        ..
-    } = operation
+) -> Result<&'a ComputationInterface> {
+    let p::Operation::Effect { capability_id, .. } = operation
     else {
         return Err(held("computation operation absent"));
     };
-    require(
-        prepared.request.mode == Mode::Ordinary,
-        "computation unavailable in this mode",
-    )?;
     let offered = effect_interfaces::supplied(
         prepared.computation_interfaces.iter()
             .filter(|interface| &interface.capability_id == capability_id),
@@ -258,7 +246,24 @@ pub(super) fn validate(
         default_interface()? == *offered,
         "computation implementation or interface changed",
     )?;
-    let input: Inputs = serde_json::from_value(inputs.clone())?;
+    Ok(offered)
+}
+
+fn checked_inputs(
+    prepared: &Prepared,
+    decision: &p::Decision,
+    operation: &p::Operation,
+) -> Result<Inputs> {
+    let p::Operation::Effect { capability_id, inputs, depends_on, .. } = operation else {
+        return Err(held("computation operation absent"));
+    };
+    require(prepared.request.mode == Mode::Ordinary, "computation unavailable in this mode")?;
+    let offered = effect_interfaces::supplied(
+        prepared.computation_interfaces.iter()
+            .filter(|interface| &interface.capability_id == capability_id),
+        capability_id,
+    )?;
+    let input: Inputs = effect_interfaces::inputs(&offered.inputs_schema, inputs)?;
     for dep in depends_on {
         require(
             decision
@@ -292,7 +297,25 @@ pub(super) fn validate(
             "program proposal needs its exact save dependency",
         )?;
     }
-    Ok(())
+    Ok(input)
+}
+
+/// Resolve only authored references and dependencies; read asset bytes in stage.
+pub(super) fn validate_inputs(
+    prepared: &Prepared,
+    decision: &p::Decision,
+    operation: &p::Operation,
+) -> Result<()> {
+    checked_inputs(prepared, decision, operation).map(|_| ())
+}
+
+pub(super) fn validate(
+    prepared: &Prepared,
+    decision: &p::Decision,
+    operation: &p::Operation,
+) -> Result<()> {
+    current_interface(prepared, operation)?;
+    validate_inputs(prepared, decision, operation)
 }
 
 /// Stage the exact program in the same candidate as its local save.
@@ -311,22 +334,15 @@ pub(super) fn stage(
         .iter()
         .filter(|o| allowed.contains(o.id()) && is_computation(o))
     {
-        validate(state, prepared, decision, operation, now)?;
+        let offered = current_interface(prepared, operation)?.clone();
+        let input = checked_inputs(prepared, decision, operation)?;
         let p::Operation::Effect {
             id,
-            capability_id,
-            inputs,
             ..
         } = operation
         else {
             unreachable!()
         };
-        let offered = effect_interfaces::supplied(
-            prepared.computation_interfaces.iter()
-                .filter(|interface| &interface.capability_id == capability_id),
-            capability_id,
-        )?.clone();
-        let input: Inputs = serde_json::from_value(inputs.clone())?;
         let program_reference = resolve(&input.program, proposals)?;
         let a = admission(&state.personas[&prepared.request.persona], now);
         let file = full_asset(state, &program_reference, &a)?;

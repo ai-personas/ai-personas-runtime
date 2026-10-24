@@ -1808,7 +1808,7 @@ fn resolved_work_operation<'a>(
 // This preflight reads only the exact admitted prompt and authored response. It
 // must run before current-state checks: arbitrary Board failures still have
 // unknown provenance and must never inherit this request-only diagnostic scope.
-fn check_supplied_work_command_inputs(prepared: &Prepared, decision: &p::Decision) -> Result<()> {
+fn check_supplied_operation_inputs(prepared: &Prepared, decision: &p::Decision) -> Result<()> {
     if prepared.request.mode != Mode::Ordinary
         || decision
             .operations
@@ -1820,7 +1820,13 @@ fn check_supplied_work_command_inputs(prepared: &Prepared, decision: &p::Decisio
         return Ok(());
     }
     for operation in &decision.operations {
-        if let Some((_, inputs, _)) = resolved_work_operation(prepared, operation)? {
+        if host_tools::is_host_command(operation) {
+            host_tools::validate_inputs(prepared, decision, operation)?;
+        } else if http_tools::is_http_fetch(operation) {
+            http_tools::validate_inputs(prepared, operation)?;
+        } else if tools::is_computation(operation) {
+            tools::validate_inputs(prepared, decision, operation)?;
+        } else if let Some((_, inputs, _)) = resolved_work_operation(prepared, operation)? {
             // Parsing and input validation consult no current Board or source
             // state. Keep their rejection bound to the admitted request, so an
             // existing continuation can receive it without an operator resume.
@@ -4377,7 +4383,7 @@ impl Runtime {
                 "response invocation identity mismatch",
             )?;
             require(decision.epoch == prepared.epoch, "response epoch mismatch")?;
-            check_supplied_work_command_inputs(&prepared, &decision)?;
+            check_supplied_operation_inputs(&prepared, &decision)?;
             check_supplied_citation_namespace(&prepared, &decision)?;
 
             check_supplied_closure_record(&prepared, &decision)?;
@@ -8363,7 +8369,6 @@ fn validate_operation_interfaces(
     prepared: &Prepared,
     decision: &p::Decision,
     allowed: &BTreeSet<String>,
-    now: i64,
 ) -> Result<BTreeMap<String, WorkAction>> {
     let mut actions = BTreeMap::new();
     for operation in &decision.operations {
@@ -8389,10 +8394,10 @@ fn validate_operation_interfaces(
                 host_tools::validate(prepared, decision, operation)?;
             }
             operation if http_tools::is_http_fetch(operation) => {
-                http_tools::validate(state, prepared, decision, operation, now)?;
+                http_tools::validate(prepared, operation)?;
             }
             operation if tools::is_computation(operation) => {
-                tools::validate(state, prepared, decision, operation, now)?;
+                tools::validate(prepared, decision, operation)?;
             }
             p::Operation::Effect { .. } | p::Operation::WorkCommand { .. } => {
 
@@ -8604,7 +8609,7 @@ fn plan_response(
         }
     }
     // Validate every admitted interface before navigation or any model communication.
-    let actions = validate_operation_interfaces(&state, prepared, decision, &allowed, now)?;
+    let actions = validate_operation_interfaces(&state, prepared, decision, &allowed)?;
     if !character_changed {
         proposals = apply_writes(&mut state, &original, prepared, decision, &allowed, now)?;
         warnings::apply(&mut state, prepared, decision, now)?;
