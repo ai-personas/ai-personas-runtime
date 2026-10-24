@@ -215,16 +215,21 @@ fn exposure_references(value: &Value) -> serde_json::Result<Option<HashMap<usize
     Ok(Some(references))
 }
 
+/// Build the complete stored body once. Value consumers can take this packed
+/// tree directly instead of traversing it again through a Value serializer.
+pub(super) fn to_value(state: &State) -> serde_json::Result<Value> {
+    let expanded = phase_timing::measure("state.serialize_expanded", || {
+        ExpandedState::serialize(state, serde_json::value::Serializer)
+    })?;
+    phase_timing::measure("state.pack_exposures", || pack(expanded))
+}
+
 impl Serialize for State {
     fn serialize<S: serde::Serializer>(
         &self,
         serializer: S,
     ) -> std::result::Result<S::Ok, S::Error> {
-        let expanded = phase_timing::measure("state.serialize_expanded", || {
-            ExpandedState::serialize(self, serde_json::value::Serializer)
-        })
-        .map_err(serde::ser::Error::custom)?;
-        phase_timing::measure("state.pack_exposures", || pack(expanded))
+        to_value(self)
             .map_err(serde::ser::Error::custom)?
             .serialize(serializer)
     }

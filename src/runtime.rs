@@ -2821,7 +2821,7 @@ impl Runtime {
                 id: STATE_ID.into(),
                 revision: 1,
                 kind: "runtime-state".into(),
-                body: serde_json::to_value(state)?,
+                body: state_storage::to_value(&state)?,
             },
             operator,
         )?;
@@ -6150,7 +6150,7 @@ fn state_object(old: &s::StoredObject, state: &State) -> Result<s::StoredObject>
         id: STATE_ID.into(),
         revision: increment(old.revision)?,
         kind: "runtime-state".into(),
-        body: serde_json::to_value(state)?,
+        body: state_storage::to_value(state)?,
     })
 }
 fn decode_prepared(inv: &s::InvocationRecord) -> Result<Prepared> {

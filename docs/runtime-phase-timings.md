@@ -149,3 +149,18 @@ emit `runtime.clone_state_json`, `state.unpack_exposures`, and
 `state.deserialize_expanded`; those phases are replaced by the two borrowed-state
 phases above. This allocation change alone does not establish an overall speed
 or peak-memory improvement.
+
+Runtime creation, atomic launch bootstrap and later state-object construction
+take the packed JSON value directly from the same constructor used by State's
+general serialization adapter. They do not serialize an already packed value
+through another value serializer to rebuild the complete tree. The constructor
+still performs expanded serialization and exposure packing, with the same phase
+names, complete fields, pool identities and reference locations. General
+serialization delegates to that constructor before writing to its requested
+serializer; stored-object consumers take ownership of the constructed value.
+
+This removes a redundant value traversal and allocation, not the retained
+history, Store cloning or distinct constructions required by later transactions.
+Object revisions, exact fingerprints and commit checks still cover the complete
+stored body. A successful construction event is not a commit receipt, and this
+source change alone establishes neither a speedup nor a peak-memory reduction.

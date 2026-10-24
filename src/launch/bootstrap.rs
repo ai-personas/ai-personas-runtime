@@ -127,7 +127,7 @@ fn apply_with(
         id: STATE_ID.into(),
         revision: 1,
         kind: "runtime-state".into(),
-        body: serde_json::to_value(state)?,
+        body: state_storage::to_value(&state)?,
     };
     let launch = s::StoredObject {
         id: ID.into(),
