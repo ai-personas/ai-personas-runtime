@@ -743,9 +743,9 @@ Operators should preserve these rules across every recovery path:
 6. **Never let completion erase continuation or obligations.** `close_goal`, work ending, persona stop, and lifecycle retirement are distinct.
 7. **Never treat disabled quotas as disabled identity checks.** Exact current references, actual credentials, authorship, and personal consent continue to bind actions.
 
-## 19. Current implementation gaps
+## 19. Current implementation scope
 
-The unrestricted requirement is broader than the implementation. Remaining application constraints include a single inherited episode per bound work, explicit optional-opportunity and persona-creation workflows, and specialized coordination paths. These are implementation gaps, not user-approved policy exceptions. [Execution resources](docs/execution-resources.md) tracks their removal.
+Work can retain multiple intake-source bindings and select its current active source independently of its historical ancestry. [Optional activity](docs/optional-activity.md) has a direct native entry, and an ordinary accepted [persona-creation request](docs/persona-birth.md) completes without an operator acceptance step. Those earlier workflow restrictions are removed. [Execution resources](docs/execution-resources.md) describes the implemented unrestricted paths; their presence alone does not establish every requirement or a beneficial behavioral outcome.
 
 Native sessions already admit pending persona requests automatically and continue their descendants. Parent phase or authority changes do not erase an adopted request or prevent its separate admission. Current execution still uses the work's exact authority. Admission, provider migration, Store changes and several controls retain execution ownership and current-state fences to preserve actual records.
 

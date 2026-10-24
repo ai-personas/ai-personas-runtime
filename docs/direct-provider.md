@@ -4,8 +4,9 @@ Direct inference has no application duration, prompt/schema/request-byte,
 response-byte, stream-byte, event-size, event-count or output-item quota.
 Explicit cancellation and actual provider/network outcomes remain effective.
 Current provider input contains no limit declarations. Previously saved `limits`
-values remain historical records. Other runtime restrictions remain
-[implementation gaps](execution-resources.md#remaining-work).
+values remain historical records. See the
+[implemented unrestricted paths](execution-resources.md#implemented-unrestricted-paths)
+for the scope of related runtime behavior.
 
 Personas sends one HTTPS Responses request per admitted step. Its runtime owns prompt assembly, tools, memory, decisions, collaboration, assessment, adoption, resource accounting and durable recovery. Codex CLI and app-server execution are absent from product runtime. Engineering tools are separate.
 

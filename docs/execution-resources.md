@@ -429,7 +429,7 @@ Exact request, subject, epoch, prerequisite, dispatch, cancellation and terminal
 bindings remain. This adapter still produces explicitly labeled mock records;
 it cannot establish real external execution or human consent.
 
-## Remaining work
+## Implemented unrestricted paths
 
 Intake episodes accept multiple proposals in a single response and across later
 responses, and admit a separate child for each distinct proposal without a
@@ -549,12 +549,13 @@ or rewriting already admitted children. A new foreground session can retire an
 exact completed rejected call covered by the saved amendment's resumption,
 while incomplete and uncertain calls retain their actual outcomes.
 
-Removal is still incomplete. Remaining application enforcement includes
-additional specialized control and workflow gates. These are implementation gaps under the
-new requirement, not exceptions granted by the user. Some earlier documents still
-describe them because those paths remain implemented. They must be removed or
-reworked without relabeling lost data, malformed records or unknown execution as
-successful behavior.
+These paths remove the resource and workflow gates described above. Their
+implementation does not by itself establish every requirement or beneficial
+persona development. Assess remaining functional gaps against the current
+requirements and actual source and behavior. Exact identity, accepted authorship,
+immutable references and truthful execution outcomes remain meaningful; they
+must not be replaced with invented success for lost data, malformed records or
+unknown execution.
 
 No compatibility obligation is imposed for this first release. Historical live
 records stay private and keep their actual meanings; source and documentation

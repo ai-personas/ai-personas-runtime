@@ -99,10 +99,9 @@ created persona whose own accepted contribution has stopped; these records
 describe different events and do not imply whole-task completion.
 
 Persona input and development views label `proposal_author_invocation`
-separately from `causal_work`. The former identifies the file-writing call; the
-latter identifies the creation context. The authoring call may write or edit
-the proposal. They need not belong to one invocation
-or work. `creation_receipt` references the exact record containing the operator
+separately from `causal_work`. The former identifies the call that wrote or
+edited the proposal; the latter identifies the creation context. They need not
+belong to one invocation or work. `creation_receipt` references the exact record containing the operator
 request and, for persona-requested creation, the separate `creation_operation`
 with its invocation, operation ID and accepted response hash. These views do not
 relabel proposal authorship as a creation request.
