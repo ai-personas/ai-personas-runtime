@@ -204,7 +204,7 @@ The migration command applies the request when `--preview` is absent. Migration 
 
 ## 5. Unrestricted supplied capabilities
 
-The current ordinary persona input supplies callable definitions directly. No extra approval, tool grant, selected guide, or catalogue load is required to use a capability that is actually supplied in that input. The operation must still copy the exact current capability ID and binding revision and must satisfy its input schema.
+The current ordinary persona input supplies callable definitions directly. No extra approval, tool grant, selected guide, or catalogue load is required to use a capability that is actually supplied in that input. The operation selects the unique interface retained for this invocation by its supplied capability ID and must satisfy that interface's input schema. The runtime retains and checks the complete binding against the current implementation; the authored effect does not include `binding_revision`. Missing or ambiguous admitted interfaces are rejected before staging.
 
 ### 5.1 Full host commands
 
@@ -217,7 +217,6 @@ A persona effect has this shape:
   "kind": "effect",
   "id": "inspect-environment",
   "capability_id": "host.command.v1",
-  "binding_revision": "COPY_CURRENT_BINDING",
   "inputs": {
     "command": "python3 --version",
     "result_context": "complete",
@@ -270,7 +269,6 @@ ai-personas --state-root /private/state --operator local-operator \
   "kind": "effect",
   "id": "fetch-source",
   "capability_id": "https.get.v1",
-  "binding_revision": "COPY_CURRENT_BINDING",
   "inputs": {"url": "https://example.org/source"},
   "depends_on": []
 }
