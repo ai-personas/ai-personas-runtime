@@ -16,6 +16,7 @@ import signal
 import stat
 import subprocess
 import sys
+import time
 import uuid
 
 NAMES = ("ai-personas", "personas-auth", "personas-provider", "personas-session")
@@ -908,7 +909,7 @@ class Helpers:
                 os.killpg(proc.pid, signal.SIGKILL)
                 proc.wait()
 
-    def call(self, name, args, timeout=None, auth_display=False):
+    def call(self, name, args, timeout=None, auth_display=False, on_wait=None):
         item = self.j.data["installation"][name]
         verified = None
         executable = item["path"]
@@ -931,6 +932,7 @@ class Helpers:
         if verified is not None:
             verified.close()
         out, err = bytearray(), bytearray()
+        next_update = time.monotonic() + 15
         try:
             with selectors.DefaultSelector() as poll:
                 poll.register(proc.stdout, selectors.EVENT_READ, out)
@@ -943,6 +945,9 @@ class Helpers:
                             poll.unregister(key.fileobj)
                         else:
                             key.data.extend(part)
+                    if on_wait is not None and proc.poll() is None and time.monotonic() >= next_update:
+                        on_wait()
+                        next_update = time.monotonic() + 15
                 code = proc.wait()
             if code != 0:
                 try:
@@ -980,9 +985,9 @@ class Dialogue:
         self.j, self.h, self.ui, self.checkout = journal, helpers, ui, checkout
         self.p = journal.data
 
-    def session(self, *args, timeout=None):
+    def session(self, *args, timeout=None, on_wait=None):
         return self.h.call("personas-session", ["--state-root", self.p["runtime"]["path"],
-                            "--operator", self.p["operator"], *args], timeout=timeout)
+                            "--operator", self.p["operator"], *args], timeout=timeout, on_wait=on_wait)
 
     def provider(self, *args, timeout=None):
         return self.h.call("personas-provider", ["--vault", self.p["vault"], *args], timeout=timeout)
@@ -1411,7 +1416,7 @@ class Dialogue:
                 self.ui.say(f"Amended request saved as mandate {receipt['mandate_revision']}.")
                 for persona, status in receipt["resumptions_at_save"].items():
                     self.ui.say(f"{persona}: {status.replace('_', ' ')}")
-                self.ui.say("Choose Continue to start eligible work using the remaining resources.")
+                self.ui.say("Choose Continue to start eligible work.")
                 if receipt.get("replayed"):
                     self.ui.say("This is the earlier receipt; no new resumption was requested.")
             else:
@@ -1937,6 +1942,29 @@ class Dialogue:
         self.ui.say("Choose r in the work menu for the full reply history, feedback accounts and qualified deliveries.")
         return outcome
 
+    def work_progress(self, work):
+        after = None
+        while True:
+            snapshot = self.inspect(after)
+            current = next((item for item in snapshot["works"] if item["id"] == work), None)
+            if current is not None or not snapshot.get("next_after"):
+                break
+            after = snapshot["next_after"]
+        participants = [] if current is None else current["participants"]
+        active = [f"{participant['label']} ({attempt['id']}, {attempt['status']})"
+                  for participant in participants
+                  if (attempt := participant.get("active_invocation"))
+                  and attempt["state"] in ("Prepared", "Dispatched", "Responded")]
+        attention = [participant["label"] for participant in participants
+                     if participant.get("failed_attempt_hold")
+                     or participant.get("resume_recovery")]
+        status = ("Working: " + "; ".join(active) if active else
+                  "No model call currently active for this work; waiting for the session result.")
+        status += f" Recorded call attempts in this runtime: {snapshot['settings']['steps']}."
+        if attention:
+            status += " Participants needing attention: " + ", ".join(attention) + "."
+        return status
+
     def run_work(self, work, view, reuse=False):
         settings = view["settings"]
         if reuse:
@@ -1986,9 +2014,23 @@ class Dialogue:
             if route["authorize_codex_auth_only"]:
                 args += ["--authorize-codex-auth-only"]
         self.ui.say(f"Submitting {s['id']}. Waiting for its recorded native outcome.")
+        last_update = [None, 0.0]
+
+        def report_progress():
+            # Read-only status of this same live helper. A failed observation
+            # never cancels, replays or creates another session.
+            try:
+                status = self.work_progress(work)
+            except (Blocked, OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+                status = "Live status unavailable; still waiting for the original session's outcome."
+            now = time.monotonic()
+            if status != last_update[0] or now - last_update[1] >= 60:
+                self.ui.say(status)
+                last_update[:] = [status, now]
+
         # Host commands have no default duration limit. Wait for the native
         # session's outcome; explicit interruption still stops this helper.
-        outcome = self.session(*args, timeout=None)
+        outcome = self.session(*args, timeout=None, on_wait=report_progress)
         self.session_binding(outcome, s)
         require(outcome.get("status") == "finished", "session_outcome_unknown_no_replay")
         terminal = outcome["terminal"]["outcome"]

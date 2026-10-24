@@ -43,6 +43,14 @@ accepted job retains that exact interface. Do not put `binding_revision` in the
 operation; it is internal runtime evidence, not an authored argument. A missing
 or ambiguous admitted interface is rejected before any effect is staged.
 
+For saved launcher work, the default directory is the task directory selected
+during setup. Its exact path travels with the admitted launch record and host
+interface, so opening the launcher from a different folder does not redirect
+relative output files. Relative file imports and image reads use that same path.
+A command can still choose any host-accessible `working_directory`; this default
+is not a filesystem boundary. Standalone Runtime admissions without a saved
+launch use their foreground process directory.
+
 For `effect` and `work_command`, omitting the operation's `depends_on` means
 an empty prerequisite list. Put it beside `inputs`, not inside the command
 inputs. Consuming a file saved in the same response still requires naming that

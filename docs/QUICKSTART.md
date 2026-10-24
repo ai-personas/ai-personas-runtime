@@ -25,7 +25,7 @@ are optional. [Direct provider configuration](direct-provider.md) explains the
 three authentication routes. Setup validates the configuration without resolving
 credentials or performing inference.
 
-Replace the path placeholders below. The working directory must exist; its canonical path is retained as setup metadata. It may be the same as, contain, or be inside the state directory. Relative paths and symlinks resolve to the actual directory. Host commands default to the foreground process's working directory and may select another directory. `--destination` records the processing destination.
+Replace the path placeholders below. The working directory must exist; its canonical path is retained as setup metadata. It may be the same as, contain, or be inside the state directory. Relative paths and symlinks resolve to the actual directory. Saved-launch host commands default to this selected directory and may select another directory. Standalone Runtime calls without a launch binding use their foreground process directory. `--destination` records the processing destination.
 ```sh
 ai-personas --operator local-operator setup \
   --provider-config /absolute/private/provider.json \

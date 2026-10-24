@@ -7693,7 +7693,10 @@ fn render_mode_with_history(
         mandatory_total = render_prompt(&core, &mandatory_context, false)?.2;
         growth_bytes = growth_bytes.checked_add(extra).ok_or_else(|| invalid("HTTPS interface accounting"))?;
     }
-    let host_command_interface = if ordinary_interfaces { Some(host_tools::interface()?) } else { None };
+    let host_command_interface = if ordinary_interfaces {
+        Some(host_tools::interface(launch_step_allowance
+            .and_then(|launch| launch.working_directory.as_deref()))?)
+    } else { None };
     if let Some(interface) = &host_command_interface {
         core["host_command_capability"] = effect_interfaces::definition(interface)?;
         core["image_read"] = image_input::interface();

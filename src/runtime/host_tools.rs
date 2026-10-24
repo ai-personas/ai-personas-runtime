@@ -49,10 +49,13 @@ struct Terminal {
     outcome: h::Outcome,
 }
 
-pub(super) fn interface() -> Result<HostCommandInterface> {
+pub(super) fn interface(working_directory: Option<&Path>) -> Result<HostCommandInterface> {
     let schema = serde_json::to_value(schemars::schema_for!(input::Inputs))?;
     let runner_revision = h::revision();
-    let directory = std::env::current_dir()?.to_string_lossy().into_owned();
+    let directory = match working_directory {
+        Some(directory) => directory.to_path_buf(),
+        None => std::env::current_dir()?,
+    }.to_string_lossy().into_owned();
     Ok(HostCommandInterface {
         capability_id: h::PROFILE.into(),
         binding_revision: digest(&(h::PROFILE, &runner_revision, &schema, &directory, h::SHELL))?,
@@ -81,7 +84,8 @@ fn current_interface<'a>(
         capability_id,
     )?;
     require(
-        *offered == interface()?,
+        *offered == interface(prepared.launch_step_allowance.as_ref()
+            .and_then(|launch| launch.working_directory.as_deref()))?,
         "host command interface changed",
     )?;
     Ok(offered)

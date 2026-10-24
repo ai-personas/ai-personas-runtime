@@ -208,6 +208,13 @@ the menu permits a separately selected session for eligible personas and retains
 every earlier session identity in its history. Every launcher session records an
 explicit authentication route and the inspected launch reference.
 
+While a session runs, the launcher checks its current work status every 15 seconds
+and displays changed activity, with a status reminder each minute. It names active
+persona calls, recorded attempts, and participants needing attention. These are
+current observations, not proof of task completion. An unavailable status read
+does not interrupt or replay the original session; the launcher keeps waiting for
+that helper's outcome. Status reads perform no inference.
+
 Native session claims use version 2. Admission atomically retains the exact claim
 and allocates its terminal slot before driver activity. Initial byte and history
 allocations are accounting estimates, not application ceilings. Complete claims,

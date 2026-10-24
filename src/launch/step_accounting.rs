@@ -9,6 +9,10 @@ pub struct LaunchStepAllowance {
     pub launch: s::ObjectRef,
     pub steps_spent: u64,
     pub lifetime_step_limit: u64,
+    /// The saved task directory at this exact launch admission. Absence records
+    /// an admission whose host interface used the foreground process directory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub working_directory: Option<PathBuf>,
 }
 
 impl LaunchStepAllowance {
@@ -27,6 +31,7 @@ impl LaunchStepAllowance {
             "lifetime_step_limit":null,
             "remaining_after_this_admission":null,
             "scope":"shared_saved_launch",
+            "working_directory":self.working_directory,
             "rule":RULE
         }))
     }
@@ -54,6 +59,7 @@ pub(crate) fn capture(
         launch: object.exact_ref()?,
         steps_spent: saved.steps,
         lifetime_step_limit: saved.setup.max_total_steps,
+        working_directory: Some(saved.working_directory),
     };
     allowance.control()?;
     Ok(Some(allowance))
