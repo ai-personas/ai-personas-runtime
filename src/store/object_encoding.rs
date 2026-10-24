@@ -1,4 +1,4 @@
-//! Hash the same canonical object bytes without cloning its JSON body.
+//! Encode and hash complete canonical objects without cloning their JSON bodies.
 use super::{Result, StoredObject};
 use serde::ser::{SerializeMap, SerializeSeq};
 use serde::{Serialize, Serializer};
@@ -69,7 +69,11 @@ impl Write for HashWriter<'_> {
     }
 }
 
-pub(super) fn compute(object: &StoredObject) -> Result<String> {
+pub(super) fn encode(object: &StoredObject) -> Result<Vec<u8>> {
+    Ok(serde_json::to_vec(&CanonicalObject(object))?)
+}
+
+pub(super) fn fingerprint(object: &StoredObject) -> Result<String> {
     let mut hash = Sha256::new();
     {
         // Buffer small JSON writes; this is not a record-size ceiling.

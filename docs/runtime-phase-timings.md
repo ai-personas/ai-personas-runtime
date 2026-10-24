@@ -27,6 +27,8 @@ does not replace the operation's result.
 | Phase | Measured work |
 | --- | --- |
 | `store.open_runtime` | Validate the historical settings chain, open SQLite and optionally recover an unowned Store |
+| `store.encode_changed_object` | Encode one complete changed object to canonical JSON, borrowing its body |
+| `store.fingerprint_changed_object` | Hash those complete encoded bytes for the returned exact reference |
 | `store.validate_capacity_chain` | Read and validate the exact historical settings receipt chain |
 | `store.open_connection` | Open SQLite, establish its schema/indexes and verify controlling metadata |
 | `store.try_recovery_owner` | Try to acquire the execution owner for normal opening recovery |
@@ -201,3 +203,17 @@ pointer identity is introduced. This removes copies within an in-memory
 snapshot and its derived views, while observation payloads, exposure manifests
 and other State fields retain their existing ownership. Actual memory and
 latency effects still require measurement.
+
+Applying a Store object change encodes its complete canonical JSON once, borrowing
+the body through the same serializer used by standalone object fingerprinting.
+The immutable revision and current head retain separate copies of those bytes;
+the returned exact reference hashes that encoding directly. The revision
+conflict check still precedes encoding, and the head write still checks its
+namespace, existence and allocation metadata. Each logical record retains its
+own accounting and physical storage treatment within the same atomic commit.
+
+The two change phases above measure encoding and hashing only. They exclude the
+byte-buffer copy, cell accounting, physical encoding and database commit. Their
+successful completion does not prove a commit. General record encoding and
+other state processing remain separate; eliminating these repeated JSON-tree
+copies and serializations alone establishes no whole-session performance gain.

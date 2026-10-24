@@ -23,7 +23,7 @@ use thiserror::Error;
 mod archive_history;
 mod capacity;
 mod head_compaction;
-mod object_fingerprint;
+mod object_encoding;
 mod observed_object;
 mod operator_inspection;
 mod provider_prelaunch;
@@ -296,7 +296,7 @@ impl StoredObject {
         Ok(ObjectRef {
             id: self.id.clone(),
             revision: self.revision,
-            sha256: object_fingerprint::compute(self)?,
+            sha256: object_encoding::fingerprint(self)?,
         })
     }
 }
@@ -3484,10 +3484,29 @@ impl<'a> Work<'a> {
         class: BudgetClass,
         slots: u64,
     ) -> Result<()> {
+        self.insert_with(
+            namespace,
+            key,
+            |limit| encode(value, limit),
+            capacity,
+            class,
+            slots,
+        )
+    }
+
+    fn insert_with(
+        &mut self,
+        namespace: &str,
+        key: &str,
+        encode_record: impl FnOnce(u64) -> Result<Vec<u8>>,
+        capacity: Option<u64>,
+        class: BudgetClass,
+        slots: u64,
+    ) -> Result<()> {
         if self.cell(namespace, key)?.is_some() {
             return Err(StoreError::Conflict(key.into()));
         }
-        let data = encode(value, self.limits.max_record_bytes)?;
+        let data = encode_record(self.limits.max_record_bytes)?;
         let capacity = capacity.unwrap_or(0).max(data.len() as u64);
         let identities = self
             .meta
@@ -3558,6 +3577,15 @@ impl<'a> Work<'a> {
     }
 
     fn update<T: Serialize>(&mut self, ns: &str, key: &str, value: &T) -> Result<()> {
+        self.update_with(ns, key, |capacity| encode(value, capacity))
+    }
+
+    fn update_with(
+        &mut self,
+        ns: &str,
+        key: &str,
+        encode_record: impl FnOnce(u64) -> Result<Vec<u8>>,
+    ) -> Result<()> {
         if matches!(
             ns,
             "revision" | "decision" | "runtime_control_plan" | "capacity_extension" | "head_compaction"
@@ -3567,7 +3595,7 @@ impl<'a> Work<'a> {
         let mut cell = self
             .cell(ns, key)?
             .ok_or_else(|| StoreError::Missing(key.into()))?;
-        let data = encode(value, cell.capacity)?;
+        let data = encode_record(cell.capacity)?;
         if data.len() as u64 > cell.capacity {
             // Retain the complete result. Capacity is measured allocation, not
             // a ceiling; immutable namespaces and transition checks still hold.
@@ -4307,27 +4335,44 @@ impl<'a> Work<'a> {
     }
 
     fn apply_changes(&mut self, changes: &[Change], class: BudgetClass) -> Result<Vec<ObjectRef>> {
-        // This also covers atomic preparation and decision adoption. Reserve new
-        // work's control capacity and reject unsafe growth before optional writes.
+        // This also covers atomic preparation and decision adoption. Preserve
+        // runtime-control bookkeeping before applying the object writes.
         for change in changes {
             self.protect_runtime_state(&change.object)?;
         }
         let mut references = Vec::new();
         for change in changes {
             let object = &change.object;
-            self.insert_exact(
+            let mut encoded = Vec::new();
+            self.insert_with(
                 "revision",
                 &revision_key(&object.id, object.revision),
-                object,
+                |_| {
+                    // Encode only after the immutable revision conflict check.
+                    // Both logical records retain these complete canonical bytes.
+                    encoded = phase_timing::measure("store.encode_changed_object", || {
+                        object_encoding::encode(object)
+                    })?;
+                    Ok(encoded.clone())
+                },
+                None,
                 class,
+                0,
             )?;
+            let reference = ObjectRef {
+                id: object.id.clone(),
+                revision: object.revision,
+                sha256: phase_timing::measure("store.fingerprint_changed_object", || {
+                    Ok::<_, StoreError>(sha256_bytes(&encoded))
+                })?,
+            };
             if self.cell("object", &object.id)?.is_some() {
-                self.update("object", &object.id, object)?;
+                self.update_with("object", &object.id, |_| Ok(encoded))?;
             } else {
-                self.insert(
+                self.insert_with(
                     "object",
                     &object.id,
-                    object,
+                    |_| Ok(encoded),
                     if self.meta.schema_version >= 2
                         && object.id != RUNTIME_CONTROL_STATE_ID
                         && class == BudgetClass::Ordinary
@@ -4336,7 +4381,7 @@ impl<'a> Work<'a> {
                     0,
                 )?;
             }
-            references.push(object.exact_ref()?);
+            references.push(reference);
         }
         Ok(references)
     }
