@@ -8,7 +8,7 @@ values remain historical records. See the
 [implemented unrestricted paths](execution-resources.md#implemented-unrestricted-paths)
 for the scope of related runtime behavior.
 
-Personas sends one HTTPS Responses request per admitted step. Its runtime owns prompt assembly, tools, memory, decisions, collaboration, assessment, adoption, resource accounting and durable recovery. Codex CLI and app-server execution are absent from product runtime. Engineering tools are separate.
+Personas sends one HTTPS Responses request per admitted step. Its runtime owns prompt assembly, tools, memory, decisions, collaboration, assessment, adoption, resource accounting and durable recovery. Codex CLI and app-server do not perform persona inference or orchestrate work. The optional Codex OAuth route uses app-server only for credential handoff; native OAuth and API-key routes do not require it. Engineering tools are separate.
 
 Persona inputs contain the actual admitted capabilities, current work,
 observational resource accounting and received results. The operator's `readiness` diagnostic is separate;
