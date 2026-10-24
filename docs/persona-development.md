@@ -13,6 +13,19 @@ attention, judgment, voice or conduct. Task knowledge and procedures remain
 supporting assets. A saved refinement does not by itself establish changed
 behavior or improved results.
 
+During ordinary work, the primary model uses the accepted character and the
+characteristic fragments actually supplied as its perspective on discretionary
+attention, sequencing, tool use, help, communication, cooperation and stopping.
+The same decision authors the work and its communication; there is no separate
+persona rewrite. The ordinary instructions make this role explicit alongside
+maintenance. Character can shape a useful choice without naming traits or
+narrating personality. Evidence and the actual request still determine required
+facts and outcomes, and different personas can appropriately converge.
+
+Assess that role through the supplied context, actual choices and consequences.
+An instruction to use character establishes the intended model contract; it
+does not by itself demonstrate influence, distinctiveness or improvement.
+
 ## Give feedback within existing work
 
 In `./personas`, choose a saved work and then **f: feedback**. Select its recipient
