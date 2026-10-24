@@ -250,3 +250,13 @@ order and qualifications. The separate mandatory-only assembly still measures
 mandatory context. Reuse ends with the render; a later render constructs and
 validates its own corpus against its actual state. It does not reuse a result
 across changed state, suppress a selected body or create a persistent cache.
+
+Lineage expansion collects its final source list from the completed traversal's
+visited set. Ordinary expansion and the warning ancestry projection accumulate
+policy records in their existing order without repeatedly merging and sorting
+an intermediate source list that would be discarded. Exact lookups, inherited
+sources, qualification edges, warning-specific traversal and missing-lineage
+errors remain part of the walk. Unchanged inherited exposures are borrowed;
+warning markers still obtain their freshly computed projection. No validation
+result survives the call. Corpus, rendering and planning timings include this
+work; they do not isolate its contribution or establish a whole-session gain.

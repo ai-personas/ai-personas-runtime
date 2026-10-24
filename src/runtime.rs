@@ -6281,9 +6281,12 @@ fn extend_exposure(target: &mut Exposure, source: &Exposure) {
     target.sources.extend(source.sources.iter().cloned());
     target.sources.sort();
     target.sources.dedup();
-    for policy in &source.policies {
-        if !target.policies.contains(policy) {
-            target.policies.push(policy.clone());
+    extend_policies(&mut target.policies, &source.policies);
+}
+fn extend_policies(target: &mut Vec<ScopedPolicy>, source: &[ScopedPolicy]) {
+    for policy in source {
+        if !target.contains(policy) {
+            target.push(policy.clone());
         }
     }
 }
@@ -6333,7 +6336,12 @@ fn character_exposure(character: &Character) -> Result<Exposure> {
     })
 }
 fn expanded_exposure(state: &State, input: &Exposure) -> Result<Exposure> {
-    let mut result = input.clone();
+    // The visited set is the complete final source list. Do not repeatedly
+    // merge and sort an intermediate list that would be replaced at the end.
+    let mut result = Exposure {
+        sources: Vec::new(),
+        policies: input.policies.clone(),
+    };
     let mut pending = input.sources.clone();
     let mut seen = BTreeSet::new();
     while let Some(reference) = pending.pop() {
@@ -6344,7 +6352,7 @@ fn expanded_exposure(state: &State, input: &Exposure) -> Result<Exposure> {
         let stored = record(state, &reference)?;
         if let Some(inherited) = &stored.exposure {
             let inherited = warnings::inherited_exposure(state, &reference, inherited)?;
-            extend_exposure(&mut result, &inherited);
+            extend_policies(&mut result.policies, &inherited.policies);
             pending.extend(inherited.sources.iter().cloned());
         } else {
             require(

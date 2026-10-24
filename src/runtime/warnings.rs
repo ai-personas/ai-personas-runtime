@@ -109,7 +109,12 @@ fn warning_marker(state: &State, reference: &f::Reference) -> bool {
 /// Retain exact source ancestry and policy identity independently of warning
 /// applicability. Authored policy and warning judgments impose no access gate.
 pub(super) fn confidentiality(state: &State, input: &Exposure) -> Result<Exposure> {
-    let mut result = input.clone();
+    // Sources come from the completed traversal, while policy order preserves
+    // the input followed by the same first-seen inherited records.
+    let mut result = Exposure {
+        sources: Vec::new(),
+        policies: input.policies.clone(),
+    };
     let mut pending = input.sources.clone();
     let mut seen = BTreeSet::new();
     while let Some(reference) = pending.pop() {
@@ -118,7 +123,7 @@ pub(super) fn confidentiality(state: &State, input: &Exposure) -> Result<Exposur
         }
         let stored = record(state, &reference)?;
         if let Some(inherited) = &stored.exposure {
-            extend_exposure(&mut result, inherited);
+            extend_policies(&mut result.policies, &inherited.policies);
             pending.extend(inherited.sources.iter().cloned());
         } else {
             require(
@@ -164,17 +169,17 @@ pub(super) fn confidentiality(state: &State, input: &Exposure) -> Result<Exposur
 /// Only protected, exactly identified lifecycle receipts use this projection.
 /// Recompute their source confidentiality on every access; flattening here does
 /// not remove the stored source references or authorize their payload supply.
-pub(super) fn inherited_exposure(
+pub(super) fn inherited_exposure<'a>(
     state: &State,
     reference: &f::Reference,
-    inherited: &Exposure,
-) -> Result<Exposure> {
+    inherited: &'a Exposure,
+) -> Result<std::borrow::Cow<'a, Exposure>> {
     if warning_marker(state, reference) {
         let mut checked = confidentiality(state, inherited)?;
         checked.sources.clear();
-        Ok(checked)
+        Ok(std::borrow::Cow::Owned(checked))
     } else {
-        Ok(inherited.clone())
+        Ok(std::borrow::Cow::Borrowed(inherited))
     }
 }
 
