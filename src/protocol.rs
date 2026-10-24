@@ -690,7 +690,7 @@ pub enum Operation {
     },
     /// Create a continuing identity from your exact authored JSON supporting
     /// asset matching CONTROL.persona_birth_proposal.proposal_schema. A same-response
-    /// file_write may be referenced with proposal-op:WRITE_ID and depends_on.
+    /// file_write or file_edit may be referenced with proposal-op:SAVE_ID and depends_on.
     /// Creation completes after adoption; use its actual receipt in a fresh
     /// decision before inviting the child. Creation supplies no character or consent.
     CreatePersona {

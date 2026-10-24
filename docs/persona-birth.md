@@ -41,9 +41,13 @@ The persona can author a JSON supporting file with these nonblank fields:
 The request and proposal have no application byte quota. Starting suggestions
 are attributed material; the child authors its own accepted character later.
 Use a complete exact UTF-8 reference from an adopted primary invocation. Its
-bytes must match that parent's accepted `file_write`. A proposed or rejected
-write, or an operator import, does not establish persona authorship. The source
-need not remain its current, unprotected asset head to retain that authorship.
+bytes must match that parent's accepted `file_write` or `file_edit`. For an edit,
+creation checks the accepted replacements against the retained exact base and
+compares the resulting bytes with the saved proposal. Untouched bytes keep
+their base provenance; the edit does not claim authorship of imported history.
+A proposed or rejected save, a host-file import or an operator import alone
+does not establish persona authorship. The source need not remain its current,
+unprotected asset head to retain that authorship.
 
 The same ordinary response can save that supporting asset and request creation:
 
@@ -53,14 +57,16 @@ The same ordinary response can save that supporting asset and request creation:
   "id": "create-collaborator",
   "proposal": {
     "source": "THE_AUTHORED_ASSET_SOURCE",
-    "revision": "proposal-op:THE_FILE_WRITE_OPERATION_ID",
+    "revision": "proposal-op:THE_AUTHORED_SAVE_OPERATION_ID",
     "representation": "utf8"
   },
-  "depends_on": ["THE_FILE_WRITE_OPERATION_ID"]
+  "depends_on": ["THE_AUTHORED_SAVE_OPERATION_ID"]
 }
 ```
 
-For an earlier accepted file, use its exact revision and `depends_on: []`.
+The dependency can be a supporting `file_write` or `file_edit` in this response.
+For an earlier accepted file, including an edited proposal, use its exact
+revision and `depends_on: []`.
 Each operation requests one identity. Saving a proposal alone creates nothing.
 There is no operation-count or population quota. Character-changing responses
 fence creation along with other ordinary work; initialization and creation
@@ -94,7 +100,8 @@ describe different events and do not imply whole-task completion.
 
 Persona input and development views label `proposal_author_invocation`
 separately from `causal_work`. The former identifies the file-writing call; the
-latter identifies the creation context. They need not belong to one invocation
+latter identifies the creation context. The authoring call may write or edit
+the proposal. They need not belong to one invocation
 or work. `creation_receipt` references the exact record containing the operator
 request and, for persona-requested creation, the separate `creation_operation`
 with its invocation, operation ID and accepted response hash. These views do not

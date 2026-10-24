@@ -69,8 +69,9 @@ pub(in crate::runtime) fn validate_operation(
         "creation operation was not offered to this continuing persona")?;
     for dependency in depends_on {
         require(decision.operations.iter().any(|operation| matches!(operation,
-            p::Operation::FileWrite { id, scope: p::Scope::Assets {}, .. } if id == dependency)),
-            "creation dependencies must be authored supporting file writes")?;
+            p::Operation::FileWrite { id, scope: p::Scope::Assets {}, .. }
+            | p::Operation::FileEdit { id, scope: p::Scope::Assets {}, .. } if id == dependency)),
+            "creation dependencies must be authored supporting file writes or edits")?;
     }
     if proposal.revision.starts_with(p::PROPOSED_OPERATION_PREFIX)
         || proposal.revision.starts_with(p::PROPOSED_REVISION_PREFIX)
@@ -79,7 +80,7 @@ pub(in crate::runtime) fn validate_operation(
             depends_on.iter().any(|id| id == operation.id())
                 && (proposal.revision == format!("{}{}", p::PROPOSED_OPERATION_PREFIX, operation.id())
                     || p::proposed_file_revision(operation).as_ref() == Some(&proposal.revision))
-        }), "same-response creation proposal requires its file_write dependency")?;
+        }), "same-response creation proposal requires its file_write or file_edit dependency")?;
     }
     Ok(())
 }
@@ -110,8 +111,7 @@ pub(in crate::runtime) fn stage_pending(
         let reference = file_reference(&proposal)?;
         let source = record(state, &reference)?;
         require(source.record.scope == f::Scope::Assets
-            && matches!(&source.origin, Some(RevisionOrigin::PersonaInvocation { persona, .. })
-                if persona == &prepared.request.persona),
+            && proposal_authorship(source)?.0 == prepared.request.persona,
             "creation proposal requires this persona's accepted supporting-file authorship")?;
         let parsed: Proposal = serde_json::from_slice(&source.record.bytes)?;
         parsed.validate()?;

@@ -39,6 +39,41 @@ impl Proposal {
     }
 }
 
+/// Native edits author replacements while retaining the exact base for the
+/// untouched bytes. Both native save forms can supply a creation proposal;
+/// copying a file from the host or an operator does not establish authorship.
+fn proposal_authorship(source: &ManagedRevision) -> Result<(&str, &str, &str)> {
+    match &source.origin {
+        Some(RevisionOrigin::PersonaInvocation { persona, invocation_id, operation_id })
+        | Some(RevisionOrigin::NativeFileEdit { persona, invocation_id, operation_id, .. }) =>
+            Ok((persona, invocation_id, operation_id)),
+        _ => Err(held("birth seed requires actual accepted primary authorship; an import is not authorship")),
+    }
+}
+
+fn matches_authored_proposal(
+    state: &State,
+    source: &ManagedRevision,
+    operation: &p::Operation,
+) -> Result<bool> {
+    match (operation, &source.origin) {
+        (p::Operation::FileWrite { scope: p::Scope::Assets {}, source: id, text, .. },
+            Some(RevisionOrigin::PersonaInvocation { .. })) =>
+            Ok(id == &source.record.source && text.as_bytes() == source.record.bytes.as_slice()),
+        (p::Operation::FileEdit { id: operation_id, scope: p::Scope::Assets {}, source: id,
+            base_revision, edits, .. }, Some(RevisionOrigin::NativeFileEdit { base, .. })) => {
+            if id != &source.record.source
+                || base != &f::Reference::full(id, base_revision, f::Representation::Utf8)
+            {
+                return Ok(false);
+            }
+            Ok(file_edits::apply(&record(state, base)?.record, operation_id, edits)?
+                == source.record.bytes)
+        }
+        _ => Ok(false),
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Origin {
@@ -300,16 +335,7 @@ fn create_owned(
     let reference = file_reference(&request.proposal)?;
     let managed = record(&state, &reference)?;
     require(managed.record.scope == f::Scope::Assets, "birth proposal must be a supporting asset")?;
-    let (author, invocation_id, operation_id) = match &managed.origin {
-        Some(RevisionOrigin::PersonaInvocation {
-            persona,
-            invocation_id,
-            operation_id,
-        }) => (persona, invocation_id, operation_id),
-        _ => return Err(held(
-            "birth seed requires actual accepted primary authorship; an import is not authorship",
-        )),
-    };
+    let (author, invocation_id, operation_id) = proposal_authorship(managed)?;
     require(
         author == &request.parent,
         "proposal author differs from parent",
@@ -321,13 +347,15 @@ fn create_owned(
     )?;
     let prepared = decode_prepared(&invocation)?;
     let adopted = app.adopted(invocation_id)?;
+    let authored_operation = adopted.response.operations.iter()
+        .find(|operation| operation.id() == operation_id)
+        .ok_or_else(|| held("proposal authoring operation absent from accepted response"))?;
     require(prepared.request.persona == request.parent && prepared.request.mode == Mode::Ordinary
         && prepared.request.profile == Profile::Direct
         && adopted.actor == request.parent && adopted.work == prepared.request.work
-        && adopted.response.operations.iter().any(|operation| matches!(operation,
-            p::Operation::FileWrite { id, source, text, .. } if id == operation_id
-                && source == &reference.source && text.as_bytes() == managed.record.bytes.as_slice())),
-        "proposal does not match its accepted authored file write")?;
+        && adopted.report.applied.iter().any(|id| id == operation_id)
+        && matches_authored_proposal(&state, managed, authored_operation)?,
+        "proposal does not match its accepted authored file save")?;
     require(
         serde_json::from_slice::<Value>(&managed.record.bytes)?.is_object(),
         "birth proposal must be a JSON object",
@@ -359,7 +387,7 @@ fn create_owned(
         version: 1,
         request_sha256: hash,
         request: request.clone(),
-        author_invocation: invocation_id.clone(),
+        author_invocation: invocation_id.to_owned(),
         causal_work: pending.map_or_else(|| prepared.request.work.clone(), |value| value.work.clone()),
         source_body_sha256: s::sha256_bytes(&managed.record.bytes),
         created_at_unix: now,
@@ -385,7 +413,7 @@ fn create_owned(
     next.personas.get_mut(&request.persona).unwrap().birth = Some(Origin {
         receipt: receipt_object.exact_ref()?,
         parent: request.parent.clone(),
-        invocation: invocation_id.clone(),
+        invocation: invocation_id.to_owned(),
         work: receipt.causal_work.clone(),
         proposal: request.proposal.clone(),
         exposure: inherited.clone(),
