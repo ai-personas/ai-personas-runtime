@@ -40,15 +40,23 @@ observations do not by themselves establish a controlled performance improvement
 
 Ordinary inputs can include `CONTROL.collaborators`: other current-work
 participants, their labels and current acceptance IDs, and their latest accepted
-continuation with its authoring invocation. The snapshot has no application
-record-count or byte quota. Each intention retains its actual source attribution.
+work judgment and continuation with their original invocation and mandate
+attribution. `current-work-collaborators-v2` keeps each judgment's relation to
+the current mandate explicit. The snapshot has no application record-count or
+byte quota. Each account retains its actual source attribution and lineage.
 
-These intentions help personas choose contributions and communicate about shared
-edits. They are snapshots at admission, and can change while inference runs.
-An intention does not establish current execution, availability, successful work,
+These accounts help personas identify what peers claim to have done, what remains
+open, and whether inspection, a question or coordination would help. They are
+snapshots at admission and can change while inference runs. A judgment does not
+supply its cited evidence or artifact bodies. Neither account establishes current execution, availability, successful work,
 agreement, a new commitment or permission to edit a peer's files. The runtime
 assigns no role or task from this projection. Other tasks, private context and
 in-flight requests are excluded. Initialization omits it. Historical restricted-repair inputs retain their original projections; new calls use ordinary mode.
+
+Messages do not resume stopped participation. A persona can instead propose a
+new need with chosen existing participants through its supplied need capability.
+Foreground sessions admit those proposals and consider the new work without
+requiring a user to schedule each contribution; participation remains voluntary.
 
 ## Freshness and evidence
 

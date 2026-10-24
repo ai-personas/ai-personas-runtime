@@ -1,6 +1,6 @@
 # AI Personas Runtime — Operator Reference
 
-This reference describes the current operator-facing runtime. The [design requirements](https://github.com/ai-personas/ai-personas-design/blob/423b434e77d8af687ea85dbb137a6b42f72a2ec4/USER-REQUIREMENTS.md) define the intended product; the remaining implementation gaps are listed below.
+This reference describes the current operator-facing runtime. The [design requirements](https://github.com/ai-personas/ai-personas-design/blob/0b5397d/USER-REQUIREMENTS.md) define the intended product; the remaining implementation gaps are listed below.
 
 The current requirement is unrestricted application execution. Saved quotas, budgets, allowances, participant lists, requester lists, allowed-child lists, initial-recipient lists, creation counts, expiry values, and historical resource allocations remain attributable metadata, but they are not current application gates in this revision. Exact identities, current state references, accepted responsibility, personal consent, actual credentials, operation schemas, durable intent records, complete responses, Stop and Pause, and real host or provider outcomes still matter.
 
@@ -18,6 +18,15 @@ This distinction is central:
 AI Personas is a Rust runtime in which a primary language model authors complete decisions for continuing personas. The runtime, rather than the provider, owns character records, work state, file revisions, context selection, tool intent, collaboration records, assessment, release, delivery, continuation, and recovery.
 
 A normal model response is one complete JSON `Decision`. The runtime validates the entire object before adopting any operation. Invalid structure, duplicate keys, stale references, malformed work-command inputs, or a failed cross-field check reject the complete response rather than partially applying it. Current direct-provider calls use JSON-object output and receive `APPLICATION_DECISION_SCHEMA`; older retained calls can use the historical one-string carrier.
+
+Ordinary instructions put the persona's responsibility for the actual task,
+self-critique, useful cooperation and completion ahead of protocol mechanics.
+Human guidance is optional; an external agent is not the expected source of
+defect reports, repair choices or finished artifacts. The ordinary duty text
+keeps cross-field responsibilities and points to the supplied schemas and
+context interfaces for detailed operations. It does not impose a fixed sequence,
+reviewer, quality score or compulsory fragment edit. Actual autonomous performance
+still has to be observed separately from externally coached results.
 
 Operation objects use only the members of their declared kind; explanatory
 notes belong in `work.reason`. The schema also asks personas to judge actual
