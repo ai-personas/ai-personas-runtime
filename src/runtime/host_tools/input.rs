@@ -10,6 +10,10 @@ use schemars::JsonSchema;
 /// current files before revising them or judging the final package, and choose
 /// useful coordination with peers for shared edits. A prior command result or
 /// captured preview describes the observed bytes, not later contents at that path.
+/// A nonzero exit or failed check does not roll back earlier writes or external
+/// effects. Inspect current state before retrying a failed script; a later
+/// verification failure can follow a successful edit or regeneration. Judge
+/// each check against the property it actually inspects.
 pub(super) struct Inputs {
     /// Bash command or script; tools and packages may be installed directly.
     pub command: String,

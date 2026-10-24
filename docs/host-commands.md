@@ -194,6 +194,13 @@ and stderr enter that context. The current runner
 and shell artifact hashes, effective user ID, and a digest of the inherited
 environment identify the observed execution without copying environment values.
 
+`succeeded: false` or a nonzero exit does not establish that files were unchanged.
+Host commands are not filesystem transactions: earlier writes or external effects
+can remain after a later assertion, verification step or command fails. Inspect
+current state before choosing a correction or retry. A retained source listing
+or preview still describes its captured bytes, even when a later command changed
+the same host path.
+
 `stdout` and `stderr` are capture objects with `bytes_observed`,
 `capture_complete`, `log_path` and `segments`. New commands retain the complete
 observed stream in one segment, without a byte ceiling. An empty stream has no

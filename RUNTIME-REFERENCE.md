@@ -397,7 +397,11 @@ creates no message or citation. `communicate` still has no `depends_on` member;
 its file references derive the necessary prerequisites.
 
 Each `CONTROL.input_file_choices` entry reports `context_state` independently
-of its identity. `exact_body_supplied` means that exact representation and range
+of its identity. Its `scope` determines the valid next-context destination:
+`fragments` belongs in `next_fragments`, and `assets` in `next_assets`. Handles
+do not reclassify files. A mismatch rejects the complete decision and identifies
+the destination, source, path, actual scope and correct destination.
+`exact_body_supplied` means that exact representation and range
 appears in current qualified context or read results. A pending tool observation
 may supply output text without the separate retained result document.
 `preserve_keeps_selection` means an existing direct optional selection survives

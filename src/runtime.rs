@@ -8320,10 +8320,19 @@ fn check_replacement(
     let corpus = corpus(state, &a)?;
     for selected in selected.as_ref().into_iter().flatten() {
         let reference = file_reference(&selected.reference)?;
-        require(
-            record(state, &reference)?.record.scope == which,
-            "selection scope mismatch",
-        )?;
+        let file = &record(state, &reference)?.record;
+        if file.scope != which {
+            let destination = |scope| match scope {
+                f::Scope::Fragments => ("next_fragments", "fragments"),
+                f::Scope::Assets => ("next_assets", "assets"),
+            };
+            let (field, expected) = destination(which);
+            let (correct_field, actual) = destination(file.scope);
+            return Err(held(format!(
+                "{field} scope mismatch for source {:?} at path {:?}: expected {expected}, found {actual}; select this reference only in {correct_field} if it is still needed",
+                selected.reference.source, file.path,
+            )));
+        }
         f::assemble(
             &corpus,
             &[reference],

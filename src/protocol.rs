@@ -56,6 +56,8 @@ pub struct Decision {
     pub asset_maintenance: Maintenance,
     /// Choose characteristic material for the next call. Current body supply
     /// and next-call selection are separate; no_change does not imply clear.
+    /// Every selected reference must have scope fragments. Supporting assets
+    /// and tool results belong in next_assets, not here.
     pub next_fragments: SelectionIntent,
     /// Choose supporting material still useful on the next call, including
     /// exact already-supplied tool-output fields. Pending results are consumed
@@ -64,6 +66,8 @@ pub struct Decision {
     /// when interpreting that result depends on them. The new result does not
     /// restore earlier context; select useful references or inspect missing
     /// material instead of guessing its contents or interface.
+    /// Every selected reference must have scope assets. Character fragments,
+    /// including own voice, belong in next_fragments, not here.
     pub next_assets: SelectionIntent,
     pub continuation: Continuation,
     /// Explicit communication disposition. Use none when no additional reply
@@ -201,6 +205,8 @@ pub enum SelectionIntent {
     /// Existing selection lifetimes are retained in the named references.
     /// This replaces the whole optional set, rather than appending. Include
     /// earlier references still needed alongside the newly selected material.
+    /// Match each choice's scope to the destination: fragments for
+    /// next_fragments, assets for next_assets. A handle cannot change scope.
     ReplaceFromInput {
         reason: String,
         handles: Vec<String>,
