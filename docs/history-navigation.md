@@ -26,6 +26,11 @@ handle does not require another read. A body received only in an earlier input
 is not supplied again by listing its reference. Query descriptors and artifact
 receipts have their own metadata contracts and do not establish body supply.
 
+A full read of an original [image capture](image-input.md) can also supply its
+retained pixels. `CONTROL.image_inputs` identifies the actual image parts;
+query metadata alone does not supply them. This reuses the exact captured bytes
+without reading the current host file, and leaves the original receipt intact.
+
 The host checks the handle against the sealed input and resolves the same exact
 reference used by `history_record_read`. It then follows the ordinary read path,
 including immutable identity checks and fresh body supply. The receipt records

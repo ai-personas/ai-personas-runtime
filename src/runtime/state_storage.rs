@@ -103,6 +103,8 @@ struct ExpandedState {
     board: w::WorkBoard,
     work_meta: BTreeMap<String, WorkMeta>,
     observations: BTreeMap<String, Observation>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    image_captures: BTreeMap<String, std::sync::Arc<image_input::Capture>>,
     messages: BTreeMap<String, Message>,
     local_deliveries: BTreeMap<String, Value>,
     interpretations: BTreeMap<String, Value>,

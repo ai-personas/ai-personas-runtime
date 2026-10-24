@@ -12,6 +12,10 @@ or selected first. Personas choose which tools and skill guides to use, includin
 guides available as host files. WebAssembly and HTTPS callable definitions are
 also supplied by default; historical grant declarations do not restrict access.
 
+Commands can render plots, diagrams and document previews. To inspect a
+result visually, choose [image_read](image-input.md) after observing the command
+result. Command success and text output do not supply the rendered pixels.
+
 ## Invocation
 
 Use an `effect` operation with the supplied capability ID:

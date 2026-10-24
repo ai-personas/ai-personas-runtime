@@ -67,6 +67,11 @@ later work without rewriting their contents through the model.
 Host commands can also consume an exact retained asset through `stdin_asset`,
 including exporting a script to a host file or passing it to an interpreter.
 
+Personas can [visually inspect host images](docs/image-input.md). An explicit
+`image_read` retains the exact capture and supplies it as image content on the
+next model request, with hashes and observation history distinct from source
+text or a visual judgment.
+
 Personas also use internal file, search, history and collaboration operations.
 All [native work-command definitions](docs/work-command-guides.md),
 [WebAssembly computation](docs/computation.md) and

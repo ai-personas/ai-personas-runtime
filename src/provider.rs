@@ -566,6 +566,56 @@ pub struct RequestAudit {
     pub request_bytes: u64,
     pub configuration_sha256: String,
     pub transport_profile: String,
+    /// Ordered image content parts, separate from the text-only prompt digest.
+    /// Omitted for text-only requests, whose exact wire body is unchanged.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub image_inputs: Vec<ImageInputAudit>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ImageDetail {
+    Auto,
+    Low,
+    High,
+    Original,
+}
+
+/// Exact host-captured data URL. No remote URL fetch, resizing or conversion is
+/// performed by the transport. The provider decides whether it can decode it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImageInput {
+    pub image_url: String,
+    pub detail: ImageDetail,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ImageInputAudit {
+    pub format: &'static str,
+    pub image_url_sha256: String,
+    pub image_url_bytes: u64,
+    pub detail: ImageDetail,
+}
+
+impl ImageInput {
+    fn is_data_image(&self) -> bool {
+        use base64::Engine;
+        ["image/png", "image/jpeg", "image/webp", "image/gif"].into_iter().any(|mime| {
+            self.image_url.strip_prefix(&format!("data:{mime};base64,"))
+                .is_some_and(|encoded| !encoded.is_empty()
+                    && base64::engine::general_purpose::STANDARD.decode(encoded).is_ok())
+        })
+    }
+
+    pub fn audit(&self) -> ImageInputAudit {
+        ImageInputAudit {
+            format: "responses-input-image-v1",
+            image_url_sha256: digest(self.image_url.as_bytes()),
+            image_url_bytes: self.image_url.len() as u64,
+            detail: self.detail,
+        }
+    }
 }
 /// Redacted fixed-shape stream failure metadata. Values are static labels,
 /// numeric positions or bounded digests, never free-form provider text.
@@ -740,6 +790,7 @@ impl ProviderOutput {
 
 pub struct ProviderRequest {
     pub prompt: String,
+    pub images: Vec<ImageInput>,
     /// The unconstrained object schema selects JSON-object transport. Other
     /// schemas use strict structured output. The application validates its
     /// complete response in either case.
@@ -1098,6 +1149,7 @@ fn response_only_body(
     model: &str,
     effort: &str,
     prompt: &str,
+    images: &[ImageInput],
     schema: &Value,
 ) -> Value {
     let format = if schema == &json_object_schema() {
@@ -1105,9 +1157,13 @@ fn response_only_body(
     } else {
         json!({"type":"json_schema","name":"persona_decision","strict":true,"schema":schema})
     };
+    let mut content = vec![json!({"type":"input_text","text":prompt})];
+    content.extend(images.iter().map(|image| json!({
+        "type":"input_image","image_url":image.image_url,"detail":image.detail,
+    })));
     json!({"model":model,"store":false,"stream":true,
         "instructions":profile.instructions,
-        "input":[{"role":profile.input_role,"content":[{"type":"input_text","text":prompt}]}],
+        "input":[{"role":profile.input_role,"content":content}],
         "reasoning":{"effort":effort},
         "text":{"format":format}})
 }
@@ -1119,8 +1175,12 @@ pub(crate) fn response_only_request_matches(
     model: &str,
     effort: &str,
     prompt: &str,
+    images: &[ImageInput],
     schema: &Value,
 ) -> bool {
+    if !images.iter().all(ImageInput::is_data_image) {
+        return false;
+    }
     [
         AccessMode::ChatgptOAuth,
         AccessMode::SiwcOAuth,
@@ -1132,7 +1192,7 @@ pub(crate) fn response_only_request_matches(
         if audit["transport_profile"] != profile.id {
             return false;
         }
-        let body = response_only_body(&profile, model, effort, prompt, schema);
+        let body = response_only_body(&profile, model, effort, prompt, images, schema);
         let (Ok(body), Ok(schema)) = (serde_json::to_vec(&body), serde_json::to_vec(schema)) else {
             return false;
         };
@@ -1143,6 +1203,12 @@ pub(crate) fn response_only_request_matches(
             && audit["instructions_sha256"] == digest(profile.instructions.as_bytes())
             && audit["request_sha256"] == digest(&body)
             && audit["request_bytes"] == body.len() as u64
+            && if images.is_empty() {
+                audit.get("image_inputs").is_none()
+            } else {
+                serde_json::to_value(images.iter().map(ImageInput::audit).collect::<Vec<_>>())
+                    .is_ok_and(|expected| audit["image_inputs"] == expected)
+            }
     })
 }
 
@@ -1157,7 +1223,8 @@ impl ModelProvider for DirectProvider {
     fn prepare(&self, request: ProviderRequest) -> Result<Box<dyn PreparedCall>, ProviderError> {
         let prepare = || -> Result<DirectCall, Failure> {
             let settings = &self.inner.settings;
-            if request.prompt.trim().is_empty() || !identifier(&request.invocation_id) {
+            if request.prompt.trim().is_empty() || !identifier(&request.invocation_id)
+                || !request.images.iter().all(ImageInput::is_data_image) {
                 return Err(Failure::Configuration);
             }
             let schema = schema_bytes(&request.output_schema)?;
@@ -1168,6 +1235,7 @@ impl ModelProvider for DirectProvider {
                 &settings.model,
                 &settings.effort,
                 &request.prompt,
+                &request.images,
                 &request.output_schema,
             ))?;
             let audit = RequestAudit {
@@ -1181,6 +1249,7 @@ impl ModelProvider for DirectProvider {
                 request_bytes: body.len() as u64,
                 configuration_sha256: self.inner.configuration_sha256.clone(),
                 transport_profile: profile.id.into(),
+                image_inputs: request.images.iter().map(ImageInput::audit).collect(),
             };
             Ok(DirectCall {
                 inner: self.inner.clone(),

@@ -267,6 +267,10 @@ fn invocation_evidence(
                 && receipt["synthetic"] == false
                 && receipt["audit"]["invocation_id"] == invocation_id
                 && receipt["audit"]["prompt_sha256"] == prepared.prompt_sha256
+                && crate::provider::response_only_request_matches(
+                    &receipt["audit"], &prepared.requested_model, &prepared.requested_effort,
+                    &prepared.prompt, &prepared.images, &prepared.output_schema,
+                )
                 && receipt["attempt"]["response_completed"] == true
         });
     Ok(json!({
@@ -276,6 +280,7 @@ fn invocation_evidence(
         "provider_completed_with_matching_input":provider_completed,
         "supplied_characteristic_revisions":supplied,
         "supplied_transient_affect":control["transient_affect"],
+        "supplied_image_inputs":control["image_inputs"],
         "supplied_affect_observations":control["actual_observations"].as_array()
             .map(|observations| observations.iter().filter(|observation|
                 observation["kind"] == "affect_update").cloned().collect::<Vec<_>>())
@@ -287,6 +292,7 @@ fn invocation_evidence(
         "accepted_decision":accepted_decision_view(state, audience, &prepared, &archive)?,
         "input_accounting":{
             "prompt_utf8_bytes":prepared.prompt.len(),
+            "image_content_parts":prepared.images.len(),
             "instructions_and_application_schema_utf8_bytes":instructions.len(),
             "control_utf8_bytes":control_bytes,
             "qualified_context_utf8_bytes":qualified_bytes,

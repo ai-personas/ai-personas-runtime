@@ -29,6 +29,7 @@ pub(super) fn model_call_receipt(
         "reported_effort":receipt["reported_effort"],
         "transport_profile":receipt["audit"]["transport_profile"],
         "provider_request_sha256":receipt["audit"]["request_sha256"],
+        "provider_image_inputs":receipt["audit"]["image_inputs"],
         "transport_response_bytes":receipt["transport_response_bytes"],
         "completion_disposition":receipt["completion_disposition"],
         "provider_reported_usage":receipt["usage"],

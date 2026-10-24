@@ -140,6 +140,7 @@ impl Runtime {
                     &prepared.requested_model,
                     &prepared.requested_effort,
                     &prepared.prompt,
+                    &prepared.images,
                     &prepared.output_schema,
                 )
                 && (prepared.output_schema == provider_schema()

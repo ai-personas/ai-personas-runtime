@@ -71,6 +71,7 @@ use std::path::{Component, Path, PathBuf};
 use thiserror::Error;
 
 mod host_import;
+mod image_input;
 mod local_evidence;
 mod maintenance;
 mod observability;
@@ -893,6 +894,9 @@ pub struct State {
     pub board: w::WorkBoard,
     pub work_meta: BTreeMap<String, WorkMeta>,
     pub observations: BTreeMap<String, Observation>,
+    /// Immutable bytes captured by the corresponding native image observation.
+    /// Permission and provenance remain on that observation, not on a host path.
+    pub(crate) image_captures: BTreeMap<String, std::sync::Arc<image_input::Capture>>,
     pub messages: BTreeMap<String, Message>,
     pub local_deliveries: BTreeMap<String, Value>,
     pub interpretations: BTreeMap<String, Value>,
@@ -1334,6 +1338,9 @@ pub struct Prepared {
     pub requested_effort: String,
     pub prompt: String,
     pub prompt_sha256: String,
+    /// Ordered image content parts, sealed separately from the text prompt.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<provider::ImageInput>,
     /// Present only when qualified text is shared within this exact prompt.
     /// Older readers must refuse the unfamiliar admitted format, not silently
     /// reinterpret a text reference as missing body evidence.
@@ -2782,6 +2789,7 @@ fn initial_state(config: Config, operator: &str) -> State {
         board: w::WorkBoard::default(),
         work_meta: BTreeMap::new(),
         observations: BTreeMap::new(),
+        image_captures: BTreeMap::new(),
         messages: BTreeMap::new(),
         local_deliveries: BTreeMap::new(),
         interpretations: BTreeMap::new(),
@@ -4141,6 +4149,7 @@ impl Runtime {
             requested_effort: persona.seed.requested_effort.clone(),
             prompt_sha256: s::sha256_bytes(rendered.prompt.as_bytes()),
             prompt: rendered.prompt,
+            images: rendered.images,
             prompt_encoding: rendered.prompt_encoding,
             output_schema: provider::json_object_schema(),
             reconsideration_interface: persona.character.is_some()
@@ -5557,6 +5566,7 @@ impl Runtime {
             |prepared| {
                 let native = provider.prepare(provider::ProviderRequest {
                     prompt: prepared.prompt.clone(),
+                    images: prepared.images.clone(),
                     output_schema: prepared.output_schema.clone(),
                     invocation_id: prepared.request.id.clone(),
                 })?;
@@ -5565,6 +5575,8 @@ impl Runtime {
                     audit.invocation_id == prepared.request.id
                         && audit.prompt_sha256 == prepared.prompt_sha256
                         && audit.prompt_bytes == prepared.prompt.len() as u64
+                        && audit.image_inputs == prepared.images.iter()
+                            .map(provider::ImageInput::audit).collect::<Vec<_>>()
                         && audit.schema_sha256
                             == s::sha256_bytes(&serde_json::to_vec(&prepared.output_schema)?)
                         && audit.schema_bytes
@@ -6680,6 +6692,7 @@ struct Rendered {
     need_interface: Option<NeedInterface>,
     withheld: Vec<f::WithheldBundle>,
     prompt: String,
+    images: Vec<provider::ImageInput>,
     prompt_encoding: Option<String>,
     total: usize,
     sources: Vec<f::Reference>,
@@ -6932,6 +6945,7 @@ fn render_mode_with_history(
         &assets,
     ))?;
     let mut observations = Vec::new();
+    let mut image_supply = image_input::Supply::default();
     let mut observation_ids = Vec::new();
     let mut sources = BTreeSet::new();
     let mut supplied_bodies = BTreeSet::new();
@@ -6996,7 +7010,8 @@ fn render_mode_with_history(
                 state, observation, &a, &observation_corpus,
             ).map(|(value, inherited, exact, metadata)| (value, inherited, exact, Vec::new(), metadata))
         };
-        if let Ok((value, inherited, exact, historical_roots, metadata)) = supplied {
+        if let Ok((mut value, inherited, exact, historical_roots, metadata)) = supplied {
+            image_supply.include(state, observation, &mut value)?;
             observability::observation_references(observation, &mut visible_files)?;
             visible_files.extend(exact.iter().cloned());
             visible_files.extend(metadata.iter().cloned());
@@ -7396,6 +7411,14 @@ fn render_mode_with_history(
             work_guides::capability(state, &supplied_bodies, work_interface.as_ref())?
         },
         "not_ready":["effects outside currently exposed capability bindings"]});
+    if !image_supply.images.is_empty() {
+        core["image_inputs"] = json!({"format":"responses-input-image-v1",
+            "ordering":"Zero-based image_index follows the text prompt in the provider content array.",
+            "images":image_supply.metadata,
+            "meaning":"These exact captures are supplied as image content in this request. Capture, metadata, source parsing and a visual assessment are distinct. Image input does not establish correctness, physical measurement or approval."});
+        growth_bytes = growth_bytes.checked_add(serde_json::to_vec(&core["image_inputs"])?.len())
+            .ok_or_else(|| invalid("image input metadata accounting"))?;
+    }
     if let Some(allowance) = launch_step_allowance {
         core["launch_step_allowance"] = allowance.control()?;
     }
@@ -7673,6 +7696,7 @@ fn render_mode_with_history(
     let host_command_interface = if ordinary_interfaces { Some(host_tools::interface()?) } else { None };
     if let Some(interface) = &host_command_interface {
         core["host_command_capability"] = effect_interfaces::definition(interface)?;
+        core["image_read"] = image_input::interface();
         core["file_import"] = json!({
             "interface":host_import::INTERFACE,
             "maximum_bytes":null,
@@ -7871,6 +7895,7 @@ fn render_mode_with_history(
         need_interface,
         withheld: assembly.withheld,
         prompt,
+        images: image_supply.images,
         prompt_encoding,
         total,
         exposure,
@@ -8385,6 +8410,7 @@ fn validate_operation_interfaces(
             continue;
         }
         match operation {
+            p::Operation::ImageRead { .. } => image_input::validate_interface(prepared)?,
             p::Operation::HistoryRecordsQuery { .. } | p::Operation::HistoryRecordRead { .. }
             | p::Operation::HistoryRecordReadFromInput { .. } => {
                 require(prepared.history_records_interface.as_deref() == Some(history::records::INTERFACE)
@@ -8791,6 +8817,10 @@ fn plan_response(
                 planning_exposure.unknown();
             }
             match operation {
+                p::Operation::ImageRead { id, host_path, expected_sha256, detail } => {
+                    image_input::read(&mut state, prepared, id, host_path,
+                        expected_sha256.as_deref(), *detail, now)?;
+                }
                 p::Operation::Read { id, reference } => {
                     let reference = file_reference(&resolve(reference, &proposals)?)?;
                     let scanned_before = navigation.used().scanned_bytes;

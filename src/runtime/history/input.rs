@@ -47,6 +47,12 @@ impl Candidates {
 
 fn choices(control: &Value, invocation: &str) -> Result<Vec<Choice>> {
     let mut found = Candidates::default();
+    if let Some(images) = control["image_inputs"]["images"].as_array() {
+        for (index, image) in images.iter().enumerate() {
+            found.add(&image["history_reference"],
+                format!("/image_inputs/images/{index}/history_reference"))?;
+        }
+    }
     let mut observations = Vec::new();
     if let Some(items) = control["actual_observations"].as_array() {
         observations.extend(items.iter().enumerate().map(|(index, item)| {

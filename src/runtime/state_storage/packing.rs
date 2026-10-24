@@ -119,7 +119,7 @@ pub(super) fn to_value(state: &State) -> serde_json::Result<Value> {
     // representation as well as ExpandedState's decoding/default declarations.
     let State {
         format, config, personas, sources, work_guides, accepted_bindings,
-        semantic_warnings, board, work_meta, observations, messages,
+        semantic_warnings, board, work_meta, observations, image_captures, messages,
         local_deliveries, interpretations, local_evidence, intake_episodes,
         intake_episode_selections, computation_grants, computation_jobs,
         http_fetch_grants, http_fetch_jobs, host_command_jobs, optional_activities,
@@ -150,6 +150,7 @@ pub(super) fn to_value(state: &State) -> serde_json::Result<Value> {
         field!(board);
         records!(work_meta);
         records!(observations);
+        if !image_captures.is_empty() { records!(image_captures); }
         records!(messages);
         field!(local_deliveries);
         field!(interpretations);

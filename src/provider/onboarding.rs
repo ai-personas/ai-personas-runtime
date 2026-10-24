@@ -128,6 +128,7 @@ pub(crate) fn request(
         model,
         effort,
         &prompt,
+        &[],
         &schema,
     ))
 }

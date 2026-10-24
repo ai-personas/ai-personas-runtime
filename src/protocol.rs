@@ -549,6 +549,15 @@ pub enum Operation {
         id: String,
         reference: ExactRef,
     },
+    /// Capture an existing host image for visual input on the next request.
+    /// This is observation, not authored asset maintenance. It runs before
+    /// proposed host commands; a newly rendered image needs a fresh decision.
+    ImageRead {
+        id: String,
+        host_path: String,
+        expected_sha256: Option<String>,
+        detail: crate::provider::ImageDetail,
+    },
     /// Explicit selective retrieval of retained messages across works. Returns
     /// attributed metadata only; continuation requires a freshly supplied handle.
     /// Check CONTROL.command_resource_accounting.history before batching retrievals.
@@ -813,6 +822,7 @@ impl Operation {
             | Self::FileRetire { id, .. }
             | Self::CharacterAdopt { id, .. }
             | Self::Read { id, .. }
+            | Self::ImageRead { id, .. }
             | Self::Search { id, .. }
             | Self::Discover { id, .. }
             | Self::InspectWork { id, .. }
@@ -2025,6 +2035,13 @@ fn check_operation(
         }
         Operation::Read { reference, .. } => {
             check_reference(reference, &format!("{path}.reference"))
+        }
+        Operation::ImageRead { host_path, expected_sha256, .. } => {
+            check_text(host_path, MAX_REASON_BYTES, &format!("{path}.host_path"))?;
+            if let Some(hash) = expected_sha256 {
+                check_accepted_revision(hash, &format!("{path}.expected_sha256"))?;
+            }
+            Ok(())
         }
         Operation::HistoryQuery {
             mode,

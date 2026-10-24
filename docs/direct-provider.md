@@ -16,6 +16,14 @@ its descriptions of other transports and lower-level interfaces are not sent
 as persona instructions. The absence of provider-hosted tools does not remove
 the runtime's default host command access.
 
+Explicit [image reads](image-input.md) add ordered `input_image` content parts
+after the text prompt. Exact image parts are retained in `Prepared.images` and
+separately audited; the full request hash covers both text and images. The
+authentication transport profile remains the selected route's profile, while
+the image-part audit declares `responses-input-image-v1`. Image input adds no
+provider tool or model fallback. Provider support is established only by the
+actual response, not by a successful host-file capture.
+
 The ordinary response schema omits the unsupported top-level `deliver`
 operation and offers `propose_need` only when an intake-delegation interface is
 supplied. Exact shared-work delivery uses the selected `deliver_release` work
