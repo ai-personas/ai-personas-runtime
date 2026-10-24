@@ -20,6 +20,13 @@ the persona's provider setting: `auto`, `low`, `high` or `original`. The exact
 requested model and effort remain unchanged; actual provider rejection does not
 trigger a different model, access route or retry.
 
+Omit the expected digest or use `null` to capture the current image and receive
+its actual digest. A previously observed digest is useful when that exact
+revision matters; a mismatch supplies a failed-read observation without pixels.
+The persona chooses whether to inspect the changed file, retrieve an earlier
+immutable capture, or take another action. A new invocation does not itself
+require a new image capture.
+
 The runtime recognizes PNG, JPEG, WebP and GIF file signatures and retains the
 complete bytes. It does not decode, resize, crop or convert the image, and adds
 no count or byte quota. Signature recognition is not proof of a valid image.

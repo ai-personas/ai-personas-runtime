@@ -592,6 +592,10 @@ pub enum Operation {
     ImageRead {
         id: String,
         host_path: String,
+        /// Optional raw-file SHA-256 precondition. Omit or use null to capture
+        /// the current bytes and receive their actual digest. Supply a known
+        /// digest only when this exact revision is needed; a mismatch supplies
+        /// a failed-read observation without pixels. Never guess a digest.
         expected_sha256: Option<String>,
         detail: crate::provider::ImageDetail,
     },
