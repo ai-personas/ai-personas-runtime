@@ -47,9 +47,9 @@ enum Command {
     Setup {
         #[arg(long)]
         provider_config: PathBuf,
-        /// JSON map from cohort IDs to attributed label, text and provenance.
+        /// JSON map covering every cohort ID with attributed label, text and provenance.
         #[arg(long)]
-        persona_seeds: Option<PathBuf>,
+        persona_seeds: PathBuf,
         /// Existing working directory retained as canonical setup metadata.
         #[arg(long)]
         working_directory: PathBuf,
@@ -801,11 +801,8 @@ async fn run(cli: Cli) -> runtime::Result<()> {
                 provider: runtime::read_json_file(provider_config, 262_144)?,
                 working_directory: working_directory.clone(),
             };
-            let seeds = match persona_seeds {
-                Some(path) => runtime::read_json_file(path, 65_536)?,
-                None => Default::default(),
-            };
-            launch::setup_with_seeds(&root, operator, settings, seeds)?;
+            let seeds = runtime::read_json_file(persona_seeds, 65_536)?;
+            launch::setup(&root, operator, settings, seeds)?;
             return emit(&serde_json::json!({"setup_saved":true,"inference_performed":false}));
         }
         Command::Run {

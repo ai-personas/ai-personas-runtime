@@ -35,10 +35,6 @@ pub struct Outcome {
 fn prepared(request: &Request) -> Result<(Config, Saved)> {
     identity(&request.id)?;
     let (config, mut saved) = setup_parts(&request.operator, request.setup.clone())?;
-    require(
-        request.persona_seeds.len() == saved.setup.cohort,
-        "atomic setup requires a starting profile for every cohort member",
-    )?;
     install_persona_seeds(&mut saved, request.persona_seeds.clone())?;
     config.validate()?;
     Ok((config, saved))

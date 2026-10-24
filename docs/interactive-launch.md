@@ -313,6 +313,8 @@ without the matching receipt is blocked, never repaired or reset. Reconciliation
 compares the exact submitted request and retained runtime origins. Current heads,
 work, history, holds and funding are not overwritten on replay. The lower-level
 `ai-personas setup` command remains explicit and is not used by the dialogue.
+It also requires profiles for every cohort member, supplied through
+`--persona-seeds FILE`, and uses the same profile validation before creating state.
 
 ## Returning, failure and recovery
 

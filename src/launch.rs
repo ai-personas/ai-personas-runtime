@@ -258,6 +258,8 @@ fn private_tree(path: &Path) -> Result<PathBuf> {
 fn seed_for(saved: &Saved, provider: &ResearchSettings, id: &str) -> Seed {
     let mut audience: BTreeSet<_> = people(saved.setup.persona_capacity()).into_iter().collect();
     audience.insert(saved.operator.clone());
+    // Fresh setup supplies every profile. Preserve the actual generic material
+    // of earlier saved cohorts when reopening; do not invent or reseed character.
     let supplied = saved.setup.persona_seeds.get(id);
     Seed {
         id: id.into(),
@@ -377,13 +379,9 @@ fn setup_parts(operator: &str, settings: Setup) -> Result<(Config, Saved)> {
     Ok((config, saved))
 }
 
-pub fn setup(root: &Path, operator: &str, settings: Setup) -> Result<Runtime> {
-    setup_with_seeds(root, operator, settings, BTreeMap::new())
-}
-
 /// Select creation material only while creating a fresh cohort. Continuing
 /// personas retain their exact accepted history and cannot be reseeded here.
-pub fn setup_with_seeds(
+pub fn setup(
     root: &Path,
     operator: &str,
     settings: Setup,
@@ -402,8 +400,8 @@ pub fn setup_with_seeds(
 fn install_persona_seeds(saved: &mut Saved, seeds: BTreeMap<String, PersonaSeed>) -> Result<()> {
     let ids = people(saved.setup.cohort);
     require(
-        seeds.len() <= ids.len() && seeds.keys().all(|id| ids.contains(id)),
-        "persona seed must name a member of this cohort",
+        seeds.len() == ids.len() && seeds.keys().all(|id| ids.contains(id)),
+        "starting profiles must name every cohort member exactly",
     )?;
     saved.setup.persona_seeds = seeds;
     let provider = saved.execution_provider()?;

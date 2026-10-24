@@ -82,7 +82,7 @@ ai-personas --state-root /absolute/private/runtime run --resume "$WORK_ID"
 ai-personas --state-root /absolute/private/runtime result "$WORK_ID" --json
 ```
 
-Set `WORK_ID` to the work identity returned by the run. The optional `--persona-seeds` file maps cohort IDs such as `persona-0001` to objects containing `label`, `text`, and `provenance`; omitted profiles use attributable generic creation material on this lower-level route. The default cohort contains three identities.
+Set `WORK_ID` to the work identity returned by the run. The required `--persona-seeds` file maps every cohort ID, starting with `persona-0001`, to an object containing `label`, `text`, and `provenance`. The default cohort contains three identities. Both setup routes require complete profile coverage before creating state; neither fills omitted profiles with generic text. Profile fields have no application byte quota. The profiles supply attributed starting material for the initial model call, which authors the accepted characteristic fragments.
 
 The current `Setup` input contains `cohort`, `destination`, `provider` and
 `working_directory`. Starting profiles are supplied separately. It has no

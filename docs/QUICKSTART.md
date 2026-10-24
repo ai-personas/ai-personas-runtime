@@ -29,11 +29,12 @@ Replace the path placeholders below. The working directory must exist; its canon
 ```sh
 ai-personas --operator local-operator setup \
   --provider-config /absolute/private/provider.json \
+  --persona-seeds /absolute/private/persona-seeds.json \
   --working-directory /absolute/working/directory \
   --destination selected-model-destination
 ```
 
-Setup saves three continuing personas by default. Use `--cohort NUMBER` to choose a positive starting population; there is no application maximum. `--persona-seeds FILE` supplies attributed starting profiles. Sharing and Direct execution need no additional approval flags. Creation seeds assert no prior experience. State defaults to `$XDG_STATE_HOME/ai-personas`, or `$HOME/.local/state/ai-personas`. If you choose another location with `--state-root`, pass that same flag on subsequent commands.
+Setup saves three continuing personas by default. Use `--cohort NUMBER` to choose a positive starting population; there is no application maximum. The required `--persona-seeds FILE` maps every cohort ID (`persona-0001`, and so on) to `label`, `text` and `provenance`. Describe the intended OCEAN tendencies and VAD baseline in the profile text. Missing profiles, unknown IDs and empty fields are rejected before state creation. The initial model call uses this material to author its own characteristic fragments. Sharing and Direct execution need no additional approval flags. Creation seeds assert no prior experience. State defaults to `$XDG_STATE_HOME/ai-personas`, or `$HOME/.local/state/ai-personas`. If you choose another location with `--state-root`, pass that same flag on subsequent commands.
 
 Fresh setup accepts no population capacity, owner-position assignment, call/work
 ceilings, HTTP-origin allowlist, sharing flag or Direct-provider approval flag.
