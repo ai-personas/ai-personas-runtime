@@ -23,6 +23,26 @@ pub(super) struct StoredFileRevision {
     retired: bool,
 }
 
+pub(super) mod shared_file_revision {
+    use super::StoredFileRevision;
+    use crate::files::FileRevision;
+    use serde::{Deserializer, Serializer};
+    use std::sync::Arc;
+
+    pub fn serialize<S: Serializer>(
+        record: &Arc<FileRevision>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        StoredFileRevision::serialize(record, serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Arc<FileRevision>, D::Error> {
+        StoredFileRevision::deserialize(deserializer).map(Arc::new)
+    }
+}
+
 mod retained_bytes {
     use base64::{display::Base64Display, engine::general_purpose::STANDARD, Engine};
     use serde::{de, Deserialize, Deserializer, Serializer};

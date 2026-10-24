@@ -655,8 +655,9 @@ pub enum RevisionOrigin {
 #[serde(deny_unknown_fields)]
 pub struct ManagedRevision {
     /// Compact retained bytes; the FileRevision API and identity stay expanded.
-    #[serde(with = "state_storage::StoredFileRevision")]
-    pub record: f::FileRevision,
+    /// Snapshots and corpus views share this immutable record, never a mutable head.
+    #[serde(with = "state_storage::shared_file_revision")]
+    pub record: std::sync::Arc<f::FileRevision>,
     pub lineage: Vec<f::Reference>,
     /// Tool inputs whose required accompaniment follows this result. Permission
     /// ancestry remains in lineage/exposure. Legacy absence keeps the old scope.
@@ -3058,7 +3059,7 @@ impl Runtime {
                 head: import.voice.revision.clone(),
                 imported_by: Some(operator.into()),
                 revisions: vec![ManagedRevision {
-                    record: import.voice,
+                    record: import.voice.into(),
                     lineage: Vec::new(),
                     qualification_sources: None,
                     exposure: Some(Exposure::default()),
@@ -3135,7 +3136,7 @@ impl Runtime {
                     head: record.revision.clone(),
                     imported_by: Some(operator.into()),
                     revisions: vec![ManagedRevision {
-                        record,
+                        record: record.into(),
                         lineage: Vec::new(),
                         qualification_sources: None,
                         exposure: Some(Exposure::default()),
@@ -6483,7 +6484,7 @@ fn corpus(state: &State, a: &f::Admission) -> Result<f::Corpus> {
         .collect::<Vec<_>>();
     let mut bindings = state.accepted_bindings.clone();
     bindings.extend(tools::result_bindings(state, &records)?);
-    Ok(f::Corpus::from_revisions(
+    Ok(f::Corpus::from_shared_revisions(
         records,
         state.config.policies.clone(),
         state.config.corpus.clone(),
@@ -6493,12 +6494,11 @@ fn corpus(state: &State, a: &f::Admission) -> Result<f::Corpus> {
         .map(|(id, _)| id.clone()).collect()))
 }
 fn validate_inventory(state: &State) -> Result<()> {
-    f::Corpus::from_revisions(
+    f::Corpus::from_shared_revisions(
         state
             .sources
             .values()
-            .flat_map(|s| s.revisions.iter().map(|r| r.record.clone()))
-            .collect::<Vec<_>>(),
+            .flat_map(|s| s.revisions.iter().map(|r| r.record.clone())),
         state.config.policies.clone(),
         state.config.corpus.clone(),
     )?
@@ -8065,13 +8065,13 @@ fn apply_writes(
             .find(|r| r.record.revision == revision)
         {
             require(
-                existing.record == record,
+                existing.record.as_ref() == &record,
                 "immutable file identity conflict",
             )?;
         } else {
             newly_sealed.insert((source.clone(), revision.clone()));
             entry.revisions.push(ManagedRevision {
-                record,
+                record: record.into(),
                 lineage: Vec::new(),
                 qualification_sources: None,
                 exposure: Some(prepared_exposure(prepared)?.clone()),

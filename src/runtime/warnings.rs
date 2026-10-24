@@ -421,7 +421,7 @@ fn create_marker(
             head: record.revision.clone(),
             imported_by: None,
             revisions: vec![ManagedRevision {
-                record,
+                record: record.into(),
                 lineage: Vec::new(),
                 qualification_sources: None,
                 exposure: Some(authored.exposure.clone()),

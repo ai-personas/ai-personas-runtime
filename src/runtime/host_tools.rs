@@ -484,7 +484,7 @@ fn retain_result(state: &mut State, id: &str, job: &Job, payload: &Value) -> Res
             head: file.revision.clone(),
             imported_by: None,
             revisions: vec![ManagedRevision {
-                record: file,
+                record: file.into(),
                 lineage: job.exposure.sources.clone(),
                 exposure: Some(job.exposure.clone()),
                 qualification_sources: Some(job.qualification_sources.clone()),

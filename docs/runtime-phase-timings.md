@@ -184,3 +184,20 @@ errors and participate in the same atomic transaction. Identity, revision,
 dependency, terminal authentication and duplicate checks remain in place. This
 removes obsolete quota preflights without changing canonical records or actual
 allocation accounting; it does not establish a measured performance improvement.
+
+Runtime snapshots and corpus views share each immutable file revision through
+an `Arc<FileRevision>`. Copying a State or building its corpus copies those
+handles instead of every retained file body. A new file revision gets a new
+record; current heads, retirement, bindings and exposure remain separate state.
+Each corpus construction still validates complete record identities, digests,
+paths, qualifications and policy consistency, and measures the same logical
+record bytes. Sharing is not a validation cache or a reason to skip current
+binding and lineage checks.
+
+The storage adapter writes the same compact file bytes and metadata. Public
+file serialization and revision hashes retain their existing content. Each
+state decode constructs its own records; no process-wide interning or persistent
+pointer identity is introduced. This removes copies within an in-memory
+snapshot and its derived views, while observation payloads, exposure manifests
+and other State fields retain their existing ownership. Actual memory and
+latency effects still require measurement.

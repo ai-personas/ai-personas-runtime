@@ -25,6 +25,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::io::{self, Write};
+use std::sync::Arc;
 use thiserror::Error;
 
 pub const FILE_HASH_PROFILE: &str = "persona-file-record-sha256-v1";
@@ -442,7 +443,7 @@ impl AcceptedBinding {
 }
 
 struct StoredRevision {
-    record: FileRevision,
+    record: Arc<FileRevision>,
     encoded_bytes: usize,
 }
 
@@ -470,6 +471,19 @@ impl Corpus {
     ) -> Result<Self, FilesError>
     where
         I: IntoIterator<Item = FileRevision>,
+    {
+        Self::from_shared_revisions(revisions.into_iter().map(Arc::new), policies, limits)
+    }
+
+    /// Share immutable records without copying their retained file bodies.
+    /// Validation, exact revision checks and measured bytes match the owned path.
+    pub(crate) fn from_shared_revisions<I>(
+        revisions: I,
+        policies: PolicySnapshot,
+        limits: CorpusLimits,
+    ) -> Result<Self, FilesError>
+    where
+        I: IntoIterator<Item = Arc<FileRevision>>,
     {
         limits.validate()?;
         let policy = build_policy_view(policies, &limits)?;

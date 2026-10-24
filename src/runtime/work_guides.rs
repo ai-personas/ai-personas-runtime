@@ -255,7 +255,7 @@ pub(in crate::runtime) fn install(
                 .find(|revision| revision.record.revision == file.revision)
             {
                 require(
-                    existing.record == file
+                    existing.record.as_ref() == &file
                         && source.head == file.revision
                         && matches!(&existing.origin, Some(RevisionOrigin::OperatorImport {operator: author, ..}) if author == operator),
                     "native guide identity conflict; installation cannot rewind an older revision",
@@ -269,7 +269,7 @@ pub(in crate::runtime) fn install(
                 )?;
                 source.head = file.revision.clone();
                 source.revisions.push(ManagedRevision {
-                    record: file,
+                    record: file.into(),
                     lineage: Vec::new(),
                     qualification_sources: None,
                     exposure: Some(Exposure::default()),
@@ -289,7 +289,7 @@ pub(in crate::runtime) fn install(
                     head: file.revision.clone(),
                     imported_by: Some(operator.into()),
                     revisions: vec![ManagedRevision {
-                        record: file,
+                        record: file.into(),
                         lineage: Vec::new(),
                         qualification_sources: None,
                         exposure: Some(Exposure::default()),

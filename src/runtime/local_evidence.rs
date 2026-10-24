@@ -564,7 +564,7 @@ impl Runtime {
                 head: file.revision.clone(),
                 imported_by: None,
                 revisions: vec![ManagedRevision {
-                    record: file,
+                    record: file.into(),
                     lineage: basis.specification.lineage.clone(),
                     qualification_sources: None,
                     exposure: Some(exposure),

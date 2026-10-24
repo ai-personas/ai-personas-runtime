@@ -756,7 +756,7 @@ fn retain_result(state: &mut State, id: &str, job: &Job, payload: &Value) -> Res
         owner: job.actor.clone(), protected: true, retired: false,
         head: file.revision.clone(), imported_by: None,
         revisions: vec![ManagedRevision {
-            record: file, lineage: job.exposure.sources.clone(), exposure: Some(job.exposure.clone()),
+            record: file.into(), lineage: job.exposure.sources.clone(), exposure: Some(job.exposure.clone()),
             qualification_sources: job.qualification_sources.clone(),
             origin: Some(RevisionOrigin::ComputationResult {
                 actor: job.actor.clone(), work: job.work.clone(), invocation_id: job.invocation.clone(),
@@ -804,7 +804,7 @@ pub(super) fn qualifications(state: &State, sources: &[f::Reference]) -> Vec<f::
 /// Later accepted warnings on an input must still accompany its retained
 /// computation result. Derive restrictions on the immutable result revision;
 /// do not rewrite its bytes or claim a new persona-authored judgment.
-pub(super) fn result_bindings(state: &State, files: &[f::FileRevision]) -> Result<Vec<f::AcceptedBinding>> {
+pub(super) fn result_bindings(state: &State, files: &[std::sync::Arc<f::FileRevision>]) -> Result<Vec<f::AcceptedBinding>> {
     let mut bindings = Vec::new();
     for file in files {
         let stored = record(state, &file.reference(f::Representation::Utf8))?;
