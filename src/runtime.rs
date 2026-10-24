@@ -4002,12 +4002,11 @@ impl Runtime {
                 "unfinished invocation requires its episode coordinator",
             )?;
             let navigation = need_proposals::debit_preparation(&mut state, &request, now)?;
-            let charged_object = state_object(&old, &state)?;
             // Account the aggregate episode and work, and register the launch
             // step, before rendering or provider preparation. Later failure
             // does not erase that actual charge. The actual
             // invocation still receives exactly one ordinary Store reservation.
-            let receipt = launch::intake_delegation::commit_episode_preparation(
+            let (receipt, charged_object) = launch::intake_delegation::commit_episode_preparation(
                 self, &old, &state, &request, now, owned,
             )?;
             require(

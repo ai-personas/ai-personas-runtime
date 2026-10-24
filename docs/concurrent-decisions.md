@@ -72,6 +72,20 @@ distinguishes the original prepared epoch from the later Store commit epoch.
 Source identity, explicit episode revocation and current work authority remain
 checked before adoption and command dispatch.
 
+After those checkpoint checks, the helper constructs the stored runtime object
+once, commits it together with the launch update, and returns that exact object
+with the transaction receipt. Preparation uses it as the next expected runtime
+head instead of independently serializing and packing the same immutable state.
+The existing epoch check remains before rendering and provider preparation; an
+unsuccessful checkpoint returns no replacement head. Later admission still
+validates its own state and reservation transaction.
+
+Optional `launch.episode_preparation_state` timing events measure construction
+of that stored object, including nested state serialization and exposure packing.
+They establish neither checkpoint commit nor provider dispatch. Count actual
+commits and calls from their own receipts, and keep nested elapsed time separate
+from any claim of performance improvement.
+
 Store recognizes these sealed Direct scopes for both ordinary and intake-bound
 calls when claiming planning, committing a decision and dispatching its accepted
 commands. An intake episode does not force a scoped call back to global-epoch

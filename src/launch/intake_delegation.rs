@@ -1419,6 +1419,8 @@ pub(in crate::runtime) fn episode_authority(
 /// The existing launch-global counter is spent with the episode/work debit.
 /// No physical attempt or navigation reservation is created by this checkpoint.
 /// Actual invocation admission retains its single normal Store reservation.
+/// Return the exact committed runtime object so preparation need not serialize
+/// and pack the same immutable State a second time to retain its current head.
 pub(in crate::runtime) fn commit_episode_preparation(
     app: &mut Runtime,
     runtime_head: &s::StoredObject,
@@ -1426,7 +1428,7 @@ pub(in crate::runtime) fn commit_episode_preparation(
     request: &PrepareRequest,
     now: i64,
     owned: &BTreeSet<String>,
-) -> Result<s::BatchReceipt> {
+) -> Result<(s::BatchReceipt, s::StoredObject)> {
     let episode = crate::runtime::need_proposals::episode(state, &request.work)
         .ok_or_else(|| held("selected intake episode absent"))?;
     let authority = episode_authority(app, state, &episode.grant.request.id, now)?;
@@ -1449,13 +1451,14 @@ pub(in crate::runtime) fn commit_episode_preparation(
     launch.revision = increment(launch.revision)?;
     launch.body["steps"] = json!(saved.steps);
     launch.body["works"] = serde_json::to_value(&saved.works)?;
-    let runtime = state_object(runtime_head, state)?;
-    Ok(app
+    let runtime = phase_timing::measure("launch.episode_preparation_state", ||
+        state_object(runtime_head, state))?;
+    let receipt = app
         .store
         .compare_and_swap_batch_with_owned_invocations(vec![
             s::Change {
                 expected_revision: Some(runtime_head.revision),
-                object: runtime,
+                object: runtime.clone(),
                 depends_on: vec![authority.registry.store_ref()],
             },
             s::Change {
@@ -1463,5 +1466,6 @@ pub(in crate::runtime) fn commit_episode_preparation(
                 object: launch,
                 depends_on: vec![authority.registry.store_ref()],
             },
-        ], owned)?)
+        ], owned)?;
+    Ok((receipt, runtime))
 }
