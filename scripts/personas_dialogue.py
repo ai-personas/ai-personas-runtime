@@ -72,9 +72,16 @@ def safe_text(value):
             and bool(value.strip()))
 
 
-def provider_label(value):
+def native_identifier(value):
+    # Native references can contain punctuation, including length-prefixed
+    # composite observation IDs. Match the runtime's identity grammar without
+    # rewriting the exact reference or imposing the UI's filename grammar.
     return (isinstance(value, str) and bool(value)
             and not any(c.isspace() or ord(c) < 32 or 0x7f <= ord(c) <= 0x9f for c in value))
+
+
+def provider_label(value):
+    return native_identifier(value)
 
 
 def terminal_text(value):
@@ -372,7 +379,7 @@ def validate_progress(p):
                     and identifier(request["id"]) and identifier(request["persona"])
                     and safe_text(request["text"]))
             replaced = request.get("supersedes", [])
-            require(isinstance(replaced, list) and all(identifier(value) for value in replaced)
+            require(isinstance(replaced, list) and all(native_identifier(value) for value in replaced)
                     and len(set(replaced)) == len(replaced))
         elif item["kind"] == "answer-question":
             require(set(request) == {"work", "reply"} and isinstance(request["reply"], dict))
