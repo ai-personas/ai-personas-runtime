@@ -29,6 +29,11 @@ does not replace the operation's result.
 | `store.open_runtime` | Validate the historical settings chain, open SQLite and optionally recover an unowned Store |
 | `store.encode_changed_object` | Encode one complete changed object to canonical JSON, borrowing its body |
 | `store.fingerprint_changed_object` | Hash those complete encoded bytes for the returned exact reference |
+| `store.commit_preparation` | Complete atomic invocation-admission transaction, including validation, writes and SQLite commit |
+| `store.fingerprint_atomic_admission` | Stream the complete canonical admission arguments into their digest |
+| `store.fingerprint_invocation` | Stream the complete canonical invocation specification into its digest |
+| `store.commit_decision` | Complete decision-adoption transaction, including validation, writes, accounting and SQLite commit |
+| `store.fingerprint_decision` | Stream all canonical decision changes, intents and identity fields into their digest |
 | `store.validate_capacity_chain` | Read and validate the exact historical settings receipt chain |
 | `store.open_connection` | Open SQLite, establish its schema/indexes and verify controlling metadata |
 | `store.try_recovery_owner` | Try to acquire the execution owner for normal opening recovery |
@@ -40,6 +45,8 @@ does not replace the operation's result.
 | `state.validate_exposure_pool` | Validate pooled manifests and index their exact typed-field uses |
 | `state.deserialize_borrowed` | Decode typed state from the borrowed stored body and validated references |
 | `runtime.validate_intake_state` | Validate retained intake episodes and bindings |
+| `runtime.render_preparation` | Assemble the prospective request from current state and pending history material |
+| `runtime.plan_response` | Stage response operations and context against current state, before later staging and adoption commit |
 | `state.serialize_expanded` | Build expanded JSON from typed state |
 | `state.pack_exposures` | Identify repeated exposures and build their retained pool |
 | `runtime.save` | Construct and commit a state object through the ordinary save path |
@@ -217,3 +224,19 @@ byte-buffer copy, cell accounting, physical encoding and database commit. Their
 successful completion does not prove a commit. General record encoding and
 other state processing remain separate; eliminating these repeated JSON-tree
 copies and serializations alone establishes no whole-session performance gain.
+
+Atomic admission, invocation-specification and decision fingerprints also stream
+complete canonical JSON directly into SHA-256. Their serializers borrow request
+and intent bodies, proposed stored objects and dependency references rather than
+building another owned JSON tree and a complete byte vector solely to hash them.
+All fields, the admission domain marker, array order, explicit nulls, numeric
+values and recursively sorted object keys retain their existing meanings.
+The structured serializers exhaustively name their fields so adding a field
+requires updating its canonical representation.
+
+These digests still bind the exact supplied transaction arguments. Current-state,
+revision, dependency, duplicate, reservation and terminal-evidence checks remain
+inside the same transactions. No cache or partial digest replaces them, and no
+application limit is introduced. The hashing phases measure this work separately
+from the enclosing commits; do not add their overlapping elapsed times. Actual
+latency, memory and whole-session effects require observation.

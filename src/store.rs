@@ -31,6 +31,7 @@ mod revision_storage;
 mod requester_feedback;
 mod session_journal;
 mod terminal_inspection;
+mod transaction_encoding;
 pub use capacity::CapacityExtensionRequest;
 pub use head_compaction::HeadCompactionRequest;
 pub(crate) use operator_inspection::RuntimeInspection;
@@ -2429,7 +2430,7 @@ impl Store {
         spec: InvocationSpec,
         terminal_slots: Vec<TerminalEvidenceReservation>,
     ) -> Result<(BatchReceipt, InvocationRecord)> {
-        self.transaction(|work| {
+        phase_timing::measure("store.commit_preparation", || self.transaction(|work| {
             work.id(&spec.id)?;
             work.batch_limit(
                 changes
@@ -2437,16 +2438,11 @@ impl Store {
                     .checked_add(terminal_slots.len())
                     .ok_or(StoreError::Overflow("atomic admission item count"))?,
             )?;
-            let admission_hash = fingerprint(
-                &(
-                    "atomic-invocation-admission-v1",
-                    expected_start_epoch,
-                    &changes,
-                    &spec,
-                    &terminal_slots,
-                ),
-                work.limits.max_page_bytes,
-            )?;
+            let admission_hash = phase_timing::measure("store.fingerprint_atomic_admission", || {
+                transaction_encoding::atomic_admission(
+                    expected_start_epoch, &changes, &spec, &terminal_slots,
+                )
+            })?;
             if work.cell("invocation", &spec.id)?.is_some() {
                 let invocation = work.prepare_invocation(spec, Some(admission_hash))?;
                 // The verified full fingerprint binds these original objects;
@@ -2493,7 +2489,7 @@ impl Store {
                 },
                 invocation,
             ))
-        })
+        }))
     }
 
     pub fn invocation(&mut self, id: &str) -> Result<InvocationRecord> {
@@ -2672,7 +2668,7 @@ impl Store {
         runtime_navigation: Option<u64>,
         scoped_state: Option<ObjectRef>,
     ) -> Result<DecisionRecord> {
-        self.transaction(|work| {
+        phase_timing::measure("store.commit_decision", || self.transaction(|work| {
             work.id(&decision.invocation_id)?;
             hash_valid(&decision.response_hash)?;
             work.batch_limit(
@@ -2682,7 +2678,9 @@ impl Store {
                     .checked_add(decision.intents.len())
                     .ok_or(StoreError::Overflow("decision item count"))?,
             )?;
-            let decision_hash = fingerprint(&decision, work.limits.max_page_bytes)?;
+            let decision_hash = phase_timing::measure("store.fingerprint_decision", || {
+                transaction_encoding::decision(&decision)
+            })?;
             if let Some(existing) =
                 work.get::<DecisionRecord>("decision", &decision.invocation_id)?
             {
@@ -2798,7 +2796,7 @@ impl Store {
                 )?;
             }
             Ok(record)
-        })
+        }))
     }
 
     pub fn intent(&mut self, id: &str) -> Result<IntentRecord> {
@@ -4282,7 +4280,9 @@ impl<'a> Work<'a> {
         atomic_admission_hash: Option<String>,
     ) -> Result<InvocationRecord> {
         self.id(&spec.id)?;
-        let prepare_hash = fingerprint(&spec, self.limits.max_page_bytes)?;
+        let prepare_hash = phase_timing::measure("store.fingerprint_invocation", || {
+            transaction_encoding::invocation(&spec)
+        })?;
         if let Some(record) = self.get::<InvocationRecord>("invocation", &spec.id)? {
             if record.prepare_hash != prepare_hash
                 || record.atomic_admission_hash != atomic_admission_hash

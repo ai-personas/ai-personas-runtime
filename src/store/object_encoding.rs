@@ -6,7 +6,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::io::{BufWriter, Write};
 
-struct CanonicalValue<'a>(&'a Value);
+pub(super) struct CanonicalValue<'a>(pub(super) &'a Value);
 
 impl Serialize for CanonicalValue<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
@@ -35,7 +35,7 @@ impl Serialize for CanonicalValue<'_> {
     }
 }
 
-struct CanonicalObject<'a>(&'a StoredObject);
+pub(super) struct CanonicalObject<'a>(pub(super) &'a StoredObject);
 
 impl Serialize for CanonicalObject<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
@@ -74,11 +74,16 @@ pub(super) fn encode(object: &StoredObject) -> Result<Vec<u8>> {
 }
 
 pub(super) fn fingerprint(object: &StoredObject) -> Result<String> {
+    fingerprint_serialized(&CanonicalObject(object))
+}
+
+/// The caller supplies a serializer that emits every field in canonical order.
+pub(super) fn fingerprint_serialized(value: &impl Serialize) -> Result<String> {
     let mut hash = Sha256::new();
     {
         // Buffer small JSON writes; this is not a record-size ceiling.
         let mut writer = BufWriter::new(HashWriter(&mut hash));
-        serde_json::to_writer(&mut writer, &CanonicalObject(object))?;
+        serde_json::to_writer(&mut writer, value)?;
         writer.flush()?;
     }
     Ok(hex::encode(hash.finalize()))

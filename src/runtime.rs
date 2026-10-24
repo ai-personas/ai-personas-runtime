@@ -4059,7 +4059,7 @@ impl Runtime {
             &request.work,
             now,
         );
-        let rendering = render_with_history(
+        let rendering = phase_timing::measure("runtime.render_preparation", || render_with_history(
             &state,
             &history_material,
             &request.persona,
@@ -4070,7 +4070,7 @@ impl Runtime {
             true,
             Some(navigation),
             launch_step_allowance.as_ref(),
-        );
+        ));
         let rendered = match rendering {
             Ok(rendered) => rendered,
             Err(error) => {
@@ -4396,7 +4396,7 @@ impl Runtime {
             observability::model_call_receipt(
                 &mut state, &prepared, &terminal_ref, &receipt, now,
             )?;
-            let (mut next, report, accepted_writes, intents) = plan_response(
+            let (mut next, report, accepted_writes, intents) = phase_timing::measure("runtime.plan_response", || plan_response(
                 state,
                 &prepared,
                 &decision,
@@ -4404,7 +4404,7 @@ impl Runtime {
                 accepted_epoch,
                 &mut planning_exposure,
                 &mut self.store,
-            )?;
+            ))?;
             // Proposal validation may consult current source restrictions beyond
             // the original request. Its failure remains conservatively private.
             let before_proposal = planning_exposure.clone();
