@@ -384,7 +384,7 @@ fn blocked_start(
     reason: &RuntimeError,
 ) -> Result<Value> {
     let record = json!({"trigger":request.id,"at_unix":now,"status":"blocked",
-        "reason":bounded_detail(&reason.to_string(),512),"episode_admitted":false});
+        "reason":reason.to_string(),"episode_admitted":false});
     let starts = &mut state
         .optional_activities
         .get_mut(opportunity)
