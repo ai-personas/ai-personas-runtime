@@ -310,6 +310,8 @@ Each dimension is described semantically in words. Initialization proposes the o
 
 Once accepted, the current character is authoritative. The historical seed is no longer continuing guidance. Later stable-character adoption is discretionary and must use the exact current base revision. An effective character change is fenced: the same response cannot also perform ordinary reads, work commands, replies, waits, or unrelated maintenance. A fresh decision is required under the adopted character.
 
+An ordinary character-only adoption retains the explicit participant resume that admitted its decision, as well as any still eligible prior ordinary continuation. This lets the required fresh decision address already resumed work without another operator resume. The permission remains bound to the actual admission and current work controls; initial handover and elapsed reconsideration retain their separate conditions. See [persona development](docs/persona-development.md).
+
 Current modeled affect is separate. An ordinary `affect_update` can set or clear a transient interpretation with explicit VAD words, source observations, and expiry. It does not change stable character, grant authority, choose work, or schedule a wake.
 
 ### 6.3 Fragments versus assets

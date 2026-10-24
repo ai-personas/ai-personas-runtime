@@ -125,6 +125,10 @@ lower-level targeted `resume` or `resume-work` control. It does not wake a stopp
 persona, remove a hold, recover uncertainty, add funding, accept for a human,
 change a mandate, force a character edit, or bypass a fresh-decision fence.
 The existing narrow initial-character handover remains runtime behavior.
+An ordinary character-only adoption also preserves the explicit participant
+resume that admitted its decision, so the required fresh decision can address
+the resumed work under the accepted character and current work controls. See
+[persona development](persona-development.md) for the distinct continuation routes.
 During a running session, a complete rejected decision may release its failed
 invocation under an earlier accepted ordinary continuation. A fresh admission
 receives the actual failure and records its usage without a session, work or

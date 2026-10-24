@@ -304,6 +304,16 @@ requires that persona's own selection or an authorized character adoption;
 retention alone does not add it to every later prompt. A permitted character
 adoption still requires a fresh decision before ordinary work continues.
 
+If an existing persona changes character in the decision admitted by an explicit
+participant resume, that same permission carries through the character-only
+adoption to the required fresh decision. The runtime retains its actual admission
+binding; it does not create another operator resume or accept the fenced response's
+proposed continuation. An earlier accepted ordinary continuation can also remain
+eligible. Initial character handover stays separate, and elapsed reconsideration
+does not acquire a recurring wake. Current work controls still apply: character
+adoption alone cannot reopen cancelled work or resume a stopped participant that
+had no explicit resume permission.
+
 Inspect later actions and their consequences separately. Full-body supply shows
 what the model received, not what caused its decision or whether its behavior
 improved. Missing or inaccessible evidence remains unavailable.
