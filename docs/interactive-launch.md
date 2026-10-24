@@ -141,8 +141,10 @@ it does not reject those inputs or replace their stored content.
 Text validation reports invalid input rather than obsolete size-limit errors.
 Pause and unresolved-execution messages no longer suggest quota extensions.
 
-Select an existing directory containing the four current Rust helpers, or build
-this checkout with locked Cargo dependencies. Relative paths and directory or
+Press Enter to select the first listed installation containing the four current
+Rust helpers, select another directory, or build this checkout with locked Cargo
+dependencies. The first choice prefers the installation on PATH, then this
+checkout's release build, then its debug build. Relative paths and directory or
 executable aliases are accepted. Helper selection has no byte-size, ownership or
 permission-mode policy; actual filesystem access still applies. Selected binaries are
 pinned by exact path and SHA-256; changed binaries stop the flow rather than
@@ -164,8 +166,11 @@ The shell launcher selects the first available Python 3.9+ from supported versio
 
 Choose a fresh runtime or explicitly select an existing private one and its
 operator. Fresh-runtime setup offers **an existing Codex ChatGPT login** or
-**native SIWC browser sign-in**. For Codex, select its executable and existing home
-directories; the native helper reads authentication status and returns only
+**native SIWC browser sign-in**. The Codex choice shows the executable on PATH
+and current home/state directories together; Enter uses these locations without
+three further path prompts. Choose **p** to enter other locations. If the displayed
+locations are unavailable, the launcher asks for the existing installation to use.
+The native helper reads authentication status and returns only
 account-bound settings. It starts no persona or model call. Other saved provider modes retain their explicit CLI paths; the menu
 does not convert provider modes or switch billing accounts.
 

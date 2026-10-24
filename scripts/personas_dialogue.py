@@ -856,7 +856,8 @@ class Helpers:
         for i, folder in enumerate(candidates, 1):
             self.ui.say(f"{i}: existing helpers in {folder}")
         self.ui.say("b: build this checkout with Cargo; p: select an existing helper directory; q: leave")
-        choice = self.ui.ask("Installation choice:").strip().lower()
+        prompt = "Installation choice [1]:" if candidates else "Installation choice:"
+        choice = self.ui.ask(prompt).strip().lower() or ("1" if candidates else "")
         if choice.isdecimal() and 1 <= int(choice) <= len(candidates):
             self.adopt(candidates[int(choice) - 1])
         elif choice == "p":
@@ -1226,10 +1227,16 @@ class Dialogue:
     def bootstrap(self):
         if self.p["bootstrap"] is None:
             if self.p["codex_auth"] is None and self.p["vault"] is None:
-                self.ui.say("Sign in: c: use an existing Codex ChatGPT login; n: native browser sign-in.")
+                defaults = self.codex_auth_defaults()
+                self.ui.say("Sign in: c: use the existing Codex ChatGPT login shown below; "
+                            "p: choose other Codex locations; n: native browser sign-in.")
+                self.ui.say(f"Codex: {defaults['executable'] or 'not found on PATH'}; "
+                            f"home: {defaults['host_home']}; state: {defaults['codex_home']}.")
                 choice = self.ui.ask("Account route [c]:").strip().lower() or "c"
                 if choice == "c":
-                    self.codex_auth_source()
+                    self.codex_auth_source(use_defaults=True)
+                elif choice == "p":
+                    self.codex_auth_source(change=True)
                 elif choice == "n":
                     self.account()
                 else:
@@ -1933,25 +1940,35 @@ class Dialogue:
             return "participants stopped; review their results"
         return "no participant ready to continue"
 
-    def codex_auth_source(self, change=False):
+    def codex_auth_defaults(self):
+        previous = self.p["codex_auth"] or {}
+        host_home = previous.get("host_home") or os.environ.get("HOME", "")
+        return {"executable": previous.get("executable") or shutil.which("codex") or "",
+                "host_home": host_home,
+                "codex_home": previous.get("codex_home") or os.environ.get("CODEX_HOME")
+                              or str(Path(host_home) / ".codex")}
+
+    def codex_auth_source(self, change=False, use_defaults=False):
         if self.p["codex_auth"] is None or change:
-            previous = self.p["codex_auth"] or {}
-            default = previous.get("executable") or shutil.which("codex") or ""
-            executable = self.ui.ask(f"Trusted Codex executable (authentication only) [{default}]:").strip() or default
-            default_home = previous.get("host_home") or os.environ.get("HOME", "")
-            host_home = self.ui.ask(f"Home directory to give that Codex process [{default_home}]:").strip() or default_home
-            default_state = previous.get("codex_home") or os.environ.get("CODEX_HOME") or str(Path(host_home) / ".codex")
-            codex_home = self.ui.ask(f"Existing Codex state directory [{default_state}]:").strip() or default_state
-            paths = {"executable": executable, "host_home": host_home, "codex_home": codex_home}
-            require(all(path and "\0" not in path for path in paths.values()), "invalid_codex_auth_paths")
+            paths = self.codex_auth_defaults()
+            if not use_defaults:
+                paths["executable"] = self.ui.ask(f"Trusted Codex executable (authentication only) [{paths['executable']}]:").strip() or paths["executable"]
+                paths["host_home"] = self.ui.ask(f"Home directory to give that Codex process [{paths['host_home']}]:").strip() or paths["host_home"]
+                if self.p["codex_auth"] is None and not os.environ.get("CODEX_HOME"):
+                    paths["codex_home"] = str(Path(paths["host_home"]) / ".codex")
+                paths["codex_home"] = self.ui.ask(f"Existing Codex state directory [{paths['codex_home']}]:").strip() or paths["codex_home"]
             try:
+                require(all(path and "\0" not in path for path in paths.values()), "invalid_codex_auth_paths")
                 paths = {name: str(Path(path).resolve(strict=True)) for name, path in paths.items()}
-            except (OSError, RuntimeError):
+                require(valid_codex_paths(paths), "invalid_codex_auth_paths")
+                require(Path(paths["executable"]).is_file() and os.access(paths["executable"], os.X_OK)
+                        and Path(paths["host_home"]).is_dir() and Path(paths["codex_home"]).is_dir(),
+                        "codex_auth_source_unavailable")
+            except (Blocked, OSError, RuntimeError):
+                if use_defaults:
+                    self.ui.say("The displayed Codex locations are unavailable. Select the existing installation and login to use.")
+                    return self.codex_auth_source(change=True)
                 raise Blocked("codex_auth_source_unavailable") from None
-            require(valid_codex_paths(paths), "invalid_codex_auth_paths")
-            require(Path(paths["executable"]).is_file() and os.access(paths["executable"], os.X_OK)
-                    and Path(paths["host_home"]).is_dir() and Path(paths["codex_home"]).is_dir(),
-                    "codex_auth_source_unavailable")
             self.p["codex_auth"] = paths
             self.j.save()
             self.ui.say("Saved these locations. No authentication request or model call was made.")
