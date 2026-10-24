@@ -120,6 +120,12 @@ pub enum Maintenance {
     /// Nonempty exact-once IDs of this scope's file mutations, warnings and maintenance
     /// dispositions; character_adopt belongs to fragments. Excludes other operations.
     Change {
+        /// Explain what changes and why. For every new or revised fragment or
+        /// asset, state its intended file/path and how to find it again, using
+        /// useful literal search terms or regex cues. Keep or update useful cues
+        /// in authored text or an index where appropriate. Preserve imported
+        /// bytes; explain their discovery cues here or in a separate authored note.
+        /// These are your authored judgments, not host-verified usefulness claims.
         reason: String,
         operation_ids: Vec<String>,
     },

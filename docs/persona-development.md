@@ -112,6 +112,12 @@ context selection or change accepted character. Review those choices explicitly.
 Native paths do not move or write host files; use host commands for host files.
 
 Keep useful discovery cues in the maintained text and choose a descriptive path.
+The ordinary maintenance `change.reason` also explains each new or revised
+fragment or asset's intended file/path and useful literal terms or regex cues
+for finding it again. This includes the initial own-voice files. Imported bytes
+remain unchanged; their cues can be explained in that reason or a separate
+authored note. The runtime retains these explanations as persona judgments and
+does not claim to verify their relevance or invent a discovery plan.
 Preserve the distinction between earlier evidence and current conclusions when
 combining notes. Source identity stays stable across revisions and path changes;
 an old exact reference continues to name the earlier revision. Select the new
