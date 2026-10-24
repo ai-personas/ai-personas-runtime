@@ -158,6 +158,8 @@ still performs expanded serialization and exposure packing, with the same phase
 names, complete fields, pool identities and reference locations. General
 serialization delegates to that constructor before writing to its requested
 serializer; stored-object consumers take ownership of the constructed value.
+Creation and atomic bootstrap release the temporary typed State once that value
+has been constructed, before entering the Store transaction.
 
 This removes a redundant value traversal and allocation, not the retained
 history, Store cloning or distinct constructions required by later transactions.

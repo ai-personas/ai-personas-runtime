@@ -929,58 +929,41 @@ pub struct Exposure {
     pub sources: Vec<f::Reference>,
     pub policies: Vec<ScopedPolicy>,
 }
-// Failure diagnostics are derived output too. Keep a bounded private manifest
-// independently of the candidate State so rollback cannot erase its restrictions.
+// Failure diagnostics are derived output too. Keep their complete private
+// provenance independently of candidate State so rollback cannot erase it.
 #[derive(Clone)]
 struct PlanningExposure {
     // The complete original request is already durably retained. Refer to its
     // exact bytes instead of copying that potentially large manifest into the
-    // separately bounded failure record. Only newly consulted restrictions
-    // consume the additional manifest allowance.
+    // failure record. Retain every newly consulted source and policy once.
     admitted: Option<Exposure>,
     exposure: Option<Exposure>,
-    remaining_bytes: usize,
 }
 impl PlanningExposure {
     fn new(exposure: Option<&Exposure>) -> Self {
-        // Leave room for exact request/terminal bindings and a typed diagnostic
-        // within Store's unchanged 4096-byte rejection-context cap.
         Self {
             admitted: exposure.cloned(),
             exposure: exposure.map(|_| Exposure::default()),
-            remaining_bytes: 3200,
         }
     }
     fn include(&mut self, exposure: &Exposure) {
         let Some(retained) = self.exposure.as_mut() else {
             return;
         };
-        // Count each distinct component once, before cloning it. Repeated
-        // overlapping consulted views neither repeatedly serialize the growing
-        // union nor allocate an oversized failure manifest.
+        // Keep each distinct component once. Overlapping consulted views do not
+        // duplicate the retained union or serialize it before persistence.
         for source in &exposure.sources {
             if !self.admitted.as_ref().is_some_and(|base| base.sources.contains(source))
                 && !retained.sources.contains(source) {
-                if !Self::charge_component(&mut self.remaining_bytes, source) {
-                    self.unknown();
-                    return;
-                }
                 retained.sources.push(source.clone());
             }
         }
         for policy in &exposure.policies {
             if !self.admitted.as_ref().is_some_and(|base| base.policies.contains(policy))
                 && !retained.policies.contains(policy) {
-                if !Self::charge_component(&mut self.remaining_bytes, policy) {
-                    self.unknown();
-                    return;
-                }
                 retained.policies.push(policy.clone());
             }
         }
-    }
-    fn charge_component<T: Serialize>(_historical_remaining: &mut usize, value: &T) -> bool {
-        serde_json::to_writer(std::io::sink(), value).is_ok()
     }
     fn unknown(&mut self) {
         self.exposure = None;
@@ -1001,10 +984,9 @@ impl PlanningExposure {
         let Some(request_sha256) = invocation.request.as_ref().and_then(|request| digest(request).ok()) else {
             return json!({"kind":"unknown"});
         };
-        let value = json!({"kind":"known_admitted_v1", "terminal_sha256":terminal_sha256,
+        json!({"kind":"known_admitted_v1", "terminal_sha256":terminal_sha256,
             "request_sha256":request_sha256,"additional_exposure":additional_exposure,
-            "diagnostic":diagnostic});
-        value
+            "diagnostic":diagnostic})
     }
 }
 
@@ -2815,13 +2797,13 @@ impl Runtime {
         if store.read(STATE_ID)?.is_some() {
             return Err(invalid("state already initialized"));
         }
-        let state = initial_state(config, operator);
+        let body = state_storage::to_value(&initial_state(config, operator))?;
         store.trusted_host().initialize_runtime_state(
             s::StoredObject {
                 id: STATE_ID.into(),
                 revision: 1,
                 kind: "runtime-state".into(),
-                body: state_storage::to_value(&state)?,
+                body,
             },
             operator,
         )?;

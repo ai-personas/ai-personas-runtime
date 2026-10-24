@@ -129,6 +129,7 @@ fn apply_with(
         kind: "runtime-state".into(),
         body: state_storage::to_value(&state)?,
     };
+    drop(state);
     let launch = s::StoredObject {
         id: ID.into(),
         revision: 1,

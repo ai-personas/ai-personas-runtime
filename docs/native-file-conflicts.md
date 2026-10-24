@@ -31,14 +31,16 @@ execute corrected writes.
 
 Within an already authorized foreground run, an unchanged accepted ordinary
 continuation can allow the failed invocation to retire and a fresh decision to
-receive the correction. The new admission spends the remaining session and work
-allowances. An initial-character failure, authored stop, consumed timed
+receive the correction. The new admission records actual usage without a session,
+work or failure-context quota. An initial-character failure, authored stop, consumed timed
 opportunity, cancellation or incomplete transport gains no continuation.
 
 The diagnostic retains exact request and terminal bindings and the relevant
-accepted-source lineage within the existing failure-context byte limit. If that
-lineage or bounded context cannot be established, the failure keeps its ordinary
-recovery path. Older failures are not reclassified. Source availability is
+accepted-source lineage in full. The admitted request is referenced by its exact
+digest; newly consulted sources and policies are retained once each. Unknown
+lineage remains explicitly unknown, independently of its size. Rejection, its
+receipt and the complete provenance commit together; persistence failure rolls
+them back together. Older failures are not reclassified. Source availability is
 checked again when supplying the observation.
 
 Native files are separate from host filesystem files. Personas continue to have

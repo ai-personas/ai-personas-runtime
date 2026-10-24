@@ -48,7 +48,6 @@ const CELL_ENVELOPE: u64 = 128;
 const INVOCATION_EVENTS: u64 = 8;
 const INTENT_EVENTS: u64 = 6;
 const RESERVATION_EVENTS: u64 = 4;
-const MAX_RUNTIME_FAILURE_CONTEXT_BYTES: u64 = 4096;
 const RUNTIME_PLANNING_STARTED: &str =
     "Runtime planning envelope claimed once; completion not established";
 pub(crate) const RUNTIME_CONTROL_STATE_ID: &str = "runtime-state-v1";
@@ -1105,20 +1104,14 @@ impl TrustedHost<'_> {
         })
     }
 
-    /// Retain bounded failure provenance atomically with local rejection. The
+    /// Retain complete failure provenance atomically with local rejection. The
     /// opaque context is not an authority token or a replacement terminal body.
-    /// Oversized context becomes explicitly unknown; reserved capacity never grows.
     pub(crate) fn reject_runtime_invocation(
         &mut self,
         id: &str,
         reason: &str,
         context: Value,
     ) -> Result<Receipt> {
-        let context = if encode(&context, MAX_RUNTIME_FAILURE_CONTEXT_BYTES).is_ok() {
-            context
-        } else {
-            serde_json::json!({"kind":"unknown"})
-        };
         self.store
             .transaction(|work| work.reject_invocation(id, reason, Some(context)))
     }
@@ -4566,20 +4559,8 @@ impl<'a> Work<'a> {
             None,
         )?;
         record.history.push(receipt.clone());
-        if record.runtime_failure_context.is_some() {
-            let capacity = self
-                .cell("invocation", id)?
-                .ok_or_else(|| StoreError::Missing(id.into()))?
-                .capacity;
-            if matches!(
-                encode(&record, capacity),
-                Err(StoreError::TooLarge | StoreError::SerializationByteBound { .. })
-            ) {
-                record.runtime_failure_context = Some(serde_json::json!({"kind":"unknown"}));
-            }
-        }
-        // If even the small unknown marker cannot fit, rejection and its receipt
-        // both roll back. Recovery must never see Failed without its provenance.
+        // Serialize and account for the complete record in the same transaction.
+        // A persistence failure rolls back rejection and its receipt together.
         self.update("invocation", id, &record)?;
         Ok(receipt)
     }
