@@ -6481,23 +6481,25 @@ fn attributed_context(
     Ok(serde_json::to_string(&value)?)
 }
 fn corpus(state: &State, a: &f::Admission) -> Result<f::Corpus> {
-    let records = state
-        .sources
-        .values()
-        .flat_map(|s| s.revisions.iter())
-        .filter(|r| lineage_permitted(state, &[r.record.reference(f::Representation::Utf8)], a))
-        .map(|r| r.record.clone())
-        .collect::<Vec<_>>();
-    let mut bindings = state.accepted_bindings.clone();
-    bindings.extend(tools::result_bindings(state, &records)?);
-    Ok(f::Corpus::from_shared_revisions(
-        records,
-        state.config.policies.clone(),
-        state.config.corpus.clone(),
-    )?
-    .with_bindings(bindings)?
-    .with_retired_sources(state.sources.iter().filter(|(_, source)| source.retired)
-        .map(|(id, _)| id.clone()).collect()))
+    phase_timing::measure("runtime.build_corpus", || {
+        let records = state
+            .sources
+            .values()
+            .flat_map(|s| s.revisions.iter())
+            .filter(|r| lineage_permitted(state, &[r.record.reference(f::Representation::Utf8)], a))
+            .map(|r| r.record.clone())
+            .collect::<Vec<_>>();
+        let mut bindings = state.accepted_bindings.clone();
+        bindings.extend(tools::result_bindings(state, &records)?);
+        Ok(f::Corpus::from_shared_revisions(
+            records,
+            state.config.policies.clone(),
+            state.config.corpus.clone(),
+        )?
+        .with_bindings(bindings)?
+        .with_retired_sources(state.sources.iter().filter(|(_, source)| source.retired)
+            .map(|(id, _)| id.clone()).collect()))
+    })
 }
 fn validate_inventory(state: &State) -> Result<()> {
     f::Corpus::from_shared_revisions(
@@ -7547,7 +7549,9 @@ fn render_mode_with_history(
         let total = total_size(&prompt)?;
         Ok((prompt, encoded.encoding, total))
     };
-    let corpus = corpus(state, &a)?;
+    // This render borrows one immutable state and admission. Reuse the corpus
+    // already validated for observations and selected-context metadata.
+    let corpus = observation_corpus;
     let character = launch::persona_birth::mandatory_references(persona)?;
     let mut roots = BundleRoots {
         mandatory: character.clone(),
@@ -7591,22 +7595,8 @@ fn render_mode_with_history(
     }
     let mandatory_work_capability = core["work_capability"].clone();
     let (_, _, mut mandatory_total) = render_prompt(&core, &mandatory_context, false)?;
-    let assembly = f::assemble(
-        &corpus,
-        &character,
-        &fragments
-            .iter()
-            .map(|s| file_reference(&s.reference))
-            .collect::<Result<Vec<_>>>()?,
-        &assets
-            .iter()
-            .map(|s| file_reference(&s.reference))
-            .collect::<Result<Vec<_>>>()?,
-        &a,
-        usize::MAX,
-        0,
-        0,
-    )?;
+    // Metadata and supplied context use the same complete qualified assembly.
+    let assembly = metadata_context;
     let ordinary_context = render_bundle(&assembly)?;
     let mut complete_bodies = supplied_bodies.clone();
     complete_bodies.extend(assembly.entries.iter().map(|e| e.reference.clone()));

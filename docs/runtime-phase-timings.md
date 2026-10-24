@@ -45,6 +45,7 @@ does not replace the operation's result.
 | `state.validate_exposure_pool` | Validate pooled manifests and index their exact typed-field uses |
 | `state.deserialize_borrowed` | Decode typed state from the borrowed stored body and validated references |
 | `runtime.validate_intake_state` | Validate retained intake episodes and bindings |
+| `runtime.build_corpus` | Construct and validate a complete corpus view from one current state and admission |
 | `runtime.render_preparation` | Assemble the prospective request from current state and pending history material |
 | `runtime.plan_response` | Stage response operations and context against current state, before later staging and adoption commit |
 | `state.serialize_expanded` | Build expanded JSON from typed state |
@@ -240,3 +241,12 @@ inside the same transactions. No cache or partial digest replaces them, and no
 application limit is introduced. The hashing phases measure this work separately
 from the enclosing commits; do not add their overlapping elapsed times. Actual
 latency, memory and whole-session effects require observation.
+
+One prompt render borrows an immutable state and admission. Observation projection,
+selected-file metadata and final context assembly reuse that render's validated
+corpus. The complete selected assembly already used for metadata also supplies
+the final selected context, with the same mandatory roots, optional selections,
+order and qualifications. The separate mandatory-only assembly still measures
+mandatory context. Reuse ends with the render; a later render constructs and
+validates its own corpus against its actual state. It does not reuse a result
+across changed state, suppress a selected body or create a persistent cache.

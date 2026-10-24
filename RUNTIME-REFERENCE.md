@@ -1,6 +1,6 @@
 # AI Personas Runtime — Operator Reference
 
-This reference describes the current operator-facing runtime. The [design requirements](https://github.com/ai-personas/ai-personas-design/blob/56669587247b691715082fdc0f7af55bba6873c3/USER-REQUIREMENTS.md) define the intended product; the remaining implementation gaps are listed below.
+This reference describes the current operator-facing runtime. The [design requirements](https://github.com/ai-personas/ai-personas-design/blob/5ef27cf6e99dd5b7793e6f10746d9b8134e0a761/USER-REQUIREMENTS.md) define the intended product; the remaining implementation gaps are listed below.
 
 The current requirement is unrestricted application execution. Saved quotas, budgets, allowances, participant lists, requester lists, allowed-child lists, initial-recipient lists, creation counts, expiry values, and historical resource allocations remain attributable metadata, but they are not current application gates in this revision. Exact identities, current state references, accepted responsibility, personal consent, actual credentials, operation schemas, durable intent records, complete responses, Stop and Pause, and real host or provider outcomes still matter.
 
