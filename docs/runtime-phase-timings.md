@@ -177,6 +177,16 @@ adoption checks keep their fresh reads and exact-reference checks. This shortens
 temporary lifetimes; it does not share a mutable state snapshot across calls or
 change supplied context. Whole-session memory effects still require observation.
 
+Source-lineage manifests also share immutable ownership when a State, prepared
+request or retained record is cloned. Their complete source and policy lists
+remain available through `Exposure`; the first mutable access to a shared
+manifest copies its contents before editing. An edit in a candidate therefore
+cannot change the original state or another record sharing that manifest.
+Serialization still writes the complete `sources`/`policies` object, with the
+existing storage pool applied afterward. Decoding distinct stored uses still
+constructs their own manifests; this change avoids copying them during later
+clones, without a persistent cache, source omission or new reference format.
+
 Runtime creation, atomic launch bootstrap and later state-object construction
 take the packed JSON value directly from the same constructor used by State's
 general serialization adapter. They do not serialize an already packed value

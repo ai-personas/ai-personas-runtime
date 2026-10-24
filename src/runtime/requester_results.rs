@@ -79,10 +79,10 @@ pub(super) fn delivery_notice(
     let mut exposure = prepared_exposure(prepared)?.clone();
     extend_exposure(
         &mut exposure,
-        &Exposure {
-            sources: roots.clone(),
-            policies: Vec::new(),
-        },
+        &Exposure::new(
+            roots.clone(),
+            Vec::new(),
+        ),
     );
     let mut sources = prepared.sources.clone();
     sources.extend(roots);

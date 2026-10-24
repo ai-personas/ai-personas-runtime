@@ -276,15 +276,15 @@ fn plan(
         &request.request,
         request.require_acceptance,
     )?;
-    let exposure = Exposure {
-        sources: Vec::new(),
-        policies: vec![scoped_policy(
+    let exposure = Exposure::new(
+        Vec::new(),
+        vec![scoped_policy(
             "work-need",
             &input.id,
             &digest(&input)?,
             current_policy(&state, &input.policy_id)?,
         )],
-    };
+    );
     let mut next = intake::construct_host_need(
         &state,
         &saved.operator,

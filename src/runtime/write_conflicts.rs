@@ -67,14 +67,14 @@ pub(super) fn stale_base(
         {
             return None;
         }
-        let roots = Exposure {
-            sources: vec![f::Reference::full(
+        let roots = Exposure::new(
+            vec![f::Reference::full(
                 source,
                 &current.head,
                 f::Representation::Utf8,
             )],
-            policies: Vec::new(),
-        };
+            Vec::new(),
+        );
         Some(NativeWriteConflict {
             diagnostic: Diagnostic::StaleBase {
                 source: source.clone(),

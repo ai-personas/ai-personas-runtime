@@ -156,15 +156,15 @@ fn grant_owned(
     )?;
     request.per_episode.require_within_config(&state.config)?;
     let policy = current_policy(&state, &request.policy_id)?;
-    let mut exposure = Exposure {
-        sources: Vec::new(),
-        policies: vec![scoped_policy(
+    let mut exposure = Exposure::new(
+        Vec::new(),
+        vec![scoped_policy(
             "optional-activity",
             &request.id,
             &digest(request)?,
             policy,
         )],
-    };
+    );
     for reference in &request.sources {
         require(
             reference.lifetime.is_none(),

@@ -462,10 +462,10 @@ impl<'a> Permissions<'a> {
         }
         let subject = self.state.work_meta[work].artifact_sources.get(&key);
         let exposure = match subject {
-            Some(subject) => self.exposure(&Exposure {
-                sources: vec![file_reference(subject)?],
-                policies: vec![],
-            }),
+            Some(subject) => self.exposure(&Exposure::new(
+                vec![file_reference(subject)?],
+                vec![],
+            )),
             None => None,
         };
         self.artifact_cache

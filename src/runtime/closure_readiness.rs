@@ -466,10 +466,10 @@ pub(super) fn record(
             .artifact_sources
             .get(&digest(&key)?)
             .ok_or_else(|| held("closure evidence unavailable"))?;
-        let artifact = Exposure {
-            sources: vec![file_reference(subject)?],
-            policies: Vec::new(),
-        };
+        let artifact = Exposure::new(
+            vec![file_reference(subject)?],
+            Vec::new(),
+        );
         let artifact = permitted_exposure(state, &artifact, a)
             .ok_or_else(|| held("closure evidence unavailable"))?;
         extend_exposure(&mut consulted, &artifact);

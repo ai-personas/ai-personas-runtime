@@ -38,6 +38,8 @@ pub mod launch;
 pub use launch::step_accounting::LaunchStepAllowance;
 mod stakeholder;
 mod state_storage;
+mod exposure;
+pub use exposure::{Exposure, ExposureManifest};
 use crate::phase_timing;
 mod tools;
 mod effect_interfaces;
@@ -920,12 +922,6 @@ pub struct ScopedPolicy {
     pub source: String,
     pub revision: String,
     pub policy: f::Policy,
-}
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Exposure {
-    pub sources: Vec<f::Reference>,
-    pub policies: Vec<ScopedPolicy>,
 }
 // Failure diagnostics are derived output too. Keep their complete private
 // provenance independently of candidate State so rollback cannot erase it.
@@ -3081,15 +3077,15 @@ impl Runtime {
             format!("operator-import:{operator}"),
         )?;
         let voice = file_reference(&character.own_voice[0])?;
-        character.exposure = Some(Exposure {
-            sources: vec![voice.clone()],
-            policies: vec![scoped_policy(
+        character.exposure = Some(Exposure::new(
+            vec![voice.clone()],
+            vec![scoped_policy(
                 "operator-profile",
                 &actor,
                 &character.revision,
                 &record(&state, &voice)?.record.policy,
             )],
-        });
+        ));
         state.personas.get_mut(&actor).unwrap().character = Some(character);
         // Imports must satisfy the same all-retained corpus bound as file writes,
         // before a permission-filtered view can hide an over-limit peer source.
@@ -3235,15 +3231,15 @@ impl Runtime {
             None => WorkAllocation::configured(&state.config),
         };
         let policy = current_policy(&state, &input.policy_id)?.clone();
-        let mut need_exposure = Exposure {
-            sources: Vec::new(),
-            policies: vec![scoped_policy(
+        let mut need_exposure = Exposure::new(
+            Vec::new(),
+            vec![scoped_policy(
                 "work-need",
                 &input.id,
                 &digest(&input)?,
                 &policy,
             )],
-        };
+        );
         let mut authored_origin = None;
         let origin = match &input.origin {
             NeedOrigin::Human => w::Origin::Human(operator.into()),
@@ -6311,15 +6307,15 @@ fn work_exposure(state: &State, work: &str) -> Result<Exposure> {
         matches!(&meta.original.origin, NeedOrigin::Human),
         "legacy persona-origin work has unknown lineage",
     )?;
-    Ok(Exposure {
-        sources: Vec::new(),
-        policies: vec![scoped_policy(
+    Ok(Exposure::new(
+        Vec::new(),
+        vec![scoped_policy(
             "work-need",
             work,
             &digest(&meta.original)?,
             current_policy(state, &meta.original.policy_id)?,
         )],
-    })
+    ))
 }
 fn character_exposure(character: &Character) -> Result<Exposure> {
     if let Some(exposure) = &character.exposure {
@@ -6329,14 +6325,14 @@ fn character_exposure(character: &Character) -> Result<Exposure> {
         character.attribution.starts_with("operator-import:"),
         "legacy authored character has unknown lineage",
     )?;
-    Ok(Exposure {
-        sources: character
+    Ok(Exposure::new(
+        character
             .own_voice
             .iter()
             .map(file_reference)
             .collect::<Result<_>>()?,
-        policies: Vec::new(),
-    })
+        Vec::new(),
+    ))
 }
 fn expanded_exposure(state: &State, input: &Exposure) -> Result<Exposure> {
     trace_exposure::<true>(state, &input.sources, &input.policies)
@@ -6352,10 +6348,10 @@ fn trace_exposure<const RETAIN: bool>(
     // The visited set is the complete final source list. Do not repeatedly
     // merge and sort an intermediate list that would be replaced at the end.
     // Validation follows every edge but needs no returned sources or policies.
-    let mut result = Exposure {
-        sources: Vec::new(),
-        policies: if RETAIN { policies.to_vec() } else { Vec::new() },
-    };
+    let mut result = Exposure::new(
+        Vec::new(),
+        if RETAIN { policies.to_vec() } else { Vec::new() },
+    );
     let mut pending = sources.to_vec();
     let mut seen = BTreeSet::new();
     while let Some(reference) = pending.pop() {
@@ -7114,10 +7110,10 @@ fn render_mode_with_history(
             continue;
         };
         let reference = file_reference(subject)?;
-        let inherited = Exposure {
-            sources: vec![reference.clone()],
-            policies: Vec::new(),
-        };
+        let inherited = Exposure::new(
+            vec![reference.clone()],
+            Vec::new(),
+        );
         if !exposure_permitted(state, &inherited, &a) {
             continue;
         }
@@ -8854,10 +8850,10 @@ fn plan_response(
                     let resource_exposure = if resolved_resource_limit {
                         match expanded_exposure(
                             &state,
-                            &Exposure {
-                                sources: vec![reference.clone()],
-                                policies: Vec::new(),
-                            },
+                            &Exposure::new(
+                                vec![reference.clone()],
+                                Vec::new(),
+                            ),
                         ) {
                             Ok(exposure) => Some(exposure),
                             Err(_) => {

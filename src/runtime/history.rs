@@ -332,10 +332,10 @@ fn message_exposure(
     let mut exposure = message.exposure.as_ref()?.clone();
     extend_exposure(
         &mut exposure,
-        &Exposure {
-            sources: message.lineage.clone(),
-            policies: Vec::new(),
-        },
+        &Exposure::new(
+            message.lineage.clone(),
+            Vec::new(),
+        ),
     );
     permissions.exposure(&exposure)
 }

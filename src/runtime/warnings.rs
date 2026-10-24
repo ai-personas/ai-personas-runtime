@@ -115,10 +115,10 @@ pub(super) fn confidentiality(state: &State, input: &Exposure) -> Result<Exposur
 fn trace_confidentiality<const RETAIN: bool>(state: &State, input: &Exposure) -> Result<Exposure> {
     // Sources come from the completed traversal, while policy order preserves
     // the input followed by the same first-seen inherited records.
-    let mut result = Exposure {
-        sources: Vec::new(),
-        policies: if RETAIN { input.policies.clone() } else { Vec::new() },
-    };
+    let mut result = Exposure::new(
+        Vec::new(),
+        if RETAIN { input.policies.clone() } else { Vec::new() },
+    );
     let mut pending = input.sources.clone();
     let mut seen = BTreeSet::new();
     while let Some(reference) = pending.pop() {
@@ -370,10 +370,10 @@ fn author(
     check_output_policy(
         state,
         policy,
-        &Exposure {
-            sources: Vec::new(),
-            policies: exposure.policies.clone(),
-        },
+        &Exposure::new(
+            Vec::new(),
+            exposure.policies.clone(),
+        ),
         &admission(persona, now),
     )?;
     let work = state
