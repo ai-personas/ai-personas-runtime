@@ -1,4 +1,23 @@
-# SIWC provider configuration and optional checks
+# Provider configuration and optional checks
+
+For an existing Codex ChatGPT login, the launcher uses:
+
+```sh
+personas-provider configure-codex \
+  --codex-executable /absolute/path/to/codex \
+  --host-home /absolute/home --codex-home /absolute/codex/state \
+  --model MODEL --effort EFFORT
+```
+
+This authentication-only operation uses the selected Codex app-server and returns
+`chatgpt_oauth` settings with an ephemeral credential reference, account fingerprint
+and expiry snapshot. No bearer token enters the response or launcher journal.
+No catalogue, inference or model capability check is performed. Subsequent
+persona calls use the runtime's direct provider transport and verify the same
+account against each actual authentication result. If the login is unavailable,
+sign in through the selected Codex installation before continuing.
+
+## Native SIWC
 
 This backend generates native `DirectSettings` from an explicit model/effort
 choice and the selected account's actual credential binding. Catalogue discovery

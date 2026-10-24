@@ -12,12 +12,15 @@ From this checkout:
 ./personas
 ```
 
-Follow the sign-in and setup prompts. You need Unix, Python 3.9+, eligible Sign in with ChatGPT access, a same-host browser and network. Builds also need Rust/Cargo 1.88+ and a native compiler/linker. Account usage may be charged.
+Follow the sign-in and setup prompts. Use an existing Codex ChatGPT login or native Sign in with ChatGPT. You need Unix, Python 3.9+ and network access; native sign-in also needs eligible access and a same-host browser. Builds need Rust/Cargo 1.88+ and a native compiler/linker. Account usage may be charged.
 
 Choose each persona's name and starting traits during setup. Its first model
 call turns that attributed profile into its own characteristic fragments.
+Use one model for everyone or choose each persona's exact model and effort.
+Task files default to a workspace beside the launcher's private journal; setup
+also accepts your own working directory.
 
-[Launch help](docs/interactive-launch.md) · [Canonical design](https://github.com/ai-personas/ai-personas-design/tree/423b434e77d8af687ea85dbb137a6b42f72a2ec4) · [Developer details](RUNTIME-REFERENCE.md)
+[Launch help](docs/interactive-launch.md) · [Canonical design](https://github.com/ai-personas/ai-personas-design) · [Developer details](RUNTIME-REFERENCE.md)
 
 Choose a saved work in the launcher to read results, give feedback, answer shared
 questions or inspect a persona's development. These actions do not start a model

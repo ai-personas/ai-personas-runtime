@@ -147,10 +147,10 @@ and physical disk are not hard-bounded by the UI.
 The shell launcher selects the first available Python 3.9+ from supported versioned names, then checks Linux memfd sealing and procfs descriptor support before starting the UI. If none qualifies, it prints an actionable host-prerequisite message; it does not install software or fall back to pathname execution. Missing Rust 1.88+, Cargo, compiler/linker requires installation; no sudo, arbitrary installer, privilege bypass, Codex CLI or coding-agent fallback is used.
 
 Choose a fresh runtime or explicitly select an existing private one and its
-operator. Existing runtime access is an operator inspection grant, not a new
-sharing policy. Fresh-runtime setup supports **native SIWC**. Existing runtimes
-configured for the Codex auth-only ChatGPT OAuth route can also continue from the
-work menu. Other saved provider modes retain their explicit CLI paths; the menu
+operator. Fresh-runtime setup offers **an existing Codex ChatGPT login** or
+**native SIWC browser sign-in**. For Codex, select its executable and existing home
+directories; the native helper reads authentication status and returns only
+account-bound settings. It starts no persona or model call. Other saved provider modes retain their explicit CLI paths; the menu
 does not convert provider modes or switch billing accounts.
 
 For a fresh runtime, choose any positive number of continuing personas before
@@ -162,6 +162,18 @@ it again before setup. The first model call authors the persona's own fragments;
 later work uses its accepted character. One persona can work
 directly with you. Larger groups choose their own contributions and arrangements.
 The chosen size is saved with the setup request and shown again on restart.
+
+Choose a default model and effort, then optionally enter a different model and
+effort for each persona. Setup, session previews and inspection show the recorded
+choices. Every call uses that persona's binding with the same account and direct
+transport. Capability observations from the default model do not become evidence
+for another model. Model choice assigns no work role. An explicit cohort-wide
+provider migration replaces all these model bindings with its selected target.
+
+Choose the task working directory during setup. The default is `workspace` beside
+the private launcher journal, keeping generated task files outside the source
+checkout. The launcher creates that directory when needed. Personas retain full
+host access and may choose other paths for their work.
 
 ### Continue an existing Codex OAuth runtime
 

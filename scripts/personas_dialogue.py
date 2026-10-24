@@ -1202,9 +1202,36 @@ class Dialogue:
                             "No model/effort substitution or fabricated evidence is permitted.")
 
     def bootstrap(self):
-        self.account()
         if self.p["bootstrap"] is None:
-            settings = self.settings()
+            if self.p["codex_auth"] is None and self.p["vault"] is None:
+                self.ui.say("Sign in: c: use an existing Codex ChatGPT login; n: native browser sign-in.")
+                choice = self.ui.ask("Account route [c]:").strip().lower() or "c"
+                if choice == "c":
+                    self.codex_auth_source()
+                elif choice == "n":
+                    self.account()
+                else:
+                    raise Halt()
+            if self.p["codex_auth"] is not None:
+                if self.p["settings"] is None:
+                    route = self.codex_auth_source()
+                    model, effort = self.select_provider()
+                    self.ui.say("Reading the selected Codex login for direct provider requests. No model call is started.")
+                    try:
+                        settings = self.h.call("personas-provider", ["configure-codex",
+                            "--codex-executable", route["executable"], "--host-home", route["host_home"],
+                            "--codex-home", route["codex_home"], "--model", model, "--effort", effort])
+                    except Blocked as error:
+                        if error.code in ("credential_unavailable", "credential_expired"):
+                            self.ui.say("The selected Codex login is unavailable. Sign in to ChatGPT using that Codex installation, then reopen ./personas.")
+                        raise
+                    key = "selected-" + hashlib.sha256(encoded(settings)).hexdigest()
+                    self.j.keep("settings", settings, key)
+                _, settings = self.j.document("settings")
+                require(settings.get("mode") == "chatgpt_oauth", "saved_provider_binding_unsupported")
+            else:
+                self.account()
+                settings = self.settings()
             cohort = self.ui.number("Number of continuing personas", 2, 1, None)
             noun = "persona" if cohort == 1 else "personas"
             self.ui.say(f"Proposed local cohort: {cohort} continuing {noun} and you, without assigned owner/reviewer roles. "
@@ -1215,6 +1242,8 @@ class Dialogue:
                         "energy and assertiveness (VAD). Use words; scores are optional. These are starting "
                         "tendencies, not assigned jobs or claimed experience. The first model call authors "
                         "that persona's own characteristic fragments.")
+            self.ui.say(f"Default model: {settings['model']} / {settings['effort']}.")
+            per_persona = self.ui.ask("Choose a model for each persona? [yes/NO]").strip().lower() == "yes"
             seeds = {}
             for index in range(1, cohort + 1):
                 persona = f"persona-{index:04d}"
@@ -1222,21 +1251,31 @@ class Dialogue:
                 profile = self.ui.bounded_text(f"Starting profile for {label}:", 16384)
                 seeds[persona] = {"label": label, "text": profile,
                                   "provenance": f"Starting profile supplied by {self.p['operator']} during setup; no prior experience asserted."}
+                if per_persona:
+                    model = self.ui.ask(f"Model for {label} [{settings['model']}]:").strip() or settings["model"]
+                    effort = self.ui.ask(f"Effort for {label} [{settings['effort']}]:").strip() or settings["effort"]
+                    require(provider_label(model) and provider_label(effort), "invalid_model_selection")
+                    seeds[persona].update(model=model, effort=effort)
+            default_directory = self.j.directory.path / "workspace"
+            directory = self.ui.ask(f"Task working directory [{default_directory}]:").strip() or str(default_directory)
+            directory = Path(directory).resolve(strict=False)
+            directory.mkdir(parents=True, exist_ok=True)
             request = {"id": "bootstrap-" + uuid.uuid4().hex, "operator": self.p["operator"],
                        "persona_seeds": seeds,
-                       "setup": {"cohort": cohort, "destination": "openai-siwc", "provider": settings,
-                                 "working_directory": str(self.checkout)}}
+                       "setup": {"cohort": cohort, "destination": "openai", "provider": settings,
+                                 "working_directory": str(directory)}}
             self.j.keep("bootstrap", request, request["id"])
         path, request = self.j.document("bootstrap")
         preview = self.session("bootstrap", path, "--preview")
         setup = request["setup"]
         for persona, seed in preview["persona_seeds"].items():
+            selection = preview["persona_models"][persona]
             self.ui.say(f"Starting profile — {seed['label']} ({persona}): {seed['text']}\n"
-                        f"Source: {seed['provenance']}")
+                        f"Source: {seed['provenance']}\nModel: {selection['model']} / {selection['effort']}")
         noun = "persona" if setup["cohort"] == 1 else "personas"
         self.ui.say(f"Runtime: {self.p['runtime']['path']}\n"
-                    f"Operator: {self.p['operator']}; exact model/effort: {setup['provider']['model']} / {setup['provider']['effort']}\n"
-                    f"Share needs, authorized persona context and outputs with OpenAI SIWC, {setup['cohort']} {noun} and this requester. "
+                    f"Operator: {self.p['operator']}; working directory: {setup['working_directory']}\n"
+                    f"Share needs, persona context and outputs with OpenAI, {setup['cohort']} {noun} and this requester. "
                     "The runtime imposes no work/session/lifetime call or cumulative storage/navigation quotas. "
                     "Usage is recorded. Explicit stops, pauses and actual execution results remain effective.")
         if self.ui.ask("Show saved configuration and accounting estimates? [yes/NO]").strip().lower() == "yes":
@@ -1923,8 +1962,10 @@ class Dialogue:
             self.ui.say("The native runtime will ask Codex only for authentication and check the returned account. "
                         "Codex may refresh its saved credentials. Persona inference uses direct provider requests; "
                         "the launcher does not import or record tokens.")
-        self.ui.say(f"Exact saved model/effort: {settings['model']} / {settings['effort']}; "
-                    "no application call quota or local model timeout. "
+        self.ui.say("Saved persona models: " + "; ".join(
+            f"{persona}: {selection['model']} / {selection['effort']}"
+            for persona, selection in settings["persona_models"].items()))
+        self.ui.say("No application call quota or local model timeout. "
                     "The session continues until the personas stop, work is paused, or execution cannot proceed.")
         if not reuse:
             if self.p["session"] is not None:
@@ -2050,7 +2091,7 @@ class Dialogue:
             view = self.inspect(after)
             pending = [n for n in self.p["needs"] if n["work"] is None]
             settings = view["settings"]
-            self.ui.say(f"Saved provider: {settings.get('model')} / {settings.get('effort')}; "
+            self.ui.say(f"Default provider: {settings.get('model')} / {settings.get('effort')}; "
                         f"credential status: {settings.get('credential_status', 'unchecked')}; "
                         f"frozen={view['frozen']}, active invocation={view['active_invocations_present']}.")
             for i, work in enumerate(view["works"], 1):

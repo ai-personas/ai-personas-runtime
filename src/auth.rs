@@ -31,6 +31,8 @@ macro_rules! opaque_debug {
 #[cfg(unix)]
 pub(crate) mod codex_adapter;
 #[cfg(unix)]
+pub use codex_adapter::configure_codex;
+#[cfg(unix)]
 pub(crate) mod codex_jsonrpc;
 #[cfg(unix)]
 pub(crate) mod codex_process;

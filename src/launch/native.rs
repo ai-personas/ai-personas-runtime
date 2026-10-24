@@ -244,9 +244,10 @@ impl Driver for NativeDriver<'_> {
             "reserved launch binding changed",
         )?;
         self.before_step(app)?;
+        let provider = provider_for_persona(&self.provider, saved, &request.persona)?;
         app.start_owned_provider_call(
             request,
-            &self.provider,
+            &provider,
             provider::Cancellation::default(),
             self.owner,
             now,

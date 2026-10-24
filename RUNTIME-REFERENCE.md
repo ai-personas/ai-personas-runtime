@@ -164,9 +164,16 @@ personas-auth --vault /absolute/private/personas-vault.json native-run \
 
 ### 4.2 Saved Codex authentication source
 
-`personas-session run` can use a selected Codex executable only as an authentication source for compatible saved ChatGPT OAuth runtimes. It requests auth status through the fixed app-server route and verifies the returned account against the saved binding. Persona inference still uses the runtime's direct provider client.
+Fresh launcher setup can use an existing Codex ChatGPT login through `personas-provider configure-codex`; see [provider onboarding](docs/provider-onboarding.md). It retains account-bound settings without exporting tokens or making an inference call. `personas-session run` then uses the selected Codex executable only as an authentication source. It requests auth status through the fixed app-server route and verifies the returned account against the saved binding. Persona inference uses the runtime's direct provider client.
 
 The launcher stores only the chosen executable, host home, and Codex state-directory locations. It does not import Codex credentials, run Codex inference, or fall back to a different provider or billing route.
+
+Each setup `persona_seeds` entry may specify `model` and `effort`; omitted fields
+use the setup provider defaults. Bootstrap previews and session inspection expose
+`persona_models`. Initialization and later decisions dispatch with each persona's
+recorded selection, retaining the common account and transport. A different
+selection starts without the default model's capability observations. Explicit
+cohort-wide provider migration replaces every selection with the migration target.
 
 ### 4.3 Optional catalogue and probe evidence
 

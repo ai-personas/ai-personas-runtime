@@ -50,6 +50,10 @@ pub fn preview(request: &Request) -> Result<Value> {
         "persona_seeds": saved.setup.persona_seeds,
         "seed_grants": seed_for(&saved, &provider, &people(saved.setup.cohort)[0]).grants,
         "created_personas": people(saved.setup.cohort),
+        "persona_models":people(saved.setup.cohort).into_iter().map(|id| {
+            let seed = seed_for(&saved, &provider, &id);
+            (id, json!({"model":seed.requested_model,"effort":seed.requested_effort}))
+        }).collect::<BTreeMap<_, _>>(),
         "initial_audience_personas": people(saved.setup.cohort),
         "remaining_persona_slots": null,"population_quota_enforced":false,
         "native_work_guides":work_command_guides::fresh_summary(&config, &saved)?,

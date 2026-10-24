@@ -1065,6 +1065,29 @@ struct Inner {
     configuration_sha256: String,
 }
 impl DirectProvider {
+    /// A model selection shares the same credential source and transport.
+    /// Capability observations for another selection are not carried forward.
+    pub(crate) fn with_selection(
+        &self,
+        model: Option<&str>,
+        effort: Option<&str>,
+    ) -> Result<Self, ProviderError> {
+        let current = &self.inner.settings;
+        let model = model.unwrap_or(&current.model);
+        let effort = effort.unwrap_or(&current.effort);
+        if model == current.model && effort == current.effort {
+            return Ok(Self { inner: self.inner.clone() });
+        }
+        let mut settings = current.clone();
+        settings.model = model.into();
+        settings.effort = effort.into();
+        settings.evidence.model = model.into();
+        settings.evidence.efforts.clear();
+        settings.evidence.catalog_evidence_sha256 = None;
+        settings.evidence.structured_output_evidence_sha256 = None;
+        Self::new(settings, self.inner.source.clone(), self.inner.transport.clone(), self.inner.clock.clone())
+    }
+
     pub fn new(
         settings: DirectSettings,
         source: Arc<dyn CredentialSource>,

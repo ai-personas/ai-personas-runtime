@@ -787,14 +787,15 @@ impl Driver for OwnedLive<'_> {
         &mut self,
         app: &mut Runtime,
         request: PrepareRequest,
-        _saved: &Saved,
+        saved: &Saved,
         now: i64,
         owned: &BTreeSet<String>,
     ) -> Result<provider_calls::Pending> {
         self.before_step(app)?;
+        let provider = provider_for_persona(&self.provider, saved, &request.persona)?;
         app.start_owned_provider_call(
             request,
-            &self.provider,
+            &provider,
             provider::Cancellation::default(),
             self.owner,
             now,
@@ -1141,6 +1142,7 @@ pub struct SettingsView {
     pub codex_auth_only_supported: bool,
     pub model: Option<String>,
     pub effort: Option<String>,
+    pub persona_models: BTreeMap<String, serde_json::Value>,
     pub mode: Option<provider::AccessMode>,
     pub account_sha256: Option<String>,
     pub credential_status: CredentialStatus,
@@ -1335,6 +1337,9 @@ fn settings_view(state: &State, saved: &Saved, now: u64) -> SettingsView {
         codex_auth_only_supported: provider.as_ref().is_some_and(supports_codex_auth_only),
         model: provider.as_ref().map(|p| p.model.clone()),
         effort: provider.as_ref().map(|p| p.effort.clone()),
+        persona_models: state.personas.iter().map(|(id, persona)| {
+            (id.clone(), json!({"model": persona.seed.requested_model, "effort": persona.seed.requested_effort}))
+        }).collect(),
         mode: provider.as_ref().map(|p| p.mode),
         account_sha256: provider.as_ref().map(|p| p.evidence.account_sha256.clone()),
         credential_status,

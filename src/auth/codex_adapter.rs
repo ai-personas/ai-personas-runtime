@@ -79,6 +79,65 @@ fn token_identity_and_expiry(token: &str) -> Result<(String, u64), p::Failure> {
 
 fn account_digest(account: &str) -> String { hex::encode(Sha256::digest(account.as_bytes())) }
 
+/// Bind fresh settings to the selected Codex login without exporting credentials.
+/// This performs authentication only; model capability remains unverified.
+#[cfg(unix)]
+pub fn configure_codex(
+    executable: &std::path::Path,
+    host_home: &std::path::Path,
+    codex_home: &std::path::Path,
+    model: &str,
+    effort: &str,
+) -> Result<p::DirectSettings, p::ProviderError> {
+    use p::Clock;
+    let configure = || -> Result<p::DirectSettings, p::Failure> {
+        if [model, effort].iter().any(|value| value.is_empty()
+            || value.chars().any(|c| c.is_whitespace() || c.is_control())) {
+            return Err(p::Failure::Configuration);
+        }
+        let executable = std::fs::canonicalize(executable).map_err(|_| p::Failure::CredentialMissing)?;
+        let host_home = std::fs::canonicalize(host_home).map_err(|_| p::Failure::CredentialMissing)?;
+        let codex_home = std::fs::canonicalize(codex_home).map_err(|_| p::Failure::CredentialMissing)?;
+        if !executable.is_file() || !host_home.is_dir() || !codex_home.is_dir() {
+            return Err(p::Failure::CredentialMissing);
+        }
+        let factory = super::codex_jsonrpc::ProcessJsonRpcPeerFactory::new(
+            executable, vec!["app-server".into()], host_home, codex_home,
+        );
+        let status = super::codex_jsonrpc::AuthOnlyJsonRpc::new(factory).acquire()?;
+        if status.auth_method != Some(CodexAuthMethod::Chatgpt) {
+            return Err(p::Failure::GrantMismatch);
+        }
+        let token = status.auth_token.ok_or(p::Failure::CredentialMissing)?;
+        let (account, expiry) = token_identity_and_expiry(&token)?;
+        if p::SystemClock.unix_seconds()? >= expiry {
+            return Err(p::Failure::CredentialExpired);
+        }
+        Ok(p::DirectSettings {
+            mode: p::AccessMode::ChatgptOAuth,
+            model: model.into(),
+            effort: effort.into(),
+            credentials: p::CredentialReference::EphemeralAuthOnly {
+                grant: p::OAuthGrant::TraditionalChatgpt,
+                expires_at_unix: expiry,
+            },
+            evidence: p::CapabilityEvidence {
+                mode: p::AccessMode::ChatgptOAuth,
+                model: model.into(),
+                efforts: Default::default(),
+                account_env: p::AccountBindingReference::EphemeralAuthOnly { ephemeral_auth_only: true },
+                account_sha256: account_digest(&account),
+                transport_profile: p::AccessMode::ChatgptOAuth.profile().into(),
+                catalog_evidence_sha256: None,
+                structured_output_evidence_sha256: None,
+            },
+        })
+    };
+    let settings = configure().map_err(p::ProviderError::Rejected)?;
+    settings.validate()?;
+    Ok(settings)
+}
+
 
 /// Process-backed acquisition for an explicitly selected helper executable.
 #[cfg(unix)]

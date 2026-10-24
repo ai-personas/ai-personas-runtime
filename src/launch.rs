@@ -108,6 +108,11 @@ pub struct PersonaSeed {
     pub label: String,
     pub text: String,
     pub provenance: String,
+    /// Optional reasoning substrate for this persona; otherwise use setup's default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
 }
 /// Current creation choices. Historical quota and permission declarations are
 /// retained in saved records, not requested again as fresh setup inputs.
@@ -272,8 +277,8 @@ fn seed_for(saved: &Saved, provider: &ResearchSettings, id: &str) -> Seed {
             || "operator-supplied generic seed".into(),
             |seed| seed.provenance.clone(),
         ),
-        requested_model: provider.model.clone(),
-        requested_effort: provider.effort.clone(),
+        requested_model: supplied.and_then(|seed| seed.model.clone()).unwrap_or_else(|| provider.model.clone()),
+        requested_effort: supplied.and_then(|seed| seed.effort.clone()).unwrap_or_else(|| provider.effort.clone()),
         model_confirmed: true,
         destination: saved.setup.destination.clone(),
         audience: audience.clone(),
@@ -286,6 +291,19 @@ fn seed_for(saved: &Saved, provider: &ResearchSettings, id: &str) -> Seed {
             communicate_with: audience,
         },
     }
+}
+/// Select this persona's recorded model without changing the account or route.
+/// Runtime preparation independently checks the resulting intent against its seed.
+fn provider_for_persona(
+    provider: &provider::DirectProvider,
+    saved: &Saved,
+    persona: &str,
+) -> Result<provider::DirectProvider> {
+    let seed = saved.setup.persona_seeds.get(persona);
+    Ok(provider.with_selection(
+        seed.and_then(|value| value.model.as_deref()),
+        seed.and_then(|value| value.effort.as_deref()),
+    )?)
 }
 // Growing the cohort must not rewrite or reconstruct old disclosure declarations.
 // Compare identity/model/creation material while preserving each seed's exact

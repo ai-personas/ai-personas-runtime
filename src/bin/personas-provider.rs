@@ -8,7 +8,7 @@ mod cli {
     use std::path::PathBuf;
 
     #[derive(Parser)]
-    #[command(name = "personas-provider", about = "Explicit SIWC settings and optional capability checks", after_help = backend::COST_NOTICE)]
+    #[command(name = "personas-provider", about = "Provider setup and optional capability checks", after_help = backend::COST_NOTICE)]
     struct Cli {
         /// Selected vault; relative paths and existing aliases are accepted.
         #[arg(long, global = true)]
@@ -18,6 +18,19 @@ mod cli {
     }
     #[derive(Subcommand)]
     enum Command {
+        /// Use an existing Codex ChatGPT login for direct inference. No model call.
+        ConfigureCodex {
+            #[arg(long)]
+            codex_executable: PathBuf,
+            #[arg(long)]
+            host_home: PathBuf,
+            #[arg(long)]
+            codex_home: PathBuf,
+            #[arg(long)]
+            model: String,
+            #[arg(long)]
+            effort: String,
+        },
         /// Generate settings for explicit model/effort choices. No catalogue or inference.
         Configure {
             #[arg(long)]
@@ -71,12 +84,25 @@ mod cli {
         serde_json::to_value(v).map_err(|_| backend::Code::InvalidState)
     }
     async fn run(cli: Cli, cancellation: Cancellation) -> backend::Result<Value> {
+        if let Command::ConfigureCodex { codex_executable, host_home, codex_home, model, effort } = &cli.command {
+            if cli.vault.is_some() {
+                return Err(backend::Code::InvalidRequest);
+            }
+            return value(ai_personas::auth::configure_codex(
+                codex_executable, host_home, codex_home, model, effort,
+            ).map_err(|error| match error {
+                ai_personas::provider::ProviderError::Rejected(ai_personas::provider::Failure::Configuration) => backend::Code::InvalidRequest,
+                ai_personas::provider::ProviderError::Rejected(ai_personas::provider::Failure::CredentialExpired) => backend::Code::CredentialExpired,
+                _ => backend::Code::CredentialUnavailable,
+            })?);
+        }
         // Global Clap options cannot be required. Enforce explicit selection here,
         // before any backend or path access; help exits before calling run.
         let vault = cli.vault.as_deref().ok_or(backend::Code::InvalidRequest)?;
         // Explicit commands retain their actual evidence without another approval flag.
         let mut host = backend::Backend::open(vault)?;
         match cli.command {
+            Command::ConfigureCodex { .. } => unreachable!("handled before vault access"),
             Command::Configure { model, effort } => value(host.configure(&model, &effort)?),
             Command::Catalogue => value(host.catalogue().await?),
             Command::Plan {

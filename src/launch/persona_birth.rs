@@ -378,6 +378,8 @@ fn create_owned(
             label: proposal.label,
             text: proposal.seed,
             provenance,
+            model: None,
+            effort: None,
         },
     );
     let provider = saved.execution_provider()?;

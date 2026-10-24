@@ -380,6 +380,12 @@ fn plan(
     saved.direct_provider_opt_in = Some(true);
     saved.research_opt_in = None;
     saved.setup.provider = provider_value.clone();
+    // This explicit migration selects one target for the entire cohort.
+    // Remove per-persona overrides so later dispatch matches those new bindings.
+    for seed in saved.setup.persona_seeds.values_mut() {
+        seed.model = None;
+        seed.effort = None;
+    }
     let mut launch = launch_head.clone();
     launch.revision = increment(launch.revision)?;
     launch.body["format"] = json!(2);
@@ -390,6 +396,7 @@ fn plan(
         .ok_or_else(|| held("invalid launch body"))?
         .remove("research_opt_in");
     launch.body["setup"]["provider"] = provider_value;
+    launch.body["setup"]["persona_seeds"] = serde_json::to_value(&saved.setup.persona_seeds)?;
 
     // Exact, nonmutating equivalent of ensure_cohort's existing-persona branch.
     // All members were required above; no missing-member creation is possible.
