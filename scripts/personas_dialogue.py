@@ -1512,7 +1512,7 @@ class Dialogue:
             attempt = participant.get("active_invocation")
             status = (self.attempt_status(attempt) if attempt and
                       attempt["state"] in ("Prepared", "Dispatched", "Responded") else
-                      participant["continuation"].replace("_", " "))
+                      self.continuation_label(participant["continuation"]))
             self.ui.say(f"{i}: {participant.get('label', participant['persona'])} "
                         f"({participant['persona']}) — {status}")
             recovery = participant.get("resume_recovery")
@@ -1904,6 +1904,28 @@ class Dialogue:
                 and work["phase"] == "open"
                 and any(p["eligible_candidate"] for p in work["participants"]))
 
+    @staticmethod
+    def continuation_label(value):
+        return {"absent": "no continuation chosen", "immediate": "wants to continue",
+                "wait": "waiting", "reconsider_at": "scheduled to reconsider",
+                "persona_pause": "paused", "persona_stop": "stopped"}.get(value, value)
+
+    def work_availability(self, view, work):
+        if view["frozen"]:
+            return "runtime paused"
+        if work["phase"] != "open":
+            return "review results"
+        if self.eligible(view, work):
+            return "ready to continue"
+        if any(p.get("active_invocation") and p["active_invocation"]["state"] in
+               ("Prepared", "Dispatched", "Responded") for p in work["participants"]):
+            return "has pending calls; inspect their outcomes"
+        if any(p.get("failed_attempt_hold") or p.get("resume_recovery") for p in work["participants"]):
+            return "review failed attempts"
+        if work["participants"] and all(p["continuation"] == "persona_stop" for p in work["participants"]):
+            return "participants stopped; review their results"
+        return "no participant ready to continue"
+
     def codex_auth_source(self, change=False):
         if self.p["codex_auth"] is None or change:
             previous = self.p["codex_auth"] or {}
@@ -2018,6 +2040,15 @@ class Dialogue:
                         "Any unconfirmed input is retained; use i to check that same input.")
         return True
 
+    def pending_feedback_notice(self, result):
+        pending = [item for item in (result.get("requester_feedback") or {}).get("items", [])
+                   if item.get("status") == "pending"]
+        if pending:
+            labels = sorted({item.get("label", item["persona"]) for item in pending})
+            self.ui.say(f"{len(pending)} feedback item(s) still await a response from "
+                        + ", ".join(labels) + ". Choose r in the work menu to inspect them. "
+                        "If the participant stopped, use u to resume them before c to continue.")
+
     def run_work(self, work, view, reuse=False):
         settings = view["settings"]
         if reuse:
@@ -2123,6 +2154,7 @@ class Dialogue:
             self.ui.say(f"Session finished: {terminal.get('stop')}; last recorded work call: {terminal.get('last_invocation')}.")
         self.session_output(s)
         result = self.session("result", work)
+        self.pending_feedback_notice(result)
         if result.get("optional_activity") or result.get("persona_creations"):
             self.output(work, result=result)
 
@@ -2141,6 +2173,10 @@ class Dialogue:
                         "The work list below uses the current runtime state.")
             return
         self.ui.say(f"Previous session {s['id']}: {status['status']}")
+        try:
+            self.pending_feedback_notice(self.session("result", s["work"]))
+        except (Blocked, OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+            self.ui.say("Current feedback could not be inspected; use r in the work menu to check it.")
         if status["status"] == "outcome_unrecorded":
             self.ui.say("This session has no retained terminal outcome. Its exact identity remains saved and is not replayed. "
                         "The work menu can select a distinct session for currently eligible participants.")
@@ -2215,14 +2251,16 @@ class Dialogue:
                         f"credential status: {settings.get('credential_status', 'unchecked')}; "
                         f"frozen={view['frozen']}, active invocation={view['active_invocations_present']}.")
             for i, work in enumerate(view["works"], 1):
-                continuations = ", ".join(p["continuation"] for p in work["participants"])
-                self.ui.say(f"{i}: {work['id']} — {work['phase']}, no attempt quota; "
-                            f"{continuations or 'no participant continuation'}; "
-                            f"{'eligible candidate' if self.eligible(view, work) else 'blocked/dormant'}")
+                counts = {}
+                for participant in work["participants"]:
+                    label = self.continuation_label(participant["continuation"])
+                    counts[label] = counts.get(label, 0) + 1
+                continuations = ", ".join(f"{count} {label}" for label, count in counts.items())
+                self.ui.say(f"{i}: {work['id']} — {self.work_availability(view, work)}. "
+                            f"Last choices: {continuations or 'none recorded'}.")
                 attempt = work.get("last_attempt")
                 if attempt:
-                    self.ui.say(f"   Last retained attempt: {attempt['id']} — {attempt['status']}; "
-                                f"reservation: {attempt.get('reservation_state', 'unavailable')}")
+                    self.ui.say(f"   Last recorded call: {attempt['id']} — {attempt['status'].replace('_', ' ')}.")
                 for participant in work["participants"]:
                     lifecycle = participant.get("lifecycle")
                     if lifecycle and (lifecycle["status"] != "active" or lifecycle["quarantined"]):

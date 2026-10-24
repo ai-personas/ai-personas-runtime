@@ -44,6 +44,13 @@ settle; it does not rewrite an input already sent to a model. Explicitly stopped
 participants retain their continuation choice. Use **i** to confirm the same
 saved input if its delivery result was unavailable. A live work reply is an
 attributed message, not evidence that the entire task or session has finished.
+The work list summarizes participants' last continuation choices and distinguishes
+ready work, pending calls, failed attempts, and participants who chose to stop.
+Stopped participants are shown with a direction to review their results, rather
+than a generic blocked status; their choice does not establish task completion.
+After a session, the launcher also identifies feedback still awaiting a response.
+Feedback queued while a final call was already in progress may need an explicit
+participant resume before the persona receives and addresses it.
 
 Choose **o: optional activity** in the work list for voluntary exploration and
 conversation without an assigned task. The launcher records an activity and
