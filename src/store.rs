@@ -3814,7 +3814,10 @@ impl<'a> Work<'a> {
         })
     }
 
-    fn validate_changes(&self, changes: &[Change]) -> Result<BTreeMap<String, StoredObject>> {
+    fn validate_changes<'changes>(
+        &self,
+        changes: &'changes [Change],
+    ) -> Result<BTreeMap<String, &'changes StoredObject>> {
         self.batch_limit(changes.len())?;
         let mut candidates = BTreeMap::new();
         for change in changes {
@@ -3853,10 +3856,9 @@ impl<'a> Work<'a> {
             if object.revision != next {
                 return Err(StoreError::RevisionConflict(object.id.clone()));
             }
-            if candidates
-                .insert(object.id.clone(), object.clone())
-                .is_some()
-            {
+            // The caller owns these immutable candidates through validation and
+            // commit. Dependency checks need their exact bodies, not copies.
+            if candidates.insert(object.id.clone(), object).is_some() {
                 return Err(StoreError::Conflict(object.id.clone()));
             }
         }
@@ -3866,18 +3868,18 @@ impl<'a> Work<'a> {
     fn dependencies(
         &self,
         references: &[ObjectRef],
-        candidates: &BTreeMap<String, StoredObject>,
+        candidates: &BTreeMap<String, &StoredObject>,
     ) -> Result<()> {
         self.batch_limit(references.len())?;
         for reference in references {
             self.id(&reference.id)?;
             hash_valid(&reference.sha256)?;
-            let object = if let Some(object) = candidates.get(&reference.id) {
-                object.clone()
+            let actual = if let Some(object) = candidates.get(&reference.id) {
+                object.exact_ref()?
             } else {
-                self.required("object", &reference.id)?
+                self.required::<StoredObject>("object", &reference.id)?.exact_ref()?
             };
-            if object.exact_ref()? != *reference {
+            if actual != *reference {
                 return Err(StoreError::RevisionConflict(reference.id.clone()));
             }
         }

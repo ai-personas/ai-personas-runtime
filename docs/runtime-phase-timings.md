@@ -166,3 +166,12 @@ history, Store cloning or distinct constructions required by later transactions.
 Object revisions, exact fingerprints and commit checks still cover the complete
 stored body. A successful construction event is not a commit receipt, and this
 source change alone establishes neither a speedup nor a peak-memory reduction.
+
+Store change validation borrows each immutable candidate from the caller's
+change batch instead of cloning its complete body into a candidate map.
+Dependency checks fingerprint that borrowed candidate directly. Dependencies
+outside the batch still load the current stored object in the same transaction.
+The borrowed view ends with the batch; it does not cache validation across
+transactions or omit current-head, revision, duplicate, body or exact-reference
+checks. This removes temporary copies without changing committed bytes, retained
+history or accounting. Actual latency and memory effects require observation.
