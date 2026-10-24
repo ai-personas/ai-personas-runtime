@@ -927,8 +927,13 @@ pub enum ProtocolError {
         offset: usize,
         problem: &'static str,
     },
-    #[error("duplicate decoded JSON object key at byte {offset}")]
-    DuplicateKey { offset: usize },
+    #[error("duplicate decoded JSON object key at byte {offset} (first at byte {first_offset}, containing object at byte {object_offset}; {hint}); emit each member once")]
+    DuplicateKey {
+        offset: usize,
+        first_offset: usize,
+        object_offset: usize,
+        hint: ShapeHint,
+    },
     #[error("JSON nesting exceeds {maximum} containers at byte {offset}")]
     DepthLimit { offset: usize, maximum: usize },
     #[error("JSON node count exceeds {maximum} at byte {offset}")]
@@ -1290,12 +1295,13 @@ impl Preflight<'_> {
     }
 
     fn object(&mut self, depth: usize) -> Result<(), ProtocolError> {
+        let object_offset = self.position;
         self.position += 1;
         self.whitespace();
         if self.take(b'}') {
             return Ok(());
         }
-        let mut keys = BTreeSet::new();
+        let mut keys = BTreeMap::new();
         loop {
             self.whitespace();
             let offset = self.position;
@@ -1303,9 +1309,23 @@ impl Preflight<'_> {
                 return self.syntax("expected an object member name");
             }
             let key = self.string()?;
-            if !keys.insert(key) {
-                return Err(ProtocolError::DuplicateKey { offset });
+            if let Some(first_offset) = keys.get(&key) {
+                // Only a schema-owned root member may enter the hint. Nested
+                // or unknown keys can be arbitrary authored data; their exact
+                // locations suffice without echoing that data into recovery.
+                let hint = if depth == 1 {
+                    diagnostics::root_member_hint(&key)
+                } else {
+                    ShapeHint::default()
+                };
+                return Err(ProtocolError::DuplicateKey {
+                    offset,
+                    first_offset: *first_offset,
+                    object_offset,
+                    hint,
+                });
             }
+            keys.insert(key, offset);
             self.whitespace();
             if !self.take(b':') {
                 return self.syntax("expected a colon after the object member name");

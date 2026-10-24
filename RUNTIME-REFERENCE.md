@@ -19,6 +19,13 @@ AI Personas is a Rust runtime in which a primary language model authors complete
 
 A normal model response is one complete JSON `Decision`. The runtime validates the entire object before adopting any operation. Invalid structure, duplicate keys, stale references, malformed work-command inputs, or a failed cross-field check reject the complete response rather than partially applying it. Current direct-provider calls use JSON-object output and receive `APPLICATION_DECISION_SCHEMA`; older retained calls can use the historical one-string carrier.
 
+Duplicate-key diagnostics identify both occurrences and the containing object's
+byte offset. For known top-level members they also name the schema field, so a
+persona can correct repeated response sections without an operator diagnosing
+the error. Unknown or nested authored keys are not copied into the diagnostic.
+The whole response remains rejected; this is recovery information, not an
+automatic rewrite or partial adoption.
+
 Ordinary instructions put the persona's responsibility for the actual task,
 self-critique, useful cooperation and completion ahead of protocol mechanics.
 Human guidance is optional; an external agent is not the expected source of

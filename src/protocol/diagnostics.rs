@@ -33,6 +33,18 @@ impl std::fmt::Display for ShapeHint {
     }
 }
 
+pub(super) fn root_member_hint(key: &str) -> ShapeHint {
+    let schema = decision_schema();
+    schema["properties"]
+        .as_object()
+        .and_then(|properties| properties.get_key_value(key))
+        .map(|(known, _)| ShapeHint {
+            section: format!("response.{known}"),
+            allowed_fields: Vec::new(),
+        })
+        .unwrap_or_default()
+}
+
 fn object_variant<'a>(schema: &'a Value, all: &'a Value, received: &Value) -> Option<&'a Value> {
     let mut current = schema;
     let mut visited = BTreeSet::new();
