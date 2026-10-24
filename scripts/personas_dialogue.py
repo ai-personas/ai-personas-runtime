@@ -2006,14 +2006,19 @@ class Dialogue:
                   for participant in participants
                   if (attempt := participant.get("active_invocation"))
                   and attempt["state"] in ("Prepared", "Dispatched", "Responded")]
-        attention = [participant["label"] for participant in participants
-                     if participant.get("failed_attempt_hold")
-                     or participant.get("resume_recovery")]
+        held = [participant["label"] for participant in participants
+                if participant.get("failed_attempt_hold")]
+        recovery = [participant["label"] for participant in participants
+                    if participant.get("resume_recovery")
+                    and not participant.get("failed_attempt_hold")]
         status = ("Working: " + "; ".join(active) if active else
                   "No model call currently active for this work; waiting for the session result.")
         status += f" Recorded call attempts in this runtime: {snapshot['settings']['steps']}."
-        if attention:
-            status += " Participants needing attention: " + ", ".join(attention) + "."
+        if recovery:
+            status += (" Call failures retained for recovery: " + ", ".join(recovery)
+                       + ". Awaiting the session's recovery outcome.")
+        if held:
+            status += " Participants with invocation recovery holds: " + ", ".join(held) + "."
         return status
 
     def live_input(self, work):
