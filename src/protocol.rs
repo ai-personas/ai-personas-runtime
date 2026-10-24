@@ -60,15 +60,27 @@ pub struct Decision {
     /// Choose supporting material still useful on the next call, including
     /// exact already-supplied tool-output fields. Pending results are consumed
     /// after this accepted decision; they are not a continuing conversation.
+    /// Keep relevant source, data or definitions alongside a later tool result
+    /// when interpreting that result depends on them. The new result does not
+    /// restore earlier context; select useful references or inspect missing
+    /// material instead of guessing its contents or interface.
     pub next_assets: SelectionIntent,
     pub continuation: Continuation,
     /// Explicit communication disposition. Use none when no additional reply
     /// is needed, including when communicate already carries the message.
     pub reply: ReplyDisposition,
+    /// Use only the fields defined for each operation kind. Put explanatory
+    /// notes in work.reason, not extra operation members such as notes or
+    /// operations_note; an unknown member rejects the complete decision.
     pub operations: Vec<Operation>,
 }
 
 /// These are attributed judgments, never authoritative completion receipts.
+/// Judge the actual current output against the requested scope. A generated
+/// audit, a self-authored PASS label, file existence, or a successful process
+/// exit alone does not verify the properties claimed for that output. Choose
+/// checks of the underlying content appropriate to the claim, account for
+/// contrary observations, and keep unchecked properties explicit.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WorkDisposition {
@@ -187,6 +199,8 @@ pub enum SelectionIntent {
     /// are invalid. Use replace_from_saved_files for new same-response files,
     /// or replace for a different range.
     /// Existing selection lifetimes are retained in the named references.
+    /// This replaces the whole optional set, rather than appending. Include
+    /// earlier references still needed alongside the newly selected material.
     ReplaceFromInput {
         reason: String,
         handles: Vec<String>,

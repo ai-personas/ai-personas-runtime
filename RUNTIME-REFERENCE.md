@@ -19,6 +19,20 @@ AI Personas is a Rust runtime in which a primary language model authors complete
 
 A normal model response is one complete JSON `Decision`. The runtime validates the entire object before adopting any operation. Invalid structure, duplicate keys, stale references, malformed work-command inputs, or a failed cross-field check reject the complete response rather than partially applying it. Current direct-provider calls use JSON-object output and receive `APPLICATION_DECISION_SCHEMA`; older retained calls can use the historical one-string carrier.
 
+Operation objects use only the members of their declared kind; explanatory
+notes belong in `work.reason`. The schema also asks personas to judge actual
+output against the request, inspect the properties they claim, and account for
+contrary observations. A generated audit, a self-authored PASS label, file
+existence, or process success alone does not establish content correctness.
+These are reasoning instructions, not an automatic quality verdict or an
+additional execution gate.
+
+Next-context choices carry useful source, data and definitions forward when a
+later tool result depends on them. `replace_from_input` replaces the entire
+optional set; it does not append to earlier selections. A new tool result does
+not restore material omitted from that set. The persona chooses what to retain
+or inspect, and the host does not silently add an earlier conversation.
+
 The runtime is not an unattended service. Foreground commands and explicit scheduler calls admit work. An authored `immediate` continuation asks for another eligible admission; `wait`, `reconsider_at`, `pause`, and `stop` have distinct meanings. No prose fragment, message, metadata field, or previous intent executes before a complete current decision is admitted.
 
 Focused operator documentation is under [`docs/`](docs/), including [execution resources](docs/execution-resources.md) and [persona-requested needs](docs/persona-needs.md).
