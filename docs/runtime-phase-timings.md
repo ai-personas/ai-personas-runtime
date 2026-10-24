@@ -48,8 +48,8 @@ does not replace the operation's result.
 | `runtime.build_corpus` | Construct and validate a complete corpus view from one current state and admission |
 | `runtime.render_preparation` | Assemble the prospective request from current state and pending history material |
 | `runtime.plan_response` | Stage response operations and context against current state, before later staging and adoption commit |
-| `state.serialize_expanded` | Build expanded JSON from typed state |
-| `state.pack_exposures` | Identify repeated exposures and build their retained pool |
+| `state.serialize_records` | Serialize state fields, packing inventoried exposures in each record before assembling the complete body |
+| `state.pack_exposures` | Finalize the retained pool and restore small or unique exposures inline |
 | `runtime.save` | Construct and commit a state object through the ordinary save path |
 | `runtime.commit_state` | Compare and swap that constructed state object |
 | `runtime.check_configuration` | Read and verify the current runtime configuration for a live driver |
@@ -153,8 +153,8 @@ enum decoding still applies, and the resulting State owns its data as before.
 
 The borrowed view exists for one decode and never changes the stored body or
 persists a cache. Direct state loads no longer create a cloned body or an expanded
-JSON tree. General deserialization still materializes its incoming JSON once,
-and state serialization still constructs and packs expanded JSON. Older builds
+JSON tree. General deserialization still materializes its incoming JSON once.
+Older builds
 emit `runtime.clone_state_json`, `state.unpack_exposures`, and
 `state.deserialize_expanded`; those phases are replaced by the two borrowed-state
 phases above. This allocation change alone does not establish an overall speed
@@ -164,12 +164,32 @@ Runtime creation, atomic launch bootstrap and later state-object construction
 take the packed JSON value directly from the same constructor used by State's
 general serialization adapter. They do not serialize an already packed value
 through another value serializer to rebuild the complete tree. The constructor
-still performs expanded serialization and exposure packing, with the same phase
-names, complete fields, pool identities and reference locations. General
+serializes each retained collection record and packs its inventoried exposures
+before adding it to the complete body. General
 serialization delegates to that constructor before writing to its requested
 serializer; stored-object consumers take ownership of the constructed value.
 Creation and atomic bootstrap release the temporary typed State once that value
 has been constructed, before entering the Store transaction.
+
+Packing retains one JSON value for each distinct inventoried exposure while
+building the body, then applies the existing size calculation to decide which
+entries belong in the pool. Unique or small entries return inline; repeated
+entries use the same digest, pool version and reference locations as before.
+All State fields, omission rules, collection order and complete record contents
+remain part of serialization. A single large record still needs its full
+temporary JSON value, and typed state decoding and cloning retain their existing
+ownership. This avoids constructing the whole expanded state tree before packing;
+it does not truncate records, introduce a quota or cache validation across calls.
+
+The constructor uses the same explicit exposure inventory for each partial field
+and the completed body. Authored payloads and historical JSON remain literal.
+The final pass checks that every temporary reference is accounted for before
+emitting a pool. Earlier builds report `state.serialize_expanded` for constructing
+the whole expanded tree. The current `state.serialize_records` phase includes
+record serialization, exposure hashing and deduplication; `state.pack_exposures`
+now measures only final pool selection and inline restoration. Compare these
+phases together when inspecting serialization cost across those builds. Actual
+whole-command memory and latency effects still require observation.
 
 This removes a redundant value traversal and allocation, not the retained
 history, Store cloning or distinct constructions required by later transactions.

@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 mod borrowed;
 mod manifests;
+mod packing;
 
 // This adapter applies only to a runtime ManagedRevision. FileRevision's public
 // wire format, content, and computed_revision tuple are deliberately unchanged.
@@ -86,7 +87,7 @@ const REFERENCE: &str = "retained_exposure";
 const DOMAIN: &str = "runtime-retained-exposure-v1";
 const POOL_VERSION: u32 = 2;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 #[serde(remote = "State", deny_unknown_fields)]
 struct ExpandedState {
     format: u32,
@@ -128,58 +129,12 @@ struct ExpandedState {
     operator_events: Vec<Value>,
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Pool {
-    version: u32,
-    entries: BTreeMap<String, Value>,
-}
-
 fn invalid_storage(message: &str) -> serde_json::Error {
     <serde_json::Error as serde::de::Error>::custom(message)
 }
 
 fn identity(value: &Value) -> serde_json::Result<String> {
     Ok(s::sha256_bytes(&serde_json::to_vec(&(DOMAIN, value))?))
-}
-
-fn pack(mut value: Value) -> serde_json::Result<Value> {
-    let mut candidates: BTreeMap<String, (Value, usize)> = BTreeMap::new();
-    manifests::edit(&mut value, POOL_VERSION, |exposure| {
-        let key = identity(exposure)?;
-        let entry = candidates
-            .entry(key)
-            .or_insert_with(|| (exposure.clone(), 0));
-        if entry.0 != *exposure {
-            return Err(invalid_storage("retained exposure identity conflict"));
-        }
-        entry.1 += 1;
-        Ok(())
-    })?;
-    let mut entries = BTreeMap::new();
-    for (key, (exposure, copies)) in candidates {
-        let bytes = serde_json::to_vec(&exposure)?.len();
-        // Charge a conservative 128 bytes per reference and table entry. Small
-        // or unique manifests remain inline; compaction never inflates them.
-        if copies > 1 && bytes.saturating_mul(copies - 1) > 128 * (copies + 1) {
-            entries.insert(key, exposure);
-        }
-    }
-    if entries.is_empty() {
-        return Ok(value);
-    }
-    manifests::edit(&mut value, POOL_VERSION, |exposure| {
-        let key = identity(exposure)?;
-        if entries.contains_key(&key) {
-            *exposure = json!({REFERENCE: key});
-        }
-        Ok(())
-    })?;
-    value[POOL] = serde_json::to_value(Pool {
-        version: POOL_VERSION,
-        entries,
-    })?;
-    Ok(value)
 }
 
 #[derive(Deserialize)]
@@ -238,10 +193,7 @@ fn exposure_references(value: &Value) -> serde_json::Result<Option<HashMap<usize
 /// Build the complete stored body once. Value consumers can take this packed
 /// tree directly instead of traversing it again through a Value serializer.
 pub(super) fn to_value(state: &State) -> serde_json::Result<Value> {
-    let expanded = phase_timing::measure("state.serialize_expanded", || {
-        ExpandedState::serialize(state, serde_json::value::Serializer)
-    })?;
-    phase_timing::measure("state.pack_exposures", || pack(expanded))
+    packing::to_value(state)
 }
 
 impl Serialize for State {
