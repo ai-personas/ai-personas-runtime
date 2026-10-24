@@ -41,19 +41,31 @@ authored prose can refer to those qualifications without copying their hashes.
 A supporting-file save does not itself require registration of a formal work
 artifact, release, delivery or completion judgment.
 
-Handles cannot identify a new file proposed in the same response. Such a file
-still uses `proposal-op:<exact FileWrite operation id>` where that existing
-reference form is supported. Dependent work still needs the appropriate accepted
-save or execution observation; an attachment creates no receipt or result.
+Handles identify references from the current input. To select files saved in
+the same response, use `next_assets` or `next_fragments` with
+`kind: replace_from_saved_files`. Each `files` entry names the exact `operation`
+ID of a `file_write`, `file_edit` or `file_import`, with an optional `lifetime`.
+The host derives the source and accepted full UTF-8 revision. Use `input_handles`
+to retain useful current-input references alongside those saves. The replacement
+covers the complete optional set for that scope; imports always belong to assets.
+
+To cite those saves in `communicate` or an authored `reply`, use
+`reference_operations` with the exact save operation IDs. Citations attach the
+accepted references without reading or selecting their bodies. Literal
+`proposal-op:<exact file-save operation id>` references remain available where
+supported, including selections of other representations or ranges. See
+[ordinary file maintenance](persona-development.md#maintain-fragments-and-supporting-files-during-ordinary-work)
+for the save and selection rules. Dependent work still needs the appropriate
+accepted save or execution observation; an attachment creates no result.
 
 ## Evidence and authority
 
 An attachment is a persona-selected citation. It supplies no body and proves
 neither reading, correct interpretation, factual support nor requester
-acceptance. File qualifications retain their ordinary exact binding and current
-permission checks. Messages retain their full input lineage, with current
-recipient and source checks before deposit and later disclosure. The host never
-silently repairs an unknown handle or malformed literal reference.
+acceptance. File qualifications retain their exact bindings and required
+accompaniment. Messages retain their full input lineage and recipient/source
+attribution; source policies are provenance, not application access gates. The
+host never silently repairs an unknown handle or malformed literal reference.
 
 The complete table has no application entry or serialized-byte cap.
 Candidates come only from current host
