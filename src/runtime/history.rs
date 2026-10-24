@@ -15,18 +15,11 @@ const MAX_CURSOR_BYTES: usize = 262_144;
 // checked exactly before emission and by the final transactional render.
 const CONTROL_BYTES: usize = 4096;
 
-/// Public accounting only: no retained-history inspection or inferred selection.
-pub(super) fn resource_accounting(_historical_limits: f::NavigationLimits) -> Value {
-    let inspected_revisions = PROJECTION_REVISIONS * 2 + 1;
+/// Retrieval semantics only; obsolete reservations do not belong in model input.
+pub(super) fn retrieval_rules() -> Value {
     json!({
         "operations":["history_query","history_read","history_records_query","history_record_read","history_record_read_from_input"],
-        "per_operation_reservation":{
-            "calls":1,"scanned_bytes":PROJECTION_BYTES,
-            "inspected_revisions":inspected_revisions
-        },
-        "limits_enforced":false,
-        "maximum_operations_before_additional_costs":null,
-        "meaning":"Navigation use is recorded without a cumulative quota. Requested page size determines which complete results are supplied; context and byte quotas are not enforced. Query metadata is not a record body; wait for fresh supply before using an exact reference or claiming to have read its body. An exhausted or omitted result establishes no absence of history.",
+        "meaning":"Requested page size selects complete results. Query metadata is not a record body; wait for fresh supply before using an exact reference or claiming to have read its body. An exhausted or omitted result establishes no absence of history.",
         "record_bodies":{
             "adopted_decision":"Original authored choices and reasoning; not proof that every proposed operation executed.",
             "observation":"Original runtime receipt; a metadata-only receipt remains metadata-only after reading it. Reading a history-query receipt does not read the records it lists.",

@@ -1,7 +1,7 @@
-//! Actual saved-launch funding supplied with the admission that spent a step.
+//! Actual saved-launch usage supplied with the admission that recorded a step.
 use super::*;
 
-pub(crate) const RULE: &str = "Steps are recorded usage, not a quota. The runtime imposes no lifetime or session call ceiling. Continue according to the actual work and choose stop, pause or wait when appropriate. A command proposed now still requires its actual result before claiming success. Provider failures, explicit control changes and unresolved execution can still prevent a later input.";
+pub(crate) const RULE: &str = "Steps count admitted model calls across this saved launch, not remaining work or a quota. Choose continuation according to the actual need and observed results.";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -27,9 +27,6 @@ impl LaunchStepAllowance {
             "launch":self.launch,
             "steps_spent_including_this_admission":self.steps_spent,
             "limits_enforced":false,
-            "historical_lifetime_step_limit":self.lifetime_step_limit,
-            "lifetime_step_limit":null,
-            "remaining_after_this_admission":null,
             "scope":"shared_saved_launch",
             "working_directory":self.working_directory,
             "rule":RULE

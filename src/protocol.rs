@@ -603,7 +603,7 @@ pub enum Operation {
     },
     /// Explicit selective retrieval of retained messages across works. Returns
     /// attributed metadata only; continuation requires a freshly supplied handle.
-    /// Check CONTROL.command_resource_accounting.history before batching retrievals.
+    /// CONTROL.history_retrieval describes cursor reuse and body supply.
     HistoryQuery {
         id: String,
         /// With a cursor, copy query.mode from its supplied result exactly.
@@ -624,8 +624,8 @@ pub enum Operation {
     /// Selective retained observations or adopted authored Decisions across works.
     /// adopted_decision finds authored choices and reasoning; observation finds
     /// runtime receipts, which may themselves contain only metadata. Neither
-    /// index supplies record bodies. Check CONTROL.command_resource_accounting.history
-    /// before batching retrievals; exhausted does not establish missing history.
+    /// index supplies record bodies. CONTROL.history_retrieval describes cursor
+    /// reuse and body supply; exhausted does not establish missing history.
     HistoryRecordsQuery {
         id: String,
         /// With a cursor, copy query.record_kind from its supplied result.

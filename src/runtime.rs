@@ -7296,10 +7296,6 @@ fn render_mode_with_history(
         serde_json::to_vec(&shared_questions)?.len()
     })
     .ok_or_else(|| invalid("mandatory growth size overflow"))?;
-    let current_navigation = navigation.unwrap_or_else(|| {
-        let mut remaining = meta.navigation_left;
-        allocate_navigation(&mut remaining, state.config.navigation_per_call)
-    });
     let initializing = persona.character.is_none();
     let ordinary_interfaces = !initializing && repair_navigation.is_none();
     let duties = if initializing {
@@ -7339,11 +7335,9 @@ fn render_mode_with_history(
             &interface.terms.policy,
         ));
     }
-    let work_attempt_accounting = json!({
-        "unit":"one admitted primary decision, not one operation",
+    let resource_use_rules = json!({
         "limits_enforced":false,
-        "attempts_left":"Historical allowance metadata only. Zero does not block this response, host commands or a later decision. Work and lifetime call counts have no runtime quota.",
-        "multiple_operations":"One complete response may propose multiple currently available operations. Usage is recorded without cumulative navigation or work quotas. Ordering, exact dependencies, fresh result receipts, complete response validation and maintenance still describe how operations take effect."
+        "rule":"Actual calls, tools and resource use are recorded without application quotas. One complete response may propose multiple operations. Exact dependencies, complete response validation and observed outcomes still determine what took effect. Provider and host failures remain actual outcomes."
     });
     let mut core = json!({"profile":"application-persona-request-v1","actor":actor,
         "persona_label":persona.seed.label,"work_id":work_id,
@@ -7370,27 +7364,11 @@ fn render_mode_with_history(
         "semantic_warnings":semantic_warnings,
         "selection_state":selection_state,
         "file_mutation_metadata":file_mutation_metadata,"file_mutation_metadata_truncated":file_mutation_metadata_truncated,
-        "resource_quotas_enforced":false,
-        "navigation_current_admission":{"limits_enforced":false,"historical_estimate":current_navigation},
-        "command_resource_accounting":{
-            "work_attempts":work_attempt_accounting,
-            "history":history::resource_accounting(current_navigation),
-            "close_goal":{
-                "navigation_charge":"none",
-                "meaning":"This command consumes no invocation navigation allowance. Complete response validation and bounds, current authorization and accepted responsibility, current release support, exact permitted supplied delivery receipts and required stakeholders' globally latest positive exact-release consent still apply. Other operations retain their charges; this accounting fact grants no authority or resources and refills nothing."
-            }
-        },
-        "grants":grants,"historical_grants":persona.seed.grants,"access_policy_enforced":false,
+        "resource_use":resource_use_rules,
+        "grants":grants,"access_policy_enforced":false,
         "destination":a.destination,"audience":a.audience,
         "requested_model":persona.seed.requested_model,"requested_effort":persona.seed.requested_effort,
-        "model_confirmation":persona.seed.model_confirmed,"attempts_left":null,
-        "historical_attempts_left":meta.attempts_left,
-        "declared_max_repair_attempts":null,"repair_attempts_left":null,
-        "ordinary_recovery":"No work or repair attempt quota. Fresh decisions use ordinary mode; historical overflow and repair records do not impose a restricted workflow. Report actual provider or host failures and choose useful recovery using current observations.",
-        "navigation_left_after_this_admission":null,
-        "context_bytes":null,"response_bytes":null,
-        "historical_context_bytes":state.config.context_bytes,"historical_response_bytes":state.config.response_bytes,
-        "storage":"logical retention only; physical/token/dollar hard bounds unsupported",
+        "model_confirmation":persona.seed.model_confirmed,
         "work_capability":if initializing {
             json!({"enabled":false,"reason":"Initial character authorship only; the ordinary work interface is supplied after character acceptance and fresh admission."})
         } else {
@@ -7410,6 +7388,7 @@ fn render_mode_with_history(
     }
     if ordinary_interfaces {
         core["affect_interface"] = affect::interface(now)?;
+        core["history_retrieval"] = history::retrieval_rules();
     }
     if !initializing {
         if let Some(mut discovery) = work_guides::control(state) {
@@ -7538,7 +7517,8 @@ fn render_mode_with_history(
         arrangement_duties.len(),
         application_schema_contract_bytes,
         schema_bytes,
-        serde_json::to_vec(&work_attempt_accounting)?.len(),
+        serde_json::to_vec(&resource_use_rules)?.len(),
+        if ordinary_interfaces { serde_json::to_vec(&core["history_retrieval"])?.len() } else { 0 },
         launch_step_allowance.map_or(0, |_| launch::step_accounting::RULE.len()),
     ]
     .into_iter()

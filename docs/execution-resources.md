@@ -150,6 +150,19 @@ and new work can begin with zero historical attempts remaining. Actual calls
 still increment their usage records. Existing saved values and prior receipts
 retain their original meaning; removing current controls does not rewrite them.
 
+Current persona inputs describe resource use without supplying obsolete quota
+values, remaining-attempt fields, navigation reservations or historical grant
+flags. Saved-launch inputs retain the actual call count and working directory.
+History retrieval instructions describe cursors and the distinction between
+metadata and supplied bodies; they are included when that interface is available.
+The runtime keeps original setup and admission records for inspection. Removing
+irrelevant prompt metadata changes neither those records nor actual usage.
+
+Ordinary tool-use guidance distinguishes a missing local executable from an
+unavailable capability. Personas consider installation or another suitable
+method when needed for the request, using actual host outcomes to justify a
+blocker. The runtime does not prescribe a tool or force an installation workflow.
+
 Provider transport and its onboarding stream no longer apply local duration,
 prompt/schema/request, response, stream/event or output-item quotas. Whole-response
 JSON validation and Store decoding have no configured byte, node, nesting or
@@ -191,7 +204,7 @@ derivative-use, expiry or revocation gates. Policy records remain attributable
 historical metadata. Output authorship retains source provenance without
 requiring a narrower audience. Fragment, asset, character, work-command and
 local communication grant flags no longer restrict ordinary decisions. CONTROL
-reports effective access and preserves the old declarations as `historical_grants`.
+reports effective access; original declarations remain in retained seed records.
 Known local inbox identities and actual record bindings remain required.
 
 All implemented native work commands are callable without selecting or reading
