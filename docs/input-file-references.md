@@ -1,5 +1,11 @@
 # Exact file references from the current input
 
+For a literal `ExactRef`, omit `start` and `end` (or set both to null) to use the
+complete text. Partial ranges use measured, half-open UTF-8 byte offsets, including
+for decoded JSON strings. Do not guess offsets for a newly authored file.
+`lifetime` is `work` or `next_call`; omitted/null means `work`. Mandatory own-voice
+references use `work`. The response schema lists those values explicitly.
+
 An ordinary initialized admission may supply `CONTROL.input_file_choices`.
 Each entry pairs a short handle with an exact file reference already identified
 in that input. A handle includes the invocation identity, for example

@@ -226,9 +226,18 @@ pub struct ExactRef {
     /// An observed accepted revision or proposal-op:<exact file-save operation id>
     /// for a new same-response file. Never invent a hash or use a bare operation id.
     pub revision: String,
+    /// Use "utf8" for file text or "json_string:<RFC6901 pointer>" for a decoded
+    /// string field. Copy the representation of the exact observed reference.
     pub representation: String,
+    /// Omit both endpoints or set both null for the complete text. Only supply
+    /// measured UTF-8 byte offsets for an intentionally selected part; never
+    /// guess a new file's byte length or use line/character positions.
     pub start: Option<u64>,
+    /// Exclusive UTF-8 byte end, paired with start. Omit/null with start for
+    /// complete text, including a newly authored own-voice file.
     pub end: Option<u64>,
+    /// "work" (also the omitted/null default) or "next_call". Mandatory own
+    /// voice uses "work"; "character", "permanent" and "lifetime" are not values.
     pub lifetime: Option<String>,
 }
 
@@ -1021,6 +1030,8 @@ pub fn decision_schema() -> Value {
         "Structural wire schema only. Use parse_decision for complete validation; successful parsing does not authorize actions or establish completion.".into(),
     );
     schema["properties"]["version"]["const"] = Value::from(PROTOCOL_VERSION);
+    schema["$defs"]["ExactRef"]["properties"]["lifetime"]["enum"] =
+        serde_json::json!(["work", "next_call", null]);
     schema
 }
 
@@ -1618,7 +1629,10 @@ pub(crate) fn check_reference(reference: &ExactRef, path: &str) -> Result<(), Pr
         }
     }
     if let Some(lifetime) = &reference.lifetime {
-        check_text(lifetime, MAX_REASON_BYTES, &format!("{path}.lifetime"))?;
+        if !matches!(lifetime.as_str(), "work" | "next_call") {
+            return Err(invalid(&format!("{path}.lifetime"),
+                "lifetime must be work or next_call, or omitted/null for work"));
+        }
     }
     Ok(())
 }
