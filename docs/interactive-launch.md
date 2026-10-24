@@ -195,6 +195,8 @@ Choose the task working directory during setup. The default is `workspace` besid
 the private launcher journal, keeping generated task files outside the source
 checkout. The launcher creates that directory when needed. Personas retain full
 host access and may choose other paths for their work.
+The saved-work list shows this workspace path again after a session and when
+reopening the launcher, so task files can be found without repeating setup.
 
 ### Continue an existing Codex OAuth runtime
 

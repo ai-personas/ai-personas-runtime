@@ -2279,6 +2279,8 @@ class Dialogue:
             self.ui.say(f"Default provider: {settings.get('model')} / {settings.get('effort')}; "
                         f"credential status: {settings.get('credential_status', 'unchecked')}; "
                         f"frozen={view['frozen']}, active invocation={view['active_invocations_present']}.")
+            if settings.get("working_directory"):
+                self.ui.say(f"Task workspace: {settings['working_directory']}")
             for i, work in enumerate(view["works"], 1):
                 counts = {}
                 for participant in work["participants"]:
