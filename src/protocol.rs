@@ -1137,7 +1137,7 @@ pub(crate) fn shape_rule(error: &serde_json::Error) -> &'static str {
     }
 }
 
-fn same_container_shapes(received: &Value, typed: &Value) -> bool {
+pub(crate) fn same_container_shapes(received: &Value, typed: &Value) -> bool {
     match (received, typed) {
         (Value::Object(received), Value::Object(typed)) => received.iter().all(|(key, value)| {
             match typed.get(key) {

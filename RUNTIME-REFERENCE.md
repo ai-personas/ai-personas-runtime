@@ -271,6 +271,13 @@ The migration command applies the request when `--preview` is absent. Migration 
 
 The current ordinary persona input supplies callable definitions directly. No extra approval, tool grant, selected guide, or catalogue load is required to use a capability that is actually supplied in that input. The operation selects the unique interface retained for this invocation by its supplied capability ID and must satisfy that interface's input schema. The runtime retains and checks the complete binding against the current implementation; the authored effect does not include `binding_revision`. Missing or ambiguous admitted interfaces are rejected before staging.
 
+Capability inputs enforce the same named-object boundaries as the outer
+Decision. Positional arrays cannot stand in for input records or nested exact
+references, even when the underlying typed decoder could interpret their
+elements in field order. Declared array fields and opaque JSON values retain
+their ordinary meanings. A shape failure rejects the complete decision before
+any operation is adopted.
+
 ### 5.1 Full host commands
 
 `host.command.v1` is available by default in ordinary decisions. It runs Bash with the runtime host account and inherited environment. Personas may install packages, invoke installed programs, read and write host files, use the network, and start subprocesses. The application adds no sandbox, command allowlist, per-tool approval, installation grant, or default timeout.

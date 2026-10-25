@@ -19,8 +19,8 @@ pub(super) fn supplied<'a, T: 'a>(
 
 /// Decode against the exact input definition admitted to this invocation.
 /// No current work, asset, host directory or implementation binding is read.
-/// Borrow the JSON value so scripts and data do not need an intermediate clone.
-pub(super) fn inputs<T: serde::de::DeserializeOwned + schemars::JsonSchema>(
+/// Borrow the JSON value for decoding, then check the typed wire containers.
+pub(super) fn inputs<T: serde::de::DeserializeOwned + Serialize + schemars::JsonSchema>(
     admitted_schema: &Value,
     received: &Value,
 ) -> Result<T> {
@@ -28,7 +28,7 @@ pub(super) fn inputs<T: serde::de::DeserializeOwned + schemars::JsonSchema>(
         *admitted_schema == serde_json::to_value(schemars::schema_for!(T))?,
         "admitted capability input definition differs from the current decoder",
     )?;
-    T::deserialize(received).map_err(|error| {
+    let input = T::deserialize(received).map_err(|error| {
         // A malformed string can become an unknown object key. Serde's raw
         // error would then copy that authored body into failure metadata and
         // later recovery prompts. Derive hints only from this admitted schema;
@@ -50,8 +50,19 @@ pub(super) fn inputs<T: serde::de::DeserializeOwned + schemars::JsonSchema>(
             path: hint.to_string(),
             rule: p::shape_rule(&error),
         }
-        .into()
-    })
+    })?;
+    // Effect.inputs is opaque to the outer Decision decoder. Serde accepts
+    // positional arrays for named structs, including nested exact references;
+    // compare against this capability's typed shape before staging any job.
+    // Actual array fields and opaque JSON values keep their declared shapes.
+    if !p::same_container_shapes(received, &serde_json::to_value(&input)?) {
+        return Err(p::ProtocolError::Invalid {
+            path: "capability inputs".into(),
+            rule: "typed records require JSON objects, not positional arrays",
+        }
+        .into());
+    }
+    Ok(input)
 }
 
 /// The runtime retains the complete binding in Prepared and in each accepted

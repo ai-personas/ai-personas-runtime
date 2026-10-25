@@ -2,7 +2,7 @@
 use super::*;
 use schemars::JsonSchema;
 
-#[derive(Clone, Debug, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 /// Commands use the shared, mutable host filesystem, including the configured
 /// task directory. There is no private per-persona copy or filesystem transaction;
@@ -39,7 +39,7 @@ pub(super) struct Inputs {
     pub timeout_seconds: Option<u64>,
 }
 
-#[derive(Clone, Debug, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum Asset {
     /// Exact asset text reference, including a proposal-op:<save-id> revision.
