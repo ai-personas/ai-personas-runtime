@@ -21,6 +21,9 @@ result without keeping the whole command document. Select those handles with
 `replace_from_input`; include any other references still needed because this
 replaces the complete optional set. Preserving an empty selection keeps it
 empty, and “already supplied” does not establish later body supply.
+If no optional choice has been recorded yet, an explicit `preserve` records an
+empty selection. Its reason remains attributable to the persona. It does not
+load observed bodies, renew lifetimes or remove mandatory own-voice context.
 
 The `input-file-choices-v2` interface supports these uses:
 

@@ -8262,7 +8262,8 @@ fn select(
     let current = active_selection(old, increment(serial)?);
     match intent {
         p::SelectionIntent::Preserve { .. } => {
-            require(old.is_some(), "cannot preserve a nonexistent choice")?;
+            // An explicit preserve also records the first optional-context
+            // choice: with no prior selection, there is nothing to carry.
             Ok(Some(current))
         }
         p::SelectionIntent::Clear { .. } => Ok(Some(Vec::new())),

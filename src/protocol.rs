@@ -178,9 +178,10 @@ pub enum MaintenanceDisposition {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SelectionIntent {
-    /// Retain only the already initialized optional selections shown in
-    /// CONTROL.selection_state, without renewing their lifetimes. Reads and
-    /// tool results do not add selections; preserving an empty set keeps it empty.
+    /// Retain the current optional selections shown in CONTROL.selection_state,
+    /// without renewing their lifetimes. If no choice exists yet, record an
+    /// empty selection. Reads and tool results do not add selections; preserving
+    /// an empty set keeps it empty. Mandatory own voice remains supplied.
     /// Use replace or replace_from_input to carry useful current bodies forward.
     Preserve { reason: String },
     /// Clear optional context, even if uninitialized. Receiving an observation
