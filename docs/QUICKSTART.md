@@ -60,7 +60,17 @@ ai-personas run --resume WORK_ID
 
 `result` performs no inference. It shows accepted messages and local delivery content with attribution and qualifications. `run --resume` continues eligible work using the saved identities and provider route. Explicit Stop/Pause and unresolved calls retain their recorded meaning; use the corresponding controls when a participant needs resumption or a call needs recovery.
 
-Foreground work continues while an eligible route or pending command can advance. There is no 12-step limit, 128-participant cutoff, lifetime call quota or delegation-depth cap. A wait with no current progress returns to the shell. The initial accepted character receives a recorded handover, and later characteristic revisions retain fresh-decision attribution. Actual provider and host outcomes, including unknown outcomes, are retained.
+Foreground work continues while an eligible route or pending command can advance.
+An accepted reconsideration time or wait deadline keeps the session open until
+the participant becomes eligible; the launcher displays its scheduled UTC time.
+A timed reconsideration does not wake early merely because a message arrives.
+An explicitly registered message wait can wake on its matching input or deadline.
+The session returns when no eligible route, scheduled return or pending command
+remains. It installs no background timer after exit. There is no call,
+participant, duration or delegation-depth quota. The initial accepted character
+receives a recorded handover, and later characteristic revisions retain
+fresh-decision attribution. Actual provider and host outcomes, including unknown
+outcomes, are retained.
 
 ## Read the outcome literally
 
