@@ -116,7 +116,7 @@ def readable_messages(messages, show_invocation=False):
     """Render already-permitted messages, preserving citations and copy counts.
 
     Group exact copies only within an attributed decision. Keep every distinct
-    subject; references identify files without supplying their bodies.
+    subject; references identify files or history without supplying their bodies.
     """
     groups, positions = [], {}
     for message in messages:
@@ -124,6 +124,7 @@ def readable_messages(messages, show_invocation=False):
         # Empty citations were omitted by historical/native serialization.
         scope = {key: value for key, value in message.items() if key not in ("id", "subject")}
         scope.setdefault("file_references", [])
+        scope.setdefault("history_references", [])
         attributed = all(isinstance(message.get(field), str) and message[field]
                          for field in ("sender", "recipient", "work", "invocation"))
         key = encoded(scope) if attributed else None
@@ -153,6 +154,11 @@ def readable_messages(messages, show_invocation=False):
             parts.append("Attached exact file references (metadata, not supplied content):")
             parts.extend(json.dumps(reference, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
                          for reference in references)
+        history = message.get("history_references", [])
+        if history:
+            parts.append("Attached exact history references (metadata, not supplied records or images):")
+            parts.extend(json.dumps(reference, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                         for reference in history)
     return parts
 
 

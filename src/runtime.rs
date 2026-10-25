@@ -27,6 +27,7 @@ mod work_guides;
 mod work_instructions;
 mod work_input_diagnostics;
 mod input_files;
+mod message_references;
 mod intake;
 pub use intake::WorkAllocation;
 pub(crate) mod lifecycle;
@@ -720,6 +721,10 @@ pub struct Observation {
 #[serde(deny_unknown_fields)]
 pub struct Message {
     pub id: String,
+    /// Native immutable-record encoding. Absence retains the earlier tuple
+    /// identity; new complete records bind their typed citation attachments.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record_format: Option<String>,
     pub sender: String,
     pub recipient: String,
     pub work: String,
@@ -734,6 +739,10 @@ pub struct Message {
     /// These are citations, not supplied bodies or verified factual support.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub file_references: Vec<p::ExactRef>,
+    /// Exact admitted history citations; bodies and captured pixels remain
+    /// separate choices for the recipient's later context.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub history_references: Vec<p::HistoryRecordReference>,
     pub lineage: Vec<f::Reference>,
     pub local_deposit_only: bool,
     #[serde(default)]
@@ -7585,6 +7594,9 @@ fn render_mode_with_history(
     if !meta.model_evidence.is_empty() {
         core["model_evidence"] = serde_json::to_value(&meta.model_evidence)?;
     }
+    if ordinary_interfaces {
+        core["message_references"] = message_references::interface();
+    }
     let schema_bytes = serde_json::to_vec(&provider::json_object_schema())?.len();
     // Measure only the actual instruction/schema components, not dynamic
     // control fields, counters, invocation identifiers or resource formatting.
@@ -7595,6 +7607,7 @@ fn render_mode_with_history(
         schema_bytes,
         serde_json::to_vec(&resource_use_rules)?.len(),
         if ordinary_interfaces { serde_json::to_vec(&core["history_retrieval"])?.len() } else { 0 },
+        if ordinary_interfaces { serde_json::to_vec(&core["message_references"])?.len() } else { 0 },
         launch_step_allowance.map_or(0, |_| launch::step_accounting::RULE.len()),
     ]
     .into_iter()
@@ -9173,7 +9186,7 @@ fn plan_response(
                     reference_handles,
                     reference_operations,
                 } => {
-                    let references = input_files::resolve_message_references(
+                    let references = message_references::resolve(
                         prepared, decision, &proposals, reference_handles, reference_operations,
                     )?;
                     deposit_message(
@@ -9233,7 +9246,7 @@ fn plan_response(
             }
         }
         if let p::ReplyDisposition::Authored { audience, text, reference_handles, reference_operations } = &decision.reply {
-            let references = input_files::resolve_message_references(
+            let references = message_references::resolve(
                 prepared, decision, &proposals, reference_handles, reference_operations,
             )?;
             planning_exposure.unknown();
@@ -9678,7 +9691,7 @@ fn validate_messages(
     let mut recipients = Vec::new();
     for operation in &decision.operations {
         if let p::Operation::Communicate { recipient, reference_handles, reference_operations, .. } = operation {
-            input_files::resolve_output(prepared, reference_handles)?;
+            message_references::from_input(prepared, reference_handles)?;
             for id in reference_operations {
                 p::saved_file_reference(&decision.operations, id, None)?;
             }
@@ -9686,7 +9699,7 @@ fn validate_messages(
         }
     }
     if let p::ReplyDisposition::Authored { audience, reference_handles, reference_operations, .. } = &decision.reply {
-        input_files::resolve_output(prepared, reference_handles)?;
+        message_references::from_input(prepared, reference_handles)?;
         for id in reference_operations {
             p::saved_file_reference(&decision.operations, id, None)?;
         }
@@ -9728,7 +9741,7 @@ fn deposit_message(
     recipient: &str,
     subject: &str,
     body: &str,
-    references: &[p::ExactRef],
+    references: &message_references::References,
     now: i64,
 ) -> Result<()> {
     deposit_message_for_thread(state, prepared, suffix, recipient, subject, body, references, None, now)
@@ -9741,7 +9754,7 @@ fn deposit_message_for_thread(
     recipient: &str,
     subject: &str,
     body: &str,
-    references: &[p::ExactRef],
+    references: &message_references::References,
     thread_work: Option<&str>,
     now: i64,
 ) -> Result<()> {
@@ -9750,12 +9763,12 @@ fn deposit_message_for_thread(
     }
     let mut lineage = prepared.sources.clone();
     let mut exposure = prepared_exposure(prepared)?.clone();
-    if !references.is_empty() {
+    if !references.files.is_empty() {
         // Explicit citations need current communication and source permission.
         // Generated shared-question notifications have their own visibility
         // checks and supply no citation handles.
         let recipient_admission = communication_recipient(state, prepared, recipient, now)?;
-        let attached = references.iter().map(file_reference).collect::<Result<Vec<_>>>()?;
+        let attached = references.files.iter().map(file_reference).collect::<Result<Vec<_>>>()?;
         lineage.extend(attached.iter().cloned());
         lineage.sort();
         lineage.dedup();
@@ -9779,6 +9792,7 @@ fn deposit_message_for_thread(
     )?;
     let message = Message {
         id: id.clone(),
+        record_format: Some(history::MESSAGE_RECORD_V3.into()),
         sender: prepared.request.persona.clone(),
         recipient: recipient.into(),
         work: prepared.request.work.clone(),
@@ -9786,7 +9800,8 @@ fn deposit_message_for_thread(
         invocation: prepared.request.id.clone(),
         subject: subject.into(),
         text: body.into(),
-        file_references: references.to_vec(),
+        file_references: references.files.clone(),
+        history_references: references.history.clone(),
         lineage,
         local_deposit_only: true,
         exposure: Some(exposure),
@@ -9808,6 +9823,7 @@ fn deposit_message_for_thread(
             payload: json!({"id":message.id,"sender":message.sender,"recipient":message.recipient,
                 "work":message.work,"thread_work":message.thread_work,"receiving_work":receiving_work,"invocation":message.invocation,"subject":message.subject,"text":message.text,
                 "file_references":message.file_references,
+                "history_references":message.history_references,
                 "local_deposit_only":true}), sources: message.lineage.clone(),
             exposure: message.exposure.clone(), qualified_roots: Vec::new(), qualification_sources: None });
     }
@@ -9826,6 +9842,7 @@ fn deposit_message_for_thread(
             "thread_work":message.thread_work,"receiving_work":receiving_work,
             "text_sha256":s::sha256_bytes(message.text.as_bytes()),
             "file_references":message.file_references,
+            "history_references":message.history_references,
             "local_deposit_only":true,"recipient_attention":"unestablished",
             "recipient_acceptance":"unestablished","replay_authorized":false}),
         message.lineage.clone(),

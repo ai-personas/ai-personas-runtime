@@ -491,8 +491,10 @@ fn append_messages(lines: &mut Vec<String>, messages: &[runtime::Message]) -> ru
             &message.recipient,
             &message.work,
             &message.invocation,
+            &message.record_format,
             &message.text,
             &message.file_references,
+            &message.history_references,
             &message.lineage,
             &message.exposure,
             message.local_deposit_only,
@@ -520,6 +522,12 @@ fn append_messages(lines: &mut Vec<String>, messages: &[runtime::Message]) -> ru
         if !message.file_references.is_empty() {
             lines.push("Attached exact file references (metadata, not supplied content):".into());
             for reference in &message.file_references {
+                lines.push(serde_json::to_string(reference)?);
+            }
+        }
+        if !message.history_references.is_empty() {
+            lines.push("Attached exact history references (metadata, not supplied records or images):".into());
+            for reference in &message.history_references {
                 lines.push(serde_json::to_string(reference)?);
             }
         }

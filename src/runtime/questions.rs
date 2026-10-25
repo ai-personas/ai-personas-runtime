@@ -618,7 +618,7 @@ pub(super) fn deliver_changes(
                     &recipient,
                     "Shared work clarification",
                     &body,
-                    &[],
+                    &message_references::References::default(),
                     Some(&work),
                     now,
                 )?;

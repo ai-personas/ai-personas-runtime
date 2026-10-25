@@ -42,7 +42,7 @@ The `input-file-choices-v2` interface supports these uses:
 | `file_edit.qualification_handles` | Add the chosen exact references to the edited revision's literal `qualifications`. |
 | `file_import.qualification_handles` | Add the chosen exact references to an imported asset's literal `qualifications`. |
 | Host-command `inputs.stdin_asset` with `kind: input_file` and `handle` | Pass the exact supporting-asset text as command stdin, including a decoded JSON string or measured UTF-8 byte range, without copying it into the response. This does not select model context. |
-| `communicate.reference_handles` | Attach canonical `file_references` to the deposited message. |
+| `communicate.reference_handles` | Attach canonical `file_references` to the deposited message; the message interface below also accepts history handles. |
 | An authored `reply.reference_handles` | Attach the same chosen references to each authorized local reply recipient. |
 
 The output fields are optional and default to empty. Prefer them when the
@@ -58,10 +58,27 @@ attachments beside the message identity and hashes. It confirms the actual
 local deposit without resupplying the message or attached file bodies. It does
 not establish recipient attention or acceptance, or resume a stopped sender.
 
+Ordinary inputs also offer `CONTROL.message_references` with
+`message-reference-handles-v1`. Under that interface, `reference_handles` on
+`communicate` and an authored reply can mix current file and history handles.
+The host retains file citations in `file_references` and original observation
+or adopted-decision citations in `history_references`. It preserves each exact
+identity and hash without reading the record or replaying an operation.
+
+The sender's deposit receipt and the recipient's message contain the same
+typed attachments. Received history citations enter the recipient's
+`input_history_choices` table as metadata. The recipient may choose an exact
+history read, or select an original captured image through `next_assets.images`.
+The citation itself supplies neither the record body nor pixels. The launcher
+and native text views label history attachments separately from message prose.
+This message interface does not change file qualification, stdin or text
+selection fields into history-reference fields. Older admissions that did not
+offer history citations keep their original meaning.
+
 Message references and combined literal/handle qualifications have no fixed
 count cap. Duplicate exact qualifications are rejected after resolution. Handles are unique
 within each field. A selection lifetime does not become an output-reference
-lifetime: attachments retain the exact source, revision, representation and
+lifetime: file attachments retain the exact source, revision, representation and
 range, with `lifetime: null`. Source policies remain historical provenance.
 The canonical qualifications already identify the file's supporting sources;
 authored prose can refer to those qualifications without copying their hashes.

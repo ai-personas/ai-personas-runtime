@@ -94,10 +94,25 @@ fn choices(control: &Value, invocation: &str) -> Result<Vec<Choice>> {
         found.successor(observation, &path)?;
         let payload = &observation["payload"];
         match observation["kind"].as_str() {
+            Some("received_local_persona_message" | "received_child_work_message"
+                | "received_cross_work_message" | "local_message_deposit") => {
+                if let Some(references) = payload["history_references"].as_array() {
+                    for (index, reference) in references.iter().enumerate() {
+                        found.add(reference, format!("{path}/payload/history_references/{index}"))?;
+                    }
+                }
+            }
             Some("received_local_operator_feedback") => {
                 if let Some(references) = payload["supersedes"].as_array() {
                     for (index, reference) in references.iter().enumerate() {
                         found.add(reference, format!("{path}/payload/supersedes/{index}"))?;
+                    }
+                }
+            }
+            Some("history_read") if payload["body_supplied"] == true => {
+                if let Some(references) = payload["record"]["history_references"].as_array() {
+                    for (index, reference) in references.iter().enumerate() {
+                        found.add(reference, format!("{path}/payload/record/history_references/{index}"))?;
                     }
                 }
             }

@@ -574,7 +574,14 @@ Recipient attention and acceptance remain explicitly unestablished by this recei
 An exact replay of an adopted response creates neither a duplicate message nor
 a second receipt, and a rejected response publishes neither.
 
-Messages can carry exact file-reference attachments by current input handles. Those attachments are citations and metadata; they do not supply file bodies or prove the cited content was read.
+Messages can carry exact file and history attachments by current input handles.
+When `CONTROL.message_references` offers `message-reference-handles-v1`, an
+authored reply or `communicate.reference_handles` can name either table's
+current handles. The deposited message keeps `file_references` and
+`history_references` separately, including original image-capture references.
+Recipients can choose a history read or retain a referenced image through the
+ordinary context interface. These attachments supply metadata, not file or
+record bodies or pixels; they establish no reading, correctness or acceptance.
 
 For session-scoped messages:
 
@@ -656,9 +663,14 @@ Here `work` identifies the actual authoring context and `thread_work` identifies
 the original shared thread. Matching is case-sensitive by default and never
 spans messages. Copy the returned `message_id` and `sha256` unchanged into
 `history_read`; query metadata is insufficient to reconstruct the digest.
-Unthreaded records retain their `history-message-record-v1` tuple digest.
-Threaded records use `history-message-record-v2` over the complete message,
-including its thread, lineage, exposure, and file-reference attachments.
+New records identify `history-message-record-v3` and hash that version tag with
+the complete message, including both citation types. Exact message reads return
+the bound attachments; their references can enter the recipient's ordinary
+file/history handle tables without supplying cited bodies. Older unthreaded
+records retain their `history-message-record-v1` tuple digest. Older threaded
+records use `history-message-record-v2` over the complete message, including its
+thread, lineage, exposure, and file-reference attachments. A newer helper does
+not retrofit attachments into an earlier tuple's identity.
 
 Queries support listing, case-sensitive literal matching, or Rust Regex 1. Hits are metadata; a separate read is required for a body. Adopted Decision history preserves authored choices and reasoning, not proof that every proposed operation executed. A metadata-only observation stays metadata-only after historical retrieval.
 

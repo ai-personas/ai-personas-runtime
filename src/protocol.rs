@@ -409,8 +409,9 @@ pub enum ReplyDisposition {
     Authored {
         audience: Vec<String>,
         text: String,
-        /// Optional exact handles from input-file-choices-v2. The host attaches
-        /// canonical file_references to each deposited message; no body is read.
+        /// Current input_file_choices handles, or input_history_choices handles
+        /// when CONTROL.message_references offers them. The host attaches typed
+        /// file_references/history_references without reading bodies or images.
         /// Use these for exact citations instead of retyping hashes in prose.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         reference_handles: Vec<String>,
@@ -783,7 +784,7 @@ pub enum Operation {
         limit: usize,
         cursor: Option<String>,
     },
-    /// Local attributed message with optional exact file citations. This operation
+    /// Local attributed message with optional exact file/history citations. This operation
     /// has no depends_on member; do not copy it from work_command or effect.
     /// Complete-response acceptance is still atomic.
     /// Each operation deposits its own message independently of an authored
@@ -793,9 +794,10 @@ pub enum Operation {
         recipient: String,
         subject: String,
         text: String,
-        /// Exact handles from input-file-choices-v2, attached as canonical
-        /// file_references beside the unchanged authored text. No body is read
-        /// or supplied. Prefer handles to retyping source identities and hashes.
+        /// Current input_file_choices handles, or input_history_choices handles
+        /// when CONTROL.message_references offers them. Attach typed exact
+        /// file_references/history_references beside the unchanged authored text.
+        /// No body or image is read, supplied or selected by a citation.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         reference_handles: Vec<String>,
         /// Exact same-response file_write, file_edit or file_import IDs. Attach their

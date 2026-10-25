@@ -271,6 +271,8 @@ impl Output {
 #[derive(Serialize)]
 struct MessageView<'a> {
     message_id: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    record_format: Option<&'a str>,
     sha256: &'a str,
     sender: &'a str,
     recipient: &'a str,
@@ -281,11 +283,18 @@ struct MessageView<'a> {
     subject: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     text: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file_references: Option<&'a Vec<p::ExactRef>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    history_references: Option<&'a Vec<p::HistoryRecordReference>>,
     local_deposit_only: bool,
 }
 fn message_view<'a>(message: &'a Message, sha256: &'a str, body: bool) -> MessageView<'a> {
+    let complete = message.record_format.as_deref() == Some(MESSAGE_RECORD_V3)
+        || message.thread_work.is_some();
     MessageView {
         message_id: &message.id,
+        record_format: message.record_format.as_deref(),
         sha256,
         sender: &message.sender,
         recipient: &message.recipient,
@@ -294,14 +303,25 @@ fn message_view<'a>(message: &'a Message, sha256: &'a str, body: bool) -> Messag
         invocation: &message.invocation,
         subject: &message.subject,
         text: body.then_some(message.text.as_str()),
+        file_references: (body && complete && !message.file_references.is_empty())
+            .then_some(&message.file_references),
+        history_references: (body && complete && !message.history_references.is_empty())
+            .then_some(&message.history_references),
         local_deposit_only: message.local_deposit_only,
     }
 }
 
-// Versioned ordered tuples, compact serde_json UTF-8 without whitespace.
-// Search excludes permission manifests. Threaded records include the complete
-// Message; earlier tuple records keep their originally defined digest.
+pub(super) const MESSAGE_RECORD_V3: &str = "history-message-record-v3";
+
+// New records bind the complete Message, including typed citations. Earlier
+// tuple records keep their original identity, without retrofitting attachments
+// into a digest that did not bind them. Search excludes permission manifests.
 fn original_bytes(message: &Message) -> Option<Vec<u8>> {
+    if let Some(format) = message.record_format.as_deref() {
+        return (format == MESSAGE_RECORD_V3)
+            .then(|| bounded(&(MESSAGE_RECORD_V3, message), INPUT_LIMIT))
+            .flatten();
+    }
     if message.thread_work.is_some() {
         return bounded(&("history-message-record-v2", message), INPUT_LIMIT);
     }
