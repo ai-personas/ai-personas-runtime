@@ -1,5 +1,21 @@
 # Continuing a history query
 
+Ordinary inputs can include `CONTROL.history_retrieval.recent_other_work`, a
+compact locator for the persona's latest indexed accepted judgment in another
+work. Its invocation, work, admission time and per-persona serial identify the
+earlier activity; its literal query helps find that decision through the existing
+history interface. The query may also match decisions citing the invocation, so
+the persona chooses the matching record from the returned metadata before reading
+its body. Earlier judgments without recorded chronology are not ranked; an absent
+locator does not establish that there is no history.
+
+The locator is derived from the persona's own retained judgment attribution. It
+loads no archive, earlier task body or optional selection and makes no relevance,
+completion or learning judgment. The persona decides whether to investigate prior
+experience, what to retain for later context and whether any maintenance is useful.
+Chronological discovery supports continuity without transferring another work's
+private focus or resuming its participation.
+
 When a query result, feedback replacement link or other native history metadata
 already names an exact record, `CONTROL.input_history_choices` offers a short
 handle for it. Use the handle from the current input:

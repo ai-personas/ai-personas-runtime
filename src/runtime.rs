@@ -494,6 +494,10 @@ pub(crate) struct WorkJudgmentOrigin {
     pub invocation: String,
     pub admitted_work_version: w::Version,
     pub mandate_revision: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub admission_serial: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub admitted_at_unix: Option<i64>,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -7405,6 +7409,11 @@ fn render_mode_with_history(
     if ordinary_interfaces {
         core["affect_interface"] = affect::interface(now)?;
         core["history_retrieval"] = history::retrieval_rules();
+        if let Some(previous) = history::recent_other_work(state, actor, work_id, &a, &mut exposure) {
+            growth_bytes = growth_bytes.checked_add(serde_json::to_vec(&previous)?.len())
+                .ok_or_else(|| invalid("prior work locator accounting"))?;
+            core["history_retrieval"]["recent_other_work"] = previous;
+        }
     }
     if !initializing {
         if let Some(mut discovery) = work_guides::control(state) {
@@ -8722,6 +8731,8 @@ fn plan_response(
                 invocation: prepared.request.id.clone(),
                 admitted_work_version: prepared.work_version,
                 mandate_revision: judgment_mandate,
+                admission_serial: Some(prepared.admission_serial),
+                admitted_at_unix: Some(prepared.at_unix),
             });
             focus.judgment_exposure = Some(prepared_exposure(prepared)?.clone());
             focus.continuation = Some(decision.continuation.clone());
