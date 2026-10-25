@@ -2229,9 +2229,9 @@ class Dialogue:
         if failure:
             self.ui.say(f"Session stopped: {failure}. Review the saved state before another run.")
             if failure == "mandatory_context_overflow":
-                self.ui.say("Mandatory context exceeds its allocation. Removing optional selections cannot fix this. "
-                            "Use the explicit context-capacity-snapshot / extend-context-capacity controls "
-                            "described in RUNTIME-REFERENCE.md to inspect recovery within existing provider allowances.")
+                self.ui.say("Context construction failed with a retained overflow diagnostic. "
+                            "Current ordinary assembly has no application byte quota; inspect the exact "
+                            "diagnostic and source binding before continuing.")
         else:
             self.ui.say(f"Session finished: {terminal.get('stop')}; last recorded work call: {terminal.get('last_invocation')}.")
         self.session_output(s, shown_messages=shown_messages)
