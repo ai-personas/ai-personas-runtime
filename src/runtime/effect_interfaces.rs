@@ -28,7 +28,30 @@ pub(super) fn inputs<T: serde::de::DeserializeOwned + schemars::JsonSchema>(
         *admitted_schema == serde_json::to_value(schemars::schema_for!(T))?,
         "admitted capability input definition differs from the current decoder",
     )?;
-    Ok(T::deserialize(received)?)
+    T::deserialize(received).map_err(|error| {
+        // A malformed string can become an unknown object key. Serde's raw
+        // error would then copy that authored body into failure metadata and
+        // later recovery prompts. Derive hints only from this admitted schema;
+        // the complete response remains retained separately for exact reads.
+        let section = "capability inputs";
+        let hint = p::ShapeHint {
+            section: section.into(),
+            allowed_fields: crate::schema_diagnostics::object_variant(
+                admitted_schema, admitted_schema, received,
+            )
+            .and_then(|object| object["properties"].as_object())
+            .map(|fields| fields.keys().cloned().collect())
+            .unwrap_or_default(),
+            issues: crate::schema_diagnostics::issues(
+                admitted_schema, admitted_schema, received, section,
+            ),
+        };
+        p::ProtocolError::Invalid {
+            path: hint.to_string(),
+            rule: p::shape_rule(&error),
+        }
+        .into()
+    })
 }
 
 /// The runtime retains the complete binding in Prepared and in each accepted

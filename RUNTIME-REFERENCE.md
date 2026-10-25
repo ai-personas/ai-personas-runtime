@@ -26,6 +26,12 @@ the error. Unknown or nested authored keys are not copied into the diagnostic.
 The whole response remains rejected; this is recovery information, not an
 automatic rewrite or partial adoption.
 
+Embedded host-command, HTTP and computation inputs use the same structural
+error categories and schema-owned hints. A malformed script can otherwise
+become an unknown JSON key and be repeated in the raw decoder error. Recovery
+metadata describes the shape problem without copying authored keys or bodies;
+the exact rejected response stays available for explicit inspection.
+
 Ordinary instructions put the persona's responsibility for the actual task,
 self-critique, useful cooperation and completion ahead of protocol mechanics.
 Human guidance is optional; an external agent is not the expected source of

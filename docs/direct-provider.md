@@ -300,6 +300,12 @@ Decisions proposing character adoption skip this preflight and establish the
 character fence before any remaining tool inputs are validated. Complete
 Decision structural validation and previously retained failures are unchanged.
 
+Host-command, HTTP and computation input-shape errors report the structural
+category and schema-owned field hints. Unknown field names, rejected values
+and script bodies are not copied into failure metadata or recovery prompts.
+The complete rejected response remains retained for explicit inspection; the
+diagnostic neither rewrites that response nor executes any of its operations.
+
 The exact native prompt uses the sealed developer-prefix and user-input layout
 described above. A request without a reusable-prefix boundary uses one user
 input-text message. A fixed JSON-output instruction and the exact requested

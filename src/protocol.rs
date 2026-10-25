@@ -1108,10 +1108,21 @@ fn shape_error(error: serde_json::Error) -> ProtocolError {
 }
 
 fn shape_error_with_hint(error: serde_json::Error, hint: ShapeHint) -> ProtocolError {
+    ProtocolError::Shape {
+        line: error.line(),
+        column: error.column(),
+        rule: shape_rule(&error),
+        hint,
+    }
+}
+
+/// Classify a typed-decoder failure without exposing authored keys or values.
+/// Embedded capability inputs use the same rules as the Decision decoder.
+pub(crate) fn shape_rule(error: &serde_json::Error) -> &'static str {
     // Preserve a useful structural category without echoing any rejected field
     // name or value. Such strings can contain private text or quote delimiters.
     let detail = error.to_string();
-    let rule = if detail.starts_with("unknown field ") {
+    if detail.starts_with("unknown field ") {
         "unknown field; use only the fields allowed for this object in the supplied schema"
     } else if detail.starts_with("missing field ") {
         "missing required field; supply every required member of this object"
@@ -1123,12 +1134,6 @@ fn shape_error_with_hint(error: serde_json::Error, hint: ShapeHint) -> ProtocolE
         "invalid value; match the supplied object's schema"
     } else {
         "match the complete supplied schema"
-    };
-    ProtocolError::Shape {
-        line: error.line(),
-        column: error.column(),
-        rule,
-        hint,
     }
 }
 
