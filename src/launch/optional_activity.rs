@@ -362,9 +362,11 @@ fn input(
             eligible: request.participants.iter().cloned().map(w::PersonaId).collect(),
             delegation,
         },
-        invitations: request.participants.iter().enumerate().map(|(index, id)| Invitation {
-            id: format!("{}-optional-{index}", activity.episode),
-            to: id.clone(),
+        // Match ordinary task invitations: the work and recipient identify the
+        // offer, independently of the longer opportunity-registration identity.
+        invitations: request.participants.iter().map(|persona| Invitation {
+            id: format!("{id}-{persona}"),
+            to: persona.clone(),
             terms: w::CommitmentTerms {
                 mandate_revision: 1,
                 exact_terms: "Invitation to consider optional activity; engagement and conversation are voluntary. No artifact, review or delivery responsibility is assigned.".into(),

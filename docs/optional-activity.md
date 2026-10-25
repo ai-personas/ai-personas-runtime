@@ -43,6 +43,11 @@ the cohort grows or the activity ends; it starts no call and resumes nobody.
 If registration succeeds but admission cannot finish, retrying the same ID
 uses the retained opportunity. A new ID requests a new activity.
 
+New invitations use the same work-and-recipient identifiers as ordinary task
+invitations. The opportunity and episode keep their separate registration
+identities. Acceptance still names the exact supplied offer; repeating an
+admitted activity returns its retained work and invitations.
+
 A held, paused or unavailable invitee does not block the others. Readiness is
 checked separately when each participant is considered for a call. Its existing
 work, Stop/Pause and unknown executions are preserved. An invitation itself
