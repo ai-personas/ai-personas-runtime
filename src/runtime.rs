@@ -6230,17 +6230,8 @@ fn validate_profile(
     vad: &BTreeMap<String, String>,
 ) -> Result<()> {
     for (map, names) in [
-        (
-            ocean,
-            &[
-                "openness",
-                "conscientiousness",
-                "extraversion",
-                "agreeableness",
-                "neuroticism",
-            ][..],
-        ),
-        (vad, &["valence", "activation", "control"][..]),
+        (ocean, p::OCEAN_DIMENSIONS),
+        (vad, p::VAD_DIMENSIONS),
     ] {
         require(
             map.len() == names.len() && names.iter().all(|n| map.contains_key(*n)),

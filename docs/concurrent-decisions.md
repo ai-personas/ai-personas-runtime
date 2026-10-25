@@ -49,10 +49,16 @@ observations do not by themselves establish a controlled performance improvement
 Ordinary inputs can include `CONTROL.collaborators`: other current-work
 participants, their labels and current acceptance IDs, and their latest accepted
 work judgment and continuation with their original invocation and mandate
-attribution. `current-work-collaborators-v3` keeps each judgment's relation to
+attribution. `current-work-collaborators-v4` keeps each judgment's relation to
 the current mandate explicit and lists accepted host-command identities awaiting
-complete result publication. It does not copy command bodies or infer affected
-paths. A pending marker establishes neither a running process nor a successful
+complete result publication, including their recorded launch directories. A
+directory is where the command starts; it neither restricts accessed paths nor
+identifies file ownership or a live process. Missing directory attribution stays
+unknown. The projection names its work and explains that persona, invocation and
+work IDs are local to this runtime. Host process listings and similarly named
+files can belong to other work or runtimes; they do not establish peer activity
+or current-work output. It does not copy command bodies or infer affected paths.
+A pending marker establishes neither a running process nor a successful
 effect; an empty list does not establish that shared files are unchanged.
 The snapshot has no application record-count or
 byte quota. Each account retains its actual source attribution and lineage.

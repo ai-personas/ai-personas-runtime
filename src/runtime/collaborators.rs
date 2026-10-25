@@ -41,10 +41,11 @@ pub(super) fn context(
     // The caller already checked this work's policy and complete core lineage.
     // Never inspect other tasks, private selections, prompts or in-flight calls.
     let mut projection = json!({
-        "profile":"current-work-collaborators-v3",
+        "profile":"current-work-collaborators-v4",
+        "work":work_id,
         "records":[],
         "records_omitted":false,
-        "meaning":"Snapshot at this input's context_at_unix. Each last_attributed_work_judgment and last_authored_continuation is the peer's own accepted account or intention, not verified execution, quality, readiness, agreement or a new commitment. pending_host_commands names accepted operations whose complete result has not been published; it does not prove a process is running or identify affected paths. Shared host files can change while your call runs, including after a peer's judgment. Choose useful work, communication, coordination and inspection yourself. These records supply no command bodies, cited evidence or peer artifact bodies. Communicate sends a message without resuming a stopped peer. When useful, CONTROL.need_capability can invite existing personas to new work; acceptance remains their choice. Empty or omitted entries do not establish that files are unchanged or safe to overwrite."
+        "meaning":"Snapshot of this runtime's named work at this input's context_at_unix. Persona, invocation and work identifiers are local to this runtime; matching labels elsewhere do not establish the same participant. Each last_attributed_work_judgment and last_authored_continuation is the peer's own accepted account or intention, not verified execution, quality, readiness, agreement or a new commitment. pending_host_commands names accepted operations whose complete result has not been published. working_directory is the retained launch directory when recorded, not a restriction on accessed paths, file ownership, a live process identifier or proof that a command is running. A command may change directory or access other paths. Host-wide process listings and similarly named files may belong to other work or runtimes; they are not this collaborator snapshot. Establish a current-work connection before attributing them to a peer or relying on them as this work's output. Shared host files can change while your call runs, including after a peer's judgment. Choose useful work, communication, coordination and inspection yourself. These records supply no command bodies, cited evidence or peer artifact bodies. Communicate sends a message without resuming a stopped peer. When useful, CONTROL.need_capability can invite existing personas to new work; acceptance remains their choice. Empty or omitted entries do not establish that files are unchanged or safe to overwrite."
     });
     let mut records = Vec::new();
     for peer in work.participants.keys().filter(|peer| peer.0 != actor) {
@@ -113,6 +114,7 @@ pub(super) fn context(
             // intent state can lag dispatch, so do not present it as live state.
             pending.push(json!({
                 "intent":intent,"invocation":job.invocation,"operation":job.operation,
+                "working_directory":job.host_working_directory,
                 "status":"awaiting_result_publication"
             }));
             extend_exposure(&mut inherited, &job.exposure);

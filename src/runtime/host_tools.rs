@@ -181,6 +181,7 @@ pub(super) fn stage(
             work: prepared.request.work.clone(),
             invocation: prepared.request.id.clone(),
             operation: id.clone(),
+            host_working_directory: Some(directory.clone()),
             state: s::IntentState::Admitted,
             observation: None,
             result_source: None,
@@ -276,7 +277,8 @@ impl Runtime {
                 && marker.invocation == job.invocation
                 && marker.actor == job.actor
                 && marker.work == job.work
-                && marker.operation == job.operation,
+                && marker.operation == job.operation
+                && marker.host_working_directory.as_ref().is_none_or(|directory| directory == &job.directory),
             "host command admission mismatch",
         )?;
         let prepared = decode_prepared(&self.store.trusted_host().invocation(&job.invocation)?)?;

@@ -271,6 +271,7 @@ pub(super) fn stage(
             work: prepared.request.work.clone(),
             invocation: prepared.request.id.clone(),
             operation: id.clone(),
+            host_working_directory: None,
             state: s::IntentState::Admitted,
             observation: None,
             result_source: None,

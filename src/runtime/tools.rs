@@ -77,6 +77,9 @@ pub struct JobMarker {
     pub work: String,
     pub invocation: String,
     pub operation: String,
+    /// Accepted host launch directory, not a file-ownership or process claim.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_working_directory: Option<PathBuf>,
     pub state: s::IntentState,
     pub observation: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -365,6 +368,7 @@ pub(super) fn stage(
             work: prepared.request.work.clone(),
             invocation: prepared.request.id.clone(),
             operation: id.clone(),
+            host_working_directory: None,
             state: s::IntentState::Admitted,
             observation: None,
             result_source: None,

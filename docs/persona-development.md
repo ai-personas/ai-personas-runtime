@@ -1,5 +1,11 @@
 # Inspecting persona development
 
+The Decision schema lists the exact required OCEAN and VAD dimension names used
+by validation. Each dimension is a nonempty text description; arbitrary extra
+dimension keys are not part of that wire shape. The same VAD shape applies to
+current modeled affect. Descriptions and characteristic fragments retain their
+nuance without a text-size quota.
+
 [Current modeled affect](transient-affect.md) is displayed separately from stable
 OCEAN tendencies and baseline VAD. The native view returns its current permitted
 status and exact qualified receipt. With an invocation ID, it also returns the

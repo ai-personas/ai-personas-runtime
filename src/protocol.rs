@@ -38,6 +38,38 @@ pub const PROPOSED_REVISION_PREFIX: &str = "proposal-sha256:";
 /// A response-local operation reference; exact bytes are bound by the complete validated decision.
 pub const PROPOSED_OPERATION_PREFIX: &str = "proposal-op:";
 
+pub(crate) const OCEAN_DIMENSIONS: &[&str] = &[
+    "openness",
+    "conscientiousness",
+    "extraversion",
+    "agreeableness",
+    "neuroticism",
+];
+pub(crate) const VAD_DIMENSIONS: &[&str] = &["valence", "activation", "control"];
+
+// Keep the model-facing shape and profile validation on the same vocabulary.
+// The map representation does not make additional dimension names valid.
+fn profile_schema(names: &[&str]) -> schemars::Schema {
+    let properties: serde_json::Map<String, Value> = names
+        .iter()
+        .map(|name| ((*name).into(), serde_json::json!({"type":"string", "minLength":1})))
+        .collect();
+    schemars::json_schema!({
+        "type":"object",
+        "properties":properties,
+        "required":names,
+        "additionalProperties":false
+    })
+}
+
+fn ocean_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    profile_schema(OCEAN_DIMENSIONS)
+}
+
+fn vad_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    profile_schema(VAD_DIMENSIONS)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Decision {
@@ -417,6 +449,7 @@ pub enum AffectChange {
     Set {
         /// Exactly valence, activation (arousal), and control (perceived control).
         /// Describe the present situation in words, without a text-size quota.
+        #[schemars(schema_with = "vad_schema")]
         vad: BTreeMap<String, String>,
         /// The persona's interpretation of its current circumstances.
         interpretation: String,
@@ -576,7 +609,9 @@ pub enum Operation {
     CharacterAdopt {
         id: String,
         base_revision: Option<String>,
+        #[schemars(schema_with = "ocean_schema")]
         ocean: BTreeMap<String, String>,
+        #[schemars(schema_with = "vad_schema")]
         vad: BTreeMap<String, String>,
         own_voice: Vec<ExactRef>,
         reason: String,
@@ -1940,7 +1975,7 @@ fn check_operation(
     match operation {
         Operation::AffectUpdate { change, .. } => match change {
             AffectChange::Set { vad, interpretation, observations, expires_at_unix } => {
-                check_profile(vad, &["valence", "activation", "control"], &format!("{path}.change.vad"))?;
+                check_profile(vad, VAD_DIMENSIONS, &format!("{path}.change.vad"))?;
                 for text in vad.values() {
                     check_text(text, 512, &format!("{path}.change.vad"))?;
                 }
@@ -2074,20 +2109,14 @@ fn check_operation(
             check_base(base_revision, &format!("{path}.base_revision"))?;
             check_profile(
                 ocean,
-                &[
-                    "openness",
-                    "conscientiousness",
-                    "extraversion",
-                    "agreeableness",
-                    "neuroticism",
-                ],
+                OCEAN_DIMENSIONS,
                 &format!("{path}.ocean"),
             )?;
             // activation denotes modeled arousal; control denotes modeled
             // perceived control. Neither dimension grants authority.
             check_profile(
                 vad,
-                &["valence", "activation", "control"],
+                VAD_DIMENSIONS,
                 &format!("{path}.vad"),
             )?;
             check_references(own_voice, 1, true, &format!("{path}.own_voice"))?;
