@@ -4191,9 +4191,9 @@ impl Runtime {
             input_files::validate_control(&prepared, &decoded.control)?;
             history::input::validate_control(&prepared, &decoded.control)?;
         }
+        optional_activity::seal_admission(&mut state, &prepared)?;
         prepared.decision_scope = decision_scope::seal(&state, &prepared)?;
         prepared.provider_preparation = hook(&prepared)?;
-        optional_activity::seal_admission(&mut state, &prepared)?;
         let request_value = serde_json::to_value(&prepared)?;
         let input_bytes = (serde_json::to_vec(&request_value)?.len() as u64)
             .checked_mul(2)

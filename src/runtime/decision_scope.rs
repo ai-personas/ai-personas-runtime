@@ -19,20 +19,16 @@ pub struct Snapshot {
     defer_incoming_peer_messages: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     control_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    optional_activity_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     saved_sources: BTreeMap<String, String>,
 }
 
 pub(super) fn seal(state: &State, prepared: &Prepared) -> Result<Option<Snapshot>> {
-    let work = state
-        .board
-        .work(&w::WorkId(prepared.request.work.clone()))?;
-    // Optional-activity sealing still changes shared lifecycle state after this
-    // snapshot. It runs alone. Ordinary intake episodes use the same exact
-    // task dependencies as other direct calls; their counters are accounting.
-    if prepared.request.profile != Profile::Direct
-        || work.need.optional_activity.is_some()
-    {
+    // Optional admission exposure is sealed before this snapshot. Independent
+    // peer command outcomes must not invalidate the admitted persona's input.
+    if prepared.request.profile != Profile::Direct {
         return Ok(None);
     }
     Ok(Some(snapshot(state, prepared, FORMAT,
@@ -152,6 +148,7 @@ fn snapshot(
         } else {
             None
         },
+        optional_activity_sha256: optional_activity::scoped_binding(state, prepared, format == INTENT_FORMAT)?,
         saved_sources: BTreeMap::new(),
     })
 }
@@ -338,12 +335,6 @@ pub(super) fn require_current(state: &State, prepared: &Prepared) -> Result<bool
     };
     require(
         prepared.request.profile == Profile::Direct
-            && state
-                .board
-                .work(&w::WorkId(prepared.request.work.clone()))?
-                .need
-                .optional_activity
-                .is_none()
             && s::runtime_decision_scope_supported(&admitted.format),
         "unsupported scoped decision admission",
     )?;

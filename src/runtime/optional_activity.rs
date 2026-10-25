@@ -211,6 +211,27 @@ pub(crate) fn seal_admission(state: &mut State, prepared: &Prepared) -> Result<(
     bounds(state)
 }
 
+/// Bind this opportunity and admission without depending on peers' later
+/// admissions or accounting. Response validation separately permits a pure end
+/// after revocation; accepted effects must still bind the current lifecycle.
+pub(super) fn scoped_binding(state: &State, prepared: &Prepared, for_intent: bool) -> Result<Option<String>> {
+    if !bound(state, &prepared.request.work) {
+        return Ok(None);
+    }
+    let (opportunity, episode) = binding(state, &prepared.request.work)?;
+    let record = episode.admissions.iter()
+        .find(|record| record.invocation == prepared.request.id)
+        .ok_or_else(|| held("optional scoped admission absent"))?;
+    require(record.actor == prepared.request.persona
+        && record.at_unix == prepared.at_unix && record.exposure.is_some(),
+        "optional scoped admission is not sealed")?;
+    Ok(Some(digest(&(
+        &opportunity.reference, &opportunity.native_open, &opportunity.exposure,
+        &episode.trigger, &episode.work, episode.started_at_unix, record,
+        for_intent.then_some((&opportunity.revoked_at_unix, &episode.ended)),
+    ))?))
+}
+
 pub(crate) fn require_current(state: &State, work: &str, actor: &str, now: i64) -> Result<()> {
     if !bound(state, work) {
         return Ok(());

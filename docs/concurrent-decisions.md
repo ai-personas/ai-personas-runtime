@@ -13,6 +13,14 @@ subsequent decisions must receive their changed shared state. Optional-activity
 admissions also run alone because they seal shared lifecycle state. Foreground
 work is not a background service across roots.
 
+Optional activity seals its admission exposure before taking the decision
+snapshot. It uses the same task and persona dependencies as ordinary work, so
+an independent peer command can finish without invalidating a pending model
+response through the global Store epoch alone. The snapshot also binds the exact
+opportunity and this admission, without depending on later peer admissions or
+shared accounting. Response validation retains the explicit activity lifecycle;
+accepted command snapshots additionally bind revocation and episode ending.
+
 The coordinator rotates through the current subtree and each work's participants.
 A round visits each eligible task/persona pair once, then drains its actual
 transport futures before admitting newly authored children. Another round starts
