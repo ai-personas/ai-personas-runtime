@@ -185,13 +185,14 @@ fn grant_owned(
             .personas
             .get(id)
             .ok_or_else(|| held("optional participant absent"))?;
+        // Registration records the launch default, not a common model for all
+        // participants. validate_saved already checks each persona's exact
+        // configured binding, including its model and effort overrides.
         require(
             persona.created_by == request.operator
-                && persona.seed.requested_model == request.model
-                && persona.seed.requested_effort == request.effort
                 && persona.seed.destination == request.destination
                 && exposure_permitted(&state, &exposure, &admission(persona, now)),
-            "optional participant identity, model or source permission unavailable",
+            "optional participant identity or source binding unavailable",
         )?;
     }
     let reference = request.reference()?;

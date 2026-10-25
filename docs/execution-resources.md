@@ -555,6 +555,8 @@ ending still accounts for every current participant. Original inference settings
 remain registration history rather than blocking activity after an explicit
 provider migration. Fresh preparation binds the actual current settings, and
 invitations preserve existing Stop/Pause and unfinished invocation ownership.
+Registration also accepts the saved per-persona model and effort choices;
+participants do not have to share the launch default's inference settings.
 
 Saved result views retain all available messages, deliveries, feedback and
 completion records without a byte or entry-count cap. Historical communication

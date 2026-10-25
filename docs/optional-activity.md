@@ -34,6 +34,10 @@ authentication route. Omit `--persona` to invite the current cohort, or repeat
 `--persona PERSONA_ID` to select participants. There is no allocation, timing,
 approval or grant file to prepare.
 
+Participants may use different configured models and efforts. Opening the
+activity does not require them to match the launch default. Each actual call
+uses its own persona's saved selection and records the exact provider outcome.
+
 The ID binds the exact request. Repeating it returns the same work, even after
 the cohort grows or the activity ends; it starts no call and resumes nobody.
 If registration succeeds but admission cannot finish, retrying the same ID
@@ -91,7 +95,7 @@ endings. Reads are metered and perform no inference. The request is the
 | `expires_at_unix`, `episode_seconds` | Historical timing metadata, without automatic expiry enforcement. |
 | `minimum_interval_seconds`, `max_episodes` | Historical recurrence metadata, without interval or count enforcement. |
 | `allocation`, `per_episode` | Historical `WorkAllocation` values; zero is allowed. They are not execution quotas. |
-| `model`, `effort`, `destination` | Exact saved inference binding at registration. Later calls use the current configured binding, including an explicit migration. |
+| `model`, `effort`, `destination` | Saved default inference binding at registration. Participants may have their own model and effort overrides; calls use each persona's current configured binding, including an explicit migration. |
 
 A `WorkAllocation` contains `attempts`, `repair_attempts` and `navigation` with
 `calls`, `scanned_bytes`, `inspected_revisions`, `matches` and `result_bytes`.
