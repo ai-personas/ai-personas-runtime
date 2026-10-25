@@ -38,6 +38,14 @@ checked separately when each participant is considered for a call. Its existing
 work, Stop/Pause and unknown executions are preserved. An invitation itself
 establishes neither engagement nor completion.
 
+A new invitation remains available until its first decision is accepted. If a
+complete provider response is rejected locally, the foreground driver retains
+the failure, retires that exact invocation and lets the persona correct its
+decision through the same invitation. It does not execute rejected operations
+or adopt their proposed continuation. An accepted Stop or Pause, an explicit
+resume's consumed admission and an uncertain provider outcome remain distinct.
+This also applies to a first decision on ordinary work.
+
 Results show each participant's current status and latest authored continuation,
 including its complete reason and invocation reference even when it sent no
 reply. A pending invocation is labeled as pending or unresolved, without claiming

@@ -1,5 +1,6 @@
 //! Retire a completed rejected decision without creating a continuation.
-//! The foreground driver may then reconsider the previously accepted route.
+//! The foreground driver may then reconsider the retained invitation or
+//! previously accepted continuation route.
 use super::*;
 
 /// The complete transport and the rejected local decision must describe the
@@ -174,9 +175,15 @@ impl Runtime {
         let Some(focus) = persona.focus.get(work) else {
             return Ok(false);
         };
-        let Some(authored) = &focus.authored_continuation else {
-            return Ok(false);
-        };
+        let initial_invitation = focus.permit && !focus.explicit_resume_permit
+            && !prepared.explicit_resume_at_admission
+            && focus.continuation.is_none() && focus.authored_continuation.is_none()
+            && !focus.ordinary_continuation;
+        let accepted_continuation = focus.authored_continuation.as_ref().is_some_and(|authored| {
+            focus.ordinary_continuation
+                && focus.continuation.as_ref() == Some(&authored.value)
+                && matches!(authored.value, p::Continuation::Immediate { .. } | p::Continuation::Wait { .. })
+        });
         // Keep every route flag and authored disposition unchanged. In particular,
         // a consumed one-shot permit, timed reconsideration, Stop or Pause cannot
         // acquire another admission merely because the last response was invalid.
@@ -185,12 +192,7 @@ impl Runtime {
             || persona.admission_serial != prepared.admission_serial
             || persona.failed_attempt_hold.is_some()
             || !self.invocation_leases_quiescent(&state)?
-            || !focus.ordinary_continuation
-            || focus.continuation.as_ref() != Some(&authored.value)
-            || !matches!(
-                authored.value,
-                p::Continuation::Immediate { .. } | p::Continuation::Wait { .. }
-            )
+            || !(initial_invitation || accepted_continuation)
             || !state
                 .board
                 .work(&w::WorkId(work.clone()))
@@ -198,7 +200,8 @@ impl Runtime {
         {
             return Ok(false);
         }
-        let continuation_invocation = authored.invocation.clone();
+        let continuation_invocation = focus.authored_continuation.as_ref().map(|authored| authored.invocation.clone());
+        let retained_route = if initial_invitation { "initial_invitation" } else { "accepted_continuation" };
         let evidence = self.terminal_evidence(id)?;
         let reference = evidence.exact_ref()?;
         let adoption_error = observability::adoption_error(&invocation, &evidence)?;
@@ -221,6 +224,7 @@ impl Runtime {
                 "terminal":terminal_diagnostic(&evidence.body),"terminal_evidence":reference,
                 "disposition":{"state":invocation.state,"adoption_error":adoption_error},
                 "observed_by":"foreground_runtime","continuation_invocation":continuation_invocation,
+                "retained_route":retained_route,
                 "continuation_changed":false,"provider_usage":"unknown","replay_authorized":false,
                 "failure_lineage":failure_lineage
             }),
@@ -251,6 +255,7 @@ impl Runtime {
             "kind":"completed_rejection_lease_retired","persona":actor,"work":work,
             "invocation":id,"terminal_evidence":reference,
             "continuation_invocation":continuation_invocation,"continuation_changed":false,
+            "retained_route":retained_route,
             "new_permission_granted":false,"budget_reset":false,"replay_authorized":false,
             "failure_lineage":failure_lineage
         }));

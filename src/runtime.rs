@@ -4050,7 +4050,13 @@ impl Runtime {
         persona.active_invocation = Some(request.id.clone());
         let focus = persona.focus.get_mut(&request.work).unwrap();
         let explicit_resume_at_admission = focus.permit && focus.explicit_resume_permit;
-        focus.permit = false;
+        // An invitation remains pending until its first complete decision is
+        // accepted. The active invocation still owns the only admission slot;
+        // a definite local rejection may retire it without losing that route.
+        // Explicit resumption and an already authored continuation retain their
+        // existing consumption semantics.
+        focus.permit = focus.permit && !focus.explicit_resume_permit
+            && focus.continuation.is_none() && focus.authored_continuation.is_none();
         focus.explicit_resume_permit = false;
         // A timed self-reconsideration grants one admission, not a recurring wake.
         // This prospective change is committed only with successful preparation;
