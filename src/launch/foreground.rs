@@ -83,8 +83,7 @@ pub(super) fn select(
             if matches!(entry.disposition, SchedulerDisposition::Queued) {
                 selected = Some(Candidate {
                     work: work.clone(), persona: actor.0.clone(),
-                    requires_exclusive: current.need.optional_activity.is_some()
-                        || current.acceptance(&actor).is_none()
+                    requires_exclusive: current.acceptance(&actor).is_none()
                         || state.personas[&actor.0].focus[work].repair_trigger.is_some(),
                 });
             } else if let Some(at) = scheduled_at(&state, &wid, &actor, now)? {

@@ -813,8 +813,7 @@ async fn run_with_owned_commands<D: Driver>(
     let state = scope.snapshot()?;
     let independent = driver.concurrent()
         && !driver.prospective_intake()
-        && !need_proposals::bound(&state, work)
-        && state.board.work(&w::WorkId(work.into()))?.need.optional_activity.is_none();
+        && !need_proposals::bound(&state, work);
     let delegated = !independent
         && (driver.prospective_intake() || need_proposals::bound(&state, work));
     // Only the selected route survives into the asynchronous run. Preparation,

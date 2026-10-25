@@ -1,16 +1,16 @@
 # Concurrent primary decisions
 
-Native foreground runs overlap independent Direct calls within a task and across
-its delegated descendants. The same coordinator handles ordinary work and the
-automatically selected intake episode. There is no application call, round,
-resource or nesting quota.
+Native foreground runs overlap independent Direct calls within a task, an
+optional activity and their delegated descendants. The same coordinator handles
+ordinary work, optional activity and the automatically selected intake episode.
+There is no application call, round, resource or nesting quota.
 
 The independent coordinator holds the Store's execution owner, prepares each
 request, awaits transport futures and adopts completed responses one at a time.
 Each persona retains one current primary invocation. First-character and
-responsibility-acceptance transitions run alone because
-subsequent decisions must receive their changed shared state. Optional-activity
-admissions also run alone because they seal shared lifecycle state. Foreground
+responsibility-acceptance transitions run alone because subsequent decisions must
+receive their changed shared state. This includes first acceptance in optional
+activity; its already accepted participants may overlap afterward. Foreground
 work is not a background service across roots.
 
 Optional activity seals its admission exposure before taking the decision
@@ -20,6 +20,10 @@ response through the global Store epoch alone. The snapshot also binds the exact
 opportunity and this admission, without depending on later peer admissions or
 shared accounting. Response validation retains the explicit activity lifecycle;
 accepted command snapshots additionally bind revocation and episode ending.
+The host records an optional ending only after all participants have authored
+Stop and no participant invocation, failed-attempt hold or unsettled execution
+remains. One participant stopping cannot end an independently continuing peer's
+activity. Scheduling adds neither an exchange requirement nor a new continuation.
 
 The coordinator rotates through the current subtree and each work's participants.
 After a model or host-command result arrives, it reconsiders ready peers without
