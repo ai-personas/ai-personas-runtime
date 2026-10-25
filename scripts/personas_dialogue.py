@@ -2353,9 +2353,19 @@ class Dialogue:
             view = self.inspect(after)
             pending = [n for n in self.p["needs"] if n["work"] is None]
             settings = view["settings"]
-            self.ui.say(f"Default provider: {settings.get('model')} / {settings.get('effort')}; "
-                        f"credential status: {settings.get('credential_status', 'unchecked')}; "
-                        f"frozen={view['frozen']}, active invocation={view['active_invocations_present']}.")
+            self.ui.say(f"Default model: {settings.get('model') or 'unavailable'} / "
+                        f"{settings.get('effort') or 'unavailable'}.")
+            credential_status = settings.get("credential_status")
+            if credential_status == "saved_expiry_elapsed":
+                self.ui.say("The saved sign-in has expired. Renew it and update this runtime's provider settings before continuing work.")
+            elif credential_status == "incompatible_saved_provider":
+                self.ui.say("The saved provider settings cannot start work. You can still inspect saved results.")
+            else:
+                self.ui.say("Sign-in is checked when work starts; viewing saved work makes no model call.")
+            if view["frozen"]:
+                self.ui.say("This runtime is paused. Saved results remain available.")
+            if view["active_invocations_present"]:
+                self.ui.say("Some model-call outcomes are pending or need recovery. Open the work to inspect its status.")
             if settings.get("working_directory"):
                 self.ui.say(f"Task workspace: {settings['working_directory']}")
             for i, work in enumerate(view["works"], 1):
@@ -2364,7 +2374,8 @@ class Dialogue:
                     label = self.continuation_label(participant["continuation"])
                     counts[label] = counts.get(label, 0) + 1
                 continuations = ", ".join(f"{count} {label}" for label, count in counts.items())
-                self.ui.say(f"{i}: {work['id']} — {self.work_availability(view, work)}. "
+                self.ui.say(f"{i}: {work['need']}")
+                self.ui.say(f"   {work['id']} — {self.work_availability(view, work)}. "
                             f"Last choices: {continuations or 'none recorded'}.")
                 attempt = work.get("last_attempt")
                 if attempt:

@@ -54,6 +54,9 @@ from live output still appear at completion. **r: results** and reopening the
 journal show the permitted history again, with attribution and file references.
 The work list summarizes participants' last continuation choices and distinguishes
 ready work, pending calls, failed attempts, and participants who chose to stop.
+It shows each saved task's complete request text beside its work ID, so tasks can
+be recognized before opening them. Sign-in and runtime status use plain-language
+messages; viewing the list does not check credentials or start inference.
 Stopped participants are shown with a direction to review their results, rather
 than a generic blocked status; their choice does not establish task completion.
 After a session, the launcher also identifies feedback still awaiting a response.
