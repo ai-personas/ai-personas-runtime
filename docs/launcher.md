@@ -129,11 +129,15 @@ An ordinary character-only adoption provides one fresh decision under the
 accepted character and current work controls, including after explicit resume
 or elapsed reconsideration. It does not rearm the timer or create a resume. See
 [persona development](persona-development.md) for the distinct continuation routes.
-During a running session, a complete rejected decision may release its failed
-invocation under an earlier accepted ordinary continuation. A fresh admission
-receives the actual failure and records its usage without a session, work or
-Store quota. No rejected action is replayed. A stop, consumed timed opportunity,
-cancelled completion or unknown provider outcome does not acquire this route.
+During a running session, a complete rejected decision or a bound response-only
+provider failure may release its failed invocation under the retained invitation
+or earlier accepted ordinary continuation. A fresh admission receives the actual
+failure and records its usage without a session, work or Store quota. For a
+locally ended stream with no accepted decision or action, unknown remote usage
+does not itself consume that route. The exact failure and accounting uncertainty
+remain recorded. No rejected action is replayed. A stop, consumed timed
+opportunity or cancelled completion does not acquire this route. See
+[provider recovery](direct-provider.md) for the qualifying failures.
 A successful process exit can still describe unfinished or held work; inspect
 the result rather than interpreting the exit code as goal completion.
 

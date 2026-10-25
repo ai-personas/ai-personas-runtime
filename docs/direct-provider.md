@@ -90,8 +90,17 @@ foreground driver then uses an invitation or accepted continuation that was
 already available, supplying the retained failure in the next fresh input.
 It preserves the failed attempt, reported usage and unknown charges; it neither
 adopts partial operations nor marks maintenance completed. No new route is
-created after Stop, Pause or consumed explicit resumption. Missing terminal
-reports and uncertain connection loss retain their unresolved disposition.
+created after Stop, Pause or consumed explicit resumption.
+
+A locally ended HTTP 200 stream can also retain that route after a network,
+protocol or content-type failure, or an incomplete message item. The runtime
+verifies the exact response-only request and the absence of any received
+Decision, adoption or action intent. It retires the local invocation while
+leaving the remote outcome and unknown charges unresolved. A fresh request can
+therefore proceed independently of an unknown bill. Explicit cancellation,
+refusal, model/account binding failures and missing local failure evidence do
+not qualify for this recovery. An incomplete item in a live stream still waits
+for response-level evidence; it does not itself trigger another call.
 
 Runtime context assembly and corpus retention also have no application byte or
 record quota. Provider account, rate and context outcomes are reported as observed;

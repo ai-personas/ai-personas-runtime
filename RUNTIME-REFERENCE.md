@@ -230,7 +230,15 @@ Probe and provider onboarding records have no application count, byte, token, or
 
 ### 4.4 Provider uncertainty and migration
 
-The runtime does not automatically retry an uncertain request. A timeout, cancellation, process loss, storage failure, incomplete stream, or missing terminal receipt can leave remote submission or usage unknown. That state must be inspected and reconciled through the supported terminal and recovery controls; it must not be relabeled as success or safe replay.
+Unknown external actions are never automatically replayed. A locally ended
+response-only stream can retain an existing invitation or accepted continuation
+when the exact request, failure receipt and absence of an accepted decision or
+action are established. A fresh decision then observes the failure while the
+earlier remote outcome and unknown usage remain unresolved. This does not claim
+remote cancellation, zero cost or successful execution. Explicit cancellation,
+unavailable bindings, missing local failure evidence and already accepted
+actions retain their separate recovery controls. See the
+[direct-provider contract](docs/direct-provider.md) for qualifying failures.
 
 Useful commands include:
 

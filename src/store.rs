@@ -1078,6 +1078,7 @@ impl TrustedHost<'_> {
     ) -> Result<BatchReceipt> {
         self.store.transaction(|work| {
             work.admission()?;
+            work.require_quiescent_invocations()?;
             let current: StoredObject = work.required("object", RUNTIME_CONTROL_STATE_ID)?;
             let record: InvocationRecord = work.required("invocation", &invocation.id)?;
             let slot: TerminalEvidenceSlot = work.required("terminal_evidence", &evidence.id)?;
@@ -1092,6 +1093,16 @@ impl TrustedHost<'_> {
                 || object.kind != current.kind
             {
                 return Err(StoreError::Conflict(invocation.id.clone()));
+            }
+            // An uncertain response-only attempt may retire its local lease,
+            // never an accepted action. Check actual intent/archive records in
+            // this transaction as well as the invocation's bound failure history.
+            let has_intent: bool = work.db.query_row(
+                "SELECT EXISTS(SELECT 1 FROM store_cells WHERE ns='intent' AND json_extract(data,'$.invocation_id')=?1)",
+                [&record.id], |row| row.get(0))?;
+            let archive = format!("adoption:{}", sha256_bytes(record.id.as_bytes()));
+            if has_intent || work.cell("object", &archive)?.is_some() {
+                return Err(StoreError::Invalid("failed attempt has adopted action history".into()));
             }
             live_invocation(&record)?;
             let changes = vec![Change {
