@@ -141,6 +141,13 @@ opportunity or cancelled completion does not acquire this route. See
 A successful process exit can still describe unfinished or held work; inspect
 the result rather than interpreting the exit code as goal completion.
 
+Within a live foreground run, a still-eligible authored reconsideration time or
+wait deadline is awaited instead of returning solely because it is not due yet.
+Actual command completion and queued requester input remain observable during
+that wait. The next admission rechecks current state and time; the wait neither
+resumes Stop/Pause nor rearms a consumed reconsideration. There is no unattended
+timer service after the process exits.
+
 The wrapper uses `exec`, so runtime stdout/stderr, process identity, exit status
 and signal handling are preserved. It adds no cleanup or recovery trap. Interrupting
 a process does not establish remote cancellation or refund unknown usage.

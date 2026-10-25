@@ -38,7 +38,7 @@ pub(super) async fn run<D: Driver>(
         app.publish_completed_host_commands(unix_now()?)?;
         let works = subtree(&app.snapshot()?, root)?;
         let mut progress = false;
-        for work in works {
+        for work in &works {
             driver.before_step(app)?;
             let admitted = intake_delegation::admit_pending_for_work_owned(app, &work, owner)?;
             progress |= !admitted.is_empty();
@@ -58,8 +58,7 @@ pub(super) async fn run<D: Driver>(
         if progress {
             continue;
         }
-        if app.has_background_host_commands() {
-            app.wait_for_host_command().await?;
+        if failure.is_none() && foreground::wait_for_activity(app, &works, Some(owner)).await? {
             continue;
         }
         let mut output = result(app, root)?;

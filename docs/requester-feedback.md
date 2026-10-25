@@ -1,5 +1,12 @@
 # Current requester feedback and retained history
 
+Shared-question answers use the same foreground delivery boundary as feedback.
+An answer submitted during a live call is retained without taking over the
+execution owner or altering that call's input. Its exact identity is idempotent;
+receipt and delivery times remain separate. The questions view reports queued
+answers and delivery failures. A foreground session waiting for an authored time
+observes new input and delivers it before reconsidering ordinary eligibility.
+
 Requester feedback supplies attributed direction within an existing work. It
 does not change the mandate or automatically resume a stopped persona. A persona
 can account for pending feedback with `handled` or `declined` and a reason. That

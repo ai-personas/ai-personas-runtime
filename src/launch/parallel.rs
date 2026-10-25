@@ -110,7 +110,7 @@ async fn run_with_subtree<D: Driver>(
                     require(pending.is_empty(), "subtree changed while transports were owned")?;
                     driver.before_step(app)?;
                     if let Some(owner) = owner {
-                        feedback::deliver(app, owner, unix_now()?)?;
+                        deliver_inputs(app, owner, unix_now()?)?;
                         let mut state = maintenance_state(app)?;
                         works = delegated::subtree(&state, root)?;
                         for work in &works {
@@ -268,12 +268,16 @@ async fn run_with_subtree<D: Driver>(
             round_started = false;
             continue;
         }
-        if app.has_background_host_commands() {
-            if let Err(error) = app.wait_for_host_command().await {
-                stop = Some(stop_for_error(&error));
+        match foreground::wait_for_activity(app, &works, owner).await {
+            Ok(true) => {
+                round_started = false;
+                continue;
             }
-            round_started = false;
-            continue;
+            Ok(false) => (),
+            Err(error) => {
+                stop = Some(stop_for_error(&error));
+                break;
+            }
         }
         stop = Some(match app.snapshot() {
             Ok(state) if active_invocations(&state).is_empty() => "no_eligible_route",

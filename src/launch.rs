@@ -765,6 +765,11 @@ pub async fn run(app: &mut Runtime, work: &str) -> Result<Output> {
 pub async fn continue_run(app: &mut Runtime, work: &str) -> Result<Output> {
     run(app, work).await
 }
+fn deliver_inputs(app: &mut Runtime, owner: &s::ExecutionOwner, now: i64) -> Result<()> {
+    feedback::deliver(app, owner, now)?;
+    question_commands::deliver(app, owner, now)?;
+    Ok(())
+}
 fn quiescent_call_allows_peer_progress(app: &mut Runtime, id: &str) -> Result<bool> {
     let invocation = match app.invocation(id) {
         Ok(invocation) => invocation,
@@ -789,7 +794,7 @@ async fn run_with_owned_commands<D: Driver>(
     owner: &s::ExecutionOwner,
 ) -> Result<Output> {
     driver.before_step(app)?;
-    feedback::deliver(app, owner, unix_now()?)?;
+    deliver_inputs(app, owner, unix_now()?)?;
     if !driver.prospective_intake() {
         if let Some(selection) =
             intake_delegation::default_for_work_owned(app, work, owner, unix_now()?)?
@@ -825,7 +830,7 @@ async fn run_with_owned_commands<D: Driver>(
     while scope.has_background_host_commands() {
         scope.wait_for_host_command().await?;
     }
-    feedback::deliver(&mut scope, owner, unix_now()?)?;
+    deliver_inputs(&mut scope, owner, unix_now()?)?;
     let output = outcome?;
     let mut final_view = result(&mut scope, work)?;
     final_view.stop = output.stop;
@@ -846,7 +851,7 @@ async fn run_with_options<D: Driver>(
         app.publish_completed_host_commands(unix_now()?)?;
         let calls = rejected_continuation::active_invocations_for_work(&app.snapshot()?, work)?;
         app.retire_ready_rejected_continuations(work, calls, unix_now()?)?;
-        feedback::deliver(app, owner, unix_now()?)?;
+        deliver_inputs(app, owner, unix_now()?)?;
         persona_birth::create_pending_for_work_owned(app, work, driver, owner)?;
         let mut view = result(app, work)?;
         // Scheduling uses trusted current state, never a permission-filtered
@@ -867,12 +872,11 @@ async fn run_with_options<D: Driver>(
             }
             let (_, selected) = select(app, work, unix_now()?)?;
             let Some(persona) = selected else {
-                if app.has_background_host_commands() {
-                    if yield_after_step {
-                        return Ok("work_step_yielded");
-                    }
-                    app.wait_for_host_command().await?;
-                    return Ok("jobs_completed");
+                if yield_after_step && app.has_background_host_commands() {
+                    return Ok("work_step_yielded");
+                }
+                if !yield_after_step && foreground::wait_for_activity(app, &[work.into()], Some(owner)).await? {
+                    return Ok("activity_ready");
                 }
                 return Ok(if active_invocations(&app.snapshot()?).is_empty() {
                     "no_eligible_route"
@@ -915,8 +919,8 @@ async fn run_with_options<D: Driver>(
         }
         .await;
         match attempt {
-            Ok("jobs_completed" | "continue") if yield_after_step => break "work_step_yielded",
-            Ok("jobs_completed" | "continue") => (),
+            Ok("activity_ready" | "continue") if yield_after_step => break "work_step_yielded",
+            Ok("activity_ready" | "continue") => (),
             Ok(reason) => break reason,
             Err(error) => break stop_for_error(&error),
         }

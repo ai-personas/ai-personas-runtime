@@ -59,6 +59,12 @@ or inspect, and the host does not silently add an earlier conversation.
 
 The runtime is not an unattended service. Foreground commands and explicit scheduler calls admit work. An authored `immediate` continuation asks for another eligible admission; `wait`, `reconsider_at`, `pause`, and `stop` have distinct meanings. No prose fragment, message, metadata field, or previous intent executes before a complete current decision is admitted.
 
+A foreground session remains open for an accepted future reconsideration or wait
+deadline with a prospective ordinary route. It observes actual clock time,
+command completion and requester-input/control changes before scheduling again.
+The inspection field `scheduled_for_unix` is a candidate deadline, not an
+admission or a promise of execution. No timer daemon survives process exit.
+
 Focused operator documentation is under [`docs/`](docs/), including [execution resources](docs/execution-resources.md) and [persona-requested needs](docs/persona-needs.md).
 
 ## 2. Build, helpers, and private state
@@ -474,6 +480,15 @@ All implemented commands are callable under the admitted `work.command.v1` contr
 ### 8.1 Questions and feedback
 
 Shared questions retain the owner's question, addressee, reason, affected claims, needed evidence, optional human-only requirement, replies, and the owner's later conclusion. A peer can offer a useful answer even when the question addresses the requester, but cannot manufacture human consent or a private preference.
+
+Requester answers are keyed inputs, including while a foreground session owns
+execution. Intake validates the exact visible question, retains the answer and
+receipt time, and changes no admitted model input. The owner installs the answer
+after calls and relevant commands settle, rechecking the current question and
+requester binding. Delivery failure remains recorded; it does not discard or
+rewrite the submitted answer. Question inspection exposes pending and unavailable
+answers in `answer_delivery`. Actual delivery can satisfy an existing requester
+wait but never resumes an explicit Stop or Pause.
 
 The addressee may be any known persona or configured local inbox, including the
 requester of a delegated child on its parent work. A persona's ordinary context

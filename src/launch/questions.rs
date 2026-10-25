@@ -1,5 +1,14 @@
 //! Requester inspection and attributed replies to existing shared questions.
 use super::*;
+#[path = "question_inbox.rs"]
+mod inbox;
+
+pub(super) fn deliver(app: &mut Runtime, owner: &s::ExecutionOwner, now: i64) -> Result<usize> {
+    inbox::deliver(app, owner, now)
+}
+pub(super) fn append_deliveries(records: &s::RuntimeInspection<'_, '_>, operator: &str, work: &str, value: &mut Value) -> Result<()> {
+    inbox::append_view(records, operator, work, value)
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -20,14 +29,22 @@ impl QuestionAnswerInput {
 pub fn shared_questions(app: &mut Runtime, operator: &str, work: &str, now: i64) -> Result<Value> {
     identity(operator)?;
     identity(work)?;
-    let (_, saved) = load(app)?;
-    let (_, state) = app.load()?;
-    project(&state, &saved, operator, work, now)
+    app.store.work_input_transaction(None, |runtime, launch, records| {
+        let state = Runtime::decode_inspection_state(&runtime)?;
+        let saved = decode_saved(&launch)?;
+        let mut value = project(&state, &saved, operator, work, now)?;
+        inbox::append_view(records, operator, work, &mut value)?;
+        Ok::<_, RuntimeError>((value, Vec::new()))
+    })?
 }
 pub fn shared_questions_at(root: &Path, operator: &str, work: &str, now: i64) -> Result<Value> {
     identity(operator)?;
     identity(work)?;
-    inspection::project(root, |snapshot, _| project(&snapshot.state, &snapshot.saved, operator, work, now))
+    inspection::project(root, |snapshot, records| {
+        let mut value = project(&snapshot.state, &snapshot.saved, operator, work, now)?;
+        inbox::append_view(records, operator, work, &mut value)?;
+        Ok(value)
+    })
 }
 pub(super) fn project(state: &State, saved: &Saved, operator: &str, work: &str, now: i64) -> Result<Value> {
     admission_extension::authorize(state, saved, operator)?;
@@ -43,31 +60,5 @@ pub fn answer_question(
     input: &QuestionAnswerInput,
     now: i64,
 ) -> Result<Value> {
-    input.validate()?;
-    identity(operator)?;
-    require(now >= 0, "negative question reply time")?;
-    let _owner = app.store.acquire_execution_owner()?;
-    let (_, saved) = load(app)?;
-    let (old, mut state) = app.load()?;
-    admission_extension::authorize(&state, &saved, operator)?;
-    require(
-        app.invocation_leases_quiescent(&state)?,
-        "unfinished invocation blocks question reply",
-    )?;
-    app.store.require_quiescent_invocations()?;
-    let events_before: usize = state.board.works().values().map(|work| work.events.len()).sum();
-    let replayed = questions::operator_reply(&mut state, operator, &input.work, &input.reply, now)?;
-    let waits_satisfied = state.board.works().values().map(|work| work.events.len()).sum::<usize>()
-        .saturating_sub(events_before);
-    if !replayed {
-        state.operator_events.push(json!({"kind":"shared_question_reply","operator":operator,
-            "work":input.work,"question":input.reply.question,"reply":input.reply.id,"at_unix":now}));
-        app.save(&old, &state)?;
-    }
-    Ok(
-        json!({"work":input.work,"question":input.reply.question,"reply":input.reply.id,
-        "replayed":replayed,"inference_performed":false,"persona_resumed":false,
-        "existing_waits_satisfied":waits_satisfied,
-        "changes_mandate_or_consent":false,"budget_reset":false}),
-    )
+    inbox::submit(app, operator, input, now)
 }

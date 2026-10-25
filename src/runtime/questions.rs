@@ -646,13 +646,15 @@ pub(crate) fn operator_view(state: &State, operator: &str, work: &str, now: i64)
     view(state, work, operator, &a, &mut inherited)
 }
 
-pub(crate) fn operator_reply(
+pub(crate) fn operator_reply_received(
     state: &mut State,
     operator: &str,
     work: &str,
     input: &QuestionReplyInput,
+    received_at_unix: i64,
     now: i64,
 ) -> Result<bool> {
+    require(received_at_unix >= 0 && now >= 0, "negative question reply time")?;
     validate_reply(input)?;
     require(input.question_work.as_deref().unwrap_or(work) == work,
         "requester reply names a different question work")?;
@@ -683,7 +685,7 @@ pub(crate) fn operator_reply(
         source_principal: question.origin.source_principal.clone(),
         invocation: None,
         work: Some(work.into()),
-        at_unix: now,
+        at_unix: received_at_unix,
         audience: question.origin.audience.clone(),
         exposure: inherited,
     };
@@ -725,7 +727,7 @@ pub(crate) fn operator_reply(
                 work: receiving_work.clone(),
                 invocation: None,
                 kind: "shared_question_requester_reply".into(),
-                at_unix: now,
+                at_unix: received_at_unix,
                 payload: json!({"question_work":work,"reply":input,"attribution":attribution(&origin)}),
                 sources: Vec::new(),
                 exposure: Some(origin.exposure.clone()),

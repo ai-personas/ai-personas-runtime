@@ -86,3 +86,69 @@ pub(super) fn select(
     *after = next_after;
     Ok((considered, selected))
 }
+
+/// Prospective scheduling only. The exact accepted continuation must still
+/// offer a route at its authored time; ordinary admission rechecks current state.
+pub(super) fn scheduled_at(state: &State, work: &w::WorkId, actor: &w::PersonaId, now: i64) -> Result<Option<u64>> {
+    let Some(focus) = state.personas.get(&actor.0).and_then(|persona| persona.focus.get(&work.0)) else {
+        return Ok(None);
+    };
+    if !focus.ordinary_continuation { return Ok(None); }
+    let current = state.board.work(work)?;
+    let Some(participant) = current.participants.get(actor) else { return Ok(None); };
+    let at = match (&focus.continuation, &participant.continuation) {
+        (Some(p::Continuation::ReconsiderAt { not_before_unix, .. }),
+         Some(w::Continuation::ReconsiderAt { not_before, .. })) if not_before_unix == not_before => *not_before,
+        (Some(p::Continuation::Wait { deadline_unix, .. }), Some(next))
+            if next.wait_deadline() == Some(*deadline_unix) => *deadline_unix,
+        _ => return Ok(None),
+    };
+    // The runtime clock and eligibility interface use signed Unix seconds.
+    let Ok(at_unix) = i64::try_from(at) else { return Ok(None); };
+    let consider_at = now.max(at_unix);
+    let opportunity = runtime_opportunity(state, work, actor, consider_at as u64);
+    let entry = scheduler_entry(state, work.clone(), actor.clone(), opportunity, consider_at)?;
+    Ok(matches!(entry.disposition, SchedulerDisposition::Queued).then_some(at))
+}
+
+/// Park the existing owner until an authored deadline, a command result or new
+/// input/control state. Clock checks create no call, continuation or recurrence.
+/// The next scheduling pass uses the actual clock, including after clock changes.
+pub(super) async fn wait_for_activity(app: &mut Runtime, works: &[String], owner: Option<&s::ExecutionOwner>) -> Result<bool> {
+    let stamp = app.store.foreground_activity_stamp()?;
+    // Capture before delivery so an input arriving at this boundary cannot be
+    // mistaken for an unchanged inbox and left asleep until the deadline.
+    if let Some(owner) = owner { deliver_inputs(app, owner, unix_now()?)?; }
+    if app.store.foreground_activity_stamp()? != stamp { return Ok(true); }
+    let state = app.snapshot()?;
+    let now = unix_now()?;
+    let mut next = None;
+    for work in works {
+        let wid = w::WorkId(work.clone());
+        for actor in state.board.work(&wid)?.participants.keys() {
+            if let Some(at) = scheduled_at(&state, &wid, actor, now)? {
+                next = Some(next.map_or(at, |earlier: u64| earlier.min(at)));
+            }
+        }
+    }
+    drop(state);
+    let Some(at) = next else {
+        if app.store.foreground_activity_stamp()? != stamp { return Ok(true); }
+        if app.has_background_host_commands() {
+            app.wait_for_host_command().await?;
+            return Ok(true);
+        }
+        return Ok(false);
+    };
+    loop {
+        if app.publish_completed_host_commands(unix_now()?)? > 0
+            || u64::try_from(unix_now()?).map_err(|_| invalid("negative scheduling time"))? >= at
+            || app.store.foreground_activity_stamp()? != stamp
+        {
+            return Ok(true);
+        }
+        // A short host observation interval also avoids overflowing a monotonic
+        // timer for a distant authored date. It never shortens that date.
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+}

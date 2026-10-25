@@ -7,7 +7,7 @@ impl Store {
     /// owner may also install observations into the runtime at a settled boundary.
     /// Input identities, immutable revisions and actual storage accounting remain
     /// ordinary Store records; neither route dispatches or recovers an invocation.
-    pub(crate) fn feedback_transaction<T: Serialize, E, F>(
+    pub(crate) fn work_input_transaction<T: Serialize, E, F>(
         &mut self,
         owner: Option<&ExecutionOwner>,
         build: F,
@@ -30,10 +30,14 @@ impl Store {
                     && object.kind == "requester-feedback-inbox-v1";
                 let input = object.id.starts_with("requester-feedback-input:")
                     && object.kind == "requester-feedback-input-v1";
+                let question_inbox = object.id == "shared-question-answer-inbox-v1"
+                    && object.kind == "shared-question-answer-inbox-v1";
+                let question_input = object.id.starts_with("shared-question-answer-input:")
+                    && object.kind == "shared-question-answer-input-v1";
                 if object.id == RUNTIME_CONTROL_STATE_ID && owner.is_some() {
                     semantic = true;
-                } else if !inbox && !input {
-                    return Err(StoreError::Invalid("requester feedback transaction object".into()));
+                } else if !inbox && !input && !question_inbox && !question_input {
+                    return Err(StoreError::Invalid("requester input transaction object".into()));
                 }
             }
             let candidates = work.validate_changes(&changes)?;
@@ -47,5 +51,29 @@ impl Store {
             work.returned(&result, work.limits.max_read_bytes, BudgetClass::Ordinary)?;
             Ok(Ok(result))
         })
+    }
+
+    /// Host wake observation, without a persona read or semantic mutation. Input
+    /// intake deliberately leaves the runtime epoch unchanged, so observe both
+    /// inbox heads in the same read transaction as that epoch.
+    pub(crate) fn foreground_activity_stamp(&mut self) -> Result<(u64, Vec<Option<u64>>)> {
+        let transaction = self.connection.transaction()?;
+        let epoch = load_meta(&transaction)?.epoch;
+        let mut revisions = Vec::new();
+        for id in ["requester-feedback-inbox-v1", "shared-question-answer-inbox-v1"] {
+            let bytes: Option<Vec<u8>> = transaction.query_row(
+                "SELECT data FROM store_cells WHERE ns='object' AND k=?1",
+                [id], |row| row.get(0),
+            ).optional()?;
+            revisions.push(bytes.map(|bytes| {
+                let object: StoredObject = decode_json(&bytes)?;
+                if object.id != id || object.kind != id {
+                    return Err(StoreError::Invalid("requester input inbox binding".into()));
+                }
+                Ok(object.revision)
+            }).transpose()?);
+        }
+        transaction.commit()?;
+        Ok((epoch, revisions))
     }
 }

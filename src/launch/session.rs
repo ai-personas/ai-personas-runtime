@@ -1075,8 +1075,10 @@ pub fn result_view(root: &Path, operator: &str, work: &str) -> BoundaryResult<Ou
 /// Current permitted content only; never an inspection of cached UI output.
 pub fn questions_view(root: &Path, operator: &str, work: &str) -> BoundaryResult<Value> {
     valid_id(work)?;
-    project_view(root, operator, |snapshot, _| {
-        Ok(question_commands::project(&snapshot.state, &snapshot.saved, operator, work, unix_now()?)?)
+    project_view(root, operator, |snapshot, records| {
+        let mut value = question_commands::project(&snapshot.state, &snapshot.saved, operator, work, unix_now()?)?;
+        question_commands::append_deliveries(records, operator, work, &mut value)?;
+        Ok(value)
     })
 }
 
@@ -1271,6 +1273,8 @@ pub struct ParticipantView {
     pub pending_host_commands: Vec<PendingHostCommandView>,
     /// Candidate only. Not admission, a provider check, or a grant to resume Stop.
     pub eligible_candidate: bool,
+    /// Accepted deadline with a prospective ordinary route; not an admission.
+    pub scheduled_for_unix: Option<u64>,
     /// Explicit targeted resume only; no inference or replay of old operations.
     pub resume_candidate: bool,
     /// A definite rejected call, verified against its retained terminal here.
@@ -1470,13 +1474,17 @@ fn inspect_snapshot(
                 opportunity,
                 now,
             )?;
-            let eligible_candidate = !frozen
+            let available = !frozen
                 && leases_quiescent
                 && persona.active_invocation.is_none()
                 && persona.failed_attempt_hold.is_none()
                 && settings.compatible_for_execution
                 && settings.credential_status != CredentialStatus::SavedExpiryElapsed
-                && phase == WorkPhase::Open
+                && phase == WorkPhase::Open;
+            let scheduled_for_unix = if available {
+                foreground::scheduled_at(&state, &wid, &w::PersonaId(actor.clone()), now)?
+            } else { None };
+            let eligible_candidate = available
                 && (matches!(entry.disposition, SchedulerDisposition::Queued)
                     || continuation_permit(&state, &actor, id, now));
             let active_invocation = persona
@@ -1531,6 +1539,7 @@ fn inspect_snapshot(
                 active_invocation,
                 pending_host_commands,
                 eligible_candidate,
+                scheduled_for_unix,
                 resume_candidate,
                 resume_recovery,
             });

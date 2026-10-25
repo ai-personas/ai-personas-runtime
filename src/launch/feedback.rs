@@ -266,12 +266,12 @@ pub fn feedback(app: &mut Runtime, operator: &str, input: &FeedbackInput, now: i
         let result = view(&state, &record, Some(input_change.object.exact_ref()?), false)?;
         Ok((result, vec![input_change, change(old.as_ref(), INBOX, INBOX, &inbox)?]))
     };
-    let result = app.store.feedback_transaction(None, enqueue)??;
+    let result = app.store.work_input_transaction(None, enqueue)??;
     if result["queued"] != true { return Ok(result); }
     if let Some(owner) = app.store.try_execution_owner_without_recovery()? {
         deliver(app, &owner, now)?;
         let id = input_id(operator, input)?;
-        return app.store.feedback_transaction(None, |runtime, _, records| {
+        return app.store.work_input_transaction(None, |runtime, _, records| {
             let state = Runtime::decode_inspection_state(&runtime)?;
             let (head, record) = entry(records, &id)?;
             Ok::<_, RuntimeError>((view(&state, &record, Some(head.exact_ref()?), result["replayed"] == true)?, Vec::new()))
@@ -323,7 +323,7 @@ pub(super) fn deliver(app: &mut Runtime, owner: &s::ExecutionOwner, now: i64) ->
     let Some(head) = app.store.read(INBOX)? else { return Ok(0) };
     let pending: Inbox = serde_json::from_value(head.body)?;
     if pending.pending.is_empty() { return Ok(0); }
-    app.store.feedback_transaction(Some(owner), |runtime, launch, records| {
+    app.store.work_input_transaction(Some(owner), |runtime, launch, records| {
         let mut state = Runtime::decode_inspection_state(&runtime)?;
         if !check_invocation_leases(&state, &BTreeSet::new(), |id| {
             records.invocation(id)?.ok_or_else(|| held("feedback delivery lease missing"))

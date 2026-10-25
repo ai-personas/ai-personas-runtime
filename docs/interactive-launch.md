@@ -60,6 +60,21 @@ After a session, the launcher also identifies feedback still awaiting a response
 Feedback queued while a final call was already in progress may need an explicit
 participant resume before the persona receives and addresses it.
 
+An accepted `reconsider_at` time or wait deadline keeps the foreground session
+open when no participant is ready now. Status shows the scheduled UTC time. The
+runtime waits for that time, an actual command result, or new input/control state,
+then checks current eligibility again. Waiting adds no model calls or recurring
+schedule. Stop, Pause, revocation and consumed one-shot opportunities remain
+effective. Leaving or interrupting the process creates no background service;
+**c: continue** can reopen the same retained schedule in a new foreground session.
+
+Answers to shared questions can also be submitted while calls or commands are
+running. The native runtime retains the exact answer and receipt time, then
+delivers it at a settled boundary under the same execution owner. This leaves
+already admitted model inputs unchanged. Repeating the same answer identity
+returns its receipt. **q** shows queued answers and any delivery failure; a stored
+answer is distinct from a persona having received or considered it.
+
 Choose **o: optional activity** in the work list for voluntary exploration and
 conversation without an assigned task. The launcher records an activity and
 runs eligible participants using the saved provider. Each persona decides what
@@ -404,7 +419,8 @@ Selecting a work opens its action menu:
   explicitly allow a fresh decision. It starts no model call. The menu shows
   names, identities and any recoverable rejection, then rechecks the exact work
   state and terminal evidence before applying the choice.
-- **c: continue** rechecks current eligibility before running the selected session.
+- **c: continue** rechecks current eligibility or an accepted future deadline
+  before running the selected session.
   Resume a stopped participant with **u** first. Work-wide pauses and failed-attempt
   holds use their separate controls. Historical resource settings impose no quotas.
 - **a: Codex auth source** selects non-secret authentication locations for a

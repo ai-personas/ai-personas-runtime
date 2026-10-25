@@ -1514,13 +1514,14 @@ class Dialogue:
         self.j.save()
         self.ui.say("Your input is retained. " + ("The same input was already recorded. "
                     if receipt.get("replayed") else "") + "No model call was started.")
-        if item["kind"] == "feedback" and receipt.get("queued"):
+        if receipt.get("queued"):
             self.ui.say("It is queued for delivery after the current calls and commands settle. "
                         "The current model input is unchanged; a stopped participant is not resumed.")
-        elif item["kind"] == "feedback" and receipt.get("delivery", {}).get("kind") == "unavailable":
+        elif receipt.get("delivery", {}).get("kind") == "unavailable":
             self.ui.say("Delivery is unavailable: " + receipt["delivery"]["reason"])
         if receipt.get("existing_waits_satisfied", 0):
-            self.ui.say("It satisfied an existing requester-input wait. Choose Continue when you want work to proceed.")
+            self.ui.say("It satisfied an existing requester-input wait. A live session can continue; "
+                        "otherwise choose Continue to run the work.")
         else:
             self.ui.say("Participants keep their existing continuation choices. Stopped or paused participants need an explicit resume.")
 
@@ -1641,6 +1642,12 @@ class Dialogue:
 
     def questions(self, work):
         result = self.session("questions", "--", work)
+        for answer in result.get("answer_delivery", []):
+            delivery = answer["delivery"]
+            if delivery["kind"] == "queued":
+                self.ui.say(f"Your answer {answer['reply']} is queued until current calls and commands settle.")
+            elif delivery["kind"] == "unavailable":
+                self.ui.say(f"Your answer {answer['reply']} could not be delivered: {delivery['reason']}")
         view = result.get("shared_questions")
         if view is None or not view.get("items"):
             self.ui.say("No shared questions are currently available in this work.")
@@ -1926,7 +1933,15 @@ class Dialogue:
     def eligible(view, work):
         return (not view["frozen"]
                 and work["phase"] == "open"
-                and any(p["eligible_candidate"] for p in work["participants"]))
+                and any(p["eligible_candidate"] or p.get("scheduled_for_unix") is not None
+                        for p in work["participants"]))
+
+    @staticmethod
+    def scheduled_time(at):
+        try:
+            return time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(at))
+        except (OverflowError, OSError, ValueError):
+            return f"Unix time {at}"
 
     @staticmethod
     def continuation_label(value):
@@ -1939,8 +1954,12 @@ class Dialogue:
             return "runtime paused"
         if work["phase"] != "open":
             return "review results"
-        if self.eligible(view, work):
+        if any(p["eligible_candidate"] for p in work["participants"]):
             return "ready to continue"
+        scheduled = [p["scheduled_for_unix"] for p in work["participants"]
+                     if p.get("scheduled_for_unix") is not None]
+        if scheduled:
+            return "scheduled to reconsider at " + self.scheduled_time(min(scheduled))
         if any(p.get("active_invocation") and p["active_invocation"]["state"] in
                ("Prepared", "Dispatched", "Responded") for p in work["participants"]):
             return "has pending calls; inspect their outcomes"
@@ -2053,6 +2072,10 @@ class Dialogue:
             activity.append("Working: " + "; ".join(active))
         if tools:
             activity.append("Pending tool commands: " + "; ".join(tools))
+        scheduled = [f"{participant['label']} ({self.scheduled_time(participant['scheduled_for_unix'])})"
+                     for participant in participants if participant.get("scheduled_for_unix") is not None]
+        if scheduled:
+            activity.append("Scheduled returns: " + "; ".join(scheduled))
         status = ". ".join(activity) + "." if activity else "Waiting for the session's next recorded activity or outcome."
         status += f" Recorded call attempts in this runtime: {snapshot['settings']['steps']}."
         if recovery:
