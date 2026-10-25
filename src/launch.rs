@@ -667,10 +667,10 @@ fn select_owned(
     owned: &BTreeSet<String>,
 ) -> Result<Pick> {
     let mut after = 0;
-    let (considered, selected) = foreground::select(
+    let selection = foreground::select(
         app, &[work.into()], &mut after, now, owned, &BTreeSet::new(),
     )?;
-    Ok((considered, selected.map(|candidate| candidate.persona)))
+    Ok((selection.considered, selection.candidate.map(|candidate| candidate.persona)))
 }
 fn reserve(
     app: &mut Runtime,

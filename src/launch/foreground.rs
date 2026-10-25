@@ -7,6 +7,13 @@ pub(super) struct Candidate {
     pub requires_exclusive: bool,
 }
 
+#[derive(Default)]
+pub(super) struct Selection {
+    pub considered: usize,
+    pub candidate: Option<Candidate>,
+    pub next_scheduled_at: Option<u64>,
+}
+
 pub(super) fn select(
     app: &mut Runtime,
     works: &[String],
@@ -14,7 +21,7 @@ pub(super) fn select(
     now: i64,
     owned: &BTreeSet<String>,
     visited: &BTreeSet<(String, String)>,
-) -> Result<(usize, Option<Candidate>)> {
+) -> Result<Selection> {
     let time = u64::try_from(now).map_err(|_| invalid("negative scheduling time"))?;
     require(!works.is_empty(), "foreground work subtree absent")?;
     // Load retained history once for this whole pass, not once for each work,
@@ -29,7 +36,7 @@ pub(super) fn select(
         // Reuse this selection snapshot; the eventual helpers still validate
         // their exact current records at the quiescent maintenance boundary.
         if feedback::has_pending(app)? || question_commands::has_pending(app)? {
-            return Ok((0, None));
+            return Ok(Selection::default());
         }
         for work in works {
             if persona_birth::has_pending_for_work(&state, work)
@@ -37,7 +44,7 @@ pub(super) fn select(
                 || rejected_continuation::active_invocations_for_work(&state, work)?
                     .iter().any(|id| !owned.contains(id))
             {
-                return Ok((0, None));
+                return Ok(Selection::default());
             }
         }
     }
@@ -45,6 +52,7 @@ pub(super) fn select(
     let started_after = *after;
     let mut next_after = *after;
     let mut selected = None;
+    let mut next_scheduled_at = None;
     cursor.last.clear();
     for _ in 0..works.len() {
         let work = &works[next_after % works.len()];
@@ -79,6 +87,13 @@ pub(super) fn select(
                         || current.acceptance(&actor).is_none()
                         || state.personas[&actor.0].focus[work].repair_trigger.is_some(),
                 });
+            } else if let Some(at) = scheduled_at(&state, &wid, &actor, now)? {
+                // Use this same eligible-subtree snapshot for the next wake.
+                // Due candidates take the ordinary admission path above.
+                if at > time {
+                    next_scheduled_at = Some(next_scheduled_at
+                        .map_or(at, |earlier: u64| earlier.min(at)));
+                }
             }
             cursor.foreground_after.insert(wid.0.clone(), actor.0.clone());
             cursor.after = Some((wid, actor));
@@ -102,7 +117,7 @@ pub(super) fn select(
         app.store.compare_and_swap_batch(vec![change])?;
     }
     *after = next_after;
-    Ok((considered, selected))
+    Ok(Selection { considered, candidate: selected, next_scheduled_at })
 }
 
 /// Prospective scheduling only. The exact accepted continuation must still
@@ -127,6 +142,18 @@ pub(super) fn scheduled_at(state: &State, work: &w::WorkId, actor: &w::PersonaId
     let opportunity = runtime_opportunity(state, work, actor, consider_at as u64);
     let entry = scheduler_entry(state, work.clone(), actor.clone(), opportunity, consider_at)?;
     Ok(matches!(entry.disposition, SchedulerDisposition::Queued).then_some(at))
+}
+
+/// Observe an authored return while unrelated transports remain owned. This
+/// creates no invocation and imposes no transport timeout. Recheck wall time so
+/// clock changes cannot silently move the retained return to a monotonic date.
+pub(super) async fn wait_for_scheduled_time(next: Option<u64>) -> Result<()> {
+    let Some(at) = next else { return std::future::pending().await; };
+    loop {
+        let now = u64::try_from(unix_now()?).map_err(|_| invalid("negative scheduling time"))?;
+        if now >= at { return Ok(()); }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
 }
 
 /// Park the existing owner until an authored deadline, a command result or new

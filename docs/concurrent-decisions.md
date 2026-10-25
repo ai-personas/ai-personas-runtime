@@ -27,6 +27,14 @@ waiting for unrelated model calls to finish. Each persona still has at most one
 current primary invocation, and the saved circular cursors preserve consideration
 order. A completed peer's next call uses its actual continuation and fresh state.
 
+The same candidate snapshot identifies the earliest eligible authored return or
+wait deadline. Its clock wake competes with pending model and tool results, so a
+slow unrelated transport cannot by itself postpone reconsideration. The next
+pass still checks the actual time and current continuation before admission.
+Clock observation adds no invocation, recurrence or timeout for a pending call.
+While a settled transaction or exclusive transition needs the current calls to
+drain, no independent clock wake repeatedly bypasses that boundary.
+
 Pending child admission, persona creation, requester input and completed leases
 awaiting retirement stop refilling until current transports settle. An exclusive
 candidate also drains current calls without repeatedly admitting visited peers

@@ -18,6 +18,7 @@ fn quiescent_allows_progress(app: &mut Runtime, id: &str, owned: &BTreeSet<Strin
 enum Wake {
     Call(provider_calls::Completion),
     Jobs(Result<()>),
+    Clock(Result<()>),
 }
 
 fn maintenance_state(app: &mut Runtime) -> Result<State> {
@@ -160,6 +161,7 @@ async fn run_with_subtree<D: Driver>(
             }
         }
 
+        let mut next_scheduled_at = None;
         while stop.is_none()
             && deferred.is_empty()
             && exclusive.is_empty()
@@ -169,10 +171,11 @@ async fn run_with_subtree<D: Driver>(
             let mut needs_exclusive = false;
             let admission = (|| {
                 driver.before_step(app)?;
-                let (_, selected) = foreground::select(
+                let selection = foreground::select(
                     app, &works, &mut after, unix_now()?, &owned, &visited,
                 )?;
-                let Some(candidate) = selected else {
+                let Some(candidate) = selection.candidate else {
+                    next_scheduled_at = selection.next_scheduled_at;
                     return Ok(None);
                 };
                 // First responsibility acceptance changes shared work authority.
@@ -220,19 +223,18 @@ async fn run_with_subtree<D: Driver>(
             }
         }
         if !pending.is_empty() {
-            let wake = if stop.is_none() && app.has_background_host_commands() {
-                tokio::select! {
-                    call = pending.next() => Wake::Call(call.expect("nonempty pending calls")),
-                    jobs = app.wait_for_host_command() => Wake::Jobs(jobs),
-                }
-            } else {
-                Wake::Call(pending.next().await.expect("nonempty pending calls"))
+            let wait_for_jobs = stop.is_none() && app.has_background_host_commands();
+            let wake = tokio::select! {
+                call = pending.next() => Wake::Call(call.expect("nonempty pending calls")),
+                jobs = app.wait_for_host_command(), if wait_for_jobs => Wake::Jobs(jobs),
+                clock = foreground::wait_for_scheduled_time(next_scheduled_at),
+                    if stop.is_none() => Wake::Clock(clock),
             };
             match wake {
-                Wake::Jobs(Err(error)) => {
+                Wake::Jobs(Err(error)) | Wake::Clock(Err(error)) => {
                     stop.get_or_insert(stop_for_error(&error));
                 }
-                Wake::Jobs(Ok(())) => (),
+                Wake::Jobs(Ok(())) | Wake::Clock(Ok(())) => (),
                 Wake::Call(completion) => {
                     let id = completion.prepared.request.id.clone();
                     let work = completion.prepared.request.work.clone();
@@ -260,7 +262,7 @@ async fn run_with_subtree<D: Driver>(
                     }
                 }
             }
-            // A completed call or host command can make a previously visited
+            // A result or an authored return time can make a previously visited
             // persona ready again. Active invocations remain excluded by their
             // exact lease state, and the saved circular cursors preserve order.
             if !draining_for_exclusive {
