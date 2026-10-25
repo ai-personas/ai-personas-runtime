@@ -269,7 +269,8 @@ fn invocation_evidence(
                 && receipt["audit"]["prompt_sha256"] == prepared.prompt_sha256
                 && crate::provider::response_only_request_matches(
                     &receipt["audit"], &prepared.requested_model, &prepared.requested_effort,
-                    &prepared.prompt, &prepared.images, &prepared.output_schema,
+                    &prepared.prompt, prepared.reusable_prefix_bytes,
+                    &prepared.images, &prepared.output_schema,
                 )
                 && receipt["attempt"]["response_completed"] == true
         });

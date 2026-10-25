@@ -930,9 +930,18 @@ fn usage(value: Option<&Value>) -> Result<Usage> {
     if details.is_some_and(|v| !v.is_object()) {
         return Err(protocol("usage_details_invalid"));
     }
+    let writes = details
+        .and_then(|v| v.get("cache_write_tokens_details"))
+        .filter(|v| !v.is_null());
+    if writes.is_some_and(|v| !v.is_object()) {
+        return Err(protocol("usage_cache_write_details_invalid"));
+    }
     let result = Usage {
         input_tokens: counter(value.get("input_tokens"))?,
         cached_input_tokens: counter(details.and_then(|v| v.get("cached_tokens")))?,
+        cache_write_input_tokens: counter(details.and_then(|v| v.get("cache_write_tokens")))?,
+        cache_write_30m_input_tokens: counter(writes.and_then(|v| v.get("ttl_30m_tokens")))?,
+        cache_write_12h_input_tokens: counter(writes.and_then(|v| v.get("ttl_12h_tokens")))?,
         output_tokens: counter(value.get("output_tokens"))?,
         total_tokens: counter(value.get("total_tokens"))?,
         actual_cost_microusd: None,

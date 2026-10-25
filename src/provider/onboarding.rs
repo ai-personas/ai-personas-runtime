@@ -128,9 +128,10 @@ pub(crate) fn request(
         model,
         effort,
         &prompt,
+        None,
         &[],
         &schema,
-    ))
+    )?)
 }
 
 pub(crate) fn expiry_guard(
@@ -146,6 +147,9 @@ pub(crate) fn expiry_guard(
 pub(crate) struct MeasuredUsage {
     pub input_tokens: Option<u64>,
     pub cached_input_tokens: Option<u64>,
+    pub cache_write_input_tokens: Option<u64>,
+    pub cache_write_30m_input_tokens: Option<u64>,
+    pub cache_write_12h_input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
     pub total_tokens: Option<u64>,
     pub actual_cost_microusd: Option<u64>,
@@ -155,6 +159,9 @@ impl From<&Usage> for MeasuredUsage {
         Self {
             input_tokens: v.input_tokens,
             cached_input_tokens: v.cached_input_tokens,
+            cache_write_input_tokens: v.cache_write_input_tokens,
+            cache_write_30m_input_tokens: v.cache_write_30m_input_tokens,
+            cache_write_12h_input_tokens: v.cache_write_12h_input_tokens,
             output_tokens: v.output_tokens,
             total_tokens: v.total_tokens,
             actual_cost_microusd: v.actual_cost_microusd,

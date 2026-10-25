@@ -34,9 +34,9 @@ release or evidence checks.
 
 | Serialized mode | Transport profile | Route | Credential grant |
 | --- | --- | --- | --- |
-| `chatgpt_oauth` | `traditional_chatgpt_responses_v2` | `https://chatgpt.com/backend-api/codex/responses` | Traditional ChatGPT OAuth, with the authorized account header |
-| `siwc_oauth` | `siwc_documented_public_responses_v2` | `https://api.openai.com/v1/responses` | SIWC token-sharing OAuth |
-| `platform_api_key` | `platform_responses_v2` | `https://api.openai.com/v1/responses` | Explicit OpenAI Platform API-key access and billing |
+| `chatgpt_oauth` | `traditional_chatgpt_responses_v3` | `https://chatgpt.com/backend-api/codex/responses` | Traditional ChatGPT OAuth, with the authorized account header |
+| `siwc_oauth` | `siwc_documented_public_responses_v3` | `https://api.openai.com/v1/responses` | SIWC token-sharing OAuth |
+| `platform_api_key` | `platform_responses_v3` | `https://api.openai.com/v1/responses` | Explicit OpenAI Platform API-key access and billing |
 
 These modes never substitute for one another. A missing credential, unsupported model/effort, or unsuccessful OAuth request cannot activate API-key billing. The SIWC profile follows the documented public Responses contract; it does not send OpenClaw's preview test header or claim access from that header's existence.
 
@@ -155,7 +155,35 @@ for freshness, accounting, compatibility and the paths that remain sequential.
 
 New persona admissions request the complete Decision directly with `text.format: {"type":"json_object"}`. The prompt supplies `APPLICATION_DECISION_SCHEMA`; the native parser validates the entire received object, including duplicate keys, required fields, tagged variants and cross-field rules, before any adoption. JSON mode alone does not establish application-schema validity. It removes the extra escaping layer that a JSON-string carrier imposed on scripts and other text.
 
-Each prepared prompt binds the schema's `invocation_id` and `epoch` to the exact values in CONTROL using JSON Schema `const`. Initialization, ordinary decisions and any rendered historical selection-repair schema use the same binding. A fresh decision after rejection receives its own current values; a mandate revision is not the response epoch. The public `schema` command remains a generic wire description. The complete bound schema counts toward actual prompt size, while fixed-contract growth measures the schema before these dynamic constants are added. The parser, response-identity checks and current-state checks still apply to the original received bytes; schema guidance neither corrects a response nor guarantees compliance.
+Each prepared prompt supplies its exact `invocation_id` and `epoch` in CONTROL.
+The application schema describes their wire types without repeating changing
+values as `const`; the parser and admission checks still require the exact
+current identity. A fresh decision receives its own current values; a mandate
+revision is not the response epoch.
+
+The host seals a UTF-8 boundary after the complete instructions and application
+schema. The v3 transport sends that prefix and the remaining CONTROL and
+QUALIFIED_CONTEXT as two messages with the same user role. Their text concatenates
+to the complete recorded prompt without rewriting or dropping bytes. Captured
+images follow the changing text. The admission and provider audit both record
+`reusable_prefix_bytes`, and the complete wire-body hash binds the message layout.
+Earlier v2 receipts remain inspectable as their original single-message bodies.
+
+The adapter leaves caching to the provider's default behavior. It does not infer
+support for explicit cache parameters from a model's name: route and model
+capabilities can differ from the public Responses API. A stable prefix and message
+boundary do not establish that the provider writes or reads a cache. Terminal
+usage preserves reported cached input, cache writes, and the 30-minute/12-hour
+write breakdown described in [OpenAI's caching contract](https://developers.openai.com/api/docs/guides/prompt-caching);
+absent counters remain unknown. No cost or successful-outcome claim follows from
+the layout alone. The runtime sends the complete selected context on every request.
+
+Non-200 HTTP attempts read the error body and retain its byte count, digest and
+completion status. Diagnostics recognize standard error types/codes and exact
+unsupported-parameter messages for request fields. Structured provider
+explanations retain their text with the actual request credentials redacted;
+headers and non-JSON bodies are not copied. Interrupted reads remain partial; an HTTP rejection still
+does not establish token usage, remote cancellation or permission to replay.
 
 The application permits operation-specific inputs and maps whose keys are authored at runtime. These are not closed objects suitable for a fixed strict response schema. [OpenAI's JSON-mode documentation](https://developers.openai.com/api/docs/guides/structured-outputs#json-mode) describes JSON-object transport and its application-validation requirement. Incomplete, invalid or refused output remains a retained failure, with no transport retry or JSON repair.
 

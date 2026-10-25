@@ -1338,6 +1338,10 @@ pub struct Prepared {
     pub requested_effort: String,
     pub prompt: String,
     pub prompt_sha256: String,
+    /// Host-rendered instruction/schema prefix, sent as a separate message.
+    /// Full text remains sealed by prompt_sha256; absence keeps one message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reusable_prefix_bytes: Option<usize>,
     /// Ordered image content parts, sealed separately from the text prompt.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<provider::ImageInput>,
@@ -4149,6 +4153,7 @@ impl Runtime {
             requested_effort: persona.seed.requested_effort.clone(),
             prompt_sha256: s::sha256_bytes(rendered.prompt.as_bytes()),
             prompt: rendered.prompt,
+            reusable_prefix_bytes: Some(rendered.reusable_prefix_bytes),
             images: rendered.images,
             prompt_encoding: rendered.prompt_encoding,
             output_schema: provider::json_object_schema(),
@@ -5566,6 +5571,7 @@ impl Runtime {
             |prepared| {
                 let native = provider.prepare(provider::ProviderRequest {
                     prompt: prepared.prompt.clone(),
+                    reusable_prefix_bytes: prepared.reusable_prefix_bytes,
                     images: prepared.images.clone(),
                     output_schema: prepared.output_schema.clone(),
                     invocation_id: prepared.request.id.clone(),
@@ -5575,6 +5581,7 @@ impl Runtime {
                     audit.invocation_id == prepared.request.id
                         && audit.prompt_sha256 == prepared.prompt_sha256
                         && audit.prompt_bytes == prepared.prompt.len() as u64
+                        && audit.reusable_prefix_bytes == prepared.reusable_prefix_bytes
                         && audit.image_inputs == prepared.images.iter()
                             .map(provider::ImageInput::audit).collect::<Vec<_>>()
                         && audit.schema_sha256
@@ -6692,6 +6699,7 @@ struct Rendered {
     need_interface: Option<NeedInterface>,
     withheld: Vec<f::WithheldBundle>,
     prompt: String,
+    reusable_prefix_bytes: usize,
     images: Vec<provider::ImageInput>,
     prompt_encoding: Option<String>,
     total: usize,
@@ -7309,9 +7317,7 @@ fn render_mode_with_history(
         arrangements::DUTIES
     };
     let repair_schema = repair_navigation
-        .map(|_| serde_json::to_string(&p::bind_decision_schema(
-            p::selection_repair_schema(), invocation, epoch,
-        )))
+        .map(|_| serde_json::to_string(&p::selection_repair_schema()))
         .transpose()?;
     let mut work_interface = None;
     let need_interface =
@@ -7321,12 +7327,10 @@ fn render_mode_with_history(
     } else {
         p::ordinary_schema(need_interface.is_some())
     };
-    // Admission constants are dynamic framing, not fixed-contract growth.
-    // The complete bound schema still contributes to actual prompt size.
+    // Admission identity is supplied once in CONTROL and checked at adoption.
+    // Keeping it out of the schema leaves this complete contract reusable.
     let application_schema_contract_bytes = serde_json::to_vec(&application_schema)?.len();
-    let application_schema = serde_json::to_string(&p::bind_decision_schema(
-        application_schema, invocation, epoch,
-    ))?;
+    let application_schema = serde_json::to_string(&application_schema)?;
     if let Some(interface) = &need_interface {
         exposure.policies.push(scoped_policy(
             "intake-delegation",
@@ -7535,18 +7539,21 @@ fn render_mode_with_history(
             .and_then(|n| n.checked_add(state.config.output_reserve_bytes))
             .ok_or_else(|| invalid("prompt size overflow"))
     };
+    let ordinary_prefix = format!("{duties}\n{arrangement_duties}\nAPPLICATION_DECISION_SCHEMA\n{application_schema}");
+    let repair_prefix = repair_schema.as_ref().map(|schema|
+        format!("{duties}\n{arrangement_duties}\n{REPAIR_DUTIES}\nAPPLICATION_DECISION_SCHEMA\n{schema}"));
     let render_prompt = |control: &Value, context: &Value, repair: bool| -> Result<(String, Option<String>, usize)> {
         let encoded = request_context::encode(control, context)?;
         let control = serde_json::to_string(encoded.control.as_ref())?;
         let qualified = serde_json::to_string(encoded.qualified.as_ref())?;
-        let prompt = if repair {
-            let application_schema = repair_schema
+        let prefix = if repair {
+            repair_prefix
                 .as_ref()
-                .ok_or_else(|| invalid("selection repair schema unavailable"))?;
-            format!("{duties}\n{arrangement_duties}\n{REPAIR_DUTIES}\nAPPLICATION_DECISION_SCHEMA\n{application_schema}\nCONTROL\n{control}\nQUALIFIED_CONTEXT\n{qualified}")
+                .ok_or_else(|| invalid("selection repair schema unavailable"))?
         } else {
-            format!("{duties}\n{arrangement_duties}\nAPPLICATION_DECISION_SCHEMA\n{application_schema}\nCONTROL\n{control}\nQUALIFIED_CONTEXT\n{qualified}")
+            &ordinary_prefix
         };
+        let prompt = format!("{prefix}\nCONTROL\n{control}\nQUALIFIED_CONTEXT\n{qualified}");
         let total = total_size(&prompt)?;
         Ok((prompt, encoded.encoding, total))
     };
@@ -7852,6 +7859,12 @@ fn render_mode_with_history(
         sources.extend(assembly.entries.iter().map(|e| e.reference.clone()));
         (ordinary_prompt, ordinary_encoding, ordinary_total)
     };
+    let reusable_prefix_bytes = repair_prefix.as_ref().unwrap_or(&ordinary_prefix).len();
+    require(
+        prompt.is_char_boundary(reusable_prefix_bytes)
+            && prompt[reusable_prefix_bytes..].starts_with("\nCONTROL\n"),
+        "rendered prompt prefix boundary",
+    )?;
     exposure.sources.extend(sources.iter().cloned());
     // Successful expansion already validates this exact immutable snapshot.
     let exposure = expanded_exposure(state, &exposure)?;
@@ -7865,6 +7878,7 @@ fn render_mode_with_history(
         need_interface,
         withheld: assembly.withheld,
         prompt,
+        reusable_prefix_bytes,
         images: image_supply.images,
         prompt_encoding,
         total,

@@ -7,6 +7,8 @@
 #[cfg(unix)]
 pub(crate) mod onboarding;
 mod sse;
+mod http_error;
+pub use http_error::Diagnostic as HttpErrorDiagnostic;
 
 use futures_util::future::BoxFuture;
 use serde::{Deserialize, Serialize};
@@ -70,19 +72,19 @@ impl AccessMode {
     fn wire_profile(self) -> WireProfile {
         let (id, url, headers, account_header) = match self {
             Self::ChatgptOAuth => (
-                "traditional_chatgpt_responses_v2",
+                "traditional_chatgpt_responses_v3",
                 "https://chatgpt.com/backend-api/codex/responses",
                 CHATGPT_HEADERS,
                 Some("chatgpt-account-id"),
             ),
             Self::SiwcOAuth => (
-                "siwc_documented_public_responses_v2",
+                "siwc_documented_public_responses_v3",
                 "https://api.openai.com/v1/responses",
                 PUBLIC_HEADERS,
                 None,
             ),
             Self::PlatformApiKey => (
-                "platform_responses_v2",
+                "platform_responses_v3",
                 "https://api.openai.com/v1/responses",
                 PUBLIC_HEADERS,
                 None,
@@ -550,6 +552,9 @@ pub enum ProviderError {
 pub struct Usage {
     pub input_tokens: Option<u64>,
     pub cached_input_tokens: Option<u64>,
+    pub cache_write_input_tokens: Option<u64>,
+    pub cache_write_30m_input_tokens: Option<u64>,
+    pub cache_write_12h_input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
     pub total_tokens: Option<u64>,
     pub actual_cost_microusd: Option<u64>,
@@ -559,6 +564,10 @@ pub struct RequestAudit {
     pub invocation_id: String,
     pub prompt_sha256: String,
     pub prompt_bytes: u64,
+    /// Exact UTF-8 boundary between reusable framing and changing input.
+    /// Both messages retain the same input role and concatenate to the prompt.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reusable_prefix_bytes: Option<usize>,
     pub schema_sha256: String,
     pub schema_bytes: u64,
     pub instructions_sha256: String,
@@ -668,6 +677,8 @@ pub struct AttemptReceipt {
     pub intake_prelaunch_checked_at_unix: Option<u64>,
     pub dispatch_may_have_begun: bool,
     pub http_status: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub http_diagnostic: Option<HttpErrorDiagnostic>,
     pub stream_bytes_observed: u64,
     pub stream_eof: bool,
     pub event_count: u64,
@@ -700,6 +711,7 @@ impl AttemptReceipt {
             intake_prelaunch_checked_at_unix: None,
             dispatch_may_have_begun: false,
             http_status: None,
+            http_diagnostic: None,
             stream_bytes_observed: 0,
             stream_eof: false,
             event_count: 0,
@@ -790,6 +802,9 @@ impl ProviderOutput {
 
 pub struct ProviderRequest {
     pub prompt: String,
+    /// A caller-selected message boundary, never a truncation or cache claim.
+    /// None sends the complete prompt in one message.
+    pub reusable_prefix_bytes: Option<usize>,
     pub images: Vec<ImageInput>,
     /// The unconstrained object schema selects JSON-object transport. Other
     /// schemas use strict structured output. The application validates its
@@ -1172,23 +1187,38 @@ fn response_only_body(
     model: &str,
     effort: &str,
     prompt: &str,
+    reusable_prefix_bytes: Option<usize>,
     images: &[ImageInput],
     schema: &Value,
-) -> Value {
+) -> Result<Value, Failure> {
     let format = if schema == &json_object_schema() {
         json!({"type":"json_object"})
     } else {
         json!({"type":"json_schema","name":"persona_decision","strict":true,"schema":schema})
     };
-    let mut content = vec![json!({"type":"input_text","text":prompt})];
+    let mut input = Vec::new();
+    let changing_text = if let Some(boundary) = reusable_prefix_bytes {
+        if boundary == 0 || boundary >= prompt.len() || !prompt.is_char_boundary(boundary) {
+            return Err(Failure::Configuration);
+        }
+        let (prefix, changing) = prompt.split_at(boundary);
+        let part = json!({"type":"input_text","text":prefix});
+        input.push(json!({"role":profile.input_role,"content":[part]}));
+        changing
+    } else {
+        prompt
+    };
+    let mut content = vec![json!({"type":"input_text","text":changing_text})];
     content.extend(images.iter().map(|image| json!({
         "type":"input_image","image_url":image.image_url,"detail":image.detail,
     })));
-    json!({"model":model,"store":false,"stream":true,
+    input.push(json!({"role":profile.input_role,"content":content}));
+    let body = json!({"model":model,"store":false,"stream":true,
         "instructions":profile.instructions,
-        "input":[{"role":profile.input_role,"content":content}],
+        "input":input,
         "reasoning":{"effort":effort},
-        "text":{"format":format}})
+        "text":{"format":format}});
+    Ok(body)
 }
 
 /// Verify the exact immutable response-only wire contract without credentials or I/O.
@@ -1198,6 +1228,7 @@ pub(crate) fn response_only_request_matches(
     model: &str,
     effort: &str,
     prompt: &str,
+    reusable_prefix_bytes: Option<usize>,
     images: &[ImageInput],
     schema: &Value,
 ) -> bool {
@@ -1211,16 +1242,29 @@ pub(crate) fn response_only_request_matches(
     ]
     .into_iter()
     .any(|mode| {
-        let profile = mode.wire_profile();
+        let mut profile = mode.wire_profile();
         if audit["transport_profile"] != profile.id {
-            return false;
+            // Inspect the exact earlier single-message wire contract without
+            // enabling it for a new dispatch or rewriting its retained receipt.
+            let earlier = match mode {
+                AccessMode::ChatgptOAuth => "traditional_chatgpt_responses_v2",
+                AccessMode::SiwcOAuth => "siwc_documented_public_responses_v2",
+                AccessMode::PlatformApiKey => "platform_responses_v2",
+            };
+            if audit["transport_profile"] != earlier || reusable_prefix_bytes.is_some() {
+                return false;
+            }
+            profile.id = earlier;
         }
-        let body = response_only_body(&profile, model, effort, prompt, images, schema);
+        let Ok(body) = response_only_body(
+            &profile, model, effort, prompt, reusable_prefix_bytes, images, schema,
+        ) else { return false };
         let (Ok(body), Ok(schema)) = (serde_json::to_vec(&body), serde_json::to_vec(schema)) else {
             return false;
         };
         audit["prompt_sha256"] == digest(prompt.as_bytes())
             && audit["prompt_bytes"] == prompt.len() as u64
+            && audit["reusable_prefix_bytes"] == json!(reusable_prefix_bytes)
             && audit["schema_sha256"] == digest(&schema)
             && audit["schema_bytes"] == schema.len() as u64
             && audit["instructions_sha256"] == digest(profile.instructions.as_bytes())
@@ -1258,13 +1302,15 @@ impl ModelProvider for DirectProvider {
                 &settings.model,
                 &settings.effort,
                 &request.prompt,
+                request.reusable_prefix_bytes,
                 &request.images,
                 &request.output_schema,
-            ))?;
+            )?)?;
             let audit = RequestAudit {
                 invocation_id: request.invocation_id.clone(),
                 prompt_sha256: digest(request.prompt.as_bytes()),
                 prompt_bytes: request.prompt.len() as u64,
+                reusable_prefix_bytes: request.reusable_prefix_bytes,
                 schema_sha256: digest(&schema),
                 schema_bytes: schema.len() as u64,
                 instructions_sha256: digest(profile.instructions.as_bytes()),
@@ -1340,6 +1386,7 @@ impl DirectCall {
                 .credentials(Some(&account))
                 .map_err(|failure| attempt_error(failure, receipt.clone()))?;
             let settings = &inner.settings;
+            let error_secrets = [bearer.clone(), account.clone()];
             let mut collector = sse::Collector::new(&settings.model).with_mode(settings.mode);
             let started = tokio::time::Instant::now();
             let result = {
@@ -1366,7 +1413,22 @@ impl DirectCall {
                     };
                     receipt.http_status = Some(response.status);
                     if response.status != 200 {
-                        return Err(Failure::HttpStatus);
+                        let mut capture = http_error::Capture::new(error_secrets);
+                        receipt.http_diagnostic = Some(capture.diagnostic(false));
+                        let mut body = response.body;
+                        loop {
+                            tokio::task::yield_now().await;
+                            match body.read().await? {
+                                Some(bytes) => {
+                                    capture.push(&bytes);
+                                    receipt.http_diagnostic = Some(capture.diagnostic(false));
+                                }
+                                None => {
+                                    receipt.http_diagnostic = Some(capture.diagnostic(true));
+                                    return Err(Failure::HttpStatus);
+                                }
+                            }
+                        }
                     }
                     if !response.is_unencoded_sse {
                         return Err(Failure::ContentType);

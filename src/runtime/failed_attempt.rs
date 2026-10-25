@@ -140,6 +140,7 @@ impl Runtime {
                     &prepared.requested_model,
                     &prepared.requested_effort,
                     &prepared.prompt,
+                    prepared.reusable_prefix_bytes,
                     &prepared.images,
                     &prepared.output_schema,
                 )
