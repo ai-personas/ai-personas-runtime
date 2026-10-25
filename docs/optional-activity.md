@@ -58,8 +58,9 @@ This also applies to a first decision on ordinary work.
 
 A bound provider report that its response-only attempt failed or was incomplete
 can also retire that invocation while retaining the same invitation or accepted
-continuation. The next input receives the actual failure. A locally ended stream
-can also retain that route when its exact response-only request and lack of
+continuation. The next input receives the actual failure. A locally ended
+transport, including a network failure before response headers, can also retain
+that route when its exact response-only request and lack of
 accepted decisions or actions are established. Its remote outcome and unknown
 usage remain unresolved; see [provider recovery](direct-provider.md). Neither
 path creates participation after an accepted Stop or Pause.

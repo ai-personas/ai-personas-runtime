@@ -243,7 +243,8 @@ Probe and provider onboarding records have no application count, byte, token, or
 ### 4.4 Provider uncertainty and migration
 
 Unknown external actions are never automatically replayed. A locally ended
-response-only stream can retain an existing invitation or accepted continuation
+response-only transport, including a network failure before response headers,
+can retain an existing invitation or accepted continuation
 when the exact request, failure receipt and absence of an accepted decision or
 action are established. A fresh decision then observes the failure while the
 earlier remote outcome and unknown usage remain unresolved. This does not claim

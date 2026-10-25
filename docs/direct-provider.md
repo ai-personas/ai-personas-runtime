@@ -102,6 +102,14 @@ refusal, model/account binding failures and missing local failure evidence do
 not qualify for this recovery. An incomplete item in a live stream still waits
 for response-level evidence; it does not itself trigger another call.
 
+A network failure before response headers can retain the same route when its
+bound local failure receipt records no HTTP status, stream bytes, events or
+completed response. The request must still be exactly response-only, with no
+received Decision or adoption. This uses `response_only_transport_failure` and
+preserves the absent HTTP status and unknown remote outcome and usage. An
+in-flight request, a missing terminal receipt or an observation timeout does
+not qualify; no HTTP success or confirmed remote cancellation is inferred.
+
 A completed HTTP 500, 502, 503 or 504 response also qualifies when the exact
 response-only request yielded no received decision or action intent. The retained
 HTTP receipt must establish that the error body finished; an active request or

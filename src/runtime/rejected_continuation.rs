@@ -106,12 +106,12 @@ fn terminal_provider_failure(
         && failed_response_only_attempt(invocation, prepared, evidence)?)
 }
 
-/// A lost or malformed stream may leave only the remote computation and its
-/// charges unknown. Its exact wire request contained no provider tools, and no
-/// local Decision was received or adopted. Retiring this ended local lease can
-/// therefore preserve an existing route without replaying any action. Explicit
-/// cancellation, refusal, binding failures and unavailable configuration retain
-/// their distinct recovery paths.
+/// A network failure before response headers, or a lost or malformed stream,
+/// may leave only the remote computation and its charges unknown. Its exact
+/// wire request contained no provider tools, and no local Decision was received
+/// or adopted. Retiring this ended local lease can therefore preserve an
+/// existing route without replaying any action. Explicit cancellation, refusal,
+/// binding failures and unavailable configuration retain their distinct paths.
 fn interrupted_response_only_attempt(
     invocation: &s::InvocationRecord,
     prepared: &Prepared,
@@ -132,7 +132,17 @@ fn interrupted_response_only_attempt(
         Some("completed") => receipt["remote_outcome"] == "provider_reported_completed",
         _ => false,
     };
-    Ok(stream_failure && remote_status && attempt["http_status"] == 200
+    // A failed post() can return before an HTTP response exists. The locally
+    // ended, exactly bound response-only request is still recoverable; neither
+    // a status code nor remote cancellation can be inferred from that failure.
+    let before_headers = receipt["failure"] == "network"
+        && attempt["http_status"].is_null()
+        && attempt["stream_bytes_observed"] == 0
+        && attempt["event_count"] == 0
+        && attempt["reported_terminal_status"].is_null()
+        && attempt["response_completed"] == false;
+    Ok(stream_failure && remote_status
+        && (attempt["http_status"] == 200 || before_headers)
         && failed_response_only_attempt(invocation, prepared, evidence)?)
 }
 

@@ -206,6 +206,13 @@ original invitation or accepted continuation; it receives the actual failure.
 No response terminal event, EOF, known usage or successful remote cancellation
 is inferred. Other error codes retain their own recovery classification.
 
+A network failure before any HTTP response headers also permits retirement
+when its bound local receipt records no status, stream bytes, events or
+completed response, and the same exact request and no-decision checks pass.
+This remains `response_only_transport_failure`; the absent HTTP status and
+unknown remote outcome and charges remain unchanged. A live request or missing
+failure receipt is not a completed local failure.
+
 The launcher's read-only `continuation_recovery_candidate` identifies a bound
 failed lease with one of these retained routes. **Continue** can start the
 foreground coordinator for that candidate even when no other persona is ready.

@@ -133,7 +133,8 @@ During a running session, a complete rejected decision or a bound response-only
 provider failure may release its failed invocation under the retained invitation
 or earlier accepted ordinary continuation. A fresh admission receives the actual
 failure and records its usage without a session, work or Store quota. For a
-locally ended stream with no accepted decision or action, unknown remote usage
+locally ended response-only transport with no accepted decision or action,
+including a bound network failure before response headers, unknown remote usage
 does not itself consume that route. The exact failure and accounting uncertainty
 remain recorded. No rejected action is replayed. A stop, consumed timed
 opportunity or cancelled completion does not acquire this route. See
