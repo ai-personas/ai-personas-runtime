@@ -1,5 +1,27 @@
 # Continuing a history query
 
+History queries and exact reads cover retained records across personas and works
+in the current runtime. Record ownership and original message recipients describe
+what happened; they do not restrict who can request a historical read. The
+original actor, work, sender, recipient, invocation and immutable identity remain
+attached. Retrieval does not redeliver a message, satisfy its original recipient's
+wait, resume participants or adopt another persona's character.
+
+`CONTROL.history_retrieval` describes how to follow a citation with a literal
+query. For example, an observation query can find the receipt containing a cited
+host-result identifier. The query returns metadata, and the persona chooses an
+exact record to read on a fresh call. Another record may merely cite the same
+identifier, so a match alone does not identify the original source. Unknown or
+different resource identifiers need their appropriate discovery method; the host
+does not invent a record reference. Peer judgments supply no cited bodies
+automatically, and reading a receipt does not verify the claim it supports.
+
+The current record-history and message-query profiles use v2. A cursor from the
+earlier ownership-filtered corpus requires a fresh query; its old membership
+cannot establish coverage of the expanded corpus. Cursor ownership still binds
+the reader's actual query observation and admitted continuation. It does not
+filter authorship of the records that query can find.
+
 Ordinary inputs can include `CONTROL.history_retrieval.recent_other_work`, a
 compact locator for the persona's latest indexed accepted judgment in another
 work. Its invocation, work, admission time and per-persona serial identify the

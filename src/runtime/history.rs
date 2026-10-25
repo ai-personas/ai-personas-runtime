@@ -1,4 +1,4 @@
-//! Purpose-specific message adapter to bounded selective retrieval.
+//! Selective retrieval of retained runtime messages and authored records.
 //! Messages remain immutable messages, never synthetic file revisions.
 //! Shared matching, permission projection and navigation accounting grant no
 //! selection, authority, truth, attention, consent or character transition.
@@ -19,7 +19,9 @@ const CONTROL_BYTES: usize = 4096;
 pub(super) fn retrieval_rules() -> Value {
     json!({
         "operations":["history_query","history_read","history_records_query","history_record_read","history_record_read_from_input"],
+        "scope":"Retained records in this runtime across personas and works. Authorship and original message recipients remain attribution, not read restrictions. A historical read does not redeliver a message, resume its participants, adopt another persona's character or make an earlier result current.",
         "meaning":"Requested page size selects complete results. Query metadata is not a record body; wait for fresh supply before using an exact reference or claiming to have read its body. An exhausted or omitted result establishes no absence of history.",
+        "citation_lookup":"To investigate a cited identifier, choose the matching history kind and use mode:{kind:literal,needle:<the exact identifier>}. Observation queries can match an observation ID or a result/evidence ID in its receipt; adopted_decision queries can match an invocation; message queries can match a message ID. Other records can also cite the identifier, so inspect the returned attribution and choose the actual source before reading. A citation may name a different resource or be unavailable; it is not itself a typed read reference or proof of a body.",
         "record_bodies":{
             "adopted_decision":"Original authored choices and reasoning; not proof that every proposed operation executed.",
             "observation":"Original runtime receipt; a metadata-only receipt remains metadata-only after reading it. Reading a history-query receipt does not read the records it lists.",
@@ -230,7 +232,8 @@ impl Output {
     fn status(status: &str) -> Self {
         Self {
             payload: json!({
-                "profile":"message-history-v1", "status":status,
+                "profile":"message-history-v2", "status":status,
+                "corpus_scope":"runtime_retained_history",
                 "records":[], "record":null, "omitted":null,
                 "next_cursor":null, "retry_cursor":null,
                 "continuation_available":false, "restart_required":false,
@@ -342,18 +345,16 @@ fn search_bytes(message: &Message, maximum: usize) -> Option<Vec<u8>> {
 
 fn message_exposure(
     permissions: &Permissions<'_>,
-    actor: &str,
     key: &str,
     message: &Message,
 ) -> Option<Exposure> {
     if key != message.id
-        || (actor != message.sender && actor != message.recipient)
         || p::check_history_message_id(&message.id, "history.message_id").is_err()
     {
         return None;
     }
-    // An absent original manifest is never reconstructed from the work or
-    // current request. Explicit original lineage remains an additional gate.
+    // Preserve the recorded original lineage rather than reconstructing it
+    // from the reader's work or current request.
     let mut exposure = message.exposure.as_ref()?.clone();
     extend_exposure(
         &mut exposure,
@@ -458,7 +459,7 @@ fn query(
     let Some(item_limit) = query_item_limit(&parameters, result_limit) else {
         return Ok(Output::status("exhausted"));
     };
-    let query = digest(&("history-query-v1", mode))?;
+    let query = digest(&("history-query-v2", mode))?;
     let actor = &prepared.request.persona;
     let work = &prepared.request.work;
     let persona = &state.personas[actor];
@@ -511,7 +512,7 @@ fn query(
             let Some(message) = state.messages.get(message_id) else {
                 return Ok(Output::stale());
             };
-            let Some(exposure) = message_exposure(permissions, actor, message_id, message) else {
+            let Some(exposure) = message_exposure(permissions, message_id, message) else {
                 return Ok(Output::stale());
             };
             extend_exposure(consulted, &exposure);
@@ -527,7 +528,7 @@ fn query(
     } else {
         let mut member_bytes = 2;
         for (key, message) in &state.messages {
-            let Some(exposure) = message_exposure(permissions, actor, key, message) else {
+            let Some(exposure) = message_exposure(permissions, key, message) else {
                 continue;
             };
             extend_exposure(consulted, &exposure);
@@ -715,7 +716,6 @@ fn query(
 #[allow(clippy::too_many_arguments)]
 fn read(
     state: &State,
-    prepared: &Prepared,
     message_id: &str,
     expected: &str,
     permissions: &Permissions<'_>,
@@ -728,7 +728,7 @@ fn read(
         return Ok(unavailable());
     };
     let Some(exposure) =
-        message_exposure(permissions, &prepared.request.persona, message_id, message)
+        message_exposure(permissions, message_id, message)
     else {
         return Ok(unavailable());
     };
@@ -836,7 +836,6 @@ pub(super) fn apply(
                     message_id, sha256, ..
                 } => read(
                     state,
-                    prepared,
                     message_id,
                     sha256,
                     &permissions,

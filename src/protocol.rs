@@ -652,7 +652,8 @@ pub enum Operation {
         expected_sha256: Option<String>,
         detail: crate::provider::ImageDetail,
     },
-    /// Explicit selective retrieval of retained messages across works. Returns
+    /// Explicit selective retrieval of retained runtime messages across personas
+    /// and works, preserving their original senders and recipients. Returns
     /// attributed metadata only; continuation requires a freshly supplied handle.
     /// CONTROL.history_retrieval describes cursor reuse and body supply.
     HistoryQuery {
@@ -672,7 +673,8 @@ pub enum Operation {
         message_id: String,
         sha256: String,
     },
-    /// Selective retained observations or adopted authored Decisions across works.
+    /// Selective retained observations or adopted authored Decisions across this
+    /// runtime's personas and works, preserving the original actor and work.
     /// adopted_decision finds authored choices and reasoning; observation finds
     /// runtime receipts, which may themselves contain only metadata. Neither
     /// index supplies record bodies. CONTROL.history_retrieval describes cursor

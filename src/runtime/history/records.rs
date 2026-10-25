@@ -1,11 +1,14 @@
 //! Explicit retrieval of retained observations and immutable adopted authored
-//! Decisions. Receipts persist references only; fresh prompts re-project bodies.
+//! Decisions across this runtime's personas. Receipts persist references only;
+//! fresh prompts re-project bodies with their original attribution intact.
 use super::*;
 
-pub(crate) const INTERFACE: &str = "retained-record-history-v1";
+pub(crate) const INTERFACE: &str = "retained-record-history-v2";
 const DECISION_PROJECTION: &str = "authored-decision-qualifications-v2";
 
 fn query_identity(record_kind: p::HistoryRecordKind, mode: &f::SearchMode) -> Result<String> {
+    // v2 includes other personas' retained records. Earlier cursor membership
+    // cannot establish coverage of this expanded corpus; start a fresh query.
     match record_kind {
         // The matched Decision body no longer replays permission ancestry.
         // A cursor from that older projection must start a fresh traversal.
@@ -104,7 +107,6 @@ impl Material {
                 .filter_map(|reference| {
                     let candidate = record(
                         state,
-                        actor,
                         reference,
                         &a,
                         &corpus,
@@ -161,7 +163,6 @@ pub(crate) fn observation_identity(
 
 fn observation_record(
     state: &State,
-    actor: &str,
     id: &str,
     a: &f::Admission,
     corpus: &f::Corpus,
@@ -169,8 +170,9 @@ fn observation_record(
     full: bool,
 ) -> Option<Record> {
     let observation = state.observations.get(id)?;
+    // Ownership describes the original receipt. Selective historical retrieval
+    // does not require the reader to have produced or received that receipt.
     if observation.id != id
-        || observation.actor != actor
         || p::check_history_observation_id(id, "history.observation_id").is_err()
     {
         return None;
@@ -215,10 +217,8 @@ fn observation_record(
     })
 }
 
-#[allow(clippy::too_many_arguments)] // Explicit current projection and immutable material, never ambient state.
 fn decision_record(
     state: &State,
-    actor: &str,
     id: &str,
     a: &f::Admission,
     corpus: &f::Corpus,
@@ -237,8 +237,7 @@ fn decision_record(
         return None;
     }
     let archive: AdoptedResponse = serde_json::from_value(object.body.clone()).ok()?;
-    if archive.actor != actor
-        || archive.response.invocation_id != id
+    if archive.response.invocation_id != id
         || archive.response.epoch != proof.prepared_epoch.unwrap_or(proof.previous_epoch)
         || archive.response.epoch > proof.previous_epoch
         || archive.report.invocation_id != id
@@ -335,10 +334,8 @@ fn decision_record(
     })
 }
 
-#[allow(clippy::too_many_arguments)] // Both record namespaces share the same checked projection inputs.
 fn record(
     state: &State,
-    actor: &str,
     reference: &p::HistoryRecordReference,
     a: &f::Admission,
     corpus: &f::Corpus,
@@ -348,11 +345,10 @@ fn record(
 ) -> Option<Record> {
     let candidate = match reference {
         p::HistoryRecordReference::Observation { observation_id, .. } => {
-            observation_record(state, actor, observation_id, a, corpus, permissions, full)
+            observation_record(state, observation_id, a, corpus, permissions, full)
         }
         p::HistoryRecordReference::AdoptedDecision { invocation_id, .. } => decision_record(
             state,
-            actor,
             invocation_id,
             a,
             corpus,
@@ -475,7 +471,6 @@ pub(crate) fn supply(
         serde_json::from_value(receipt.payload["reference"].clone())?;
     let candidate = record(
         state,
-        &receipt.actor,
         &reference,
         a,
         corpus,
@@ -487,7 +482,6 @@ pub(crate) fn supply(
     .and_then(|_| {
         record(
             state,
-            &receipt.actor,
             &reference,
             a,
             corpus,
@@ -578,7 +572,6 @@ fn query(
         for reference in previous.records.as_ref().unwrap() {
             let Some(candidate) = record(
                 state,
-                actor,
                 reference,
                 a,
                 corpus,
@@ -596,7 +589,7 @@ fn query(
             p::HistoryRecordKind::Observation => {
                 for id in state.observations.keys() {
                     if let Some(candidate) =
-                        observation_record(state, actor, id, a, corpus, permissions, false)
+                        observation_record(state, id, a, corpus, permissions, false)
                     {
                         extend_exposure(consulted, &candidate.exposure);
                         candidates.push(candidate);
@@ -606,7 +599,7 @@ fn query(
             p::HistoryRecordKind::AdoptedDecision => {
                 for id in material.archives.keys() {
                     if let Some(candidate) =
-                        decision_record(state, actor, id, a, corpus, material, permissions, false)
+                        decision_record(state, id, a, corpus, material, permissions, false)
                     {
                         extend_exposure(consulted, &candidate.exposure);
                         candidates.push(candidate);
@@ -672,7 +665,6 @@ fn query(
             }
             let Some(projected) = record(
                 state,
-                actor,
                 &descriptor.reference,
                 a,
                 corpus,
@@ -934,7 +926,7 @@ pub(crate) fn apply(
                 _ => None,
             };
             // Lookup material is local to this operation until a typed exact
-            // read passes actor, permissions and digest validation. Denied or
+            // read passes record identity, provenance and digest validation. Missing or
             // mismatched guesses cannot occupy reusable material capacity.
             let mut archive_batch = None;
             let archive_ready = if !cursor_authorized {
@@ -984,7 +976,6 @@ pub(crate) fn apply(
                     p::Operation::HistoryRecordRead { reference, .. } => {
                         if let Some(descriptor) = record(
                             state,
-                            &prepared.request.persona,
                             reference,
                             &a,
                             &corpus,
@@ -1009,7 +1000,6 @@ pub(crate) fn apply(
                                 status("exhausted")
                             } else if let Some(candidate) = record(
                                 state,
-                                &prepared.request.persona,
                                 reference,
                                 &a,
                                 &corpus,
