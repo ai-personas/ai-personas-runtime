@@ -174,6 +174,15 @@ provider audit record `reusable_prefix_bytes`; the versioned wire profile and
 complete body hash bind both message roles and layout. Earlier v2 single-message
 and v3 two-user-message receipts remain inspectable with their original roles.
 
+Within the changing CONTROL object, the renderer presents persona character,
+current work, amendments, the original request and accepted participation before
+the detailed capability contracts. Current observations and attributed peer
+accounts follow the work context. This changes only top-level member order:
+every value, field, qualification and exact reference remains present, and
+JSON-pointer text sharing still resolves within the complete object. It adds no
+task summary, prescribed approach or completion criterion. The sealed prompt
+and wire-body hashes bind the actual order sent to the model.
+
 The adapter leaves caching to the provider's default behavior. It does not infer
 support for explicit cache parameters from a model's name: route and model
 capabilities can differ from the public Responses API. A stable prefix and message

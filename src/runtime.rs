@@ -7544,7 +7544,7 @@ fn render_mode_with_history(
         format!("{duties}\n{arrangement_duties}\n{REPAIR_DUTIES}\nAPPLICATION_DECISION_SCHEMA\n{schema}"));
     let render_prompt = |control: &Value, context: &Value, repair: bool| -> Result<(String, Option<String>, usize)> {
         let encoded = request_context::encode(control, context)?;
-        let control = serde_json::to_string(encoded.control.as_ref())?;
+        let control = request_context::render_control(encoded.control.as_ref())?;
         let qualified = serde_json::to_string(encoded.qualified.as_ref())?;
         let prefix = if repair {
             repair_prefix

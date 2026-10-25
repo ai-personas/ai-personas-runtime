@@ -2,8 +2,43 @@
 //! Only known host-rendered fields participate. Roles, source attribution,
 //! restrictions, qualification edges and observation identities stay in place.
 use super::*;
+use serde::ser::SerializeMap;
 use std::borrow::Cow;
 mod control_text;
+
+// Present the persona and current work before the detailed interface contract.
+// This is ordering only: no summary, inferred task plan, or omitted field.
+const CONTROL_ORDER: &[&str] = &[
+    "profile", "actor", "persona_label", "lifecycle_role",
+    "current_character", "seed", "transient_affect",
+    "work_id", "work_phase", "work_version", "task_amendment", "mandate",
+    "original_need", "requester", "own_acceptance", "own_pending_offers",
+    "last_attributed_work_judgment", "previous_authored_continuation",
+    "actual_observations", "collaborators",
+    "invocation_id", "epoch", "owner_epoch", "context_at_unix",
+];
+
+struct OrderedControl<'a>(&'a serde_json::Map<String, Value>);
+
+impl Serialize for OrderedControl<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        let mut fields: Vec<_> = self.0.iter().collect();
+        fields.sort_by_key(|(key, _)| (
+            CONTROL_ORDER.iter().position(|name| *name == key.as_str()).unwrap_or(CONTROL_ORDER.len()),
+            key.as_str(),
+        ));
+        let mut map = serializer.serialize_map(Some(fields.len()))?;
+        for (key, value) in fields {
+            map.serialize_entry(key, value)?;
+        }
+        map.end()
+    }
+}
+
+pub(super) fn render_control(control: &Value) -> Result<String> {
+    let object = control.as_object().ok_or_else(|| invalid("request control must be an object"))?;
+    Ok(serde_json::to_string(&OrderedControl(object))?)
+}
 
 pub(super) const ENCODING: &str = "shared-qualified-text-v1";
 const WORK_ENCODING: &str = "shared-request-text-v2";
