@@ -315,6 +315,14 @@ fn install(state: &mut State, saved: &Saved, record: &InputRecord, now: i64) -> 
     Ok(())
 }
 
+/// Pending input needs a settled owner before it can enter decision context.
+pub(super) fn has_pending(app: &mut Runtime) -> Result<bool> {
+    let Some(head) = app.store.read(INBOX)? else { return Ok(false); };
+    require(head.kind == INBOX, "feedback inbox kind changed")?;
+    let inbox: Inbox = serde_json::from_value(head.body)?;
+    Ok(!inbox.pending.is_empty())
+}
+
 /// The coordinator calls this before another admission and before returning its
 /// final result. Failed/uncertain leases keep their dispositions; no recovery,
 /// cancellation, grant or resumption is manufactured by delivering user input.

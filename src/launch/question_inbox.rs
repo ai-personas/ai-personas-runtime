@@ -118,6 +118,13 @@ pub(super) fn submit(app: &mut Runtime, operator: &str, input: &QuestionAnswerIn
     Ok(result)
 }
 
+pub(super) fn has_pending(app: &mut Runtime) -> Result<bool> {
+    let Some(head) = app.store.read(INBOX)? else { return Ok(false); };
+    require(head.kind == INBOX, "question answer inbox kind changed")?;
+    let inbox: Inbox = serde_json::from_value(head.body)?;
+    Ok(!inbox.pending.is_empty())
+}
+
 pub(super) fn deliver(app: &mut Runtime, owner: &s::ExecutionOwner, now: i64) -> Result<usize> {
     if app.has_background_host_commands() { return Ok(0); }
     let Some(head) = app.store.read(INBOX)? else { return Ok(0); };

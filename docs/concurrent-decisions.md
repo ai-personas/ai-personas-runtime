@@ -22,12 +22,19 @@ shared accounting. Response validation retains the explicit activity lifecycle;
 accepted command snapshots additionally bind revocation and episode ending.
 
 The coordinator rotates through the current subtree and each work's participants.
-A round visits each eligible task/persona pair once, then drains its actual
-transport futures before admitting newly authored children. Another round starts
-while eligible work or command completion can advance. This prevents a continuing
-parent from indefinitely refilling the pending set ahead of child admission.
-Children still require their exact adopted proposal and a separate atomic receipt;
-parent and child continuations are independent.
+After a model or host-command result arrives, it reconsiders ready peers without
+waiting for unrelated model calls to finish. Each persona still has at most one
+current primary invocation, and the saved circular cursors preserve consideration
+order. A completed peer's next call uses its actual continuation and fresh state.
+
+Pending child admission, persona creation, requester input and completed leases
+awaiting retirement stop refilling until current transports settle. An exclusive
+candidate also drains current calls without repeatedly admitting visited peers
+ahead of it. Structural maintenance runs before a settled owner admits more work.
+These boundaries prevent ongoing parent work from starving a new child or input;
+they add no call or time quota and do not cancel a slow peer. Children still need
+their exact adopted proposal and a separate atomic receipt. Parent and child
+continuations remain independent.
 
 At the quiescent maintenance boundary, one current snapshot supplies the subtree,
 active-invocation candidates and checks for pending persona creation and child

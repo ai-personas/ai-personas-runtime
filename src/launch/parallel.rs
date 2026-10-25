@@ -65,12 +65,14 @@ async fn run_with_subtree<D: Driver>(
     let mut after = 0;
     let mut visited = BTreeSet::new();
     let mut round_started = false;
+    let mut draining_for_exclusive = false;
 
     loop {
         // Initial handover and completed-rejection retirement retain their
         // terminal-lease transaction fences. Drain peers before applying them,
         // using the actual completed IDs, never Saved.works' newest call.
         if pending.is_empty() {
+            draining_for_exclusive = false;
             for (id, work, status) in std::mem::take(&mut deferred) {
                 let follow_up = (|| {
                     driver.before_step(app)?;
@@ -103,10 +105,9 @@ async fn run_with_subtree<D: Driver>(
             let maintenance = (|| {
                 app.publish_completed_host_commands(unix_now()?)?;
                 if !round_started {
-                    // A round visits actual task/persona opportunities, then
-                    // drains its owned calls. This is a fairness boundary, not
-                    // a call quota: another round begins while work can advance.
-                    // Structural child admission remains atomic and quiescent.
+                    // Structural maintenance remains atomic and quiescent.
+                    // Between these boundaries, ready peers may receive another
+                    // turn without waiting for unrelated transports to finish.
                     require(pending.is_empty(), "subtree changed while transports were owned")?;
                     driver.before_step(app)?;
                     if let Some(owner) = owner {
@@ -162,6 +163,7 @@ async fn run_with_subtree<D: Driver>(
         while stop.is_none()
             && deferred.is_empty()
             && exclusive.is_empty()
+            && !draining_for_exclusive
         {
             let mut attempted_id = None;
             let mut needs_exclusive = false;
@@ -179,6 +181,9 @@ async fn run_with_subtree<D: Driver>(
                 let foreground::Candidate { work, persona, requires_exclusive } = candidate;
                 needs_exclusive = requires_exclusive;
                 if needs_exclusive && !pending.is_empty() {
+                    // Remember this opportunity until existing calls settle;
+                    // rotating the cursor must not refill peers ahead of it.
+                    draining_for_exclusive = true;
                     return Ok(None);
                 }
                 visited.insert((work.clone(), persona.clone()));
@@ -254,6 +259,17 @@ async fn run_with_subtree<D: Driver>(
                         },
                     }
                 }
+            }
+            // A completed call or host command can make a previously visited
+            // persona ready again. Active invocations remain excluded by their
+            // exact lease state, and the saved circular cursors preserve order.
+            if !draining_for_exclusive {
+                visited.clear();
+            }
+            if pending.is_empty() {
+                // Always perform structural maintenance before refilling a
+                // settled owner, even when a peer just requested another turn.
+                round_started = false;
             }
             continue;
         }

@@ -23,6 +23,24 @@ pub(super) fn select(
     let (head, state) = app.load()?;
     require(app.invocation_leases_owned(&state, owned)?,
         "unfinished invocation requires completion or explicit recovery")?;
+    if !owned.is_empty() {
+        // Ordinary peers may continue while another owned call is pending, but
+        // refilling must not starve transactions that require a settled owner.
+        // Reuse this selection snapshot; the eventual helpers still validate
+        // their exact current records at the quiescent maintenance boundary.
+        if feedback::has_pending(app)? || question_commands::has_pending(app)? {
+            return Ok((0, None));
+        }
+        for work in works {
+            if persona_birth::has_pending_for_work(&state, work)
+                || intake_delegation::has_pending_for_work(&state, work)
+                || rejected_continuation::active_invocations_for_work(&state, work)?
+                    .iter().any(|id| !owned.contains(id))
+            {
+                return Ok((0, None));
+            }
+        }
+    }
     let (old, mut cursor) = app.load_scheduler()?;
     let started_after = *after;
     let mut next_after = *after;

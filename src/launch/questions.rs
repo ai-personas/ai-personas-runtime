@@ -3,6 +3,10 @@ use super::*;
 #[path = "question_inbox.rs"]
 mod inbox;
 
+pub(super) fn has_pending(app: &mut Runtime) -> Result<bool> {
+    inbox::has_pending(app)
+}
+
 pub(super) fn deliver(app: &mut Runtime, owner: &s::ExecutionOwner, now: i64) -> Result<usize> {
     inbox::deliver(app, owner, now)
 }
