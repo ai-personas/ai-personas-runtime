@@ -50,6 +50,7 @@ struct WireProfile {
     authorization_scheme: &'static str,
     account_header: Option<&'static str>,
     input_role: &'static str,
+    reusable_prefix_role: &'static str,
     instructions: &'static str,
 }
 
@@ -72,19 +73,19 @@ impl AccessMode {
     fn wire_profile(self) -> WireProfile {
         let (id, url, headers, account_header) = match self {
             Self::ChatgptOAuth => (
-                "traditional_chatgpt_responses_v3",
+                "traditional_chatgpt_responses_v4",
                 "https://chatgpt.com/backend-api/codex/responses",
                 CHATGPT_HEADERS,
                 Some("chatgpt-account-id"),
             ),
             Self::SiwcOAuth => (
-                "siwc_documented_public_responses_v3",
+                "siwc_documented_public_responses_v4",
                 "https://api.openai.com/v1/responses",
                 PUBLIC_HEADERS,
                 None,
             ),
             Self::PlatformApiKey => (
-                "platform_responses_v3",
+                "platform_responses_v4",
                 "https://api.openai.com/v1/responses",
                 PUBLIC_HEADERS,
                 None,
@@ -99,6 +100,7 @@ impl AccessMode {
             authorization_scheme: "Bearer",
             account_header,
             input_role: "user",
+            reusable_prefix_role: "developer",
             instructions: INSTRUCTIONS,
         }
     }
@@ -565,7 +567,8 @@ pub struct RequestAudit {
     pub prompt_sha256: String,
     pub prompt_bytes: u64,
     /// Exact UTF-8 boundary between reusable framing and changing input.
-    /// Both messages retain the same input role and concatenate to the prompt.
+    /// The host contract and changing input concatenate to the recorded prompt;
+    /// their distinct message roles are bound by the wire profile and body hash.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reusable_prefix_bytes: Option<usize>,
     pub schema_sha256: String,
@@ -802,8 +805,10 @@ impl ProviderOutput {
 
 pub struct ProviderRequest {
     pub prompt: String,
-    /// A caller-selected message boundary, never a truncation or cache claim.
-    /// None sends the complete prompt in one message.
+    /// A trusted caller's boundary after its host-authored contract. The prefix
+    /// uses the developer role; changing input and images use the user role.
+    /// Never place retrieved or persona-authored material in that prefix.
+    /// None sends the complete prompt in one user message.
     pub reusable_prefix_bytes: Option<usize>,
     pub images: Vec<ImageInput>,
     /// The unconstrained object schema selects JSON-object transport. Other
@@ -1203,7 +1208,7 @@ fn response_only_body(
         }
         let (prefix, changing) = prompt.split_at(boundary);
         let part = json!({"type":"input_text","text":prefix});
-        input.push(json!({"role":profile.input_role,"content":[part]}));
+        input.push(json!({"role":profile.reusable_prefix_role,"content":[part]}));
         changing
     } else {
         prompt
@@ -1244,17 +1249,21 @@ pub(crate) fn response_only_request_matches(
     .any(|mode| {
         let mut profile = mode.wire_profile();
         if audit["transport_profile"] != profile.id {
-            // Inspect the exact earlier single-message wire contract without
-            // enabling it for a new dispatch or rewriting its retained receipt.
-            let earlier = match mode {
-                AccessMode::ChatgptOAuth => "traditional_chatgpt_responses_v2",
-                AccessMode::SiwcOAuth => "siwc_documented_public_responses_v2",
-                AccessMode::PlatformApiKey => "platform_responses_v2",
+            // Inspect earlier exact bodies without enabling an older dispatch
+            // or changing the authority of any retained historical input.
+            let (single, split_user) = match mode {
+                AccessMode::ChatgptOAuth => ("traditional_chatgpt_responses_v2", "traditional_chatgpt_responses_v3"),
+                AccessMode::SiwcOAuth => ("siwc_documented_public_responses_v2", "siwc_documented_public_responses_v3"),
+                AccessMode::PlatformApiKey => ("platform_responses_v2", "platform_responses_v3"),
             };
-            if audit["transport_profile"] != earlier || reusable_prefix_bytes.is_some() {
+            if audit["transport_profile"] == single && reusable_prefix_bytes.is_none() {
+                profile.id = single;
+            } else if audit["transport_profile"] == split_user {
+                profile.id = split_user;
+            } else {
                 return false;
             }
-            profile.id = earlier;
+            profile.reusable_prefix_role = "user";
         }
         let Ok(body) = response_only_body(
             &profile, model, effort, prompt, reusable_prefix_bytes, images, schema,

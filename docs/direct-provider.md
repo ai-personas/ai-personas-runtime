@@ -34,9 +34,9 @@ release or evidence checks.
 
 | Serialized mode | Transport profile | Route | Credential grant |
 | --- | --- | --- | --- |
-| `chatgpt_oauth` | `traditional_chatgpt_responses_v3` | `https://chatgpt.com/backend-api/codex/responses` | Traditional ChatGPT OAuth, with the authorized account header |
-| `siwc_oauth` | `siwc_documented_public_responses_v3` | `https://api.openai.com/v1/responses` | SIWC token-sharing OAuth |
-| `platform_api_key` | `platform_responses_v3` | `https://api.openai.com/v1/responses` | Explicit OpenAI Platform API-key access and billing |
+| `chatgpt_oauth` | `traditional_chatgpt_responses_v4` | `https://chatgpt.com/backend-api/codex/responses` | Traditional ChatGPT OAuth, with the authorized account header |
+| `siwc_oauth` | `siwc_documented_public_responses_v4` | `https://api.openai.com/v1/responses` | SIWC token-sharing OAuth |
+| `platform_api_key` | `platform_responses_v4` | `https://api.openai.com/v1/responses` | Explicit OpenAI Platform API-key access and billing |
 
 These modes never substitute for one another. A missing credential, unsupported model/effort, or unsuccessful OAuth request cannot activate API-key billing. The SIWC profile follows the documented public Responses contract; it does not send OpenClaw's preview test header or claim access from that header's existence.
 
@@ -161,13 +161,18 @@ values as `const`; the parser and admission checks still require the exact
 current identity. A fresh decision receives its own current values; a mandate
 revision is not the response epoch.
 
-The host seals a UTF-8 boundary after the complete instructions and application
-schema. The v3 transport sends that prefix and the remaining CONTROL and
-QUALIFIED_CONTEXT as two messages with the same user role. Their text concatenates
-to the complete recorded prompt without rewriting or dropping bytes. Captured
-images follow the changing text. The admission and provider audit both record
-`reusable_prefix_bytes`, and the complete wire-body hash binds the message layout.
-Earlier v2 receipts remain inspectable as their original single-message bodies.
+The host seals a UTF-8 boundary after its complete instructions and application
+schema. The v4 transport sends that host-authored prefix in the `developer` role;
+the remaining CONTROL and QUALIFIED_CONTEXT use the `user` role. This preserves
+the distinction between application instructions and their current inputs in
+[OpenAI's message-role contract](https://developers.openai.com/api/docs/guides/prompt-engineering#message-roles-and-instruction-following).
+The prefix contains no persona fragments, task text, retrieved material or tool
+results. Those keep their actual authorship and qualifications in current input.
+The messages' text concatenates to the complete recorded prompt without rewriting
+or dropping bytes. Captured images follow the changing text. The admission and
+provider audit record `reusable_prefix_bytes`; the versioned wire profile and
+complete body hash bind both message roles and layout. Earlier v2 single-message
+and v3 two-user-message receipts remain inspectable with their original roles.
 
 The adapter leaves caching to the provider's default behavior. It does not infer
 support for explicit cache parameters from a model's name: route and model
