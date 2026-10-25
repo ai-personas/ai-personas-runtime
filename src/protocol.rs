@@ -323,7 +323,9 @@ pub enum Continuation {
         purpose: String,
     },
     /// One future consideration of this accepted work, without inventing a dependency.
-    /// Consumed by actual admission; it grants no new scope, resources or polling loop.
+    /// Pending until an ordinary decision adopts its next continuation. Only one
+    /// invocation can own it at a time; a rejected response or recoverable provider
+    /// failure does not settle it. It grants no new scope or recurring polling loop.
     ReconsiderAt {
         not_before_unix: u64,
         purpose: String,

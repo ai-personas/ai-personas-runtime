@@ -343,11 +343,15 @@ impl Runtime {
         let accepted_continuation = focus.authored_continuation.as_ref().is_some_and(|authored| {
             focus.ordinary_continuation
                 && focus.continuation.as_ref() == Some(&authored.value)
-                && matches!(authored.value, p::Continuation::Immediate { .. } | p::Continuation::Wait { .. })
+                && (matches!(authored.value, p::Continuation::Immediate { .. } | p::Continuation::Wait { .. })
+                    || (matches!(authored.value, p::Continuation::ReconsiderAt { .. })
+                        && prepared.reconsideration_interface.as_deref() == Some(RECONSIDERATION_INTERFACE)))
         });
         // Keep every route flag and authored disposition unchanged. In particular,
-        // a consumed one-shot permit, timed reconsideration, Stop or Pause cannot
-        // acquire another admission merely because the last response was invalid.
+        // a consumed one-shot permit, Stop or Pause cannot acquire another
+        // admission merely because the last response was invalid. An unfinished
+        // v2 timed reconsideration retains its route through a failed attempt;
+        // a continuation already consumed under an earlier contract stays spent.
         if persona.active_invocation.as_deref() != Some(id)
             || persona.owner_epoch != prepared.owner_epoch
             || persona.admission_serial != prepared.admission_serial

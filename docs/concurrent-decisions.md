@@ -183,12 +183,24 @@ retried, refunded or treated as adopted merely because transport completed.
 
 At each quiescent foreground boundary, the coordinator also examines retained
 completed rejections from earlier sessions of that work. An unchanged accepted
-Immediate or Wait continuation can receive a fresh opportunity after its exact
+Immediate, Wait or unfinished v2 ReconsiderAt continuation can receive a fresh
+opportunity after its exact
 failed lease is retired. Missing diagnostic lineage remains explicitly unknown
 in the failure observation; it does not hide that observation or strand the
 continuation. The original failed invocation and terminal stay unchanged.
-Incomplete transports, unknown remote outcomes, Stop, Pause and consumed
-one-shot opportunities do not gain a new continuation from this process.
+Stop, Pause and consumed explicit one-shot permits do not gain a new continuation
+from this process. Bound response-only provider failures follow their existing
+recovery classification and keep unknown remote outcomes or usage explicit.
+
+`one-shot-reconsideration-v2` treats the authored return as one pending
+consideration, rather than one provider attempt. Its active invocation prevents
+overlapping admissions. A rejected response does not adopt any work or new
+continuation, so the original route remains pending for exact terminal recovery.
+The first accepted ordinary work decision replaces it with the persona's next
+continuation. A character-only transition keeps the unfinished consideration for
+the fresh decision under that character. Neither case creates periodic polling,
+changes the authored time or purpose, bypasses current work controls or replays
+the failed response. Earlier consumed opportunities remain spent.
 
 The response's `epoch` remains its original request nonce. Store adoption checks
 the exact current Runtime head and current global epoch atomically, then records

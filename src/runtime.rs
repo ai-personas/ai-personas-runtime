@@ -184,7 +184,7 @@ fn observation_id(invocation: &str, kind: &str, suffix: &str) -> String {
 fn terminal_id(id: &str) -> String {
     format!("terminal:{}", s::sha256_bytes(id.as_bytes()))
 }
-const RECONSIDERATION_INTERFACE: &str = "one-shot-reconsideration-v1";
+const RECONSIDERATION_INTERFACE: &str = "one-shot-reconsideration-v2";
 const DUTIES: &str = include_str!("runtime/ordinary_duties.txt");
 
 #[derive(Debug, Error)]
@@ -4068,22 +4068,15 @@ impl Runtime {
         // An invitation remains pending until its first complete decision is
         // accepted. The active invocation still owns the only admission slot;
         // a definite local rejection may retire it without losing that route.
-        // Explicit resumption and an already authored continuation retain their
-        // existing consumption semantics.
+        // Explicit resumption retains its separate consumption semantics.
         focus.permit = focus.permit && !focus.explicit_resume_permit
             && focus.continuation.is_none() && focus.authored_continuation.is_none();
         focus.explicit_resume_permit = false;
-        // A timed self-reconsideration grants one admission, not a recurring wake.
-        // This prospective change is committed only with successful preparation;
-        // failed rendering uses the unadmitted snapshot above. Retain the authored
-        // disposition for provenance, but do not let failure or a character fence
-        // silently reuse its elapsed opportunity.
-        if matches!(
-            focus.continuation,
-            Some(p::Continuation::ReconsiderAt { .. })
-        ) {
-            focus.ordinary_continuation = false;
-        }
+        // A timed reconsideration remains pending until an ordinary decision
+        // adopts its replacement continuation. The active invocation owns the
+        // only slot while inference is unresolved. A bound rejected response
+        // can then retire without losing this unfinished authored opportunity;
+        // it neither repeats an adopted decision nor rearms an expired permit.
         let owner_epoch = persona.owner_epoch;
         let admission_serial = persona.admission_serial;
         let character_revision = persona.character.as_ref().map(|c| c.revision.clone());
