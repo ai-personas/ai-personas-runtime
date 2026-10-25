@@ -1349,6 +1349,9 @@ pub struct Prepared {
     /// The response still echoes epoch exactly and cannot supply this scope.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decision_scope: Option<decision_scope::Snapshot>,
+    /// Exact control-history boundary of this admission, before dispatch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) runtime_control_event_cursor: Option<usize>,
     pub owner_epoch: u64,
     pub work_version: w::Version,
     pub character_revision: Option<String>,
@@ -4177,6 +4180,7 @@ impl Runtime {
             launch_step_allowance,
             epoch,
             decision_scope: None,
+            runtime_control_event_cursor: Some(state.operator_events.len()),
             owner_epoch,
             work_version,
             character_revision,
@@ -5637,8 +5641,16 @@ impl Runtime {
             .ok_or_else(|| held("provider preparation absent"))?;
         let native_audit = native.audit().clone();
         let mut control_monitor = None;
+        let mut prelaunch_stop = None;
         let authorization = (|| -> Result<()> {
-            let (_, fresh) = self.load()?;
+            let (head, fresh) = self.load()?;
+            prelaunch_stop = provider_calls::state_stop(
+                &fresh, head.revision,
+                prepared.runtime_control_event_cursor
+                    .ok_or_else(|| held("prepared runtime control cursor absent"))?,
+                &prepared.request,
+            )?;
+            require(prelaunch_stop.is_none(), "runtime stop preceded provider dispatch")?;
             self.current(&fresh, &prepared, unix_now()?)?;
             optional_activity::require_current(&fresh, &prepared.request.work, &prepared.request.persona, unix_now()?)?;
             check_exposure(&fresh, prepared_exposure(&prepared)?)?;
@@ -5649,7 +5661,7 @@ impl Runtime {
         })();
         if let Err(error) = authorization {
             let cancellation = native.cancel();
-            let receipt = json!({
+            let mut receipt = json!({
                 "kind":"provider_prelaunch_rejection","synthetic":false,
                 "stage":"runtime_authorization","launched":false,
                 "failure":error.to_string(),
@@ -5660,6 +5672,9 @@ impl Runtime {
                 },
                 "provider_usage":"unknown","replay_authorized":false
             });
+            if let Some(observation) = prelaunch_stop {
+                receipt["runtime_control_observation"] = observation;
+            }
             // This actual no-launch observation and its terminal disposition
             // use prepaid records together, even if navigation is exhausted.
             let object = terminal_object(&prepared, receipt)?;

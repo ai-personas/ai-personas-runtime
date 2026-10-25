@@ -16,6 +16,34 @@ pub(in crate::runtime) struct Completion {
     pub outcome: std::result::Result<provider::ProviderOutput, provider::ProviderError>,
 }
 
+fn stop_event(event: &Value, request: &PrepareRequest) -> bool {
+    (event["work"] == request.work
+        && matches!(event["kind"].as_str(), Some("pause" | "closeout")))
+        || (event["persona"] == request.persona
+            && event["kind"] == "persona_lifecycle_control"
+            && matches!(event["notice"]["action"].as_str(), Some("pause" | "quarantine")))
+}
+
+fn stop_receipt(request: &PrepareRequest, revision: u64, phase: &w::Phase, explicit: bool) -> Value {
+    json!({"kind":"runtime_stop_observed", "work":request.work,
+        "persona":request.persona, "runtime_revision":revision,
+        "explicit_stop_observed":explicit, "phase":phase,
+        "local_cancellation_requested":true, "remote_stop_confirmed":false})
+}
+
+/// Observe the same controls before dispatch, including a stop followed by
+/// resumption while this request was being prepared. It grants no new route.
+pub(super) fn state_stop(
+    state: &State, revision: u64, event_cursor: usize, request: &PrepareRequest,
+) -> Result<Option<Value>> {
+    require(event_cursor <= state.operator_events.len(), "transport control history was shortened")?;
+    let phase = &state.board.work(&w::WorkId(request.work.clone()))?.phase;
+    let explicit = lifecycle::reason(state, &request.persona).is_some()
+        || state.operator_events[event_cursor..].iter().any(|event| stop_event(event, request));
+    Ok((explicit || !matches!(phase, w::Phase::Open))
+        .then(|| stop_receipt(request, revision, phase, explicit)))
+}
+
 fn observe_stop(
     monitor: &mut s::RuntimeControlMonitor,
     event_cursor: &mut usize,
@@ -37,24 +65,10 @@ fn observe_stop(
         *event_cursor <= events.len(),
         "transport control history was shortened",
     )?;
-    let explicit_stop = events[*event_cursor..].iter().any(|event| {
-        (event["work"] == request.work
-            && matches!(event["kind"].as_str(), Some("pause" | "closeout")))
-            || (event["persona"] == request.persona
-                && event["kind"] == "persona_lifecycle_control"
-                && matches!(
-                    event["notice"]["action"].as_str(),
-                    Some("pause" | "quarantine")
-                ))
-    });
+    let explicit_stop = events[*event_cursor..].iter().any(|event| stop_event(event, request));
     *event_cursor = events.len();
     if explicit_stop || !matches!(phase, w::Phase::Open) {
-        Ok(Some(
-            json!({"kind":"runtime_stop_observed", "work":request.work,
-            "persona":request.persona, "runtime_revision":object.revision,
-            "explicit_stop_observed":explicit_stop, "phase":phase,
-            "local_cancellation_requested":true, "remote_stop_confirmed":false}),
-        ))
+        Ok(Some(stop_receipt(request, object.revision, &phase, explicit_stop)))
     } else {
         Ok(None)
     }

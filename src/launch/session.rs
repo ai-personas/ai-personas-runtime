@@ -1184,6 +1184,20 @@ pub enum AttemptStatus {
     Uncertain,
 }
 #[derive(Clone, Debug, Serialize)]
+pub struct AttemptFailureView {
+    pub terminal: s::ObjectRef,
+    pub kind: Option<String>,
+    pub failure: Option<String>,
+    pub http_status: Option<u16>,
+    pub provider_error_type: Option<String>,
+    pub provider_error_code: Option<String>,
+    pub unsupported_parameter: Option<String>,
+    /// Already credential-redacted at the provider boundary. No raw body,
+    /// headers, request, response text or private continuation items are exposed.
+    pub provider_message: Option<String>,
+    pub provider_message_redacted: bool,
+}
+#[derive(Clone, Debug, Serialize)]
 pub struct AttemptView {
     pub id: String,
     pub state: s::InvocationState,
@@ -1191,6 +1205,8 @@ pub struct AttemptView {
     pub prepare_hash: String,
     pub response_hash: Option<String>,
     pub latest_evidence: Option<s::ObjectRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure: Option<AttemptFailureView>,
     pub reservation: s::ReservationId,
     pub reservation_state: s::ReservationState,
     pub reserved: s::Resources,
@@ -1216,6 +1232,30 @@ fn attempt_view(records: &s::RuntimeInspection<'_, '_>, id: &str) -> BoundaryRes
         s::InvocationState::Failed => AttemptStatus::FailedAttempt,
         s::InvocationState::Uncertain => AttemptStatus::Uncertain,
     };
+    let failure = if status == AttemptStatus::FailedAttempt {
+        records.terminal_evidence(&s::EntityId::Invocation(id.into()), &terminal_id(id))?
+            .filter(|terminal| terminal.kind == "runtime-terminal-transport"
+                && terminal.body["invocation_id"] == id)
+            .map(|terminal| -> BoundaryResult<_> {
+                let receipt = &terminal.body["receipt"];
+                let attempt = receipt.get("attempt_receipt").or_else(|| receipt.get("attempt"))
+                    .unwrap_or(&Value::Null);
+                let http = &attempt["http_diagnostic"];
+                Ok(AttemptFailureView {
+                    terminal: terminal.exact_ref()?,
+                    kind: receipt["kind"].as_str().map(str::to_owned),
+                    failure: receipt["failure"].as_str().map(str::to_owned),
+                    http_status: attempt["http_status"].as_u64().and_then(|v| u16::try_from(v).ok()),
+                    provider_error_type: http["error_type"].as_str().map(str::to_owned),
+                    provider_error_code: http["error_code"].as_str().map(str::to_owned),
+                    unsupported_parameter: http["unsupported_parameter"].as_str().map(str::to_owned),
+                    provider_message: http["message"].as_str().map(str::to_owned),
+                    provider_message_redacted: http["message_redacted"] == true,
+                })
+            }).transpose()?
+    } else {
+        None
+    };
     Ok(Some(AttemptView {
         id: inv.id,
         state: inv.state,
@@ -1223,6 +1263,7 @@ fn attempt_view(records: &s::RuntimeInspection<'_, '_>, id: &str) -> BoundaryRes
         prepare_hash: inv.prepare_hash,
         response_hash: inv.response_hash,
         latest_evidence: inv.history.iter().rev().find_map(|r| r.evidence.clone()),
+        failure,
         reservation: inv.reservation,
         reservation_state: reservation.state,
         reserved: reservation.amount,

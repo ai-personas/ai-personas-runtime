@@ -285,3 +285,12 @@ can block the coordinator until they finish. Normal exit drains host workers too
 Dropping a pending transport requests local cancellation; it proves neither remote
 termination nor absence of effects. Lost outcomes retain the existing uncertainty
 and recovery behavior.
+
+A stop may arrive after admission but before provider dispatch. The admission
+retains its control-history boundary, and prelaunch authorization observes current
+controls and intervening stops, including a stop followed by explicit resumption.
+A bound no-launch rejection can retire its local invocation at the quiescent
+boundary when the recorded or currently observed stop applies. The original
+terminal remains intact. Cleanup preserves current controls and authored routes;
+it cannot resume work, replay an action, or turn an unrelated configuration
+rejection into an automatic retry.

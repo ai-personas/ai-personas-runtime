@@ -83,6 +83,17 @@ recorded as unapplied; confirming it later cannot turn it into a new stop.
 Control confirmation has its own journal entry, so pending feedback or an answer
 does not prevent pausing active work. No control starts a model call.
 
+A pause that wins between call preparation and provider dispatch also releases
+the resulting failed local call after the session settles. This leaves the work
+paused and preserves the exact no-launch receipt; no participant resume is
+granted by cleanup.
+
+The work list shows retained provider failures, including HTTP status and the
+provider's credential-redacted explanation when available. Calls with the same
+explanation are grouped. These details come from the actual failed attempt;
+viewing them does not retry it, change provider settings, or establish a model
+response. Raw response bodies and private continuation items are not displayed.
+
 An accepted `reconsider_at` time or wait deadline keeps the foreground session
 open when no participant is ready now. Status shows the scheduled UTC time. The
 runtime waits for that time, an actual command result, or new input/control state,

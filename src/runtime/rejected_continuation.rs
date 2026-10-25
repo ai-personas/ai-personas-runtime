@@ -61,6 +61,11 @@ fn runtime_stopped_response(
     if !observed {
         return Ok(false);
     }
+    if receipt["kind"] == "provider_prelaunch_rejection"
+        && recoverable_failure(invocation, prepared, evidence)? == Some("provider_prelaunch_rejection")
+    {
+        return Ok(true);
+    }
     if receipt["failure"] == "cancelled"
         && (failed_response_only_attempt(invocation, prepared, evidence, true)?
             || failed_response_only_attempt(invocation, prepared, evidence, false)?)
@@ -450,7 +455,26 @@ impl Runtime {
             return Ok(false);
         }
         let evidence = self.terminal_evidence(id)?;
-        let stopped = runtime_stopped_response(&invocation, &prepared, &evidence)?;
+        // A stop can win before the transport monitor starts. A bound no-launch
+        // failure and current or post-admission stop also permit local cleanup;
+        // preserve both the original terminal and the current control state.
+        let no_launch = evidence.body["receipt"]["kind"] == "provider_prelaunch_rejection"
+            && recoverable_failure(&invocation, &prepared, &evidence)? == Some("provider_prelaunch_rejection");
+        let prelaunch_stop = if no_launch {
+            provider_calls::state_stop(&state, head.revision,
+                prepared.runtime_control_event_cursor.unwrap_or(state.operator_events.len()),
+                &prepared.request)?
+                .map(|mut observation| {
+                    observation["kind"] = json!("runtime_prelaunch_stop_observed");
+                    observation["local_cancellation_requested"] = json!(false);
+                    observation["dispatch_never_began"] = json!(true);
+                    observation
+                })
+        } else {
+            None
+        };
+        let stopped = prelaunch_stop.is_some()
+            || runtime_stopped_response(&invocation, &prepared, &evidence)?;
         let retained_route = if stopped {
             "runtime_stop_observed"
         } else if let Some(route) = retained_route(&state, &prepared) {
@@ -475,7 +499,9 @@ impl Runtime {
         let reference = evidence.exact_ref()?;
         let adoption_error = observability::adoption_error(&invocation, &evidence)?;
         let context_recovery = provider_context_failure(&invocation, &prepared, &evidence)?;
-        let failure_kind = if stopped {
+        let failure_kind = if stopped && no_launch {
+            "runtime_stopped_prelaunch"
+        } else if stopped {
             "runtime_stopped_response"
         } else if complete_response(&invocation, &prepared, &evidence, "ready")? {
             "complete_response_rejected"
@@ -512,6 +538,7 @@ impl Runtime {
                 "disposition":{"state":invocation.state,"adoption_error":adoption_error},
                 "observed_by":"foreground_runtime","continuation_invocation":continuation_invocation,
                 "retained_route":retained_route,"failure_kind":failure_kind,
+                "current_stop_observation":prelaunch_stop,
                 "continuation_changed":false,"provider_usage":"unknown","replay_authorized":false,
                 "remote_outcome_reconciled":false,
                 "failure_lineage":failure_lineage
@@ -541,6 +568,7 @@ impl Runtime {
             .extend(observations);
         state.operator_events.push(json!({
             "kind":match failure_kind {
+                "runtime_stopped_prelaunch" => "runtime_stopped_prelaunch_lease_retired",
                 "runtime_stopped_response" => "runtime_stopped_response_lease_retired",
                 "provider_terminal_failure" => "terminal_provider_failure_lease_retired",
                 "response_only_transport_failure" => "response_only_transport_failure_lease_retired",

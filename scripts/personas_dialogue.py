@@ -1334,6 +1334,28 @@ class Dialogue:
             args += ["--after", after]
         return self.session(*args)
 
+    def show_call_failures(self, work):
+        attempts = [work.get("last_attempt")]
+        attempts.extend(person.get("active_invocation") for person in work["participants"])
+        seen, groups = set(), {}
+        for attempt in attempts:
+            if not attempt or attempt["id"] in seen or not attempt.get("failure"):
+                continue
+            seen.add(attempt["id"])
+            failure = {key: value for key, value in attempt["failure"].items() if key != "terminal"}
+            key = encoded(failure)
+            if key not in groups:
+                groups[key] = (failure, [])
+            groups[key][1].append(attempt["id"])
+        for failure, calls in groups.values():
+            detail = failure.get("failure") or failure.get("kind") or "retained failure"
+            if failure.get("http_status") is not None:
+                detail += f"; HTTP {failure['http_status']}"
+            self.ui.say(f"   Call failure ({', '.join(calls)}): {detail}.")
+            if failure.get("provider_message"):
+                label = "Provider explanation (redacted)" if failure.get("provider_message_redacted") else "Provider explanation"
+                self.ui.say(f"   {label}: {failure['provider_message']}")
+
     def show_messages(self, messages, show_invocation=False, shown_messages=None):
         if shown_messages is not None:
             messages = [message for message in messages if message["id"] not in shown_messages]
@@ -2479,6 +2501,7 @@ class Dialogue:
                 attempt = work.get("last_attempt")
                 if attempt:
                     self.ui.say(f"   Last recorded call: {attempt['id']} — {attempt['status'].replace('_', ' ')}.")
+                self.show_call_failures(work)
                 for participant in work["participants"]:
                     lifecycle = participant.get("lifecycle")
                     if lifecycle and (lifecycle["status"] != "active" or lifecycle["quarantined"]):
