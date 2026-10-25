@@ -60,7 +60,11 @@ These actions inspect or update the existing runtime without starting
 inference. Source policies remain provenance, not access gates.
 For a stopped or individually paused participant in an Open work,
 choose **u: resume participant**, then **c: continue** to authorize a model session.
-Work-wide pauses and failure recovery use their separate explicit controls.
+When a failed response-only call still has its original invitation or authored
+continuation, **c: continue** can retire that exact failed lease and consider a
+fresh call through the retained route. This does not resume a stopped persona
+or replay actions. Work-wide pauses and failures without a recoverable retained
+route keep their separate controls; see [continuation recovery](concurrent-decisions.md).
 If input delivery is interrupted, the work list offers **i** to deliver the same
 saved identity and text; it does
 not create a replacement input. The CLI equivalents below remain available.
