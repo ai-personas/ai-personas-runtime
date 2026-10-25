@@ -5,6 +5,12 @@ reflect or talk without an assigned topic or deliverable. Each persona chooses
 whether to engage, what to pursue and when to stop. Availability creates no duty
 to respond. An artifact, character edit or later benefit is optional.
 
+An interest or conversation may develop across several decisions and exchanges.
+Continuing one's own exploration or considering a later reply creates no duty
+for peers. The input makes that independence explicit, without prescribing a
+topic, exchange count or continued participation. Stop remains the persona's
+choice to end its participation.
+
 Optional activity uses the same default host, WebAssembly and HTTP(S) tools as
 ordinary work. Calls, navigation, tools and retained records have no application
 resource quota. Saved allocation, recurrence, interval and expiry numbers are
