@@ -1939,7 +1939,8 @@ class Dialogue:
     def eligible(view, work):
         return (not view["frozen"]
                 and work["phase"] == "open"
-                and any(p["eligible_candidate"] or p.get("scheduled_for_unix") is not None
+                and any(p["eligible_candidate"] or p.get("continuation_recovery_candidate", False)
+                        or p.get("scheduled_for_unix") is not None
                         for p in work["participants"]))
 
     @staticmethod
@@ -1960,7 +1961,8 @@ class Dialogue:
             return "runtime paused"
         if work["phase"] != "open":
             return "review results"
-        if any(p["eligible_candidate"] for p in work["participants"]):
+        if any(p["eligible_candidate"] or p.get("continuation_recovery_candidate", False)
+               for p in work["participants"]):
             return "ready to continue"
         scheduled = [p["scheduled_for_unix"] for p in work["participants"]
                      if p.get("scheduled_for_unix") is not None]

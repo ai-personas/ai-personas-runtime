@@ -112,6 +112,25 @@ pub(super) fn recovery_snapshot(
     recovery_for(state, work, actor, &invocation, &evidence)
 }
 
+/// Whether starting the foreground coordinator can preserve an existing route
+/// through exact failure retirement. This performs no mutation or resumption.
+pub(super) fn continuation_candidate(
+    state: &State,
+    records: &s::RuntimeInspection<'_, '_>,
+    recovery: Option<&ParticipantRecovery>,
+) -> BoundaryResult<bool> {
+    let Some(recovery) = recovery else { return Ok(false) };
+    // Prelaunch rejection has an explicit resume path, not automatic retirement.
+    if recovery.kind == "provider_prelaunch_rejection" {
+        return Ok(false);
+    }
+    let Some(invocation) = records.invocation(&recovery.invocation)? else {
+        return Ok(false);
+    };
+    let prepared = decode_prepared(&invocation)?;
+    Ok(rejected_continuation::retained_route(state, &prepared).is_some())
+}
+
 pub(super) fn candidate(
     state: &State, saved: &Saved, work: &str, persona: &str,
     recovery: Option<&ParticipantRecovery>,
@@ -200,7 +219,8 @@ pub fn resume_participant(
                         && matches!(recovery.kind.as_str(),
                             "complete_response_rejected" | "provider_prelaunch_rejection"
                                 | "provider_terminal_failure" | "response_only_transport_failure"
-                                | "response_only_http_failure" | "provider_context_rejection")
+                                | "response_only_http_failure" | "response_only_service_error"
+                                | "provider_context_rejection")
                 }),
             BoundaryError::InvalidState,
         )?;

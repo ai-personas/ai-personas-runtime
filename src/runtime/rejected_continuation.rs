@@ -158,6 +158,30 @@ fn temporary_http_response_only_failure(
         && failed_response_only_attempt(invocation, prepared, evidence)?)
 }
 
+/// A streamed service error can end an HTTP 200 transport without a response
+/// terminal event. Retire only this bound, locally failed response-only lease;
+/// the original remote outcome and charges remain unknown.
+fn temporary_stream_response_only_failure(
+    invocation: &s::InvocationRecord,
+    prepared: &Prepared,
+    evidence: &s::StoredObject,
+) -> Result<bool> {
+    let receipt = &evidence.body["receipt"];
+    let attempt = &receipt["attempt_receipt"];
+    let diagnostic = &attempt["stream_diagnostic"];
+    Ok(receipt["failure"] == "remote_failure"
+        && receipt["remote_outcome"] == "unknown"
+        && attempt["http_status"] == 200
+        && attempt["response_completed"] == false
+        && attempt["reported_terminal_status"].is_null()
+        && diagnostic["stage"] == "event"
+        && diagnostic["event_type"] == "error"
+        && diagnostic["rule"] == "remote_or_unsupported_output"
+        && matches!(diagnostic["remote_error_code"].as_str(),
+            Some("server_error" | "server_is_overloaded"))
+        && failed_response_only_attempt(invocation, prepared, evidence)?)
+}
+
 /// An explicit provider context rejection can change delivery of still-pending
 /// host text to exact references. No guessed provider limit or failed-output
 /// instruction is used, and the complete original request remains retained.
@@ -213,6 +237,9 @@ pub(super) fn recoverable_failure(
     if temporary_http_response_only_failure(invocation, prepared, evidence)? {
         return Ok(Some("response_only_http_failure"));
     }
+    if temporary_stream_response_only_failure(invocation, prepared, evidence)? {
+        return Ok(Some("response_only_service_error"));
+    }
     let reference = evidence.exact_ref()?;
     let receipt = &evidence.body["receipt"];
     // Runtime authorization can reject before dispatch is requested. The
@@ -236,6 +263,37 @@ pub(super) fn recoverable_failure(
                 && row.evidence.as_ref() == Some(&reference)
         });
     Ok(prelaunch.then_some("provider_prelaunch_rejection"))
+}
+
+/// Shared by the foreground retirement and its read-only launcher candidate.
+/// This recognizes an existing route; it grants no resumption permission.
+pub(super) fn retained_route(state: &State, prepared: &Prepared) -> Option<&'static str> {
+    if prepared.request.mode != Mode::Ordinary || prepared.request.profile != Profile::Direct {
+        return None;
+    }
+    let persona = state.personas.get(&prepared.request.persona)?;
+    let focus = persona.focus.get(&prepared.request.work)?;
+    if persona.active_invocation.as_deref() != Some(prepared.request.id.as_str())
+        || persona.owner_epoch != prepared.owner_epoch
+        || persona.admission_serial != prepared.admission_serial
+        || persona.failed_attempt_hold.is_some()
+    {
+        return None;
+    }
+    let initial_invitation = focus.permit && !focus.explicit_resume_permit
+        && !prepared.explicit_resume_at_admission
+        && focus.continuation.is_none() && focus.authored_continuation.is_none()
+        && !focus.ordinary_continuation;
+    if initial_invitation {
+        return Some("initial_invitation");
+    }
+    focus.authored_continuation.as_ref().filter(|authored| {
+        focus.ordinary_continuation
+            && focus.continuation.as_ref() == Some(&authored.value)
+            && (matches!(authored.value, p::Continuation::Immediate { .. } | p::Continuation::Wait { .. })
+                || (matches!(authored.value, p::Continuation::ReconsiderAt { .. })
+                    && prepared.reconsideration_interface.as_deref() == Some(RECONSIDERATION_INTERFACE)))
+    }).map(|_| "accepted_continuation")
 }
 
 /// Preserve the same actual failure and correction on both explicit resume
@@ -336,28 +394,15 @@ impl Runtime {
         let Some(focus) = persona.focus.get(work) else {
             return Ok(false);
         };
-        let initial_invitation = focus.permit && !focus.explicit_resume_permit
-            && !prepared.explicit_resume_at_admission
-            && focus.continuation.is_none() && focus.authored_continuation.is_none()
-            && !focus.ordinary_continuation;
-        let accepted_continuation = focus.authored_continuation.as_ref().is_some_and(|authored| {
-            focus.ordinary_continuation
-                && focus.continuation.as_ref() == Some(&authored.value)
-                && (matches!(authored.value, p::Continuation::Immediate { .. } | p::Continuation::Wait { .. })
-                    || (matches!(authored.value, p::Continuation::ReconsiderAt { .. })
-                        && prepared.reconsideration_interface.as_deref() == Some(RECONSIDERATION_INTERFACE)))
-        });
+        let Some(retained_route) = retained_route(&state, &prepared) else {
+            return Ok(false);
+        };
         // Keep every route flag and authored disposition unchanged. In particular,
         // a consumed one-shot permit, Stop or Pause cannot acquire another
         // admission merely because the last response was invalid. An unfinished
         // v2 timed reconsideration retains its route through a failed attempt;
         // a continuation already consumed under an earlier contract stays spent.
-        if persona.active_invocation.as_deref() != Some(id)
-            || persona.owner_epoch != prepared.owner_epoch
-            || persona.admission_serial != prepared.admission_serial
-            || persona.failed_attempt_hold.is_some()
-            || !self.invocation_leases_quiescent(&state)?
-            || !(initial_invitation || accepted_continuation)
+        if !self.invocation_leases_quiescent(&state)?
             || !state
                 .board
                 .work(&w::WorkId(work.clone()))
@@ -366,7 +411,6 @@ impl Runtime {
             return Ok(false);
         }
         let continuation_invocation = focus.authored_continuation.as_ref().map(|authored| authored.invocation.clone());
-        let retained_route = if initial_invitation { "initial_invitation" } else { "accepted_continuation" };
         let evidence = self.terminal_evidence(id)?;
         let reference = evidence.exact_ref()?;
         let adoption_error = observability::adoption_error(&invocation, &evidence)?;
@@ -381,6 +425,8 @@ impl Runtime {
             "response_only_transport_failure"
         } else if temporary_http_response_only_failure(&invocation, &prepared, &evidence)? {
             "response_only_http_failure"
+        } else if temporary_stream_response_only_failure(&invocation, &prepared, &evidence)? {
+            "response_only_service_error"
         } else {
             return Ok(false);
         };
@@ -436,6 +482,7 @@ impl Runtime {
                 "provider_terminal_failure" => "terminal_provider_failure_lease_retired",
                 "response_only_transport_failure" => "response_only_transport_failure_lease_retired",
                 "response_only_http_failure" => "response_only_http_failure_lease_retired",
+                "response_only_service_error" => "response_only_service_error_lease_retired",
                 "provider_context_rejection" => "provider_context_rejection_lease_retired",
                 _ => "completed_rejection_lease_retired",
             },

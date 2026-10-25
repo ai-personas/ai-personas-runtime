@@ -198,6 +198,20 @@ Stop, Pause and consumed explicit one-shot permits do not gain a new continuatio
 from this process. Bound response-only provider failures follow their existing
 recovery classification and keep unknown remote outcomes or usage explicit.
 
+A locally failed HTTP 200 response stream reporting `server_error` or
+`server_is_overloaded` also permits retirement of its exact response-only lease.
+This uses the retained provider-request binding and proves that no complete
+decision or action was received or adopted. The next call still needs the
+original invitation or accepted continuation; it receives the actual failure.
+No response terminal event, EOF, known usage or successful remote cancellation
+is inferred. Other error codes retain their own recovery classification.
+
+The launcher's read-only `continuation_recovery_candidate` identifies a bound
+failed lease with one of these retained routes. **Continue** can start the
+foreground coordinator for that candidate even when no other persona is ready.
+The coordinator rechecks and retires the lease before considering a fresh call;
+the menu does not resume Stop, Pause or a consumed explicit permit.
+
 `one-shot-reconsideration-v2` treats the authored return as one pending
 consideration, rather than one provider attempt. Its active invocation prevents
 overlapping admissions. A rejected response does not adopt any work or new

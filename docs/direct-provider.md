@@ -111,6 +111,13 @@ or continuation through a temporary service failure. It records
 and leaves the remote outcome unresolved. Authentication, configuration and
 provider quota errors keep their own recovery paths.
 
+An HTTP 200 stream whose structured `error` event reports `server_error` or
+`server_is_overloaded` follows the same response-only distinction once the local
+attempt has ended. The exact failed request must have produced no complete
+Decision or adoption. Its recovery category is `response_only_service_error`;
+the original error and unknown remote outcome and usage remain recorded. No EOF
+or response-level terminal report is inferred from this locally ended stream.
+
 The launcher's participant controls identify each retained failure category and
 accept its exact native recovery receipt. Provider and transport failures are
 shown separately from rejection before dispatch; inspecting them starts no call.

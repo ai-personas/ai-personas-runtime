@@ -1275,6 +1275,9 @@ pub struct ParticipantView {
     pub pending_host_commands: Vec<PendingHostCommandView>,
     /// Candidate only. Not admission, a provider check, or a grant to resume Stop.
     pub eligible_candidate: bool,
+    /// Exact failed lease can retire through an unchanged invitation or authored
+    /// route when the foreground coordinator starts. No explicit resume granted.
+    pub continuation_recovery_candidate: bool,
     /// Accepted deadline with a prospective ordinary route; not an admission.
     pub scheduled_for_unix: Option<u64>,
     /// Explicit targeted resume only; no inference or replay of old operations.
@@ -1496,6 +1499,12 @@ fn inspect_snapshot(
                 .transpose()?
                 .flatten();
             let resume_recovery = participant_resume::recovery_snapshot(state, records, id, &actor)?;
+            let continuation_recovery_candidate = !frozen && leases_quiescent
+                && settings.compatible_for_execution
+                && settings.credential_status != CredentialStatus::SavedExpiryElapsed
+                && phase == WorkPhase::Open
+                && lifecycle::reason(state, &actor).is_none()
+                && participant_resume::continuation_candidate(state, records, resume_recovery.as_ref())?;
             let resume_candidate = !frozen
                 && leases_quiescent
                 && participant_resume::candidate(&state, &saved, id, &actor, resume_recovery.as_ref());
@@ -1541,6 +1550,7 @@ fn inspect_snapshot(
                 active_invocation,
                 pending_host_commands,
                 eligible_candidate,
+                continuation_recovery_candidate,
                 scheduled_for_unix,
                 resume_candidate,
                 resume_recovery,
