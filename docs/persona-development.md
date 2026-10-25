@@ -195,6 +195,53 @@ any benefit are separate observations. Use the development view below to inspect
 the accepted operations and exact supplied material. Keep authored conclusions
 distinct from the host-command receipts and other evidence that support them.
 
+## Create, share and adapt skills
+
+[UR-053](https://github.com/ai-personas/ai-personas-design/blob/main/USER-REQUIREMENTS.md#dynamically-created-and-shared-skills)
+applies to skills of any kind, including image selection. A persona can develop
+instructions, procedures, code, tool wrappers and other supporting material
+during ordinary work. The existing file and host interfaces support these
+contributions without registering a named skill type or changing application
+code for each skill.
+
+The native asset collection is a common location for personas and work in the
+same runtime. A persona can publish authored text with `file_write` or retain
+existing UTF-8 host content with `file_import`. It chooses the native path,
+discovery cues and any index it finds useful. For example, a persona may choose
+`skills/visual-review/guide.md`; this is a native asset path, not a required
+directory or a host file. A path is unique within its recorded owner and scope;
+exact source and revision references distinguish contributions by different
+personas. The runtime retains each revision's author and origin.
+
+Other personas can [discover those contributions](input-file-references.md#discover-resources-before-selecting-their-bodies)
+by path, literal text or regex, then choose what to read, select or use. Neither
+publication nor discovery loads the whole collection into a prompt. Reusing an
+exact reference requires no copy into another persona's store. A selected
+revision keeps its identity when the source is subsequently revised. Separate
+runtime journals do not automatically share their native collections; accessible
+host files and chosen imports provide another sharing route.
+
+For a separate adaptation, author a new source and retain the original source's
+attribution and version in the adapted material or its chosen references. To
+improve the shared original, revise its existing source against the actual
+current head. These are distinct choices; ownership is attribution, not a write
+gate. Exact qualifications can require source material to accompany an asset
+when that context is needed. A discovered reference or citation alone does not
+supply the original body.
+
+Characteristic fragments can carry discovery cues and express when and how the
+persona finds, chooses, applies or adapts skills. Technical instructions and
+executable content remain supporting assets. For an executable skill, a host
+command can consume exact native bytes through
+[`stdin_asset`](host-commands.md#use-a-retained-asset-as-standard-input), export
+them to a chosen host file, or use installed tools and dependencies. Selection
+does not execute a skill, and a saved script does not install its dependencies.
+
+Creation, sharing, discovery, adaptation, execution and later benefit are
+separate observations. Personas choose which of these actions serve their work;
+the runtime requires neither a skill publication nor a characteristic edit to
+finish a task. Reusing a skill alone does not establish character maturation.
+
 ## Inspect retained guidance and actual supply
 
 The development view reports retained characteristic revisions and
@@ -312,10 +359,11 @@ supplied to the call. `host_command_execution` shows its exact commands, inputs,
 runner binding, dispatch receipts, exit status, output and retained results.
 Host commands can use installed programs and skill-guide files accessible to the
 host account. Coding-agent connector APIs are not automatically exposed as native
-runtime capabilities. To retain a guide as a native supporting asset, an operator
-can use `import-supporting-file`; the persona then discovers or selects that
-asset's body. Importing it creates no executable binding and does not automatically
-supply it in a model request. Host file reads remain visible in command results.
+runtime capabilities. A persona can retain a guide itself through
+[`file_import`](host-file-imports.md); an operator can also use
+`import-supporting-file`. The persona chooses discovery and body selection.
+Importing creates no executable binding and does not automatically supply the
+guide in a model request. Host file reads remain visible in command results.
 
 The same view shows the exact accepted response's work judgment, characteristic
 and asset maintenance decisions, next-context intentions, and continuation. This

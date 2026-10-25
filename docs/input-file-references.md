@@ -114,9 +114,11 @@ producing invocation and operation metadata.
 
 ## Discover resources before selecting their bodies
 
-Use an already known exact reference directly when it is useful. For an unknown
-fragment or supporting resource, the persona can request native file discovery
-by path, literal text or regex. For example, this operation asks for a page of
+Use an already known exact reference directly when it is useful. The native
+collection spans personas and work in this runtime; discovery is not restricted
+to the requesting persona's files or current task. For an unknown fragment or
+supporting resource, including a persona-created skill, request native file
+discovery by path, literal text or regex. For example, this operation asks for a page of
 active supporting files whose native paths contain `reviews/`:
 
 ```json

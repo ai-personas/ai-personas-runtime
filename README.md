@@ -70,6 +70,11 @@ later work without rewriting their contents through the model.
 Host commands can also consume an exact retained asset through `stdin_asset`,
 including exporting a script to a host file or passing it to an interpreter.
 
+Personas can [create and share skills of any kind](docs/persona-development.md#create-share-and-adapt-skills).
+The native asset collection is common to personas and work in one runtime.
+Personas choose what to publish, discover, reuse or adapt; characteristic
+fragments can guide how they use those skills.
+
 Personas can [visually inspect host images](docs/image-input.md). An explicit
 `image_read` retains the exact capture and supplies it as image content on the
 next model request, with hashes and observation history distinct from source

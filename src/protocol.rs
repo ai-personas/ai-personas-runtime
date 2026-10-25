@@ -577,6 +577,9 @@ pub enum Operation {
     /// A supporting-file save does not require put_artifact, release, delivery
     /// or a work-completion judgment. Register a work artifact only when that
     /// separate work output is needed, not as a receipt for every file save.
+    /// The native asset collection is shared across personas and work in this
+    /// runtime. Publish skills of any kind as ordinary supporting files with
+    /// useful paths and discovery cues; no skill registry is required.
     FileWrite {
         id: String,
         scope: Scope,
@@ -761,6 +764,9 @@ pub enum Operation {
         limit: usize,
         cursor: Option<String>,
     },
+    /// Search retained native text across personas and work in this runtime.
+    /// Scope selects fragments or assets, not an owner. Results identify exact
+    /// revisions; choose discover for path queries and retained page cursors.
     Search {
         id: String,
         scope: Scope,
@@ -768,7 +774,9 @@ pub enum Operation {
         regex: bool,
         limit: usize,
     },
-    /// Explicit bounded lexical discovery; continuation is a retained host handle.
+    /// One requested page of native file discovery across personas and work in
+    /// this runtime, by path or text. This includes persona-created skill assets.
+    /// Continuation is a retained host handle; candidates supply no file body.
     Discover {
         id: String,
         request: crate::files::DiscoveryRequest,
