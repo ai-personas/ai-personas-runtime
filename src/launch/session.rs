@@ -379,6 +379,8 @@ pub struct SessionClaim {
 pub enum SessionEnd {
     Returned {
         stop: Option<String>,
+        /// Most recent driver error observed during this session, including one
+        /// followed by continued work. This is separate from the final stop.
         driver_failure: Option<BoundaryError>,
         steps_after: u64,
         last_invocation: Option<String>,

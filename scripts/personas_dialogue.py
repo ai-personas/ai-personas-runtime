@@ -2040,6 +2040,23 @@ class Dialogue:
         self.ui.say("Choose r in the work menu for the full reply history, feedback accounts and qualified deliveries.")
         return outcome
 
+    def show_session_outcome(self, terminal):
+        kind = terminal.get("kind")
+        require(kind in ("returned", "failed"), "invalid_session_outcome")
+        if kind == "returned":
+            self.ui.say(f"Session finished: {terminal.get('stop')}; last recorded work call: {terminal.get('last_invocation')}.")
+            failure = terminal.get("driver_failure")
+            if failure:
+                self.ui.say(f"Recorded driver failure during this session: {failure}. "
+                            "The work list shows current participant status.")
+        else:
+            failure = terminal.get("code")
+            self.ui.say(f"Session stopped: {failure}. Review the saved state before another run.")
+        if failure == "mandatory_context_overflow":
+            self.ui.say("Context construction failed with a retained overflow diagnostic. "
+                        "Current ordinary assembly has no application byte quota; inspect the exact "
+                        "diagnostic and source binding before continuing.")
+
     def work_snapshot(self, work):
         after = None
         while True:
@@ -2230,16 +2247,7 @@ class Dialogue:
                                on_input=lambda: self.live_input(work, shown_messages=shown_messages))
         self.session_binding(outcome, s)
         require(outcome.get("status") == "finished", "session_outcome_unknown_no_replay")
-        terminal = outcome["terminal"]["outcome"]
-        failure = terminal.get("driver_failure") or terminal.get("code")
-        if failure:
-            self.ui.say(f"Session stopped: {failure}. Review the saved state before another run.")
-            if failure == "mandatory_context_overflow":
-                self.ui.say("Context construction failed with a retained overflow diagnostic. "
-                            "Current ordinary assembly has no application byte quota; inspect the exact "
-                            "diagnostic and source binding before continuing.")
-        else:
-            self.ui.say(f"Session finished: {terminal.get('stop')}; last recorded work call: {terminal.get('last_invocation')}.")
+        self.show_session_outcome(outcome["terminal"]["outcome"])
         self.session_output(s, shown_messages=shown_messages)
         result = self.session("result", work)
         self.pending_feedback_notice(result)
@@ -2252,6 +2260,9 @@ class Dialogue:
             return
         try:
             status = self.session_output(s)
+            self.ui.say(f"Previous session {s['id']}: {status['status']}")
+            if status["status"] == "finished":
+                self.show_session_outcome(status["terminal"]["outcome"])
         except Blocked as error:
             # Current runtime inspection already succeeded. A failed historical
             # view supplies no outcome or retry permission for this exact session,
@@ -2260,7 +2271,6 @@ class Dialogue:
                         "Its saved identity is retained and will not be resubmitted. "
                         "The work list below uses the current runtime state.")
             return
-        self.ui.say(f"Previous session {s['id']}: {status['status']}")
         try:
             self.pending_feedback_notice(self.session("result", s["work"]))
         except (Blocked, OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):

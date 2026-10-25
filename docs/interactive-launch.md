@@ -398,6 +398,13 @@ the user can separately select a new session for eligible personas. A confirmed
 unclaimed request can continue under its exact saved launch binding without a
 second confirmation.
 
+After a run and when reopening its saved session, the launcher shows the native
+final stop reason separately from any driver failure recorded during that run.
+An earlier failed attempt can be followed by continued work and a later
+`no_eligible_route` return. The failure stays in history; it does not replace the
+final stop reason or establish that a participant is still held. The current work
+list reports participant availability. Neither fact verifies the task result.
+
 Selecting a work opens its action menu:
 
 - **r: results** shows the currently permitted deliveries and replies, with
