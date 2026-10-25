@@ -1320,7 +1320,17 @@ class Dialogue:
             args += ["--after", after]
         return self.session(*args)
 
-    def output(self, work, receipt_json=False, result=None):
+    def show_messages(self, messages, show_invocation=False, shown_messages=None):
+        if shown_messages is not None:
+            messages = [message for message in messages if message["id"] not in shown_messages]
+        for part in readable_messages(messages, show_invocation=show_invocation):
+            self.ui.say(part)
+        displayed = {message["id"] for message in messages}
+        if shown_messages is not None:
+            shown_messages.update(displayed)
+        return displayed
+
+    def output(self, work, receipt_json=False, result=None, shown_messages=None):
         if result is None:
             result = self.session("result", work)
         amendment = result.get("recorded_task_amendment")
@@ -1400,8 +1410,7 @@ class Dialogue:
                         self.ui.say(json.dumps(reference, ensure_ascii=False, sort_keys=True))
                 if item.get("account"):
                     self.ui.say(item["label"] + "'s account: " + item["account"]["reason"])
-        for part in readable_messages(messages):
-            self.ui.say(part)
+        displayed = self.show_messages(messages, shown_messages=shown_messages)
         for delivery in deliveries:
             self.ui.say("Permission-projected local delivery (including required qualifications):")
             parts = None if receipt_json else readable_delivery(delivery)
@@ -1414,6 +1423,7 @@ class Dialogue:
             self.ui.say("This permission-projected result is truncated at its existing bound.")
         if result.get("human_decision_pointers"):
             self.ui.say("Explicit acceptance is separate; no acceptance was fabricated. See docs/activation.md and RUNTIME-REFERENCE.md.")
+        return displayed
 
     def pending_work_input(self):
         item = self.p["work_input"]
@@ -1983,7 +1993,7 @@ class Dialogue:
         require(isinstance(claim, dict) and claim.get("request") == expected, "session_binding_changed")
         require(claim.get("launch") == session["expected_launch"], "session_binding_changed")
 
-    def session_output(self, session):
+    def session_output(self, session, shown_messages=None):
         view = self.session("session-messages", "--id", session["id"])
         outcome = view["session"]
         self.session_binding(outcome, session)
@@ -1994,9 +2004,12 @@ class Dialogue:
             return outcome
         require(scope.get("work") == session["work"], "session_binding_changed")
         messages = view["messages"]
-        self.ui.say(f"Messages from session {session['id']}: {len(messages)} available.")
-        for part in readable_messages(messages, show_invocation=True):
-            self.ui.say(part)
+        summary = f"Messages from session {session['id']}: {len(messages)} available."
+        if shown_messages is not None and messages:
+            remaining = sum(message["id"] not in shown_messages for message in messages)
+            summary += f" {remaining} not shown yet." if remaining else " All shown above."
+        self.ui.say(summary)
+        self.show_messages(messages, show_invocation=True, shown_messages=shown_messages)
         if view.get("truncated"):
             self.ui.say("This view contains the most recent whole messages that fit its output limit.")
         self.ui.say("Choose r in the work menu for the full reply history, feedback accounts and qualified deliveries.")
@@ -2049,13 +2062,15 @@ class Dialogue:
             status += " Participants with invocation recovery holds: " + ", ".join(held) + "."
         return status
 
-    def live_input(self, work):
+    def live_input(self, work, shown_messages=None):
         # This is the original foreground session. Input commands only inspect
         # or queue user input; none starts, restarts or resumes an invocation.
         try:
             choice = self.ui.ask("While running:").strip().lower()
             if choice == "r":
-                self.output(work)
+                displayed = self.output(work)
+                if shown_messages is not None:
+                    shown_messages.update(displayed)
             elif choice == "q":
                 self.questions(work)
             elif choice == "f":
@@ -2140,6 +2155,9 @@ class Dialogue:
         # Work messages can be read while the session is running. Do not label
         # them as a completed session's output or reconstruct a terminal range.
         seen_messages = None
+        # A baseline observation is not a display. Keep only replies actually
+        # printed in this foreground run out of its automatic completion view.
+        shown_messages = set()
         try:
             seen_messages = {message["id"] for message in self.session("result", work).get("messages", [])}
         except (Blocked, OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
@@ -2164,11 +2182,12 @@ class Dialogue:
             try:
                 messages = self.session("result", work).get("messages", [])
                 if seen_messages is not None:
-                    fresh = [message for message in messages if message["id"] not in seen_messages]
+                    fresh = [message for message in messages
+                             if message["id"] not in seen_messages
+                             and message["id"] not in shown_messages]
                     if fresh:
                         self.ui.say(f"New replies for {work}:")
-                        for part in readable_messages(fresh, show_invocation=True):
-                            self.ui.say(part)
+                        self.show_messages(fresh, show_invocation=True, shown_messages=shown_messages)
                 if seen_messages is None:
                     seen_messages = set()
                 seen_messages.update(message["id"] for message in messages)
@@ -2179,7 +2198,7 @@ class Dialogue:
         # Host commands have no default duration limit. Wait for the native
         # session's outcome; explicit interruption still stops this helper.
         outcome = self.session(*args, timeout=None, on_wait=report_progress,
-                               on_input=lambda: self.live_input(work))
+                               on_input=lambda: self.live_input(work, shown_messages=shown_messages))
         self.session_binding(outcome, s)
         require(outcome.get("status") == "finished", "session_outcome_unknown_no_replay")
         terminal = outcome["terminal"]["outcome"]
@@ -2192,11 +2211,11 @@ class Dialogue:
                             "described in RUNTIME-REFERENCE.md to inspect recovery within existing provider allowances.")
         else:
             self.ui.say(f"Session finished: {terminal.get('stop')}; last recorded work call: {terminal.get('last_invocation')}.")
-        self.session_output(s)
+        self.session_output(s, shown_messages=shown_messages)
         result = self.session("result", work)
         self.pending_feedback_notice(result)
         if result.get("optional_activity") or result.get("persona_creations"):
-            self.output(work, result=result)
+            self.output(work, result=result, shown_messages=shown_messages)
 
     def recover_session(self, view):
         s = self.p["session"]

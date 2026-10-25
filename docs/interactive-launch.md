@@ -27,9 +27,12 @@ menu, **r: results** shows permitted work history and qualified deliveries.
 **c: continue** requests a fresh session without application call quotas. For a stopped or individually paused participant, first choose
 **u: resume participant**, then **c**. Resume grants that participant permission
 to continue; it starts no inference and does not lift a work-wide pause.
-The same menu offers participants whose complete response was rejected locally
-or whose call was rejected before provider launch. Their next decision receives
-the retained failure. Unknown provider outcomes still require reconciliation.
+The same menu offers participants whose complete response was rejected locally,
+whose call was rejected before provider launch, or whose failed response-only
+inference qualifies for [retained-route recovery](direct-provider.md).
+Their next decision receives the retained failure. Unknown remote usage remains
+recorded; unresolved external actions and other held outcomes still require
+their actual reconciliation.
 
 **m: amend task** saves a complete replacement request for a standard task,
 preserves the original request, and requests eligible resumption under a new
@@ -44,6 +47,11 @@ settle; it does not rewrite an input already sent to a model. Explicitly stopped
 participants retain their continuation choice. Use **i** to confirm the same
 saved input if its delivery result was unavailable. A live work reply is an
 attributed message, not evidence that the entire task or session has finished.
+The automatic completion view shows replies that were not already displayed
+during that foreground session. It tracks exact message identities only; it does
+not merge similar replies or select a persona's preferred result. Replies omitted
+from live output still appear at completion. **r: results** and reopening the
+journal show the permitted history again, with attribution and file references.
 The work list summarizes participants' last continuation choices and distinguishes
 ready work, pending calls, failed attempts, and participants who chose to stop.
 Stopped participants are shown with a direction to review their results, rather
