@@ -1,4 +1,5 @@
-//! Retire a completed rejected decision without creating a continuation.
+//! Retire a completed rejected decision or reported terminal provider failure
+//! without creating a continuation.
 //! The foreground driver may then reconsider the retained invitation or
 //! previously accepted continuation route.
 use super::*;
@@ -38,7 +39,59 @@ fn complete_response(
         && observability::adoption_error(invocation, evidence)?["status"] == "recorded")
 }
 
-/// Classify only a definite local rejection for the explicit resume interface.
+/// A bound response-level failure ends this response-only provider attempt.
+/// It supplies no Decision or executable operations. Missing terminal reports,
+/// malformed streams and uncertain disconnects are not classified by this path.
+fn terminal_provider_failure(
+    invocation: &s::InvocationRecord,
+    prepared: &Prepared,
+    evidence: &s::StoredObject,
+) -> Result<bool> {
+    let id = &invocation.id;
+    let reference = evidence.exact_ref()?;
+    let receipt = &evidence.body["receipt"];
+    let attempt = &receipt["attempt_receipt"];
+    let diagnostic = &attempt["stream_diagnostic"];
+    let terminal_report = match attempt["reported_terminal_status"].as_str() {
+        Some("failed") => receipt["remote_outcome"] == "provider_reported_failed"
+            && diagnostic["event_type"] == "response.failed"
+            && diagnostic["rule"] == "provider_failed",
+        Some("incomplete") => receipt["remote_outcome"] == "provider_reported_incomplete"
+            && diagnostic["event_type"] == "response.incomplete"
+            && diagnostic["rule"] == "provider_incomplete",
+        _ => false,
+    };
+    let Some(audit) = &prepared.provider_preparation else { return Ok(false) };
+    Ok(terminal_report
+        && evidence.kind == "runtime-terminal-transport"
+        && reference.id == terminal_id(id) && reference.revision == 1
+        && evidence.body["invocation_id"] == *id
+        && invocation.prepared_epoch == prepared.epoch
+        && evidence.body["prepared_epoch"] == prepared.epoch
+        && evidence.body["prompt_sha256"] == prepared.prompt_sha256
+        && evidence.body.get("response_body").is_none()
+        && receipt["kind"] == "provider_attempt_failed"
+        && receipt["synthetic"] == false && receipt["failure"] == "remote_failure"
+        && receipt["dispatch_may_have_begun"] == true
+        && receipt["replay_authorized"] == false
+        && attempt["dispatch_may_have_begun"] == true
+        && attempt["http_status"] == 200 && attempt["response_completed"] == false
+        && attempt["audit"] == *audit && audit["invocation_id"] == *id
+        && provider::response_only_request_matches(audit,
+            &prepared.requested_model, &prepared.requested_effort, &prepared.prompt,
+            prepared.reusable_prefix_bytes, &prepared.images, &prepared.output_schema)
+        && invocation.response_hash.is_none()
+        && !invocation.history.iter().any(|row| matches!(row.status,
+            s::ReceiptStatus::Responded | s::ReceiptStatus::Adopted))
+        && invocation.history.last().is_some_and(|row| {
+            row.subject == s::EntityId::Invocation(id.clone())
+                && row.status == s::ReceiptStatus::Failed
+                && row.evidence.as_ref() == Some(&reference)
+        }))
+}
+
+/// Classify definite local rejection or reported terminal provider failure for
+/// the explicit resume interface.
 /// Missing terminal evidence and unknown remote outcomes remain unresolved.
 pub(super) fn recoverable_failure(
     invocation: &s::InvocationRecord,
@@ -55,6 +108,9 @@ pub(super) fn recoverable_failure(
     }
     if complete_response(invocation, prepared, evidence)? {
         return Ok(Some("complete_response_rejected"));
+    }
+    if terminal_provider_failure(invocation, prepared, evidence)? {
+        return Ok(Some("provider_terminal_failure"));
     }
     let reference = evidence.exact_ref()?;
     let receipt = &evidence.body["receipt"];
@@ -124,7 +180,8 @@ pub(super) fn active_invocations_for_work(state: &State, work: &str) -> Result<B
 }
 
 impl Runtime {
-    /// Revisit retained completed rejections at a quiescent foreground boundary.
+    /// Revisit retained completed rejections and terminal provider failures at a
+    /// quiescent foreground boundary.
     /// A previous session can have ended before its lease became retireable.
     /// Snapshot candidates only select work to inspect; each retirement still
     /// validates the current invocation and runtime state before changing it.
@@ -205,11 +262,15 @@ impl Runtime {
         let evidence = self.terminal_evidence(id)?;
         let reference = evidence.exact_ref()?;
         let adoption_error = observability::adoption_error(&invocation, &evidence)?;
-        if !complete_response(&invocation, &prepared, &evidence)? {
+        let failure_kind = if complete_response(&invocation, &prepared, &evidence)? {
+            "complete_response_rejected"
+        } else if terminal_provider_failure(&invocation, &prepared, &evidence)? {
+            "provider_terminal_failure"
+        } else {
             return Ok(false);
-        }
+        };
         // Unknown diagnostic lineage stays unknown. It does not invalidate the
-        // complete transport, exact local rejection or prior authored route.
+        // exact retained failure or the prior authored route.
         let exposure = failure_recovery_exposure(&invocation, &evidence, &prepared)?;
         let failure_lineage = if exposure.is_some() { "retained" } else { "unknown" };
         let observation_id = composite_id("terminal-recovery", &[id]);
@@ -224,7 +285,7 @@ impl Runtime {
                 "terminal":terminal_diagnostic(&evidence.body),"terminal_evidence":reference,
                 "disposition":{"state":invocation.state,"adoption_error":adoption_error},
                 "observed_by":"foreground_runtime","continuation_invocation":continuation_invocation,
-                "retained_route":retained_route,
+                "retained_route":retained_route,"failure_kind":failure_kind,
                 "continuation_changed":false,"provider_usage":"unknown","replay_authorized":false,
                 "failure_lineage":failure_lineage
             }),
@@ -252,10 +313,13 @@ impl Runtime {
             .pending_observations
             .extend(observations);
         state.operator_events.push(json!({
-            "kind":"completed_rejection_lease_retired","persona":actor,"work":work,
+            "kind":if failure_kind == "provider_terminal_failure" {
+                "terminal_provider_failure_lease_retired"
+            } else { "completed_rejection_lease_retired" },
+            "persona":actor,"work":work,
             "invocation":id,"terminal_evidence":reference,
             "continuation_invocation":continuation_invocation,"continuation_changed":false,
-            "retained_route":retained_route,
+            "retained_route":retained_route,"failure_kind":failure_kind,
             "new_permission_granted":false,"budget_reset":false,"replay_authorized":false,
             "failure_lineage":failure_lineage
         }));

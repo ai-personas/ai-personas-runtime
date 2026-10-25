@@ -46,6 +46,11 @@ or adopt their proposed continuation. An accepted Stop or Pause, an explicit
 resume's consumed admission and an uncertain provider outcome remain distinct.
 This also applies to a first decision on ordinary work.
 
+A bound provider report that its response-only attempt failed or was incomplete
+can also retire that invocation while retaining the same invitation or accepted
+continuation. The next input receives the actual failure. An uncertain
+disconnect with no terminal report does not establish this condition.
+
 Results show each participant's current status and latest authored continuation,
 including its complete reason and invocation reference even when it sent no
 reply. A pending invocation is labeled as pending or unresolved, without claiming

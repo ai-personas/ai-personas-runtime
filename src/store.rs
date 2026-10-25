@@ -1067,7 +1067,7 @@ impl TrustedHost<'_> {
         })
     }
 
-    /// Commit exact rejection observations and retire their failed lease together.
+    /// Commit exact primary-failure observations and retire their failed lease together.
     /// The Runtime preserves the prior continuation; this creates no allowance.
     pub(crate) fn commit_runtime_rejected_continuation(
         &mut self,

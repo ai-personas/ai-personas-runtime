@@ -84,6 +84,15 @@ thin completion. A terminal report is distinct from a validated response, stream
 EOF, confirmed remote cancellation or measured charges. Missing terminal events
 remain unknown; partial text is never adopted or replayed.
 
+For an exact response-only request, a bound `response.failed` or
+`response.incomplete` report can retire the failed local invocation. The
+foreground driver then uses an invitation or accepted continuation that was
+already available, supplying the retained failure in the next fresh input.
+It preserves the failed attempt, reported usage and unknown charges; it neither
+adopts partial operations nor marks maintenance completed. No new route is
+created after Stop, Pause or consumed explicit resumption. Missing terminal
+reports and uncertain connection loss retain their unresolved disposition.
+
 Runtime context assembly and corpus retention also have no application byte or
 record quota. Provider account, rate and context outcomes are reported as observed;
 removing local quotas does not change the external service.
