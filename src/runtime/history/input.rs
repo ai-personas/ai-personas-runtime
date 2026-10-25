@@ -173,7 +173,11 @@ pub(crate) fn resolve(prepared: &Prepared, handle: &str) -> Result<p::HistoryRec
     let decoded = request_context::decode(prepared)?;
     validate_control(prepared, &decoded.control)?;
     prepared.input_history_choices.get(handle).cloned()
-        .ok_or_else(|| held("history choice handle is not in the current admitted input"))
+        .ok_or_else(|| held(if prepared.input_file_choices.contains_key(handle) {
+            "supplied handle names a file reference; this field requires an input_history_choices history handle"
+        } else {
+            "history choice handle is not in the current admitted input"
+        }))
 }
 
 pub(crate) fn inspect(prepared: &Prepared, control: &Value) -> Result<Value> {

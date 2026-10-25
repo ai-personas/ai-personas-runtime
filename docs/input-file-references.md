@@ -12,6 +12,14 @@ in that input. A handle includes the invocation identity, for example
 `call-00000042:f3`. It resolves only against that admission's retained table.
 It never means a current head, a file path, or a similar source name.
 
+File handles and `CONTROL.input_history_choices` handles are distinct. A
+current history handle still cannot occupy a file-handle field. To retain a
+captured image, use `next_assets.images` with `kind: from_input_history` and
+its current history handle; keep text file handles in the replacement's
+`handles` list. If a supplied handle belongs to the other table, the rejection
+identifies that type mismatch. The runtime does not convert the choice or
+adopt any part of the rejected response.
+
 `context_state.exact_body_supplied` and
 `context_state.preserve_keeps_selection` describe separate facts. A current
 read or complete host-output field can supply text without selecting it for

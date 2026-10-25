@@ -411,6 +411,16 @@ pub(super) fn validate_control(prepared: &Prepared, control: &Value) -> Result<(
     )
 }
 
+fn choice<'a>(prepared: &'a Prepared, handle: &str) -> Result<&'a p::ExactRef> {
+    prepared.input_file_choices.get(handle).ok_or_else(|| {
+        held(if prepared.input_history_choices.contains_key(handle) {
+            "supplied handle names a history record; this field requires an input_file_choices file handle. Captured images are selected separately through next_assets.images"
+        } else {
+            "file choice handle is not in the current admitted input"
+        })
+    })
+}
+
 pub(super) fn resolve(prepared: &Prepared, handles: &[String]) -> Result<Vec<p::ExactRef>> {
     require(
         !prepared.input_file_choices.is_empty(),
@@ -420,13 +430,7 @@ pub(super) fn resolve(prepared: &Prepared, handles: &[String]) -> Result<Vec<p::
     validate_control(prepared, &decoded.control)?;
     let references = handles
         .iter()
-        .map(|handle| {
-            prepared
-                .input_file_choices
-                .get(handle)
-                .cloned()
-                .ok_or_else(|| held("file choice handle is not in the current admitted input"))
-        })
+        .map(|handle| choice(prepared, handle).cloned())
         .collect::<Result<Vec<_>>>()?;
     p::validate_selected_references(&references)?;
     Ok(references)
@@ -446,8 +450,7 @@ pub(super) fn resolve_output(prepared: &Prepared, handles: &[String]) -> Result<
         "output reference handles were not offered in this admission",
     )?;
     let references = handles.iter().map(|handle| {
-        let reference = prepared.input_file_choices.get(handle)
-            .ok_or_else(|| held("output reference handle is not in the current admitted input"))?;
+        let reference = choice(prepared, handle)?;
         // Lifetime belongs to a context-selection use, not the file identity.
         Ok(wire_reference(&file_reference(reference)?))
     }).collect::<Result<Vec<_>>>()?;
