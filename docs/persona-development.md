@@ -6,6 +6,12 @@ dimension keys are not part of that wire shape. The same VAD shape applies to
 current modeled affect. Descriptions and characteristic fragments retain their
 nuance without a text-size quota.
 
+Every work judgment's schema also requires unique, nonempty evidence identifiers.
+An empty evidence list remains valid, and there is no item-count or text-size
+ceiling. The parser preserves the authored order and rejects duplicates rather
+than silently removing them. Valid identifiers alone do not establish that the
+cited evidence supports the judgment.
+
 [Current modeled affect](transient-affect.md) is displayed separately from stable
 OCEAN tendencies and baseline VAD. The native view returns its current permitted
 status and exact qualified receipt. With an invocation ID, it also returns the

@@ -70,6 +70,16 @@ fn vad_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
     profile_schema(VAD_DIMENSIONS)
 }
 
+// Work evidence remains an ordered authored list. Its schema must describe
+// the same uniqueness and nonempty-item rules enforced by check_work.
+fn work_evidence_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({
+        "type":"array",
+        "items":{"type":"string", "minLength":1},
+        "uniqueItems":true
+    })
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Decision {
@@ -125,6 +135,7 @@ pub enum WorkDisposition {
         /// Exact available evidence identifiers, never prose or invented references.
         /// Each is nonempty, with no whitespace or control characters;
         /// entries are unique. Use [] when no exact evidence identifier is available.
+        #[schemars(schema_with = "work_evidence_schema")]
         evidence: Vec<String>,
     },
     Blocked {
@@ -132,6 +143,7 @@ pub enum WorkDisposition {
         /// Exact available evidence identifiers, never prose or invented references.
         /// Each is nonempty, with no whitespace or control characters;
         /// entries are unique. Use [] when no exact evidence identifier is available.
+        #[schemars(schema_with = "work_evidence_schema")]
         evidence: Vec<String>,
     },
     /// Your contribution satisfies the requested scope with its stated limits.
@@ -146,6 +158,7 @@ pub enum WorkDisposition {
         /// Exact available evidence identifiers, never prose or invented references.
         /// Each is nonempty, with no whitespace or control characters;
         /// entries are unique. Use [] when no exact evidence identifier is available.
+        #[schemars(schema_with = "work_evidence_schema")]
         evidence: Vec<String>,
     },
     SharedSufficient {
@@ -153,6 +166,7 @@ pub enum WorkDisposition {
         /// Exact available evidence identifiers, never prose or invented references.
         /// Each is nonempty, with no whitespace or control characters;
         /// entries are unique. Use [] when no exact evidence identifier is available.
+        #[schemars(schema_with = "work_evidence_schema")]
         evidence: Vec<String>,
     },
     Closed {
@@ -160,6 +174,7 @@ pub enum WorkDisposition {
         /// Exact available evidence identifiers, never prose or invented references.
         /// Each is nonempty, with no whitespace or control characters;
         /// entries are unique. Use [] when no exact evidence identifier is available.
+        #[schemars(schema_with = "work_evidence_schema")]
         evidence: Vec<String>,
     },
 }
