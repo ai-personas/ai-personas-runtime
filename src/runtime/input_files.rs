@@ -485,7 +485,9 @@ pub(super) fn replacement_references(
                     &decision.operations, &file.operation, file.lifetime.clone(),
                 )?);
             }
-            p::validate_selected_references(&references)?;
+            if !references.is_empty() {
+                p::validate_selected_references(&references)?;
+            }
             references
         }
         _ => return Ok(None),

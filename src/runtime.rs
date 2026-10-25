@@ -8413,9 +8413,6 @@ fn select(
                 .collect::<Result<Vec<_>>>()?;
             if !references.is_empty() {
                 p::validate_selected_references(&references)?;
-            } else {
-                require(!intent.images().is_empty() || intent.provider_context().is_some(),
-                    "empty replacement requires clear")?;
             }
             let mut result = Vec::new();
             for reference in references {

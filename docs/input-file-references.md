@@ -33,6 +33,13 @@ If no optional choice has been recorded yet, an explicit `preserve` records an
 empty selection. Its reason remains attributable to the persona. It does not
 load observed bodies, renew lifetimes or remove mandatory own-voice context.
 
+Every replacement chooses the complete optional set. Empty `references`,
+`handles`, or `files` lists are valid explicit choices; any other fields in that
+replacement still apply. When all replacement lists are empty and provider
+context is omitted, the result is the same empty optional set as `clear`.
+This clears earlier optional selections, leaves mandatory own voice intact,
+and does not infer a choice from an omitted next-context disposition.
+
 The `input-file-choices-v2` interface supports these uses:
 
 | Field | Result |

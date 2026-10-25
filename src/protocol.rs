@@ -241,6 +241,8 @@ pub enum SelectionIntent {
     /// or prior proof of behavioral improvement. Metadata identifies a candidate;
     /// its body is supplied only by an authorized read or subsequent context assembly.
     /// An effective character change permits only subsets of whole exact existing entries, never new optional references.
+    /// An empty replacement explicitly selects no optional material. It clears
+    /// the old set; it does not preserve it or remove mandatory own voice.
     Replace {
         reason: String,
         references: Vec<ExactRef>,
@@ -267,6 +269,8 @@ pub enum SelectionIntent {
     /// earlier references still needed alongside the newly selected material.
     /// Match each choice's scope to the destination: fragments for
     /// next_fragments, assets for next_assets. A handle cannot change scope.
+    /// Empty handles select no text; omitted images and provider context clear
+    /// those selections too.
     ReplaceFromInput {
         reason: String,
         handles: Vec<String>,
@@ -282,6 +286,7 @@ pub enum SelectionIntent {
     /// revision; do not repeat source IDs or invent hashes. Optional input_handles
     /// retain useful current-input references alongside the new files. This
     /// replaces the complete optional set and does not read a body into this call.
+    /// Empty files and input_handles lists explicitly select no optional text.
     ReplaceFromSavedFiles {
         reason: String,
         files: Vec<SavedFileSelection>,
@@ -1269,7 +1274,7 @@ pub fn selection_repair_schema() -> Value {
         .iter_mut()
         .find(|variant| variant["properties"]["kind"]["const"] == "replace")
         .expect("generated selection schema contains replace")["description"] = Value::String(
-        "Retain a nonempty subset of whole exact existing selection entries from this scope's supplied repair inventory. No added reference, range narrowing, changed revision or lifetime renewal. Use clear for an empty choice. A response requesting reads must instead preserve both selections.".into(),
+        "Retain a subset of whole exact existing selection entries from this scope's supplied repair inventory. An empty subset clears the optional selection. No added reference, range narrowing, changed revision or lifetime renewal. A response requesting reads must instead preserve both selections.".into(),
     );
     schema["$defs"]["ExactRef"]["properties"]["source"]["description"] = Value::String(
         "Copy the exact source identity from the supplied repair inventory. Metadata alone does not supply its body.".into(),
@@ -1981,26 +1986,24 @@ fn check_selection(selection: &SelectionIntent, path: &str) -> Result<(), Protoc
             }
         }
     }
-    let requires_text = selection.images().is_empty() && selection.provider_context().is_none();
     match selection {
         SelectionIntent::Preserve { reason } | SelectionIntent::Clear { reason } => {
             check_text(reason, MAX_REASON_BYTES, &format!("{path}.reason"))
         }
         SelectionIntent::Replace { reason, references, images, .. } => {
             check_text(reason, MAX_REASON_BYTES, &format!("{path}.reason"))?;
-            // Use clear to express an empty replacement explicitly.
-            check_references(references, usize::from(requires_text), true, &format!("{path}.references"))?;
+            check_references(references, 0, true, &format!("{path}.references"))?;
             check_image_selection(images, path)
         }
         SelectionIntent::ReplaceFromInput { reason, handles, images, .. } => {
             check_text(reason, MAX_REASON_BYTES, &format!("{path}.reason"))?;
-            check_handles(handles, usize::from(requires_text), MAX_COLLECTION_ITEMS, &format!("{path}.handles"))?;
+            check_handles(handles, 0, MAX_COLLECTION_ITEMS, &format!("{path}.handles"))?;
             check_image_selection(images, path)
         }
         SelectionIntent::ReplaceFromSavedFiles { reason, files, input_handles, images, .. } => {
             check_text(reason, MAX_REASON_BYTES, &format!("{path}.reason"))?;
             check_ids(&files.iter().map(|file| file.operation.clone()).collect::<Vec<_>>(),
-                1, &format!("{path}.files"))?;
+                0, &format!("{path}.files"))?;
             for file in files {
                 if let Some(lifetime) = &file.lifetime {
                     check_text(lifetime, MAX_REASON_BYTES, &format!("{path}.files.lifetime"))?;
