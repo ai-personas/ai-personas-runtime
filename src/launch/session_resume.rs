@@ -199,7 +199,8 @@ pub fn resume_participant(
                     valid_reference(&recovery.terminal, &terminal_id(&recovery.invocation))
                         && matches!(recovery.kind.as_str(),
                             "complete_response_rejected" | "provider_prelaunch_rejection"
-                                | "provider_terminal_failure" | "response_only_transport_failure")
+                                | "provider_terminal_failure" | "response_only_transport_failure"
+                                | "response_only_http_failure")
                 }),
             BoundaryError::InvalidState,
         )?;

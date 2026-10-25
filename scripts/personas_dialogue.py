@@ -21,6 +21,13 @@ import uuid
 
 NAMES = ("ai-personas", "personas-auth", "personas-provider", "personas-session")
 DOC = "docs/interactive-launch.md"
+PARTICIPANT_RECOVERY_REASONS = {
+    "complete_response_rejected": "complete response rejected before actions",
+    "provider_prelaunch_rejection": "call rejected before provider launch",
+    "provider_terminal_failure": "provider reported failed or incomplete response-only inference",
+    "response_only_transport_failure": "response-only transport ended; remote outcome remains unresolved",
+    "response_only_http_failure": "temporary HTTP service failure; remote outcome remains unresolved",
+}
 
 
 class Halt(Exception):
@@ -1471,7 +1478,7 @@ class Dialogue:
                     "resume_receipt_mismatch")
             recovery = receipt.get("recovery")
             require(recovery is None or (isinstance(recovery, dict)
-                    and recovery.get("kind") in ("complete_response_rejected", "provider_prelaunch_rejection")
+                    and recovery.get("kind") in PARTICIPANT_RECOVERY_REASONS
                     and isinstance(recovery.get("invocation"), str)
                     and isinstance(recovery.get("terminal"), dict)), "resume_receipt_mismatch")
             require(receipt.get("recovery_performed") is
@@ -1492,10 +1499,10 @@ class Dialogue:
                             "Choose Continue to review current eligibility and start a model session.")
                 if recovery is not None:
                     if receipt["replayed"]:
-                        self.ui.say(f"The original recovery retained the rejection from {recovery['invocation']}. "
+                        self.ui.say(f"The original recovery retained the failure from {recovery['invocation']}. "
                                     "This receipt does not queue that failure again.")
                     else:
-                        self.ui.say(f"The rejection from {recovery['invocation']} is retained for the next decision. "
+                        self.ui.say(f"The failure from {recovery['invocation']} is retained for the next decision. "
                                     "Its proposed actions were not replayed.")
             else:
                 self.ui.say("The work changed before this resume could apply. Nobody was resumed. "
@@ -1542,9 +1549,7 @@ class Dialogue:
                         f"({participant['persona']}) — {status}")
             recovery = participant.get("resume_recovery")
             if recovery is not None:
-                reason = ("complete response rejected before actions"
-                          if recovery["kind"] == "complete_response_rejected"
-                          else "call rejected before provider launch")
+                reason = PARTICIPANT_RECOVERY_REASONS.get(recovery["kind"], "recorded call failure")
                 self.ui.say(f"   {recovery['invocation']}: {reason}; the next decision receives the failure.")
         choice = self.ui.ask("Participant number (Enter to go back):").strip()
         if not choice:

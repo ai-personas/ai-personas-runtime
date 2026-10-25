@@ -102,6 +102,19 @@ refusal, model/account binding failures and missing local failure evidence do
 not qualify for this recovery. An incomplete item in a live stream still waits
 for response-level evidence; it does not itself trigger another call.
 
+A completed HTTP 500, 502, 503 or 504 response also qualifies when the exact
+response-only request yielded no received decision or action intent. The retained
+HTTP receipt must establish that the error body finished; an active request or
+missing failure receipt does not qualify. This preserves the existing invitation
+or continuation through a temporary service failure. It records
+`response_only_http_failure`, retains the original HTTP status and unknown usage,
+and leaves the remote outcome unresolved. Authentication, configuration and
+provider quota errors keep their own recovery paths.
+
+The launcher's participant controls identify each retained failure category and
+accept its exact native recovery receipt. Provider and transport failures are
+shown separately from rejection before dispatch; inspecting them starts no call.
+
 Runtime context assembly and corpus retention also have no application byte or
 record quota. Provider account, rate and context outcomes are reported as observed;
 removing local quotas does not change the external service.

@@ -39,8 +39,8 @@ fn complete_response(
         && observability::adoption_error(invocation, evidence)?["status"] == "recorded")
 }
 
-/// The local transport returned a bound failure for an HTTP 200 response-only
-/// request. This proves neither the remote outcome nor measured provider usage.
+/// The local transport returned a bound failure for a response-only request.
+/// This proves neither the remote outcome nor measured provider usage.
 /// No response or adopted Decision may have escaped this failed invocation.
 fn failed_response_only_attempt(
     invocation: &s::InvocationRecord,
@@ -64,7 +64,6 @@ fn failed_response_only_attempt(
         && receipt["dispatch_may_have_begun"] == true
         && receipt["replay_authorized"] == false
         && attempt["dispatch_may_have_begun"] == true
-        && attempt["http_status"] == 200
         && attempt["audit"] == *audit && audit["invocation_id"] == *id
         && provider::response_only_request_matches(audit,
             &prepared.requested_model, &prepared.requested_effort, &prepared.prompt,
@@ -99,6 +98,7 @@ fn terminal_provider_failure(
         _ => false,
     };
     Ok(terminal_report && receipt["failure"] == "remote_failure"
+        && attempt["http_status"] == 200
         && attempt["response_completed"] == false
         && failed_response_only_attempt(invocation, prepared, evidence)?)
 }
@@ -129,7 +129,29 @@ fn interrupted_response_only_attempt(
         Some("completed") => receipt["remote_outcome"] == "provider_reported_completed",
         _ => false,
     };
-    Ok(stream_failure && remote_status
+    Ok(stream_failure && remote_status && attempt["http_status"] == 200
+        && failed_response_only_attempt(invocation, prepared, evidence)?)
+}
+
+/// A complete temporary service-error response ends the local HTTP attempt,
+/// even though it reports no inference outcome or usage. The exact request
+/// contained no provider tools and yielded no local Decision or action intent.
+/// Authentication, request configuration and provider quota errors are separate.
+fn temporary_http_response_only_failure(
+    invocation: &s::InvocationRecord,
+    prepared: &Prepared,
+    evidence: &s::StoredObject,
+) -> Result<bool> {
+    let receipt = &evidence.body["receipt"];
+    let attempt = &receipt["attempt_receipt"];
+    Ok(matches!(attempt["http_status"].as_u64(), Some(500 | 502 | 503 | 504))
+        && receipt["failure"] == "http_status"
+        && receipt["remote_outcome"] == "unknown"
+        && attempt["http_diagnostic"]["body_complete"] == true
+        && attempt["response_completed"] == false
+        && attempt["reported_terminal_status"].is_null()
+        && attempt["stream_bytes_observed"] == 0
+        && attempt["event_count"] == 0
         && failed_response_only_attempt(invocation, prepared, evidence)?)
 }
 
@@ -156,6 +178,9 @@ pub(super) fn recoverable_failure(
     }
     if interrupted_response_only_attempt(invocation, prepared, evidence)? {
         return Ok(Some("response_only_transport_failure"));
+    }
+    if temporary_http_response_only_failure(invocation, prepared, evidence)? {
+        return Ok(Some("response_only_http_failure"));
     }
     let reference = evidence.exact_ref()?;
     let receipt = &evidence.body["receipt"];
@@ -313,6 +338,8 @@ impl Runtime {
             "provider_terminal_failure"
         } else if interrupted_response_only_attempt(&invocation, &prepared, &evidence)? {
             "response_only_transport_failure"
+        } else if temporary_http_response_only_failure(&invocation, &prepared, &evidence)? {
+            "response_only_http_failure"
         } else {
             return Ok(false);
         };
@@ -364,6 +391,7 @@ impl Runtime {
             "kind":match failure_kind {
                 "provider_terminal_failure" => "terminal_provider_failure_lease_retired",
                 "response_only_transport_failure" => "response_only_transport_failure_lease_retired",
+                "response_only_http_failure" => "response_only_http_failure_lease_retired",
                 _ => "completed_rejection_lease_retired",
             },
             "persona":actor,"work":work,
