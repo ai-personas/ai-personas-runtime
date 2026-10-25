@@ -99,6 +99,9 @@ fn terminal_provider_failure(
     };
     Ok(terminal_report && receipt["failure"] == "remote_failure"
         && attempt["http_status"] == 200
+        // A context rejection needs an actual projection change below; retrying
+        // the same unsupported input is not useful terminal-failure recovery.
+        && diagnostic["remote_error_code"] != "context_length_exceeded"
         && attempt["response_completed"] == false
         && failed_response_only_attempt(invocation, prepared, evidence)?)
 }
@@ -155,6 +158,31 @@ fn temporary_http_response_only_failure(
         && failed_response_only_attempt(invocation, prepared, evidence)?)
 }
 
+/// An explicit provider context rejection can change delivery of still-pending
+/// host text to exact references. No guessed provider limit or failed-output
+/// instruction is used, and the complete original request remains retained.
+fn provider_context_failure(
+    invocation: &s::InvocationRecord,
+    prepared: &Prepared,
+    evidence: &s::StoredObject,
+) -> Result<Option<provider_context_recovery::Pending>> {
+    let receipt = &evidence.body["receipt"];
+    let attempt = &receipt["attempt_receipt"];
+    let stream = &attempt["stream_diagnostic"];
+    let http = &attempt["http_diagnostic"];
+    let observed = (attempt["http_status"] == 200 && receipt["failure"] == "remote_failure"
+        && matches!(stream["event_type"].as_str(), Some("error" | "response.failed" | "response.incomplete"))
+        && stream["remote_error_code"] == "context_length_exceeded")
+        || (attempt["http_status"] == 400 && receipt["failure"] == "http_status"
+            && http["body_complete"] == true && http["error_code"] == "context_length_exceeded");
+    if !observed || attempt["response_completed"] != false
+        || !failed_response_only_attempt(invocation, prepared, evidence)?
+    {
+        return Ok(None);
+    }
+    provider_context_recovery::candidate(prepared, evidence)
+}
+
 /// Classify a bound local failure for explicit resumption. A recoverable local
 /// lease does not establish a remote outcome or resolve unknown charges.
 pub(super) fn recoverable_failure(
@@ -172,6 +200,9 @@ pub(super) fn recoverable_failure(
     }
     if complete_response(invocation, prepared, evidence)? {
         return Ok(Some("complete_response_rejected"));
+    }
+    if provider_context_failure(invocation, prepared, evidence)?.is_some() {
+        return Ok(Some("provider_context_rejection"));
     }
     if terminal_provider_failure(invocation, prepared, evidence)? {
         return Ok(Some("provider_terminal_failure"));
@@ -217,6 +248,9 @@ pub(super) fn record_explicit_recovery(
     evidence: &s::StoredObject,
     now: i64,
 ) -> Result<()> {
+    if let Some(pending) = provider_context_failure(invocation, prepared, evidence)? {
+        provider_context_recovery::stage(state, prepared, pending)?;
+    }
     let id = &invocation.id;
     let actor = &prepared.request.persona;
     let work = &prepared.request.work;
@@ -332,8 +366,11 @@ impl Runtime {
         let evidence = self.terminal_evidence(id)?;
         let reference = evidence.exact_ref()?;
         let adoption_error = observability::adoption_error(&invocation, &evidence)?;
+        let context_recovery = provider_context_failure(&invocation, &prepared, &evidence)?;
         let failure_kind = if complete_response(&invocation, &prepared, &evidence)? {
             "complete_response_rejected"
+        } else if context_recovery.is_some() {
+            "provider_context_rejection"
         } else if terminal_provider_failure(&invocation, &prepared, &evidence)? {
             "provider_terminal_failure"
         } else if interrupted_response_only_attempt(&invocation, &prepared, &evidence)? {
@@ -343,6 +380,9 @@ impl Runtime {
         } else {
             return Ok(false);
         };
+        if let Some(pending) = context_recovery {
+            provider_context_recovery::stage(&mut state, &prepared, pending)?;
+        }
         // Unknown diagnostic lineage stays unknown. It does not invalidate the
         // exact retained failure or the prior authored route.
         let exposure = failure_recovery_exposure(&invocation, &evidence, &prepared)?;
@@ -392,6 +432,7 @@ impl Runtime {
                 "provider_terminal_failure" => "terminal_provider_failure_lease_retired",
                 "response_only_transport_failure" => "response_only_transport_failure_lease_retired",
                 "response_only_http_failure" => "response_only_http_failure_lease_retired",
+                "provider_context_rejection" => "provider_context_rejection_lease_retired",
                 _ => "completed_rejection_lease_retired",
             },
             "persona":actor,"work":work,

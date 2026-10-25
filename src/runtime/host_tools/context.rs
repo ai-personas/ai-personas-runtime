@@ -56,8 +56,17 @@ pub(in crate::runtime) fn pending_projection(
         .map(|value| serde_json::from_value::<ResultContext>(value.clone()))
         .transpose()?
         .unwrap_or(ResultContext::Complete);
+    let recovery = state.personas.get(&observation.actor)
+        .and_then(|persona| persona.focus.get(&observation.work))
+        .and_then(|focus| focus.provider_context_recovery.as_ref())
+        .filter(|pending| pending.results.contains_key(&observation.id));
+    if let Some(pending) = recovery {
+        let body = &pending.results[&observation.id];
+        require(body.source == *source && body.payload_sha256 == digest(&observation.payload)?,
+            "context rejection result binding changed")?;
+    }
     let mut references = vec![reference.clone()];
-    let supplied = matches!(choice, ResultContext::Complete);
+    let supplied = recovery.is_none() && matches!(choice, ResultContext::Complete);
     let mut fields = vec![reference_text(
         &mut payload["inputs"],
         "command",
@@ -89,12 +98,16 @@ pub(in crate::runtime) fn pending_projection(
         }
     }
     references.extend(fields.iter().cloned());
-    let (format, meaning) = match choice {
-        ResultContext::Complete => (
+    let (format, meaning) = match (choice, recovery.is_some()) {
+        (_, true) => (
+            "host-command-pending-provider-context-recovery-v1",
+            "The provider rejected an earlier input containing this complete pending result with context_length_exceeded. This fresh ordinary input supplies execution metadata and exact text references instead of command, literal stdin and output bodies. The earlier complete-delivery choice remains recorded but was not fulfilled by a successful model call. All observed text remains retained; no tool is repeated, optional selection changed, quota imposed or body claimed read. Use ordinary reads or next-context selection to choose useful exact ranges or complete fields. Current character, work facts and required qualifications remain supplied. This reference delivery ends when the pending observation is consumed by an accepted ordinary decision.",
+        ),
+        (ResultContext::Complete, false) => (
             "host-command-pending-complete-v2",
             "All retained command, literal stdin and captured output text is supplied now. Each text field also has an exact decoded-string reference, byte count, hash and supplied=true. Its input-file handle can select only that field for later context, without copying the whole command record or rewriting the output. Asset stdin remains an exact input receipt. Output segments preserve their observed log offsets, digest and lossy_utf8 flag; older partial captures remain partial. The whole result reference names a separate retained document whose exact body is not supplied merely by this projection. Reading or selecting a result never repeats the command.",
         ),
-        ResultContext::Reference => (
+        (ResultContext::Reference, false) => (
                 "host-command-pending-reference-v2",
                 "The primary chose execution metadata and exact references instead of command, literal stdin and output text in this pending context. All observed text remains retained. Each field reference names the complete decoded JSON string; ordinary file reads or next-context selections can supply any range or the complete string, without a text quota. The whole result reference can supply the complete document. Neither reference metadata nor capture_complete establishes that text was supplied to the model. Raw offsets, digests, lossy_utf8 and capture completeness still describe the original observation. Required qualifications remain supplied. Reading a result never repeats the command.",
             ),
@@ -108,6 +121,13 @@ pub(in crate::runtime) fn pending_projection(
             "automatically_selected_for_later":false,"retain_with":"next_assets"},
         "meaning":meaning
     });
+    if let Some(pending) = recovery {
+        payload["context_projection"]["provider_rejection"] = json!({
+            "invocation":pending.invocation,"terminal":pending.terminal,
+            "original_result_context":choice,"original_request_preserved":true,
+            "selected_context_changed":false
+        });
+    }
     Ok(Projection {
         references,
         supplied_text: if supplied { fields } else { Vec::new() },

@@ -27,6 +27,7 @@ PARTICIPANT_RECOVERY_REASONS = {
     "provider_terminal_failure": "provider reported failed or incomplete response-only inference",
     "response_only_transport_failure": "response-only transport ended; remote outcome remains unresolved",
     "response_only_http_failure": "temporary HTTP service failure; remote outcome remains unresolved",
+    "provider_context_rejection": "provider rejected context size; pending host text is available by exact reference",
 }
 
 
