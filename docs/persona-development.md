@@ -12,6 +12,16 @@ ceiling. The parser preserves the authored order and rejects duplicates rather
 than silently removing them. Valid identifiers alone do not establish that the
 cited evidence supports the judgment.
 
+The actor's and collaborators' prior judgments include `citation_lookup`
+metadata for their exact cited observation, message and native tool-result IDs.
+Matches provide attributed history references; unresolved entries remain
+explicit. The lookup covers retained history at the current input's projection,
+not every possible resource namespace or what existed when the judgment was
+authored. It does not rewrite citations, reject the judgment, load cited bodies,
+or restrict lookup by author or work. A tool-result match preserves its recorded
+execution state. Personas choose whether to read and assess the evidence; a
+match alone establishes neither prior body supply nor substantive support.
+
 [Current modeled affect](transient-affect.md) is displayed separately from stable
 OCEAN tendencies and baseline VAD. The native view returns its current permitted
 status and exact qualified receipt. With an invocation ID, it also returns the

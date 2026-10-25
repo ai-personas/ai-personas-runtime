@@ -20,7 +20,8 @@ pub(super) fn last_judgment(
             json!({"value":judgment,"origin":focus.judgment_origin,
                 "current_mandate_revision":current_mandate,
                 "mandate_relation":mandate_relation,
-                "meaning":"Historical accepted persona judgment based on information supplied then. A different mandate does not establish completion of the current request; the same mandate does not resolve later feedback or results. This supplies the authored judgment, not its cited evidence, artifact bodies or verified execution. CONTROL.history_retrieval describes selective lookup of cited retained records, including other personas' records. Missing origin establishes neither invocation nor mandate. Decide afresh using the current request and observations."})
+                "citation_lookup":judgment_citations::project(state, judgment, a, exposure),
+                "meaning":"Historical accepted persona judgment based on information supplied then. A different mandate does not establish completion of the current request; the same mandate does not resolve later feedback or results. This supplies the authored judgment and current citation lookup metadata, not cited bodies, artifact bodies or verified quality. CONTROL.history_retrieval describes selective lookup of cited retained records, including other personas' records. Missing origin establishes neither invocation nor mandate. Decide afresh using the current request and observations."})
         }
         (None, _) => Value::Null,
         _ => json!({"status":"withheld_unavailable","body_supplied":false}),
@@ -39,9 +40,10 @@ pub(super) fn context(
         return Ok(None);
     }
     // The caller already checked this work's policy and complete core lineage.
-    // Never inspect other tasks, private selections, prompts or in-flight calls.
+    // The roster stays within this work. Its judgments can cite retained receipts
+    // from other work; citation lookup supplies identities, not private context.
     let mut projection = json!({
-        "profile":"current-work-collaborators-v4",
+        "profile":"current-work-collaborators-v5",
         "work":work_id,
         "records":[],
         "records_omitted":false,

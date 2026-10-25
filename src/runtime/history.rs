@@ -22,6 +22,7 @@ pub(super) fn retrieval_rules() -> Value {
         "scope":"Retained records in this runtime across personas and works. Authorship and original message recipients remain attribution, not read restrictions. A historical read does not redeliver a message, resume its participants, adopt another persona's character or make an earlier result current.",
         "meaning":"Requested page size selects complete results. Query metadata is not a record body; wait for fresh supply before using an exact reference or claiming to have read its body. An exhausted or omitted result establishes no absence of history.",
         "citation_lookup":"To investigate a cited identifier, choose the matching history kind and use mode:{kind:literal,needle:<the exact identifier>}. Observation queries can match an observation ID or a result/evidence ID in its receipt; adopted_decision queries can match an invocation; message queries can match a message ID. Other records can also cite the identifier, so inspect the returned attribution and choose the actual source before reading. A citation may name a different resource or be unavailable; it is not itself a typed read reference or proof of a body.",
+        "judgment_citation_lookup":"Prior judgments carry current-input lookup metadata for their exact cited observation IDs, message IDs and native tool-result IDs. A matched reference can be read through history_record_read or history_read. No body is supplied by this lookup. An unresolved entry has no match in that stated corpus; other resource kinds are not checked, and no guessed correction is made. Matching establishes neither earlier input supply, successful execution, support for the judgment nor current artifact applicability. The original authored judgment and citations remain unchanged.",
         "record_bodies":{
             "adopted_decision":"Original authored choices and reasoning; not proof that every proposed operation executed.",
             "observation":"Original runtime receipt; a metadata-only receipt remains metadata-only after reading it. Reading a history-query receipt does not read the records it lists.",
@@ -320,6 +321,12 @@ fn original_bytes(message: &Message) -> Option<Vec<u8>> {
         ),
         INPUT_LIMIT,
     )
+}
+
+/// Same immutable message identity used by explicit history reads. A lookup
+/// supplies this reference and attribution, never the message body.
+pub(super) fn message_identity(message: &Message) -> Option<String> {
+    original_bytes(message).map(|bytes| s::sha256_bytes(&bytes))
 }
 fn search_bytes(message: &Message, maximum: usize) -> Option<Vec<u8>> {
     if let Some(thread) = &message.thread_work {

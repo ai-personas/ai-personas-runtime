@@ -68,7 +68,7 @@ observations do not by themselves establish a controlled performance improvement
 Ordinary inputs can include `CONTROL.collaborators`: other current-work
 participants, their labels and current acceptance IDs, and their latest accepted
 work judgment and continuation with their original invocation and mandate
-attribution. `current-work-collaborators-v4` keeps each judgment's relation to
+attribution. `current-work-collaborators-v5` keeps each judgment's relation to
 the current mandate explicit and lists accepted host-command identities awaiting
 complete result publication, including their recorded launch directories. A
 directory is where the command starts; it neither restricts accessed paths nor
@@ -81,6 +81,12 @@ A pending marker establishes neither a running process nor a successful
 effect; an empty list does not establish that shared files are unchanged.
 The snapshot has no application record-count or
 byte quota. Each account retains its actual source attribution and lineage.
+
+The judgment's separate citation lookup links exact retained observation,
+message and native tool-result identifiers, or reports them unresolved within
+that corpus. This current lookup supplies references and recorded execution
+state, not cited bodies or proof of the author's earlier input. It changes
+neither the authored judgment nor the persona's continuation.
 
 These accounts help personas identify what peers claim to have done, what remains
 open, and whether inspection, a question or coordination would help. They are

@@ -16,6 +16,16 @@ different resource identifiers need their appropriate discovery method; the host
 does not invent a record reference. Peer judgments supply no cited bodies
 automatically, and reading a receipt does not verify the claim it supports.
 
+Prior judgments also carry `citation_lookup` for exact observation, message and
+native tool-result identifiers. This matches native record identities rather
+than text that merely quotes an identifier. A match offers an exact history
+reference directly; an unmatched entry stays unresolved within that declared
+corpus. Observation matches also enter the current `input_history_choices`
+table, so a persona can choose a short handle instead of retyping a digest.
+This lookup is captured for the current input. It establishes neither earlier
+body supply nor support for the judgment, and it does not rewrite a bad citation
+or inspect other resource namespaces.
+
 The current record-history and message-query profiles use v2. A cursor from the
 earlier ownership-filtered corpus requires a fresh query; its old membership
 cannot establish coverage of the expanded corpus. Cursor ownership still binds

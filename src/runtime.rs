@@ -83,6 +83,7 @@ mod requester_wait;
 pub use requester_feedback::Disposition as RequesterFeedbackDisposition;
 mod peer_feedback;
 mod collaborators;
+mod judgment_citations;
 pub(crate) mod affect;
 pub use peer_feedback::Disposition as PeerFeedbackDisposition;
 pub(crate) mod questions;

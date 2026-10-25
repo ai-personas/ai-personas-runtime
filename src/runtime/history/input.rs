@@ -43,10 +43,39 @@ impl Candidates {
             format!("{path}/requester_feedback_status/superseded_by/reference"),
         )
     }
+
+    fn judgment_citations(&mut self, judgment: &Value, path: &str) -> Result<()> {
+        let lookup = &judgment["citation_lookup"];
+        if lookup["interface"] != "retained-judgment-citations-v1" {
+            return Ok(());
+        }
+        if let Some(entries) = lookup["entries"].as_array() {
+            for (index, entry) in entries.iter().enumerate() {
+                if let Some(matches) = entry["matches"].as_array() {
+                    for (matched, value) in matches.iter().enumerate() {
+                        self.add(&value["reference"], format!(
+                            "{path}/citation_lookup/entries/{index}/matches/{matched}/reference"
+                        ))?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 fn choices(control: &Value, invocation: &str) -> Result<Vec<Choice>> {
     let mut found = Candidates::default();
+    // Only native lookup metadata is a reference index. The adjacent authored
+    // judgment, reason and evidence strings never manufacture a read handle.
+    found.judgment_citations(&control["last_attributed_work_judgment"],
+        "/last_attributed_work_judgment")?;
+    if let Some(peers) = control["collaborators"]["records"].as_array() {
+        for (index, peer) in peers.iter().enumerate() {
+            found.judgment_citations(&peer["last_attributed_work_judgment"],
+                &format!("/collaborators/records/{index}/last_attributed_work_judgment"))?;
+        }
+    }
     if let Some(images) = control["image_inputs"]["images"].as_array() {
         for (index, image) in images.iter().enumerate() {
             found.add(&image["history_reference"],
