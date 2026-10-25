@@ -53,7 +53,51 @@ events. A persona's visual judgment remains an attributed interpretation, not
 proof of numerical correctness, physical measurement or independent approval.
 
 Once an accepted decision consumes the pending observation, later inputs do
-not automatically repeat the image. The persona can retrieve the exact original
+not automatically repeat the image. The persona can select useful captures in
+`next_assets.images`, alongside any selected text:
+
+```json
+{
+  "kind": "replace_from_input",
+  "reason": "Keep the captured view alongside the next result.",
+  "handles": [],
+  "images": [
+    {
+      "kind": "from_input_history",
+      "handle": "call-00000012:h1",
+      "lifetime": "work"
+    }
+  ]
+}
+```
+
+Copy an actual current `CONTROL.input_history_choices` handle that names the
+original successful `image_read` observation. Alternatively, use
+`{"kind":"exact","reference":<original history_reference>,"lifetime":"work"}`.
+Known exact captures from other works or personas remain available with their
+original attribution. A historical-read receipt is not the original capture.
+
+Every `next_assets` replacement chooses the complete text and image set.
+Omitting `images` from a replacement clears earlier image choices. Use empty
+`handles` or `references` to select images alone. `preserve` retains both kinds
+without renewing their lifetimes; `clear` removes both. The default `work`
+lifetime lasts in this work until replacement or clearing; `next_call` lasts
+only through the next admission. Other work does not inherit this selection.
+An accepted character change permits only preservation or reduction of whole
+surviving image choices, without renewing a lifetime.
+
+`CONTROL.selection_state.images` records the choices and their lifetimes.
+`CONTROL.selected_image_context` supplies their original attributed observations
+and current required qualifications. Actual pixel supply remains recorded in
+`CONTROL.image_inputs`. A capture selected and also pending in the same input
+is sent once. Selection reuses immutable captured bytes and detail; it does not
+reopen the host path, create another read receipt, mutate an asset or establish
+that the current file still matches. A new replacement must resolve coherently;
+an unavailable preserved capture receives an explicit disposition so an ordinary
+decision can repair its selection. No image catalogue, quota or automatic
+selection is introduced.
+
+The persona can also retrieve the exact original
 `image_read` observation through `history_record_read` or its current input
 handle. The supplied image metadata includes that exact `history_reference`,
 also offered through `CONTROL.input_history_choices`. A successfully projected

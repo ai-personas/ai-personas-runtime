@@ -506,6 +506,9 @@ pub(crate) struct WorkJudgmentOrigin {
 pub struct Focus {
     pub fragments: Option<Vec<Selected>>,
     pub assets: Option<Vec<Selected>>,
+    /// Primary-selected immutable image captures, part of next_assets.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) images: Vec<image_input::selection::Selected>,
     pub permit: bool,
     /// Private host authorization for one admission after an ended participation.
     /// Missing retained state grants nothing; never supplied as persona authorship.
@@ -6651,6 +6654,18 @@ fn active_selection(selection: &Option<Vec<Selected>>, serial: u64) -> Vec<Selec
         .cloned()
         .collect()
 }
+fn selection_digest(
+    character: Option<&str>,
+    fragments: &[Selected],
+    assets: &[Selected],
+    images: &[image_input::selection::Selected],
+) -> Result<String> {
+    if images.is_empty() {
+        digest(&(character, fragments, assets))
+    } else {
+        digest(&("multimodal-selection-v1", character, fragments, assets, images))
+    }
+}
 /// Carry measured evidence through only mechanical expiry of retained entries.
 /// Retained deadlines bound the candidate sets; an exact old witness hash proves
 /// their character, references, ranges and lifetimes without guessing past state.
@@ -6670,22 +6685,25 @@ fn carry_expiry_witness(
         .chain(focus.assets.iter())
         .flatten()
         .filter_map(|selected| selected.last_admission)
+        .chain(focus.images.iter().filter_map(|selected| selected.last_admission))
         .filter(|last| *last <= serial)
         .collect();
     if deadlines.is_empty() {
         return Ok(());
     }
-    let remaining = digest(&(
+    let remaining = selection_digest(
         character_revision,
-        active_selection(&focus.fragments, next),
-        active_selection(&focus.assets, next),
-    ))?;
+        &active_selection(&focus.fragments, next),
+        &active_selection(&focus.assets, next),
+        &image_input::selection::active(&focus.images, next),
+    )?;
     for deadline in deadlines {
-        let previous = digest(&(
+        let previous = selection_digest(
             character_revision,
-            active_selection(&focus.fragments, deadline),
-            active_selection(&focus.assets, deadline),
-        ))?;
+            &active_selection(&focus.fragments, deadline),
+            &active_selection(&focus.assets, deadline),
+            &image_input::selection::active(&focus.images, deadline),
+        )?;
         if let Some(fit) = &mut focus.selection_fit {
             if fit.selection_sha256 == previous {
                 fit.selection_sha256.clone_from(&remaining);
@@ -6954,11 +6972,9 @@ fn render_mode_with_history(
     };
     let fragments = active_selection(&focus.fragments, serial);
     let assets = active_selection(&focus.assets, serial);
-    let selection_sha256 = digest(&(
-        persona.character.as_ref().map(|c| &c.revision),
-        &fragments,
-        &assets,
-    ))?;
+    let selected_images = image_input::selection::active(&focus.images, serial);
+    let selection_sha256 = selection_digest(persona.character.as_ref().map(|c| c.revision.as_str()),
+        &fragments, &assets, &selected_images)?;
     let mut observations = Vec::new();
     let mut image_supply = image_input::Supply::default();
     let mut observation_ids = Vec::new();
@@ -6968,8 +6984,11 @@ fn render_mode_with_history(
     let mut visible_files = launch::persona_birth::mandatory_references(persona)?
         .into_iter()
         .collect::<BTreeSet<_>>();
-    let selection_state =
+    let mut selection_state =
         observability::selection_state(state, focus, serial, &a, &mut visible_files)?;
+    if !focus.images.is_empty() {
+        selection_state["images"] = image_input::selection::metadata(&focus.images, serial)?;
+    }
     let observation_corpus = corpus(state, &a)?;
     let mut historical_projection = history::records::supply_budget();
     let historical_permissions = if focus.pending_observations.iter().any(|id| {
@@ -7056,6 +7075,26 @@ fn render_mode_with_history(
         } else {
             observations
                 .push(json!({"slot":slot,"status":"withheld_unavailable","body_supplied":false}));
+        }
+    }
+    let mut selected_image_context = Vec::new();
+    for selected in &selected_images {
+        match image_input::selection::project(state, selected, &a, &observation_corpus) {
+            Ok((observation, mut value, inherited, exact)) => {
+                image_supply.include(state, observation, &mut value)?;
+                visible_files.extend(exact.iter().cloned());
+                supplied_bodies.extend(exact.iter().cloned());
+                sources.extend(exact);
+                extend_exposure(&mut exposure, &inherited);
+                if !observation.qualified_roots.is_empty() {
+                    observation_roots.push(observation.qualified_roots.clone());
+                }
+                selected_image_context.push(json!({"reference":selected.reference,
+                    "body_supplied":true,"historical_only":true,"observation":value}));
+            }
+            Err(_) => selected_image_context.push(json!({"reference":selected.reference,
+                "body_supplied":false,"status":"withheld_unavailable",
+                "meaning":"The selected capture could not be supplied under its current exact reference and qualification state. No current host file was substituted. Choose useful context afresh."})),
         }
     }
     let requester_feedback_control = requester_feedback::control(
@@ -7400,6 +7439,13 @@ fn render_mode_with_history(
             work_guides::capability(state, &supplied_bodies, work_interface.as_ref())?
         },
         "not_ready":["effects outside currently exposed capability bindings"]});
+    if !selected_image_context.is_empty() {
+        core["selected_image_context"] = json!({"interface":image_input::selection::INTERFACE,
+            "captures":selected_image_context,
+            "meaning":"Exact image captures selected by the persona for this work. Historical observations keep their original attribution; selection does not recapture a host path, create a read receipt or make the image current."});
+        growth_bytes = growth_bytes.checked_add(serde_json::to_vec(&core["selected_image_context"])?.len())
+            .ok_or_else(|| invalid("selected image context accounting"))?;
+    }
     if !image_supply.images.is_empty() {
         core["image_inputs"] = json!({"format":"responses-input-image-v1",
             "ordering":"Zero-based image_index follows the text prompt in the provider content array.",
@@ -8287,7 +8333,11 @@ fn select(
                 .expect("replacement variant");
             let references = references.iter().map(|reference| resolve(reference, proposals))
                 .collect::<Result<Vec<_>>>()?;
-            p::validate_selected_references(&references)?;
+            if !references.is_empty() {
+                p::validate_selected_references(&references)?;
+            } else {
+                require(!intent.images().is_empty(), "empty replacement requires clear")?;
+            }
             let mut result = Vec::new();
             for reference in references {
                 if reduction_only {
@@ -8691,6 +8741,9 @@ fn plan_response(
         &proposals,
         character_changed,
     )?;
+    let images = image_input::selection::select(
+        &state, prepared, &decision.next_assets, &previous_focus.images, character_changed,
+    )?;
     check_replacement(
         &state,
         prepared,
@@ -8725,6 +8778,7 @@ fn plan_response(
             .unwrap();
         focus.fragments = fragments;
         focus.assets = assets;
+        focus.images = images;
         if !character_changed {
             focus
                 .pending_observations
@@ -9237,6 +9291,7 @@ fn plan_response(
     }
     let before_final_render = planning_exposure.clone();
     planning_exposure.unknown();
+    image_input::selection::validate_replacement(&state, prepared, &decision.next_assets, now)?;
     let fitted = render_mode_with_history(
         &state,
         &history_material,
@@ -9368,6 +9423,7 @@ fn plan_selection_repair(
         &proposals,
         true,
     )?;
+    let images = image_input::selection::select(&state, prepared, &decision.next_assets, &previous.images, true)?;
     {
         let focus = state
             .personas
@@ -9378,6 +9434,7 @@ fn plan_selection_repair(
             .unwrap();
         focus.fragments = fragments;
         focus.assets = assets;
+        focus.images = images;
         focus.permit = false;
         focus.ordinary_continuation = false;
         focus.continuation = Some(decision.continuation.clone());
@@ -10888,6 +10945,7 @@ fn apply_work_actions(
             // can receive this first invitation's permit.
             if focus.fragments.is_none()
                 && focus.assets.is_none()
+                && focus.images.is_empty()
                 && !focus.ordinary_continuation
                 && focus.continuation.is_none()
                 && focus.protected_maintenance.is_empty()

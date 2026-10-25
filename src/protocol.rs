@@ -244,6 +244,11 @@ pub enum SelectionIntent {
     Replace {
         reason: String,
         references: Vec<ExactRef>,
+        /// Optional retained image captures for next_assets only. Together with
+        /// references this replaces the whole asset selection. Omission clears
+        /// previously selected images; preserve retains their existing lifetimes.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        images: Vec<ImageSelection>,
     },
     /// Choose exact references by their short handles in this admission's
     /// CONTROL.input_file_choices. Copy the listed handles instead of retyping
@@ -260,6 +265,10 @@ pub enum SelectionIntent {
     ReplaceFromInput {
         reason: String,
         handles: Vec<String>,
+        /// Optional exact image captures for next_assets only, alongside the
+        /// selected text handles. Use handles: [] to select only images.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        images: Vec<ImageSelection>,
     },
     /// Select full UTF-8 files saved by exact file_write, file_edit or file_import operation
     /// IDs in this response. The host derives each source and binds its accepted
@@ -271,6 +280,42 @@ pub enum SelectionIntent {
         files: Vec<SavedFileSelection>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         input_handles: Vec<String>,
+        /// Optional retained image captures for next_assets only. This is a
+        /// context choice, not an image read or an authored file mutation.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        images: Vec<ImageSelection>,
+    },
+}
+
+impl SelectionIntent {
+    pub(crate) fn images(&self) -> &[ImageSelection] {
+        match self {
+            Self::Replace { images, .. } | Self::ReplaceFromInput { images, .. }
+            | Self::ReplaceFromSavedFiles { images, .. } => images,
+            Self::Preserve { .. } | Self::Clear { .. } => &[],
+        }
+    }
+}
+
+/// Reuse a complete immutable image capture in later inputs for this work.
+/// The exact original image_read observation binds pixels, detail and provenance;
+/// it does not assert that the current host path still contains those bytes.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ImageSelection {
+    /// Choose a current CONTROL.input_history_choices handle whose reference
+    /// names an original captured image_read observation.
+    FromInputHistory {
+        handle: String,
+        /// work (default) or next_call. Preserve never renews next_call.
+        lifetime: Option<String>,
+    },
+    /// Choose a known exact original image_read history_reference. It must be
+    /// an observation reference, not an adopted decision or history-read receipt.
+    Exact {
+        reference: HistoryRecordReference,
+        /// work (default) or next_call. Preserve never renews next_call.
+        lifetime: Option<String>,
     },
 }
 
@@ -1146,6 +1191,7 @@ pub(crate) fn initialization_schema() -> Value {
     let mut schema = decision_schema();
     retain_schema_variants(&mut schema, "Operation", &["file_write", "character_adopt"]);
     retain_schema_variants(&mut schema, "SelectionIntent", &["preserve", "clear", "replace"]);
+    omit_image_selection(&mut schema);
     retain_reachable_definitions(&mut schema);
     schema
 }
@@ -1165,6 +1211,7 @@ pub fn selection_repair_schema() -> Value {
     retain_schema_variants(&mut schema, "Continuation", &["stop", "pause"]);
     retain_schema_variants(&mut schema, "ReplyDisposition", &["none"]);
     retain_schema_variants(&mut schema, "SelectionIntent", &["preserve", "clear", "replace"]);
+    omit_image_selection(&mut schema);
     schema["$defs"]["WorkDisposition"]["oneOf"][0]["properties"]["evidence"]["maxItems"] =
         Value::from(0);
     schema["$defs"]["SelectionIntent"]["oneOf"]
@@ -1183,6 +1230,12 @@ pub fn selection_repair_schema() -> Value {
     );
     retain_reachable_definitions(&mut schema);
     schema
+}
+
+fn omit_image_selection(schema: &mut Value) {
+    for variant in schema["$defs"]["SelectionIntent"]["oneOf"].as_array_mut().unwrap() {
+        variant["properties"].as_object_mut().unwrap().remove("images");
+    }
 }
 
 fn retain_schema_variants(schema: &mut Value, name: &str, allowed: &[&str]) {
@@ -1872,16 +1925,18 @@ fn check_selection(selection: &SelectionIntent, path: &str) -> Result<(), Protoc
         SelectionIntent::Preserve { reason } | SelectionIntent::Clear { reason } => {
             check_text(reason, MAX_REASON_BYTES, &format!("{path}.reason"))
         }
-        SelectionIntent::Replace { reason, references } => {
+        SelectionIntent::Replace { reason, references, images } => {
             check_text(reason, MAX_REASON_BYTES, &format!("{path}.reason"))?;
             // Use clear to express an empty replacement explicitly.
-            check_references(references, 1, true, &format!("{path}.references"))
+            check_references(references, usize::from(images.is_empty()), true, &format!("{path}.references"))?;
+            check_image_selection(images, path)
         }
-        SelectionIntent::ReplaceFromInput { reason, handles } => {
+        SelectionIntent::ReplaceFromInput { reason, handles, images } => {
             check_text(reason, MAX_REASON_BYTES, &format!("{path}.reason"))?;
-            check_handles(handles, 1, MAX_COLLECTION_ITEMS, &format!("{path}.handles"))
+            check_handles(handles, usize::from(images.is_empty()), MAX_COLLECTION_ITEMS, &format!("{path}.handles"))?;
+            check_image_selection(images, path)
         }
-        SelectionIntent::ReplaceFromSavedFiles { reason, files, input_handles } => {
+        SelectionIntent::ReplaceFromSavedFiles { reason, files, input_handles, images } => {
             check_text(reason, MAX_REASON_BYTES, &format!("{path}.reason"))?;
             check_ids(&files.iter().map(|file| file.operation.clone()).collect::<Vec<_>>(),
                 1, &format!("{path}.files"))?;
@@ -1890,9 +1945,36 @@ fn check_selection(selection: &SelectionIntent, path: &str) -> Result<(), Protoc
                     check_text(lifetime, MAX_REASON_BYTES, &format!("{path}.files.lifetime"))?;
                 }
             }
-            check_handles(input_handles, 0, MAX_COLLECTION_ITEMS, &format!("{path}.input_handles"))
+            check_handles(input_handles, 0, MAX_COLLECTION_ITEMS, &format!("{path}.input_handles"))?;
+            check_image_selection(images, path)
         }
     }
+}
+
+fn check_image_selection(images: &[ImageSelection], path: &str) -> Result<(), ProtocolError> {
+    if !images.is_empty() && path != "next_assets" {
+        return Err(invalid(path, "image captures belong in next_assets only"));
+    }
+    for (index, image) in images.iter().enumerate() {
+        let path = format!("{path}.images[{index}]");
+        let lifetime = match image {
+            ImageSelection::FromInputHistory { handle, lifetime } => {
+                check_handles(std::slice::from_ref(handle), 1, MAX_COLLECTION_ITEMS, &path)?;
+                lifetime
+            }
+            ImageSelection::Exact { reference, lifetime } => {
+                check_history_reference(reference, &path)?;
+                if !matches!(reference, HistoryRecordReference::Observation { .. }) {
+                    return Err(invalid(&path, "image selection requires an original observation reference"));
+                }
+                lifetime
+            }
+        };
+        if !matches!(lifetime.as_deref(), None | Some("work" | "next_call")) {
+            return Err(invalid(&path, "image lifetime must be work or next_call"));
+        }
+    }
+    Ok(())
 }
 
 fn check_handles(handles: &[String], minimum: usize, maximum: usize, path: &str) -> Result<(), ProtocolError> {

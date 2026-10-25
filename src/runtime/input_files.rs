@@ -464,7 +464,9 @@ pub(super) fn replacement_references(
 ) -> Result<Option<Vec<p::ExactRef>>> {
     let references = match intent {
         p::SelectionIntent::Replace { references, .. } => references.clone(),
-        p::SelectionIntent::ReplaceFromInput { handles, .. } => resolve(prepared, handles)?,
+        p::SelectionIntent::ReplaceFromInput { handles, .. } => {
+            if handles.is_empty() { Vec::new() } else { resolve(prepared, handles)? }
+        }
         p::SelectionIntent::ReplaceFromSavedFiles { files, input_handles, .. } => {
             let mut references = if input_handles.is_empty() { Vec::new() }
                 else { resolve(prepared, input_handles)? };
