@@ -163,6 +163,17 @@ under its normal permission and context checks. Message arrival neither wakes
 a stopped persona nor establishes that the recipient has read it. An existing
 admission without this sealed flag keeps its original fence.
 
+New admissions also retain the exact pending-inbox identities separately from
+the observations actually supplied. If a response registers a message wait,
+an ordinary peer message deferred after that inbox boundary can satisfy the
+new registration in the same atomic adoption. The event binds the actual message
+and named sender; its body remains unobserved until a fresh input supplies it.
+This closes the interval between the model choosing a wait and the host accepting
+it. Messages already queued at admission cannot match a new wait, including
+messages whose bodies were unavailable. Other senders, existing registrations
+and Stop/Pause gain no event from this reconciliation. Ordinary arrivals after
+adoption continue through the same message-wait event path.
+
 Membership, acceptance, mandate, phase, shared artifacts, evidence, questions,
 requester feedback, message-wait events and changed supplied lineage can still
 invalidate a pending response. Its original complete response remains terminal evidence.

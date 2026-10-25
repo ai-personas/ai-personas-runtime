@@ -1384,6 +1384,10 @@ pub struct Prepared {
     pub assembled_bytes_with_reserve: usize,
     pub sources: Vec<f::Reference>,
     pub supplied_observations: Vec<String>,
+    /// Host-sealed inbox boundary for reconciling peer messages deferred during
+    /// this decision with a newly authored message wait. This is not body supply.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) pending_observations_at_admission: Option<BTreeSet<String>>,
     pub navigation: f::NavigationLimits,
     #[serde(default)]
     pub repair_read_references: Vec<f::Reference>,
@@ -1581,8 +1585,10 @@ pub enum WorkAction {
     /// Registration with an immediate, stop, pause or reconsider_at
     /// continuation is invalid; register only when choosing to wait now.
     /// A child reply can satisfy its requester's wait in the immediate parent
-    /// work, even when its sender is not a parent participant. No sender duty,
-    /// prior inbox match, or Stop/Pause wake is created. Requester input is
+    /// work, even when its sender is not a parent participant. An ordinary peer
+    /// message arriving during this decision can satisfy the accepted wait;
+    /// messages already queued at admission cannot. No sender duty or Stop/Pause
+    /// wake is created. Requester input is
     /// locally attributed, not independently authenticated or implied consent.
     RegisterMessageWait {
         id: String,
@@ -4184,6 +4190,15 @@ impl Runtime {
             assembled_bytes_with_reserve: rendered.total,
             sources: rendered.sources,
             supplied_observations: rendered.observations,
+            pending_observations_at_admission: (request.profile == Profile::Direct
+                && request.mode == Mode::Ordinary)
+                .then(|| {
+                    persona.focus[&request.work]
+                        .pending_observations
+                        .iter()
+                        .cloned()
+                        .collect()
+                }),
             navigation,
             repair_read_references: rendered.repair_reads,
             provider_preparation: None,
@@ -9745,7 +9760,7 @@ fn deposit_message_for_thread(
                 "local_deposit_only":true}), sources: message.lineage.clone(),
             exposure: message.exposure.clone(), qualified_roots: Vec::new(), qualification_sources: None });
     }
-    satisfy_message_wait(state, &message, now)?;
+    satisfy_message_wait(state, &message, None, now)?;
     // The sender receives evidence of the same atomic local deposit. This is
     // queued for its next admitted input, independently of recipient attention
     // and the sender's choice to continue or stop.
@@ -9768,11 +9783,17 @@ fn deposit_message_for_thread(
     )?;
     Ok(())
 }
-fn satisfy_message_wait(state: &mut State, message: &Message, now: i64) -> Result<()> {
+fn satisfy_message_wait(
+    state: &mut State,
+    message: &Message,
+    registered_by: Option<&str>,
+    now: i64,
+) -> Result<()> {
     let work = requester_results::message_observation_work(state, message)?;
     let current = state.board.work(&w::WorkId(work.clone()))?;
     let candidate = state.work_meta[&work].message_waits.values().find(|wait| {
         wait.observation_id().is_none() && wait.actor == message.recipient && wait.from == message.sender
+            && registered_by.is_none_or(|invocation| wait.activation_invocation == invocation)
             && wait.activation_invocation != message.invocation
             && message_wait_visible(state, &work, wait, &message.recipient, now)
             && state.personas[&message.recipient].focus.get(&work).is_some_and(|focus|
@@ -10617,6 +10638,7 @@ fn apply_work_actions(
             }
         }
     }
+    let registered_message_wait = !message_registrations.is_empty();
     for wait in message_registrations {
         require(
             message_wait_visible(state, &wid.0, &wait, &actor.0, now),
@@ -10630,6 +10652,16 @@ fn apply_work_actions(
             .insert(wait.id.clone(), wait);
     }
     invalidate_replaced_message_waits(state, &wid.0)?;
+    // An ordinary peer reply can be deposited while this model call runs,
+    // before its chosen wait exists. Match only arrivals after the sealed inbox
+    // boundary and only this response's new registrations. Earlier inbox
+    // messages, Stop/Pause and unrelated waits acquire no new event. The exact
+    // message remains queued and unobserved until the next admitted input.
+    if registered_message_wait {
+        for message in decision_scope::deferred_peer_messages(pre_response, prepared) {
+            satisfy_message_wait(state, message, Some(&prepared.request.id), now)?;
+        }
+    }
     // An accepted exact handoff ends the sender's participation. Synchronize
     // its runtime admission flags in the same transaction, without rewriting
     // its historical authored continuation or granting a replacement role.

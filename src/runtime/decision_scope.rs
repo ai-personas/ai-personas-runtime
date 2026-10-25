@@ -174,6 +174,26 @@ fn deferrable_peer_message(state: &State, actor: &str, work: &str, id: &str) -> 
         && message.local_deposit_only
 }
 
+/// Actual inbox arrivals since admission, in deposit order. The sealed baseline
+/// excludes old queued messages even if their bodies were unavailable. A stored
+/// request without that boundary cannot retroactively match its earlier inbox.
+pub(super) fn deferred_peer_messages<'a>(state: &'a State, prepared: &Prepared) -> Vec<&'a Message> {
+    if !prepared.decision_scope.as_ref().is_some_and(|scope| scope.defer_incoming_peer_messages) {
+        return Vec::new();
+    }
+    let Some(baseline) = &prepared.pending_observations_at_admission else {
+        return Vec::new();
+    };
+    let actor = &prepared.request.persona;
+    let work = &prepared.request.work;
+    state.personas[actor].focus[work].pending_observations.iter()
+        .filter(|id| !baseline.contains(*id)
+            && !prepared.supplied_observations.contains(id)
+            && deferrable_peer_message(state, actor, work, id))
+        .filter_map(|id| state.messages.get(id))
+        .collect()
+}
+
 fn saved_source_hash(state: &State, source: &str) -> Result<String> {
     let saved = state
         .sources
