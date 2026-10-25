@@ -41,8 +41,12 @@ observations do not by themselves establish a controlled performance improvement
 Ordinary inputs can include `CONTROL.collaborators`: other current-work
 participants, their labels and current acceptance IDs, and their latest accepted
 work judgment and continuation with their original invocation and mandate
-attribution. `current-work-collaborators-v2` keeps each judgment's relation to
-the current mandate explicit. The snapshot has no application record-count or
+attribution. `current-work-collaborators-v3` keeps each judgment's relation to
+the current mandate explicit and lists accepted host-command identities awaiting
+complete result publication. It does not copy command bodies or infer affected
+paths. A pending marker establishes neither a running process nor a successful
+effect; an empty list does not establish that shared files are unchanged.
+The snapshot has no application record-count or
 byte quota. Each account retains its actual source attribution and lineage.
 
 These accounts help personas identify what peers claim to have done, what remains
@@ -50,8 +54,11 @@ open, and whether inspection, a question or coordination would help. They are
 snapshots at admission and can change while inference runs. A judgment does not
 supply its cited evidence or artifact bodies. Neither account establishes current execution, availability, successful work,
 agreement, a new commitment or permission to edit a peer's files. The runtime
-assigns no role or task from this projection. Other tasks, private context and
-in-flight requests are excluded. Initialization omits it. Historical restricted-repair inputs retain their original projections; new calls use ordinary mode.
+assigns no role or task from this projection. Personas choose coordination and
+current-state checks appropriate to shared, mutable host files. Other tasks,
+private context and in-flight model requests are excluded. Initialization omits
+it. Historical restricted-repair inputs retain their original projections; new
+calls use ordinary mode.
 
 Messages do not resume stopped participation. A persona can instead propose a
 new need with chosen existing participants through its supplied need capability.

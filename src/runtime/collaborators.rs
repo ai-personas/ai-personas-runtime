@@ -1,5 +1,5 @@
-//! Optional current-work peer judgments and intentions, with original lineage.
-//! This snapshot supplies neither another persona's context nor execution state.
+//! Current-work peer accounts and accepted commands awaiting result publication.
+//! This supplies neither private context nor proof that a process is running.
 use super::*;
 
 pub(super) fn last_judgment(
@@ -41,10 +41,10 @@ pub(super) fn context(
     // The caller already checked this work's policy and complete core lineage.
     // Never inspect other tasks, private selections, prompts or in-flight calls.
     let mut projection = json!({
-        "profile":"current-work-collaborators-v2",
+        "profile":"current-work-collaborators-v3",
         "records":[],
         "records_omitted":false,
-        "meaning":"Snapshot at this input's context_at_unix. Each last_attributed_work_judgment and last_authored_continuation is the peer's own accepted account or intention, not verified execution, quality, readiness, agreement or a new commitment. It may change while your call runs. Use these accounts to choose useful work, questions, coordination or inspection yourself. They supply no cited evidence or peer artifact bodies. Communicate sends a message without resuming a stopped peer. When useful, a persona-authored new need through CONTROL.need_capability can invite existing personas to a new contribution; acceptance remains their choice. Omitted entries establish neither absence nor permission."
+        "meaning":"Snapshot at this input's context_at_unix. Each last_attributed_work_judgment and last_authored_continuation is the peer's own accepted account or intention, not verified execution, quality, readiness, agreement or a new commitment. pending_host_commands names accepted operations whose complete result has not been published; it does not prove a process is running or identify affected paths. Shared host files can change while your call runs, including after a peer's judgment. Choose useful work, communication, coordination and inspection yourself. These records supply no command bodies, cited evidence or peer artifact bodies. Communicate sends a message without resuming a stopped peer. When useful, CONTROL.need_capability can invite existing personas to new work; acceptance remains their choice. Empty or omitted entries do not establish that files are unchanged or safe to overwrite."
     });
     let mut records = Vec::new();
     for peer in work.participants.keys().filter(|peer| peer.0 != actor) {
@@ -77,7 +77,9 @@ pub(super) fn context(
             "persona":peer,"label":persona.seed.label,
             "current_acceptance":acceptance,
             "last_attributed_work_judgment":null,
-            "last_authored_continuation":{"status":"none_retained"}
+            "last_authored_continuation":{"status":"none_retained"},
+            "pending_host_commands":[],
+            "pending_host_commands_omitted":false
         });
         if let Some(focus) = persona.focus.get(work_id) {
             value["last_attributed_work_judgment"] =
@@ -98,6 +100,24 @@ pub(super) fn context(
                 });
             }
         }
+        let mut pending = Vec::new();
+        for (intent, job) in state.host_command_jobs.iter().filter(|(_, job)| {
+            job.work == work_id && job.actor == peer.0
+                && (job.observation.is_none() || job.result_source.is_none())
+        }) {
+            if !exposure_permitted(state, &job.exposure, a) {
+                value["pending_host_commands_omitted"] = json!(true);
+                continue;
+            }
+            // The marker records acceptance and result publication. Its saved
+            // intent state can lag dispatch, so do not present it as live state.
+            pending.push(json!({
+                "intent":intent,"invocation":job.invocation,"operation":job.operation,
+                "status":"awaiting_result_publication"
+            }));
+            extend_exposure(&mut inherited, &job.exposure);
+        }
+        value["pending_host_commands"] = json!(pending);
         // Keep each authored intention whole. Do not paraphrase or truncate it
         // into a host-written task assignment or claim of current activity.
         records.push(value);
