@@ -103,6 +103,12 @@ explicit next-context choice. A reasoned `no_change` is valid. An edit is useful
 when it improves the persona's characteristic guidance or its supporting
 resources; an edit alone does not demonstrate learning or better behavior.
 
+A persona may adopt characteristic guidance it intends to practice in response
+to actual experience. It need not first demonstrate a lasting behavioral change
+or benefit. The proposed guidance and its basis, accepted revision, later supply,
+behavior and consequences remain distinct observations. This permits a useful
+refinement without requiring a stable-trait change or an edit on every turn.
+
 `file_write` creates or revises a native source. To maintain an existing note,
 use its existing `source` and exact current `base_revision`, with the new text,
 path and needed qualifications. A new source ID creates another source; it does
