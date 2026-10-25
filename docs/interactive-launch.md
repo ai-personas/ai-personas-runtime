@@ -63,6 +63,26 @@ After a session, the launcher also identifies feedback still awaiting a response
 Feedback queued while a final call was already in progress may need an explicit
 participant resume before the persona receives and addresses it.
 
+Choose **p: pause work** or **x: cancel work** in the work menu or during a running
+session. Enter a reason or use the displayed default. The native helper records
+the control against the current work atomically while execution may still be
+active. Running calls and commands observe it and retain their actual terminal
+outcomes. A recorded control does not prove remote termination or refund usage.
+Cancellation retains the results and identifies the work as canceled, not complete.
+
+After the session settles, **w: resume work** lifts a work-wide pause. Individual
+Stop/Pause choices and unresolved outcomes remain effective; use **u** for an
+individual resumption when appropriate, then **c** to run eligible work.
+An invitee interrupted before its first ordinary response can also be selected
+with **u**. This permits it to consider the invitation; acceptance remains its own decision.
+Pause, cancellation and work resumption each retain an exact private request
+before submission. **i** confirms the same saved control after a missing response;
+an earlier receipt never repeats a stop or resume after subsequent work changes.
+A stop that arrives after another control already paused or ended the work is
+recorded as unapplied; confirming it later cannot turn it into a new stop.
+Control confirmation has its own journal entry, so pending feedback or an answer
+does not prevent pausing active work. No control starts a model call.
+
 An accepted `reconsider_at` time or wait deadline keeps the foreground session
 open when no participant is ready now. Status shows the scheduled UTC time. The
 runtime waits for that time, an actual command result, or new input/control state,

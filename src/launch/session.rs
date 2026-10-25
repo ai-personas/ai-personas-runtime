@@ -10,6 +10,9 @@ use super::*;
 #[path = "session_resume.rs"]
 mod participant_resume;
 pub use participant_resume::{resume_participant, ParticipantRecovery, ParticipantResumeRequest};
+#[path = "session_work_control.rs"]
+mod work_control;
+pub use work_control::{stop_work, resume_work, StopAction, WorkStopRequest, WorkResumeRequest};
 #[path = "session_messages.rs"]
 mod messages;
 pub use messages::{session_messages, SessionMessages};
@@ -116,6 +119,10 @@ fn check(value: bool, code: BoundaryError) -> BoundaryResult<()> {
 }
 fn valid_id(id: &str) -> BoundaryResult<()> {
     identity(id).map_err(|_| BoundaryError::InvalidRequest)
+}
+fn valid_reference(reference: &s::ObjectRef, id: &str) -> bool {
+    reference.id == id && reference.revision > 0 && reference.sha256.len() == 64
+        && reference.sha256.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 fn record_id(kind: &str, key: &str) -> String {
     format!("{kind}:{}", s::sha256_bytes(key.as_bytes()))

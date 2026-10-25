@@ -1545,6 +1545,88 @@ class Dialogue:
         self.j.save()
         self.deliver_work_input()
 
+    def pending_work_control(self):
+        # Stops have their own durable slot so unconfirmed feedback or an answer
+        # cannot prevent the requester from stopping active work.
+        raw = self.j.directory.read("work-control.json")
+        if raw is None:
+            return None
+        item = decode(raw)
+        require(isinstance(item, dict) and set(item) == {"kind", "request", "delivered"}
+                and item["kind"] in ("stop-work", "resume-work")
+                and type(item["delivered"]) is bool, "invalid_work_control")
+        request = item["request"]
+        require(isinstance(request, dict) and identifier(request.get("id"))
+                and request.get("operator") == self.p["operator"]
+                and identifier(request.get("work")), "invalid_work_control")
+        if item["kind"] == "stop-work":
+            require(set(request) == {"id", "operator", "work", "action", "reason"}
+                    and request["action"] in ("pause", "cancel") and safe_text(request["reason"]),
+                    "invalid_work_control")
+        else:
+            require(set(request) == {"id", "operator", "work", "expected_runtime", "expected_launch"},
+                    "invalid_work_control")
+            for key, name in (("expected_runtime", "runtime-state-v1"), ("expected_launch", "runtime-launch-v1")):
+                ref = request[key]
+                require(isinstance(ref, dict) and set(ref) == {"id", "revision", "sha256"}
+                        and ref["id"] == name and type(ref["revision"]) is int and ref["revision"] > 0
+                        and re.fullmatch(r"[a-f0-9]{64}", ref["sha256"]) is not None, "invalid_work_control")
+        return None if item["delivered"] else item
+
+    def deliver_work_control(self):
+        item = self.pending_work_control()
+        require(item is not None, "no_pending_work_control")
+        request = item["request"]
+        self.j.directory.write("control-request.json", encoded(request))
+        receipt = self.session(item["kind"], str(self.j.directory.path / "control-request.json"))
+        require(receipt.get("id") == request["id"] and receipt.get("work") == request["work"]
+                and receipt.get("request") == request and type(receipt.get("replayed")) is bool
+                and type(receipt.get("control_recorded")) is bool
+                and receipt.get("inference_performed") is False and receipt.get("persona_resumed") is False
+                and receipt.get("goal_completed") is False, "work_control_receipt_mismatch")
+        if item["kind"] == "resume-work":
+            require(receipt.get("snapshot_changed") is (not receipt["control_recorded"])
+                    and (not receipt["replayed"] or receipt["control_recorded"]), "work_control_receipt_mismatch")
+        else:
+            require((receipt.get("runtime_request") is not None) is receipt["control_recorded"]
+                    and (receipt.get("receipt") is not None) is receipt["control_recorded"],
+                    "work_control_receipt_mismatch")
+        item["delivered"] = True
+        self.j.directory.write("work-control.json", encoded(item))
+        if receipt["replayed"]:
+            self.ui.say("This is the earlier control receipt. The action was not applied again; inspect the current work status.")
+        elif not receipt["control_recorded"] and item["kind"] == "stop-work":
+            self.ui.say("The current work phase does not allow that control. This request made no change and will not apply later; inspect the work status.")
+        elif not receipt["control_recorded"]:
+            self.ui.say("The work changed before resumption. Choose Resume work again to use its current state.")
+        elif item["kind"] == "resume-work":
+            self.ui.say("The work-wide pause is lifted. Individual continuation choices remain. Choose Continue for eligible work, or Resume participant for an individual stop or pause.")
+        elif request["action"] == "pause":
+            self.ui.say("Work pause recorded. Any active calls and commands will record their outcomes. Use Resume work later to lift this pause.")
+        else:
+            self.ui.say("Work cancellation recorded. Any active calls and commands will record their outcomes. Saved results remain available; cancellation does not mark the task complete.")
+
+    def control_work(self, work, action):
+        if self.pending_work_control() is not None:
+            self.ui.say("A saved work control still needs confirmation. Choose i to finish that same request.")
+            return
+        request = {"id": "control-" + uuid.uuid4().hex, "operator": self.p["operator"], "work": work}
+        if action == "resume":
+            current, view = self.work_snapshot(work)
+            require(current is not None, "work_unavailable")
+            if current["phase"] != "paused":
+                self.ui.say("This work has no work-wide pause. Use Continue for eligible work or Resume participant for an individual stop or pause.")
+                return
+            request.update(expected_runtime=view["runtime"], expected_launch=view["launch"])
+            kind = "resume-work"
+        else:
+            default = "Paused by the requester in the launcher." if action == "pause" else "Canceled by the requester in the launcher."
+            reason = self.ui.ask(f"Reason to {action} this work [Enter: {default}]")
+            request.update(action=action, reason=reason if reason.strip() else default)
+            kind = "stop-work"
+        self.j.directory.write("work-control.json", encoded({"kind": kind, "request": request, "delivered": False}))
+        self.deliver_work_control()
+
     def choose_participant(self, work):
         participants = work["participants"]
         for i, participant in enumerate(participants, 1):
@@ -1576,7 +1658,7 @@ class Dialogue:
         candidates = [p for p in current["participants"] if p.get("resume_candidate")]
         if not candidates:
             self.ui.say("No participant can be resumed here. Ready participants can Continue; "
-                        "work-wide pauses and unresolved execution need their separate controls.")
+                        "choose Resume work for a work-wide pause. Unresolved execution needs its recorded recovery controls.")
             return
         persona = self.choose_participant({"participants": candidates})
         if persona is None:
@@ -1906,7 +1988,8 @@ class Dialogue:
             self.ui.say("Current amended request: " + work["task_amendment"]["current_scope"]["request"])
         while True:
             self.ui.say("r: results; j: delivery receipt JSON; q: questions and answers; f: feedback; d: persona development; "
-                        "m: amend task; u: resume participant; c: continue; a: Codex auth source; b: back")
+                        "m: amend task; u: resume participant; c: continue; p: pause work; x: cancel work; "
+                        "w: resume work; i: confirm pending control; a: Codex auth source; b: back")
             choice = self.ui.ask("Work action:").strip().lower()
             if choice in ("", "b"):
                 return
@@ -1924,6 +2007,13 @@ class Dialogue:
                 self.development(work)
             elif choice == "u":
                 self.resume_participant(work, after)
+            elif choice in ("p", "x", "w"):
+                self.control_work(work["id"], {"p": "pause", "x": "cancel", "w": "resume"}[choice])
+            elif choice == "i":
+                if self.pending_work_control() is not None:
+                    self.deliver_work_control()
+                else:
+                    self.ui.say("No work control is waiting for confirmation.")
             elif choice == "a":
                 if self.inspect(after)["settings"].get("codex_auth_only_supported"):
                     self.codex_auth_source(change=True)
@@ -1937,6 +2027,7 @@ class Dialogue:
                 else:
                     self.ui.say("No participant is currently eligible. Choose Resume participant for a stopped, "
                                 "individually paused or definitively rejected participant. "
+                                "Choose Resume work to lift a work-wide pause. "
                                 "Inspect other holds and unresolved execution using RUNTIME-REFERENCE.md.")
             else:
                 self.ui.say("Choose a listed action.")
@@ -1965,6 +2056,10 @@ class Dialogue:
     def work_availability(self, view, work):
         if view["frozen"]:
             return "runtime paused"
+        if work["phase"] == "paused":
+            return "work paused; choose Resume work to lift the pause"
+        if work["phase"] == "ended":
+            return "work ended; review its recorded outcome and results"
         if work["phase"] != "open":
             return "review results"
         if any(p["eligible_candidate"] or p.get("continuation_recovery_candidate", False)
@@ -2118,7 +2213,7 @@ class Dialogue:
 
     def live_input(self, work, shown_messages=None):
         # This is the original foreground session. Input commands only inspect
-        # or queue user input; none starts, restarts or resumes an invocation.
+        # or record input/stop controls; none starts or resumes an invocation.
         try:
             choice = self.ui.ask("While running:").strip().lower()
             if choice == "r":
@@ -2132,12 +2227,16 @@ class Dialogue:
                 require(current is not None, "work_unavailable")
                 self.feedback(current)
             elif choice == "i":
-                if self.pending_work_input() is not None:
+                if self.pending_work_control() is not None:
+                    self.deliver_work_control()
+                elif self.pending_work_input() is not None:
                     self.deliver_work_input()
                 else:
                     self.ui.say("No input is waiting for delivery confirmation.")
+            elif choice in ("p", "x"):
+                self.control_work(work, "pause" if choice == "p" else "cancel")
             elif choice:
-                self.ui.say("Use r: results; q: questions and answers; f: feedback; i: confirm pending input.")
+                self.ui.say("Use r: results; q: questions and answers; f: feedback; p: pause work; x: cancel work; i: confirm pending input/control.")
             else:
                 self.ui.say(self.work_progress(work))
         except Halt:
@@ -2218,7 +2317,7 @@ class Dialogue:
             pass
         self.ui.say(f"Submitting {s['id']}. Waiting for its recorded native outcome.")
         self.ui.say("New replies appear as work continues. Type r for results, q for questions and answers, "
-                    "f for feedback, or i to confirm pending input, then press Enter.")
+                    "f for feedback, p to pause work, x to cancel work, or i to confirm pending input/control, then press Enter.")
         last_update = [None, 0.0]
 
         def report_progress():
@@ -2388,6 +2487,11 @@ class Dialogue:
                     if participant.get("failed_attempt_hold"):
                         self.ui.say(f"   {participant['persona']}: failed-attempt hold {participant['failed_attempt_hold']}")
             saved_input = self.pending_work_input()
+            saved_control = self.pending_work_control()
+            if saved_control:
+                control = saved_control["request"]
+                action = control.get("action", "resume")
+                self.ui.say(f"Saved {action} control for {control['work']} awaits confirmation. Choose i to finish that same request.")
             if saved_input:
                 request = saved_input["request"]
                 if saved_input["kind"] == "resume-participant":
@@ -2413,6 +2517,8 @@ class Dialogue:
                 work_id = self.submit_pending(self.capture_optional_activity())
                 after = None
                 self.run_work(work_id, self.inspect())
+            elif choice == "i" and saved_control:
+                self.deliver_work_control()
             elif choice == "i" and saved_input:
                 self.deliver_work_input()
             elif choice == "p" and pending:

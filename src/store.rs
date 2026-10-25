@@ -835,6 +835,12 @@ struct RuntimeControlRecord {
     receipt: BatchReceipt,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RuntimeControlNoop {
+    control: RuntimeControl,
+    observed: ObjectRef,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct RuntimeControlSlot {
     work: String,
@@ -1366,9 +1372,9 @@ impl TrustedHost<'_> {
         })
     }
 
-    /// Operator scope changes share resume's existing accounting and control-slot
-    /// renewal. Pending invocations are preserved for actual terminal settlement.
-    pub(crate) fn commit_runtime_amendment(
+    /// Snapshot-bound work resumption and scope changes share existing accounting
+    /// and control-slot renewal. Pending invocations retain their actual outcomes.
+    pub(crate) fn commit_runtime_work_change(
         &mut self,
         expected: &ObjectRef,
         object: StoredObject,
@@ -1613,61 +1619,55 @@ impl TrustedHost<'_> {
         request: RuntimeControlRequest,
         current_only: bool,
     ) -> Result<BatchReceipt> {
+        self.store.transaction(|work| work.commit_runtime_control(request, current_only))
+    }
+
+    /// A launcher stop applies to the current work atomically, even while its
+    /// execution owner is active. The UI key is retained with the exact derived
+    /// request. Replaying that key never stops a subsequently resumed work.
+    pub(crate) fn commit_keyed_runtime_control(
+        &mut self,
+        id: &str,
+        control: RuntimeControl,
+    ) -> Result<(Option<RuntimeControlRequest>, Option<BatchReceipt>, bool)> {
         self.store.transaction(|work| {
-            work.id(&request.id)?;
-            if let Some(record) = work.runtime_control_record(&request.id)? {
-                if record.request != request {
-                    return Err(StoreError::Conflict(request.id.clone()));
-                }
-                if current_only {
-                    let current: StoredObject =
-                        work.required("object", RUNTIME_CONTROL_STATE_ID)?;
-                    if !crate::runtime::runtime_control_is_current(
-                        &current,
-                        &record.object,
-                        &request.control,
-                    )? {
-                        return Err(StoreError::RevisionConflict(request.expected.id.clone()));
-                    }
-                }
-                return Ok(record.receipt);
+            work.id(id)?;
+            if !matches!(control.action, RuntimeControlAction::Pause | RuntimeControlAction::Canceled) {
+                return Err(StoreError::Invalid("launcher work stop action".into()));
             }
-            work.epoch(request.expected_epoch)?;
+            if let Some(record) = work.runtime_control_record(id)? {
+                if record.request.control != control {
+                    return Err(StoreError::Conflict(id.into()));
+                }
+                return Ok((Some(record.request), Some(record.receipt), true));
+            }
+            if let Some(record) = work.get::<RuntimeControlNoop>("runtime_control_noop", id)? {
+                if record.control != control { return Err(StoreError::Conflict(id.into())); }
+                return Ok((None, None, true));
+            }
             let current: StoredObject = work.required("object", RUNTIME_CONTROL_STATE_ID)?;
-            if current.exact_ref()? != request.expected {
-                return Err(StoreError::RevisionConflict(request.expected.id.clone()));
+            let phase: crate::work::Phase = serde_json::from_value(
+                current.body["board"]["works"][&control.work]["phase"].clone(),
+            )?;
+            let applicable = matches!(phase, crate::work::Phase::Open)
+                || (control.action == RuntimeControlAction::Canceled
+                    && matches!(phase, crate::work::Phase::Paused { .. }));
+            if !applicable {
+                // A concurrent stop can win first. Retain this no-op too, so a
+                // lost receipt cannot turn into a new pause after later resume.
+                work.insert("runtime_control_noop", id,
+                    &RuntimeControlNoop { control, observed: current.exact_ref()? },
+                    None, BudgetClass::Closeout, 1)?;
+                return Ok((None, None, false));
             }
-            let plan = work.runtime_control_plan()?.ok_or(StoreError::Unsupported(
-                "runtime closeout was not prepaid; explicitly provision while unfrozen",
-            ))?;
-            let ending = request.control.uses_ending_slot();
-            let slot_work = request.control.slot_work();
-            let key = work.current_runtime_control_key(&slot_work, ending)?;
-            let mut slot = work.runtime_control_slot(&key, &slot_work, ending, &plan)?;
-            if slot.commit.is_some() {
-                return Err(StoreError::Conflict(request.id.clone()));
-            }
-            let next = crate::runtime::runtime_control_object(&current, &request.control)?;
-            work.bump_epoch()?;
-            work.meta.sequence = work
-                .meta
-                .sequence
-                .checked_add(1)
-                .ok_or(StoreError::Overflow("runtime control sequence"))?;
-            let receipt = BatchReceipt {
-                epoch: work.meta.epoch,
-                objects: vec![next.exact_ref()?],
+            let request = RuntimeControlRequest {
+                id: id.into(),
+                expected_epoch: work.meta.epoch,
+                expected: current.exact_ref()?,
+                control,
             };
-            slot.commit = Some(RuntimeControlRecord {
-                request,
-                sequence: work.meta.sequence,
-                object: next.clone(),
-                receipt: receipt.clone(),
-            });
-            work.update("runtime_control", &key, &slot)?;
-            work.update("object", RUNTIME_CONTROL_STATE_ID, &next)?;
-            work.check_runtime_control_capacity(&next, &plan)?;
-            Ok(receipt)
+            let receipt = work.commit_runtime_control(request.clone(), false)?;
+            Ok((Some(request), Some(receipt), false))
         })
     }
 
@@ -4274,6 +4274,53 @@ impl<'a> Work<'a> {
             }
         }
         self.check_runtime_control_capacity(object, &plan)
+    }
+
+    fn commit_runtime_control(
+        &mut self,
+        request: RuntimeControlRequest,
+        current_only: bool,
+    ) -> Result<BatchReceipt> {
+        self.id(&request.id)?;
+        if let Some(record) = self.runtime_control_record(&request.id)? {
+            if record.request != request {
+                return Err(StoreError::Conflict(request.id.clone()));
+            }
+            if current_only {
+                let current: StoredObject = self.required("object", RUNTIME_CONTROL_STATE_ID)?;
+                if !crate::runtime::runtime_control_is_current(&current, &record.object, &request.control)? {
+                    return Err(StoreError::RevisionConflict(request.expected.id.clone()));
+                }
+            }
+            return Ok(record.receipt);
+        }
+        self.epoch(request.expected_epoch)?;
+        let current: StoredObject = self.required("object", RUNTIME_CONTROL_STATE_ID)?;
+        if current.exact_ref()? != request.expected {
+            return Err(StoreError::RevisionConflict(request.expected.id.clone()));
+        }
+        let plan = self.runtime_control_plan()?.ok_or(StoreError::Unsupported(
+            "runtime closeout was not prepaid; explicitly provision while unfrozen",
+        ))?;
+        let ending = request.control.uses_ending_slot();
+        let slot_work = request.control.slot_work();
+        let key = self.current_runtime_control_key(&slot_work, ending)?;
+        let mut slot = self.runtime_control_slot(&key, &slot_work, ending, &plan)?;
+        if slot.commit.is_some() {
+            return Err(StoreError::Conflict(request.id.clone()));
+        }
+        let next = crate::runtime::runtime_control_object(&current, &request.control)?;
+        self.bump_epoch()?;
+        self.meta.sequence = self.meta.sequence.checked_add(1)
+            .ok_or(StoreError::Overflow("runtime control sequence"))?;
+        let receipt = BatchReceipt { epoch: self.meta.epoch, objects: vec![next.exact_ref()?] };
+        slot.commit = Some(RuntimeControlRecord {
+            request, sequence: self.meta.sequence, object: next.clone(), receipt: receipt.clone(),
+        });
+        self.update("runtime_control", &key, &slot)?;
+        self.update("object", RUNTIME_CONTROL_STATE_ID, &next)?;
+        self.check_runtime_control_capacity(&next, &plan)?;
+        Ok(receipt)
     }
 
     fn runtime_control_record(&self, id: &str) -> Result<Option<RuntimeControlRecord>> {

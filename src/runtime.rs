@@ -5115,25 +5115,7 @@ impl Runtime {
         }
         let (old, mut state) = self.load()?;
         need_proposals::check_work(self, &state, work, unix_now()?)?;
-        require(
-            matches!(
-                state.board.work(&w::WorkId(work.into()))?.phase,
-                w::Phase::Paused { .. }
-            ),
-            "work-wide resume requires an explicitly paused work",
-        )?;
-        observe(
-            &mut state,
-            operator,
-            work,
-            w::RuntimeRight::Governance,
-            w::RuntimeOperation::Resume,
-        )?;
-        state.operator_events.push(json!({
-            "kind":"explicit_work_resume","operator":operator,"work":work,
-            "persona_permissions_changed":false,"invocations_recovered":false,
-            "budget_reset":false
-        }));
+        resume_work_state(&mut state, operator, work)?;
         self.store.trusted_host().commit_runtime_resume(
             &old.exact_ref()?,
             state_object(&old, &state)?,
@@ -10020,6 +10002,17 @@ fn resume_participant_state(
         json!({"kind":"explicit_resume","operator":operator,"persona":persona,"work":work,
             "failed_attempt_acknowledgment":failed_attempt_ack,"remote_outcome_reconciled":false}),
     );
+    Ok(())
+}
+
+fn resume_work_state(state: &mut State, operator: &str, work: &str) -> Result<()> {
+    require(matches!(state.board.work(&w::WorkId(work.into()))?.phase, w::Phase::Paused { .. }),
+        "work-wide resume requires an explicitly paused work")?;
+    observe(state, operator, work, w::RuntimeRight::Governance, w::RuntimeOperation::Resume)?;
+    state.operator_events.push(json!({
+        "kind":"explicit_work_resume","operator":operator,"work":work,
+        "persona_permissions_changed":false,"invocations_recovered":false,"budget_reset":false
+    }));
     Ok(())
 }
 

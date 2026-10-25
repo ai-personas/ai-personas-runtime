@@ -395,7 +395,7 @@ pub fn amend(root: &Path, operator: &str, request: &Request) -> Result<Value> {
         "transport_cancellation_requested":false,"budget_reset":false}));
     validate_inventory(&next)?;
     need_proposals::validate_state(&next)?;
-    app.store.trusted_host().commit_runtime_amendment(
+    app.store.trusted_host().commit_runtime_work_change(
         &request.expected_runtime,
         state_object(&snapshot.runtime, &next)?,
         &request.work,

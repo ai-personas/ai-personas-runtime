@@ -92,7 +92,7 @@ The normal state root is under `$XDG_STATE_HOME/ai-personas` or `$HOME/.local/st
 Four command surfaces are important:
 
 - `ai-personas`: full explicit runtime and operator controls.
-- `personas-session`: saved-launch inspection, keyed intake, sessions, messages, results, questions, feedback, amendments, and targeted participant resumption.
+- `personas-session`: saved-launch inspection, keyed intake, sessions, messages, results, questions, feedback, amendments, work controls, and targeted participant resumption.
 - `personas-auth`: explicit SIWC sign-in, refresh, status, and native-run authentication handoff.
 - `./personas`: the local interactive Python dialogue that orchestrates the Rust helpers.
 
@@ -707,6 +707,16 @@ ai-personas --state-root /private/state --operator local-operator \
 ```
 
 Protected pause and unfinished closeout preserve actual state; they do not claim completion or resolve unknown effects.
+
+The no-argument launcher exposes **p: pause work** and **x: cancel work** while a
+session runs and in the work menu. **w: resume work** separately lifts a settled
+work-wide pause. The native `personas-session stop-work FILE` request contains
+`id`, `operator`, `work`, `action` (`pause` or `cancel`), and `reason`.
+`personas-session resume-work FILE` contains `id`, `operator`, `work`, and the
+`expected_runtime` and `expected_launch` references from inspection. These are
+keyed operator controls; none starts inference. Confirming an old request returns
+its earlier outcome, including a stop that could not apply to the then-current
+phase, without applying it to later work. See [interactive launch](docs/interactive-launch.md).
 
 The interactive launcher's **Resume participant** also offers definite local
 rejections: a complete provider response that was rejected before adoption, or

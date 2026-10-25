@@ -19,16 +19,6 @@ pub struct ParticipantResumeRequest {
     pub authorize_resume: bool,
 }
 
-fn valid_reference(reference: &s::ObjectRef, id: &str) -> bool {
-    reference.id == id
-        && reference.revision > 0
-        && reference.sha256.len() == 64
-        && reference
-            .sha256
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-}
-
 impl ParticipantResumeRequest {
     pub fn validate(&self, operator: &str) -> BoundaryResult<()> {
         for id in [&self.id, &self.operator, &self.work, &self.persona] {
@@ -153,9 +143,12 @@ pub(super) fn candidate(
         && actor.failed_attempt_hold.is_none()
         && match actor.active_invocation.as_deref() {
             Some(id) => recovery.is_some_and(|known| known.invocation == id),
+            // A work pause can consume an invitee's initial opportunity before
+            // its first ordinary response. Explicitly resuming that invitee
+            // permits consideration; it does not accept responsibility for it.
             None => !focus.permit && !focus.ordinary_continuation && matches!(
                 focus.continuation,
-                Some(p::Continuation::Stop { .. } | p::Continuation::Pause { .. })
+                None | Some(p::Continuation::Stop { .. } | p::Continuation::Pause { .. })
             ),
         }
         && state.work_meta.contains_key(work)

@@ -126,7 +126,7 @@ enum Command {
     AmendWork { file: PathBuf },
     /// Reply to an exact shared question without inference or an explicit resume.
     AnswerQuestion { file: PathBuf },
-    /// Explicitly resume one participant under its existing work commitment.
+    /// Permit one participant to reconsider existing work without accepting for them.
     ///
     /// The file contains the exact participant, work and inspected state references.
     /// A definitively rejected response or prelaunch rejection can be retired here;
@@ -135,6 +135,10 @@ enum Command {
     /// Use a new run session afterward to consider eligible participants. Replaying an
     /// already applied resume request does not resume a participant again.
     ResumeParticipant { file: PathBuf },
+    /// Apply a keyed pause or cancellation to current work, including during a live session.
+    StopWork { file: PathBuf },
+    /// Lift an inspected work-wide pause once; preserve individual stops and start no inference.
+    ResumeWork { file: PathBuf },
 }
 fn emit<T: Serialize>(result: session::BoundaryResult<T>) -> bool {
     match result {
@@ -336,6 +340,14 @@ async fn main() {
                 session::resume_participant(&root, &operator, &input)
             })())
         }
+        Command::StopWork { file } => emit((|| -> session::BoundaryResult<serde_json::Value> {
+            let input = ai_personas::runtime::read_json_file(&file, usize::MAX)?;
+            session::stop_work(&root, &operator, &input)
+        })()),
+        Command::ResumeWork { file } => emit((|| -> session::BoundaryResult<serde_json::Value> {
+            let input = ai_personas::runtime::read_json_file(&file, usize::MAX)?;
+            session::resume_work(&root, &operator, &input)
+        })()),
     };
     if !ok {
         std::process::exit(1);
