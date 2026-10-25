@@ -73,6 +73,17 @@ duplicate-key rejection and whole-Decision structure remain checked. An actual
 counter overflow is reported as an unrepresentable observation, not as an
 application resource quota.
 
+An `output_item.done` with status `incomplete` does not terminate collection.
+The collector keeps reading for the provider's response-level terminal event,
+retaining its reported status, available usage and incomplete reason. Known
+reason labels are recorded directly; unknown labels are fingerprinted. This
+follows the distinct item and response events in the
+[Responses streaming contract](https://developers.openai.com/api/reference/resources/responses/streaming-events).
+An incomplete item cannot become a complete carrier, including through a later
+thin completion. A terminal report is distinct from a validated response, stream
+EOF, confirmed remote cancellation or measured charges. Missing terminal events
+remain unknown; partial text is never adopted or replayed.
+
 Runtime context assembly and corpus retention also have no application byte or
 record quota. Provider account, rate and context outcomes are reported as observed;
 removing local quotas does not change the external service.

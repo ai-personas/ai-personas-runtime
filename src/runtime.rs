@@ -5679,7 +5679,13 @@ impl Runtime {
                         "requested_effort":prepared.requested_effort,
                         "reported_effort":receipt.reported_effort,
                         "dispatch_may_have_begun":receipt.dispatch_may_have_begun,
-                        "remote_outcome":if receipt.dispatch_may_have_begun { "unknown" } else { "not_dispatched" },
+                        "remote_outcome":match receipt.reported_terminal_status {
+                            Some(provider::ReportedTerminalStatus::Completed) => "provider_reported_completed",
+                            Some(provider::ReportedTerminalStatus::Failed) => "provider_reported_failed",
+                            Some(provider::ReportedTerminalStatus::Incomplete) => "provider_reported_incomplete",
+                            None if receipt.dispatch_may_have_begun => "unknown",
+                            None => "not_dispatched",
+                        },
                         "replay_authorized":false}),
                     provider::ProviderError::Rejected(failure) => json!({
                         "kind":"provider_prelaunch_rejection","synthetic":false,

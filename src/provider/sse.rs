@@ -1,4 +1,4 @@
-use super::{Failure, RetainedResponseId, StreamDiagnostic, Usage};
+use super::{Failure, ReportedTerminalStatus, RetainedResponseId, StreamDiagnostic, Usage};
 use crate::files::{parse_json_unique, JsonProfileError};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -94,6 +94,7 @@ struct Item {
     kind: Kind,
     added: bool,
     done: bool,
+    incomplete: bool,
     part_added: bool,
     part_done: bool,
     text_done: bool,
@@ -148,10 +149,13 @@ pub(super) struct Collector {
     remote_error_code: Option<&'static str>,
     remote_error_type_sha256: Option<String>,
     remote_error_code_sha256: Option<String>,
+    incomplete_reason: Option<&'static str>,
+    incomplete_reason_sha256: Option<String>,
     pub diagnostic: Option<StreamDiagnostic>,
     pub observed: usize,
     pub events: usize,
     pub completed: bool,
+    pub reported_terminal_status: Option<ReportedTerminalStatus>,
     pub reported_effort: Option<String>,
     pub previous_reported_effort: Option<String>,
     pub usage: Usage,
@@ -182,10 +186,13 @@ impl Collector {
             remote_error_code: None,
             remote_error_type_sha256: None,
             remote_error_code_sha256: None,
+            incomplete_reason: None,
+            incomplete_reason_sha256: None,
             diagnostic: None,
             observed: 0,
             events: 0,
             completed: false,
+            reported_terminal_status: None,
             reported_effort: None,
             previous_reported_effort: None,
             usage: Usage::default(),
@@ -214,6 +221,8 @@ impl Collector {
             remote_error_code: self.remote_error_code,
             remote_error_type_sha256: self.remote_error_type_sha256.clone(),
             remote_error_code_sha256: self.remote_error_code_sha256.clone(),
+            incomplete_reason: self.incomplete_reason,
+            incomplete_reason_sha256: self.incomplete_reason_sha256.clone(),
             rule: failure.rule,
             field: failure.field,
         });
@@ -490,7 +499,11 @@ impl Collector {
                 if wire_id(response, "id")? != response_id {
                     return Err(protocol("completed_response_id_mismatch"));
                 }
+                self.reported_terminal_status = Some(ReportedTerminalStatus::Completed);
                 self.usage = usage(response.get("usage"))?;
+                if self.items.values().any(|item| item.incomplete) {
+                    return Err(protocol("completed_after_incomplete_item"));
+                }
                 let output = array(response, "output")?;
                 if output.is_empty() && self.allow_thin_completed {
                     self.response = Some(self.thin_completion_text()?);
@@ -521,7 +534,7 @@ impl Collector {
                             }
                             carrier.consider(phase, text)?;
                         }
-                        Kind::Reasoning => reasoning_item(item, true)?,
+                        Kind::Reasoning => reasoning_item(item, true, false)?,
                     }
                 }
                 if self.items.keys().any(|index| *index >= output.len()) {
@@ -547,6 +560,16 @@ impl Collector {
                 };
                 if string(response, "status")? != expected {
                     return Err(protocol("remote_terminal_status_mismatch"));
+                }
+                self.reported_terminal_status = Some(if kind == "response.failed" {
+                    ReportedTerminalStatus::Failed
+                } else {
+                    ReportedTerminalStatus::Incomplete
+                });
+                if kind == "response.incomplete" {
+                    let reason = response.get("incomplete_details").and_then(|value| value.get("reason"));
+                    self.incomplete_reason = safe_remote_error_label(reason, &["max_output_tokens", "content_filter"]);
+                    self.incomplete_reason_sha256 = unknown_error_digest(reason, self.incomplete_reason);
                 }
                 self.usage = usage(response.get("usage"))?;
                 if kind == "response.failed" {
@@ -602,17 +625,25 @@ impl Collector {
                             return Err(protocol("message_added_shape"));
                         }
                     } else {
-                        reasoning_item(value, false)?;
+                        reasoning_item(value, false, false)?;
                     }
                     item.added = true;
                 } else {
                     if item.done {
                         return Err(protocol("duplicate_item_done"));
                     }
-                    if kind_of_item == Kind::Message {
+                    // An incomplete item is not the terminal response event.
+                    // Continue to observe the provider's final status and usage;
+                    // no partial item can become an adoptable carrier.
+                    item.incomplete = value.get("status").and_then(Value::as_str) == Some("incomplete");
+                    if kind_of_item == Kind::Message && item.incomplete {
+                        if let Some(text) = message_content(value)? {
+                            item.text(text)?;
+                        }
+                    } else if kind_of_item == Kind::Message {
                         item.text(message_text(value)?)?;
                     } else {
-                        reasoning_item(value, true)?;
+                        reasoning_item(value, true, true)?;
                     }
                     item.done = true;
                 }
@@ -764,6 +795,7 @@ impl Collector {
             kind,
             added: false,
             done: false,
+            incomplete: false,
             part_added: false,
             part_done: false,
             text_done: false,
@@ -877,18 +909,25 @@ fn message_text(value: &Value) -> Result<&str> {
             field: None,
         });
     }
-    if string(value, "role")? != "assistant" || string(value, "status")? != "completed" {
+    if string(value, "status")? != "completed" {
+        return Err(protocol("message_role_or_status"));
+    }
+    message_content(value)?.ok_or(protocol("message_content_count"))
+}
+fn message_content(value: &Value) -> Result<Option<&str>> {
+    if string(value, "role")? != "assistant" {
         return Err(protocol("message_role_or_status"));
     }
     let content = array(value, "content")?;
-    if content.len() != 1 {
+    if content.len() > 1 {
         return Err(protocol("message_content_count"));
     }
-    output_text(&content[0])
+    content.first().map(output_text).transpose()
 }
-fn reasoning_item(value: &Value, terminal: bool) -> Result<()> {
+fn reasoning_item(value: &Value, terminal: bool, allow_incomplete: bool) -> Result<()> {
     if let Some(status) = value.get("status") {
-        if terminal && status.as_str() == Some("incomplete") {
+        let incomplete = terminal && status.as_str() == Some("incomplete");
+        if incomplete && !allow_incomplete {
             return Err(StreamFailure {
                 failure: Failure::RemoteFailure,
                 rule: "reasoning_incomplete",
@@ -896,7 +935,7 @@ fn reasoning_item(value: &Value, terminal: bool) -> Result<()> {
             });
         }
         let expected = if terminal { "completed" } else { "in_progress" };
-        if status.as_str() != Some(expected) {
+        if !incomplete && status.as_str() != Some(expected) {
             return Err(protocol("reasoning_status"));
         }
     }

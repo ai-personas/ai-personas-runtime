@@ -647,6 +647,10 @@ pub struct StreamDiagnostic {
     pub remote_error_type_sha256: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remote_error_code_sha256: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub incomplete_reason: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub incomplete_reason_sha256: Option<String>,
     pub rule: &'static str,
     pub field: Option<&'static str>,
 }
@@ -671,6 +675,16 @@ impl fmt::Debug for RetainedResponseId {
         f.write_str("RetainedResponseId([REDACTED])")
     }
 }
+/// Provider-reported terminal status, distinct from validated carrier completion
+/// and from confirmation of remote cancellation or charges.
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReportedTerminalStatus {
+    Completed,
+    Failed,
+    Incomplete,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct AttemptReceipt {
     pub audit: RequestAudit,
@@ -686,6 +700,8 @@ pub struct AttemptReceipt {
     pub stream_eof: bool,
     pub event_count: u64,
     pub response_completed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reported_terminal_status: Option<ReportedTerminalStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_diagnostic: Option<StreamDiagnostic>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -719,6 +735,7 @@ impl AttemptReceipt {
             stream_eof: false,
             event_count: 0,
             response_completed: false,
+            reported_terminal_status: None,
             stream_diagnostic: None,
             response_id: None,
             response_id_sha256: None,
@@ -1472,6 +1489,7 @@ impl DirectCall {
             receipt.stream_bytes_observed = collector.observed as u64;
             receipt.event_count = collector.events as u64;
             receipt.response_completed = collector.completed;
+            receipt.reported_terminal_status = collector.reported_terminal_status;
             receipt.stream_diagnostic = collector.diagnostic.clone();
             receipt.response_id = collector.retained_response_id();
             receipt.response_id_sha256 = collector.response_id_sha256();
