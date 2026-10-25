@@ -438,7 +438,17 @@ count ceiling; each handle still belongs to its actual supplied observation.
 Length-prefixed historical observation/message IDs have no component or reply-index
 quota. Diagnostic shape hints inspect the actual operation index and complete
 known field list, following schema references with cycle detection instead of a
-depth cap. Current persona instructions no longer advertise removed navigation,
+depth cap. Rejected response and native work-command hints also identify missing
+required members and definite type or enum mismatches at known nested paths.
+For example, an assessment without a judgment identifies
+`response.operations[index].judgment` as required; a malformed affect update can
+identify missing members within its `change` object. The same schema traversal
+serves both interfaces, including typed arrays and map values. It never copies
+dynamic map keys or opaque command payloads into hints. These diagnostics run
+only after rejection: they neither validate additional constraints nor change,
+adopt or execute the submitted response.
+
+Current persona instructions no longer advertise removed navigation,
 source-ID, metadata or history-page ceilings.
 
 The local-only mock evidence adapter also treats its saved byte estimates and

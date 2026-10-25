@@ -8,6 +8,8 @@ pub struct ShapeHint {
     pub section: String,
     /// Fields of this exact known object variant, not a suggested repair.
     pub allowed_fields: Vec<String>,
+    /// Missing members and definite mismatches at schema-owned nested paths.
+    pub issues: Vec<String>,
 }
 
 impl Default for ShapeHint {
@@ -15,6 +17,7 @@ impl Default for ShapeHint {
         Self {
             section: "response".into(),
             allowed_fields: Vec::new(),
+            issues: Vec::new(),
         }
     }
 }
@@ -29,6 +32,9 @@ impl std::fmt::Display for ShapeHint {
                 self.allowed_fields.join(", ")
             )?;
         }
+        for issue in &self.issues {
+            write!(formatter, "; {issue}")?;
+        }
         Ok(())
     }
 }
@@ -41,34 +47,9 @@ pub(super) fn root_member_hint(key: &str) -> ShapeHint {
         .map(|(known, _)| ShapeHint {
             section: format!("response.{known}"),
             allowed_fields: Vec::new(),
+            issues: Vec::new(),
         })
         .unwrap_or_default()
-}
-
-fn object_variant<'a>(schema: &'a Value, all: &'a Value, received: &Value) -> Option<&'a Value> {
-    let mut current = schema;
-    let mut visited = BTreeSet::new();
-    // Only generated local references and known discriminator variants count.
-    // A wrong/unknown tag yields no field list instead of guessing a variant.
-    loop {
-        if !visited.insert(current as *const Value) {
-            return None;
-        }
-        if let Some(reference) = current["$ref"].as_str() {
-            let pointer = reference.strip_prefix('#')?;
-            current = all.pointer(pointer)?;
-        } else if let Some(variants) = current["oneOf"]
-            .as_array()
-            .or_else(|| current["anyOf"].as_array())
-        {
-            let kind = received.get("kind")?.as_str()?;
-            current = variants
-                .iter()
-                .find(|variant| variant["properties"]["kind"]["const"].as_str() == Some(kind))?;
-        } else {
-            return current["properties"].as_object().map(|_| current);
-        }
-    }
 }
 
 pub(super) fn hint(path: &Path, bytes: &[u8]) -> ShapeHint {
@@ -105,11 +86,12 @@ pub(super) fn hint(path: &Path, bytes: &[u8]) -> ShapeHint {
             }
         }
     }
-    if let Some(object) = object_variant(target_schema, &schema, target) {
+    if let Some(object) = crate::schema_diagnostics::object_variant(target_schema, &schema, target) {
         let fields = object["properties"]
             .as_object()
             .expect("resolved object properties");
         hint.allowed_fields = fields.keys().cloned().collect();
     }
+    hint.issues = crate::schema_diagnostics::issues(target_schema, &schema, target, &hint.section);
     hint
 }
