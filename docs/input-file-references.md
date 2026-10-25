@@ -33,7 +33,7 @@ The `input-file-choices-v2` interface supports these uses:
 | `file_write.qualification_handles` | Add the chosen exact references to the write's literal `qualifications`. |
 | `file_edit.qualification_handles` | Add the chosen exact references to the edited revision's literal `qualifications`. |
 | `file_import.qualification_handles` | Add the chosen exact references to an imported asset's literal `qualifications`. |
-| Host-command `inputs.stdin_asset` with `kind: input_file` and `handle` | Pass the exact full UTF-8 supporting asset as command stdin without copying its body into the response. This does not select model context. |
+| Host-command `inputs.stdin_asset` with `kind: input_file` and `handle` | Pass the exact supporting-asset text as command stdin, including a decoded JSON string or measured UTF-8 byte range, without copying it into the response. This does not select model context. |
 | `communicate.reference_handles` | Attach canonical `file_references` to the deposited message. |
 | An authored `reply.reference_handles` | Attach the same chosen references to each authorized local reply recipient. |
 

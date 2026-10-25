@@ -104,9 +104,10 @@ Native paths must also be unique within the persona and scope; see
 
 ## Use a retained asset as standard input
 
-`stdin_asset` supplies an exact full UTF-8 supporting asset to the command
-without copying its content through the model response. Use either a literal
-`stdin` string or `stdin_asset`; supplying both is rejected.
+`stdin_asset` supplies the exact text of a supporting-asset reference to the
+command without copying its content through the model response. It accepts
+UTF-8 text and once-decoded JSON strings, including measured UTF-8 byte ranges.
+Use either a literal `stdin` string or `stdin_asset`; supplying both is rejected.
 
 For a handle offered in the current input, the command inputs can be:
 
@@ -119,14 +120,16 @@ For a handle offered in the current input, the command inputs can be:
 ```
 
 Alternatively use `{"kind":"reference","reference":EXACT_FILE_REFERENCE}`
-with the asset's source, revision and `utf8` representation. The reference must
-name the whole file, with no byte range. A same-response `file_write` or
+with the asset's source, revision, representation and optional byte range. A
+`json_string:/inputs/command` reference to a retained host result supplies that
+exact decoded command, not the surrounding result document. Byte ranges apply
+to the decoded text and must use valid UTF-8 boundaries. A same-response `file_write` or
 `file_import` may be consumed through its `proposal-op:<id>` revision when
 `depends_on` names that exact save ID. A current-input handle always names an
 already retained revision. No current head or similarly named host file is
 substituted for the chosen revision.
 
-The shell receives the exact saved bytes on standard input. `cat > path` writes
+The shell receives the exact referenced text bytes on standard input. `cat > path` writes
 a host copy; `python3 -` runs Python source directly, with arguments after `-`.
 Choose a host file when the program expects `__file__`, nearby resources, or
 separate stdin for its own data. Dependencies and environment still belong to
@@ -134,9 +137,11 @@ the actual host command. A command that never reads stdin may ignore it.
 
 Native inputs are resolved while staging the complete decision, before any
 command executes. The accepted intent retains the materialized bytes and their
-source revision, byte count and SHA-256. Dispatch rechecks that exact source and
-its bindings; it never rereads an original host path or rebuilds the bytes from
-model text. The existing command reservation accounts for the materialized
+source revision, representation, range, byte count and SHA-256. The byte count
+and digest describe the actual stdin text, which can differ from the source
+document. Dispatch rechecks that exact source, its bindings and the projected
+text; it never rereads an original host path or rebuilds the bytes from model
+text. The existing command reservation accounts for the materialized
 input. Importing and immediately using a file does not skip its maintenance or
 complete-decision checks.
 

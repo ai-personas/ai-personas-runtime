@@ -27,10 +27,11 @@ pub(super) struct Inputs {
     /// Literal UTF-8 stdin. Mutually exclusive with stdin_asset.
     #[serde(default)]
     pub stdin: Option<String>,
-    /// Supply an exact full native supporting asset as stdin without copying
-    /// its body into this response. Use cat > a host path to export it, or an
-    /// interpreter such as python3 - to execute it. This does not select model
-    /// context. A same-response proposal requires its save ID in depends_on.
+    /// Supply exact supporting-asset text as stdin without copying it into this
+    /// response. UTF-8 and once-decoded JSON-string references support complete
+    /// text or measured UTF-8 byte ranges. Use cat > a host path to export it,
+    /// or an interpreter such as python3 - to execute it. This does not select
+    /// model context. A same-response proposal requires its save ID in depends_on.
     #[serde(default)]
     pub stdin_asset: Option<Asset>,
     /// Optional timeout chosen by the persona; omission means no timeout.
@@ -41,7 +42,7 @@ pub(super) struct Inputs {
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum Asset {
-    /// Exact full UTF-8 asset, including a proposal-op:<save-id> revision.
+    /// Exact asset text reference, including a proposal-op:<save-id> revision.
     Reference { reference: p::ExactRef },
     /// Handle from this admission's input_file_choices table; metadata is enough
     /// to name an input, and does not claim that its body was supplied to the LLM.
@@ -118,14 +119,11 @@ impl Inputs {
         let receipt = if let Some(reference) = reference {
             let reference = wire_reference(&file_reference(&reference)?);
             let a = admission(&state.personas[&prepared.request.persona], now);
-            let (file, binding_sha256) = current_asset(state, &reference, &a)?;
-            let text = std::str::from_utf8(&file.bytes)
-                .map_err(|_| held("host stdin asset is not UTF-8"))?
-                .to_owned();
+            let (text, binding_sha256) = current_asset(state, &reference, &a)?;
             let receipt = Receipt {
                 reference,
-                bytes: file.bytes.len(),
-                sha256: s::sha256_bytes(&file.bytes),
+                bytes: text.len(),
+                sha256: s::sha256_bytes(text.as_bytes()),
                 binding_sha256,
             };
             stdin = Some(text);
@@ -145,18 +143,12 @@ impl Inputs {
     }
 }
 
-fn current_asset<'a>(
-    state: &'a State,
+fn current_asset(
+    state: &State,
     reference: &p::ExactRef,
     a: &f::Admission,
-) -> Result<(&'a f::FileRevision, String)> {
+) -> Result<(String, String)> {
     let reference = file_reference(reference)?;
-    require(
-        reference.representation == f::Representation::Utf8
-            && reference.start.is_none()
-            && reference.end.is_none(),
-        "host stdin requires an exact full UTF-8 supporting asset",
-    )?;
     let stored = record(state, &reference)?;
     require(
         stored.record.scope == f::Scope::Assets
@@ -164,9 +156,11 @@ fn current_asset<'a>(
             && lineage_permitted(state, std::slice::from_ref(&reference), a),
         "host stdin asset unavailable",
     )?;
-    // Resolve the complete qualification closure for the exact asset. The
-    // runner consumes these bytes directly, without a corpus or prompt quota.
-    f::assemble(
+    // Resolve the complete qualification closure and use the exact projected
+    // root text. A decoded command field or measured range must not become the
+    // whole JSON document or current source head. The runner consumes this text
+    // directly, without a corpus or prompt quota or another escaping layer.
+    let assembled = f::assemble(
         &corpus(state, a)?,
         std::slice::from_ref(&reference),
         &[],
@@ -176,6 +170,10 @@ fn current_asset<'a>(
         0,
         0,
     )?;
+    let text = assembled.entries.into_iter()
+        .find(|entry| entry.reference == reference)
+        .ok_or_else(|| held("host stdin asset text unavailable at the exact representation and range"))?
+        .text;
     let bindings: Vec<_> = state
         .accepted_bindings
         .iter()
@@ -183,18 +181,18 @@ fn current_asset<'a>(
             binding.source == reference.source && binding.file_revision == reference.revision
         })
         .collect();
-    Ok((&stored.record, digest(&(stored, bindings))?))
+    Ok((text, digest(&(stored, bindings))?))
 }
 
 pub(super) fn require_current(state: &State, job: &Job, now: i64) -> Result<()> {
     if let Some(receipt) = &job.stdin_asset {
         let a = admission(&state.personas[&job.actor], now);
-        let (file, binding) = current_asset(state, &receipt.reference, &a)?;
+        let (text, binding) = current_asset(state, &receipt.reference, &a)?;
         require(
             binding == receipt.binding_sha256
-                && file.bytes.len() == receipt.bytes
-                && s::sha256_bytes(&file.bytes) == receipt.sha256
-                && job.input.stdin.as_deref().map(str::as_bytes) == Some(file.bytes.as_slice())
+                && text.len() == receipt.bytes
+                && s::sha256_bytes(text.as_bytes()) == receipt.sha256
+                && job.input.stdin.as_deref() == Some(text.as_str())
                 && exposure_permitted(state, &job.exposure, &a),
             "host stdin asset or its current bindings changed before dispatch",
         )?;
@@ -213,7 +211,7 @@ pub(super) fn observed(job: &Job) -> Result<Value> {
         value.as_object_mut().unwrap().remove("stdin");
         value["stdin_asset"] = json!({"reference":receipt.reference,
             "bytes":receipt.bytes,"sha256":receipt.sha256,"body_supplied":false,
-            "meaning":"Exact native asset bytes materialized as command stdin; body retained in the accepted intent, not repeated in this result. This is not evidence that the process consumed every byte."});
+            "meaning":"Exact native asset text materialized as command stdin using the retained representation and range; body retained in the accepted intent, not repeated in this result. This is not evidence that the process consumed every byte."});
     }
     Ok(value)
 }
