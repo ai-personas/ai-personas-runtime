@@ -19,11 +19,12 @@ pub(super) struct Capture {
     bytes: Vec<u8>,
     hash: Sha256,
     secrets: [Secret; 2],
+    private_input: bool,
 }
 
 impl Capture {
-    pub fn new(secrets: [Secret; 2]) -> Self {
-        Self { bytes: Vec::new(), hash: Sha256::new(), secrets }
+    pub fn new(secrets: [Secret; 2], private_input: bool) -> Self {
+        Self { bytes: Vec::new(), hash: Sha256::new(), secrets, private_input }
     }
 
     pub fn push(&mut self, bytes: &[u8]) {
@@ -49,6 +50,13 @@ impl Capture {
         let error = &value["error"];
         if let Some(message) = error["message"].as_str().or_else(|| value["detail"].as_str()) {
             let mut message = message.to_owned();
+            // A provider can echo a fragment of an opaque input item. Keep the
+            // response digest and structural error fields; never expose such
+            // partial item bodies through ordinary recovery diagnostics.
+            if self.private_input {
+                message = "[Provider explanation withheld for a request containing private continuation items]".into();
+                result.message_redacted = true;
+            }
             for secret in &self.secrets {
                 if message.contains(secret.expose()) {
                     message = message.replace(secret.expose(), "[REDACTED]");
@@ -65,6 +73,7 @@ impl Capture {
             "unsupported_parameter", "unknown_parameter", "invalid_value", "invalid_api_key",
             "model_not_found", "context_length_exceeded", "rate_limit_exceeded",
             "insufficient_quota", "server_error",
+            "invalid_encrypted_content",
         ]);
         const PARAMETERS: &[&str] = &[
             "model", "store", "stream", "instructions", "input", "reasoning", "text",

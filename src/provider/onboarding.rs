@@ -130,6 +130,7 @@ pub(crate) fn request(
         &prompt,
         None,
         &[],
+        None,
         &schema,
     )?)
 }

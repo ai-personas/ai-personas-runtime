@@ -84,6 +84,7 @@ mod requester_wait;
 pub use requester_feedback::Disposition as RequesterFeedbackDisposition;
 mod peer_feedback;
 mod collaborators;
+mod provider_continuation;
 mod judgment_citations;
 pub(crate) mod affect;
 pub use peer_feedback::Disposition as PeerFeedbackDisposition;
@@ -510,6 +511,10 @@ pub struct Focus {
     /// Primary-selected immutable image captures, part of next_assets.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) images: Vec<image_input::selection::Selected>,
+    /// Explicit selected provider turn; only a reference and provenance live
+    /// in ordinary state. The prior input/output bodies remain host-private.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) provider_context: Option<provider_continuation::Selected>,
     pub permit: bool,
     /// Private host authorization for one admission after an ended participation.
     /// Missing retained state grants nothing; never supplied as persona authorship.
@@ -1364,6 +1369,10 @@ pub struct Prepared {
     /// Full text remains sealed by prompt_sha256; absence keeps one message.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reusable_prefix_bytes: Option<usize>,
+    /// Complete provider history explicitly selected for this exact admission.
+    /// Never render these opaque bodies into CONTROL or ordinary receipts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_history: Option<provider::InputHistory>,
     /// Ordered image content parts, sealed separately from the text prompt.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<provider::ImageInput>,
@@ -4181,6 +4190,7 @@ impl Runtime {
             prompt_sha256: s::sha256_bytes(rendered.prompt.as_bytes()),
             prompt: rendered.prompt,
             reusable_prefix_bytes: Some(rendered.reusable_prefix_bytes),
+            input_history: rendered.input_history,
             images: rendered.images,
             prompt_encoding: rendered.prompt_encoding,
             output_schema: provider::json_object_schema(),
@@ -5611,6 +5621,7 @@ impl Runtime {
                 let native = provider.prepare(provider::ProviderRequest {
                     prompt: prepared.prompt.clone(),
                     reusable_prefix_bytes: prepared.reusable_prefix_bytes,
+                    input_history: prepared.input_history.clone(),
                     images: prepared.images.clone(),
                     output_schema: prepared.output_schema.clone(),
                     invocation_id: prepared.request.id.clone(),
@@ -5621,6 +5632,9 @@ impl Runtime {
                         && audit.prompt_sha256 == prepared.prompt_sha256
                         && audit.prompt_bytes == prepared.prompt.len() as u64
                         && audit.reusable_prefix_bytes == prepared.reusable_prefix_bytes
+                        && audit.input_history == prepared.input_history.as_ref()
+                            .map(provider::InputHistory::metadata).transpose()
+                            .map_err(|_| held("selected provider history metadata unavailable"))?
                         && audit.image_inputs == prepared.images.iter()
                             .map(provider::ImageInput::audit).collect::<Vec<_>>()
                         && audit.schema_sha256
@@ -6694,8 +6708,11 @@ fn selection_digest(
     fragments: &[Selected],
     assets: &[Selected],
     images: &[image_input::selection::Selected],
+    provider_context: Option<&provider_continuation::Selected>,
 ) -> Result<String> {
-    if images.is_empty() {
+    if let Some(provider_context) = provider_context {
+        digest(&("provider-context-selection-v1", character, fragments, assets, images, provider_context))
+    } else if images.is_empty() {
         digest(&(character, fragments, assets))
     } else {
         digest(&("multimodal-selection-v1", character, fragments, assets, images))
@@ -6721,6 +6738,7 @@ fn carry_expiry_witness(
         .flatten()
         .filter_map(|selected| selected.last_admission)
         .chain(focus.images.iter().filter_map(|selected| selected.last_admission))
+        .chain(focus.provider_context.iter().filter_map(|selected| selected.last_admission))
         .filter(|last| *last <= serial)
         .collect();
     if deadlines.is_empty() {
@@ -6731,6 +6749,7 @@ fn carry_expiry_witness(
         &active_selection(&focus.fragments, next),
         &active_selection(&focus.assets, next),
         &image_input::selection::active(&focus.images, next),
+        focus.provider_context.as_ref().filter(|selected| selected.active(next)),
     )?;
     for deadline in deadlines {
         let previous = selection_digest(
@@ -6738,6 +6757,7 @@ fn carry_expiry_witness(
             &active_selection(&focus.fragments, deadline),
             &active_selection(&focus.assets, deadline),
             &image_input::selection::active(&focus.images, deadline),
+            focus.provider_context.as_ref().filter(|selected| selected.active(deadline)),
         )?;
         if let Some(fit) = &mut focus.selection_fit {
             if fit.selection_sha256 == previous {
@@ -6774,6 +6794,7 @@ struct Rendered {
     withheld: Vec<f::WithheldBundle>,
     prompt: String,
     reusable_prefix_bytes: usize,
+    input_history: Option<provider::InputHistory>,
     images: Vec<provider::ImageInput>,
     prompt_encoding: Option<String>,
     total: usize,
@@ -7009,7 +7030,8 @@ fn render_mode_with_history(
     let assets = active_selection(&focus.assets, serial);
     let selected_images = image_input::selection::active(&focus.images, serial);
     let selection_sha256 = selection_digest(persona.character.as_ref().map(|c| c.revision.as_str()),
-        &fragments, &assets, &selected_images)?;
+        &fragments, &assets, &selected_images,
+        focus.provider_context.as_ref().filter(|selected| selected.active(serial)))?;
     let mut observations = Vec::new();
     let mut image_supply = image_input::Supply::default();
     let mut observation_ids = Vec::new();
@@ -7623,6 +7645,20 @@ fn render_mode_with_history(
     if ordinary_interfaces {
         core["message_references"] = message_references::interface();
     }
+    let input_history = if ordinary_interfaces {
+        let (context, history) = history_material.continuation.project(
+            state, focus, actor, work_id, &persona.seed.requested_model, serial, &a, &mut exposure,
+        )?;
+        growth_bytes = growth_bytes.checked_add(
+            serde_json::to_vec(&context)?.len().saturating_sub(provider_continuation::rule_bytes()),
+        ).ok_or_else(|| invalid("provider continuation metadata accounting"))?;
+        core["provider_continuation"] = context;
+        history
+    } else { None };
+    let input_history_bytes = input_history.as_ref().map(provider::InputHistory::input_bytes)
+        .transpose().map_err(|_| invalid("provider continuation input accounting"))?.unwrap_or(0);
+    growth_bytes = growth_bytes.checked_add(input_history_bytes)
+        .ok_or_else(|| invalid("provider continuation input size overflow"))?;
     let schema_bytes = serde_json::to_vec(&provider::json_object_schema())?.len();
     // Measure only the actual instruction/schema components, not dynamic
     // control fields, counters, invocation identifiers or resource formatting.
@@ -7634,6 +7670,7 @@ fn render_mode_with_history(
         serde_json::to_vec(&resource_use_rules)?.len(),
         if ordinary_interfaces { serde_json::to_vec(&core["history_retrieval"])?.len() } else { 0 },
         if ordinary_interfaces { serde_json::to_vec(&core["message_references"])?.len() } else { 0 },
+        if ordinary_interfaces { provider_continuation::rule_bytes() } else { 0 },
         launch_step_allowance.map_or(0, |_| launch::step_accounting::RULE.len()),
     ]
     .into_iter()
@@ -7646,6 +7683,7 @@ fn render_mode_with_history(
         prompt
             .len()
             .checked_add(schema_bytes)
+            .and_then(|n| n.checked_add(input_history_bytes))
             .and_then(|n| n.checked_add(PROMPT_MARGIN))
             .and_then(|n| n.checked_add(state.config.output_reserve_bytes))
             .ok_or_else(|| invalid("prompt size overflow"))
@@ -7990,6 +8028,7 @@ fn render_mode_with_history(
         withheld: assembly.withheld,
         prompt,
         reusable_prefix_bytes,
+        input_history,
         images: image_supply.images,
         prompt_encoding,
         total,
@@ -8375,7 +8414,8 @@ fn select(
             if !references.is_empty() {
                 p::validate_selected_references(&references)?;
             } else {
-                require(!intent.images().is_empty(), "empty replacement requires clear")?;
+                require(!intent.images().is_empty() || intent.provider_context().is_some(),
+                    "empty replacement requires clear")?;
             }
             let mut result = Vec::new();
             for reference in references {
@@ -8783,6 +8823,10 @@ fn plan_response(
     let images = image_input::selection::select(
         &state, prepared, &decision.next_assets, &previous_focus.images, character_changed,
     )?;
+    let provider_context = provider_continuation::select(
+        store, prepared, &decision.next_assets, previous_focus.provider_context.as_ref(),
+        character_changed, &mut history_material.continuation,
+    )?;
     check_replacement(
         &state,
         prepared,
@@ -8818,6 +8862,7 @@ fn plan_response(
         focus.fragments = fragments;
         focus.assets = assets;
         focus.images = images;
+        focus.provider_context = provider_context;
         if !character_changed {
             focus
                 .pending_observations

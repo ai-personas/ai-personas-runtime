@@ -34,9 +34,9 @@ release or evidence checks.
 
 | Serialized mode | Transport profile | Route | Credential grant |
 | --- | --- | --- | --- |
-| `chatgpt_oauth` | `traditional_chatgpt_responses_v4` | `https://chatgpt.com/backend-api/codex/responses` | Traditional ChatGPT OAuth, with the authorized account header |
-| `siwc_oauth` | `siwc_documented_public_responses_v4` | `https://api.openai.com/v1/responses` | SIWC token-sharing OAuth |
-| `platform_api_key` | `platform_responses_v4` | `https://api.openai.com/v1/responses` | Explicit OpenAI Platform API-key access and billing |
+| `chatgpt_oauth` | `traditional_chatgpt_responses_v5` | `https://chatgpt.com/backend-api/codex/responses` | Traditional ChatGPT OAuth, with the authorized account header |
+| `siwc_oauth` | `siwc_documented_public_responses_v5` | `https://api.openai.com/v1/responses` | SIWC token-sharing OAuth |
+| `platform_api_key` | `platform_responses_v5` | `https://api.openai.com/v1/responses` | Explicit OpenAI Platform API-key access and billing |
 
 These modes never substitute for one another. A missing credential, unsupported model/effort, or unsuccessful OAuth request cannot activate API-key billing. The SIWC profile follows the documented public Responses contract; it does not send OpenClaw's preview test header or claim access from that header's existence.
 
@@ -239,12 +239,43 @@ model-call receipt adds no unused provider-state catalogue to persona context.
 
 [OpenAI's reasoning guide](https://developers.openai.com/api/docs/guides/reasoning)
 describes retaining complete response output for stateless reasoning continuity.
-This runtime records those returned items but does not yet replay them. Every
-current request still uses its explicitly assembled input without prior provider
-output or a previous-response ID. Retention establishes no compatibility,
-model-visible reuse, task improvement or character maturation. Any future reuse
-must preserve the persona's explicit context choice, provenance and actual usage
-accounting rather than silently add an expanding conversation history.
+The runtime offers `CONTROL.provider_continuation` on ordinary decisions.
+A persona can select this invocation's complete actual input and completed
+output through a `next_assets` replacement:
+
+```json
+{"kind":"replace","references":[],"provider_context":{"kind":"current","lifetime":"work"},"reason":"Keep the current working context for the next decision."}
+```
+
+The selection includes earlier provider history only when it was actually
+supplied to this invocation. It preserves all output items and assistant phases,
+earlier text and image inputs, and their original ordering. The selected turn is
+bound to its exact terminal, persona, work, model and transport profile. Private
+`Prepared.input_history` retains the resulting provider input; normal context,
+receipts and development views expose its reference, digest, counts and complete
+serialized byte size. Serialized bytes are not an estimate of rendered tokens.
+The exact wire hash covers the complete input, and provider usage stays attributed
+to the provider's report. No previous-response ID or server-side storage is used.
+
+`lifetime` defaults to `work`; `next_call` expires after the next admission.
+`provider_context:{"kind":"preserve"}` in a replacement keeps the existing turn
+without appending the current one or renewing its lifetime. Omission from a
+replacement clears provider history. Whole-selection `preserve` retains surviving
+text, images and provider history; `clear` clears them. Character adoption can
+preserve or clear an old selection but cannot add the fenced turn. The current
+character, latest contract, CONTROL and observed effects govern each new decision;
+old assistant Decisions remain historical proposals, not new actions or receipts.
+
+Missing or thin output and model incompatibility produce explicit unavailable
+metadata without inventing a complete history. Dispatch also checks the retained
+transport profile. An actual context-length or invalid-encrypted-content rejection
+can make that exact selected history unavailable in a fresh input under an existing
+continuation route. The selection and failed input remain unchanged; the persona
+can preserve the unavailable reference, clear it or choose the fresh current turn.
+HTTP explanations for requests containing private history are withheld to prevent
+echoed opaque items from entering diagnostics; structured error fields and the
+response digest remain. Neither selection nor successful item supply establishes
+rendered reasoning reuse, task improvement or character maturation.
 
 Owned native foreground sessions can keep independent personas' direct calls in
 flight concurrently. Each call retains its own request, receipt and single-use
@@ -262,17 +293,19 @@ current identity. A fresh decision receives its own current values; a mandate
 revision is not the response epoch.
 
 The host seals a UTF-8 boundary after its complete instructions and application
-schema. The v4 transport sends that host-authored prefix in the `developer` role;
+schema. The v5 transport sends that host-authored prefix in the `developer` role;
 the remaining CONTROL and QUALIFIED_CONTEXT use the `user` role. This preserves
 the distinction between application instructions and their current inputs in
 [OpenAI's message-role contract](https://developers.openai.com/api/docs/guides/prompt-engineering#message-roles-and-instruction-following).
 The prefix contains no persona fragments, task text, retrieved material or tool
 results. Those keep their actual authorship and qualifications in current input.
-The messages' text concatenates to the complete recorded prompt without rewriting
+The current messages' text concatenates to the complete recorded prompt without rewriting
 or dropping bytes. Captured images follow the changing text. The admission and
 provider audit record `reusable_prefix_bytes`; the versioned wire profile and
 complete body hash bind both message roles and layout. Earlier v2 single-message
-and v3 two-user-message receipts remain inspectable with their original roles.
+and v3 two-user-message receipts, and v4 developer-prefix receipts without selected
+provider history, remain inspectable with their original roles. Explicitly selected
+history precedes the current developer and user messages in v5.
 
 Within the changing CONTROL object, the renderer presents persona character,
 current work, amendments, the original request and accepted participation before

@@ -67,7 +67,7 @@ fn failed_response_only_attempt(
         && attempt["audit"] == *audit && audit["invocation_id"] == *id
         && provider::response_only_request_matches(audit,
             &prepared.requested_model, &prepared.requested_effort, &prepared.prompt,
-            prepared.reusable_prefix_bytes, &prepared.images, &prepared.output_schema)
+            prepared.reusable_prefix_bytes, &prepared.images, prepared.input_history.as_ref(), &prepared.output_schema)
         && invocation.response_hash.is_none()
         && !invocation.history.iter().any(|row| matches!(row.status,
             s::ReceiptStatus::Responded | s::ReceiptStatus::Adopted))
@@ -101,7 +101,8 @@ fn terminal_provider_failure(
         && attempt["http_status"] == 200
         // A context rejection needs an actual projection change below; retrying
         // the same unsupported input is not useful terminal-failure recovery.
-        && diagnostic["remote_error_code"] != "context_length_exceeded"
+        && !matches!(diagnostic["remote_error_code"].as_str(),
+            Some("context_length_exceeded" | "invalid_encrypted_content"))
         && attempt["response_completed"] == false
         && failed_response_only_attempt(invocation, prepared, evidence)?)
 }
@@ -204,17 +205,21 @@ fn provider_context_failure(
     let attempt = &receipt["attempt_receipt"];
     let stream = &attempt["stream_diagnostic"];
     let http = &attempt["http_diagnostic"];
+    let context_length = stream["remote_error_code"] == "context_length_exceeded"
+        || http["error_code"] == "context_length_exceeded";
+    let supported = |code: &Value| code == "context_length_exceeded"
+        || (prepared.input_history.is_some() && code == "invalid_encrypted_content");
     let observed = (attempt["http_status"] == 200 && receipt["failure"] == "remote_failure"
         && matches!(stream["event_type"].as_str(), Some("error" | "response.failed" | "response.incomplete"))
-        && stream["remote_error_code"] == "context_length_exceeded")
+        && supported(&stream["remote_error_code"]))
         || (attempt["http_status"] == 400 && receipt["failure"] == "http_status"
-            && http["body_complete"] == true && http["error_code"] == "context_length_exceeded");
+            && http["body_complete"] == true && supported(&http["error_code"]));
     if !observed || attempt["response_completed"] != false
         || !failed_response_only_attempt(invocation, prepared, evidence)?
     {
         return Ok(None);
     }
-    provider_context_recovery::candidate(prepared, evidence)
+    provider_context_recovery::candidate(prepared, evidence, context_length)
 }
 
 /// Classify a bound local failure for explicit resumption. A recoverable local

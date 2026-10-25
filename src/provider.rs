@@ -9,8 +9,10 @@ pub(crate) mod onboarding;
 mod sse;
 mod http_error;
 mod output_items;
+mod input_history;
 pub use http_error::Diagnostic as HttpErrorDiagnostic;
 pub use output_items::RetainedOutputItems;
+pub use input_history::InputHistory;
 pub(crate) use output_items::metadata as retained_output_metadata;
 
 use futures_util::future::BoxFuture;
@@ -76,19 +78,19 @@ impl AccessMode {
     fn wire_profile(self) -> WireProfile {
         let (id, url, headers, account_header) = match self {
             Self::ChatgptOAuth => (
-                "traditional_chatgpt_responses_v4",
+                "traditional_chatgpt_responses_v5",
                 "https://chatgpt.com/backend-api/codex/responses",
                 CHATGPT_HEADERS,
                 Some("chatgpt-account-id"),
             ),
             Self::SiwcOAuth => (
-                "siwc_documented_public_responses_v4",
+                "siwc_documented_public_responses_v5",
                 "https://api.openai.com/v1/responses",
                 PUBLIC_HEADERS,
                 None,
             ),
             Self::PlatformApiKey => (
-                "platform_responses_v4",
+                "platform_responses_v5",
                 "https://api.openai.com/v1/responses",
                 PUBLIC_HEADERS,
                 None,
@@ -574,6 +576,9 @@ pub struct RequestAudit {
     /// their distinct message roles are bound by the wire profile and body hash.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reusable_prefix_bytes: Option<usize>,
+    /// Metadata for exact explicitly supplied prior input/output items.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_history: Option<Value>,
     pub schema_sha256: String,
     pub schema_bytes: u64,
     pub instructions_sha256: String,
@@ -835,6 +840,7 @@ pub struct ProviderRequest {
     /// Never place retrieved or persona-authored material in that prefix.
     /// None sends the complete prompt in one user message.
     pub reusable_prefix_bytes: Option<usize>,
+    pub input_history: Option<InputHistory>,
     pub images: Vec<ImageInput>,
     /// The unconstrained object schema selects JSON-object transport. Other
     /// schemas use strict structured output. The application validates its
@@ -1212,20 +1218,12 @@ impl Inner {
 }
 
 /// One serializer shared by dispatch and exact response-only recovery checks.
-fn response_only_body(
+fn current_input(
     profile: &WireProfile,
-    model: &str,
-    effort: &str,
     prompt: &str,
     reusable_prefix_bytes: Option<usize>,
     images: &[ImageInput],
-    schema: &Value,
-) -> Result<Value, Failure> {
-    let format = if schema == &json_object_schema() {
-        json!({"type":"json_object"})
-    } else {
-        json!({"type":"json_schema","name":"persona_decision","strict":true,"schema":schema})
-    };
+) -> Result<Vec<Value>, Failure> {
     let mut input = Vec::new();
     let changing_text = if let Some(boundary) = reusable_prefix_bytes {
         if boundary == 0 || boundary >= prompt.len() || !prompt.is_char_boundary(boundary) {
@@ -1243,6 +1241,26 @@ fn response_only_body(
         "type":"input_image","image_url":image.image_url,"detail":image.detail,
     })));
     input.push(json!({"role":profile.input_role,"content":content}));
+    Ok(input)
+}
+
+fn response_only_body(
+    profile: &WireProfile,
+    model: &str,
+    effort: &str,
+    prompt: &str,
+    reusable_prefix_bytes: Option<usize>,
+    images: &[ImageInput],
+    input_history: Option<&InputHistory>,
+    schema: &Value,
+) -> Result<Value, Failure> {
+    let format = if schema == &json_object_schema() {
+        json!({"type":"json_object"})
+    } else {
+        json!({"type":"json_schema","name":"persona_decision","strict":true,"schema":schema})
+    };
+    let mut input = input_history.map(|history| history.items(model, profile)).transpose()?.unwrap_or_default();
+    input.extend(current_input(profile, prompt, reusable_prefix_bytes, images)?);
     let body = json!({"model":model,"store":false,"stream":true,
         "instructions":profile.instructions,
         "input":input,
@@ -1260,6 +1278,7 @@ pub(crate) fn response_only_request_matches(
     prompt: &str,
     reusable_prefix_bytes: Option<usize>,
     images: &[ImageInput],
+    input_history: Option<&InputHistory>,
     schema: &Value,
 ) -> bool {
     if !images.iter().all(ImageInput::is_data_image) {
@@ -1276,22 +1295,25 @@ pub(crate) fn response_only_request_matches(
         if audit["transport_profile"] != profile.id {
             // Inspect earlier exact bodies without enabling an older dispatch
             // or changing the authority of any retained historical input.
-            let (single, split_user) = match mode {
-                AccessMode::ChatgptOAuth => ("traditional_chatgpt_responses_v2", "traditional_chatgpt_responses_v3"),
-                AccessMode::SiwcOAuth => ("siwc_documented_public_responses_v2", "siwc_documented_public_responses_v3"),
-                AccessMode::PlatformApiKey => ("platform_responses_v2", "platform_responses_v3"),
+            if input_history.is_some() { return false; }
+            let (single, split_user, split_developer) = match mode {
+                AccessMode::ChatgptOAuth => ("traditional_chatgpt_responses_v2", "traditional_chatgpt_responses_v3", "traditional_chatgpt_responses_v4"),
+                AccessMode::SiwcOAuth => ("siwc_documented_public_responses_v2", "siwc_documented_public_responses_v3", "siwc_documented_public_responses_v4"),
+                AccessMode::PlatformApiKey => ("platform_responses_v2", "platform_responses_v3", "platform_responses_v4"),
             };
             if audit["transport_profile"] == single && reusable_prefix_bytes.is_none() {
                 profile.id = single;
             } else if audit["transport_profile"] == split_user {
                 profile.id = split_user;
+            } else if audit["transport_profile"] == split_developer {
+                profile.id = split_developer;
             } else {
                 return false;
             }
-            profile.reusable_prefix_role = "user";
+            if profile.id != split_developer { profile.reusable_prefix_role = "user"; }
         }
         let Ok(body) = response_only_body(
-            &profile, model, effort, prompt, reusable_prefix_bytes, images, schema,
+            &profile, model, effort, prompt, reusable_prefix_bytes, images, input_history, schema,
         ) else { return false };
         let (Ok(body), Ok(schema)) = (serde_json::to_vec(&body), serde_json::to_vec(schema)) else {
             return false;
@@ -1299,6 +1321,8 @@ pub(crate) fn response_only_request_matches(
         audit["prompt_sha256"] == digest(prompt.as_bytes())
             && audit["prompt_bytes"] == prompt.len() as u64
             && audit["reusable_prefix_bytes"] == json!(reusable_prefix_bytes)
+            && input_history.map(InputHistory::metadata).transpose()
+                .is_ok_and(|metadata| audit["input_history"] == json!(metadata))
             && audit["schema_sha256"] == digest(&schema)
             && audit["schema_bytes"] == schema.len() as u64
             && audit["instructions_sha256"] == digest(profile.instructions.as_bytes())
@@ -1338,6 +1362,7 @@ impl ModelProvider for DirectProvider {
                 &request.prompt,
                 request.reusable_prefix_bytes,
                 &request.images,
+                request.input_history.as_ref(),
                 &request.output_schema,
             )?)?;
             let audit = RequestAudit {
@@ -1345,6 +1370,7 @@ impl ModelProvider for DirectProvider {
                 prompt_sha256: digest(request.prompt.as_bytes()),
                 prompt_bytes: request.prompt.len() as u64,
                 reusable_prefix_bytes: request.reusable_prefix_bytes,
+                input_history: request.input_history.as_ref().map(InputHistory::metadata).transpose()?,
                 schema_sha256: digest(&schema),
                 schema_bytes: schema.len() as u64,
                 instructions_sha256: digest(profile.instructions.as_bytes()),
@@ -1447,7 +1473,7 @@ impl DirectCall {
                     };
                     receipt.http_status = Some(response.status);
                     if response.status != 200 {
-                        let mut capture = http_error::Capture::new(error_secrets);
+                        let mut capture = http_error::Capture::new(error_secrets, audit.input_history.is_some());
                         receipt.http_diagnostic = Some(capture.diagnostic(false));
                         let mut body = response.body;
                         loop {

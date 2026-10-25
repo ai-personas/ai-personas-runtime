@@ -249,6 +249,11 @@ pub enum SelectionIntent {
         /// previously selected images; preserve retains their existing lifetimes.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         images: Vec<ImageSelection>,
+        /// Optional provider continuation for next_assets only. Omitting it
+        /// clears any previous provider-context selection. It does not select
+        /// files, images or characteristic fragments.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider_context: Option<ProviderContextSelection>,
     },
     /// Choose exact references by their short handles in this admission's
     /// CONTROL.input_file_choices. Copy the listed handles instead of retyping
@@ -269,6 +274,8 @@ pub enum SelectionIntent {
         /// selected text handles. Use handles: [] to select only images.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         images: Vec<ImageSelection>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider_context: Option<ProviderContextSelection>,
     },
     /// Select full UTF-8 files saved by exact file_write, file_edit or file_import operation
     /// IDs in this response. The host derives each source and binds its accepted
@@ -284,10 +291,19 @@ pub enum SelectionIntent {
         /// context choice, not an image read or an authored file mutation.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         images: Vec<ImageSelection>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider_context: Option<ProviderContextSelection>,
     },
 }
 
 impl SelectionIntent {
+    pub(crate) fn provider_context(&self) -> Option<&ProviderContextSelection> {
+        match self {
+            Self::Replace { provider_context, .. } | Self::ReplaceFromInput { provider_context, .. }
+            | Self::ReplaceFromSavedFiles { provider_context, .. } => provider_context.as_ref(),
+            Self::Preserve { .. } | Self::Clear { .. } => None,
+        }
+    }
     pub(crate) fn images(&self) -> &[ImageSelection] {
         match self {
             Self::Replace { images, .. } | Self::ReplaceFromInput { images, .. }
@@ -295,6 +311,24 @@ impl SelectionIntent {
             Self::Preserve { .. } | Self::Clear { .. } => &[],
         }
     }
+}
+
+/// Deliberately retain provider conversation and opaque reasoning as supporting
+/// context. This neither authors character nor establishes a learning benefit.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ProviderContextSelection {
+    /// Carry this invocation's complete provider input and completed output
+    /// into a later call, including any earlier history explicitly supplied to
+    /// this invocation. The host binds the actual terminal after completion.
+    /// This may add substantial context; choose only when useful.
+    Current {
+        /// work (default) or next_call. Preserve never renews next_call.
+        lifetime: Option<String>,
+    },
+    /// Keep the already selected provider turn while replacing other assets.
+    /// This does not append the current turn or renew an existing lifetime.
+    Preserve,
 }
 
 /// Reuse a complete immutable image capture in later inputs for this work.
@@ -1206,7 +1240,7 @@ pub(crate) fn initialization_schema() -> Value {
     let mut schema = decision_schema();
     retain_schema_variants(&mut schema, "Operation", &["file_write", "character_adopt"]);
     retain_schema_variants(&mut schema, "SelectionIntent", &["preserve", "clear", "replace"]);
-    omit_image_selection(&mut schema);
+    omit_additional_asset_selection(&mut schema);
     retain_reachable_definitions(&mut schema);
     schema
 }
@@ -1226,7 +1260,7 @@ pub fn selection_repair_schema() -> Value {
     retain_schema_variants(&mut schema, "Continuation", &["stop", "pause"]);
     retain_schema_variants(&mut schema, "ReplyDisposition", &["none"]);
     retain_schema_variants(&mut schema, "SelectionIntent", &["preserve", "clear", "replace"]);
-    omit_image_selection(&mut schema);
+    omit_additional_asset_selection(&mut schema);
     schema["$defs"]["WorkDisposition"]["oneOf"][0]["properties"]["evidence"]["maxItems"] =
         Value::from(0);
     schema["$defs"]["SelectionIntent"]["oneOf"]
@@ -1247,9 +1281,10 @@ pub fn selection_repair_schema() -> Value {
     schema
 }
 
-fn omit_image_selection(schema: &mut Value) {
+fn omit_additional_asset_selection(schema: &mut Value) {
     for variant in schema["$defs"]["SelectionIntent"]["oneOf"].as_array_mut().unwrap() {
         variant["properties"].as_object_mut().unwrap().remove("images");
+        variant["properties"].as_object_mut().unwrap().remove("provider_context");
     }
 }
 
@@ -1936,22 +1971,33 @@ fn check_maintenance(maintenance: &Maintenance, path: &str) -> Result<(), Protoc
 }
 
 fn check_selection(selection: &SelectionIntent, path: &str) -> Result<(), ProtocolError> {
+    if let Some(context) = selection.provider_context() {
+        if path != "next_assets" {
+            return Err(invalid(path, "provider context belongs in next_assets only"));
+        }
+        if let ProviderContextSelection::Current { lifetime } = context {
+            if !matches!(lifetime.as_deref(), None | Some("work" | "next_call")) {
+                return Err(invalid(path, "provider context lifetime must be work or next_call"));
+            }
+        }
+    }
+    let requires_text = selection.images().is_empty() && selection.provider_context().is_none();
     match selection {
         SelectionIntent::Preserve { reason } | SelectionIntent::Clear { reason } => {
             check_text(reason, MAX_REASON_BYTES, &format!("{path}.reason"))
         }
-        SelectionIntent::Replace { reason, references, images } => {
+        SelectionIntent::Replace { reason, references, images, .. } => {
             check_text(reason, MAX_REASON_BYTES, &format!("{path}.reason"))?;
             // Use clear to express an empty replacement explicitly.
-            check_references(references, usize::from(images.is_empty()), true, &format!("{path}.references"))?;
+            check_references(references, usize::from(requires_text), true, &format!("{path}.references"))?;
             check_image_selection(images, path)
         }
-        SelectionIntent::ReplaceFromInput { reason, handles, images } => {
+        SelectionIntent::ReplaceFromInput { reason, handles, images, .. } => {
             check_text(reason, MAX_REASON_BYTES, &format!("{path}.reason"))?;
-            check_handles(handles, usize::from(images.is_empty()), MAX_COLLECTION_ITEMS, &format!("{path}.handles"))?;
+            check_handles(handles, usize::from(requires_text), MAX_COLLECTION_ITEMS, &format!("{path}.handles"))?;
             check_image_selection(images, path)
         }
-        SelectionIntent::ReplaceFromSavedFiles { reason, files, input_handles, images } => {
+        SelectionIntent::ReplaceFromSavedFiles { reason, files, input_handles, images, .. } => {
             check_text(reason, MAX_REASON_BYTES, &format!("{path}.reason"))?;
             check_ids(&files.iter().map(|file| file.operation.clone()).collect::<Vec<_>>(),
                 1, &format!("{path}.files"))?;

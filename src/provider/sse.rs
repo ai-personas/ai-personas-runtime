@@ -254,6 +254,7 @@ impl Collector {
                 "rate_limit_exceeded",
                 "insufficient_quota",
                 "context_length_exceeded",
+                "invalid_encrypted_content",
                 "model_not_found",
                 "slow_down",
                 "server_is_overloaded",

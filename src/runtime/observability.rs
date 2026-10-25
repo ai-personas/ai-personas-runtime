@@ -15,7 +15,7 @@ pub(super) fn model_call_receipt(
     receipt: &Value,
     now: i64,
 ) -> Result<()> {
-    let payload = json!({
+    let mut payload = json!({
         "execution_profile":prepared.request.profile,
         "completion_kind":receipt["kind"],
         "synthetic":receipt["synthetic"],
@@ -43,6 +43,9 @@ pub(super) fn model_call_receipt(
         },
         "scope":"Completion of this named response is separate from any tool effect, inspected feature or later call. Provider identity and usage remain attributed reports; unknown charges remain unknown."
     });
+    if let Some(history) = receipt["audit"].get("input_history") {
+        payload["provider_input_history"] = history.clone();
+    }
     add_observation(state, prepared, "host-model-call", "model_call_receipt",
         payload, Vec::new(), Vec::new(), now)
 }

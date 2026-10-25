@@ -142,6 +142,7 @@ impl Runtime {
                     &prepared.prompt,
                     prepared.reusable_prefix_bytes,
                     &prepared.images,
+                    prepared.input_history.as_ref(),
                     &prepared.output_schema,
                 )
                 && (prepared.output_schema == provider_schema()

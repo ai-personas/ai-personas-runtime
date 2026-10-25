@@ -270,7 +270,7 @@ fn invocation_evidence(
                 && crate::provider::response_only_request_matches(
                     &receipt["audit"], &prepared.requested_model, &prepared.requested_effort,
                     &prepared.prompt, prepared.reusable_prefix_bytes,
-                    &prepared.images, &prepared.output_schema,
+                    &prepared.images, prepared.input_history.as_ref(), &prepared.output_schema,
                 )
                 && receipt["attempt"]["response_completed"] == true
         });
@@ -281,6 +281,8 @@ fn invocation_evidence(
         "provider_completed_with_matching_input":provider_completed,
         "retained_provider_output_items":receipt.and_then(|r| r.get("attempt"))
             .and_then(|attempt| attempt.get("output_items")),
+        "supplied_provider_history":receipt.and_then(|r| r.get("audit"))
+            .and_then(|audit| audit.get("input_history")),
         "supplied_characteristic_revisions":supplied,
         "supplied_transient_affect":control["transient_affect"],
         "supplied_image_inputs":control["image_inputs"],
@@ -296,6 +298,9 @@ fn invocation_evidence(
         "input_accounting":{
             "prompt_utf8_bytes":prepared.prompt.len(),
             "image_content_parts":prepared.images.len(),
+            "selected_provider_history":prepared.input_history.as_ref()
+                .map(provider::InputHistory::metadata).transpose()
+                .map_err(|_| held("selected provider history accounting unavailable"))?,
             "instructions_and_application_schema_utf8_bytes":instructions.len(),
             "control_utf8_bytes":control_bytes,
             "qualified_context_utf8_bytes":qualified_bytes,

@@ -22,6 +22,7 @@ fn query_identity(record_kind: p::HistoryRecordKind, mode: &f::SearchMode) -> Re
 #[derive(Default)]
 pub(crate) struct Material {
     archives: BTreeMap<String, (s::DecisionRecord, s::StoredObject)>,
+    pub(crate) continuation: provider_continuation::Material,
 }
 impl Material {
     fn insert(&mut self, entries: Vec<(s::DecisionRecord, s::StoredObject)>) -> bool {
@@ -43,7 +44,10 @@ impl Material {
         work: &str,
         now: i64,
     ) -> Self {
-        let mut material = Self::default();
+        let mut material = Self {
+            continuation: provider_continuation::Material::pending(store, state, actor, work),
+            ..Self::default()
+        };
         let Some(persona) = state.personas.get(actor) else {
             return material;
         };
@@ -101,6 +105,7 @@ impl Material {
                     .into_iter()
                     .map(|(proof, object)| (proof.invocation_id.clone(), (proof, object)))
                     .collect(),
+                ..Self::default()
             };
             let permitted = references
                 .iter()
@@ -941,6 +946,7 @@ pub(crate) fn apply(
                                     (proof.invocation_id.clone(), (proof, object))
                                 })
                                 .collect(),
+                            ..Material::default()
                         });
                         true
                     }
