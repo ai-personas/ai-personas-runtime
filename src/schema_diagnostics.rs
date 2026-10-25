@@ -50,7 +50,7 @@ pub(crate) fn object_variant<'a>(
     current["properties"].as_object().map(|_| current)
 }
 
-/// Describe missing required members and definite type/enum mismatches within
+/// Describe unknown or missing members and definite type/enum mismatches within
 /// the known section. Internally tagged Serde errors may omit the nested path,
 /// so inspect its known descendants too, without copying arbitrary input text.
 pub(crate) fn issues(schema: &Value, root: &Value, received: &Value, section: &str) -> Vec<String> {
@@ -68,6 +68,18 @@ pub(crate) fn issues(schema: &Value, root: &Value, received: &Value, section: &s
             let Some(values) = received.as_object() else {
                 continue;
             };
+            if schema["additionalProperties"] == false
+                && values.keys().any(|name| !fields.contains_key(name))
+            {
+                issues.insert(format!(
+                    "{path} contains unknown members; allowed fields: {}",
+                    fields
+                        .keys()
+                        .map(String::as_str)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
             if let Some(required) = schema["required"].as_array() {
                 for name in required.iter().filter_map(Value::as_str) {
                     if fields.contains_key(name) && !values.contains_key(name) {
