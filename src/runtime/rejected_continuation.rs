@@ -10,6 +10,7 @@ fn complete_response(
     invocation: &s::InvocationRecord,
     prepared: &Prepared,
     evidence: &s::StoredObject,
+    disposition: &str,
 ) -> Result<bool> {
     let id = &invocation.id;
     let reference = evidence.exact_ref()?;
@@ -27,7 +28,7 @@ fn complete_response(
         && evidence.body["prompt_sha256"] == prepared.prompt_sha256
         && receipt["kind"] == "provider_complete"
         && receipt["synthetic"] == false
-        && receipt["completion_disposition"] == "ready"
+        && receipt["completion_disposition"] == disposition
         && receipt["attempt"]["response_completed"] == true
         && receipt["attempt"]["stream_eof"] == true
         && prepared.provider_preparation.as_ref() == Some(&receipt["audit"])
@@ -39,6 +40,40 @@ fn complete_response(
         && observability::adoption_error(invocation, evidence)?["status"] == "recorded")
 }
 
+/// A recorded runtime stop ends this local call without accepting a response
+/// or granting another turn. The work or persona may already have been resumed
+/// explicitly, so preserve current controls instead of rewriting them from the
+/// older stop observation. Remote computation and charges remain unresolved.
+fn runtime_stopped_response(
+    invocation: &s::InvocationRecord,
+    prepared: &Prepared,
+    evidence: &s::StoredObject,
+) -> Result<bool> {
+    let receipt = &evidence.body["receipt"];
+    let stop = &receipt["runtime_control_observation"];
+    let observed = stop["kind"] == "runtime_stop_observed"
+        && stop["work"] == prepared.request.work
+        && stop["persona"] == prepared.request.persona
+        && stop["local_cancellation_requested"] == true
+        && (stop["explicit_stop_observed"] == true
+            || serde_json::from_value::<w::Phase>(stop["phase"].clone())
+                .is_ok_and(|phase| !matches!(phase, w::Phase::Open)));
+    if !observed {
+        return Ok(false);
+    }
+    if receipt["failure"] == "cancelled"
+        && (failed_response_only_attempt(invocation, prepared, evidence, true)?
+            || failed_response_only_attempt(invocation, prepared, evidence, false)?)
+    {
+        return Ok(true);
+    }
+    let Some(audit) = &prepared.provider_preparation else { return Ok(false) };
+    Ok(complete_response(invocation, prepared, evidence, "cancelled")?
+        && provider::response_only_request_matches(audit,
+            &prepared.requested_model, &prepared.requested_effort, &prepared.prompt,
+            prepared.reusable_prefix_bytes, &prepared.images, prepared.input_history.as_ref(), &prepared.output_schema))
+}
+
 /// The local transport returned a bound failure for a response-only request.
 /// This proves neither the remote outcome nor measured provider usage.
 /// No response or adopted Decision may have escaped this failed invocation.
@@ -46,6 +81,7 @@ fn failed_response_only_attempt(
     invocation: &s::InvocationRecord,
     prepared: &Prepared,
     evidence: &s::StoredObject,
+    dispatched: bool,
 ) -> Result<bool> {
     let id = &invocation.id;
     let reference = evidence.exact_ref()?;
@@ -59,11 +95,11 @@ fn failed_response_only_attempt(
         && evidence.body["prepared_epoch"] == prepared.epoch
         && evidence.body["prompt_sha256"] == prepared.prompt_sha256
         && evidence.body.get("response_body").is_none()
-        && receipt["kind"] == "provider_attempt_failed"
+        && receipt["kind"] == if dispatched { "provider_attempt_failed" } else { "provider_prelaunch_rejection" }
         && receipt["synthetic"] == false
-        && receipt["dispatch_may_have_begun"] == true
+        && receipt["dispatch_may_have_begun"] == dispatched
         && receipt["replay_authorized"] == false
-        && attempt["dispatch_may_have_begun"] == true
+        && attempt["dispatch_may_have_begun"] == dispatched
         && attempt["audit"] == *audit && audit["invocation_id"] == *id
         && provider::response_only_request_matches(audit,
             &prepared.requested_model, &prepared.requested_effort, &prepared.prompt,
@@ -104,7 +140,7 @@ fn terminal_provider_failure(
         && !matches!(diagnostic["remote_error_code"].as_str(),
             Some("context_length_exceeded" | "invalid_encrypted_content"))
         && attempt["response_completed"] == false
-        && failed_response_only_attempt(invocation, prepared, evidence)?)
+        && failed_response_only_attempt(invocation, prepared, evidence, true)?)
 }
 
 /// A network failure before response headers, or a lost or malformed stream,
@@ -144,7 +180,7 @@ fn interrupted_response_only_attempt(
         && attempt["response_completed"] == false;
     Ok(stream_failure && remote_status
         && (attempt["http_status"] == 200 || before_headers)
-        && failed_response_only_attempt(invocation, prepared, evidence)?)
+        && failed_response_only_attempt(invocation, prepared, evidence, true)?)
 }
 
 /// A complete temporary service-error response ends the local HTTP attempt,
@@ -166,7 +202,7 @@ fn temporary_http_response_only_failure(
         && attempt["reported_terminal_status"].is_null()
         && attempt["stream_bytes_observed"] == 0
         && attempt["event_count"] == 0
-        && failed_response_only_attempt(invocation, prepared, evidence)?)
+        && failed_response_only_attempt(invocation, prepared, evidence, true)?)
 }
 
 /// A streamed service error can end an HTTP 200 transport without a response
@@ -190,7 +226,7 @@ fn temporary_stream_response_only_failure(
         && diagnostic["rule"] == "remote_or_unsupported_output"
         && matches!(diagnostic["remote_error_code"].as_str(),
             Some("server_error" | "server_is_overloaded"))
-        && failed_response_only_attempt(invocation, prepared, evidence)?)
+        && failed_response_only_attempt(invocation, prepared, evidence, true)?)
 }
 
 /// An explicit provider context rejection can change delivery of still-pending
@@ -215,7 +251,7 @@ fn provider_context_failure(
         || (attempt["http_status"] == 400 && receipt["failure"] == "http_status"
             && http["body_complete"] == true && supported(&http["error_code"]));
     if !observed || attempt["response_completed"] != false
-        || !failed_response_only_attempt(invocation, prepared, evidence)?
+        || !failed_response_only_attempt(invocation, prepared, evidence, true)?
     {
         return Ok(None);
     }
@@ -237,7 +273,7 @@ pub(super) fn recoverable_failure(
     {
         return Ok(None);
     }
-    if complete_response(invocation, prepared, evidence)? {
+    if complete_response(invocation, prepared, evidence, "ready")? {
         return Ok(Some("complete_response_rejected"));
     }
     if provider_context_failure(invocation, prepared, evidence)?.is_some() {
@@ -398,9 +434,6 @@ impl Runtime {
         if launch::task_amendment::retire_completed(self, &invocation, &prepared, &head, &state, now)? {
             return Ok(true);
         }
-        if prepared.request.mode != Mode::Ordinary {
-            return Ok(false);
-        }
         let actor = &prepared.request.persona;
         let work = &prepared.request.work;
         let Some(persona) = state.personas.get(actor) else {
@@ -409,7 +442,20 @@ impl Runtime {
         let Some(focus) = persona.focus.get(work) else {
             return Ok(false);
         };
-        let Some(retained_route) = retained_route(&state, &prepared) else {
+        if persona.active_invocation.as_deref() != Some(id)
+            || persona.owner_epoch != prepared.owner_epoch
+            || persona.admission_serial != prepared.admission_serial
+            || persona.failed_attempt_hold.is_some()
+        {
+            return Ok(false);
+        }
+        let evidence = self.terminal_evidence(id)?;
+        let stopped = runtime_stopped_response(&invocation, &prepared, &evidence)?;
+        let retained_route = if stopped {
+            "runtime_stop_observed"
+        } else if let Some(route) = retained_route(&state, &prepared) {
+            route
+        } else {
             return Ok(false);
         };
         // Keep every route flag and authored disposition unchanged. In particular,
@@ -418,19 +464,20 @@ impl Runtime {
         // v2 timed reconsideration retains its route through a failed attempt;
         // a continuation already consumed under an earlier contract stays spent.
         if !self.invocation_leases_quiescent(&state)?
-            || !state
+            || (!stopped && !state
                 .board
                 .work(&w::WorkId(work.clone()))
-                .is_ok_and(|w| matches!(w.phase, w::Phase::Open))
+                .is_ok_and(|w| matches!(w.phase, w::Phase::Open)))
         {
             return Ok(false);
         }
         let continuation_invocation = focus.authored_continuation.as_ref().map(|authored| authored.invocation.clone());
-        let evidence = self.terminal_evidence(id)?;
         let reference = evidence.exact_ref()?;
         let adoption_error = observability::adoption_error(&invocation, &evidence)?;
         let context_recovery = provider_context_failure(&invocation, &prepared, &evidence)?;
-        let failure_kind = if complete_response(&invocation, &prepared, &evidence)? {
+        let failure_kind = if stopped {
+            "runtime_stopped_response"
+        } else if complete_response(&invocation, &prepared, &evidence, "ready")? {
             "complete_response_rejected"
         } else if context_recovery.is_some() {
             "provider_context_rejection"
@@ -494,6 +541,7 @@ impl Runtime {
             .extend(observations);
         state.operator_events.push(json!({
             "kind":match failure_kind {
+                "runtime_stopped_response" => "runtime_stopped_response_lease_retired",
                 "provider_terminal_failure" => "terminal_provider_failure_lease_retired",
                 "response_only_transport_failure" => "response_only_transport_failure_lease_retired",
                 "response_only_http_failure" => "response_only_http_failure_lease_retired",

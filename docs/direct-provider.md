@@ -92,6 +92,16 @@ It preserves the failed attempt, reported usage and unknown charges; it neither
 adopts partial operations nor marks maintenance completed. No new route is
 created after Stop, Pause or consumed explicit resumption.
 
+When an actual runtime stop cancels a response-only call, the settled foreground
+driver also releases its local invocation lease. It requires the exact retained
+stop observation and bound cancellation receipt, with no adopted decision or
+action intent. A complete response canceled before adoption follows the same
+rule. Work and persona controls, authored continuations and current permissions
+stay unchanged; cleanup does not resume work or replay the response. The
+`runtime_stopped_response_lease_retired` event preserves the failure, terminal
+evidence and unresolved remote outcome and charges. An unavailable control
+monitor or a cancellation without a recorded runtime stop does not qualify.
+
 A locally ended HTTP 200 stream can also retain that route after a network,
 protocol or content-type failure, or an incomplete message item. The runtime
 verifies the exact response-only request and the absence of any received
