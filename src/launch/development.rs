@@ -279,6 +279,8 @@ fn invocation_evidence(
         "prompt_sha256":prepared.prompt_sha256, "profile":prepared.request.profile,
         "adopted_response":exact, "response_sha256":archive.response_hash,
         "provider_completed_with_matching_input":provider_completed,
+        "retained_provider_output_items":receipt.and_then(|r| r.get("attempt"))
+            .and_then(|attempt| attempt.get("output_items")),
         "supplied_characteristic_revisions":supplied,
         "supplied_transient_affect":control["transient_affect"],
         "supplied_image_inputs":control["image_inputs"],

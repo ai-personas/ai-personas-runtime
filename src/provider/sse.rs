@@ -101,6 +101,7 @@ struct Item {
     saw_delta: bool,
     deltas: String,
     final_text: Option<String>,
+    completed_snapshot: Option<Value>,
 }
 impl Item {
     fn observe_phase(&mut self, value: &Value) -> Result<()> {
@@ -159,6 +160,7 @@ pub(super) struct Collector {
     pub reported_effort: Option<String>,
     pub previous_reported_effort: Option<String>,
     pub usage: Usage,
+    pub retained_output_items: Option<super::RetainedOutputItems>,
 }
 impl Collector {
     pub fn new(model: &str) -> Self {
@@ -196,6 +198,7 @@ impl Collector {
             reported_effort: None,
             previous_reported_effort: None,
             usage: Usage::default(),
+            retained_output_items: None,
         }
     }
     pub fn with_mode(mut self, mode: super::AccessMode) -> Self {
@@ -507,6 +510,7 @@ impl Collector {
                 let output = array(response, "output")?;
                 if output.is_empty() && self.allow_thin_completed {
                     self.response = Some(self.thin_completion_text()?);
+                    self.retain_output_items(response, output);
                     self.completed = true;
                     return Ok(());
                 }
@@ -541,6 +545,7 @@ impl Collector {
                     return Err(protocol("terminal_item_index_missing"));
                 }
                 self.response = Some(carrier.finish()?);
+                self.retain_output_items(response, output);
                 self.completed = true;
             }
             "response.failed" | "response.incomplete" => {
@@ -646,6 +651,7 @@ impl Collector {
                         reasoning_item(value, true, true)?;
                     }
                     item.done = true;
+                    item.completed_snapshot = Some(value.clone());
                 }
             }
             "response.content_part.added"
@@ -750,6 +756,15 @@ impl Collector {
         }
         carrier.finish()
     }
+    fn retain_output_items(&mut self, response: &Value, output: &[Value]) {
+        let events = self.items.iter().filter_map(|(index, item)| {
+            item.completed_snapshot.as_ref().map(|value| (*index, value.clone()))
+        }).collect();
+        self.retained_output_items = Some(super::RetainedOutputItems::capture(
+            response, output, events,
+        ));
+    }
+
     fn observe_effort(&mut self, response: &Value) -> Result<()> {
         let Some(reasoning) = response.get("reasoning").filter(|value| !value.is_null()) else {
             return Ok(());
@@ -802,6 +817,7 @@ impl Collector {
             saw_delta: false,
             deltas: String::new(),
             final_text: None,
+            completed_snapshot: None,
         });
         if item.id != id || item.kind != kind {
             return Err(protocol("item_identity_changed"));

@@ -4383,7 +4383,7 @@ impl Runtime {
             "raw adopt_response is fixture-only; provider completion requires an actual host transport receipt",
         )?;
 
-        let receipt = provider_observation.unwrap_or_else(|| {
+        let mut receipt = provider_observation.unwrap_or_else(|| {
             json!({"kind":"synthetic_complete",
             "synthetic":true,"inner_sha256":response_hash,"transport_sha256":response_hash,
             "response_bytes":bytes.len(),"provider_usage":"unknown"})
@@ -4399,6 +4399,9 @@ impl Runtime {
                 Some(std::str::from_utf8(bytes).map_err(|_| invalid("response UTF-8"))?),
             )
             .map_err(attribute_terminal_persistence)?;
+        // The full items already occupy the private terminal slot. Only their
+        // metadata belongs in adoption archives and ordinary observations.
+        take_private_provider_output_items(&mut receipt)?;
         if invocation.state == s::InvocationState::Adopted {
             let accepted = self.adopted(id)?;
             require(
@@ -5863,8 +5866,25 @@ fn adoption_failure_reason(error: &RuntimeError, stage: Option<AdoptionFailureSt
     }
 }
 
-fn terminal_object(prepared: &Prepared, receipt: Value) -> Result<s::StoredObject> {
-    let object = s::StoredObject {
+fn take_private_provider_output_items(receipt: &mut Value) -> Result<Option<Value>> {
+    let mut output_items = None;
+    for field in ["attempt", "attempt_receipt"] {
+        if let Some(attempt) = receipt.get_mut(field).and_then(Value::as_object_mut) {
+            if let Some(items) = attempt.remove("private_output_items") {
+                require(output_items.is_none(), "duplicate private provider output")?;
+                let metadata = provider::retained_output_metadata(&items)
+                    .ok_or_else(|| invalid("private provider output metadata unavailable"))?;
+                attempt.insert("output_items".into(), metadata);
+                output_items = Some(items);
+            }
+        }
+    }
+    Ok(output_items)
+}
+
+fn terminal_object(prepared: &Prepared, mut receipt: Value) -> Result<s::StoredObject> {
+    let output_items = take_private_provider_output_items(&mut receipt)?;
+    let mut object = s::StoredObject {
         id: terminal_id(&prepared.request.id),
         revision: 1,
         kind: "runtime-terminal-transport".into(),
@@ -5872,6 +5892,9 @@ fn terminal_object(prepared: &Prepared, receipt: Value) -> Result<s::StoredObjec
             "invocation_id":prepared.request.id,"prepared_epoch":prepared.epoch,
             "prompt_sha256":prepared.prompt_sha256,"receipt":receipt}),
     };
+    if let Some(items) = output_items {
+        object.body["provider_output_items"] = items;
+    }
     Ok(object)
 }
 
@@ -5904,6 +5927,9 @@ fn terminal_response_body(
 // historical bytes mean unavailable, never an empty body or validated content.
 fn terminal_diagnostic(body: &Value) -> Value {
     let mut diagnostic = body.clone();
+    if let Some(object) = diagnostic.as_object_mut() {
+        object.remove("provider_output_items");
+    }
     if let Some(response) = diagnostic
         .get_mut("response_body")
         .and_then(Value::as_object_mut)

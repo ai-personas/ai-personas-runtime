@@ -219,6 +219,33 @@ owner recovery or inference. Exact retained reference and receipt bindings still
 apply. There is no application receipt-size or remaining-navigation gate;
 missing or inconsistent evidence remains unavailable.
 
+New completed persona transports also retain the provider's parsed output-item snapshots
+in the private terminal's `provider_output_items`. The terminal `output` array
+and observed `response.output_item.done` items remain separate, with their exact
+JSON values, assistant phases and any opaque encrypted reasoning content.
+Neither snapshot is reconstructed from the adopted Decision. A supported thin
+terminal can have an empty output array while completed item events are retained.
+Partial items alone do not create this record. A later stream failure or cancelled
+adoption preserves the recorded completion without treating it as accepted work.
+
+The attempt receipt's `output_items` and the development view expose only
+counts, serialized bytes, a digest and the reported
+reasoning-context mode when present. The two snapshot counts can cover the same
+items and are not additive. The runtime does not insert their bodies into recovery
+diagnostics, adoption archives or ordinary model-call receipts. Older terminals
+have no such record; absence
+does not establish that the provider returned no reasoning items. The ordinary
+model-call receipt adds no unused provider-state catalogue to persona context.
+
+[OpenAI's reasoning guide](https://developers.openai.com/api/docs/guides/reasoning)
+describes retaining complete response output for stateless reasoning continuity.
+This runtime records those returned items but does not yet replay them. Every
+current request still uses its explicitly assembled input without prior provider
+output or a previous-response ID. Retention establishes no compatibility,
+model-visible reuse, task improvement or character maturation. Any future reuse
+must preserve the persona's explicit context choice, provenance and actual usage
+accounting rather than silently add an expanding conversation history.
+
 Owned native foreground sessions can keep independent personas' direct calls in
 flight concurrently. Each call retains its own request, receipt and single-use
 authority; adoption remains sequential. See [concurrent decisions](concurrent-decisions.md)

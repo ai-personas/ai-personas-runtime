@@ -8,7 +8,10 @@
 pub(crate) mod onboarding;
 mod sse;
 mod http_error;
+mod output_items;
 pub use http_error::Diagnostic as HttpErrorDiagnostic;
+pub use output_items::RetainedOutputItems;
+pub(crate) use output_items::metadata as retained_output_metadata;
 
 use futures_util::future::BoxFuture;
 use serde::{Deserialize, Serialize};
@@ -708,6 +711,10 @@ pub struct AttemptReceipt {
     pub response_id: Option<RetainedResponseId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_id_sha256: Option<String>,
+    /// Host-private completed provider snapshots, detached from model-facing
+    /// receipt metadata when the immutable native terminal is persisted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub private_output_items: Option<RetainedOutputItems>,
     /// Last explicit provider report, not independently verified served identity.
     /// An omitted/null snapshot supplies no new report.
     pub reported_effort: Option<String>,
@@ -739,6 +746,7 @@ impl AttemptReceipt {
             stream_diagnostic: None,
             response_id: None,
             response_id_sha256: None,
+            private_output_items: None,
             reported_effort: None,
             previous_reported_effort: None,
             reported_model: None,
@@ -1493,6 +1501,7 @@ impl DirectCall {
             receipt.stream_diagnostic = collector.diagnostic.clone();
             receipt.response_id = collector.retained_response_id();
             receipt.response_id_sha256 = collector.response_id_sha256();
+            receipt.private_output_items = collector.retained_output_items.clone();
             receipt.reported_effort = collector.reported_effort.clone();
             receipt.previous_reported_effort = collector.previous_reported_effort.clone();
             receipt.usage = collector.usage.clone();
