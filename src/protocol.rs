@@ -127,6 +127,9 @@ pub struct Decision {
 /// exit alone does not verify the properties claimed for that output. Choose
 /// checks of the underlying content appropriate to the claim, account for
 /// contrary observations, and keep unchecked properties explicit.
+/// Corrections can change premises used elsewhere in the result. Reconsider
+/// those dependencies and the full request before judging sufficiency; repairing
+/// the defects discovered so far does not establish complete scope coverage.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WorkDisposition {
@@ -161,6 +164,10 @@ pub enum WorkDisposition {
         #[schemars(schema_with = "work_evidence_schema")]
         evidence: Vec<String>,
     },
+    /// The shared result satisfies the actual requested scope. Agreement on a
+    /// self-chosen reduced scope or several individually corrected parts does
+    /// not establish that the combined result works for its intended use.
+    /// This judgment alone performs no formal release, delivery or closure.
     SharedSufficient {
         reason: String,
         /// Exact available evidence identifiers, never prose or invented references.

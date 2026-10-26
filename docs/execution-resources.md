@@ -25,6 +25,12 @@ scope. A concept label or disclaimer does not establish sufficiency. Inspection,
 correction and integration needed for the existing request need no new user
 prompt. Personas judge useful completion, partial delivery, actual blockers and
 optional extensions themselves; the runtime prescribes no domain-specific checks.
+After a correction changes a premise, ordinary guidance asks personas to
+reconsider dependent parts and the combined result. Repairing the defects found
+so far does not establish coverage of the original request. A self-chosen reduced
+scope remains an assumption, and unavailable outside validation does not excuse
+useful work that the persona can still perform with its tools. These are judgment
+responsibilities, with no automatic quality verdict or mandatory review workflow.
 
 ## Implemented removal
 
