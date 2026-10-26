@@ -156,14 +156,15 @@ tool responses. A response containing only file/image/history/work inspection,
 search/discovery, or host, computation and HTTP effects can tolerate changes to
 peer artifact, evidence, judgment, finding, release and delivery records. New
 admissions also seal `independent_messages: true`, allowing ordinary local
-messages and authored replies to use this scope. Recipient and exact citation
-checks still run against current state; a message establishes neither a shared
+messages, authored replies and personal message-wait registrations to use this
+scope. Recipient and exact citation checks still run against current state;
+a message establishes neither a shared
 decision nor formal delivery. An empty operation list can use the same scope.
 Those records and their accumulated
 work metadata are separate from the current task, membership, commitments,
 arrangements, pending dependencies and the exact source lineage actually supplied
 to the invocation. All of those dependencies remain checked. Native file
-mutations, responsibility, persona/need creation and shared work
+mutations, responsibility, persona/need creation and other work
 commands retain the complete shared-record comparison. A mixed response uses
 that complete comparison as one atomic unit.
 
@@ -176,6 +177,13 @@ audiences, changed dependency ownership and other shared dependencies remain
 checked. Adoption preserves the actual wait records and events; it does not
 remove them or imply that another persona saw the message. Admissions without
 this flag retain their earlier message and wait comparisons.
+
+`register_message_wait` uses this independence in either supported work-operation
+encoding. The exact input must decode as that command. Adoption still checks the
+current sender, accepted responsibility, unique dependency identity, visibility
+and matching authored wait continuation. Concurrent registrations with distinct
+identities preserve each other's records; a colliding identity still rejects the
+whole response. Adding any shared work command retains the complete comparison.
 
 This prevents unrelated tool work from being discarded solely because a peer
 registered a candidate or judgment during inference. It neither adopts a stale

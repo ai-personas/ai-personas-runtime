@@ -261,9 +261,10 @@ fn exclude_peer_message_waits(work: &mut w::Work, metadata: &mut WorkMeta, actor
     metadata.message_waits.retain(|_, wait| !keys.contains(&wait.key));
 }
 
-/// Every other operation keeps the complete shared-record check. In particular,
-/// accepting responsibility, publishing judgments, changing arrangements and
-/// releasing work cannot use a navigation/tool decision's narrower scope.
+/// Personal message-wait registration uses the same independence as ordinary
+/// messaging. Its current sender, unique dependency identity and matching wait
+/// continuation are still checked during adoption. Other work commands keep the
+/// complete shared-record check, including in a mixed response.
 fn independent_operations(decision: &p::Decision, independent_messages: bool) -> bool {
     if !independent_messages && !matches!(&decision.reply, p::ReplyDisposition::None { .. }) {
         return false;
@@ -275,8 +276,12 @@ fn independent_operations(decision: &p::Decision, independent_messages: bool) ->
         | p::Operation::HistoryRecordsQuery { .. } | p::Operation::HistoryRecordRead { .. }
         | p::Operation::HistoryRecordReadFromInput { .. } | p::Operation::InspectWork { .. } => true,
         p::Operation::Communicate { .. } => independent_messages,
-        p::Operation::Effect { .. } => host_tools::is_host_command(operation)
-            || tools::is_computation(operation) || http_tools::is_http_fetch(operation),
+        p::Operation::WorkCommand { inputs, .. } => independent_messages
+            && matches!(action(inputs), Ok(WorkAction::RegisterMessageWait { .. })),
+        p::Operation::Effect { capability_id, inputs, .. } => host_tools::is_host_command(operation)
+            || tools::is_computation(operation) || http_tools::is_http_fetch(operation)
+            || (independent_messages && capability_id == "work.command.v1"
+                && matches!(action(inputs), Ok(WorkAction::RegisterMessageWait { .. }))),
         _ => false,
     })
 }
