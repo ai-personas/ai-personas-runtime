@@ -469,7 +469,7 @@ fn human_need_input(
         mandate_revision: 1,
         allocable_outcomes: BTreeSet::from([w::OutcomeId("result".into())]),
         allocable_review_roles: BTreeSet::new(),
-        assent: w::ArrangementAssentPolicy::AffectedPartyAssentV1,
+        assent: w::ArrangementAssentPolicy::AffectedPartyAssentV2,
     };
     Ok(NeedInput {
         id: id.into(),

@@ -10,6 +10,19 @@ and resolves the same retained interface. Neither form includes an authored
 Complete-response, exact-record and current work-state checks preserve meaningful
 outcomes.
 
+Arrangement assent follows the actual changed scope. Under
+`AffectedPartyAssentV2`, changed commitments require their owners' consent,
+artifact transfers require both parties, and a result-rule change requires every
+old and new decision holder. Contributors with unchanged duties and authority do
+not acquire an approval duty merely from participating. A persona can volunteer
+for an unowned result and its initially unassigned decision role through its own
+exact proposal and consent when no other party is affected. Existing duties,
+artifact ownership and decision rights cannot be transferred by naming a peer.
+The accepted arrangement records its actual endorsers; it neither claims
+unanimity about the artifact nor completes the task. This first-release policy
+replaces the earlier development policy; old records are not reinterpreted or
+automatically migrated.
+
 `put_artifact` registers the complete original bytes of a supporting asset named
 by a `utf8` or `bytes_metadata` reference. `record_model_evidence` requires the
 artifact's exact supplied text or byte-metadata view and current qualifications.

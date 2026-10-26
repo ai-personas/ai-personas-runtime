@@ -74,7 +74,7 @@ const SECTIONS: &[Section] = &[
     Section {
         id: "arrangement_delegation",
         commands: &["propose_arrangement", "accept_arrangement"],
-        text: "Copy delegation=CONTROL.arrangements.delegation_exact in every dynamic proposal. The requester's immutable AffectedPartyAssentV1 delegation governs arrangement changes: a result-rule change requires every actual current accepted contributor's exact consent, including later joiners, plus every affected duty or artifact holder. A result-decider role alone grants no amendment authority. The core rechecks current base, prior acceptances, authority and preserved duty coverage at atomic activation. Fixed legacy decision rules permit duty-only arrangements with decision_rule=null.",
+        text: "Copy delegation=CONTROL.arrangements.delegation_exact in every dynamic proposal. Under AffectedPartyAssentV2, each changed commitment and artifact transfer requires its affected parties' exact personal consent. A result-rule change additionally requires every old and new decision holder's consent. Unchanged contributors acquire no approval duty merely from participating. An initial result allocation and designated decision role can therefore be volunteered and accepted by that persona alone when no other commitment, artifact ownership or decision authority changes. This does not claim peers endorsed the candidate or discharge their separate duties. A result-decider role alone grants no amendment authority. The core rechecks current base, prior acceptances, the exact delegation and preserved duty coverage at atomic activation. Fixed decision rules permit duty-only arrangements with decision_rule=null.",
     },
     Section {
         id: "arranged_membership",

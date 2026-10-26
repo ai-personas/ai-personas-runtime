@@ -504,8 +504,9 @@ pub struct ArrangementTermsInput {
     /// Only changed commitments: each persona key names its exact current
     /// acceptance and genuinely different successor terms. Omit people
     /// whose terms stay unchanged; their commitments are retained automatically.
-    /// Required consent is computed separately: a decision-rule change still
-    /// requires every accepted participant's consent, including omitted people.
+    /// Required consent covers changed commitment parties and artifact transfers.
+    /// A decision-rule change also requires every old and new decision holder;
+    /// unchanged contributors acquire no additional approval duty.
     #[schemars(extend("propertyNames" = {"type": "string", "minLength": 1}))]
     pub changes: BTreeMap<String, CommitmentChangeInput>,
     /// Null preserves the current rule, including its absence. A duty-only
@@ -940,7 +941,7 @@ pub(super) fn context(
         "quotas_enforced":false,
         "participant_pool_enforced":false,
         "omission_semantics": "Complete available current work-core metadata without count or byte quotas. Unavailable records establish neither absence nor consent. No file body, peer wake or resume is supplied.",
-        "consent_rule": "Copy a supplied proposal id and exact reference to accept or decline for yourself. Merely proposing grants no consent; consent_own=true explicitly consents only for the author. Activation is atomic only after all required personal consents under the immutable formation delegation; every acceptance and current base is rechecked.",
+        "consent_rule": "Copy a supplied proposal id and exact reference to accept or decline for yourself. Merely proposing grants no consent; consent_own=true explicitly consents only for the author. Under AffectedPartyAssentV2, consent is required from changed commitment parties, both sides of artifact transfers, and every old and new decision holder when the result rule changes. An unchanged contributor has no additional approval duty. Activation is atomic under the exact formation delegation; every affected acceptance and current base is rechecked. This establishes the arrangement, not peer endorsement of an artifact or task completion.",
         "joining_rule": "When current_exact is present, a new participant must use work command accept_arranged_offer with offer, terms_revision and arrangement=current_exact to accept the supplied invitation and current arrangement explicitly. Responsibility accept is available only before an arrangement exists. Responsibility decline remains available; inspecting an arrangement is not consent."
     });
     let mut proposals = Vec::new();

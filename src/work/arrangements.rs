@@ -3,7 +3,9 @@ use super::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ArrangementAssentPolicy {
-    AffectedPartyAssentV1,
+    /// Personal assent for changed commitments and artifact ownership, plus
+    /// every old and new result-decision holder when that rule changes.
+    AffectedPartyAssentV2,
 }
 
 /// Requester-issued permission to allocate the named open duties and select or
@@ -349,12 +351,12 @@ fn required_consents(w: &Work, terms: &ArrangementTerms) -> BTreeSet<PersonaId> 
         required.insert(transfer.to.clone());
     }
     if governance_changed(w, terms) {
-        required.extend(
-            w.participants
-                .keys()
-                .filter(|persona| w.acceptance(persona).is_some())
-                .cloned(),
-        );
+        // An unchanged contribution creates no vote over another persona's
+        // volunteered duties or an initially unassigned result rule. Existing
+        // decision holders still consent to any change in their authority.
+        if let Some(rule) = w.effective_decision_rule() {
+            required.extend(rule.holders());
+        }
         if let Some(rule) = &terms.decision_rule {
             required.extend(rule.holders());
         }

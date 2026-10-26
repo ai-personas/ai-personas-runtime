@@ -433,7 +433,7 @@ fn child_input(
         mandate_revision: 1,
         allocable_outcomes: outcomes.keys().cloned().map(w::OutcomeId).collect(),
         allocable_review_roles: BTreeSet::new(),
-        assent: w::ArrangementAssentPolicy::AffectedPartyAssentV1,
+        assent: w::ArrangementAssentPolicy::AffectedPartyAssentV2,
     };
     Ok(NeedInput {
         id: request.child_work_id.clone(),
