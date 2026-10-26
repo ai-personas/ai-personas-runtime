@@ -6,6 +6,13 @@ dimension keys are not part of that wire shape. The same VAD shape applies to
 current modeled affect. Descriptions and characteristic fragments retain their
 nuance without a text-size quota.
 
+Every work judgment has exactly `kind`, `reason` and `evidence`, including
+`kind: blocked`. The separate maintenance `blocked` outcome has `consequence`;
+that field does not belong in a work judgment. Additional work explanation
+belongs in `reason`. The generated Decision schema and initial authorship
+instructions make this distinction explicit. Unknown fields still reject the
+complete response; they are not silently moved or dropped.
+
 Every work judgment's schema also requires unique, nonempty evidence identifiers.
 An empty evidence list remains valid, and there is no item-count or text-size
 ceiling. The parser preserves the authored order and rejects duplicates rather

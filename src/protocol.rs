@@ -86,7 +86,9 @@ pub struct Decision {
     pub version: u32,
     pub invocation_id: String,
     pub epoch: u64,
-    /// Required work judgment. Every kind includes kind, reason and evidence.
+    /// Required work judgment. Every kind has exactly kind, reason and evidence.
+    /// This includes blocked: consequence belongs to a blocked maintenance
+    /// outcome, not to work. Put additional work explanation in reason.
     /// Supply evidence: [] when no exact evidence identifier applies; never omit it.
     pub work: WorkDisposition,
     /// Account for every fragment mutation and character adoption in this
