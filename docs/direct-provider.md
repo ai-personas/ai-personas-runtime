@@ -445,6 +445,16 @@ completion remains invalid. Unknown event types and heartbeat payloads remain re
 
 Cancellation stops local request/stream work; remote cancellation is unconfirmed. Byte counters concern local encoded payloads and delivered response bytes, not TLS overhead, operating-system or HTTP-client buffers, hidden provider context or hard remote token limits. Missing usage counters remain unknown, separately from zero, and charges remain unknown. Provider-reported model identity is evidence of a report, not independent proof of the served model.
 
+Network failures retain an attempt-local `network_diagnostic` when the transport
+provides one. It identifies whether the failure occurred while awaiting response
+headers or reading the body, the HTTP client's error categories, and any observed
+I/O kind and operating-system error number. Error-chain text is fingerprinted;
+URLs, credentials and free-form error messages are not copied. Read-only attempt
+inspection exposes the retained diagnostic without another model call. Concurrent attempts
+use separate capture state. An unavailable diagnostic stays absent, and a category
+does not establish the underlying remote cause, cancellation or usage. Dispatch,
+launch guards and recovery eligibility are unchanged.
+
 Stream failure diagnostics retain static recognized error types and codes,
 including `slow_down` and `server_is_overloaded` described in the
 [official rate-limit guidance](https://developers.openai.com/api/docs/guides/rate-limits).

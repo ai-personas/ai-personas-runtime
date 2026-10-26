@@ -67,7 +67,7 @@ impl Transport for ReqwestTransport {
             Ok(CatalogResponse {
                 status: response.status().as_u16(),
                 unencoded_json: json && identity,
-                body: Box::new(ReqwestBody { response }),
+                body: Box::new(ReqwestBody { response, diagnostics: None }),
             })
         })
     }

@@ -1192,6 +1192,9 @@ pub struct AttemptFailureView {
     pub kind: Option<String>,
     pub failure: Option<String>,
     pub http_status: Option<u16>,
+    /// Redacted transport categories and fingerprints from this exact attempt.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network_diagnostic: Option<Value>,
     pub provider_error_type: Option<String>,
     pub provider_error_code: Option<String>,
     pub unsupported_parameter: Option<String>,
@@ -1265,6 +1268,8 @@ fn attempt_view(records: &s::RuntimeInspection<'_, '_>, id: &str) -> BoundaryRes
                     kind: receipt["kind"].as_str().map(str::to_owned),
                     failure: receipt["failure"].as_str().map(str::to_owned),
                     http_status: attempt["http_status"].as_u64().and_then(|v| u16::try_from(v).ok()),
+                    network_diagnostic: attempt.get("network_diagnostic")
+                        .filter(|value| !value.is_null()).cloned(),
                     provider_error_type: http["error_type"].as_str()
                         .or_else(|| stream["remote_error_type"].as_str()).map(str::to_owned),
                     provider_error_code: http["error_code"].as_str()

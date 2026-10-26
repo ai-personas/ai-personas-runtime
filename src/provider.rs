@@ -8,9 +8,11 @@
 pub(crate) mod onboarding;
 mod sse;
 mod http_error;
+mod network_error;
 mod output_items;
 mod input_history;
 pub use http_error::Diagnostic as HttpErrorDiagnostic;
+pub use network_error::{Diagnostic as NetworkDiagnostic, Stage as NetworkFailureStage, TransportDiagnostics};
 pub use output_items::RetainedOutputItems;
 pub use input_history::InputHistory;
 pub(crate) use output_items::metadata as retained_output_metadata;
@@ -704,6 +706,8 @@ pub struct AttemptReceipt {
     pub http_status: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub http_diagnostic: Option<HttpErrorDiagnostic>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network_diagnostic: Option<NetworkDiagnostic>,
     pub stream_bytes_observed: u64,
     pub stream_eof: bool,
     pub event_count: u64,
@@ -743,6 +747,7 @@ impl AttemptReceipt {
             dispatch_may_have_begun: false,
             http_status: None,
             http_diagnostic: None,
+            network_diagnostic: None,
             stream_bytes_observed: 0,
             stream_eof: false,
             event_count: 0,
@@ -949,6 +954,20 @@ pub trait HttpBody: Send {
 pub trait HttpTransport: Send + Sync {
     fn post(&self, request: HttpRequest) -> BoxFuture<'_, Result<HttpResponse, Failure>>;
 
+    /// An attempt-local diagnostic sink does not change dispatch or guard
+    /// semantics. Transports without this observation leave it unknown.
+    fn post_observed(
+        &self,
+        request: HttpRequest,
+        guard: Option<Arc<IntakeLaunchGuard>>,
+        _diagnostics: TransportDiagnostics,
+    ) -> BoxFuture<'_, Result<HttpResponse, Failure>> {
+        match guard {
+            Some(guard) => self.post_with_intake_guard(request, guard),
+            None => self.post(request),
+        }
+    }
+
     /// Opt in only when begin_launch can run immediately before actual launch.
     /// Checking before calling an unguarded, potentially delayed post is unsafe.
     fn post_with_intake_guard(
@@ -1026,7 +1045,16 @@ impl ReqwestTransport {
 }
 impl HttpTransport for ReqwestTransport {
     fn post(&self, request: HttpRequest) -> BoxFuture<'_, Result<HttpResponse, Failure>> {
-        self.post_guarded(request, None)
+        self.post_guarded(request, None, None)
+    }
+
+    fn post_observed(
+        &self,
+        request: HttpRequest,
+        guard: Option<Arc<IntakeLaunchGuard>>,
+        diagnostics: TransportDiagnostics,
+    ) -> BoxFuture<'_, Result<HttpResponse, Failure>> {
+        self.post_guarded(request, guard, Some(diagnostics))
     }
 
     fn post_with_intake_guard(
@@ -1034,7 +1062,7 @@ impl HttpTransport for ReqwestTransport {
         request: HttpRequest,
         guard: Arc<IntakeLaunchGuard>,
     ) -> BoxFuture<'_, Result<HttpResponse, Failure>> {
-        self.post_guarded(request, Some(guard))
+        self.post_guarded(request, Some(guard), None)
     }
 }
 impl ReqwestTransport {
@@ -1042,6 +1070,7 @@ impl ReqwestTransport {
         &self,
         request: HttpRequest,
         guard: Option<Arc<IntakeLaunchGuard>>,
+        diagnostics: Option<TransportDiagnostics>,
     ) -> BoxFuture<'_, Result<HttpResponse, Failure>> {
         Box::pin(async move {
             let mode = request.mode;
@@ -1055,12 +1084,17 @@ impl ReqwestTransport {
                 .client
                 .execute(request)
                 .await
-                .map_err(|_| Failure::Network)?;
+                .map_err(|error| {
+                    if let Some(diagnostics) = &diagnostics {
+                        diagnostics.capture(NetworkFailureStage::AwaitingResponseHeaders, &error);
+                    }
+                    Failure::Network
+                })?;
             let status = response.status().as_u16();
             Ok(HttpResponse {
                 status,
                 is_unencoded_sse: permits_unencoded_sse(response.headers(), mode),
-                body: Box::new(ReqwestBody { response }),
+                body: Box::new(ReqwestBody { response, diagnostics }),
             })
         })
     }
@@ -1091,6 +1125,7 @@ fn permits_unencoded_sse(headers: &reqwest::header::HeaderMap, mode: AccessMode)
 }
 struct ReqwestBody {
     response: reqwest::Response,
+    diagnostics: Option<TransportDiagnostics>,
 }
 impl HttpBody for ReqwestBody {
     fn read(&mut self) -> BoxFuture<'_, Result<Option<Vec<u8>>, Failure>> {
@@ -1100,7 +1135,12 @@ impl HttpBody for ReqwestBody {
                 .chunk()
                 .await
                 .map(|chunk| chunk.map(|bytes| bytes.to_vec()))
-                .map_err(|_| Failure::Network)
+                .map_err(|error| {
+                    if let Some(diagnostics) = &self.diagnostics {
+                        diagnostics.capture(NetworkFailureStage::ReadingResponseBody, &error);
+                    }
+                    Failure::Network
+                })
         })
     }
 }
@@ -1448,6 +1488,7 @@ impl DirectCall {
             let settings = &inner.settings;
             let error_secrets = [bearer.clone(), account.clone()];
             let mut collector = sse::Collector::new(&settings.model).with_mode(settings.mode);
+            let diagnostics = TransportDiagnostics::default();
             let started = tokio::time::Instant::now();
             let result = {
                 let running = async {
@@ -1461,16 +1502,12 @@ impl DirectCall {
                         account_header: (settings.mode == AccessMode::ChatgptOAuth)
                             .then_some(account),
                     };
-                    let response = if let Some(guard) = &intake_guard {
-                        inner
-                            .transport
-                            .post_with_intake_guard(request, guard.clone())
-                            .await?
-                    } else {
-                        // Preserve the existing unguarded transport contract.
+                    if intake_guard.is_none() {
                         receipt.dispatch_may_have_begun = true;
-                        inner.transport.post(request).await?
-                    };
+                    }
+                    let response = inner.transport.post_observed(
+                        request, intake_guard.clone(), diagnostics.clone(),
+                    ).await?;
                     receipt.http_status = Some(response.status);
                     if response.status != 200 {
                         let mut capture = http_error::Capture::new(error_secrets, audit.input_history.is_some());
@@ -1525,6 +1562,7 @@ impl DirectCall {
             receipt.response_completed = collector.completed;
             receipt.reported_terminal_status = collector.reported_terminal_status;
             receipt.stream_diagnostic = collector.diagnostic.clone();
+            receipt.network_diagnostic = diagnostics.snapshot();
             receipt.response_id = collector.retained_response_id();
             receipt.response_id_sha256 = collector.response_id_sha256();
             receipt.private_output_items = collector.retained_output_items.clone();
