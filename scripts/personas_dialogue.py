@@ -162,18 +162,22 @@ def readable_messages(messages, show_invocation=False):
     return parts
 
 
-def readable_delivery(delivery):
-    """Display complete qualified text, omitting only verified duplicate bytes.
+def readable_delivery(delivery, summary=False):
+    """Render a file list or the complete qualified text of a bound delivery.
 
-    Unknown or inconsistent packages retain the original JSON presentation.
-    All metadata, qualifications and attribution remain in the readable view.
+    The full view falls back to the original JSON for unrecognized packages.
+    The file list explicitly links to the complete view; it supplies no bodies.
     """
     try:
         artifacts = delivery["artifacts"]
         if not isinstance(artifacts, list) or not artifacts:
             return None
-        parts = [json.dumps({k: v for k, v in delivery.items() if k != "artifacts"},
-                            ensure_ascii=False, indent=2)]
+        if summary:
+            parts = [f"Release {delivery['release']} from {delivery['actor']} "
+                     f"to {delivery['recipient']} ({delivery['invocation']})."]
+        else:
+            parts = [json.dumps({k: v for k, v in delivery.items() if k != "artifacts"},
+                                ensure_ascii=False, indent=2)]
         for artifact in artifacts:
             serialized = artifact["qualified_bundle_json"]
             if hashlib.sha256(serialized.encode("utf-8")).hexdigest() != artifact["qualified_bundle_sha256"]:
@@ -192,6 +196,8 @@ def readable_delivery(delivery):
                 for key in ("source", "revision", "representation", "start", "end"))]
             if len(roots) != 1 or not isinstance(roots[0]["text"], str):
                 return None
+            if any(not isinstance(entry.get("text"), str) for entry in entries):
+                return None
             if source.get("representation") == "bytes_metadata":
                 metadata = decode(roots[0]["text"])
                 if (metadata.get("profile") != "retained-file-bytes-metadata-v1"
@@ -199,9 +205,20 @@ def readable_delivery(delivery):
                         or metadata.get("bytes") != len(raw)
                         or metadata.get("sha256") != hashlib.sha256(bytes(raw)).hexdigest()):
                     return None
-                parts.append("Artifact bytes are retained exactly. Choose e to export the file and its qualifications.")
+                if not summary:
+                    parts.append("Artifact bytes are retained exactly. Choose e to export the file and its qualifications.")
             elif roots[0]["text"].encode("utf-8") != bytes(raw):
                 return None
+            if summary:
+                parts.append(f"File: {roots[0].get('path', 'unnamed')} ({len(raw):,} bytes).")
+                if roots[0].get("retired"):
+                    parts.append("This recorded file is retired.")
+                for entry in entries:
+                    if entry is not roots[0]:
+                        parts.append(f"Accompanying file: {entry.get('path', 'unnamed')}.")
+                if bundle.get("withheld"):
+                    parts.append("Some associated content is unavailable; inspect the full qualifications with v.")
+                continue
             parts.append("Artifact record:")
             parts.append(json.dumps({k: v for k, v in artifact.items()
                                      if k not in ("bytes", "qualified_bundle_json")},
@@ -216,6 +233,9 @@ def readable_delivery(delivery):
                 parts.append(json.dumps({k: v for k, v in entry.items() if k != "text"},
                                         ensure_ascii=False, indent=2))
                 parts.extend(("Document text:", entry["text"], "End of document text."))
+        if summary:
+            parts.append("This is a file list. Choose v for full contents and qualifications. "
+                         "The work menu also offers e to export files and j for exact receipts.")
         return parts
     except (Blocked, KeyError, TypeError, ValueError, AttributeError, UnicodeError):
         return None
@@ -1426,7 +1446,8 @@ class Dialogue:
             if shown_activity is not None:
                 shown_activity[item["persona"]] = key
 
-    def output(self, work, receipt_json=False, result=None, shown_messages=None, shown_activity=None):
+    def output(self, work, receipt_json=False, result=None, shown_messages=None, shown_activity=None,
+               delivery_details=False):
         if result is None:
             result = self.session("result", work)
         amendment = result.get("recorded_task_amendment")
@@ -1460,10 +1481,17 @@ class Dialogue:
                         "No artifact or later benefit was required or established.")
         else:
             status = result.get("status", "unavailable")
-            self.ui.say(f"Work {work}: {status}.")
+            description = {"completed-as-recorded": "completion recorded",
+                           "delivered-acceptance-unestablished": "delivered; stakeholder acceptance is unestablished",
+                           "ended-unfinished": "ended with unfinished work",
+                           "intake-incomplete": "task intake is incomplete"}.get(status, status)
+            self.ui.say(f"Work {work}: {description}.")
             phase = result.get("recorded_phase")
             if phase and phase != status:
-                self.ui.say(f"Recorded work phase: {phase}.")
+                if phase == "open":
+                    self.ui.say("The work remains open; each persona keeps its own continuation choice.")
+                else:
+                    self.ui.say(f"Recorded work phase: {phase}.")
         for creation in result.get("persona_creations", []):
             parent = creation["parent_label"]
             child = creation.get("child")
@@ -1509,10 +1537,15 @@ class Dialogue:
                     self.ui.say(item["label"] + "'s account: " + item["account"]["reason"])
         displayed = self.show_messages(messages, shown_messages=shown_messages)
         for delivery in deliveries:
-            self.ui.say("Permission-projected local delivery (including required qualifications):")
-            parts = None if receipt_json else readable_delivery(delivery)
+            self.ui.say("Local delivery with full contents and qualifications:" if delivery_details or receipt_json
+                        else "Delivered files:")
+            parts = None if receipt_json else readable_delivery(delivery, summary=not delivery_details)
             if parts is None:
-                self.ui.say(json.dumps(delivery, ensure_ascii=False, indent=2))
+                if receipt_json or delivery_details:
+                    self.ui.say(json.dumps(delivery, ensure_ascii=False, indent=2))
+                else:
+                    self.ui.say("A delivery record is available, but its file list could not be rendered. "
+                                "Choose v for the complete record, or j in the work menu for its exact receipt.")
             else:
                 for part in parts:
                     self.ui.say(part)
@@ -2070,7 +2103,7 @@ class Dialogue:
         if work.get("task_amendment"):
             self.ui.say("Current amended request: " + work["task_amendment"]["current_scope"]["request"])
         while True:
-            self.ui.say("r: results; j: delivery receipt JSON; e: export files; q: questions and answers; f: feedback; d: persona development; "
+            self.ui.say("r: results; v: full delivery contents and qualifications; j: delivery receipt JSON; e: export files; q: questions and answers; f: feedback; d: persona development; "
                         "m: amend task; u: resume participant; c: continue; p: pause work; x: cancel work; "
                         "w: resume work; i: confirm pending control; a: Codex auth source; b: back")
             choice = self.ui.ask("Work action:").strip().lower()
@@ -2078,6 +2111,8 @@ class Dialogue:
                 return
             if choice == "r":
                 self.output(work["id"])
+            elif choice == "v":
+                self.output(work["id"], delivery_details=True)
             elif choice == "j":
                 self.output(work["id"], receipt_json=True)
             elif choice == "e":
@@ -2304,8 +2339,8 @@ class Dialogue:
         # or record input/stop controls; none starts or resumes an invocation.
         try:
             choice = self.ui.ask("While running:").strip().lower()
-            if choice == "r":
-                displayed = self.output(work)
+            if choice in ("r", "v"):
+                displayed = self.output(work, delivery_details=choice == "v")
                 if shown_messages is not None:
                     shown_messages.update(displayed)
             elif choice == "q":
@@ -2324,7 +2359,7 @@ class Dialogue:
             elif choice in ("p", "x"):
                 self.control_work(work, "pause" if choice == "p" else "cancel")
             elif choice:
-                self.ui.say("Use r: results; q: questions and answers; f: feedback; p: pause work; x: cancel work; i: confirm pending input/control.")
+                self.ui.say("Use r: results; v: full delivery contents and qualifications; q: questions and answers; f: feedback; p: pause work; x: cancel work; i: confirm pending input/control.")
             else:
                 self.ui.say(self.work_progress(work))
         except Halt:
@@ -2405,7 +2440,7 @@ class Dialogue:
         except (Blocked, OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
             pass
         self.ui.say(f"Submitting {s['id']}. Waiting for its recorded native outcome.")
-        self.ui.say("Work updates and new replies appear as work continues. Type r for results, q for questions and answers, "
+        self.ui.say("Work updates and new replies appear as work continues. Type r for results, v for full delivery contents and qualifications, q for questions and answers, "
                     "f for feedback, p to pause work, x to cancel work, or i to confirm pending input/control, then press Enter.")
         last_update = [None, 0.0]
 

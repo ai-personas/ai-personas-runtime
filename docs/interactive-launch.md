@@ -23,7 +23,12 @@ PERSONAS_BIN=/absolute/helpers/ai-personas ./personas
 
 The launcher opens the runtime saved in that journal and shows the previous
 session's currently permitted messages with their producing call IDs. In a work
-menu, **r: results** shows permitted work history and qualified deliveries.
+menu, **r: results** shows work history and a list of delivered files with their
+sizes. The file list is metadata, not the files' contents or qualifications.
+**v: full delivery contents and qualifications** shows the complete retained
+view, **j** shows exact delivery receipts, and **e** exports files with their
+qualifications. The normal results view keeps internal receipt data out of the
+file list; no retained content or qualification is shortened or removed.
 **c: continue** requests a fresh session without application call quotas. For a stopped or individually paused participant, first choose
 **u: resume participant**, then **c**. Resume grants that participant permission
 to continue; it starts no inference and does not lift a work-wide pause.
@@ -46,7 +51,8 @@ explanation and appear once per changed record during a session. They describe
 the persona's judgment at that time; the work phase and delivered results remain
 separate. Results show these accounts again, including when no reply was sent.
 An account from an earlier task amendment is labeled with its original mandate.
-Type **r** and Enter to inspect results, **q** to read and answer shared questions,
+Type **r** and Enter to inspect results, **v** for full delivery contents and
+qualifications, **q** to read and answer shared questions,
 or **f** to send feedback to a participant. These controls leave the current
 session running. Feedback can be queued until the current call and commands
 settle; it does not rewrite an input already sent to a model. Explicitly stopped
