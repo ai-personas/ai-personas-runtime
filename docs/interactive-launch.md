@@ -75,6 +75,11 @@ be recognized before opening them. Sign-in and runtime status use plain-language
 messages; viewing the list does not check credentials or start inference.
 Stopped participants are shown with a direction to review their results, rather
 than a generic blocked status; their choice does not establish task completion.
+The list separately shows the latest permitted completion record, its release
+and request revision, and labels a record from an earlier request revision.
+This is historical metadata, not a fresh quality judgment or an instruction to
+stop further work. The native inspection supplies it without artifact bodies,
+inference or a change to any participant's continuation.
 After a session, the launcher also identifies feedback still awaiting a response.
 Feedback queued while a final call was already in progress may need an explicit
 participant resume before the persona receives and addresses it.

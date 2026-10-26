@@ -1356,6 +1356,10 @@ pub struct WorkView {
     pub mandate_revision: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub task_amendment: Option<Value>,
+    /// Permitted historical completion metadata, independent of current work
+    /// phase and participant continuation. Supplies no artifact bodies.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recorded_completion: Option<Value>,
     pub attempts_left: u64,
     pub repair_attempts_left: u64,
     pub navigation_left: f::NavigationLimits,
@@ -1622,6 +1626,9 @@ fn inspect_snapshot(
             .map(|id| retained_attempt(records, &mut attempts, id))
             .transpose()?
             .flatten();
+        let completion = closure_readiness::recorded_completion_for_recipient(
+            state, id, operator, now,
+        )?;
         works.push(WorkView {
             id: id.clone(),
             version: work.version,
@@ -1630,6 +1637,7 @@ fn inspect_snapshot(
             need_sha256: s::sha256_bytes(meta.original.request.as_bytes()),
             mandate_revision: work.current_mandate,
             task_amendment: task_amendment::control(meta, work),
+            recorded_completion: (!completion.is_null()).then_some(completion),
             attempts_left: meta.attempts_left,
             repair_attempts_left: meta.repair_attempts_left,
             navigation_left: meta.navigation_left,

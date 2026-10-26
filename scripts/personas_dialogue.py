@@ -2611,6 +2611,13 @@ class Dialogue:
                 self.ui.say(f"{i}: {work['need']}")
                 self.ui.say(f"   {work['id']} — {self.work_availability(view, work)}. "
                             f"Last choices: {continuations or 'none recorded'}.")
+                completion = work.get("recorded_completion")
+                if completion:
+                    revision = completion["mandate_revision"]
+                    scope = (f"earlier request revision {revision}" if revision != work["mandate_revision"]
+                             else f"request revision {revision}")
+                    self.ui.say(f"   Completion recorded: {completion['release']} ({scope}). "
+                                "Open results for its delivery and qualifications.")
                 attempt = work.get("last_attempt")
                 if attempt:
                     self.ui.say(f"   Last recorded call: {attempt['id']} — {attempt['status'].replace('_', ' ')}.")
