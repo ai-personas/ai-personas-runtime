@@ -81,9 +81,15 @@ pub(super) fn select(
                 entry.disposition = SchedulerDisposition::Queued;
             }
             if matches!(entry.disposition, SchedulerDisposition::Queued) {
+                // A fresh cohort's character calls can only adopt their own
+                // profile/file units. They cannot accept responsibility or
+                // change shared work. Existing accepted participants can make
+                // those changes, so a mixed work retains its serial boundary.
+                let initial_character = state.personas[&actor.0].character.is_none()
+                    && current.acceptances.is_empty();
                 selected = Some(Candidate {
                     work: work.clone(), persona: actor.0.clone(),
-                    requires_exclusive: current.acceptance(&actor).is_none()
+                    requires_exclusive: (!initial_character && current.acceptance(&actor).is_none())
                         || state.personas[&actor.0].focus[work].repair_trigger.is_some(),
                 });
             } else if let Some(at) = scheduled_at(&state, &wid, &actor, now)? {

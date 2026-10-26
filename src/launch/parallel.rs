@@ -179,8 +179,9 @@ async fn run_with_subtree<D: Driver>(
                     return Ok(None);
                 };
                 // First responsibility acceptance changes shared work authority.
-                // Give unaccepted participants a current serial opportunity;
-                // already accepted independent peers may overlap afterward.
+                // Initial character calls in a fresh cohort change only their
+                // own character units; their handovers wait for settled calls.
+                // The candidate identifies which transition needs a serial turn.
                 let foreground::Candidate { work, persona, requires_exclusive } = candidate;
                 needs_exclusive = requires_exclusive;
                 if needs_exclusive && !pending.is_empty() {

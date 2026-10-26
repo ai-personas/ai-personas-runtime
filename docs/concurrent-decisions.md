@@ -7,11 +7,18 @@ There is no application call, round, resource or nesting quota.
 
 The independent coordinator holds the Store's execution owner, prepares each
 request, awaits transport futures and adopts completed responses one at a time.
-Each persona retains one current primary invocation. First-character and
-responsibility-acceptance transitions run alone because subsequent decisions must
-receive their changed shared state. This includes first acceptance in optional
-activity; its already accepted participants may overlap afterward. Foreground
-work is not a background service across roots.
+Each persona retains one current primary invocation. A fresh cohort's initial
+character calls can overlap while no participant has accepted responsibility.
+Those calls adopt only their own character/file units; they cannot perform task
+actions or change shared work. Responses still commit one at a time, checking
+their actual persona and source dependencies. Once the calls settle, each exact
+initialization receives its own handover before ordinary work can begin.
+
+First responsibility acceptance runs alone because it changes shared work
+authority. Initializing another persona in work that already has accepted
+participants also retains that serial boundary. This includes first acceptance
+in optional activity; its already accepted participants may overlap afterward.
+Foreground work is not a background service across roots.
 
 Optional activity seals its admission exposure before taking the decision
 snapshot. It uses the same task and persona dependencies as ordinary work, so
