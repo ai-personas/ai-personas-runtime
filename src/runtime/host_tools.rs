@@ -600,8 +600,13 @@ pub(super) fn control(
                 if lineage_permitted(state, std::slice::from_ref(&file), a) {
                     extend_exposure(exposure, &job.exposure);
                     exposure.sources.push(file);
+                    let observation = job.observation.as_ref()
+                        .and_then(|id| state.observations.get(id));
                     results.push(
                         json!({"intent":id,"invocation":job.invocation,"operation":job.operation,
+                        "actor":job.actor,"work":job.work,
+                        "observation":observation.map(|value| &value.id),
+                        "recorded_at_unix":observation.map(|value| value.at_unix),
                         "state":job.state,"source":reference,"metadata_only":true}),
                     );
                 }
@@ -614,7 +619,7 @@ pub(super) fn control(
         json!({"retained_results":results,"retained_results_limit":null,
             "retained_results_included":true,
             "retained_results_truncated":false,"unresolved":unresolved,
-            "scope":"Result provenance for exact revisions already referenced in this input; this is not a historical result catalogue. Use native file discovery or retained-history queries for other results. Unresolved jobs belong to the current actor/work. A reference supplies no body and never replays its command."})
+            "scope":"Result provenance for exact revisions already referenced in this input; this is not a historical result catalogue. Recorded times identify outcome publication, not a new inspection of host files. Retained output remains an earlier capture even when selected alongside a newer result. Use native file discovery or retained-history queries for other results. Unresolved jobs belong to the current actor/work. A reference supplies no body and never replays its command."})
     }
 }
 

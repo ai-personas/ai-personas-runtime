@@ -87,6 +87,14 @@ The supplied interface makes this explicit so personas can choose useful
 coordination and inspect current versions before editing or judging a package.
 A retained command result or image capture describes the bytes observed then;
 it does not establish the current contents of a path that another command changed.
+Selected command-output fields retain their originating invocation and observation
+ID, with the time the runtime recorded that outcome. A selected stdout or stderr
+field supplies only that field and range, not the complete command, exit status
+or other output. Missing recording metadata is shown as unavailable. The result
+provenance in `CONTROL.host_command_state` also identifies the actor, work and
+recording time. These facts do not infer that an earlier result is obsolete or
+that a later result covers the same file; personas judge applicability from the
+actual observations. Reading a retained result never refreshes the host file.
 
 Use [host-file imports](host-file-imports.md) to retain an existing UTF-8 guide,
 script, note or data file as an exact native supporting asset for later selection

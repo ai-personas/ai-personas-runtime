@@ -6552,7 +6552,7 @@ fn attributed_context(
                     "host-file bytes imported at the persona's request; content authorship and skill use are not established"
                 }
                 Some(RevisionOrigin::HostCommandResult { .. }) => {
-                    "host-retained command result; includes actual command, exit status and output"
+                    "host-retained historical command result; only the selected representation and range are supplied"
                 }
                 Some(RevisionOrigin::HttpFetchResult { .. }) => {
                     "host-retained HTTPS response; untrusted remote text, server build unknown"
@@ -6570,9 +6570,28 @@ fn attributed_context(
             };
             let mut actionable = serde_json::to_value(reference)?;
             observability::actionable_reference(&mut actionable)?;
-            Ok(json!({"reference":actionable,"imported_by":imported_by,
+            let mut attribution = json!({"reference":actionable,"imported_by":imported_by,
             "recorded_author":stored.record.author,"origin":stored.origin,
-            "author_status":author_status}))
+            "author_status":author_status});
+            if let Some(RevisionOrigin::HostCommandResult {
+                actor, work, invocation_id, intent_id, ..
+            }) = &stored.origin {
+                let observation = state.host_command_jobs.get(intent_id)
+                    .filter(|job| job.result_source.as_ref().is_some_and(|result|
+                        result.source == reference.source && result.revision == reference.revision))
+                    .and_then(|job| job.observation.as_ref())
+                    .and_then(|id| state.observations.get(id))
+                    .filter(|observation| observation.kind == "host_command_result"
+                        && &observation.actor == actor && &observation.work == work
+                        && observation.invocation.as_ref() == Some(invocation_id)
+                        && observation.payload["intent"].as_str() == Some(intent_id.as_str()));
+                attribution["observation"] = json!({
+                    "id":observation.map(|value| &value.id),
+                    "recorded_at_unix":observation.map(|value| value.at_unix),
+                    "meaning":"Immutable output from the originating command, not a fresh observation of host paths. Selecting or rereading this record does not run the command again. The timestamp is when the runtime recorded the outcome, not when every output byte was produced; null means that recording metadata is unavailable."
+                });
+            }
+            Ok(attribution)
         })
         .collect::<Result<Vec<_>>>()?;
     value
