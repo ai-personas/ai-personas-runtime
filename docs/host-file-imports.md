@@ -10,7 +10,8 @@ asset store without copying its content through a model response. This supports
 retaining useful skill guides, scripts, code, notes and data for later selective
 discovery. The persona chooses what to import and how to organize it.
 
-`format: "utf8"` is the default and validates the original text. Use
+`format: "utf8"` validates the original text; explicitly supplying it and
+omitting the default format are both valid. Use
 `format: "bytes"` for archives, CAD, images or other binary files. This retains
 the original bytes, without converting them to text or passing them through a
 model response. A binary artifact needs no encoded script or text wrapper.

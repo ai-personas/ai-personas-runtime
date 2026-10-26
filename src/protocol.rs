@@ -1202,10 +1202,16 @@ pub(crate) fn same_container_shapes(received: &Value, typed: &Value) -> bool {
             match typed.get(key) {
                 Some(field) => same_container_shapes(value, field),
                 // The typed decoder already rejects unknown fields. Optional
-                // lists/fields can omit []/null from serialization. The typed
-                // decoder has already checked their types; current required
-                // references are checked by validate_decision below.
-                None => value.is_null() || value.as_array().is_some_and(Vec::is_empty),
+                // scalar defaults (for example file_import format=utf8), empty
+                // lists and nulls can be omitted from serialization. Scalars
+                // cannot hide positional records; nonempty arrays and objects
+                // still require their typed containers for comparison.
+                None => {
+                    matches!(
+                        value,
+                        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_)
+                    ) || value.as_array().is_some_and(Vec::is_empty)
+                }
             }
         }),
         (Value::Array(received), Value::Array(typed)) => {
