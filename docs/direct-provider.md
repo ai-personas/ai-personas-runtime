@@ -419,6 +419,11 @@ and script bodies are not copied into failure metadata or recovery prompts.
 The complete rejected response remains retained for explicit inspection; the
 diagnostic neither rewrites that response nor executes any of its operations.
 
+When a missing tag prevents choosing a schema variant, response-shape hints
+still identify absent members required by every alternative, such as an
+operation's `kind`. They do not infer the intended variant or report its
+variant-specific fields as required. The original response remains rejected.
+
 The exact native prompt uses the sealed developer-prefix and user-input layout
 described above. A request without a reusable-prefix boundary uses one user
 input-text message. A fixed JSON-output instruction and the exact requested

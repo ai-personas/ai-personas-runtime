@@ -62,6 +62,15 @@ pub(crate) fn issues(schema: &Value, root: &Value, received: &Value, section: &s
             continue;
         }
         let Some(schema) = resolved(schema, root, received) else {
+            // Without a tag we cannot choose a variant. Report only members
+            // required by every alternative, never fields from a guessed one.
+            if let Some(values) = received.as_object() {
+                for name in required_members(schema, root, &mut BTreeSet::new()) {
+                    if !values.contains_key(name) {
+                        issues.insert(format!("{path}.{name} is required"));
+                    }
+                }
+            }
             continue;
         };
         if let Some(fields) = schema["properties"].as_object() {
@@ -110,6 +119,46 @@ pub(crate) fn issues(schema: &Value, root: &Value, received: &Value, section: &s
         }
     }
     issues.into_iter().collect()
+}
+
+fn required_members<'a>(
+    schema: &'a Value,
+    root: &'a Value,
+    visiting: &mut BTreeSet<*const Value>,
+) -> BTreeSet<&'a str> {
+    let address = schema as *const Value;
+    if !visiting.insert(address) {
+        return BTreeSet::new();
+    }
+    let result = if let Some(reference) = schema["$ref"].as_str() {
+        reference
+            .strip_prefix('#')
+            .and_then(|pointer| root.pointer(pointer))
+            .map(|target| required_members(target, root, visiting))
+            .unwrap_or_default()
+    } else if let Some(options) = schema["oneOf"]
+        .as_array()
+        .or_else(|| schema["anyOf"].as_array())
+    {
+        let mut members = options
+            .iter()
+            .map(|option| required_members(option, root, visiting));
+        let mut common = members.next().unwrap_or_default();
+        for branch in members {
+            common.retain(|name| branch.contains(name));
+        }
+        common
+    } else {
+        schema["required"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .filter(|name| schema["properties"].get(*name).is_some())
+            .collect()
+    };
+    visiting.remove(&address);
+    result
 }
 
 fn mismatch(
