@@ -110,11 +110,29 @@ New direct admissions, including ordinary delegated work, retain a host-only
 `runtime-decision-scope-v2` snapshot. It binds global persona state, that task's
 focus, configuration, work authority and shared semantic state, metadata, and the
 expanded supplied-source lineage with its accepted bindings. Ordinary calls ignore
-only another participant's private continuation, wake, activity and observed-event
+another participant's private continuation, wake, activity and observed-event
 bookkeeping, the work revision counter and appended applied-invocation IDs. They
 also exclude remaining shared spend counters: each request has its own
 admission and reservation records. Accounting records actual use without applying
 a cumulative quota, and adoption preserves concurrent spending.
+
+New ordinary admissions also seal `independent_work` hashes for navigation and
+tool responses. A response containing only file/image/history/work inspection,
+search/discovery, or host, computation and HTTP effects can tolerate changes to
+peer artifact, evidence, judgment, finding, release and delivery records. An
+empty operation list can use the same scope. Those records and their accumulated
+work metadata are separate from the current task, membership, commitments,
+arrangements, pending dependencies and the exact source lineage actually supplied
+to the invocation. All of those dependencies remain checked. Native file
+mutations, communication (including an authored reply), responsibility,
+persona/need creation and shared work
+commands retain the complete shared-record comparison. A mixed response uses
+that complete comparison as one atomic unit.
+
+This prevents unrelated tool work from being discarded solely because a peer
+registered a candidate or judgment during inference. It neither adopts a stale
+formal decision nor claims that the persona saw the later record. Old admissions
+without these separately sealed hashes retain their original checks.
 
 Episode preparation carries the coordinator's exact owned invocation IDs through
 the runtime lease check and the Store checkpoint transaction. An unrelated or
@@ -180,9 +198,11 @@ messages whose bodies were unavailable. Other senders, existing registrations
 and Stop/Pause gain no event from this reconciliation. Ordinary arrivals after
 adoption continue through the same message-wait event path.
 
-Membership, acceptance, mandate, phase, shared artifacts, evidence, questions,
-requester feedback, message-wait events and changed supplied lineage can still
-invalidate a pending response. Its original complete response remains terminal evidence.
+Membership, acceptance, mandate, phase, questions, requester feedback,
+message-wait events and changed supplied lineage can still invalidate a pending
+response. Shared candidate, evidence and delivery records also remain exact for
+responses outside the separately sealed navigation/tool scope described above.
+The original complete response remains terminal evidence.
 An unchanged accepted continuation may allow a fresh, charged admission after
 the rejected lease is retired under the existing rules. No response is rewritten,
 retried, refunded or treated as adopted merely because transport completed.
@@ -257,6 +277,11 @@ execution records remain attributable.
 An intent from a new admission retains its sealed peer-message deferral rule.
 An ordinary unsupplied peer message alone does not cancel the accepted command;
 all other originating-task controls and prerequisites still apply.
+
+An intent accepted from a response using the separately sealed independent-work
+scope retains that scope for dispatch. New peer candidate and evaluation records
+alone do not cancel it. A response with a shared work command retains the complete
+shared-record dependency even for its accompanying host command.
 
 The runtime checks these dependencies, then Store atomically compares that exact
 current head and intent before recording dispatch. The accepted response and all

@@ -4306,7 +4306,7 @@ impl Runtime {
             "synthetic dispatch requires a prepared invocation",
         )?;
         let (_, state) = self.load()?;
-        self.current(&state, &prepared, now)?;
+        self.current(&state, &prepared, now, None)?;
         optional_activity::require_current(&state, &prepared.request.work, &prepared.request.persona, now)?;
         Ok(self.store.dispatch_invocation(id)?)
     }
@@ -4467,7 +4467,7 @@ impl Runtime {
                 validate_selection_repair(&prepared, &decision)?;
             }
             planning_exposure.unknown();
-            self.current(&state, &prepared, now)?;
+            self.current(&state, &prepared, now, Some(&decision))?;
             optional_activity::require_response(&state, &prepared, &decision, now)?;
             planning_exposure = PlanningExposure::new(prepared.exposure.as_ref());
             let mut state = state;
@@ -4690,14 +4690,17 @@ impl Runtime {
             usage_is_unknown: true,
         })
     }
-    fn current(&mut self, state: &State, prepared: &Prepared, now: i64) -> Result<()> {
+    fn current(
+        &mut self, state: &State, prepared: &Prepared, now: i64,
+        decision: Option<&p::Decision>,
+    ) -> Result<()> {
         lifecycle::require_active(state, &prepared.request.persona)?;
         require(
             prepared.intake_episode == need_proposals::reference(state, &prepared.request.work),
             "prepared intake episode binding changed",
         )?;
         need_proposals::check_work(self, state, &prepared.request.work, now)?;
-        let scoped = decision_scope::require_current(state, prepared)?;
+        let scoped = decision_scope::require_current(state, prepared, decision)?;
         require(
             scoped || self.store.epoch()? == prepared.epoch,
             "store epoch changed after preparation",
@@ -5653,7 +5656,7 @@ impl Runtime {
                 &prepared.request,
             )?;
             require(prelaunch_stop.is_none(), "runtime stop preceded provider dispatch")?;
-            self.current(&fresh, &prepared, unix_now()?)?;
+            self.current(&fresh, &prepared, unix_now()?, None)?;
             optional_activity::require_current(&fresh, &prepared.request.work, &prepared.request.persona, unix_now()?)?;
             check_exposure(&fresh, prepared_exposure(&prepared)?)?;
             // Source and episode expiry settings do not impose transport deadlines.

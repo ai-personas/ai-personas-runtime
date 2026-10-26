@@ -6,6 +6,13 @@ const INTENT_FORMAT: &str = s::RUNTIME_INTENT_SCOPE;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct IndependentWork {
+    work_sha256: String,
+    metadata_sha256: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Snapshot {
     pub format: String,
     actor_sha256: String,
@@ -23,6 +30,10 @@ pub struct Snapshot {
     optional_activity_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     saved_sources: BTreeMap<String, String>,
+    /// Separately sealed authority for navigation and tool responses that do
+    /// not change shared work records. Absence preserves the admitted scope.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    independent_work: Option<IndependentWork>,
 }
 
 pub(super) fn seal(state: &State, prepared: &Prepared) -> Result<Option<Snapshot>> {
@@ -32,6 +43,7 @@ pub(super) fn seal(state: &State, prepared: &Prepared) -> Result<Option<Snapshot
         return Ok(None);
     }
     Ok(Some(snapshot(state, prepared, FORMAT,
+        prepared.request.mode == Mode::Ordinary,
         prepared.request.mode == Mode::Ordinary)?))
 }
 
@@ -50,6 +62,7 @@ fn snapshot(
     prepared: &Prepared,
     format: &str,
     defer_incoming_peer_messages: bool,
+    independent_work: bool,
 ) -> Result<Snapshot> {
     let actor = &prepared.request.persona;
     let work_id = &prepared.request.work;
@@ -123,11 +136,46 @@ fn snapshot(
             })
         })
         .collect();
+    let mut work = scoped_work(state, prepared)?;
+    let work_sha256 = digest(&work)?;
+    let independent_work = if independent_work {
+        require(prepared.request.mode == Mode::Ordinary,
+            "independent work records require an ordinary decision")?;
+        // Candidate, evaluation and delivery records do not change the task,
+        // membership, accepted duties, decision rights or pending dependencies.
+        // Their exact current state remains required by shared work commands.
+        work.artifacts.clear();
+        work.evidence.clear();
+        work.unavailable_evidence.clear();
+        work.assessments.clear();
+        work.judgments.clear();
+        work.findings.clear();
+        work.blocker_dispositions.clear();
+        work.shared.clear();
+        work.releases.clear();
+        work.completions.clear();
+        work.deliveries.clear();
+        work.stakeholder_decisions.clear();
+        let mut metadata = metadata.clone();
+        metadata.artifact_sources.clear();
+        metadata.human_evidence.clear();
+        metadata.model_evidence.clear();
+        metadata.completion_exposures.clear();
+        // Shared records accumulate peer lineage, which was not supplied to
+        // this invocation. Its actual supplied lineage is sealed separately.
+        metadata.exposure = None;
+        Some(IndependentWork {
+            work_sha256: digest(&work)?,
+            metadata_sha256: digest(&metadata)?,
+        })
+    } else {
+        None
+    };
     Ok(Snapshot {
         format: format.into(),
         actor_sha256: digest(&persona)?,
         config_sha256: digest(&state.config)?,
-        work_sha256: work_hash(state, prepared)?,
+        work_sha256,
         metadata_sha256: digest(&metadata)?,
         supplied_lineage_sha256: digest(&(exposure, bindings))?,
         defer_incoming_peer_messages,
@@ -150,7 +198,39 @@ fn snapshot(
         },
         optional_activity_sha256: optional_activity::scoped_binding(state, prepared, format == INTENT_FORMAT)?,
         saved_sources: BTreeMap::new(),
+        independent_work,
     })
+}
+
+/// Every other operation keeps the complete shared-record check. In particular,
+/// accepting responsibility, publishing judgments, changing arrangements and
+/// releasing work cannot use a navigation/tool decision's narrower scope.
+fn independent_operations(decision: &p::Decision) -> bool {
+    if !matches!(&decision.reply, p::ReplyDisposition::None { .. }) {
+        return false;
+    }
+    decision.operations.iter().all(|operation| match operation {
+        p::Operation::Read { .. } | p::Operation::ImageRead { .. }
+        | p::Operation::Search { .. } | p::Operation::Discover { .. }
+        | p::Operation::HistoryQuery { .. } | p::Operation::HistoryRead { .. }
+        | p::Operation::HistoryRecordsQuery { .. } | p::Operation::HistoryRecordRead { .. }
+        | p::Operation::HistoryRecordReadFromInput { .. } | p::Operation::InspectWork { .. } => true,
+        p::Operation::Effect { .. } => host_tools::is_host_command(operation)
+            || tools::is_computation(operation) || http_tools::is_http_fetch(operation),
+        _ => false,
+    })
+}
+
+fn matches(admitted: &Snapshot, current: &Snapshot, independent: bool) -> bool {
+    let mut expected = admitted.clone();
+    if independent && admitted.independent_work.is_some() {
+        // Compare the separately admitted authority hashes instead of the full
+        // record collections. Every other field, including supplied lineage,
+        // actor state and the narrower hashes themselves, must still match.
+        expected.work_sha256 = current.work_sha256.clone();
+        expected.metadata_sha256 = current.metadata_sha256.clone();
+    }
+    expected == *current
 }
 
 fn deferrable_peer_message(state: &State, actor: &str, work: &str, id: &str) -> bool {
@@ -219,7 +299,9 @@ pub(super) fn seal_intents(
         return Ok(());
     }
     let common = snapshot(state, prepared, INTENT_FORMAT,
-        prepared.decision_scope.as_ref().is_some_and(|scope| scope.defer_incoming_peer_messages))?;
+        prepared.decision_scope.as_ref().is_some_and(|scope| scope.defer_incoming_peer_messages),
+        prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_work.is_some())
+            && independent_operations(decision))?;
     for intent in intents {
         let operation = intent.body["operation"]
             .as_str()
@@ -274,14 +356,15 @@ pub(super) fn require_intent_current(
         isolates_other_work(prepared) && admitted.format == INTENT_FORMAT,
         "unsupported scoped intent admission",
     )?;
-    let mut current = snapshot(state, prepared, INTENT_FORMAT, admitted.defer_incoming_peer_messages)?;
+    let mut current = snapshot(state, prepared, INTENT_FORMAT,
+        admitted.defer_incoming_peer_messages, admitted.independent_work.is_some())?;
     for source in admitted.saved_sources.keys() {
         current
             .saved_sources
             .insert(source.clone(), saved_source_hash(state, source)?);
     }
     require(
-        *admitted == current,
+        matches(admitted, &current, true),
         "accepted action authority or prerequisites changed",
     )
 }
@@ -311,7 +394,7 @@ impl Runtime {
     }
 }
 
-fn work_hash(state: &State, prepared: &Prepared) -> Result<String> {
+fn scoped_work(state: &State, prepared: &Prepared) -> Result<w::Work> {
     let actor = &prepared.request.persona;
     let mut work = state
         .board
@@ -332,7 +415,11 @@ fn work_hash(state: &State, prepared: &Prepared) -> Result<String> {
             }
         }
     }
-    digest(&work)
+    Ok(work)
+}
+
+fn work_hash(state: &State, prepared: &Prepared) -> Result<String> {
+    digest(&scoped_work(state, prepared)?)
 }
 
 /// Initial-character handover already validates the actor's exact accepted
@@ -349,7 +436,9 @@ pub(super) fn work_current(state: &State, prepared: &Prepared) -> Result<bool> {
     }
 }
 
-pub(super) fn require_current(state: &State, prepared: &Prepared) -> Result<bool> {
+pub(super) fn require_current(
+    state: &State, prepared: &Prepared, decision: Option<&p::Decision>,
+) -> Result<bool> {
     let Some(admitted) = &prepared.decision_scope else {
         return Ok(false);
     };
@@ -358,8 +447,10 @@ pub(super) fn require_current(state: &State, prepared: &Prepared) -> Result<bool
             && s::runtime_decision_scope_supported(&admitted.format),
         "unsupported scoped decision admission",
     )?;
+    let current = snapshot(state, prepared, &admitted.format,
+        admitted.defer_incoming_peer_messages, admitted.independent_work.is_some())?;
     require(
-        *admitted == snapshot(state, prepared, &admitted.format, admitted.defer_incoming_peer_messages)?,
+        matches(admitted, &current, decision.is_some_and(independent_operations)),
         "decision authority or supplied lineage changed",
     )?;
     Ok(true)
