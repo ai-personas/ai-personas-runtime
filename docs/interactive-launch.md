@@ -173,6 +173,11 @@ candidate validates; ambiguous or invalid saved state is reported without moving
 or resetting it. Launching the dialogue selects journal creation without a second
 confirmation. Native browser sign-in remains a separate account operation.
 
+An existing empty directory can also be used for a new journal. The launcher
+checks it again while holding the journal lock before writing initial progress.
+A nonempty directory with missing or invalid progress is reported for inspection
+without replacing its contents.
+
 ### Automatic persistent progress selection
 
 The no-argument launcher checks only the standard XDG state directory and the

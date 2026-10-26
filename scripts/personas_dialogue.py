@@ -2669,15 +2669,21 @@ def select_progress_directory(ui, default=None):
             if fd is None:
                 safe_missing.append(path)
             else:
-                os.close(fd)
-                existing.append(path)
+                try:
+                    existing.append((path, not os.listdir(fd)))
+                finally:
+                    os.close(fd)
         except (Blocked, OSError):
             # Inaccessible is not absent. Never fall through to HOME and thereby
             # strand pending identities in an XDG journal we could not inspect.
             raise Blocked("progress_location_unavailable") from None
     require(len(existing) <= 1, "multiple_saved_progress_locations_choose_explicit_override")
     if existing:
-        return PrivateDirectory(existing[0]), False
+        path, empty = existing[0]
+        # An existing empty directory has no saved operation to recover. Journal
+        # rechecks its contents under the exclusive lock before initializing it.
+        # Nonempty directories without progress still cannot be reset here.
+        return PrivateDirectory(path), empty
     require(safe_missing, "no_supported_persistent_state_location")
     path = safe_missing[0]
     # Check actual host access before creating the selected journal.
