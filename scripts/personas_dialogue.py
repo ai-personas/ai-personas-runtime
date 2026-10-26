@@ -2124,7 +2124,15 @@ class Dialogue:
                                     "Choose Results to read the personas' replies. "
                                     "Files they created directly are in the task workspace shown in the work list.")
                     else:
-                        self.ui.say(f"Saved {len(receipt['files'])} files in {receipt['destination']}.")
+                        saved = []
+                        deliveries = receipt["delivery_count"]
+                        cited = receipt["cited_file_count"]
+                        if deliveries:
+                            saved.append(f"{deliveries} delivery package{'s' if deliveries != 1 else ''}")
+                        if cited:
+                            saved.append(f"{cited} cited file{'s' if cited != 1 else ''}")
+                        self.ui.say(f"Saved {' and '.join(saved)} with source and qualification records "
+                                    f"in {receipt['destination']}.")
             elif choice == "q":
                 self.questions(work["id"])
             elif choice == "f":

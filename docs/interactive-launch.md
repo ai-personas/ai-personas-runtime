@@ -383,6 +383,8 @@ Formal delivery packages also retain their original receipts. Saving a cited fil
 is an explicit reader action and needs no shared-release or peer-consent record;
 the original citation remains metadata, and export does not create a release or
 acceptance. Ranges and decoded string citations do not select their whole files.
+The export summary counts delivery packages and cited files separately; their
+source and qualification records do not inflate the displayed content count.
 Export copies retained bytes rather than reopening
 mutable task paths. It starts no model call and executes no artifact. The native
 `result WORK --export-directory DIRECTORY` command offers the same operation.
