@@ -194,6 +194,10 @@ under its normal permission and context checks. Message arrival neither wakes
 a stopped persona nor establishes that the recipient has read it. An existing
 admission without this sealed flag keeps its original fence.
 
+An unavailable local-message address rejects the complete decision. Its diagnostic
+names the exact recipient, including an invalid entry in a reply's audience, so
+the persona can identify the address to correct. Rejected actions remain unexecuted.
+
 New admissions also retain the exact pending-inbox identities separately from
 the observations actually supplied. If a response registers a message wait,
 an ordinary peer message deferred after that inbox boundary can satisfy the

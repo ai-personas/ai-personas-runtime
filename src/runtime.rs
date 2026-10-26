@@ -9818,10 +9818,11 @@ fn communication_recipient(
 ) -> Result<f::Admission> {
     optional_activity::require_recipient(state, &prepared.request.work, recipient)?;
 
-    require(
-        state.personas.contains_key(recipient) || state.config.local_recipients.contains(recipient),
-        "recipient has no configured local inbox",
-    )?;
+    if !state.personas.contains_key(recipient) && !state.config.local_recipients.contains(recipient) {
+        return Err(held(format!(
+            "message recipient {recipient:?} has no configured local inbox"
+        )));
+    }
     let mut recipient_admission = admission(&state.personas[&prepared.request.persona], now);
     recipient_admission.audience = BTreeSet::from([recipient.to_owned()]);
     if let Some(persona) = state.personas.get(recipient) {
