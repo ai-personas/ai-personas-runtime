@@ -736,7 +736,8 @@ fn readable_result(value: &launch::Output) -> runtime::Result<String> {
             "provider_preflight_or_transport_failed" => "The provider could not complete this attempt. Inspect its retained status before recovery.",
             "selection_overflow" => "A retained selection overflow was recorded. Current ordinary assembly has no application byte quota; inspect its exact diagnostic and current selections before continuing.",
             "mandatory_context_overflow" => "Context construction failed with a retained overflow diagnostic. Current ordinary assembly has no application byte quota; inspect the exact diagnostic and source binding before continuing.",
-            "store_or_resource_limit" => "A Store operation failed. Inspect its retained error and outcome before continuing.",
+            "snapshot_changed" => "The retained state changed while this step was being prepared or recorded. Inspect current work and invocation status before continuing; this is not a resource quota or permission to replay an action.",
+            "store_operation_failed" | "store_or_resource_limit" => "A Store operation failed. Inspect its retained error and outcome before continuing.",
             _ => "The next step is blocked or unresolved and needs explicit inspection.",
         };
         lines.push(explanation.into());

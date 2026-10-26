@@ -521,6 +521,8 @@ fn valid_stop(stop: &str) -> bool {
             | "provider_preflight_or_transport_failed"
             | "invalid_response"
             | "held_or_unresolved_invocation"
+            | "snapshot_changed"
+            | "store_operation_failed"
             | "store_or_resource_limit"
             | "blocked_or_unresolved_invocation"
     )

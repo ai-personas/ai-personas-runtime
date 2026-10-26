@@ -943,7 +943,10 @@ fn stop_for_error(error: &RuntimeError) -> &'static str {
         RuntimeError::Protocol(_) => "invalid_response",
         RuntimeError::LifetimeStepLimit => "lifetime_step_limit",
         RuntimeError::Held(_) => "held_or_unresolved_invocation",
-        RuntimeError::Store(_) => "store_or_resource_limit",
+        RuntimeError::Store(s::StoreError::RevisionConflict(_) | s::StoreError::StaleEpoch { .. }) => {
+            "snapshot_changed"
+        }
+        RuntimeError::Store(_) => "store_operation_failed",
         _ => "blocked_or_unresolved_invocation",
     }
 }

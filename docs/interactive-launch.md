@@ -86,6 +86,13 @@ active. Running calls and commands observe it and retain their actual terminal
 outcomes. A recorded control does not prove remote termination or refund usage.
 Cancellation retains the results and identifies the work as canceled, not complete.
 
+A concurrent state change can end a session with `snapshot_changed`, including
+when a work control races a prepared step. The recorded control and each call's
+actual outcome remain authoritative. Other Store failures use
+`store_operation_failed`; neither label implies that an application quota was
+reached or that an uncertain action can be replayed. Earlier session receipts
+retain their original stop labels.
+
 After the session settles, **w: resume work** lifts a work-wide pause. Individual
 Stop/Pause choices and unresolved outcomes remain effective; use **u** for an
 individual resumption when appropriate, then **c** to run eligible work.
