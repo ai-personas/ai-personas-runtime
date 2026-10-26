@@ -126,15 +126,28 @@ a cumulative quota, and adoption preserves concurrent spending.
 New ordinary admissions also seal `independent_work` hashes for navigation and
 tool responses. A response containing only file/image/history/work inspection,
 search/discovery, or host, computation and HTTP effects can tolerate changes to
-peer artifact, evidence, judgment, finding, release and delivery records. An
-empty operation list can use the same scope. Those records and their accumulated
+peer artifact, evidence, judgment, finding, release and delivery records. New
+admissions also seal `independent_messages: true`, allowing ordinary local
+messages and authored replies to use this scope. Recipient and exact citation
+checks still run against current state; a message establishes neither a shared
+decision nor formal delivery. An empty operation list can use the same scope.
+Those records and their accumulated
 work metadata are separate from the current task, membership, commitments,
 arrangements, pending dependencies and the exact source lineage actually supplied
 to the invocation. All of those dependencies remain checked. Native file
-mutations, communication (including an authored reply), responsibility,
-persona/need creation and shared work
+mutations, responsibility, persona/need creation and shared work
 commands retain the complete shared-record comparison. A mixed response uses
 that complete comparison as one atomic unit.
+
+With this sealed message scope, another persona's voluntary inbox wait is also
+independent. Registering it, receiving its message or retiring it does not discard
+unrelated pending responses or accepted commands. Only exact dependencies with
+the original no-sender-obligation account and events addressed solely to the
+waiting peer are excluded. The acting persona's own waits, broader event
+audiences, changed dependency ownership and other shared dependencies remain
+checked. Adoption preserves the actual wait records and events; it does not
+remove them or imply that another persona saw the message. Admissions without
+this flag retain their earlier message and wait comparisons.
 
 This prevents unrelated tool work from being discarded solely because a peer
 registered a candidate or judgment during inference. It neither adopts a stale
@@ -210,8 +223,8 @@ and Stop/Pause gain no event from this reconciliation. Ordinary arrivals after
 adoption continue through the same message-wait event path.
 
 Membership, acceptance, mandate, phase, questions, requester feedback,
-message-wait events and changed supplied lineage can still invalidate a pending
-response. Shared candidate, evidence and delivery records also remain exact for
+the actor's message-wait events and changed supplied lineage can still invalidate
+a pending response. Peer waits, shared candidate, evidence and delivery records remain exact for
 responses outside the separately sealed navigation/tool scope described above.
 The original complete response remains terminal evidence.
 An unchanged accepted continuation may allow a fresh, charged admission after
@@ -290,8 +303,9 @@ An ordinary unsupplied peer message alone does not cancel the accepted command;
 all other originating-task controls and prerequisites still apply.
 
 An intent accepted from a response using the separately sealed independent-work
-scope retains that scope for dispatch. New peer candidate and evaluation records
-alone do not cancel it. A response with a shared work command retains the complete
+scope retains that scope for dispatch, including its admitted message scope.
+New peer candidate, evaluation and personal wait records alone do not cancel it.
+A response with a shared work command retains the complete
 shared-record dependency even for its accompanying host command.
 
 The runtime checks these dependencies, then Store atomically compares that exact

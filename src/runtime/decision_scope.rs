@@ -34,6 +34,10 @@ pub struct Snapshot {
     /// not change shared work records. Absence preserves the admitted scope.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     independent_work: Option<IndependentWork>,
+    /// New ordinary admissions also isolate personal message coordination.
+    /// Older snapshots retain their complete message and wait dependencies.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    independent_messages: bool,
 }
 
 pub(super) fn seal(state: &State, prepared: &Prepared) -> Result<Option<Snapshot>> {
@@ -43,6 +47,7 @@ pub(super) fn seal(state: &State, prepared: &Prepared) -> Result<Option<Snapshot
         return Ok(None);
     }
     Ok(Some(snapshot(state, prepared, FORMAT,
+        prepared.request.mode == Mode::Ordinary,
         prepared.request.mode == Mode::Ordinary,
         prepared.request.mode == Mode::Ordinary)?))
 }
@@ -63,6 +68,7 @@ fn snapshot(
     format: &str,
     defer_incoming_peer_messages: bool,
     independent_work: bool,
+    independent_messages: bool,
 ) -> Result<Snapshot> {
     let actor = &prepared.request.persona;
     let work_id = &prepared.request.work;
@@ -164,6 +170,9 @@ fn snapshot(
         // Shared records accumulate peer lineage, which was not supplied to
         // this invocation. Its actual supplied lineage is sealed separately.
         metadata.exposure = None;
+        if independent_messages {
+            exclude_peer_message_waits(&mut work, &mut metadata, actor);
+        }
         Some(IndependentWork {
             work_sha256: digest(&work)?,
             metadata_sha256: digest(&metadata)?,
@@ -199,14 +208,39 @@ fn snapshot(
         optional_activity_sha256: optional_activity::scoped_binding(state, prepared, format == INTENT_FORMAT)?,
         saved_sources: BTreeMap::new(),
         independent_work,
+        independent_messages,
     })
+}
+
+/// A voluntary inbox wait belongs only to its waiting persona. Its registration,
+/// arrival and retirement do not change another participant's commitments. Keep
+/// a dependency or event with any broader accountability/audience in the scope.
+fn exclude_peer_message_waits(work: &mut w::Work, metadata: &mut WorkMeta, actor: &str) {
+    let keys: BTreeSet<_> = metadata.message_waits.values()
+        .filter(|wait| wait.actor != actor)
+        .filter(|wait| {
+            let dependencies: Vec<_> = work.dependencies.iter()
+                .filter(|dependency| dependency.key == wait.key).collect();
+            dependencies.len() == 1
+                && matches!(&dependencies[0].accountability, w::Accountability::Gap(reason)
+                    if reason == "Message arrival is voluntary; no sender responsibility is imposed")
+                && work.event_audiences.iter().filter(|(key, _)| key == &wait.key)
+                    .all(|(_, audience)| audience == &BTreeSet::from([w::PersonaId(wait.actor.clone())]))
+                && work.events.iter().filter(|event| event.key == wait.key)
+                    .all(|_| work.event_audiences.iter().any(|(key, _)| key == &wait.key))
+        })
+        .map(|wait| wait.key.clone()).collect();
+    work.dependencies.retain(|dependency| !keys.contains(&dependency.key));
+    work.events.retain(|event| !keys.contains(&event.key));
+    work.event_audiences.retain(|(key, _)| !keys.contains(key));
+    metadata.message_waits.retain(|_, wait| !keys.contains(&wait.key));
 }
 
 /// Every other operation keeps the complete shared-record check. In particular,
 /// accepting responsibility, publishing judgments, changing arrangements and
 /// releasing work cannot use a navigation/tool decision's narrower scope.
-fn independent_operations(decision: &p::Decision) -> bool {
-    if !matches!(&decision.reply, p::ReplyDisposition::None { .. }) {
+fn independent_operations(decision: &p::Decision, independent_messages: bool) -> bool {
+    if !independent_messages && !matches!(&decision.reply, p::ReplyDisposition::None { .. }) {
         return false;
     }
     decision.operations.iter().all(|operation| match operation {
@@ -215,6 +249,7 @@ fn independent_operations(decision: &p::Decision) -> bool {
         | p::Operation::HistoryQuery { .. } | p::Operation::HistoryRead { .. }
         | p::Operation::HistoryRecordsQuery { .. } | p::Operation::HistoryRecordRead { .. }
         | p::Operation::HistoryRecordReadFromInput { .. } | p::Operation::InspectWork { .. } => true,
+        p::Operation::Communicate { .. } => independent_messages,
         p::Operation::Effect { .. } => host_tools::is_host_command(operation)
             || tools::is_computation(operation) || http_tools::is_http_fetch(operation),
         _ => false,
@@ -301,7 +336,9 @@ pub(super) fn seal_intents(
     let common = snapshot(state, prepared, INTENT_FORMAT,
         prepared.decision_scope.as_ref().is_some_and(|scope| scope.defer_incoming_peer_messages),
         prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_work.is_some())
-            && independent_operations(decision))?;
+            && independent_operations(decision,
+                prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_messages)),
+        prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_messages))?;
     for intent in intents {
         let operation = intent.body["operation"]
             .as_str()
@@ -357,7 +394,8 @@ pub(super) fn require_intent_current(
         "unsupported scoped intent admission",
     )?;
     let mut current = snapshot(state, prepared, INTENT_FORMAT,
-        admitted.defer_incoming_peer_messages, admitted.independent_work.is_some())?;
+        admitted.defer_incoming_peer_messages, admitted.independent_work.is_some(),
+        admitted.independent_messages)?;
     for source in admitted.saved_sources.keys() {
         current
             .saved_sources
@@ -448,9 +486,11 @@ pub(super) fn require_current(
         "unsupported scoped decision admission",
     )?;
     let current = snapshot(state, prepared, &admitted.format,
-        admitted.defer_incoming_peer_messages, admitted.independent_work.is_some())?;
+        admitted.defer_incoming_peer_messages, admitted.independent_work.is_some(),
+        admitted.independent_messages)?;
     require(
-        matches(admitted, &current, decision.is_some_and(independent_operations)),
+        matches(admitted, &current, decision.is_some_and(|decision|
+            independent_operations(decision, admitted.independent_messages))),
         "decision authority or supplied lineage changed",
     )?;
     Ok(true)
