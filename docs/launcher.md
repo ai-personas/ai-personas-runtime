@@ -12,6 +12,10 @@ The ordinary persona instructions treat a sparse need as a request for useful
 work. Personas distinguish choices they can make under explicit assumptions from
 outside facts they need to obtain. Questions can accompany progress, and an
 unanswered preference does not itself prevent developing a chosen interpretation.
+That interpretation does not determine how an existing tool, component, service
+or format behaves. Personas obtain consequential external definitions and check
+their actual use against the evidence available through their tools. Deferring an
+obtainable check does not fulfill it; genuinely unavailable evidence remains explicit.
 The original request, authored assumptions, actual results and remaining gaps
 retain their separate status; the launcher supplies no task solution or fixed roles.
 
