@@ -139,6 +139,13 @@ schedule. Stop, Pause, revocation and consumed one-shot opportunities remain
 effective. Leaving or interrupting the process creates no background service;
 **c: continue** can reopen the same retained schedule in a new foreground session.
 
+Ctrl-C stops new admissions and waits for owned calls and commands to settle.
+The native session records `interrupted` with its actual final counters before
+the launcher exits. This terminal describes the session, not task completion or
+remote cancellation. A later Continue starts a distinct session under existing
+participant choices. An older missing terminal remains unknown; reopening does
+not reconstruct its outcome.
+
 Answers to shared questions can also be submitted while calls or commands are
 running. The native runtime retains the exact answer and receipt time, then
 delivers it at a settled boundary under the same execution owner. This leaves

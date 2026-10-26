@@ -525,6 +525,7 @@ fn valid_stop(stop: &str) -> bool {
             | "store_operation_failed"
             | "store_or_resource_limit"
             | "blocked_or_unresolved_invocation"
+            | "interrupted"
     )
 }
 /// No owner acquisition, recovery, credential read, or provider construction.
