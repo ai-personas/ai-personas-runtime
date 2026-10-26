@@ -46,14 +46,23 @@ Clock observation adds no invocation, recurrence or timeout for a pending call.
 While a settled transaction or exclusive transition needs the current calls to
 drain, no independent clock wake repeatedly bypasses that boundary.
 
-Pending child admission, persona creation, requester input and completed leases
-awaiting retirement stop refilling until current transports settle. An exclusive
+Pending child admission, persona creation and requester input stop refilling
+until current transports settle. An exclusive
 candidate also drains current calls without repeatedly admitting visited peers
 ahead of it. Structural maintenance runs before a settled owner admits more work.
 These boundaries prevent ongoing parent work from starving a new child or input;
 they add no call or time quota and do not cancel a slow peer. Children still need
 their exact adopted proposal and a separate atomic receipt. Parent and child
 continuations remain independent.
+
+A recoverable failed call can retire its own ended lease while the coordinator
+still owns other direct-call futures. The runtime and Store transaction check
+those exact pending identities, the bound terminal evidence and the absence of
+adopted actions. Retirement preserves the original invitation or continuation,
+failed record and unknown remote usage. Ready peers need not wait for a slow
+unrelated call before progressing. A failed or uncertain lease that cannot be
+retired still holds its own actor; it does not stop refilling unrelated peers.
+Unowned live transports and unfinished adoption still require their owner.
 
 At the quiescent maintenance boundary, one current snapshot supplies the subtree,
 active-invocation candidates and checks for pending persona creation and child
@@ -308,6 +317,13 @@ New peer candidate, evaluation and personal wait records alone do not cancel it.
 A response with a shared work command retains the complete
 shared-record dependency even for its accompanying host command.
 
+New accepted intents also seal `independent_peer_recovery`. Only exact native
+receipts for another actor's failed-lease retirement, with unchanged continuation,
+permissions, accounting allowance, replay authority and remote outcome, are
+excluded from their control-history dependency. Work controls, amendments,
+the acting persona's own recovery and receipts with changed flags remain checked.
+Previously sealed intents keep their original control-history dependency.
+
 The runtime checks these dependencies, then Store atomically compares that exact
 current head and intent before recording dispatch. The accepted response and all
 other object prerequisites remain exact. The original dependency list is never
@@ -325,8 +341,9 @@ Only exact pending calls owned by this coordinator may coexist during selection.
 An unknown or orphaned invocation still requires its existing recovery path.
 On a local error, the coordinator stops new admissions and drains
 already admitted calls, retaining their actual outcomes. Character handovers and
-complete-rejection retirement wait for terminal leases and use each completed
-invocation's ID. The latest call pointer for a work is not completion evidence.
+structural recovery retain their quiescent boundaries. Local failed-lease
+retirement uses the completed invocation's exact ID and can preserve other owned
+calls. The latest call pointer for a work is not completion evidence.
 
 Final host-command workers may run alongside primary calls. The coordinator
 publishes their results between adoptions; affected requests must still pass
@@ -348,8 +365,8 @@ the ordinary unknown-outcome recovery path.
 A stop may arrive after admission but before provider dispatch. The admission
 retains its control-history boundary, and prelaunch authorization observes current
 controls and intervening stops, including a stop followed by explicit resumption.
-A bound no-launch rejection can retire its local invocation at the quiescent
-boundary when the recorded or currently observed stop applies. The original
+A bound no-launch rejection can retire its ended local invocation when the
+recorded or currently observed stop applies and other live calls remain owned. The original
 terminal remains intact. Cleanup preserves current controls and authored routes;
 it cannot resume work, replay an action, or turn an unrelated configuration
 rejection into an automatic retry.

@@ -425,6 +425,16 @@ impl Runtime {
     }
 
     pub(super) fn retire_rejected_continuation(&mut self, id: &str, now: i64) -> Result<bool> {
+        self.retire_rejected_continuation_owned(id, now, &BTreeSet::new())
+    }
+
+    /// Retire only this ended local lease while the foreground coordinator
+    /// retains the exact other direct-call futures. Their decisions, ownership
+    /// and continuations are untouched; structural recovery still waits for
+    /// its existing quiescent boundary.
+    pub(super) fn retire_rejected_continuation_owned(
+        &mut self, id: &str, now: i64, owned: &BTreeSet<String>,
+    ) -> Result<bool> {
         let invocation = self.store.trusted_host().invocation(id)?;
         if invocation.state != s::InvocationState::Failed
             || invocation.expired_at_epoch.is_some()
@@ -490,7 +500,7 @@ impl Runtime {
         // admission merely because the last response was invalid. An unfinished
         // v2 timed reconsideration retains its route through a failed attempt;
         // a continuation already consumed under an earlier contract stays spent.
-        if !self.invocation_leases_quiescent(&state)?
+        if !self.invocation_leases_owned(&state, owned)?
             || (!stopped && !state
                 .board
                 .work(&w::WorkId(work.clone()))
@@ -590,11 +600,12 @@ impl Runtime {
         }));
         self.store
             .trusted_host()
-            .commit_runtime_rejected_continuation(
+            .commit_runtime_rejected_continuation_owned(
                 &head.exact_ref()?,
                 state_object(&head, &state)?,
                 &invocation,
                 &reference,
+                owned,
             )?;
         Ok(true)
     }

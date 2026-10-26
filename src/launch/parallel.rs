@@ -2,7 +2,7 @@
 use super::*;
 use futures_util::{stream::FuturesUnordered, StreamExt};
 
-fn quiescent_allows_progress(app: &mut Runtime, id: &str, owned: &BTreeSet<String>) -> Result<bool> {
+fn failed_call_allows_progress(app: &mut Runtime, id: &str, owned: &BTreeSet<String>) -> Result<bool> {
     let invocation = match app.invocation(id) {
         Ok(invocation) => invocation,
         Err(RuntimeError::Store(s::StoreError::Missing(_))) => return Ok(false),
@@ -10,6 +10,9 @@ fn quiescent_allows_progress(app: &mut Runtime, id: &str, owned: &BTreeSet<Strin
     };
     if !matches!(invocation.state, s::InvocationState::Failed | s::InvocationState::Uncertain) {
         return Ok(false);
+    }
+    if invocation.state == s::InvocationState::Failed {
+        app.retire_rejected_continuation_owned(id, unix_now()?, owned)?;
     }
     let state = app.snapshot()?;
     app.invocation_leases_owned(&state, owned)
@@ -72,9 +75,9 @@ async fn run_with_subtree<D: Driver>(
         if crate::process_control::signal().is_some() {
             stop.get_or_insert("interrupted");
         }
-        // Initial handover and completed-rejection retirement retain their
-        // terminal-lease transaction fences. Drain peers before applying them,
-        // using the actual completed IDs, never Saved.works' newest call.
+        // Character handover and any recovery that could not retire only its
+        // failed lease retain their quiescent fences. Use the actual completed
+        // IDs, never Saved.works' newest call.
         if pending.is_empty() {
             draining_for_exclusive = false;
             for (id, work, status) in std::mem::take(&mut deferred) {
@@ -216,7 +219,7 @@ async fn run_with_subtree<D: Driver>(
                 Err(error) => {
                     let peer_progress = attempted_id
                         .as_deref()
-                        .map(|id| quiescent_allows_progress(app, id, &owned))
+                        .map(|id| failed_call_allows_progress(app, id, &owned))
                         .transpose();
                     match peer_progress {
                         Ok(Some(true)) => (),
@@ -252,16 +255,19 @@ async fn run_with_subtree<D: Driver>(
                     owned.remove(&id);
                     exclusive.remove(&id);
                     match driver.finish(app, completion) {
-                        Ok(report)
-                            if matches!(
-                                report.status,
-                                AdoptionStatus::Held | AdoptionStatus::CharacterOnly
-                            ) =>
-                        {
+                        Ok(report) if report.status == AdoptionStatus::CharacterOnly => {
                             deferred.push((id, work, report.status));
                         }
+                        Ok(report) if report.status == AdoptionStatus::Held => {
+                            match unix_now().and_then(|now|
+                                app.retire_rejected_continuation_owned(&id, now, &owned)) {
+                                Ok(true) => (),
+                                Ok(false) => deferred.push((id, work, report.status)),
+                                Err(error) => { stop.get_or_insert(stop_for_error(&error)); }
+                            }
+                        }
                         Ok(_) => (),
-                        Err(error) => match quiescent_allows_progress(app, &id, &owned) {
+                        Err(error) => match failed_call_allows_progress(app, &id, &owned) {
                             Ok(true) => (),
                             Ok(false) => {
                                 stop.get_or_insert(stop_for_error(&error));

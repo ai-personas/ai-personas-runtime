@@ -38,6 +38,10 @@ pub struct Snapshot {
     /// Older snapshots retain their complete message and wait dependencies.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     independent_messages: bool,
+    /// New accepted actions distinguish a peer's ended-call cleanup from an
+    /// actual control change. Already sealed actions retain their exact scope.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    independent_peer_recovery: bool,
 }
 
 pub(super) fn seal(state: &State, prepared: &Prepared) -> Result<Option<Snapshot>> {
@@ -49,7 +53,7 @@ pub(super) fn seal(state: &State, prepared: &Prepared) -> Result<Option<Snapshot
     Ok(Some(snapshot(state, prepared, FORMAT,
         prepared.request.mode == Mode::Ordinary,
         prepared.request.mode == Mode::Ordinary,
-        prepared.request.mode == Mode::Ordinary)?))
+        prepared.request.mode == Mode::Ordinary, false)?))
 }
 
 /// Only new admissions declare task-local focus dependencies. An older pending
@@ -69,6 +73,7 @@ fn snapshot(
     defer_incoming_peer_messages: bool,
     independent_work: bool,
     independent_messages: bool,
+    independent_peer_recovery: bool,
 ) -> Result<Snapshot> {
     let actor = &prepared.request.persona;
     let work_id = &prepared.request.work;
@@ -196,9 +201,10 @@ fn snapshot(
                     .operator_events
                     .iter()
                     .filter(|event| {
-                        event["work"].as_str() == Some(work_id.as_str())
+                        (event["work"].as_str() == Some(work_id.as_str())
                             || (event.get("work").is_none_or(Value::is_null)
-                                && event["persona"].as_str() == Some(actor.as_str()))
+                                && event["persona"].as_str() == Some(actor.as_str())))
+                            && !(independent_peer_recovery && peer_lease_retirement(event, actor))
                     })
                     .collect::<Vec<_>>(),
             )?)
@@ -209,7 +215,26 @@ fn snapshot(
         saved_sources: BTreeMap::new(),
         independent_work,
         independent_messages,
+        independent_peer_recovery,
     })
+}
+
+/// These native receipts describe only another actor's failed local lease.
+/// Controls, resumption, amended scope and any changed continuation remain
+/// dependencies, including an otherwise similar receipt with different flags.
+fn peer_lease_retirement(event: &Value, actor: &str) -> bool {
+    event["persona"].as_str().is_some_and(|peer| peer != actor)
+        && matches!(event["kind"].as_str(), Some(
+            "runtime_stopped_prelaunch_lease_retired" | "runtime_stopped_response_lease_retired"
+            | "terminal_provider_failure_lease_retired" | "response_only_transport_failure_lease_retired"
+            | "response_only_http_failure_lease_retired" | "response_only_service_error_lease_retired"
+            | "provider_context_rejection_lease_retired" | "completed_rejection_lease_retired"
+        ))
+        && event["continuation_changed"] == false
+        && event["new_permission_granted"] == false
+        && event["budget_reset"] == false
+        && event["replay_authorized"] == false
+        && event["remote_outcome_reconciled"] == false
 }
 
 /// A voluntary inbox wait belongs only to its waiting persona. Its registration,
@@ -338,7 +363,7 @@ pub(super) fn seal_intents(
         prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_work.is_some())
             && independent_operations(decision,
                 prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_messages)),
-        prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_messages))?;
+        prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_messages), true)?;
     for intent in intents {
         let operation = intent.body["operation"]
             .as_str()
@@ -395,7 +420,7 @@ pub(super) fn require_intent_current(
     )?;
     let mut current = snapshot(state, prepared, INTENT_FORMAT,
         admitted.defer_incoming_peer_messages, admitted.independent_work.is_some(),
-        admitted.independent_messages)?;
+        admitted.independent_messages, admitted.independent_peer_recovery)?;
     for source in admitted.saved_sources.keys() {
         current
             .saved_sources
@@ -487,7 +512,7 @@ pub(super) fn require_current(
     )?;
     let current = snapshot(state, prepared, &admitted.format,
         admitted.defer_incoming_peer_messages, admitted.independent_work.is_some(),
-        admitted.independent_messages)?;
+        admitted.independent_messages, admitted.independent_peer_recovery)?;
     require(
         matches(admitted, &current, decision.is_some_and(|decision|
             independent_operations(decision, admitted.independent_messages))),

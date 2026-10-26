@@ -92,6 +92,12 @@ It preserves the failed attempt, reported usage and unknown charges; it neither
 adopts partial operations nor marks maintenance completed. No new route is
 created after Stop, Pause or consumed explicit resumption.
 
+This local retirement need not wait for unrelated provider calls to finish when
+the foreground coordinator retains their exact futures. The same Store
+transaction verifies their ownership and the failed call's terminal and action
+history. An unretired failed or uncertain call holds its actor without blocking
+other ready participants; unknown remote usage remains unknown.
+
 When an actual runtime stop cancels a response-only call, the settled foreground
 driver also releases its local invocation lease. It requires the exact retained
 stop observation and bound cancellation receipt, with no adopted decision or

@@ -41,12 +41,13 @@ pub(super) fn select(
         for work in works {
             if persona_birth::has_pending_for_work(&state, work)
                 || intake_delegation::has_pending_for_work(&state, work)
-                || rejected_continuation::active_invocations_for_work(&state, work)?
-                    .iter().any(|id| !owned.contains(id))
             {
                 return Ok(Selection::default());
             }
         }
+        // Ended failures are retired by their owning coordinator when the
+        // exact response-only evidence permits it. An unresolved failed or
+        // uncertain lease holds its actor, not unrelated ready participants.
     }
     let (old, mut cursor) = app.load_scheduler()?;
     let started_after = *after;

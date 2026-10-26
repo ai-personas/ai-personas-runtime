@@ -1082,9 +1082,25 @@ impl TrustedHost<'_> {
         invocation: &InvocationRecord,
         evidence: &ObjectRef,
     ) -> Result<BatchReceipt> {
+        self.commit_runtime_rejected_continuation_owned(
+            expected, object, invocation, evidence, &BTreeSet::new(),
+        )
+    }
+
+    /// The foreground coordinator may retain unrelated direct-call futures
+    /// while retiring an exactly bound failed lease. Recheck that ownership in
+    /// the same transaction as the failure evidence and absence of actions.
+    pub(crate) fn commit_runtime_rejected_continuation_owned(
+        &mut self,
+        expected: &ObjectRef,
+        object: StoredObject,
+        invocation: &InvocationRecord,
+        evidence: &ObjectRef,
+        owned: &BTreeSet<String>,
+    ) -> Result<BatchReceipt> {
         self.store.transaction(|work| {
             work.admission()?;
-            work.require_quiescent_invocations()?;
+            work.require_owned_invocations(owned)?;
             let current: StoredObject = work.required("object", RUNTIME_CONTROL_STATE_ID)?;
             let record: InvocationRecord = work.required("invocation", &invocation.id)?;
             let slot: TerminalEvidenceSlot = work.required("terminal_evidence", &evidence.id)?;
