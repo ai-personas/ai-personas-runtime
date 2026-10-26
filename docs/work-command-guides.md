@@ -40,6 +40,15 @@ the outcome unowned. Editing files, contributing work and judging it sufficient
 do not change that state. This projection supplies current metadata; it assigns
 no role, requires no workflow and establishes neither quality nor completion.
 
+`decide_shared` uses current formal `judge` records supporting its exact candidate
+under the adopted decision rule. An ordinary `Decision.work` sufficiency account,
+a message, or acceptance of outcome ownership does not create a formal judgment.
+A `judge` earlier in the same complete Decision can supply that record. When the
+adopted rule lacks support, rejection identifies the shared-decision ID, rule and
+qualifying judgment IDs, instead of conflating this with missing ownership,
+reviews, delivery or requester acceptance. The response remains rejected as a
+whole; the diagnostic creates no evidence or judgment and makes no quality claim.
+
 `put_artifact` registers the complete original bytes of a supporting asset named
 by a `utf8` or `bytes_metadata` reference. `record_model_evidence` requires the
 artifact's exact supplied text or byte-metadata view and current qualifications.

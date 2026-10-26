@@ -838,6 +838,8 @@ pub enum WorkError {
     NotAccepted,
     #[error("required completion evidence, ownership, review, delivery, or acceptance is absent")]
     Unmet,
+    #[error("unmet work condition: {0}")]
+    UnmetCondition(String),
     #[error("invocation has already been applied")]
     Replay,
     #[error("unsupported operation: {0}")]
@@ -2298,7 +2300,10 @@ fn apply_command(
                         .map(|j| j.input.id.clone())
                         .collect();
                     if !rule_satisfied(w, &supporters, &candidate) {
-                        return Err(WorkError::Unmet);
+                        return Err(WorkError::UnmetCondition(format!(
+                            "shared decision {:?} lacks current formal judgment support for its exact candidate under the adopted rule {:?}; qualifying judgment IDs: {:?}. Supporting judgments must bind the current arrangement and acceptance and include supported claims for every required outcome. Decision.work sufficiency accounts and messages do not create formal judgment records",
+                            id.0, w.effective_decision_rule(), supporters,
+                        )));
                     }
                     let judgments = w
                         .judgments

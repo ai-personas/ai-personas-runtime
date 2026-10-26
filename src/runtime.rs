@@ -1738,7 +1738,12 @@ pub enum WorkAction {
     },
     /// Select a sufficient candidate under the current decision rule. Each required
     /// outcome must also have one accepted owner; a designated decider alone does
-    /// not satisfy ownership. Current evidence, judgment and review gates apply.
+    /// not satisfy ownership. The adopted rule must be supported by current formal
+    /// Judge records for this exact candidate, arrangement and accepted commitments,
+    /// with evidence-backed claims for every required outcome. Decision.work,
+    /// messages and accepted ownership do not create those judgment records.
+    /// An earlier Judge command in this same Decision may supply a supporting
+    /// judgment. Actual mandate review requirements still apply.
     DecideShared {
         id: String,
         artifacts: BTreeMap<String, ArtifactKey>,
