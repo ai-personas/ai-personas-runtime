@@ -10269,9 +10269,12 @@ fn apply_work_actions(
                     .ok_or_else(|| held("responsibility.offer_id must name the exact supplied offer"))?;
                 let supplied_revision = supplied_offer_revision(prepared, &initial, &offer)?;
                 require(
-                    terms_revision.as_ref().is_none_or(|revision| revision == &supplied_revision)
-                        && current.to == actor,
-                    "offered terms/actor mismatch",
+                    current.to == actor,
+                    "responsibility.offer_id names an offer for a different persona",
+                )?;
+                require(
+                    terms_revision.as_ref().is_none_or(|revision| revision == &supplied_revision),
+                    "responsibility.terms_revision differs from the exact supplied terms; copy the complete supplied revision, or omit terms_revision/use null to bind those supplied terms",
                 )?;
                 require(
                     disposition != "accept" || initial.current_arrangement.is_none(),

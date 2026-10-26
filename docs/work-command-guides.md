@@ -153,6 +153,11 @@ must match; a mistyped digest is not repaired. A guessed, unseen or changed offe
 cannot be accepted this way. Declining uses the same binding with
 `disposition: "decline"` and an authored reason.
 
+A rejected explicit revision identifies `responsibility.terms_revision` as the
+mismatch and explains the existing omitted/null binding option. An offer for a
+different persona has its own diagnostic. Neither diagnostic replaces the
+submitted value, accepts the offer or executes other proposed operations.
+
 This does not accept automatically or imply arrangement consent. When
 `CONTROL.arrangements.current_exact` is present, joining still uses
 `accept_arranged_offer` with the exact supplied offer, terms revision and
