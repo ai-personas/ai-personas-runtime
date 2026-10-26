@@ -7477,8 +7477,8 @@ fn render_mode_with_history(
     };
     // Admission identity is supplied once in CONTROL and checked at adoption.
     // Keeping it out of the schema leaves this complete contract reusable.
-    let application_schema_contract_bytes = serde_json::to_vec(&application_schema)?.len();
-    let application_schema = serde_json::to_string(&application_schema)?;
+    let application_schema = p::prompt_schema(&application_schema);
+    let application_schema_contract_bytes = application_schema.len();
     if let Some(interface) = &need_interface {
         exposure.policies.push(scoped_policy(
             "intake-delegation",

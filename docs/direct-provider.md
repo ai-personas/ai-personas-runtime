@@ -309,6 +309,17 @@ for freshness, accounting, compatibility and the paths that remain sequential.
 
 New persona admissions request the complete Decision directly with `text.format: {"type":"json_object"}`. The prompt supplies `APPLICATION_DECISION_SCHEMA`; the native parser validates the entire received object, including duplicate keys, required fields, tagged variants and cross-field rules, before any adoption. JSON mode alone does not establish application-schema validity. It removes the extra escaping layer that a JSON-string carrier imposed on scripts and other text.
 
+The prompt can present that generated schema as compact wire types. Its legend
+defines required and optional fields, closed objects, literals, references,
+arrays and schema alternatives; JSON notes retain every description, default
+and additional constraint at its original scope. It includes every definition
+in the applicable schema. Unsupported constructs or a larger rendering fall
+back to the complete JSON Schema. This changes the contract's presentation,
+not the Decision format, canonical `schema` output, native validation or the
+persona's context choices. `application_schema_contract_bytes` measures the
+actual rendered contract. Fewer prompt bytes alone do not establish lower
+billed cost or better task results.
+
 Each prepared prompt supplies its exact `invocation_id` and `epoch` in CONTROL.
 The application schema describes their wire types without repeating changing
 values as `const`; the parser and admission checks still require the exact

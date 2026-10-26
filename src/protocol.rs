@@ -22,6 +22,7 @@ use thiserror::Error;
 
 pub mod need;
 mod diagnostics;
+mod schema_text;
 pub use diagnostics::ShapeHint;
 
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -1254,6 +1255,12 @@ pub fn decision_schema() -> Value {
     schema["$defs"]["ExactRef"]["properties"]["lifetime"]["enum"] =
         serde_json::json!(["work", "next_call", null]);
     schema
+}
+
+/// Model-facing presentation of the same generated response contract.
+/// The canonical JSON schema and complete native response parser are unchanged.
+pub(crate) fn prompt_schema(schema: &Value) -> String {
+    schema_text::render(schema)
 }
 
 /// Present only implemented ordinary runtime operations. The generic protocol
