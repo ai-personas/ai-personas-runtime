@@ -323,8 +323,12 @@ New persona admissions request the complete Decision directly with `text.format:
 The prompt can present that generated schema as compact wire types. Its legend
 defines required and optional fields, closed objects, literals, references,
 arrays and schema alternatives; JSON notes retain every description, default
-and additional constraint at its original scope. It includes every definition
-in the applicable schema. Unsupported constructs or a larger rendering fall
+and additional constraint at its original scope. A variant's fixed `kind` tag
+appears before its payload fields, so a long input shape does not precede the
+operation's type. This is display order, not a required JSON member order.
+The ordinary instructions distinguish the outer operation tag from a capability
+identifier or a native command tag inside `inputs`. The rendering includes every
+definition in the applicable schema. Unsupported constructs or a larger rendering fall
 back to the complete JSON Schema. This changes the contract's presentation,
 not the Decision format, canonical `schema` output, native validation or the
 persona's context choices. `application_schema_contract_bytes` measures the

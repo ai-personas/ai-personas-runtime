@@ -222,7 +222,13 @@ fn object_type(shape: &mut Map<String, Value>, names: &BTreeSet<&str>) -> Option
         return None;
     }
     let mut fields = Vec::new();
-    for (name, value) in properties {
+    // Show a variant's fixed tag before its payload. This changes presentation
+    // order only; every field and annotation retains its original meaning.
+    let mut ordered: Vec<_> = properties.iter().collect();
+    ordered.sort_by_key(|(name, value)| {
+        name.as_str() != "kind" || !value.get("const").is_some_and(Value::is_string)
+    });
+    for (name, value) in ordered {
         let field = if identifier(name) {
             name.clone()
         } else {
