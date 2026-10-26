@@ -760,6 +760,9 @@ pub enum Operation {
     /// Explicit selective retrieval of retained runtime messages across personas
     /// and works, preserving their original senders and recipients. Returns
     /// attributed metadata only; continuation requires a freshly supplied handle.
+    /// This searches messages only, not work judgments, adopted Decisions or
+    /// tool observations. Use HistoryRecordsQuery for those retained records.
+    /// A no_match result establishes no absence outside the message corpus.
     /// CONTROL.history_retrieval describes cursor reuse and body supply.
     HistoryQuery {
         id: String,

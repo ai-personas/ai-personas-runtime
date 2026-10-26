@@ -24,9 +24,9 @@ pub(super) fn retrieval_rules() -> Value {
         "citation_lookup":"To investigate a cited identifier, choose the matching history kind and use mode:{kind:literal,needle:<the exact identifier>}. Observation queries can match an observation ID or a result/evidence ID in its receipt; adopted_decision queries can match an invocation; message queries can match a message ID. Other records can also cite the identifier, so inspect the returned attribution and choose the actual source before reading. A citation may name a different resource or be unavailable; it is not itself a typed read reference or proof of a body.",
         "judgment_citation_lookup":"Prior judgments carry current-input lookup metadata for their exact cited observation IDs, message IDs and native tool-result IDs. A matched reference can be read through history_record_read or history_read. No body is supplied by this lookup. An unresolved entry has no match in that stated corpus; other resource kinds are not checked, and no guessed correction is made. Matching establishes neither earlier input supply, successful execution, support for the judgment nor current artifact applicability. The original authored judgment and citations remain unchanged.",
         "record_bodies":{
-            "adopted_decision":"Original authored choices and reasoning; not proof that every proposed operation executed.",
-            "observation":"Original runtime receipt; a metadata-only receipt remains metadata-only after reading it. Reading a history-query receipt does not read the records it lists.",
-            "message":"Original attributed exchange text through history_query and history_read."
+            "adopted_decision":"Search with history_records_query and record_kind:adopted_decision for original authored choices, work judgments and reasoning; not proof that every proposed operation executed.",
+            "observation":"Search with history_records_query and record_kind:observation for original runtime receipts, including tool results. A metadata-only receipt remains metadata-only after reading it. Reading a history-query receipt does not read the records it lists.",
+            "message":"history_query searches original attributed message text and identity metadata only; history_read reads an exact message. A message no_match does not exclude a judgment, tool result, adopted Decision or file."
         },
         "cursor_rule":"To use next_cursor or retry_cursor, repeat the returned query.kind, query.mode and query.record_kind when present. A changed query starts with cursor:null. The requested page size may change."
     })
@@ -246,6 +246,33 @@ struct Output {
     consumed: Option<String>,
 }
 impl Output {
+    fn describe_query(&mut self, operation: &p::Operation) {
+        let (parameters, record_kind, corpus, surface) = match operation {
+            p::Operation::HistoryQuery { mode, .. } => (
+                json!({"kind":"history_query","mode":mode}),
+                "message", "runtime_retained_messages",
+                "Serialized message identity, attribution, subject and text. Attached file and history bodies are not searched.",
+            ),
+            p::Operation::HistoryRecordsQuery { record_kind, mode, .. } => {
+                let (name, corpus) = match record_kind {
+                    p::HistoryRecordKind::Observation => ("observation", "runtime_retained_observations"),
+                    p::HistoryRecordKind::AdoptedDecision => ("adopted_decision", "runtime_retained_adopted_decisions"),
+                };
+                (json!({"kind":"history_records_query","record_kind":record_kind,"mode":mode}),
+                    name, corpus,
+                    "Serialized retained record projection; listing uses descriptors. A metadata-only record does not search the bodies it references.")
+            }
+            _ => return,
+        };
+        self.payload["query"] = parameters;
+        self.payload["corpus_scope"] = json!(corpus);
+        self.payload["query_scope"] = json!({
+            "record_kind":record_kind,
+            "matching_surface":surface,
+            "coverage_meaning":"coverage_complete, end_reached and no_match describe only this query's record kind and matching mode. Other record kinds, the native file collection and current host files were not queried. An unsuccessful query does not rule out their evidence."
+        });
+    }
+
     fn status(status: &str) -> Self {
         Self {
             payload: json!({
@@ -890,6 +917,7 @@ pub(super) fn apply(
             };
         }
     }
+    output.describe_query(operation);
     planning_exposure.include(&consulted);
     require(
         navigation.charge_serialized_result(

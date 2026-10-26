@@ -7,6 +7,15 @@ original actor, work, sender, recipient, invocation and immutable identity remai
 attached. Retrieval does not redeliver a message, satisfy its original recipient's
 wait, resume participants or adopt another persona's character.
 
+Choose the record corpus explicitly. `history_query` searches message text and
+identity metadata. Work judgments and authored operations belong to
+`history_records_query` with `record_kind: adopted_decision`; tool receipts belong
+to `record_kind: observation`. Each query result identifies its `corpus_scope`
+and `query_scope.record_kind`, including an unsuccessful query. Its completeness
+and `no_match` describe only that corpus and matching mode. A message search
+does not establish that a correction is absent from decisions, tool results or
+files. These annotations do not search another corpus or supply a record body.
+
 `CONTROL.history_retrieval` describes how to follow a citation with a literal
 query. For example, an observation query can find the receipt containing a cited
 host-result identifier. The query returns metadata, and the persona chooses an

@@ -1085,6 +1085,7 @@ pub(crate) fn apply(
         output.payload["input_handle"] = json!(handle);
         output.payload["input_invocation"] = json!(prepared.request.id);
     }
+    output.describe_query(operation);
     planning_exposure.include(&consulted);
     // Account the actual fresh projection, while retaining only the reference.
     let mut preview = projected(prepared, id, kind, &output.payload, now);
