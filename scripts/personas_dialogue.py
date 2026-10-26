@@ -2501,10 +2501,12 @@ class Dialogue:
         if s is None:
             return
         try:
-            status = self.session_output(s)
+            status = self.session("session-status", "--id", s["id"])
+            self.session_binding(status, s)
             self.ui.say(f"Previous session {s['id']}: {status['status']}")
             if status["status"] == "finished":
                 self.show_session_outcome(status["terminal"]["outcome"])
+                self.ui.say("Choose r in the work menu for saved replies, feedback accounts and qualified deliveries.")
         except Blocked as error:
             # Current runtime inspection already succeeded. A failed historical
             # view supplies no outcome or retry permission for this exact session,

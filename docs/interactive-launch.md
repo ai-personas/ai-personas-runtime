@@ -66,8 +66,10 @@ attributed message, not evidence that the entire task or session has finished.
 The automatic completion view shows replies that were not already displayed
 during that foreground session. It tracks exact message identities only; it does
 not merge similar replies or select a persona's preferred result. Replies omitted
-from live output still appear at completion. **r: results** and reopening the
-journal show the permitted history again, with attribution and file references.
+from live output still appear at completion. **r: results** shows the full
+permitted history again, with attribution and file references. Reopening the
+journal shows the previous session's recorded outcome and the current work list;
+it leaves saved reply bodies in Results instead of replaying them before the menu.
 The work list summarizes participants' last continuation choices and distinguishes
 ready work, pending calls, failed attempts, and participants who chose to stop.
 It shows each saved task's complete request text beside its work ID, so tasks can
@@ -349,12 +351,14 @@ authorizes replay. Later status inspection spends its own normal read allowance.
 Prepayment is logical resource accounting, not a physical filesystem reservation
 or a durability guarantee.
 
-After a session, or when reopening its journal, the menu shows currently permitted
-messages from that session's recorded call range, with their producing call IDs.
+After a foreground session, the menu shows currently permitted messages from
+that session's recorded call range that were not already displayed, with their
+producing call IDs. Reopening shows the recorded session outcome and directs the
+reader to **r: results** for saved messages and deliveries.
 A final bookkeeping call without a reply no longer hides an earlier result from
 the same session. Messages from earlier sessions remain in the full work history.
-The original session owner records the final counters during prepaid closeout,
-including when execution fails or exhausts ordinary capacity. The range can
+The original session owner records the final counters during closeout,
+including when execution stops or fails. The range can
 include unsuccessful calls; it establishes attribution, not successful adoption
 or completion. A session that fails before its first call has an empty range.
 If no terminal was recorded, the menu does not infer a range from later activity.
