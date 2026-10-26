@@ -15,7 +15,8 @@ and receive its pixels in the next model request:
 
 `CONTROL.image_read` supplies this interface without a guide, grant or approval.
 Relative paths use the host command's displayed default working directory.
-`expected_sha256`, when present, checks the raw bytes actually read. `detail` is
+`expected_sha256`, when present, is a complete SHA-256 digest of 64 lowercase
+hexadecimal digits and checks the raw bytes actually read. `detail` is
 the persona's provider setting: `auto`, `low`, `high` or `original`. The exact
 requested model and effort remain unchanged; actual provider rejection does not
 trigger a different model, access route or retry.
@@ -23,6 +24,8 @@ trigger a different model, access route or retry.
 Omit the expected digest or use `null` to capture the current image and receive
 its actual digest. A previously observed digest is useful when that exact
 revision matters; a mismatch supplies a failed-read observation without pixels.
+An incomplete or malformed digest receives a distinct diagnostic before opening
+the file. The runtime does not infer or repair the intended digest.
 The persona chooses whether to inspect the changed file, retrieve an earlier
 immutable capture, or take another action. A new invocation does not itself
 require a new image capture.
@@ -38,7 +41,9 @@ execute. Opening a directory, device or pipe does not capture an image.
 
 The capture is an observation, so it does not require an asset-maintenance
 change or claim authorship of the image. An unavailable read records its actual
-error and supplies no image. A successful capture records its host path, media
+error and supplies no image. This capture failure does not reject the enclosing
+decision or describe its other operations as unadopted; each keeps its actual
+outcome. A successful capture records its host path, media
 type, raw byte count, SHA-256 and requested detail. The immutable capture is
 retained privately alongside the native observation. It does not change the
 host file or make a copy into the persona's authored text collection.

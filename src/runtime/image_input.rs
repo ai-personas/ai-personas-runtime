@@ -45,7 +45,7 @@ pub(super) fn interface() -> Value {
     json!({"interface":INTERFACE,"operation":"image_read",
         "maximum_bytes":null,"maximum_images":null,
         "selection":selection::interface(),
-        "rule":"Read an existing regular host image with image_read {id,host_path,expected_sha256,detail}. Omit expected_sha256 or use null to capture the current bytes and receive their actual digest. Supply a known digest only when that exact revision matters; a mismatch supplies a failed read without pixels, not an automatic retry. detail is auto, low, high or original. Relative paths use the host command default working directory. PNG, JPEG, WebP and GIF signatures are recognized; the provider determines whether the captured image is decodable and supported (GIF support is for non-animated images). No resizing, conversion or byte/count quota is applied. A command-produced image needs an observed command result and a fresh decision: image reads happen before proposed commands execute. SVG, PDF and other sources can be rendered to a supported raster with host commands first. The capture is an immutable observation, not authored asset maintenance. Its metadata alone does not supply pixels. On the next request CONTROL.image_inputs maps ordered provider image content parts to exact captures and hashes; inspect those images before making visual claims. A failed read supplies its actual error without an image. Reads do not establish authorship, correctness or reviewer approval. After consumption, an exact history_record_read of the original image_read observation can supply the retained bytes again without reopening the host path. Choose continuation and any useful further reading yourself."})
+        "rule":"Read an existing regular host image with image_read {id,host_path,expected_sha256,detail}. Omit expected_sha256 or use null to capture the current bytes and receive their actual digest. Supply the complete 64-character lowercase hexadecimal digest only when that exact revision matters; a mismatch supplies a failed read without pixels, not an automatic retry. detail is auto, low, high or original. Relative paths use the host command default working directory. PNG, JPEG, WebP and GIF signatures are recognized; the provider determines whether the captured image is decodable and supported (GIF support is for non-animated images). No resizing, conversion or byte/count quota is applied. A command-produced image needs an observed command result and a fresh decision: image reads happen before proposed commands execute. SVG, PDF and other sources can be rendered to a supported raster with host commands first. The capture is an immutable observation, not authored asset maintenance. Its metadata alone does not supply pixels. On the next request CONTROL.image_inputs maps ordered provider image content parts to exact captures and hashes; inspect those images before making visual claims. A failed read supplies its actual error without an image. Reads do not establish authorship, correctness or reviewer approval. After consumption, an exact history_record_read of the original image_read observation can supply the retained bytes again without reopening the host path. Choose continuation and any useful further reading yourself."})
 }
 
 fn capture(
@@ -58,6 +58,15 @@ fn capture(
         .host_command_interface
         .as_ref()
         .ok_or_else(|| held("image_read requires the ordinary host interface"))?;
+    require(
+        expected.is_none_or(|expected| {
+            expected.len() == 64
+                && expected
+                    .bytes()
+                    .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+        }),
+        "image_read expected_sha256 must contain exactly 64 lowercase hexadecimal digits; copy the complete observed digest",
+    )?;
     let requested = Path::new(path);
     let resolved = if requested.is_absolute() {
         requested.to_path_buf()
@@ -129,7 +138,13 @@ pub(super) fn read(
         Ok(capture) => json!({"status":"captured","capture":capture.metadata(),
             "image_supplied":false,"meaning":"Exact bytes retained; see the actual request's image_inputs for image body supply. Capture does not establish visual assessment."}),
         Err(error) => {
-            json!({"status":"unavailable","host_path":path,"error":error.to_string(),"image_supplied":false})
+            // A failed capture is an observation inside an accepted decision,
+            // not a rejection of that decision or its other operations.
+            let message = match error {
+                RuntimeError::Held(reason) => reason.clone(),
+                error => error.to_string(),
+            };
+            json!({"status":"unavailable","host_path":path,"error":message,"image_supplied":false})
         }
     };
     add_observation(
