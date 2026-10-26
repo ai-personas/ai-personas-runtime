@@ -8,6 +8,13 @@ This is a convenience entry point, not an interactive agent, daemon, new runtime
 or background scheduler. The existing runtime still assembles context, admits
 work, spends resources, validates complete responses, and retains evidence.
 
+The ordinary persona instructions treat a sparse need as a request for useful
+work. Personas distinguish choices they can make under explicit assumptions from
+outside facts they need to obtain. Questions can accompany progress, and an
+unanswered preference does not itself prevent developing a chosen interpretation.
+The original request, authored assumptions, actual results and remaining gaps
+retain their separate status; the launcher supplies no task solution or fixed roles.
+
 ## Existing ordinary setup
 
 Use the installation and private state already authorized by the operator:
