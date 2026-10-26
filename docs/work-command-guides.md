@@ -32,6 +32,14 @@ unanimity about the artifact nor completes the task. This first-release policy
 replaces the earlier development policy; old records are not reinterpreted or
 automatically migrated.
 
+`CONTROL.arrangements.outcome_accountability` explicitly lists every current
+required outcome with an accepted owner, an ownership gap, or unavailable
+acceptance provenance. Owners reference the supplied current commitment's persona
+and acceptance ID. An invitation accepted without outcome responsibilities leaves
+the outcome unowned. Editing files, contributing work and judging it sufficient
+do not change that state. This projection supplies current metadata; it assigns
+no role, requires no workflow and establishes neither quality nor completion.
+
 `put_artifact` registers the complete original bytes of a supporting asset named
 by a `utf8` or `bytes_metadata` reference. `record_model_evidence` requires the
 artifact's exact supplied text or byte-metadata view and current qualifications.

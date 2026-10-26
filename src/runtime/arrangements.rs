@@ -995,6 +995,25 @@ pub(super) fn context(
             extend_exposure(exposure, &inherited);
         }
     }
+    // Report every adopted outcome explicitly, including gaps. Participation
+    // with an empty outcome set is not accepted ownership. Preserve unavailable
+    // provenance as unknown rather than inventing either a gap or an owner.
+    let outcome_accountability = work.mandate().outcomes.keys().map(|outcome| {
+        let account = match work.ownership(outcome) {
+            w::Accountability::Gap(reason) => json!({"status":"gap","reason":reason}),
+            w::Accountability::Owner(persona) => {
+                match commitments.iter().find(|entry| entry["persona"] == persona.0) {
+                    Some(entry) => json!({"status":"accepted_owner","persona":persona,
+                        "acceptance_id":entry["acceptance_id"]}),
+                    None => json!({"status":"unavailable",
+                        "reason":"Current ownership metadata cannot be supplied with its acceptance provenance"}),
+                }
+            }
+        };
+        (outcome.0.clone(), account)
+    }).collect::<serde_json::Map<String, Value>>();
+    projection["outcome_accountability"] = json!(outcome_accountability);
+    projection["accountability_meaning"] = json!("Current required outcomes and accepted ownership, not artifact quality or completion. Contribution, file editing and a sufficiency judgment do not accept outcome ownership or supply result decision rights. A gap assigns nobody; participants choose any useful voluntary arrangement.");
     projection["current_commitments"] = json!(commitments);
     if let Some(current_id) = &work.current_arrangement {
         let current = work

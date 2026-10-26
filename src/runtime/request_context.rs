@@ -12,7 +12,7 @@ const CONTROL_ORDER: &[&str] = &[
     "profile", "actor", "persona_label", "lifecycle_role",
     "current_character", "seed", "transient_affect",
     "work_id", "work_phase", "work_version", "task_amendment", "mandate",
-    "original_need", "requester", "own_acceptance", "own_pending_offers",
+    "original_need", "requester", "own_acceptance", "arrangements", "own_pending_offers",
     "last_attributed_work_judgment", "previous_authored_continuation",
     "actual_observations", "collaborators",
     "invocation_id", "epoch", "owner_epoch", "context_at_unix",
