@@ -1233,7 +1233,14 @@ fn attempt_view(records: &s::RuntimeInspection<'_, '_>, id: &str) -> BoundaryRes
         s::InvocationState::Uncertain => AttemptStatus::Uncertain,
     };
     let failure = if status == AttemptStatus::FailedAttempt {
-        records.terminal_evidence(&s::EntityId::Invocation(id.into()), &terminal_id(id))?
+        let terminal = match records.terminal_evidence(&s::EntityId::Invocation(id.into()), &terminal_id(id)) {
+            Ok(value) => value,
+            // Keep the known attempt status visible when its explanation is
+            // unavailable. A missing terminal grants no recovery permission.
+            Err(s::StoreError::Missing(_)) => None,
+            Err(error) => return Err(error.into()),
+        };
+        terminal
             .filter(|terminal| terminal.kind == "runtime-terminal-transport"
                 && terminal.body["invocation_id"] == id)
             .map(|terminal| -> BoundaryResult<_> {
