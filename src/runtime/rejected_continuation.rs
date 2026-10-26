@@ -378,7 +378,7 @@ pub(super) fn record_explicit_recovery(
         invocation: Some(id.clone()), kind: "terminal_recovery".into(), at_unix: now,
         payload: json!({"terminal":terminal_diagnostic(&evidence.body),"terminal_evidence":evidence.exact_ref()?,
             "disposition":{"state":invocation.state,"adoption_error":observability::adoption_error(invocation, evidence)?},
-            "acknowledged_by":operator,"provider_usage":"unknown","replay_authorized":false}),
+            "acknowledged_by":operator,"replay_authorized":false}),
         sources: prepared.sources.clone(), exposure: failure_recovery_exposure(invocation, evidence, prepared)?,
         qualified_roots: Vec::new(), qualification_sources: None,
     });
@@ -552,7 +552,7 @@ impl Runtime {
                 "observed_by":"foreground_runtime","continuation_invocation":continuation_invocation,
                 "retained_route":retained_route,"failure_kind":failure_kind,
                 "current_stop_observation":prelaunch_stop,
-                "continuation_changed":false,"provider_usage":"unknown","replay_authorized":false,
+                "continuation_changed":false,"replay_authorized":false,
                 "remote_outcome_reconciled":false,
                 "failure_lineage":failure_lineage
             }),

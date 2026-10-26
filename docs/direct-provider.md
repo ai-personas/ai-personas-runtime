@@ -92,6 +92,11 @@ It preserves the failed attempt, reported usage and unknown charges; it neither
 adopts partial operations nor marks maintenance completed. No new route is
 created after Stop, Pause or consumed explicit resumption.
 
+Recovery observations preserve usage in the attached terminal receipt, including
+reported counters from a complete response that failed local adoption. They do
+not add a blanket unknown-usage label beside available counters. Missing fields
+and unreported charges remain unknown; no counter is inferred from recovery.
+
 This local retirement need not wait for unrelated provider calls to finish when
 the foreground coordinator retains their exact futures. The same Store
 transaction verifies their ownership and the failed call's terminal and action
