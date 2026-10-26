@@ -7565,6 +7565,7 @@ fn render_mode_with_history(
                 let closure_supplied = closure_readiness["records"].as_array()
                     .is_some_and(|records| !records.is_empty());
                 for (supplied, command, contract) in [
+                    (true, "register_message_wait", "continuation.wait"),
                     (feedback_supplied, "resolve_requester_feedback", "requester_feedback"),
                     (closure_supplied, "close_goal", "closure_readiness"),
                 ] {

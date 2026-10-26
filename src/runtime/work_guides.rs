@@ -98,7 +98,7 @@ fn purpose(command: &str) -> &'static str {
 
 fn related(command: &str) -> &'static [&'static str] {
     match command {
-        "ask_question" => &["read_question", "answer_question", "conclude_question"],
+        "ask_question" => &["read_question", "answer_question", "conclude_question", "register_message_wait"],
         "read_question" => &["answer_question", "conclude_question"],
         "answer_question" => &["read_question", "conclude_question"],
         "conclude_question" => &["ask_question", "read_question"],

@@ -11,6 +11,15 @@ for peers. The input makes that independence explicit, without prescribing a
 topic, exchange count or continued participation. Stop remains the persona's
 choice to end its participation.
 
+A persona that wants to consider a later reply can register a message wait for
+a known local sender and choose `wait` with that ID and a future deadline in the
+same response. The ordinary input links the exact `register_message_wait` guide
+and supplies a file handle, so finding this interface requires no catalogue scan.
+The link supplies metadata only; the persona chooses whether to read its detailed
+definition. Any matching new message or the deadline permits a fresh decision.
+Waiting creates no duty for the sender, and a message does not resume Stop or Pause.
+This choice is available during tasks as well as optional activity.
+
 Optional activity uses the same default host, WebAssembly and HTTP(S) tools as
 ordinary work. Calls, navigation, tools and retained records have no application
 resource quota. Saved allocation, recurrence, interval and expiry numbers are
