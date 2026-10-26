@@ -1202,6 +1202,8 @@ pub struct AttemptFailureView {
 #[derive(Clone, Debug, Serialize)]
 pub struct AttemptView {
     pub id: String,
+    pub work: String,
+    pub persona: String,
     pub state: s::InvocationState,
     pub status: AttemptStatus,
     pub prepare_hash: String,
@@ -1218,6 +1220,12 @@ fn attempt_view(records: &s::RuntimeInspection<'_, '_>, id: &str) -> BoundaryRes
     valid_id(id).map_err(|_| BoundaryError::InvalidState)?;
     // A launch step can be reserved before Runtime preparation is admitted.
     let Some(inv) = records.invocation(id)? else { return Ok(None) };
+    let request = inv.request.as_ref().and_then(|value| value.get("request"))
+        .ok_or(BoundaryError::InvalidState)?;
+    let work = request["work"].as_str().ok_or(BoundaryError::InvalidState)?.to_owned();
+    let persona = request["persona"].as_str().ok_or(BoundaryError::InvalidState)?.to_owned();
+    valid_id(&work).map_err(|_| BoundaryError::InvalidState)?;
+    valid_id(&persona).map_err(|_| BoundaryError::InvalidState)?;
     let reservation = records.reservation(&inv.reservation)?;
     let responded = inv
         .history
@@ -1270,6 +1278,8 @@ fn attempt_view(records: &s::RuntimeInspection<'_, '_>, id: &str) -> BoundaryRes
     };
     Ok(Some(AttemptView {
         id: inv.id,
+        work,
+        persona,
         state: inv.state,
         status,
         prepare_hash: inv.prepare_hash,
@@ -1330,7 +1340,12 @@ pub struct ParticipantView {
     pub ordinary_continuation: bool,
     pub failed_attempt_hold: Option<String>,
     pub failed_attempt_acknowledgment: Option<s::ObjectRef>,
+    /// The persona's active invocation only when it belongs to this work.
     pub active_invocation: Option<AttemptView>,
+    /// A persona-wide execution lease or recovery hold belonging to other work.
+    /// It affects availability without changing this work's continuation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub other_work_attempt: Option<AttemptView>,
     /// Commands whose complete result has not yet been published to this work.
     pub pending_host_commands: Vec<PendingHostCommandView>,
     /// Candidate only. Not admission, a provider check, or a grant to resume Stop.
@@ -1558,12 +1573,21 @@ fn inspect_snapshot(
             let eligible_candidate = available
                 && (matches!(entry.disposition, SchedulerDisposition::Queued)
                     || continuation_permit(&state, &actor, id, now));
-            let active_invocation = persona
+            let active_attempt = persona
                 .active_invocation
                 .as_deref()
                 .map(|id| retained_attempt(records, &mut attempts, id))
                 .transpose()?
                 .flatten();
+            let other_work_attempt = match active_attempt.as_ref().filter(|call| call.work != *id) {
+                Some(call) => Some(call.clone()),
+                None => persona.failed_attempt_hold.as_ref().filter(|hold| hold.work != *id)
+                    .map(|hold| retained_attempt(records, &mut attempts, &hold.invocation))
+                    .transpose()?.flatten(),
+            };
+            let active_invocation = active_attempt.filter(|call| call.work == *id);
+            let failed_attempt_hold = persona.failed_attempt_hold.as_ref()
+                .filter(|hold| hold.work == *id);
             let resume_recovery = participant_resume::recovery_snapshot(state, records, id, &actor)?;
             let continuation_recovery_candidate = !frozen && leases_quiescent
                 && settings.compatible_for_execution
@@ -1605,15 +1629,10 @@ fn inspect_snapshot(
                 continuation,
                 permit: focus.permit,
                 ordinary_continuation: focus.ordinary_continuation,
-                failed_attempt_hold: persona
-                    .failed_attempt_hold
-                    .as_ref()
-                    .map(|h| h.invocation.clone()),
-                failed_attempt_acknowledgment: persona
-                    .failed_attempt_hold
-                    .as_ref()
-                    .map(|h| h.acknowledgment.clone()),
+                failed_attempt_hold: failed_attempt_hold.map(|h| h.invocation.clone()),
+                failed_attempt_acknowledgment: failed_attempt_hold.map(|h| h.acknowledgment.clone()),
                 active_invocation,
+                other_work_attempt,
                 pending_host_commands,
                 eligible_candidate,
                 continuation_recovery_candidate,

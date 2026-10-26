@@ -72,6 +72,10 @@ journal shows the previous session's recorded outcome and the current work list;
 it leaves saved reply bodies in Results instead of replaying them before the menu.
 The work list summarizes participants' last continuation choices and distinguishes
 ready work, pending calls, failed attempts, and participants who chose to stop.
+Calls and recovery holds are attributed to their actual work. A persona working
+on a later task does not make an earlier stopped task show pending calls.
+Participant and progress views identify calls on other work separately; those
+leases still affect the persona's availability without changing its earlier choice.
 It shows each saved task's complete request text beside its work ID, so tasks can
 be distinguished without opening their results. Optional activities use a short
 label from their recorded activity binding; their complete original text remains
@@ -177,6 +181,9 @@ output as Ordinary navigation use,
 without returning whole internal runtime, launch or invocation records. The
 ordinary `ai-personas result` and `questions` commands use the same projection
 path. Inspection starts no owner recovery, credential lookup or inference.
+Each attempt includes its retained work and persona identities. Within a work's
+participant view, `active_invocation` and `failed_attempt_hold` belong to that
+work; `other_work_attempt` identifies an execution lease or recovery hold elsewhere.
 
 Session-status and session-message views also project within one transaction,
 including exact claim/terminal validation and message attribution. They

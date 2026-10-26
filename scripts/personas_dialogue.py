@@ -1750,6 +1750,10 @@ class Dialogue:
             status = (self.attempt_status(attempt) if attempt and
                       attempt["state"] in ("Prepared", "Dispatched", "Responded") else
                       self.continuation_label(participant["continuation"]))
+            elsewhere = participant.get("other_work_attempt")
+            if elsewhere:
+                status += (f"; {elsewhere['id']} in {elsewhere['work']} "
+                           f"({self.attempt_status(elsewhere)})")
             self.ui.say(f"{i}: {participant.get('label', participant['persona'])} "
                         f"({participant['persona']}) — {status}")
             recovery = participant.get("resume_recovery")
@@ -2212,6 +2216,8 @@ class Dialogue:
             return "review failed attempts"
         if work["participants"] and all(p["continuation"] == "persona_stop" for p in work["participants"]):
             return "participants stopped; review their results"
+        if any(p.get("other_work_attempt") for p in work["participants"]):
+            return "participants are occupied by another work"
         return "no participant ready to continue"
 
     def codex_auth_defaults(self):
@@ -2317,6 +2323,10 @@ class Dialogue:
                   for participant in participants
                   if (attempt := participant.get("active_invocation"))
                   and attempt["state"] in ("Prepared", "Dispatched", "Responded")]
+        elsewhere = [f"{participant['label']} ({attempt['work']}, {attempt['id']}, "
+                     f"{self.attempt_status(attempt)})"
+                     for participant in participants
+                     if (attempt := participant.get("other_work_attempt"))]
         tool_states = {"Admitted": "queued", "Dispatched": "awaiting outcome",
                        "Succeeded": "publishing result", "Failed": "publishing failure",
                        "Canceled": "publishing cancellation", "Uncertain": "outcome unresolved"}
@@ -2332,6 +2342,8 @@ class Dialogue:
         activity = []
         if active:
             activity.append("Working: " + "; ".join(active))
+        if elsewhere:
+            activity.append("Calls in other work: " + "; ".join(elsewhere))
         if tools:
             activity.append("Pending tool commands: " + "; ".join(tools))
         scheduled = [f"{participant['label']} ({self.scheduled_time(participant['scheduled_for_unix'])})"
