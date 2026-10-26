@@ -295,6 +295,9 @@ impl Runtime {
             ).is_err() {
                 self.store.cancel_intent(id, "accepted action authority or prerequisites changed; command never dispatched")?;
             } else {
+                let mut monitor = self.store.runtime_control_monitor()?;
+                let mut event_cursor = state.operator_events.len();
+                let request = prepared.request.clone();
                 self.store.trusted_host().reserve_terminal_evidence(
                     &subject,
                     &slot_id,
@@ -311,7 +314,14 @@ impl Runtime {
                     intent: intent_id,
                     request_sha256,
                     runner_revision,
-                    outcome: h::execute(&input, &directory),
+                    outcome: h::execute(&input, &directory, || {
+                        provider_calls::observe_stop(&mut monitor, &mut event_cursor, &request)
+                            .unwrap_or_else(|_| Some(json!({
+                                "kind":"runtime_control_monitor_unavailable",
+                                "local_cancellation_requested":true,
+                                "remote_stop_confirmed":false
+                            })))
+                    }),
                 };
                 if background {
                     self.host_command_background.as_mut()

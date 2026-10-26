@@ -7,7 +7,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 pub const PROFILE: &str = "host.command.v1";
@@ -97,6 +97,8 @@ pub struct Outcome {
     pub exit_code: Option<i32>,
     pub signal: Option<i32>,
     pub timed_out: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_control_observation: Option<serde_json::Value>,
     pub failure: Option<String>,
     pub stdout: OutputCapture,
     pub stderr: OutputCapture,
@@ -173,9 +175,48 @@ fn captured(path: &Path) -> std::io::Result<OutputCapture> {
     })
 }
 
-/// Run once, after native intent dispatch. Retain the complete observed output;
-/// stdout/stderr also remain available as host files.
-pub fn execute(input: &Inputs, directory: &Path) -> Outcome {
+/// Own the child until its actual exit is observed, including error/unwind paths.
+struct RunningCommand {
+    child: Child,
+    reaped: bool,
+}
+
+impl RunningCommand {
+    fn try_wait(&mut self) -> std::io::Result<Option<ExitStatus>> {
+        let status = self.child.try_wait()?;
+        self.reaped = status.is_some();
+        Ok(status)
+    }
+
+    fn stop(&mut self) -> std::io::Result<ExitStatus> {
+        // The child established its own process group and has not been reaped;
+        // its PID cannot have been reused for another process group.
+        if !self.reaped {
+            unsafe { libc::kill(-(self.child.id() as i32), libc::SIGKILL); }
+            let _ = self.child.kill();
+        }
+        let status = self.child.wait()?;
+        self.reaped = true;
+        Ok(status)
+    }
+}
+
+impl Drop for RunningCommand {
+    fn drop(&mut self) {
+        if !self.reaped {
+            let _ = self.stop();
+        }
+    }
+}
+
+/// Run once, after native intent dispatch. The host observes actual work controls
+/// before launch and while waiting; this adds no command duration limit.
+/// Retain the complete observed output; logs also remain available as host files.
+pub fn execute(
+    input: &Inputs,
+    directory: &Path,
+    mut observe_stop: impl FnMut() -> Option<serde_json::Value>,
+) -> Outcome {
     use std::os::unix::ffi::OsStrExt;
     let started = Instant::now();
     let mut environment: Vec<_> = std::env::vars_os().collect();
@@ -194,6 +235,7 @@ pub fn execute(input: &Inputs, directory: &Path) -> Outcome {
         exit_code: None,
         signal: None,
         timed_out: false,
+        runtime_control_observation: None,
         failure: None,
         stdout: OutputCapture::unavailable(),
         stderr: OutputCapture::unavailable(),
@@ -223,7 +265,14 @@ pub fn execute(input: &Inputs, directory: &Path) -> Outcome {
         let mut stdin = tempfile::tempfile()?;
         stdin.write_all(input.stdin.as_ref().map(Stdin::as_bytes).unwrap_or(&[]))?;
         stdin.seek(SeekFrom::Start(0))?;
-        let mut child = Command::new(SHELL)
+        outcome.runtime_control_observation = observe_stop();
+        if outcome.runtime_control_observation.is_some() {
+            outcome.failure = Some("runtime control stopped command before process launch".into());
+            outcome.stdout = captured(&stdout_path)?;
+            outcome.stderr = captured(&stderr_path)?;
+            return Ok(());
+        }
+        let child = Command::new(SHELL)
             .arg("-c")
             .arg(&input.command)
             .current_dir(directory)
@@ -232,10 +281,19 @@ pub fn execute(input: &Inputs, directory: &Path) -> Outcome {
             .stderr(Stdio::from(stderr))
             .process_group(0)
             .spawn()?;
+        let mut child = RunningCommand { child, reaped: false };
         outcome.process_started = true;
+        let mut next_control_check = Instant::now();
         let status = loop {
             if let Some(status) = child.try_wait()? {
                 break status;
+            }
+            if Instant::now() >= next_control_check {
+                outcome.runtime_control_observation = observe_stop();
+                if outcome.runtime_control_observation.is_some() {
+                    break child.stop()?;
+                }
+                next_control_check = Instant::now() + Duration::from_millis(250);
             }
             if input
                 .timeout_seconds
@@ -243,18 +301,14 @@ pub fn execute(input: &Inputs, directory: &Path) -> Outcome {
             {
                 outcome.timed_out = true;
                 // The timeout is explicitly chosen in this command's input.
-                // SAFETY: this child established its own process group at spawn.
-                unsafe {
-                    libc::kill(-(child.id() as i32), libc::SIGKILL);
-                }
-                let _ = child.kill();
-                break child.wait()?;
+                break child.stop()?;
             }
             std::thread::sleep(Duration::from_millis(25));
         };
         outcome.exit_code = status.code();
         outcome.signal = status.signal();
-        outcome.succeeded = status.success() && !outcome.timed_out;
+        outcome.succeeded = status.success() && !outcome.timed_out
+            && outcome.runtime_control_observation.is_none();
         outcome.stdout = captured(&stdout_path)?;
         outcome.stderr = captured(&stderr_path)?;
         Ok(())

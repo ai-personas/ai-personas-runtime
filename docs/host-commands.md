@@ -66,6 +66,13 @@ interface (or the foreground directory without a saved launch). Relative paths
 resolve against that directory. `stdin` optionally
 supplies UTF-8 input. A persona may choose `timeout_seconds`; omission or `null`
 means no timeout. A chosen timeout stops that command's process group.
+An explicit work pause or cancellation, or a pause/quarantine of the owning
+persona, also stops a running command's process group. The runner observes the
+retained control before starting the process and while waiting for its exit.
+It preserves the control observation, actual exit status and captured output;
+this does not undo earlier writes or establish termination of remote work or
+processes that detached from that group. A stop followed by a resume still stops
+the earlier command. Resuming work does not repeat that command.
 The interactive launcher waits for the native foreground session without adding
 a wall-clock limit to installations or other host commands. Explicit user
 interruption still applies.
@@ -197,7 +204,9 @@ Independent accepted personas can also have [primary calls in flight together](c
 The standalone one-step API and explicit tool recovery remain synchronous.
 
 If only running commands remain, the launcher waits for an actual completion
-without spending another model admission or repeatedly scanning Store. Every
+without spending another model admission or repeatedly scheduling personas. Each
+worker checks for changed runtime control state through a read-only connection;
+these checks consume no persona navigation or model call. Every
 normal run exit drains its workers and records their outcomes before returning
 the final view. Cancellation joins workers before releasing execution ownership;
 an outcome that was not durably recorded still requires explicit recovery and
@@ -209,7 +218,8 @@ installation changes the actual host environment; it is not simulated.
 ## Results and inspection
 
 The next decision receives a `host_command_result` with execution status, exit
-code or terminating signal, optional timeout/failure, elapsed time and observed byte
+code or terminating signal, optional timeout/failure, any runtime control
+observation, elapsed time and observed byte
 counts. The persona's `result_context` chooses how retained command input, stdout
 and stderr enter that context. The current runner
 and shell artifact hashes, effective user ID, and a digest of the inherited

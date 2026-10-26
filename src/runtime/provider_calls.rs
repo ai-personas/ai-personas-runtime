@@ -44,7 +44,7 @@ pub(super) fn state_stop(
         .then(|| stop_receipt(request, revision, phase, explicit)))
 }
 
-fn observe_stop(
+pub(super) fn observe_stop(
     monitor: &mut s::RuntimeControlMonitor,
     event_cursor: &mut usize,
     request: &PrepareRequest,
