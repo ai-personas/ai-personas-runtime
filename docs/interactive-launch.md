@@ -204,8 +204,12 @@ dependencies. The first choice prefers the installation on PATH, then this
 checkout's release build, then its debug build. Relative paths and directory or
 executable aliases are accepted. Helper selection has no byte-size, ownership or
 permission-mode policy; actual filesystem access still applies. Selected binaries are
-pinned by exact path and SHA-256; changed binaries stop the flow rather than
-silently replacing an installation. Cargo may download locked crates and execute
+pinned by exact path and SHA-256. On Linux, the launcher retains sealed snapshots
+of all four helpers until it closes. Rebuilding or replacing files in the selected
+directory leaves the open launcher's sessions, live status and result inspection
+on the original selected build. Reopening rechecks the on-disk installation;
+changed helpers require selecting the updated installation. Other platforms
+recheck the selected digest before each helper call. Cargo may download locked crates and execute
 build scripts as part of the selected build. The build produces optimized release
 helpers using Cargo's normal parallelism, no incremental compilation and no debug symbols, storing
 artifacts under the private UI root. Initial compilation can take longer than a

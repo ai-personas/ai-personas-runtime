@@ -828,6 +828,33 @@ class Helpers:
         self.j = journal
         self.checkout = checkout
         self.ui = ui
+        self.executables = {}
+        self.pinned_installation = None
+
+    def close(self):
+        for executable in self.executables.values():
+            executable.close()
+        self.executables = {}
+        self.pinned_installation = None
+
+    def pin_installation(self, mapping):
+        # Retain one coherent installation for this UI lifetime. A later build
+        # must not replace inspection helpers while an earlier session runs.
+        snapshots = {}
+        try:
+            for name in NAMES:
+                item = mapping[name]
+                if sys.platform.startswith("linux"):
+                    snapshots[name] = VerifiedExecutable(item["path"], item["sha256"])
+                else:
+                    require(binary_digest(item["path"]) == item["sha256"], "approved_binary_changed")
+        except BaseException:
+            for executable in snapshots.values():
+                executable.close()
+            raise
+        self.close()
+        self.executables = snapshots
+        self.pinned_installation = {name: dict(mapping[name]) for name in NAMES}
 
     def candidates(self):
         paths = []
@@ -853,6 +880,7 @@ class Helpers:
             # complete bytes to the saved digest and execution snapshot.
             path = selected_folder / name
             mapping[name] = {"path": str(path), "sha256": binary_digest(path)}
+        self.pin_installation(mapping)
         self.j.data["installation"] = mapping
         self.j.save()
 
@@ -868,8 +896,7 @@ class Helpers:
             return
         if self.j.data["installation"] is not None:
             try:
-                for item in self.j.data["installation"].values():
-                    require(binary_digest(item["path"]) == item["sha256"], "approved_binary_changed")
+                self.pin_installation(self.j.data["installation"])
                 return
             except (Blocked, OSError):
                 self.ui.say("A selected helper is missing or changed. Choose the installation to use.")
@@ -941,27 +968,20 @@ class Helpers:
                 proc.wait()
 
     def call(self, name, args, timeout=None, auth_display=False, on_wait=None, on_input=None):
+        require(self.pinned_installation == self.j.data["installation"], "installation_not_pinned")
         item = self.j.data["installation"][name]
-        verified = None
         executable = item["path"]
         pass_fds = ()
         if sys.platform.startswith("linux"):
-            verified = VerifiedExecutable(item["path"], item["sha256"])
+            verified = self.executables[name]
             executable = verified.path
             pass_fds = (verified.fd,)
         else:
             require(binary_digest(item["path"]) == item["sha256"], "approved_binary_changed")
-        try:
-            proc = subprocess.Popen([executable, *args], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                    stderr=None if auth_display else subprocess.PIPE,
-                                    cwd=self.checkout, env=self.environment(), start_new_session=True,
-                                    pass_fds=pass_fds)
-        except BaseException:
-            if verified is not None:
-                verified.close()
-            raise
-        if verified is not None:
-            verified.close()
+        proc = subprocess.Popen([executable, *args], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                stderr=None if auth_display else subprocess.PIPE,
+                                cwd=self.checkout, env=self.environment(), start_new_session=True,
+                                pass_fds=pass_fds)
         out, err = bytearray(), bytearray()
         next_update = time.monotonic() + 15
         try:
@@ -2678,7 +2698,7 @@ def main():
     if os.name != "posix" or sys.version_info < (3, 9):
         ui.say("This interaction needs Unix and Python 3.9+. No installer was run.")
         return 2
-    directory = journal = None
+    directory = journal = helpers = None
     try:
         directory, create = select_progress_directory(ui)
         journal = Journal(directory, create=create)
@@ -2698,6 +2718,8 @@ def main():
                f"Keep the saved progress; inspect the exact operation status on return. See {DOC}.")
         return 1
     finally:
+        if helpers:
+            helpers.close()
         if journal:
             journal.close()
         if directory:
