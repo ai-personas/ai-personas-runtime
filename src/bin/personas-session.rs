@@ -187,6 +187,17 @@ async fn main() {
         emit::<()>(Err(session::BoundaryError::InvalidRequest));
         std::process::exit(2);
     };
+    let _signals = if matches!(&cli.command, Command::Run { .. }) {
+        match ai_personas::process_control::install() {
+            Ok(guard) => Some(guard),
+            Err(_) => {
+                emit::<()>(Err(session::BoundaryError::Unavailable));
+                std::process::exit(1);
+            }
+        }
+    } else {
+        None
+    };
     let ok = match cli.command {
         Command::Bootstrap {
             file,

@@ -51,13 +51,16 @@ fn runtime_stopped_response(
 ) -> Result<bool> {
     let receipt = &evidence.body["receipt"];
     let stop = &receipt["runtime_control_observation"];
-    let observed = stop["kind"] == "runtime_stop_observed"
-        && stop["work"] == prepared.request.work
-        && stop["persona"] == prepared.request.persona
-        && stop["local_cancellation_requested"] == true
+    let retained_control = stop["kind"] == "runtime_stop_observed"
         && (stop["explicit_stop_observed"] == true
             || serde_json::from_value::<w::Phase>(stop["phase"].clone())
                 .is_ok_and(|phase| !matches!(phase, w::Phase::Open)));
+    let foreground_interrupt = stop["kind"] == "foreground_process_interrupted"
+        && matches!(stop["signal"].as_str(), Some("SIGINT" | "SIGTERM"));
+    let observed = (retained_control || foreground_interrupt)
+        && stop["work"] == prepared.request.work
+        && stop["persona"] == prepared.request.persona
+        && stop["local_cancellation_requested"] == true;
     if !observed {
         return Ok(false);
     }

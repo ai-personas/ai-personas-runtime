@@ -34,11 +34,17 @@ pub(super) async fn run<D: Driver>(
     }
     let mut failure = None;
     loop {
+        if crate::process_control::signal().is_some() {
+            let mut output = result(app, root)?;
+            output.stop = Some("interrupted".into());
+            return Ok(output);
+        }
         driver.before_step(app)?;
         app.publish_completed_host_commands(unix_now()?)?;
         let works = subtree(&app.snapshot()?, root)?;
         let mut progress = false;
         for work in &works {
+            if crate::process_control::signal().is_some() { break; }
             driver.before_step(app)?;
             let admitted = intake_delegation::admit_pending_for_work_owned(app, &work, owner)?;
             progress |= !admitted.is_empty();

@@ -796,6 +796,11 @@ async fn run_with_owned_commands<D: Driver>(
     driver: &mut D,
     owner: &s::ExecutionOwner,
 ) -> Result<Output> {
+    if crate::process_control::signal().is_some() {
+        let mut output = result(app, work)?;
+        output.stop = Some("interrupted".into());
+        return Ok(output);
+    }
     driver.before_step(app)?;
     deliver_inputs(app, owner, unix_now()?)?;
     if !driver.prospective_intake() {
@@ -850,6 +855,9 @@ async fn run_with_options<D: Driver>(
     saved.execution_provider()?;
     require(saved.works.contains_key(work), "unknown launch work")?;
     let stop = loop {
+        if crate::process_control::signal().is_some() {
+            break "interrupted";
+        }
         app.publish_completed_host_commands(unix_now()?)?;
         let calls = rejected_continuation::active_invocations_for_work(&app.snapshot()?, work)?;
         app.retire_ready_rejected_continuations(work, calls, unix_now()?)?;
@@ -920,6 +928,9 @@ async fn run_with_options<D: Driver>(
             Ok::<_, RuntimeError>("continue")
         }
         .await;
+        if crate::process_control::signal().is_some() {
+            break "interrupted";
+        }
         match attempt {
             Ok("activity_ready" | "continue") if yield_after_step => break "work_step_yielded",
             Ok("activity_ready" | "continue") => (),

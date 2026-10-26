@@ -8,6 +8,7 @@ pub mod http_fetch;
 pub mod host_command;
 pub mod files;
 pub mod mock_effects;
+pub mod process_control;
 pub mod protocol;
 pub mod provider;
 pub mod store;

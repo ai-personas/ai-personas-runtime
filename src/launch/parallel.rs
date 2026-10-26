@@ -69,6 +69,9 @@ async fn run_with_subtree<D: Driver>(
     let mut draining_for_exclusive = false;
 
     loop {
+        if crate::process_control::signal().is_some() {
+            stop.get_or_insert("interrupted");
+        }
         // Initial handover and completed-rejection retirement retain their
         // terminal-lease transaction fences. Drain peers before applying them,
         // using the actual completed IDs, never Saved.works' newest call.
@@ -167,6 +170,10 @@ async fn run_with_subtree<D: Driver>(
             && exclusive.is_empty()
             && !draining_for_exclusive
         {
+            if crate::process_control::signal().is_some() {
+                stop.get_or_insert("interrupted");
+                break;
+            }
             let mut attempted_id = None;
             let mut needs_exclusive = false;
             let admission = (|| {
@@ -231,6 +238,9 @@ async fn run_with_subtree<D: Driver>(
                 clock = foreground::wait_for_scheduled_time(next_scheduled_at),
                     if stop.is_none() => Wake::Clock(clock),
             };
+            if crate::process_control::signal().is_some() {
+                stop.get_or_insert("interrupted");
+            }
             match wake {
                 Wake::Jobs(Err(error)) | Wake::Clock(Err(error)) => {
                     stop.get_or_insert(stop_for_error(&error));

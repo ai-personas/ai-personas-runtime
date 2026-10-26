@@ -987,7 +987,8 @@ class Helpers:
                 os.killpg(proc.pid, signal.SIGKILL)
                 proc.wait()
 
-    def call(self, name, args, timeout=None, auth_display=False, on_wait=None, on_input=None):
+    def call(self, name, args, timeout=None, auth_display=False, on_wait=None, on_input=None,
+             graceful_interrupt=False):
         require(self.pinned_installation == self.j.data["installation"], "installation_not_pinned")
         item = self.j.data["installation"][name]
         executable = item["path"]
@@ -1004,6 +1005,7 @@ class Helpers:
                                 pass_fds=pass_fds)
         out, err = bytearray(), bytearray()
         next_update = time.monotonic() + 15
+        interrupted = False
         try:
             with selectors.DefaultSelector() as poll:
                 poll.register(proc.stdout, selectors.EVENT_READ, out)
@@ -1013,22 +1015,46 @@ class Helpers:
                     streams += 1
                 if on_input is not None:
                     poll.register(sys.stdin, selectors.EVENT_READ, None)
-                while streams:
-                    for key, _ in poll.select(0.2):
-                        if key.data is None:
-                            if proc.poll() is not None or on_input() is False:
+                while streams or proc.poll() is None:
+                    try:
+                        for key, _ in poll.select(0.2):
+                            if key.data is None:
+                                if proc.poll() is not None or on_input() is False:
+                                    poll.unregister(key.fileobj)
+                                continue
+                            part = os.read(key.fd, 8192)
+                            if not part:
                                 poll.unregister(key.fileobj)
-                            continue
-                        part = os.read(key.fd, 8192)
-                        if not part:
-                            poll.unregister(key.fileobj)
-                            streams -= 1
+                                streams -= 1
+                            else:
+                                key.data.extend(part)
+                        if on_wait is not None and proc.poll() is None and time.monotonic() >= next_update:
+                            on_wait()
+                            next_update = time.monotonic() + 15
+                    except KeyboardInterrupt:
+                        if not graceful_interrupt:
+                            raise
+                        if not interrupted:
+                            interrupted = True
+                            if proc.poll() is None:
+                                try:
+                                    os.killpg(proc.pid, signal.SIGTERM)
+                                except ProcessLookupError:
+                                    pass
+                            if on_input is not None:
+                                try:
+                                    poll.unregister(sys.stdin)
+                                except KeyError:
+                                    pass
+                            self.ui.say("Stopping this session; waiting for owned commands and recorded outcomes.")
                         else:
-                            key.data.extend(part)
-                    if on_wait is not None and proc.poll() is None and time.monotonic() >= next_update:
-                        on_wait()
-                        next_update = time.monotonic() + 15
+                            self.ui.say("Still waiting for this session to finish stopping.")
                 code = proc.wait()
+            if interrupted:
+                # The native owner has drained its transports and host workers.
+                # Preserve the user's exit request after reading its pipes; a
+                # fixed kill delay could abandon both processes and evidence.
+                raise KeyboardInterrupt
             if code != 0:
                 try:
                     # Decode the structured error without echoing provider output.
@@ -1065,10 +1091,10 @@ class Dialogue:
         self.j, self.h, self.ui, self.checkout = journal, helpers, ui, checkout
         self.p = journal.data
 
-    def session(self, *args, timeout=None, on_wait=None, on_input=None):
+    def session(self, *args, timeout=None, on_wait=None, on_input=None, graceful_interrupt=False):
         return self.h.call("personas-session", ["--state-root", self.p["runtime"]["path"],
                             "--operator", self.p["operator"], *args], timeout=timeout,
-                           on_wait=on_wait, on_input=on_input)
+                           on_wait=on_wait, on_input=on_input, graceful_interrupt=graceful_interrupt)
 
     def provider(self, *args, timeout=None):
         return self.h.call("personas-provider", ["--vault", self.p["vault"], *args], timeout=timeout)
@@ -2502,7 +2528,8 @@ class Dialogue:
         # Host commands have no default duration limit. Wait for the native
         # session's outcome; explicit interruption still stops this helper.
         outcome = self.session(*args, timeout=None, on_wait=report_progress,
-                               on_input=lambda: self.live_input(work, shown_messages=shown_messages))
+                               on_input=lambda: self.live_input(work, shown_messages=shown_messages),
+                               graceful_interrupt=True)
         self.session_binding(outcome, s)
         require(outcome.get("status") == "finished", "session_outcome_unknown_no_replay")
         self.show_session_outcome(outcome["terminal"]["outcome"])

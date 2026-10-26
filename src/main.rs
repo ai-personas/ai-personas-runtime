@@ -793,6 +793,11 @@ async fn main() {
     }
 }
 async fn run(cli: Cli) -> runtime::Result<()> {
+    let _signals = if matches!(&cli.command, Command::Run { .. }) {
+        Some(ai_personas::process_control::install()?)
+    } else {
+        None
+    };
     match &cli.command {
         Command::Setup {
             provider_config,

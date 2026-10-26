@@ -31,11 +31,22 @@ fn stop_receipt(request: &PrepareRequest, revision: u64, phase: &w::Phase, expli
         "local_cancellation_requested":true, "remote_stop_confirmed":false})
 }
 
+fn process_stop(request: &PrepareRequest) -> Option<Value> {
+    crate::process_control::signal().map(|signal| json!({
+        "kind":"foreground_process_interrupted", "signal":signal,
+        "work":request.work, "persona":request.persona,
+        "local_cancellation_requested":true, "remote_stop_confirmed":false
+    }))
+}
+
 /// Observe the same controls before dispatch, including a stop followed by
 /// resumption while this request was being prepared. It grants no new route.
 pub(super) fn state_stop(
     state: &State, revision: u64, event_cursor: usize, request: &PrepareRequest,
 ) -> Result<Option<Value>> {
+    if let Some(observation) = process_stop(request) {
+        return Ok(Some(observation));
+    }
     require(event_cursor <= state.operator_events.len(), "transport control history was shortened")?;
     let phase = &state.board.work(&w::WorkId(request.work.clone()))?.phase;
     let explicit = lifecycle::reason(state, &request.persona).is_some()
@@ -49,6 +60,9 @@ pub(super) fn observe_stop(
     event_cursor: &mut usize,
     request: &PrepareRequest,
 ) -> Result<Option<Value>> {
+    if let Some(observation) = process_stop(request) {
+        return Ok(Some(observation));
+    }
     let Some(object) = monitor.changed()? else {
         return Ok(None);
     };

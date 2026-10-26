@@ -74,8 +74,12 @@ this does not undo earlier writes or establish termination of remote work or
 processes that detached from that group. A stop followed by a resume still stops
 the earlier command. Resuming work does not repeat that command.
 The interactive launcher waits for the native foreground session without adding
-a wall-clock limit to installations or other host commands. Explicit user
-interruption still applies.
+a wall-clock limit to installations or other host commands. Ctrl-C requests a
+native foreground interruption. The coordinator stops new calls, stops its owned
+command groups, drains their workers and records the observed outcomes before
+exiting. SIGINT or SIGTERM sent directly to a native `run` process follows the
+same path. The interruption applies to the whole foreground session, including
+its delegated work; it does not change durable work or participant controls.
 
 `result_context` is required. Choose `complete` when all returned text belongs in
 the next decision, or `reference` when execution metadata and exact readable

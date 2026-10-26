@@ -337,6 +337,16 @@ the menu permits a separately selected session for eligible personas and retains
 every earlier session identity in its history. Every launcher session records an
 explicit authentication route and the inspected launch reference.
 
+Ctrl-C during a running session requests its native foreground interruption and
+waits for the owned transports and host commands to settle. The launcher keeps
+draining helper output during this wait, without a fixed kill delay, then exits.
+The session stops admitting calls and records actual command exits and local
+provider cancellation observations. This includes commands in delegated work
+owned by that session. It does not pause or cancel durable work, resume a
+participant, or establish remote termination. A forced process kill can still
+leave outcomes unknown; reopening retains that uncertainty and never replays the
+same session.
+
 While a session runs, the launcher checks its current work status every 15 seconds
 and displays changed activity, with a status reminder each minute. It names active
 persona calls, pending host commands, recorded attempts, and participants needing

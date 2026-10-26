@@ -322,6 +322,15 @@ Dropping a pending transport requests local cancellation; it proves neither remo
 termination nor absence of effects. Lost outcomes retain the existing uncertainty
 and recovery behavior.
 
+Native `run` processes observe SIGINT and SIGTERM through a process-local stop
+signal. The coordinator stops admitting calls, pending transports request local
+cancellation, and owned host-command groups stop and retain their actual exits.
+The coordinator drains these outcomes before releasing its execution owner.
+An authored future return also wakes for this interruption. No work-wide control
+or participant continuation is rewritten; the signal stops this foreground
+session, including its owned descendants. An uncatchable process kill still uses
+the ordinary unknown-outcome recovery path.
+
 A stop may arrive after admission but before provider dispatch. The admission
 retains its control-history boundary, and prelaunch authorization observes current
 controls and intervening stops, including a stop followed by explicit resumption.

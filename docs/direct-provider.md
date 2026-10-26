@@ -101,6 +101,10 @@ stay unchanged; cleanup does not resume work or replay the response. The
 `runtime_stopped_response_lease_retired` event preserves the failure, terminal
 evidence and unresolved remote outcome and charges. An unavailable control
 monitor or a cancellation without a recorded runtime stop does not qualify.
+A native foreground SIGINT or SIGTERM observation qualifies under the same
+exact response-only checks. The interrupted session admits no further calls;
+a later explicitly started session may retire the ended lease while preserving
+the existing route and the unresolved remote outcome.
 
 A locally ended HTTP 200 stream can also retain that route after a network,
 protocol or content-type failure, or an incomplete message item. The runtime

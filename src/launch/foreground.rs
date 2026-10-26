@@ -155,6 +155,7 @@ pub(super) fn scheduled_at(state: &State, work: &w::WorkId, actor: &w::PersonaId
 pub(super) async fn wait_for_scheduled_time(next: Option<u64>) -> Result<()> {
     let Some(at) = next else { return std::future::pending().await; };
     loop {
+        if crate::process_control::signal().is_some() { return Ok(()); }
         let now = u64::try_from(unix_now()?).map_err(|_| invalid("negative scheduling time"))?;
         if now >= at { return Ok(()); }
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
@@ -165,6 +166,7 @@ pub(super) async fn wait_for_scheduled_time(next: Option<u64>) -> Result<()> {
 /// input/control state. Clock checks create no call, continuation or recurrence.
 /// The next scheduling pass uses the actual clock, including after clock changes.
 pub(super) async fn wait_for_activity(app: &mut Runtime, works: &[String], owner: Option<&s::ExecutionOwner>) -> Result<bool> {
+    if crate::process_control::signal().is_some() { return Ok(true); }
     let stamp = app.store.foreground_activity_stamp()?;
     // Capture before delivery so an input arriving at this boundary cannot be
     // mistaken for an unchanged inbox and left asleep until the deadline.
@@ -191,7 +193,8 @@ pub(super) async fn wait_for_activity(app: &mut Runtime, works: &[String], owner
         return Ok(false);
     };
     loop {
-        if app.publish_completed_host_commands(unix_now()?)? > 0
+        if crate::process_control::signal().is_some()
+            || app.publish_completed_host_commands(unix_now()?)? > 0
             || u64::try_from(unix_now()?).map_err(|_| invalid("negative scheduling time"))? >= at
             || app.store.foreground_activity_stamp()? != stamp
         {
