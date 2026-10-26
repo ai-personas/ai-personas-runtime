@@ -50,11 +50,21 @@ use the [full task amendment commands](task-amendments.md).
 
 During a running session, new requester replies appear as they become available.
 The launcher also shows each persona's latest accepted account of its work,
-with its author and producing call. These updates preserve the persona's full
+with its author, producing call and recorded input time. Calls can finish out
+of order; a later displayed account can use earlier information. An unavailable
+input time remains labeled unavailable. These updates preserve the persona's full
 explanation and appear once per changed record during a session. They describe
 the persona's judgment at that time; the work phase and delivered results remain
 separate. Results show these accounts again, including when no reply was sent.
 An account from an earlier task amendment is labeled with its original mandate.
+Available local deliveries appear as qualified file lists while other personas
+continue, including when no reply announces the delivery. Each exact permitted
+delivery record appears once in the automatic foreground view; a delivery missed
+by the last live poll appears at session completion. The list links to full
+contents, qualifications and export. It does not establish acceptance or quality.
+Native result entries and exported `receipt.json` files pair the exact deposit
+reference (`receipt`) with its original retained payload (`body`). Separate
+deposits remain distinct even when they contain identical files.
 Type **r** and Enter to inspect results, **v** for full delivery contents and
 qualifications, **q** to read and answer shared questions,
 or **f** to send feedback to a participant. These controls leave the current
@@ -63,9 +73,9 @@ settle; it does not rewrite an input already sent to a model. Explicitly stopped
 participants retain their continuation choice. Use **i** to confirm the same
 saved input if its delivery result was unavailable. A live work reply is an
 attributed message, not evidence that the entire task or session has finished.
-The automatic completion view shows replies that were not already displayed
-during that foreground session. It tracks exact message identities only; it does
-not merge similar replies or select a persona's preferred result. Replies omitted
+The automatic completion view shows replies and deliveries that were not already
+displayed during that foreground session. It tracks exact message and delivery
+identities; it does not merge similar replies or select a persona's preferred result. Replies omitted
 from live output still appear at completion. **r: results** shows the full
 permitted history again, with attribution and file references. Reopening the
 journal shows the previous session's recorded outcome and the current work list;
@@ -525,8 +535,9 @@ list reports participant availability. Neither fact verifies the task result.
 
 Selecting a work opens its action menu:
 
-- **r: results** shows the currently permitted deliveries and replies, with
-  qualified text packages expanded into readable documents.
+- **r: results** shows the currently permitted delivered file lists and replies.
+  **v** shows full delivery contents and qualifications. These explicit views
+  remain available after the automatic foreground display.
 - **j: delivery receipt JSON** shows the currently permitted deliveries in their
   original JSON form, including the byte arrays and serialized qualified bundles.
 - **q: questions and answers** shows original questions, each reply's attributed

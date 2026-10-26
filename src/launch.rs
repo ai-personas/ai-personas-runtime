@@ -13,7 +13,7 @@ pub(crate) mod step_accounting;
 /// Operator-only Stage 1 launcher protocol; not a persona tool.
 #[path = "launch/session.rs"]
 pub mod session;
-pub use results::Output;
+pub use results::{LocalDelivery, Output};
 #[path = "launch/result_export.rs"]
 mod result_export;
 pub use result_export::export_result_at;

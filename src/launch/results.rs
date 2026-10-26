@@ -13,6 +13,14 @@ pub struct HumanDecisionPointer {
 }
 
 #[derive(Debug, Serialize)]
+pub struct LocalDelivery {
+    /// Exact identity of this deposit, even when another deposit has the same body.
+    pub receipt: w::ExactRef,
+    /// Original retained delivery payload; the receipt binds these serialized bytes.
+    pub body: Value,
+}
+
+#[derive(Debug, Serialize)]
 pub struct Output {
     pub work_id: String,
     pub status: String,
@@ -42,7 +50,7 @@ pub struct Output {
     pub status_delivery: Option<String>,
     pub last_attempt: Option<Value>,
     pub messages: Vec<Message>,
-    pub local_deliveries: Vec<Value>,
+    pub local_deliveries: Vec<LocalDelivery>,
     pub human_decision_pointers: Vec<HumanDecisionPointer>,
     /// Partial currently permitted facts; never global closure readiness.
     pub closure_evidence: Vec<Value>,
@@ -321,7 +329,10 @@ pub(super) fn project_state(state: &State, work_id: &str, saved: &Saved, now: i6
     }
     for (receipt, body, _) in permitted_deliveries {
         debug_assert_eq!(body["release"], receipt.release.0);
-        result.local_deliveries.push(body.clone());
+        result.local_deliveries.push(LocalDelivery {
+            receipt: receipt.receipt.clone(),
+            body: body.clone(),
+        });
     }
     for message in state.messages.values()
         .filter(|m| m.recipient == saved.operator && m.work == work_id)

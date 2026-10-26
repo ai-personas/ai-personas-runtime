@@ -623,7 +623,8 @@ fn readable_result(value: &launch::Output) -> runtime::Result<String> {
             }
         }
     }
-    for (index, delivery) in value.local_deliveries.iter().enumerate() {
+    for (index, record) in value.local_deliveries.iter().enumerate() {
+        let delivery = &record.body;
         lines.push(String::new());
         let label = if index == 0 && delivery["release"].as_str() == value.focus_release.as_deref()
         {

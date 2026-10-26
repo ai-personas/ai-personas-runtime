@@ -162,13 +162,14 @@ def readable_messages(messages, show_invocation=False):
     return parts
 
 
-def readable_delivery(delivery, summary=False):
+def readable_delivery(record, summary=False):
     """Render a file list or the complete qualified text of a bound delivery.
 
     The full view falls back to the original JSON for unrecognized packages.
     The file list explicitly links to the complete view; it supplies no bodies.
     """
     try:
+        delivery = record["body"]
         artifacts = delivery["artifacts"]
         if not isinstance(artifacts, list) or not artifacts:
             return None
@@ -176,7 +177,8 @@ def readable_delivery(delivery, summary=False):
             parts = [f"Release {delivery['release']} from {delivery['actor']} "
                      f"to {delivery['recipient']} ({delivery['invocation']})."]
         else:
-            parts = [json.dumps({k: v for k, v in delivery.items() if k != "artifacts"},
+            parts = [json.dumps({"receipt": record["receipt"],
+                                 "body": {k: v for k, v in delivery.items() if k != "artifacts"}},
                                 ensure_ascii=False, indent=2)]
         for artifact in artifacts:
             serialized = artifact["qualified_bundle_json"]
@@ -239,6 +241,12 @@ def readable_delivery(delivery, summary=False):
         return parts
     except (Blocked, KeyError, TypeError, ValueError, AttributeError, UnicodeError):
         return None
+
+
+def delivery_display_key(delivery):
+    # Native identity distinguishes separate deposits with identical contents.
+    # Do not retain or repeatedly serialize artifact byte arrays for UI state.
+    return encoded(delivery["receipt"])
 
 
 class PrivateDirectory:
@@ -1463,6 +1471,11 @@ class Dialogue:
             call = origin.get("invocation")
             self.ui.say(f"Recorded work update — {label}: {kind}"
                         + (f" ({call})." if call else " (call attribution unavailable)."))
+            admitted_at = origin.get("admitted_at_unix")
+            if admitted_at is None:
+                self.ui.say("The input time for this account is unavailable.")
+            else:
+                self.ui.say(f"Based on information supplied at {self.format_time(admitted_at)}.")
             revision = origin.get("mandate_revision")
             if revision is None:
                 self.ui.say("The task version for this account is unavailable.")
@@ -1472,8 +1485,29 @@ class Dialogue:
             if shown_activity is not None:
                 shown_activity[item["persona"]] = key
 
+    def show_deliveries(self, deliveries, receipt_json=False, delivery_details=False,
+                        shown_deliveries=None):
+        for delivery in deliveries:
+            key = delivery_display_key(delivery)
+            if shown_deliveries is not None and key in shown_deliveries:
+                continue
+            self.ui.say("Local delivery with full contents and qualifications:" if delivery_details or receipt_json
+                        else "Delivered files:")
+            parts = None if receipt_json else readable_delivery(delivery, summary=not delivery_details)
+            if parts is None:
+                if receipt_json or delivery_details:
+                    self.ui.say(json.dumps(delivery, ensure_ascii=False, indent=2))
+                else:
+                    self.ui.say("A delivery record is available, but its file list could not be rendered. "
+                                "Choose v for the complete record, or j in the work menu for its exact receipt.")
+            else:
+                for part in parts:
+                    self.ui.say(part)
+            if shown_deliveries is not None:
+                shown_deliveries.add(key)
+
     def output(self, work, receipt_json=False, result=None, shown_messages=None, shown_activity=None,
-               delivery_details=False):
+               delivery_details=False, shown_deliveries=None):
         if result is None:
             result = self.session("result", work)
         amendment = result.get("recorded_task_amendment")
@@ -1562,19 +1596,8 @@ class Dialogue:
                 if item.get("account"):
                     self.ui.say(item["label"] + "'s account: " + item["account"]["reason"])
         displayed = self.show_messages(messages, shown_messages=shown_messages)
-        for delivery in deliveries:
-            self.ui.say("Local delivery with full contents and qualifications:" if delivery_details or receipt_json
-                        else "Delivered files:")
-            parts = None if receipt_json else readable_delivery(delivery, summary=not delivery_details)
-            if parts is None:
-                if receipt_json or delivery_details:
-                    self.ui.say(json.dumps(delivery, ensure_ascii=False, indent=2))
-                else:
-                    self.ui.say("A delivery record is available, but its file list could not be rendered. "
-                                "Choose v for the complete record, or j in the work menu for its exact receipt.")
-            else:
-                for part in parts:
-                    self.ui.say(part)
+        self.show_deliveries(deliveries, receipt_json=receipt_json, delivery_details=delivery_details,
+                             shown_deliveries=shown_deliveries)
         if result.get("truncated"):
             self.ui.say("This permission-projected result is truncated at its existing bound.")
         if result.get("human_decision_pointers"):
@@ -2207,7 +2230,7 @@ class Dialogue:
                         for p in work["participants"]))
 
     @staticmethod
-    def scheduled_time(at):
+    def format_time(at):
         try:
             return time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(at))
         except (OverflowError, OSError, ValueError):
@@ -2372,7 +2395,7 @@ class Dialogue:
             activity.append("Calls in other work: " + "; ".join(elsewhere))
         if tools:
             activity.append("Pending tool commands: " + "; ".join(tools))
-        scheduled = [f"{participant['label']} ({self.scheduled_time(participant['scheduled_for_unix'])})"
+        scheduled = [f"{participant['label']} ({self.format_time(participant['scheduled_for_unix'])})"
                      for participant in participants if participant.get("scheduled_for_unix") is not None]
         if scheduled:
             activity.append("Scheduled returns: " + "; ".join(scheduled))
@@ -2385,15 +2408,19 @@ class Dialogue:
             status += " Participants with invocation recovery holds: " + ", ".join(held) + "."
         return status
 
-    def live_input(self, work, shown_messages=None):
+    def live_input(self, work, shown_messages=None, shown_deliveries=None):
         # This is the original foreground session. Input commands only inspect
         # or record input/stop controls; none starts or resumes an invocation.
         try:
             choice = self.ui.ask("While running:").strip().lower()
             if choice in ("r", "v"):
-                displayed = self.output(work, delivery_details=choice == "v")
+                result = self.session("result", work)
+                displayed = self.output(work, result=result, delivery_details=choice == "v")
                 if shown_messages is not None:
                     shown_messages.update(displayed)
+                if shown_deliveries is not None:
+                    shown_deliveries.update(delivery_display_key(delivery)
+                                            for delivery in result.get("local_deliveries", []))
             elif choice == "q":
                 self.questions(work)
             elif choice == "f":
@@ -2486,12 +2513,13 @@ class Dialogue:
         # printed in this foreground run out of its automatic completion view.
         shown_messages = set()
         shown_activity = {}
+        shown_deliveries = set()
         try:
             seen_messages = {message["id"] for message in self.session("result", work).get("messages", [])}
         except (Blocked, OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
             pass
         self.ui.say(f"Submitting {s['id']}. Waiting for its recorded native outcome.")
-        self.ui.say("Work updates and new replies appear as work continues. Type r for results, v for full delivery contents and qualifications, q for questions and answers, "
+        self.ui.say("Work updates, replies and delivered file lists appear as work continues. Type r for results, v for full delivery contents and qualifications, q for questions and answers, "
                     "f for feedback, p to pause work, x to cancel work, or i to confirm pending input/control, then press Enter.")
         last_update = [None, 0.0]
 
@@ -2510,6 +2538,7 @@ class Dialogue:
             try:
                 result = self.session("result", work)
                 self.show_persona_activity(result, shown_activity)
+                self.show_deliveries(result.get("local_deliveries", []), shown_deliveries=shown_deliveries)
                 messages = result.get("messages", [])
                 if seen_messages is not None:
                     fresh = [message for message in messages
@@ -2528,7 +2557,8 @@ class Dialogue:
         # Host commands have no default duration limit. Wait for the native
         # session's outcome; explicit interruption still stops this helper.
         outcome = self.session(*args, timeout=None, on_wait=report_progress,
-                               on_input=lambda: self.live_input(work, shown_messages=shown_messages),
+                               on_input=lambda: self.live_input(work, shown_messages=shown_messages,
+                                                                shown_deliveries=shown_deliveries),
                                graceful_interrupt=True)
         self.session_binding(outcome, s)
         require(outcome.get("status") == "finished", "session_outcome_unknown_no_replay")
@@ -2537,11 +2567,13 @@ class Dialogue:
         result = self.session("result", work)
         self.pending_feedback_notice(result)
         if result.get("optional_activity") or result.get("persona_creations"):
-            self.output(work, result=result, shown_messages=shown_messages, shown_activity=shown_activity)
+            self.output(work, result=result, shown_messages=shown_messages, shown_activity=shown_activity,
+                        shown_deliveries=shown_deliveries)
         else:
             # A session can settle before the next live poll observes its final
             # accepted account. Display that exact update at completion too.
             self.show_persona_activity(result, shown_activity)
+            self.show_deliveries(result.get("local_deliveries", []), shown_deliveries=shown_deliveries)
 
     def recover_session(self, view):
         s = self.p["session"]

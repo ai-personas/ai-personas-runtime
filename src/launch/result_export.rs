@@ -16,11 +16,12 @@ pub fn export_result_at(root: &Path, operator: Option<&str>, work: &str, destina
 
 fn export(state: &State, output: &Output, destination: &Path, now: i64) -> Result<Value> {
     let mut files = Vec::new();
-    for (delivery_index, delivery) in output.local_deliveries.iter().enumerate() {
+    for (delivery_index, record) in output.local_deliveries.iter().enumerate() {
+        let delivery = &record.body;
         let artifacts = delivery["artifacts"].as_array()
             .ok_or_else(|| invalid("delivery artifacts unavailable"))?;
         let prefix = format!("delivery-{}", delivery_index + 1);
-        files.push((format!("{prefix}/receipt.json"), serde_json::to_vec_pretty(delivery)?));
+        files.push((format!("{prefix}/receipt.json"), serde_json::to_vec_pretty(record)?));
         for (artifact_index, artifact) in artifacts.iter().enumerate() {
             let bytes: Vec<u8> = serde_json::from_value(artifact["bytes"].clone())?;
             require(artifact["reference"]["digest"] == s::sha256_bytes(&bytes),
