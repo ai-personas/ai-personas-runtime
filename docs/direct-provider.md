@@ -428,6 +428,16 @@ The saved `output_schema` is `{"type":"object"}` for direct Decision transport. 
 
 Completion requires one completed assistant output-text message, consistent response/model/item identity, agreement with observed text deltas, and EOF after the terminal event. OAuth routes may omit the response Content-Type header; the same complete SSE validation still applies. A conflicting media type, duplicate headers or encoded body remains invalid. Refusals, returned tools, unsupported snapshots, malformed streams, duplicate/conflicting terminals, trailing errors and incomplete output retain their actual failures. Reasoning is never adopted as a response.
 
+An added, in-progress assistant message may contain either an empty content list
+or one empty `output_text` part. Both carry no text; allocating the part early
+does not establish completion or change later delta and terminal checks. The
+[Responses message schema](https://developers.openai.com/api/reference/resources/responses)
+defines the content parts separately from their text. A populated initial part
+still fails this collector's incremental-text contract. Added-message shape
+diagnostics identify a mismatched role, status or populated content field without
+copying its text. An older fieldless diagnostic does not establish which of
+those conditions failed.
+
 `keepalive` events may carry only their type and optional sequence/response
 identity. They supply no output, usage or completion. The application imposes no
 event-count quota or transfer deadline. Sequence and identity checks still apply, and a heartbeat after terminal

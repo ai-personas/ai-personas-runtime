@@ -624,11 +624,17 @@ impl Collector {
                         return Err(protocol("item_added_out_of_order"));
                     }
                     if kind_of_item == Kind::Message {
-                        if string(value, "role")? != "assistant"
-                            || string(value, "status")? != "in_progress"
-                            || !array(value, "content")?.is_empty()
-                        {
-                            return Err(protocol("message_added_shape"));
+                        if string(value, "role")? != "assistant" {
+                            return Err(protocol("message_added_shape").at_field("role"));
+                        }
+                        if string(value, "status")? != "in_progress" {
+                            return Err(protocol("message_added_shape").at_field("status"));
+                        }
+                        // An already allocated empty text part carries no text,
+                        // just like an empty content list. Do not mistake that
+                        // representation for a completed or populated message.
+                        if message_content(value)?.is_some_and(|text| !text.is_empty()) {
+                            return Err(protocol("message_added_shape").at_field("content"));
                         }
                     } else {
                         reasoning_item(value, false, false)?;
