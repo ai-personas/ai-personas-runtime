@@ -27,7 +27,11 @@ menu, **r: results** shows work history and a list of delivered files with their
 sizes. The file list is metadata, not the files' contents or qualifications.
 **v: full delivery contents and qualifications** shows the complete retained
 view, **j** shows exact delivery receipts, and **e** exports files with their
-qualifications. The normal results view keeps internal receipt data out of the
+qualifications. If no delivered package or complete cited file is available,
+Export explains this and returns to the work menu without creating a directory
+or starting inference. Files written directly by host commands remain in the
+displayed task workspace; a command-output citation does not export those files.
+The normal results view keeps internal receipt data out of the
 file list; no retained content or qualification is shortened or removed.
 **c: continue** requests a fresh session without application call quotas. For a stopped or individually paused participant, first choose
 **u: resume participant**, then **c**. Resume grants that participant permission

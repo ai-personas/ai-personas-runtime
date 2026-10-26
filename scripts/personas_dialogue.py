@@ -2119,7 +2119,12 @@ class Dialogue:
                 destination = self.ui.ask("New directory for delivered and cited files (blank to return):").strip()
                 if destination:
                     receipt = self.session("result", work["id"], "--export-directory", destination)
-                    self.ui.say(f"Saved {len(receipt['files'])} files in {receipt['destination']}.")
+                    if receipt.get("status") == "no_exportable_files":
+                        self.ui.say("No delivered package or complete cited file is available to export. "
+                                    "Choose Results to read the personas' replies. "
+                                    "Files they created directly are in the task workspace shown in the work list.")
+                    else:
+                        self.ui.say(f"Saved {len(receipt['files'])} files in {receipt['destination']}.")
             elif choice == "q":
                 self.questions(work["id"])
             elif choice == "f":

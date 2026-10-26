@@ -92,7 +92,11 @@ fn export(state: &State, output: &Output, destination: &Path, now: i64) -> Resul
             }))?));
         }
     }
-    require(!files.is_empty(), "no delivered package or cited complete supporting file is available to export")?;
+    if files.is_empty() {
+        return Ok(json!({"work":output.work_id,"status":"no_exportable_files",
+            "destination":null,"files":[],"delivery_count":0,"cited_file_count":0,
+            "inference_performed":false,"artifacts_executed":false,"goal_completed":false}));
+    }
     if let Some(parent) = destination.parent().filter(|parent| !parent.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)?;
     }
@@ -107,7 +111,7 @@ fn export(state: &State, output: &Output, destination: &Path, now: i64) -> Resul
         file.sync_all()?;
         written.push(json!({"path":path,"bytes":bytes.len(),"sha256":s::sha256_bytes(&bytes)}));
     }
-    Ok(json!({"work":output.work_id,"destination":destination,"files":written,
+    Ok(json!({"work":output.work_id,"status":"exported","destination":destination,"files":written,
         "delivery_count":output.local_deliveries.len(),"cited_file_count":cited.len(),"inference_performed":false,
         "artifacts_executed":false,"goal_completed":false}))
 }
