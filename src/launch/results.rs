@@ -34,6 +34,10 @@ pub struct Output {
     pub requester_feedback: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recorded_task_amendment: Option<Value>,
+    /// Latest accepted authored work accounts, distinct from execution receipts
+    /// and the work's current completion or delivery state.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub persona_activity: Vec<Value>,
     /// Exact permitted receipt for the focus release; not global freshness.
     pub status_delivery: Option<String>,
     pub last_attempt: Option<Value>,
@@ -131,6 +135,7 @@ pub(super) fn project_state(state: &State, work_id: &str, saved: &Saved, now: i6
         persona_creations: Vec::new(),
         requester_feedback: None,
         recorded_task_amendment: None,
+        persona_activity: Vec::new(),
         status_delivery: None,
         last_attempt: None,
         messages: Vec::new(),
@@ -160,6 +165,25 @@ pub(super) fn project_state(state: &State, work_id: &str, saved: &Saved, now: i6
     }.into();
     result.optional_activity_ending = optional_activity::ending_for_recipient(&state,work_id,&saved.operator,now)?;
     result.optional_activity = optional_activity::participation_for_operator(state, work_id, &saved.operator, now)?;
+    for actor in work.participants.keys() {
+        let Some(persona) = state.personas.get(&actor.0) else { continue };
+        let Some(focus) = persona.focus.get(work_id) else { continue };
+        let (Some(judgment), Some(exposure)) = (&focus.last_judgment, &focus.judgment_exposure) else {
+            continue;
+        };
+        let mut a = admission(persona, now);
+        a.principal = saved.operator.clone();
+        a.audience = BTreeSet::from([saved.operator.clone()]);
+        if !exposure_permitted(state, exposure, &a) {
+            continue;
+        }
+        result.persona_activity.push(json!({
+            "persona":actor,"label":persona.seed.label,
+            "judgment":judgment,"origin":focus.judgment_origin,
+            "current_mandate_revision":work.current_mandate,
+            "meaning":"Latest accepted persona account based on its supplied information at that invocation. This is authored status, not an execution receipt or a current completion determination."
+        }));
+    }
     for creation in state.persona_creations.values().filter(|value| value.work == work_id) {
         let parent = state.personas.get(&creation.parent)
             .ok_or_else(|| held("creation parent absent"))?;

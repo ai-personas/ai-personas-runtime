@@ -1399,7 +1399,34 @@ class Dialogue:
             shown_messages.update(displayed)
         return displayed
 
-    def output(self, work, receipt_json=False, result=None, shown_messages=None):
+    def show_persona_activity(self, result, shown_activity=None):
+        descriptions = {"ongoing": "continuing", "blocked": "reports a blocker",
+                        "individual_sufficient": "judges own contribution sufficient",
+                        "shared_sufficient": "judges the shared result sufficient",
+                        "closed": "reports work closed"}
+        for item in result.get("persona_activity", []):
+            judgment = item["judgment"]
+            origin = item.get("origin") or {}
+            # Compare exact accepted records, never similar prose or an inferred
+            # task state. Reopening and explicit results show them again.
+            key = encoded(item)
+            if shown_activity is not None and shown_activity.get(item["persona"]) == key:
+                continue
+            label = item["label"]
+            kind = descriptions[judgment["kind"]]
+            call = origin.get("invocation")
+            self.ui.say(f"Recorded work update — {label}: {kind}"
+                        + (f" ({call})." if call else " (call attribution unavailable)."))
+            revision = origin.get("mandate_revision")
+            if revision is None:
+                self.ui.say("The task version for this account is unavailable.")
+            elif revision != item["current_mandate_revision"]:
+                self.ui.say(f"This account predates the current task amendment (mandate {revision}).")
+            self.ui.say(judgment["reason"])
+            if shown_activity is not None:
+                shown_activity[item["persona"]] = key
+
+    def output(self, work, receipt_json=False, result=None, shown_messages=None, shown_activity=None):
         if result is None:
             result = self.session("result", work)
         amendment = result.get("recorded_task_amendment")
@@ -1455,6 +1482,7 @@ class Dialogue:
             else:
                 self.ui.say(f"Persona creation: {parent}'s adopted request is pending. "
                             "Continue this work to finish the recorded creation.")
+        self.show_persona_activity(result, shown_activity)
         messages = result.get("messages", [])
         deliveries = result.get("local_deliveries", [])
         feedback = (result.get("requester_feedback") or {}).get("items", [])
@@ -2371,12 +2399,13 @@ class Dialogue:
         # A baseline observation is not a display. Keep only replies actually
         # printed in this foreground run out of its automatic completion view.
         shown_messages = set()
+        shown_activity = {}
         try:
             seen_messages = {message["id"] for message in self.session("result", work).get("messages", [])}
         except (Blocked, OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
             pass
         self.ui.say(f"Submitting {s['id']}. Waiting for its recorded native outcome.")
-        self.ui.say("New replies appear as work continues. Type r for results, q for questions and answers, "
+        self.ui.say("Work updates and new replies appear as work continues. Type r for results, q for questions and answers, "
                     "f for feedback, p to pause work, x to cancel work, or i to confirm pending input/control, then press Enter.")
         last_update = [None, 0.0]
 
@@ -2393,7 +2422,9 @@ class Dialogue:
                 self.ui.say(status)
                 last_update[:] = [status, now]
             try:
-                messages = self.session("result", work).get("messages", [])
+                result = self.session("result", work)
+                self.show_persona_activity(result, shown_activity)
+                messages = result.get("messages", [])
                 if seen_messages is not None:
                     fresh = [message for message in messages
                              if message["id"] not in seen_messages
@@ -2419,7 +2450,11 @@ class Dialogue:
         result = self.session("result", work)
         self.pending_feedback_notice(result)
         if result.get("optional_activity") or result.get("persona_creations"):
-            self.output(work, result=result, shown_messages=shown_messages)
+            self.output(work, result=result, shown_messages=shown_messages, shown_activity=shown_activity)
+        else:
+            # A session can settle before the next live poll observes its final
+            # accepted account. Display that exact update at completion too.
+            self.show_persona_activity(result, shown_activity)
 
     def recover_session(self, view):
         s = self.p["session"]

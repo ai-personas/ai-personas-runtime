@@ -40,6 +40,12 @@ mandate. Recorded resource usage remains attributable. Custom outcomes and revie
 use the [full task amendment commands](task-amendments.md).
 
 During a running session, new requester replies appear as they become available.
+The launcher also shows each persona's latest accepted account of its work,
+with its author and producing call. These updates preserve the persona's full
+explanation and appear once per changed record during a session. They describe
+the persona's judgment at that time; the work phase and delivered results remain
+separate. Results show these accounts again, including when no reply was sent.
+An account from an earlier task amendment is labeled with its original mandate.
 Type **r** and Enter to inspect results, **q** to read and answer shared questions,
 or **f** to send feedback to a participant. These controls leave the current
 session running. Feedback can be queued until the current call and commands
