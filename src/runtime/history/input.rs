@@ -66,6 +66,8 @@ impl Candidates {
 
 fn choices(control: &Value, invocation: &str) -> Result<Vec<Choice>> {
     let mut found = Candidates::default();
+    found.add(&control["history_retrieval"]["recent_other_work"]["reference"],
+        "/history_retrieval/recent_other_work/reference".into())?;
     // Only native lookup metadata is a reference index. The adjacent authored
     // judgment, reason and evidence strings never manufacture a read handle.
     found.judgment_citations(&control["last_attributed_work_judgment"],

@@ -22,6 +22,7 @@ fn query_identity(record_kind: p::HistoryRecordKind, mode: &f::SearchMode) -> Re
 #[derive(Default)]
 pub(crate) struct Material {
     archives: BTreeMap<String, (s::DecisionRecord, s::StoredObject)>,
+    pub(super) recent_decision: Option<s::DecisionRecord>,
     pub(crate) continuation: provider_continuation::Material,
 }
 impl Material {
@@ -51,6 +52,13 @@ impl Material {
         let Some(persona) = state.personas.get(actor) else {
             return material;
         };
+        if persona.character.is_some() {
+            if let Some((_, _, origin, _)) = super::recent_other_judgment(state, actor, work) {
+                // Read one indexed commit record, not its authored archive or
+                // the retained-history inventory. Store records actual usage.
+                material.recent_decision = store.retained_decision(&origin.invocation).ok();
+            }
+        }
         let Some(focus) = persona.focus.get(work) else {
             return material;
         };
@@ -131,6 +139,26 @@ impl Material {
         }
         material
     }
+}
+
+/// An immutable identity from an actual commit, not a claim that its body was
+/// inspected or remains readable. The ordinary exact read checks the archive.
+pub(super) fn committed_reference(proof: &s::DecisionRecord) -> Option<p::HistoryRecordReference> {
+    let archive = archive_id(&proof.invocation_id);
+    let mut matches = proof.objects.iter().filter(|reference| reference.id == archive);
+    let reference = matches.next()?;
+    if matches.next().is_some() || reference.revision != 1 {
+        return None;
+    }
+    let reference = p::HistoryRecordReference::AdoptedDecision {
+        invocation_id: proof.invocation_id.clone(),
+        archive_id: reference.id.clone(),
+        revision: reference.revision,
+        sha256: reference.sha256.clone(),
+        response_sha256: proof.response_hash.clone(),
+    };
+    p::check_history_reference(&reference, "history.committed_reference").ok()?;
+    Some(reference)
 }
 
 struct Record {

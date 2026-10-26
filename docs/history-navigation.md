@@ -35,13 +35,21 @@ filter authorship of the records that query can find.
 Ordinary inputs can include `CONTROL.history_retrieval.recent_other_work`, a
 compact locator for the persona's latest indexed accepted judgment in another
 work. Its invocation, work, admission time and per-persona serial identify the
-earlier activity; its literal query helps find that decision through the existing
-history interface. The query may also match decisions citing the invocation, so
-the persona chooses the matching record from the returned metadata before reading
-its body. Earlier judgments without recorded chronology are not ranked; an absent
-locator does not establish that there is no history.
+earlier activity. When the retained commit identifies its archive, `reference`
+supplies that exact history identity and `input_history_choices` offers a handle.
+The persona can read it directly with `history_record_read` or
+`history_record_read_from_input`, saving a query and an intervening model call.
+The read checks actual body availability and immutable identity; a commit
+reference alone does not establish either body supply or current readability.
 
-The locator is derived from the persona's own retained judgment attribution. It
+The literal query remains available when useful, including when commit metadata
+is unavailable. It may also match decisions citing the invocation, so the persona
+chooses the matching record from the returned metadata before reading its body.
+Earlier judgments without recorded chronology are not ranked; an absent locator
+does not establish that there is no history.
+
+The locator is derived from the persona's own retained judgment attribution and
+one indexed commit-metadata lookup, with actual navigation usage recorded. It
 loads no archive, earlier task body or optional selection and makes no relevance,
 completion or learning judgment. The persona decides whether to investigate prior
 experience, what to retain for later context and whether any maintenance is useful.

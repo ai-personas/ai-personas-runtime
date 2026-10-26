@@ -7548,7 +7548,7 @@ fn render_mode_with_history(
     if ordinary_interfaces {
         core["affect_interface"] = affect::interface(now)?;
         core["history_retrieval"] = history::retrieval_rules();
-        if let Some(previous) = history::recent_other_work(state, actor, work_id, &a, &mut exposure) {
+        if let Some(previous) = history::recent_other_work(state, history_material, actor, work_id, &a, &mut exposure) {
             growth_bytes = growth_bytes.checked_add(serde_json::to_vec(&previous)?.len())
                 .ok_or_else(|| invalid("prior work locator accounting"))?;
             core["history_retrieval"]["recent_other_work"] = previous;

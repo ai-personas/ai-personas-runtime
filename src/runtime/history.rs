@@ -32,36 +32,52 @@ pub(super) fn retrieval_rules() -> Value {
     })
 }
 
-/// A chronological lookup cue for the actor's own retained work. It neither
-/// reads an archive nor transfers that work's selections, obligations or bodies.
-pub(super) fn recent_other_work(
-    state: &State,
+fn recent_other_judgment<'a>(
+    state: &'a State,
     actor: &str,
     current_work: &str,
-    admission: &f::Admission,
-    exposure: &mut Exposure,
-) -> Option<Value> {
+) -> Option<(&'a String, &'a Focus, &'a WorkJudgmentOrigin, u64)> {
     let persona = state.personas.get(actor)?;
-    let (work, focus, origin, serial) = persona.focus.iter()
+    persona.focus.iter()
         .filter(|(work, _)| work.as_str() != current_work)
         .filter_map(|(work, focus)| {
             let origin = focus.judgment_origin.as_ref()?;
             Some((work, focus, origin, origin.admission_serial?))
         })
-        .max_by_key(|(_, _, _, serial)| *serial)?;
+        .max_by_key(|(_, _, _, serial)| *serial)
+}
+
+/// A chronological lookup cue for the actor's own retained work. Commit metadata
+/// can identify its exact archive without loading or supplying the archive body.
+pub(super) fn recent_other_work(
+    state: &State,
+    material: &records::Material,
+    actor: &str,
+    current_work: &str,
+    admission: &f::Admission,
+    exposure: &mut Exposure,
+) -> Option<Value> {
+    let (work, focus, origin, serial) = recent_other_judgment(state, actor, current_work)?;
     let inherited = focus.judgment_exposure.as_ref()?;
     if !exposure_permitted(state, inherited, admission) {
         return Some(json!({"status":"withheld_unavailable","body_supplied":false}));
     }
     extend_exposure(exposure, inherited);
-    Some(json!({
+    let mut cue = json!({
         "work":work,"invocation":origin.invocation,
         "admission_serial":serial,"admitted_at_unix":origin.admitted_at_unix,
         "query":{"kind":"history_records_query","record_kind":"adopted_decision",
             "mode":{"kind":"literal","needle":origin.invocation}},
         "body_supplied":false,
-        "meaning":"Lookup cue for your latest indexed accepted judgment in another work, ordered by your recorded admission serial. Older judgments without recorded chronology are not ranked; absence of this cue does not establish absence of history. The query can also find decisions citing this invocation; choose the matching record from the returned metadata and read it when useful. This cue supplies no earlier decision, task result or private context, selects no body and establishes no relevance, success or character development."
-    }))
+        "meaning":"Lookup cue for your latest indexed accepted judgment in another work, ordered by your recorded admission serial. When reference is present, it is the exact archive identity recorded by that invocation's commit: use history_record_read or its current input_history_choices handle directly, with no preliminary query. A read checks actual retained body availability and identity. The query remains available and may also match decisions citing this invocation. Older judgments without recorded chronology are not ranked; absence of this cue does not establish absence of history. This cue supplies no earlier decision or task result, selects no body and establishes no relevance, success or character development."
+    });
+    if let Some(reference) = material.recent_decision.as_ref()
+        .filter(|record| record.invocation_id == origin.invocation)
+        .and_then(records::committed_reference)
+    {
+        cue["reference"] = serde_json::to_value(reference).ok()?;
+    }
+    Some(cue)
 }
 
 /// Returning a cursor without its exact query would require the next primary
