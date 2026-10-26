@@ -2,6 +2,8 @@
 use super::*;
 #[path = "launch/results.rs"]
 mod results;
+#[path = "launch/transport_tasks.rs"]
+mod transport_tasks;
 #[path = "launch/parallel.rs"]
 mod parallel;
 #[path = "launch/foreground.rs"]

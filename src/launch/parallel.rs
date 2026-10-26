@@ -213,7 +213,9 @@ async fn run_with_subtree<D: Driver>(
                         exclusive.insert(call.request.id.clone());
                     }
                     owned.insert(call.request.id);
-                    pending.push(call.completion);
+                    // Provider I/O and control observation must keep progressing
+                    // while this coordinator prepares or adopts another decision.
+                    pending.push(transport_tasks::spawn(call.completion));
                 }
                 Ok(None) => break,
                 Err(error) => {

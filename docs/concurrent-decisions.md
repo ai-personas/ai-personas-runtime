@@ -7,6 +7,13 @@ There is no application call, round, resource or nesting quota.
 
 The independent coordinator holds the Store's execution owner, prepares each
 request, awaits transport futures and adopts completed responses one at a time.
+Each admitted transport runs in an owned asynchronous task. Provider I/O and
+stop observation continue while the coordinator synchronously prepares context,
+persists state or adopts another response. The task receives no mutable Runtime;
+its completion returns to the same coordinator for recording and adoption.
+The waiting future owns the task from creation, including before its first poll,
+and aborts it when dropped. A task panic supplies no provider receipt and cannot
+be converted into successful completion or known usage.
 Each persona retains one current primary invocation. A fresh cohort's initial
 character calls can overlap while no participant has accepted responsibility.
 Those calls adopt only their own character/file units; they cannot perform task
