@@ -411,7 +411,7 @@ fn plan(
 
     // Patch only the declared balance and append-only evidence. Preserve all
     // other retained JSON, including omitted historical defaults and holds.
-    let mut runtime = runtime_head.clone();
+    let mut runtime = runtime_head.as_ref().clone();
     runtime.revision = increment(runtime.revision)?;
     runtime.body["work_meta"][&request.work_id]["attempts_left"] = json!(after.attempts);
     runtime.body["work_meta"][&request.work_id]["navigation_left"] = json!(after.navigation);

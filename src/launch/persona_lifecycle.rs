@@ -274,7 +274,7 @@ pub fn change_at(root: &Path, request: &Request, apply: bool, now: i64) -> Resul
     }
     record.revision = revision;
     record.last = notice;
-    let mut runtime = head.clone();
+    let mut runtime = head.as_ref().clone();
     runtime.revision = runtime_revision;
     let target = &mut runtime.body["personas"][&request.persona];
     target["lifecycle"] = serde_json::to_value(&record)?;

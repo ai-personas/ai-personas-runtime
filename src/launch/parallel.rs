@@ -237,6 +237,7 @@ async fn run_with_subtree<D: Driver>(
         }
         if !pending.is_empty() {
             let wait_for_jobs = stop.is_none() && app.has_background_host_commands();
+            app.release_decoded_state();
             let wake = tokio::select! {
                 call = pending.next() => Wake::Call(call.expect("nonempty pending calls")),
                 jobs = app.wait_for_host_command(), if wait_for_jobs => Wake::Jobs(jobs),

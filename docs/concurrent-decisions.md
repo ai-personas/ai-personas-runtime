@@ -77,9 +77,10 @@ admission. Empty checks reuse that snapshot. A potential maintenance action drop
 it before entering the existing helper, which loads current state and validates
 the actual invocation, proposal and transaction bindings. The coordinator reloads
 after each such helper, including one that makes no change, and derives the next
-subtree from the latest snapshot. It does not keep an extra history copy alive
-through those helpers or reuse this view across rounds. Selection and preparation
-still inspect current state independently.
+subtree from the latest snapshot. It does not carry the maintenance view across
+helper calls or rounds. The Runtime can reuse a decoded representation only after
+a fresh Store read verifies identical complete record bytes. Selection and
+preparation still inspect current state independently.
 
 Optional `launch.maintenance_state` timing events measure these actual snapshot
 loads. The `launch.maintenance_rejections`, `launch.maintenance_creation` and

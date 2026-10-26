@@ -873,6 +873,7 @@ async fn run_with_options<D: Driver>(
             .board
             .work(&w::WorkId(work.into()))
             .is_ok_and(|current| matches!(current.phase, w::Phase::Open));
+        drop(state);
         if !operational {
             view.stop = Some("no_eligible_route".into());
             return Ok(view);

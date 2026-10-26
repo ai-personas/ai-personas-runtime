@@ -237,7 +237,7 @@ pub fn allocate_work_repair_at(
     app.store.require_quiescent_invocations()?;
     let declared = request.declared_after()?;
     let remaining = request.remaining_after()?;
-    let mut runtime = runtime_head.clone();
+    let mut runtime = runtime_head.as_ref().clone();
     runtime.revision = increment(runtime.revision)?;
     runtime.body["work_meta"][&request.work_id]["repair_attempts_declared"] = json!(declared);
     runtime.body["work_meta"][&request.work_id]["repair_attempts_left"] =

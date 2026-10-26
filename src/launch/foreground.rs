@@ -203,6 +203,7 @@ pub(super) async fn wait_for_activity(app: &mut Runtime, works: &[String], owner
         }
         // A short host observation interval also avoids overflowing a monotonic
         // timer for a distant authored date. It never shortens that date.
+        app.release_decoded_state();
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
     }
 }

@@ -152,6 +152,7 @@ impl Runtime {
             if self.publish_completed_host_commands(unix_now()?)? > 0 {
                 break;
             }
+            self.release_decoded_state();
             tokio::time::sleep(std::time::Duration::from_millis(25)).await;
         }
         Ok(())

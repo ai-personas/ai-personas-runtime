@@ -2764,13 +2764,15 @@ pub struct Runtime {
     root: PathBuf,
     synthetic_owner: Option<(String, s::ExecutionOwner)>,
     host_command_background: Option<host_tools::Background>,
+    decoded_state: Option<DecodedState>,
 }
 
-/// A driver's successfully decoded and matching configuration. The read
-/// identity covers the complete stored object, not just its configuration.
-pub(crate) struct ValidatedConfiguration {
+/// One successfully decoded current record. Reuse requires a fresh Store read
+/// of identical complete bytes; revision or configuration matches alone do not suffice.
+struct DecodedState {
     read: s::ObjectReadIdentity,
-    expected: Value,
+    object: std::sync::Arc<s::StoredObject>,
+    state: State,
 }
 
 /// Explicit trusted-host closeout access. This handle exposes no preparation,
@@ -2881,6 +2883,7 @@ impl Runtime {
             root,
             synthetic_owner: None,
             host_command_background: None,
+            decoded_state: None,
         })
     }
     pub fn open(root: &Path) -> Result<Self> {
@@ -2911,7 +2914,7 @@ impl Runtime {
     /// epoch before disclosure. Mutations still load their own current state.
     pub(crate) fn open_for_launch_snapshot(
         root: &Path,
-    ) -> Result<(Self, s::StoredObject, State, u64)> {
+    ) -> Result<(Self, std::sync::Arc<s::StoredObject>, State, u64)> {
         let root = canonical_state_root(root, false)?;
         require(
             root.join("state.sqlite3").is_file(),
@@ -2922,6 +2925,7 @@ impl Runtime {
             root,
             synthetic_owner: None,
             host_command_background: None,
+            decoded_state: None,
         };
         let epoch = app.store.epoch()?;
         let (head, state) = app.load()?;
@@ -2949,6 +2953,7 @@ impl Runtime {
             root,
             synthetic_owner: None,
             host_command_background: None,
+            decoded_state: None,
         };
         let (_, state) = runtime.load_in_class(class)?;
         state.config.validate()?;
@@ -2971,15 +2976,59 @@ impl Runtime {
             .provision_runtime_control(&old.exact_ref()?, operator)?;
         Ok(())
     }
-    fn load(&mut self) -> Result<(s::StoredObject, State)> {
+    fn load(&mut self) -> Result<(std::sync::Arc<s::StoredObject>, State)> {
         self.load_in_class(s::BudgetClass::Ordinary)
     }
-    fn load_in_class(&mut self, class: s::BudgetClass) -> Result<(s::StoredObject, State)> {
+    // Decode reuse serves a burst of host work. Sessions release this potentially
+    // large tree before waiting for providers, commands or an authored return time.
+    fn release_decoded_state(&mut self) {
+        self.decoded_state = None;
+    }
+    fn load_in_class(&mut self, class: s::BudgetClass) -> Result<(std::sync::Arc<s::StoredObject>, State)> {
         phase_timing::measure("runtime.load", || {
+            if class == s::BudgetClass::Ordinary {
+                let current = self.current_decoded_state()?;
+                return phase_timing::measure("runtime.clone_loaded_state", || {
+                    Ok((current.object.clone(), current.state.clone()))
+                });
+            }
             let object = self.read_state_in_class(class)?;
             let state = Self::decode_loaded_state(&object)?;
-            Ok((object, state))
+            Ok((std::sync::Arc::new(object), state))
         })
+    }
+
+    fn current_decoded_state(&mut self) -> Result<&DecodedState> {
+        let observed = match self.store.read_observed_object(
+            STATE_ID, self.decoded_state.as_ref().map(|known| &known.read),
+        ) {
+            Ok(observed) => observed,
+            Err(error) => {
+                self.decoded_state = None;
+                return Err(error.into());
+            }
+        };
+        match observed {
+            s::ObjectRead::Absent => {
+                self.decoded_state = None;
+                return Err(held("state missing"));
+            }
+            s::ObjectRead::Unchanged => phase_timing::measure("runtime.reuse_decoded_state", || {
+                Ok::<_, RuntimeError>(())
+            })?,
+            s::ObjectRead::Present { object, identity } => {
+                // Release the previous tree before decoding a changed head. A
+                // failed decode must not leave an older snapshot available.
+                self.decoded_state = None;
+                let state = phase_timing::measure("runtime.decode_current_state", || {
+                    Self::decode_loaded_state(&object)
+                })?;
+                self.decoded_state = Some(DecodedState {
+                    read: identity, object: std::sync::Arc::new(object), state,
+                });
+            }
+        }
+        self.decoded_state.as_ref().ok_or_else(|| held("decoded runtime state absent"))
     }
     fn read_state_in_class(&mut self, class: s::BudgetClass) -> Result<s::StoredObject> {
         phase_timing::measure("runtime.read_state", || match class {
@@ -2995,29 +3044,9 @@ impl Runtime {
         })?;
         Ok(state)
     }
-    // Recheck complete current bytes; only an identical previously decoded
-    // record can reuse validation. Changes anywhere require a fresh decode.
-    fn runtime_configuration_matches(
-        &mut self,
-        expected: &Value,
-        validated: &mut Option<ValidatedConfiguration>,
-    ) -> Result<bool> {
+    fn runtime_configuration_matches(&mut self, expected: &Value) -> Result<bool> {
         phase_timing::measure("runtime.check_configuration", || {
-            match self.store.read_observed_object(STATE_ID, validated.as_ref().map(|known| &known.read))? {
-                s::ObjectRead::Absent => Err(held("state missing")),
-                s::ObjectRead::Unchanged => phase_timing::measure("runtime.binding_head_unchanged", || {
-                    let known = validated.as_ref().ok_or_else(|| held("validated configuration absent"))?;
-                    Ok(known.expected == *expected)
-                }),
-                s::ObjectRead::Present { object, identity } => phase_timing::measure("runtime.validate_binding_head", || {
-                    Self::decode_loaded_state(&object)?;
-                    let matches = object.body["config"] == *expected;
-                    if matches {
-                        *validated = Some(ValidatedConfiguration { read: identity, expected: expected.clone() });
-                    }
-                    Ok(matches)
-                }),
-            }
+            Ok(self.current_decoded_state()?.object.body["config"] == *expected)
         })
     }
     fn save(&mut self, old: &s::StoredObject, state: &State) -> Result<s::BatchReceipt> {
@@ -3619,8 +3648,9 @@ impl Runtime {
                 &dependency,
                 now,
             ))?;
-            self.reserve_bridge_navigation(&old, &mut state, &request.binding.work, &hash)?
-                .0
+            std::sync::Arc::new(
+                self.reserve_bridge_navigation(&old, &mut state, &request.binding.work, &hash)?.0,
+            )
         } else {
             old
         };
@@ -4064,7 +4094,7 @@ impl Runtime {
                 receipt.epoch == increment(start_epoch)?,
                 "concurrent episode preparation transition",
             )?;
-            old = charged_object;
+            old = std::sync::Arc::new(charged_object);
             start_epoch = receipt.epoch;
             navigation
         } else {
@@ -4991,6 +5021,7 @@ impl Runtime {
             root,
             synthetic_owner: None,
             host_command_background: None,
+            decoded_state: None,
         };
         app.terminal_evidence(id)
     }
@@ -5568,6 +5599,7 @@ impl Runtime {
             request, provider, cancellation, execution_owner, now, intake_selection,
             &BTreeSet::new(),
         )?;
+        self.release_decoded_state();
         let completion = pending.completion.await;
         self.finish_provider_call(completion)
     }

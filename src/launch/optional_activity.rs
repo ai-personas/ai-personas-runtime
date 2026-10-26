@@ -31,7 +31,7 @@ fn authorized(
     admission_extension::authorize(&state, &saved, operator)?;
     admission_extension::validate_saved(&state, &saved)?;
     a::bounds(&state)?;
-    Ok((head, state, launch, saved))
+    Ok((head.as_ref().clone(), state, launch, saved))
 }
 
 fn inspectable(state: &State, opportunity: &a::Opportunity, operator: &str, now: i64) -> bool {

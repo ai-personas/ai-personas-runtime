@@ -195,7 +195,7 @@ fn candidates(app: &mut Runtime) -> Result<(s::StoredObject, State, s::StoredObj
     )?;
     let (launch, saved) = load(app)?;
     require(launch.id == ID, "invalid launch identity")?;
-    Ok((runtime, state, launch, saved))
+    Ok((runtime.as_ref().clone(), state, launch, saved))
 }
 
 pub(super) fn authorize(state: &State, saved: &Saved, operator: &str) -> Result<()> {

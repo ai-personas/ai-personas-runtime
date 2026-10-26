@@ -135,7 +135,7 @@ fn authorized(
     let (runtime, state) = app.load()?;
     let (launch, saved) = load(app)?;
     authorize_snapshot(&state, &saved, operator)?;
-    Ok((runtime, state, launch, saved))
+    Ok((runtime.as_ref().clone(), state, launch, saved))
 }
 fn authorize_snapshot(state: &State, saved: &Saved, operator: &str) -> BoundaryResult<()> {
     check(
@@ -753,7 +753,6 @@ struct OwnedLive<'a> {
     provider: provider::DirectProvider,
     binding: Value,
     config: Value,
-    validated_runtime: Option<ValidatedConfiguration>,
     intake_selection: Option<p::need::GrantReference>,
 }
 fn execution_binding(saved: &Saved) -> Result<Value> {
@@ -787,9 +786,7 @@ impl Driver for OwnedLive<'_> {
 
     fn before_step(&mut self, app: &mut Runtime) -> Result<()> {
         let (_, saved) = load(app)?;
-        let configuration_matches = app.runtime_configuration_matches(
-            &self.config, &mut self.validated_runtime,
-        )?;
+        let configuration_matches = app.runtime_configuration_matches(&self.config)?;
         require(
             execution_binding(&saved)? == self.binding && configuration_matches,
             "session binding changed",
@@ -823,6 +820,7 @@ impl Driver for OwnedLive<'_> {
         now: i64,
     ) -> Result<AdoptionReport> {
         let pending = self.start(app, request, saved, now, &BTreeSet::new())?;
+        app.release_decoded_state();
         self.finish(app, pending.completion.await)
     }
 }
@@ -840,7 +838,6 @@ pub(super) async fn run_environment_owned(
         provider: saved.execution_provider()?.build(&state.config)?,
         binding: execution_binding(&saved)?,
         config: head.body["config"].clone(),
-        validated_runtime: None,
         intake_selection: None,
     };
     // The driver owns its small bindings. Do not retain the construction
@@ -921,7 +918,6 @@ async fn execute_with_codex_transport(
                 provider: saved.execution_provider()?.build(&state.config)?,
                 binding: execution_binding(&saved)?,
                 config: head.body["config"].clone(),
-                validated_runtime: None,
                 intake_selection: request.intake_delegation.clone(),
             };
             drop(state);
@@ -987,7 +983,6 @@ async fn execute_with_codex_transport(
                     provider: build_codex_provider(&settings, &state.config, source, codex_transport.clone())?,
                     binding: execution_binding(&saved)?,
                     config: head.body["config"].clone(),
-                    validated_runtime: None,
                     intake_selection: request.intake_delegation.clone(),
                 };
                 drop(state);

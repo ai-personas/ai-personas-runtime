@@ -15,7 +15,7 @@ pub(super) fn project<T: Serialize, E: From<RuntimeError> + From<s::StoreError>>
             let state = Runtime::decode_inspection_state(&runtime)?;
             let saved = decode_saved(&launch)?;
             let snapshot = Snapshot {
-                runtime,
+                runtime: std::sync::Arc::new(runtime),
                 state,
                 launch,
                 saved,
@@ -27,7 +27,7 @@ pub(super) fn project<T: Serialize, E: From<RuntimeError> + From<s::StoreError>>
 }
 
 pub(super) struct Snapshot {
-    pub runtime: s::StoredObject,
+    pub runtime: std::sync::Arc<s::StoredObject>,
     pub state: State,
     pub launch: s::StoredObject,
     pub saved: Saved,

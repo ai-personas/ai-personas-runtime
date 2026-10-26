@@ -160,7 +160,7 @@ pub fn extend_at(
     config.validate()?;
     // Patch only the authorized limit and its operator event. Preserve omitted
     // legacy fields, persona-authored history, selections and every hold.
-    let mut runtime = runtime_head.clone();
+    let mut runtime = runtime_head.as_ref().clone();
     runtime.revision = increment(runtime.revision)?;
     runtime.body["config"]["context_bytes"] = json!(request.new_context_bytes);
     runtime.body["operator_events"].as_array_mut()

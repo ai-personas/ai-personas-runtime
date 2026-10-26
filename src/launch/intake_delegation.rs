@@ -659,7 +659,7 @@ fn candidates(app: &mut Runtime) -> Result<(s::StoredObject, State, s::StoredObj
         "invalid runtime state",
     )?;
     let (launch, saved) = load(app)?;
-    Ok((runtime, state, launch, saved))
+    Ok((runtime.as_ref().clone(), state, launch, saved))
 }
 fn fence(
     runtime: &s::StoredObject,
