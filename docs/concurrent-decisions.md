@@ -175,6 +175,14 @@ registered a candidate or judgment during inference. It neither adopts a stale
 formal decision nor claims that the persona saw the later record. Old admissions
 without these separately sealed hashes retain their original checks.
 
+A failed scope comparison retains `changed_scope_fields` in its rejection detail.
+These are the names of the sealed components that differed after applying that
+admission's actual independent-record comparison. No hashes, source identities
+or state bodies enter this diagnostic. The same check applies before an accepted
+action is dispatched. The detail identifies a failed comparison, not the exact
+intervening event or its author, and does not change rejection, recovery,
+continuation or source-lineage handling. Earlier generic errors remain generic.
+
 Episode preparation carries the coordinator's exact owned invocation IDs through
 the runtime lease check and the Store checkpoint transaction. An unrelated or
 orphaned transport cannot be included by persona output. Proposal validation binds

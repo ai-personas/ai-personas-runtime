@@ -281,7 +281,12 @@ fn independent_operations(decision: &p::Decision, independent_messages: bool) ->
     })
 }
 
-fn matches(admitted: &Snapshot, current: &Snapshot, independent: bool) -> bool {
+fn require_match(
+    admitted: &Snapshot,
+    current: &Snapshot,
+    independent: bool,
+    description: &str,
+) -> Result<()> {
     let mut expected = admitted.clone();
     if independent && admitted.independent_work.is_some() {
         // Compare the separately admitted authority hashes instead of the full
@@ -290,7 +295,24 @@ fn matches(admitted: &Snapshot, current: &Snapshot, independent: bool) -> bool {
         expected.work_sha256 = current.work_sha256.clone();
         expected.metadata_sha256 = current.metadata_sha256.clone();
     }
-    expected == *current
+    if expected == *current {
+        return Ok(());
+    }
+    // Report only the sealed components that failed this exact comparison.
+    // Never include hashes, source identities or current-state bodies. Keep the
+    // same normalization as the acceptance check so independent shared records
+    // do not appear as reasons for rejection.
+    let expected = serde_json::to_value(&expected)?;
+    let actual = serde_json::to_value(current)?;
+    let expected = expected.as_object().expect("scope serializes as an object");
+    let actual = actual.as_object().expect("scope serializes as an object");
+    let fields: BTreeSet<_> = expected.keys().chain(actual.keys()).collect();
+    let changed: Vec<_> = fields.into_iter()
+        .filter(|field| expected.get(*field) != actual.get(*field))
+        .map(String::as_str)
+        .collect();
+    Err(held(format!("{description}; changed_scope_fields={}",
+        serde_json::to_string(&changed)?)))
 }
 
 fn deferrable_peer_message(state: &State, actor: &str, work: &str, id: &str) -> bool {
@@ -426,8 +448,8 @@ pub(super) fn require_intent_current(
             .saved_sources
             .insert(source.clone(), saved_source_hash(state, source)?);
     }
-    require(
-        matches(admitted, &current, true),
+    require_match(
+        admitted, &current, true,
         "accepted action authority or prerequisites changed",
     )
 }
@@ -513,9 +535,9 @@ pub(super) fn require_current(
     let current = snapshot(state, prepared, &admitted.format,
         admitted.defer_incoming_peer_messages, admitted.independent_work.is_some(),
         admitted.independent_messages, admitted.independent_peer_recovery)?;
-    require(
-        matches(admitted, &current, decision.is_some_and(|decision|
-            independent_operations(decision, admitted.independent_messages))),
+    require_match(
+        admitted, &current, decision.is_some_and(|decision|
+            independent_operations(decision, admitted.independent_messages)),
         "decision authority or supplied lineage changed",
     )?;
     Ok(true)
