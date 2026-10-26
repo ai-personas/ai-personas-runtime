@@ -141,17 +141,26 @@ accept its exact native recovery receipt. Provider and transport failures are
 shown separately from rejection before dispatch; inspecting them starts no call.
 
 When the provider explicitly reports `context_length_exceeded`, a rejected input
-containing complete pending host-command text can recover through exact result
-references. The runtime retains the full failed request and complete command
-result, and labels the next ordinary input's reference projection with that
+containing complete pending host-command text or a supporting-file read can
+recover through exact references. The runtime retains the full failed request
+and original result, and labels the next ordinary input's reference projection with that
 rejection. Execution status, text byte counts, hashes, exact field references and
 required qualifications remain supplied. It does not claim the requested full
 text was successfully considered, truncate the retained output, change selected
 fragments/assets or repeat the command. The persona chooses useful reads, ranges,
 next context, further work and maintenance through the ordinary interface.
 
+For a pending supporting-file read, the next input supplies `bytes_metadata`
+for the same retained revision together with its current qualifications. The
+original requested reference remains available. This supplies byte identity,
+not the requested body, and does not turn a metadata view into evidence of
+substantive inspection. A fresh decision can choose a useful text range, use
+host tools on the original bytes, or retain an exact view appropriate to its
+next work. Characteristic reads are not converted to byte metadata.
+
 This uses an actual provider error, not an application size threshold. Only
-complete pending host results present in that failed input change projection;
+complete pending host results and supporting-file reads present in that failed
+input change projection;
 new results retain their own authored delivery choice. The override ends when
 the accepted decision consumes those observations. If no such result can change
 projection, this recovery supplies no new route or smaller-context guarantee.

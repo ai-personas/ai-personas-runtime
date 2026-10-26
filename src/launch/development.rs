@@ -436,7 +436,7 @@ fn accepted_decision_view(
             item["retained_write"] = match retained {
                 Some(stored) => json!({
                     "status":"retained_exact_revision",
-                    "reference":wire_reference(&stored.record.reference(f::Representation::Utf8)),
+                    "reference":wire_reference(&stored.record.reference(stored.record.discoverable_representation())),
                     "scope":stored.record.scope,
                     "origin":stored.origin,
                     "source_retired":state.sources[source].retired,

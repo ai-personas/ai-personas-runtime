@@ -96,7 +96,9 @@ pub(super) fn validate(
                 && package["qualified_bundle_sha256"] == s::sha256_bytes(bundle.as_bytes()),
             "current complete delivery qualifications differ",
         )?;
-        std::str::from_utf8(&bytes).map_err(|_| held("delivery is not UTF-8"))?;
+        if reference.representation == f::Representation::Utf8 {
+            std::str::from_utf8(&bytes).map_err(|_| held("text delivery is not UTF-8"))?;
+        }
         exposure.sources.extend(references);
     }
     let mut expected_artifacts = release

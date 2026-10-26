@@ -233,6 +233,11 @@ fn supplied_bodies(control: &Value, context: &Value) -> Result<BTreeSet<f::Refer
     Ok(result)
 }
 
+pub(super) fn reference_was_supplied(prepared: &Prepared, reference: &f::Reference) -> Result<bool> {
+    let (control, context) = control_and_context(prepared)?;
+    Ok(supplied_bodies(&control, &context)?.contains(reference))
+}
+
 /// Validate exact complete entry bytes and qualification bindings against the
 /// retained host-rendered prompt, not a provenance-only reference inventory.
 pub(super) fn supplied_bundle_proof(

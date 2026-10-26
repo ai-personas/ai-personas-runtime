@@ -14,6 +14,9 @@ pub(crate) mod step_accounting;
 #[path = "launch/session.rs"]
 pub mod session;
 pub use results::Output;
+#[path = "launch/result_export.rs"]
+mod result_export;
+pub use result_export::export_result_at;
 #[path = "launch/development.rs"]
 mod development;
 pub use development::{development, development_at};

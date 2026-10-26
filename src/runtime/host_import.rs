@@ -9,6 +9,7 @@ pub(super) fn read(
     operation: &str,
     path: &str,
     expected_sha256: Option<&str>,
+    format: p::FileImportFormat,
     _historical_maximum: usize,
 ) -> Result<(Vec<u8>, RevisionOrigin)> {
     let interface = prepared
@@ -45,7 +46,7 @@ pub(super) fn read(
     file.read_to_end(&mut bytes)
         .map_err(|e| held(format!("file_import {operation}: {e}")))?;
     require(
-        std::str::from_utf8(&bytes).is_ok(),
+        format == p::FileImportFormat::Bytes || std::str::from_utf8(&bytes).is_ok(),
         "file_import requires UTF-8; bytes were not replaced",
     )?;
     let sha256 = s::sha256_bytes(&bytes);

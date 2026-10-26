@@ -331,6 +331,20 @@ unrecognized or inconsistent packages keep their original JSON presentation.
 Choose **j** for the original delivery receipt JSON. Both choices request a fresh
 permission-projected result and retain its complete contents.
 
+Binary artifacts show their verified byte length and SHA-256, with their complete
+qualifications and source attribution. Choose **e: export files** and enter a new
+directory to save currently delivered artifact roots and complete supporting files
+cited in requester messages, together with qualified bundles and provenance.
+Formal delivery packages also retain their original receipts. Saving a cited file
+is an explicit reader action and needs no shared-release or peer-consent record;
+the original citation remains metadata, and export does not create a release or
+acceptance. Ranges and decoded string citations do not select their whole files.
+Export copies retained bytes rather than reopening
+mutable task paths. It starts no model call and executes no artifact. The native
+`result WORK --export-directory DIRECTORY` command offers the same operation.
+An existing destination is left untouched. If a filesystem write fails, files
+already written in the new destination remain available for inspection.
+
 Results expose the current retained task phase as `recorded_phase` and show
 `open`, `paused`, or an ending status when no delivery or completion status
 takes precedence. A historical completion or local delivery remains explicit,

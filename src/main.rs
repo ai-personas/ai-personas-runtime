@@ -76,6 +76,9 @@ enum Command {
         work: String,
         #[arg(long)]
         json: bool,
+        /// Save exact delivered and cited supporting files in a new directory.
+        #[arg(long)]
+        export_directory: Option<PathBuf>,
     },
     /// Record an explicit human acceptance or rejection of one exact retained local delivery.
     /// Requires --state-root and --operator; does not resume or complete work.
@@ -273,7 +276,7 @@ enum Command {
     ImportPersona {
         file: PathBuf,
     },
-    /// Import one new UTF-8 supporting file, preserving operator-asserted source authorship.
+    /// Import one new supporting file, preserving operator-asserted source authorship.
     /// Requires --state-root and the saved --operator. No selection, event, resume or inference.
     /// Original import provenance is retained. Normal open/recovery and metering apply.
     ImportSupportingFile {
@@ -764,11 +767,10 @@ impl ImportSupportingFileRequest {
             || record.scope != files::Scope::Assets
             || record.retired
             || record.bytes.is_empty()
-            || std::str::from_utf8(&record.bytes).is_err()
             || record.computed_revision()? != record.revision
         {
             return Err(runtime::RuntimeError::Invalid(
-                "supporting import requires the matching operator, an explicit source author identity, one nonempty live UTF-8 asset, and its exact computed revision".into(),
+                "supporting import requires the matching operator, an explicit source author identity, one nonempty live asset, and its exact computed revision".into(),
             ));
         }
         Ok(())
@@ -836,9 +838,13 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             };
             return emit_result(&result, *json);
         }
-        Command::Result { work, json } => {
+        Command::Result { work, json, export_directory } => {
             let root = launch::state_root(cli.state_root.as_deref())?;
-            return emit_result(&launch::result_at(&root, cli.operator.as_deref(), work)?, *json);
+            if let Some(destination) = export_directory {
+                return emit(&launch::export_result_at(&root, cli.operator.as_deref(), work, destination)?);
+            }
+            let output = launch::result_at(&root, cli.operator.as_deref(), work)?;
+            return emit_result(&output, *json);
         }
         Command::Schema => {
             return emit(&serde_json::json!({"decision":protocol::decision_schema(),

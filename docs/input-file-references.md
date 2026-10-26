@@ -96,7 +96,9 @@ Handles identify references from the current input. To select files saved in
 the same response, use `next_assets` or `next_fragments` with
 `kind: replace_from_saved_files`. Each `files` entry names the exact `operation`
 ID of a `file_write`, `file_edit` or `file_import`, with an optional `lifetime`.
-The host derives the source and accepted full UTF-8 revision. Use `input_handles`
+The host derives the source and accepted full UTF-8 reference, or a
+`bytes_metadata` reference for a `file_import` with `format: "bytes"`. Byte
+metadata supplies length and SHA-256 without the body. Use `input_handles`
 to retain useful current-input references alongside those saves. The replacement
 covers the complete optional set for that scope; imports always belong to assets.
 

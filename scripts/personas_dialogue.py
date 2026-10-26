@@ -190,10 +190,19 @@ def readable_delivery(delivery):
             roots = [entry for entry in entries if all(
                 entry["reference"].get(key) == source.get(key)
                 for key in ("source", "revision", "representation", "start", "end"))]
-            if (len(roots) != 1 or not isinstance(roots[0]["text"], str)
-                    or roots[0]["text"].encode("utf-8") != bytes(raw)):
+            if len(roots) != 1 or not isinstance(roots[0]["text"], str):
                 return None
-            parts.append("Artifact record (duplicate byte array shown as its qualified text below):")
+            if source.get("representation") == "bytes_metadata":
+                metadata = decode(roots[0]["text"])
+                if (metadata.get("profile") != "retained-file-bytes-metadata-v1"
+                        or metadata.get("body_supplied") is not False
+                        or metadata.get("bytes") != len(raw)
+                        or metadata.get("sha256") != hashlib.sha256(bytes(raw)).hexdigest()):
+                    return None
+                parts.append("Artifact bytes are retained exactly. Choose e to export the file and its qualifications.")
+            elif roots[0]["text"].encode("utf-8") != bytes(raw):
+                return None
+            parts.append("Artifact record:")
             parts.append(json.dumps({k: v for k, v in artifact.items()
                                      if k not in ("bytes", "qualified_bundle_json")},
                                     ensure_ascii=False, indent=2))
@@ -1351,6 +1360,10 @@ class Dialogue:
             detail = failure.get("failure") or failure.get("kind") or "retained failure"
             if failure.get("http_status") is not None:
                 detail += f"; HTTP {failure['http_status']}"
+            if failure.get("provider_error_code"):
+                detail += f"; {failure['provider_error_code']}"
+            if failure.get("unsupported_parameter"):
+                detail += f"; parameter {failure['unsupported_parameter']}"
             self.ui.say(f"   Call failure ({', '.join(calls)}): {detail}.")
             if failure.get("provider_message"):
                 label = "Provider explanation (redacted)" if failure.get("provider_message_redacted") else "Provider explanation"
@@ -2009,7 +2022,7 @@ class Dialogue:
         if work.get("task_amendment"):
             self.ui.say("Current amended request: " + work["task_amendment"]["current_scope"]["request"])
         while True:
-            self.ui.say("r: results; j: delivery receipt JSON; q: questions and answers; f: feedback; d: persona development; "
+            self.ui.say("r: results; j: delivery receipt JSON; e: export files; q: questions and answers; f: feedback; d: persona development; "
                         "m: amend task; u: resume participant; c: continue; p: pause work; x: cancel work; "
                         "w: resume work; i: confirm pending control; a: Codex auth source; b: back")
             choice = self.ui.ask("Work action:").strip().lower()
@@ -2019,6 +2032,11 @@ class Dialogue:
                 self.output(work["id"])
             elif choice == "j":
                 self.output(work["id"], receipt_json=True)
+            elif choice == "e":
+                destination = self.ui.ask("New directory for delivered and cited files (blank to return):").strip()
+                if destination:
+                    receipt = self.session("result", work["id"], "--export-directory", destination)
+                    self.ui.say(f"Saved {len(receipt['files'])} files in {receipt['destination']}.")
             elif choice == "q":
                 self.questions(work["id"])
             elif choice == "f":

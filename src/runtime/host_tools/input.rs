@@ -27,9 +27,11 @@ pub(super) struct Inputs {
     /// Literal UTF-8 stdin. Mutually exclusive with stdin_asset.
     #[serde(default)]
     pub stdin: Option<String>,
-    /// Supply exact supporting-asset text as stdin without copying it into this
+    /// Supply exact supporting-asset bytes as stdin without copying them into this
     /// response. UTF-8 and once-decoded JSON-string references support complete
-    /// text or measured UTF-8 byte ranges. Use cat > a host path to export it,
+    /// text or measured UTF-8 byte ranges. A bytes_metadata reference supplies
+    /// the complete original file bytes to the command, not the metadata text.
+    /// Use cat > a host path to export it,
     /// or an interpreter such as python3 - to execute it. This does not select
     /// model context. A same-response proposal requires its save ID in depends_on.
     #[serde(default)]
@@ -115,18 +117,21 @@ impl Inputs {
             .reference(prepared)?
             .map(|r| resolve(&r, proposals))
             .transpose()?;
-        let mut stdin = self.stdin;
+        let mut stdin = self.stdin.map(h::Stdin::Utf8);
         let receipt = if let Some(reference) = reference {
             let reference = wire_reference(&file_reference(&reference)?);
             let a = admission(&state.personas[&prepared.request.persona], now);
-            let (text, binding_sha256) = current_asset(state, &reference, &a)?;
+            let (bytes, binding_sha256) = current_asset(state, &reference, &a)?;
             let receipt = Receipt {
                 reference,
-                bytes: text.len(),
-                sha256: s::sha256_bytes(text.as_bytes()),
+                bytes: bytes.len(),
+                sha256: s::sha256_bytes(&bytes),
                 binding_sha256,
             };
-            stdin = Some(text);
+            stdin = Some(match String::from_utf8(bytes) {
+                Ok(text) => h::Stdin::Utf8(text),
+                Err(error) => h::Stdin::Bytes(error.into_bytes()),
+            });
             Some(receipt)
         } else {
             None
@@ -147,7 +152,7 @@ fn current_asset(
     state: &State,
     reference: &p::ExactRef,
     a: &f::Admission,
-) -> Result<(String, String)> {
+) -> Result<(Vec<u8>, String)> {
     let reference = file_reference(reference)?;
     let stored = record(state, &reference)?;
     require(
@@ -174,6 +179,11 @@ fn current_asset(
         .find(|entry| entry.reference == reference)
         .ok_or_else(|| held("host stdin asset text unavailable at the exact representation and range"))?
         .text;
+    let bytes = if reference.representation == f::Representation::BytesMetadata {
+        stored.record.bytes.clone()
+    } else {
+        text.into_bytes()
+    };
     let bindings: Vec<_> = state
         .accepted_bindings
         .iter()
@@ -181,18 +191,18 @@ fn current_asset(
             binding.source == reference.source && binding.file_revision == reference.revision
         })
         .collect();
-    Ok((text, digest(&(stored, bindings))?))
+    Ok((bytes, digest(&(stored, bindings))?))
 }
 
 pub(super) fn require_current(state: &State, job: &Job, now: i64) -> Result<()> {
     if let Some(receipt) = &job.stdin_asset {
         let a = admission(&state.personas[&job.actor], now);
-        let (text, binding) = current_asset(state, &receipt.reference, &a)?;
+        let (bytes, binding) = current_asset(state, &receipt.reference, &a)?;
         require(
             binding == receipt.binding_sha256
-                && text.len() == receipt.bytes
-                && s::sha256_bytes(text.as_bytes()) == receipt.sha256
-                && job.input.stdin.as_deref() == Some(text.as_str())
+                && bytes.len() == receipt.bytes
+                && s::sha256_bytes(&bytes) == receipt.sha256
+                && job.input.stdin.as_ref().map(h::Stdin::as_bytes) == Some(bytes.as_slice())
                 && exposure_permitted(state, &job.exposure, &a),
             "host stdin asset or its current bindings changed before dispatch",
         )?;
@@ -211,7 +221,7 @@ pub(super) fn observed(job: &Job) -> Result<Value> {
         value.as_object_mut().unwrap().remove("stdin");
         value["stdin_asset"] = json!({"reference":receipt.reference,
             "bytes":receipt.bytes,"sha256":receipt.sha256,"body_supplied":false,
-            "meaning":"Exact native asset text materialized as command stdin using the retained representation and range; body retained in the accepted intent, not repeated in this result. This is not evidence that the process consumed every byte."});
+            "meaning":"Exact native asset bytes materialized as command stdin. A bytes_metadata reference supplies the complete original bytes; text representations supply their exact projection and range. The body is retained in the accepted intent, not repeated in this result. This is not evidence that the process consumed every byte."});
     }
     Ok(value)
 }

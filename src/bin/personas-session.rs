@@ -103,7 +103,11 @@ enum Command {
         id: String,
     },
     /// Current retained result in its requester scope; no cached output replay.
-    Result { work: String },
+    Result {
+        work: String,
+        #[arg(long)]
+        export_directory: Option<PathBuf>,
+    },
     /// Current permitted shared questions, replies and conclusions; no inference.
     Questions { work: String },
     /// Inspect current and available delegation sources; no inference.
@@ -291,7 +295,12 @@ async fn main() {
         }
         Command::SessionStatus { id } => emit(session::session_status(&root, &operator, &id)),
         Command::SessionMessages { id } => emit(session::session_messages(&root, &operator, &id)),
-        Command::Result { work } => emit(session::result_view(&root, &operator, &work)),
+        Command::Result { work, export_directory } => {
+            if let Some(destination) = export_directory {
+                emit(ai_personas::launch::export_result_at(&root, Some(&operator), &work, &destination)
+                    .map_err(session::BoundaryError::from))
+            } else { emit(session::result_view(&root, &operator, &work)) }
+        },
         Command::Questions { work } => emit(session::questions_view(&root, &operator, &work)),
         Command::IntakeSourceSnapshot { work } => emit((|| -> session::BoundaryResult<serde_json::Value> {
             Ok(episode_selection::snapshot_at(&root, &operator, &work)?)

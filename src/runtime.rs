@@ -1679,10 +1679,12 @@ pub enum WorkAction {
         terms_revision: String,
         arrangement: WorkExactRef,
     },
-    /// Retain an attributed model judgment of a current artifact body already
-    /// supplied to this invocation. Not measurement or independent assurance.
+    /// Retain an attributed model judgment of a current artifact whose exact
+    /// text or byte-metadata view was supplied to this invocation. The receipt
+    /// distinguishes full-body supply from metadata. Neither establishes
+    /// measurement, substantive inspection or independent assurance.
     /// Judge the cited artifact against the actual outcome criterion. Its exact
-    /// full body is required; every peer candidate and the entire work history
+    /// supplied view and current qualifications are required; every peer candidate and the entire work history
     /// are not implicit prerequisites. Additional reviews or comparisons remain
     /// required only where the criterion or current mandate actually requires them.
     /// A later Judge command in this same Decision may cite this evidence's inner
@@ -6616,6 +6618,10 @@ fn file_reference(reference: &p::ExactRef) -> Result<f::Reference> {
     lifetime(reference)?;
     let representation = if reference.representation == "utf8" {
         f::Representation::Utf8
+    } else if reference.representation == "bytes_metadata" {
+        require(reference.start.is_none() && reference.end.is_none(),
+            "byte metadata names a complete retained file and has no range")?;
+        f::Representation::BytesMetadata
     } else if let Some(pointer) = reference.representation.strip_prefix("json_string:") {
         f::Representation::JsonString {
             pointer: pointer.into(),
@@ -6667,6 +6673,7 @@ fn wire_reference(reference: &f::Reference) -> p::ExactRef {
         revision: reference.revision.clone(),
         representation: match &reference.representation {
             f::Representation::Utf8 => "utf8".into(),
+            f::Representation::BytesMetadata => "bytes_metadata".into(),
             f::Representation::JsonString { pointer } => format!("json_string:{pointer}"),
             f::Representation::Unsupported { name } => name.clone(),
         },
@@ -7822,10 +7829,10 @@ fn render_mode_with_history(
         core["file_import"] = json!({
             "interface":host_import::INTERFACE,
             "maximum_bytes":null,
-            "rule":"Use file_import to retain an existing regular UTF-8 host file as a supporting asset without rewriting its bytes. Choose a native source ID, native relative destination path, current base revision for updates, policy and qualifications; list the operation in asset_maintenance.change.operation_ids. host_path is a host filesystem path, relative to the supplied default working directory when not absolute. expected_sha256 optionally checks raw bytes. Import is a local save before host commands execute: a file produced by a proposed command requires its observed result and a fresh decision. Select the exact proposal-op:<id> under next_assets for a later input, or rediscover the native path later. Import preserves observed bytes and provenance; it neither runs a tool, establishes content authorship or skill use, nor creates characteristic fragments. A metadata receipt supplies no file body. Host commands also support files outside this native UTF-8 retention format."
+            "rule":"Use file_import to retain an existing regular host file as a supporting asset without rewriting its bytes. format=utf8 (default) validates text; format=bytes retains any original file, including archives, CAD and images. For bytes imports, replace_from_saved_files selects bytes_metadata: exact length and SHA-256, with no body or pixels. You can also choose bytes_metadata for any retained supporting file without loading its body; it has no range. Choose a native source ID, native relative destination path, current base revision for updates, policy and qualifications; list the operation in asset_maintenance.change.operation_ids. host_path is a host filesystem path, relative to the supplied default working directory when not absolute. expected_sha256 optionally checks raw bytes. Import is a local save before host commands execute: a file produced by a proposed command requires its observed result and a fresh decision. Select the exact proposal-op:<id> under next_assets for a later input, or rediscover the native path later. Import preserves observed bytes and provenance; it neither runs a tool, establishes content authorship or skill use, nor creates characteristic fragments. A metadata receipt supplies no file body. put_artifact can register the complete retained file with a utf8 or bytes_metadata subject. A binary artifact needs no text wrapper. Model evidence records whether the complete text or only exact byte metadata was actually supplied; metadata alone establishes no contents or quality. Use suitable host tools or image reads for substantive inspection."
         });
         core["host_command_rules"] = json!({"operation":"effect", "access":"full_host_by_default",
-            "paths":"Native file paths such as tools/results/... identify runtime assets, not files under the host working directory. Use inputs.stdin_asset with {kind:input_file,handle:CURRENT_HANDLE} or {kind:reference,reference:EXACT_FULL_ASSET_REF} to pass exact stored UTF-8 bytes directly to command stdin. For example cat > a host path exports them, and python3 - runs a script. Do not also supply literal stdin. A same-response proposal needs its exact save ID in depends_on. This consumes the asset without claiming its body was supplied to the model. Ordinary read or next-context selection can supply the body when useful. Read the retained result body to recover an earlier command's actual host output path. stdout.log_path, stderr.log_path and paths written by commands are filesystem paths. Use the requested exact host output path for a revision instead of treating an asset path as a host path or searching for similar filenames.",
+            "paths":"Native file paths such as tools/results/... identify runtime assets, not files under the host working directory. Use inputs.stdin_asset with {kind:input_file,handle:CURRENT_HANDLE} or {kind:reference,reference:EXACT_FULL_ASSET_REF} to pass exact retained bytes directly to command stdin. A bytes_metadata reference supplies the complete original bytes to the command, while utf8 and json_string references supply their exact text projection and range. For example cat > a host path exports them, and python3 - runs a script. Do not also supply literal stdin. A same-response proposal needs its exact save ID in depends_on. This consumes the asset without claiming its body was supplied to the model. Ordinary read or next-context selection can supply the body when useful. Read the retained result body to recover an earlier command's actual host output path. stdout.log_path, stderr.log_path and paths written by commands are filesystem paths. Use the requested exact host output path for a revision instead of treating an asset path as a host path or searching for similar filenames.",
             "usage":"Use the supplied capability_id with inputs.command and required inputs.result_context: complete or reference. The runtime binds the exact interface retained for this invocation; do not include binding_revision. Choose complete when all returned text is useful in the next decision; choose reference for bulk discovery or logs whose exact text you will read or select afterward. Run shell commands, install tools and packages, use the filesystem, network, and installed software directly. No tool grant, selected guide, approval, command allowlist, or sandbox is required. Commands inherit the host account and environment. working_directory overrides the displayed default. stdin supplies text input. timeout_seconds is optional; omission means no timeout. Combine dependent shell steps in one script. Results arrive as host_command_result in a fresh decision with actual exit status and stdout/stderr capture objects. Both result_context choices retain complete observed output. complete supplies all retained command, literal stdin and captured output text. reference supplies execution metadata and exact JSON-string references, UTF-8 byte counts and hashes instead of that text. Required qualifications remain supplied in both modes. Ordinary reads or next-context selections can supply any range or all text without a quota; a reference alone does not supply its body. capture_complete describes retained observation, not model-context delivery. Historical captures may have gaps, which are omitted output rather than text to concatenate. Full stdout.log_path and stderr.log_path are host files you can read with another command. These paths are live filesystem files, not immutable native asset references. A new command is a new execution; completed or uncertain commands are never automatically repeated. Historical grant declarations do not restrict current tool access. Host commands consume no additional model attempt."});
         core["host_command_rules"]["context_lifetime"] = json!("A pending host result is consumed after the decision receiving it is accepted. Already supplied means present in this request only: later calls do not receive its full conversation, reasoning or outputs automatically. To use an output field alongside a later result or image, select its current input-file handle in next_assets now, keep an existing selection, or save and select a useful supporting note. Clear and preserve of an empty set carry none of that output forward. Choose useful scope and lifetime yourself; no additional file or characteristic edit is required. A later read retrieves retained bytes without reexecuting the command.");
         let (candidate, encoding, total) = render_prompt(&core, &ordinary_context, false)?;
@@ -8187,8 +8194,8 @@ fn apply_writes(
                     operation_id:id.clone(), base,
                 })
             }
-            p::FileContent::Host { path, expected_sha256 } =>
-                host_import::read(prepared, id, path, expected_sha256, state.config.corpus.max_file_bytes)?,
+            p::FileContent::Host { path, expected_sha256, format } =>
+                host_import::read(prepared, id, path, expected_sha256, format, state.config.corpus.max_file_bytes)?,
         };
         let record = f::FileRevision {
             source: source.clone(),
@@ -10376,10 +10383,10 @@ fn apply_work_actions(
                     let subject = resolve(subject, proposals)?;
                     let reference = file_reference(&subject)?;
                     require(
-                        reference.representation == f::Representation::Utf8
+                        matches!(reference.representation, f::Representation::Utf8 | f::Representation::BytesMetadata)
                             && reference.start.is_none()
                             && reference.end.is_none(),
-                        "artifact registration currently requires a complete UTF-8 source",
+                        "artifact registration requires a complete UTF-8 or bytes_metadata supporting source",
                     )?;
                     f::assemble(
                         &corpus,
@@ -10441,13 +10448,24 @@ fn apply_work_actions(
                         .get(&digest(artifact)?)
                         .ok_or_else(|| held("model evidence artifact source binding absent"))?
                         .clone();
-                    let reference = file_reference(&subject)?;
+                    let registered_reference = file_reference(&subject)?;
                     require(
-                        reference.representation == f::Representation::Utf8
-                            && reference.start.is_none()
-                            && reference.end.is_none(),
-                        "model evidence requires the complete registered UTF-8 artifact",
+                        matches!(registered_reference.representation, f::Representation::Utf8 | f::Representation::BytesMetadata)
+                            && registered_reference.start.is_none()
+                            && registered_reference.end.is_none(),
+                        "model evidence requires the registered artifact's complete text or exact byte metadata",
                     )?;
+                    // Record the actual supplied view. Byte metadata can support an
+                    // attributed judgment informed by tool observations, without
+                    // pretending that the model received or decoded the file body.
+                    let full_text = f::Reference::full(&registered_reference.source,
+                        &registered_reference.revision, f::Representation::Utf8);
+                    let reference = if warnings::reference_was_supplied(prepared, &full_text)? {
+                        full_text
+                    } else {
+                        f::Reference::full(&registered_reference.source, &registered_reference.revision,
+                            f::Representation::BytesMetadata)
+                    };
                     let before_corpus = crate::runtime::corpus(pre_response, &a)?;
                     let before_bundle = f::assemble(
                         &before_corpus,
@@ -10487,7 +10505,10 @@ fn apply_work_actions(
                         "requested_model":prepared.requested_model,"requested_effort":prepared.requested_effort,
                         "prompt_sha256":prepared.prompt_sha256,"qualified_subject":body_proof,
                         "artifact":artifact,"outcome":outcome,"criterion":criterion,
-                        "actual_subject":subject,"body_sha256":artifact.digest,"body_was_supplied":true,
+                        "actual_subject":subject,"body_sha256":artifact.digest,
+                        "body_was_supplied":reference.representation == f::Representation::Utf8,
+                        "subject_representation":wire_reference(&reference).representation,
+                        "metadata_only":reference.representation == f::Representation::BytesMetadata,
                         "explanation":explanation,"limitations":limitations,
                         "semantic_truth_verified_by_runtime":false,"independent_assurance":false,
                         "execution_or_measurement":false});

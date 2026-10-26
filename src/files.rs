@@ -57,6 +57,9 @@ pub enum Scope {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Representation {
     Utf8,
+    /// Exact byte identity and length, never the file body or decoded content.
+    /// Useful for binary assets and for retaining large artifacts selectively.
+    BytesMetadata,
     /// One string-valued RFC 6901 pointer, decoded exactly once. Ranges refer to
     /// bytes of that decoded string, not bytes of the JSON source.
     JsonString {
@@ -109,6 +112,7 @@ impl Reference {
             }
             && match &self.representation {
                 Representation::Utf8 => true,
+                Representation::BytesMetadata => self.start.is_none() && self.end.is_none(),
                 Representation::JsonString { pointer } => decode_pointer(pointer).is_ok(),
                 Representation::Unsupported { name } => valid_identifier(name),
             }
@@ -246,6 +250,14 @@ impl FileRevision {
 
     pub fn reference(&self, representation: Representation) -> Reference {
         Reference::full(&self.source, &self.revision, representation)
+    }
+
+    pub fn discoverable_representation(&self) -> Representation {
+        if std::str::from_utf8(&self.bytes).is_ok() {
+            Representation::Utf8
+        } else {
+            Representation::BytesMetadata
+        }
     }
 }
 
@@ -1671,7 +1683,7 @@ fn compile_matcher<'a>(
             decode_pointer(pointer).map_err(|_| FilesError::InvalidQuery)?;
         }
         SearchSurface::Text {
-            representation: Representation::Utf8,
+            representation: Representation::Utf8 | Representation::BytesMetadata,
         } => {}
     }
     if matches!(&request.mode, SearchMode::Listing) && request.surface != SearchSurface::Path {
@@ -1806,7 +1818,7 @@ impl Corpus {
         // records were excluded above and no file bodies are supplied here.
         page.consulted = visible
             .iter()
-            .map(|stored| stored.record.reference(Representation::Utf8))
+            .map(|stored| stored.record.reference(stored.record.discoverable_representation()))
             .collect();
         let (mut position, emitted_before, mut unavailable_before) = if let Some(cursor) = cursor {
             let cursor = &cursor.retained;
@@ -1848,7 +1860,7 @@ impl Corpus {
                 break;
             }
             let representation = match &request.surface {
-                SearchSurface::Path => Representation::Utf8,
+                SearchSurface::Path => record.discoverable_representation(),
                 SearchSurface::Text { representation } => representation.clone(),
             };
             let reference = record.reference(representation);
@@ -2123,6 +2135,18 @@ pub(crate) fn project_text(
     _historical_limits: &JsonLimits,
 ) -> Result<String, WithholdReason> {
     let full = match &reference.representation {
+        Representation::BytesMetadata => {
+            if record.scope != Scope::Assets || reference.start.is_some() || reference.end.is_some() {
+                return Err(WithholdReason::InvalidReference);
+            }
+            serde_json::to_string(&serde_json::json!({
+                "profile":"retained-file-bytes-metadata-v1",
+                "body_supplied":false,
+                "bytes":record.bytes.len(),
+                "sha256":hex::encode(Sha256::digest(&record.bytes)),
+                "meaning":"Exact retained byte identity only. This metadata supplies no file body, image, decoded contents, execution result or quality judgment."
+            })).map_err(|_| WithholdReason::Unsupported)?
+        }
         Representation::Utf8 => std::str::from_utf8(&record.bytes)
             .map_err(|_| WithholdReason::InvalidUtf8)?
             .to_owned(),

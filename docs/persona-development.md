@@ -171,7 +171,8 @@ can use `kind: replace_from_saved_files`, with `files` entries naming each exact
 file-save `operation` and optional `lifetime`. Include useful current input
 handles in `input_handles` to retain them alongside the new files. The host
 derives each source from its save operation and binds its accepted full UTF-8
-revision, avoiding repeated source IDs or hashes. Literal exact references with
+reference, or `bytes_metadata` for imports with `format: "bytes"`, avoiding
+repeated source IDs or hashes. Byte metadata supplies no file body. Literal exact references with
 `proposal-op:WRITE_OPERATION_ID` remain available for other representations or
 ranges. Preserving the old selection does not advance it to a new head.
 

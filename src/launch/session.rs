@@ -1248,13 +1248,16 @@ fn attempt_view(records: &s::RuntimeInspection<'_, '_>, id: &str) -> BoundaryRes
                 let attempt = receipt.get("attempt_receipt").or_else(|| receipt.get("attempt"))
                     .unwrap_or(&Value::Null);
                 let http = &attempt["http_diagnostic"];
+                let stream = &attempt["stream_diagnostic"];
                 Ok(AttemptFailureView {
                     terminal: terminal.exact_ref()?,
                     kind: receipt["kind"].as_str().map(str::to_owned),
                     failure: receipt["failure"].as_str().map(str::to_owned),
                     http_status: attempt["http_status"].as_u64().and_then(|v| u16::try_from(v).ok()),
-                    provider_error_type: http["error_type"].as_str().map(str::to_owned),
-                    provider_error_code: http["error_code"].as_str().map(str::to_owned),
+                    provider_error_type: http["error_type"].as_str()
+                        .or_else(|| stream["remote_error_type"].as_str()).map(str::to_owned),
+                    provider_error_code: http["error_code"].as_str()
+                        .or_else(|| stream["remote_error_code"].as_str()).map(str::to_owned),
                     unsupported_parameter: http["unsupported_parameter"].as_str().map(str::to_owned),
                     provider_message: http["message"].as_str().map(str::to_owned),
                     provider_message_redacted: http["message_redacted"] == true,

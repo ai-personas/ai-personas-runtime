@@ -104,9 +104,17 @@ Native paths must also be unique within the persona and scope; see
 
 ## Use a retained asset as standard input
 
-`stdin_asset` supplies the exact text of a supporting-asset reference to the
-command without copying its content through the model response. It accepts
-UTF-8 text and once-decoded JSON strings, including measured UTF-8 byte ranges.
+The `bytes_metadata` representation passes the complete original retained file
+to command stdin, including binary data. Its model-context view contains only
+length and SHA-256; that descriptor is not substituted for the command's bytes.
+UTF-8 and decoded JSON-string references continue to pass their exact text and
+measured ranges. A command such as `cat > chosen-file.zip` can export a retained
+archive. The receipt records the actual stdin length and hash, without claiming
+the process consumed every byte or that the model saw the file contents.
+
+`stdin_asset` supplies a supporting asset directly to the command without
+copying its content through the model response. Text references supply UTF-8
+text and once-decoded JSON strings, including measured UTF-8 byte ranges.
 Use either a literal `stdin` string or `stdin_asset`; supplying both is rejected.
 
 For a handle offered in the current input, the command inputs can be:

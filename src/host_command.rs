@@ -24,14 +24,30 @@ pub struct Inputs {
     /// Host working directory. Omission uses the directory shown by the interface.
     #[serde(default)]
     pub working_directory: Option<String>,
-    /// Optional bytes for the command's standard input, encoded as UTF-8.
+    /// Optional command stdin as UTF-8 text or exact materialized byte data.
     /// For a Python script, use command "python3 -" and place its code here as one JSON string.
     /// Do not JSON-encode the script a second time inside this string.
     #[serde(default)]
-    pub stdin: Option<String>,
+    pub stdin: Option<Stdin>,
     /// Optional command timeout chosen by the persona. Omission means no timeout.
     #[serde(default)]
     pub timeout_seconds: Option<u64>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum Stdin {
+    Utf8(String),
+    Bytes(Vec<u8>),
+}
+
+impl Stdin {
+    pub fn as_bytes(&self) -> &[u8] {
+        match self {
+            Self::Utf8(text) => text.as_bytes(),
+            Self::Bytes(bytes) => bytes,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -205,7 +221,7 @@ pub fn execute(input: &Inputs, directory: &Path) -> Outcome {
         outcome.stdout.log_path = Some(stdout_path.to_string_lossy().into_owned());
         outcome.stderr.log_path = Some(stderr_path.to_string_lossy().into_owned());
         let mut stdin = tempfile::tempfile()?;
-        stdin.write_all(input.stdin.as_deref().unwrap_or("").as_bytes())?;
+        stdin.write_all(input.stdin.as_ref().map(Stdin::as_bytes).unwrap_or(&[]))?;
         stdin.seek(SeekFrom::Start(0))?;
         let mut child = Command::new(SHELL)
             .arg("-c")

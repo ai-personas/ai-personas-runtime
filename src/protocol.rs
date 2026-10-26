@@ -380,8 +380,9 @@ pub struct ExactRef {
     /// An observed accepted revision or proposal-op:<exact file-save operation id>
     /// for a new same-response file. Never invent a hash or use a bare operation id.
     pub revision: String,
-    /// Use "utf8" for file text or "json_string:<RFC6901 pointer>" for a decoded
-    /// string field. Copy the representation of the exact observed reference.
+    /// Use "utf8" for file text, "json_string:<RFC6901 pointer>" for a decoded
+    /// string field, or "bytes_metadata" for a supporting file's exact byte
+    /// identity without its body. Metadata references have no range.
     pub representation: String,
     /// Omit both endpoints or set both null for the complete text. Only supply
     /// measured UTF-8 byte offsets for an intentionally selected part; never
@@ -678,7 +679,7 @@ pub enum Operation {
         qualification_handles: Vec<String>,
         policy_id: String,
     },
-    /// Copy an existing regular UTF-8 host file into a native supporting asset without
+    /// Copy an existing regular host file into a native supporting asset without
     /// rewriting its contents. This is asset maintenance, never a character
     /// fragment or a claim that you authored the imported bytes. Reads happen
     /// during adoption before host commands run; use a fresh decision for a
@@ -693,6 +694,11 @@ pub enum Operation {
         base_revision: Option<String>,
         /// Host path; relative paths use the offered host working directory.
         host_path: String,
+        /// utf8 (default) retains text and rejects invalid encoding. bytes retains
+        /// any file unchanged, including archives, CAD and images; saved-file
+        /// selections/citations use bytes_metadata and supply no file body.
+        #[serde(default, skip_serializing_if = "FileImportFormat::is_utf8")]
+        format: FileImportFormat,
         /// Optional expected SHA-256 of the raw file bytes. A mismatch rejects
         /// this save; omission retains the actual bytes read at adoption.
         expected_sha256: Option<String>,
@@ -958,10 +964,22 @@ pub struct TextEdit {
     pub new_text: String,
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FileImportFormat {
+    #[default]
+    Utf8,
+    Bytes,
+}
+
+impl FileImportFormat {
+    fn is_utf8(&self) -> bool { *self == Self::Utf8 }
+}
+
 pub(crate) enum FileContent<'a> {
     Authored(&'a str),
     Edits(&'a [TextEdit]),
-    Host { path: &'a str, expected_sha256: Option<&'a str> },
+    Host { path: &'a str, expected_sha256: Option<&'a str>, format: FileImportFormat },
 }
 
 /// Shared save metadata; this view never rewrites the authored operation.
@@ -992,10 +1010,10 @@ impl Operation {
                     content:FileContent::Edits(edits), qualifications,
                     qualification_handles, policy_id,
                 }),
-            Self::FileImport { id, source, path, base_revision, host_path, expected_sha256,
+            Self::FileImport { id, source, path, base_revision, host_path, expected_sha256, format,
                 qualifications, qualification_handles, policy_id } => Some(FileSave {
                     id, scope:Scope::Assets {}, source, path, base_revision:base_revision.as_ref(),
-                    content:FileContent::Host { path:host_path, expected_sha256:expected_sha256.as_deref() },
+                    content:FileContent::Host { path:host_path, expected_sha256:expected_sha256.as_deref(), format:*format },
                     qualifications, qualification_handles, policy_id,
                 }),
             _ => None,
@@ -1387,7 +1405,10 @@ pub(crate) fn saved_file_reference(
     let reference = ExactRef {
         source: save.source.clone(),
         revision: format!("{PROPOSED_OPERATION_PREFIX}{operation_id}"),
-        representation: "utf8".into(),
+        representation: match save.content {
+            FileContent::Host { format: FileImportFormat::Bytes, .. } => "bytes_metadata",
+            _ => "utf8",
+        }.into(),
         start: None,
         end: None,
         lifetime,
@@ -2241,7 +2262,7 @@ fn check_operation(
                         }
                     }
                 }
-                FileContent::Host { path:host_path, expected_sha256 } => {
+                FileContent::Host { path:host_path, expected_sha256, .. } => {
                     check_text(host_path, MAX_REASON_BYTES, &format!("{path}.host_path"))?;
                     if let Some(hash) = expected_sha256 {
                         check_accepted_revision(hash, &format!("{path}.expected_sha256"))?;

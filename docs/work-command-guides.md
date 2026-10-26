@@ -10,6 +10,14 @@ and resolves the same retained interface. Neither form includes an authored
 Complete-response, exact-record and current work-state checks preserve meaningful
 outcomes.
 
+`put_artifact` registers the complete original bytes of a supporting asset named
+by a `utf8` or `bytes_metadata` reference. `record_model_evidence` requires the
+artifact's exact supplied text or byte-metadata view and current qualifications.
+The evidence receipt identifies that view and sets `body_was_supplied` to false
+for metadata. Neither view establishes truth or independent assurance. Binary
+inspection can use persona-chosen host tools and images; the original bytes need
+not be encoded into a text wrapper or loaded into model context for delivery.
+
 When native command deserialization fails, the rejection retains the original
 error and adds the known command's allowed fields. Missing required fields and
 immediate primitive or enum mismatches name their `inputs` field and schema-owned
