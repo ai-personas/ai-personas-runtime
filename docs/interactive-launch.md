@@ -73,7 +73,10 @@ it leaves saved reply bodies in Results instead of replaying them before the men
 The work list summarizes participants' last continuation choices and distinguishes
 ready work, pending calls, failed attempts, and participants who chose to stop.
 It shows each saved task's complete request text beside its work ID, so tasks can
-be recognized before opening them. Sign-in and runtime status use plain-language
+be distinguished without opening their results. Optional activities use a short
+label from their recorded activity binding; their complete original text remains
+available in the work menu. This label is not inferred from the request's words.
+Sign-in and runtime status use plain-language
 messages; viewing the list does not check credentials or start inference.
 Stopped participants are shown with a direction to review their results, rather
 than a generic blocked status; their choice does not establish task completion.

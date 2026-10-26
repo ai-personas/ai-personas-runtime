@@ -2610,7 +2610,8 @@ class Dialogue:
                     label = self.continuation_label(participant["continuation"])
                     counts[label] = counts.get(label, 0) + 1
                 continuations = ", ".join(f"{count} {label}" for label, count in counts.items())
-                self.ui.say(f"{i}: {work['need']}")
+                title = "Optional exploration and conversation" if work["optional_activity"] else work["need"]
+                self.ui.say(f"{i}: {title}")
                 self.ui.say(f"   {work['id']} — {self.work_availability(view, work)}. "
                             f"Last choices: {continuations or 'none recorded'}.")
                 completion = work.get("recorded_completion")

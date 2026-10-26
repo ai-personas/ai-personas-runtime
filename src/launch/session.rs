@@ -1351,6 +1351,8 @@ pub struct WorkView {
     pub id: String,
     pub version: w::Version,
     pub phase: WorkPhase,
+    /// Actual optional-opportunity binding, independent of the request wording.
+    pub optional_activity: bool,
     pub need: String,
     pub need_sha256: String,
     pub mandate_revision: u64,
@@ -1633,6 +1635,7 @@ fn inspect_snapshot(
             id: id.clone(),
             version: work.version,
             phase,
+            optional_activity: optional_activity::bound(state, id),
             need: meta.original.request.clone(),
             need_sha256: s::sha256_bytes(meta.original.request.as_bytes()),
             mandate_revision: work.current_mandate,
