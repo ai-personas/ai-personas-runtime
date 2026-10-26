@@ -395,8 +395,10 @@ controls, qualified context and separators, alongside the reserved assembly size
 `exact_text_sharing` reports separate counts for shared qualified bodies and
 repeated work text, actual encoded section bytes, and the section size with all
 text restored inline. The original request stays complete and inline; repeated
-need, mandate, invitation or commitment fields may point to an identical inline
-string in the same input. Supply inspection resolves each reference to its exact
+need, mandate, invitation or commitment fields, and the host's repeated
+explanations of work judgments, may point to an identical inline string in the
+same input. Each persona's judgment, reason and evidence stay separately
+attributed. Supply inspection resolves each reference to its exact
 included text while preserving field roles, record identities, attribution,
 restrictions and qualifications. Equal wording does not merge commitments or
 establish consent. The difference in serialized bytes is a representation saving

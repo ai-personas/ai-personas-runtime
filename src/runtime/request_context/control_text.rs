@@ -3,8 +3,12 @@
 use super::*;
 
 const FIELD: &str = "control_text_sharing";
-const PROFILE: &str = "exact-control-text-v1";
-const RULE: &str = "In the original need, current mandate, invitations and commitments, a text field encoded as {\"text_at\":\"/path\"} supplies the complete exact string at that JSON Pointer within CONTROL. The target is inline text in this same input, not an external reference or retrieval request. When an operation requires that string, copy the target text, never the pointer object. Only identical text is shared. Each referring field keeps its own meaning, record, attribution, revision and authority; equal wording does not merge commitments or establish consent. The original_need.request remains inline in full.";
+const PROFILE: &str = "exact-control-text-v2";
+const RULE: &str = "In the original need, current mandate, invitations, commitments and work-judgment meanings, a text field encoded as {\"text_at\":\"/path\"} supplies the complete exact string at that JSON Pointer within CONTROL. The target is inline text in this same input, not an external reference or retrieval request. When an operation requires that string, copy the target text, never the pointer object. Only identical text is shared. Each referring field keeps its own meaning, record, attribution, revision and authority; equal wording does not merge commitments or establish consent. The original_need.request remains inline in full.";
+// Earlier retained requests remain inspectable as the inputs actually supplied.
+// Their original header declares only the earlier set of work-text fields.
+const EARLIER_PROFILE: &str = "exact-control-text-v1";
+const EARLIER_RULE: &str = "In the original need, current mandate, invitations and commitments, a text field encoded as {\"text_at\":\"/path\"} supplies the complete exact string at that JSON Pointer within CONTROL. The target is inline text in this same input, not an external reference or retrieval request. When an operation requires that string, copy the target text, never the pointer object. Only identical text is shared. Each referring field keeps its own meaning, record, attribution, revision and authority; equal wording does not merge commitments or establish consent. The original_need.request remains inline in full.";
 
 fn escape(key: &str) -> String {
     key.replace('~', "~0").replace('/', "~1")
@@ -12,7 +16,7 @@ fn escape(key: &str) -> String {
 
 // No traversal of arbitrary authored prose, observations, historical records,
 // code, metadata or tool payloads. These slots have a host-owned string contract.
-fn paths(control: &Value) -> Vec<String> {
+fn paths(control: &Value, judgment_meanings: bool) -> Vec<String> {
     let mut paths = vec!["/original_need/request".into()];
     for field in ["assumptions", "authorization", "boundaries", "terms"] {
         paths.push(format!("/original_need/{field}"));
@@ -44,6 +48,14 @@ fn paths(control: &Value) -> Vec<String> {
             paths.push(format!("/own_pending_offers/{index}/terms/exact_terms"));
         }
     }
+    if judgment_meanings {
+        paths.push("/last_attributed_work_judgment/meaning".into());
+        if let Some(items) = control["collaborators"]["records"].as_array() {
+            for index in 0..items.len() {
+                paths.push(format!("/collaborators/records/{index}/last_attributed_work_judgment/meaning"));
+            }
+        }
+    }
     paths
 }
 
@@ -54,7 +66,7 @@ pub(super) fn encode(control: &Value) -> Result<Option<Value>> {
     )?;
     let mut anchors: BTreeMap<&str, String> = BTreeMap::new();
     let mut replacements = Vec::new();
-    for path in paths(control) {
+    for path in paths(control, true) {
         let Some(value) = control.pointer(&path) else {
             continue;
         };
@@ -91,7 +103,7 @@ pub(super) struct Accounting {
 
 pub(super) fn decode(control: &mut Value) -> Result<Option<Accounting>> {
     let Some(header) = control.get(FIELD) else {
-        for path in paths(control) {
+        for path in paths(control, true) {
             require(
                 control.pointer(&path).is_none_or(Value::is_string),
                 "work text has an undeclared encoding",
@@ -99,15 +111,18 @@ pub(super) fn decode(control: &mut Value) -> Result<Option<Accounting>> {
         }
         return Ok(None);
     };
-    require(
-        header == &json!({"profile":PROFILE,"rule":RULE}),
-        "unknown control text encoding",
-    )?;
+    let judgment_meanings = if header == &json!({"profile":PROFILE,"rule":RULE}) {
+        true
+    } else if header == &json!({"profile":EARLIER_PROFILE,"rule":EARLIER_RULE}) {
+        false
+    } else {
+        return Err(held("unknown control text encoding"));
+    };
     require(
         control["original_need"]["request"].is_string(),
         "original request must remain inline",
     )?;
-    let allowed: BTreeSet<_> = paths(control).into_iter().collect();
+    let allowed: BTreeSet<_> = paths(control, judgment_meanings).into_iter().collect();
     let encoded = size(control)?;
     // The marker is not part of the decoded representation. Remove it before
     // accounting so a valid expansion at the limit is not charged for encoding
