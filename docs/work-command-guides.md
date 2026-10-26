@@ -10,6 +10,15 @@ and resolves the same retained interface. Neither form includes an authored
 Complete-response, exact-record and current work-state checks preserve meaningful
 outcomes.
 
+Model evidence, findings, assessments, judgments, shared decisions and releases
+have immutable identities within their record type. Their `inputs.id` differs
+from the response's operation ID. A later creation using an existing identity is
+rejected with the record type and exact supplied ID; it does not replace the old
+record. A new judgment retains its own current arrangement and acceptance. The
+selected command instructions explain these identities, while existing records
+remain available for reference when applicable. A duplicate rejects the whole
+response, including any earlier staged commands.
+
 Arrangement assent follows the actual changed scope. Under
 `AffectedPartyAssentV2`, changed commitments require their owners' consent,
 artifact transfers require both parties, and a result-rule change requires every

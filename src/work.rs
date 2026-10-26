@@ -826,6 +826,8 @@ pub enum WorkError {
     Invalid(&'static str),
     #[error("conflicting immutable identity or ownership")]
     Conflict,
+    #[error("{kind} identity {id:?} is already recorded and cannot be replaced")]
+    DuplicateRecord { kind: &'static str, id: String },
     #[error("context or decision lacks authority")]
     Unauthorized,
     #[error("exact current offered terms do not match")]
@@ -2137,7 +2139,10 @@ fn apply_command(
                         .criterion
                         .clone();
                     if w.evidence.contains_key(&id) {
-                        return Err(WorkError::Conflict);
+                        return Err(WorkError::DuplicateRecord {
+                            kind: "model evidence",
+                            id: id.0,
+                        });
                     }
                     w.evidence.insert(
                         id.clone(),
@@ -2166,7 +2171,10 @@ fn apply_command(
                         "finding references",
                     )?;
                     if w.findings.contains_key(&id) {
-                        return Err(WorkError::Conflict);
+                        return Err(WorkError::DuplicateRecord {
+                            kind: "finding",
+                            id: id.0,
+                        });
                     }
                     w.findings.insert(
                         id.clone(),
@@ -2201,7 +2209,10 @@ fn apply_command(
                         return Err(WorkError::Unmet);
                     }
                     if w.assessments.iter().any(|a| a.input.id == input.id) {
-                        return Err(WorkError::Conflict);
+                        return Err(WorkError::DuplicateRecord {
+                            kind: "assessment",
+                            id: input.id.0,
+                        });
                     }
                     let producer = &historical_artifact(w, &input.artifact)
                         .unwrap()
@@ -2236,7 +2247,10 @@ fn apply_command(
                         "individual judgment",
                     )?;
                     if w.judgments.iter().any(|j| j.input.id == input.id) {
-                        return Err(WorkError::Conflict);
+                        return Err(WorkError::DuplicateRecord {
+                            kind: "judgment",
+                            id: input.id.0,
+                        });
                     }
                     for (outcome, claim) in &input.claims {
                         let a = input
@@ -2271,7 +2285,10 @@ fn apply_command(
                     decision_right(w, &by.persona)?;
                     require(text(&id.0), "shared decision identity")?;
                     if w.shared.contains_key(&id) {
-                        return Err(WorkError::Conflict);
+                        return Err(WorkError::DuplicateRecord {
+                            kind: "shared decision",
+                            id: id.0,
+                        });
                     }
                     let assessments = required_assessments(w, &candidate)?;
                     let supporters = w
@@ -2308,7 +2325,10 @@ fn apply_command(
                         "release identity",
                     )?;
                     if w.releases.contains_key(&id) {
-                        return Err(WorkError::Conflict);
+                        return Err(WorkError::DuplicateRecord {
+                            kind: "release",
+                            id: id.0,
+                        });
                     }
                     let s = w
                         .shared
