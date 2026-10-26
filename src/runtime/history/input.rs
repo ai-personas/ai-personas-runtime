@@ -76,6 +76,13 @@ fn choices(control: &Value, invocation: &str) -> Result<Vec<Choice>> {
         for (index, peer) in peers.iter().enumerate() {
             found.judgment_citations(&peer["last_attributed_work_judgment"],
                 &format!("/collaborators/records/{index}/last_attributed_work_judgment"))?;
+            if let Some(results) = peer["latest_host_command_results"].as_array() {
+                for (result, value) in results.iter().enumerate() {
+                    found.add(&value["reference"], format!(
+                        "/collaborators/records/{index}/latest_host_command_results/{result}/reference"
+                    ))?;
+                }
+            }
         }
     }
     if let Some(images) = control["image_inputs"]["images"].as_array() {

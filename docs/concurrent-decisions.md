@@ -84,7 +84,7 @@ observations do not by themselves establish a controlled performance improvement
 Ordinary inputs can include `CONTROL.collaborators`: other current-work
 participants, their labels and current acceptance IDs, and their latest accepted
 work judgment and continuation with their original invocation and mandate
-attribution. `current-work-collaborators-v5` keeps each judgment's relation to
+attribution. `current-work-collaborators-v6` keeps each judgment's relation to
 the current mandate explicit and lists accepted host-command identities awaiting
 complete result publication, including their recorded launch directories. A
 directory is where the command starts; it neither restricts accessed paths nor
@@ -97,6 +97,18 @@ A pending marker establishes neither a running process nor a successful
 effect; an empty list does not establish that shared files are unchanged.
 The snapshot has no application record-count or
 byte quota. Each account retains its actual source attribution and lineage.
+
+`latest_host_command_results` supplies exact retained observation references and
+recorded execution states for published commands from each peer's latest accepted
+work-judgment invocation. A result remains discoverable after its pending marker
+clears, even before the peer receives or discusses it. All published commands from
+that invocation are included; older commands remain selectively discoverable in
+history. Native job, observation and terminal identities must agree. These cues
+retain their result lineage and join `input_history_choices` for direct selective
+reads. They supply no command, output or artifact bodies, do not manufacture a peer
+citation, and establish neither quality nor the peer's awareness of the result.
+Partial publication remains pending. Publication does not itself invalidate a
+peer's unrelated decision; the collaborator context remains an admission snapshot.
 
 The judgment's separate citation lookup links exact retained observation,
 message and native tool-result identifiers, or reports them unresolved within

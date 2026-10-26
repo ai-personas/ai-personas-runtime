@@ -1,4 +1,4 @@
-//! Resolve only the citations in an attributed judgment to retained history.
+//! Resolve attributed citations and native result markers to retained history.
 //! This is current-input metadata, not validation of the authored judgment or
 //! evidence that its author received, read or understood a cited body.
 use super::*;
@@ -70,6 +70,22 @@ fn terminal_match(
     value["terminal_evidence"] = json!(terminal);
     // This is the recorded execution state, not a semantic quality verdict.
     value["recorded_execution_state"] = observation.payload["state"].clone();
+    Some(value)
+}
+
+/// A published peer command can be discovered before its author has received
+/// or discussed the result. Reuse the same exact native receipt binding as
+/// citation lookup without manufacturing an authored citation or judgment.
+pub(super) fn published_host_command(
+    state: &State,
+    intent: &str,
+    exposure: &mut Exposure,
+) -> Option<Value> {
+    let terminal = composite_id("host-command-result", &[intent]);
+    let mut value = terminal_match(state, &terminal, "host-command-result",
+        "host_command_result", &state.host_command_jobs, exposure)?;
+    value.as_object_mut()?.remove("matched_by");
+    value["body_supplied"] = json!(false);
     Some(value)
 }
 
