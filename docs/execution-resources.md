@@ -458,6 +458,14 @@ dynamic map keys or opaque command payloads into hints. These diagnostics run
 only after rejection: they neither validate additional constraints nor change,
 adopt or execute the submitted response.
 
+Duplicate-member diagnostics retain the two byte offsets and identify known
+nested fields, such as `response.operations[0].source`, through the generated
+schema. This also works when the duplicate precedes the object's tag or the
+remaining JSON is incomplete. Unknown names stop at the enclosing known path;
+dynamic map keys and opaque input bodies remain undisclosed. No first or last
+duplicate value is selected as authoritative, and the complete response remains
+rejected for the persona to correct in a fresh eligible decision.
+
 Current persona instructions no longer advertise removed navigation,
 source-ID, metadata or history-page ceilings.
 

@@ -1146,7 +1146,7 @@ pub fn parse_decision(bytes: &[u8]) -> Result<Decision, ProtocolError> {
     Preflight {
         bytes,
         position: 0,
-        nodes: 0,
+        path: Vec::new(),
     }
     .document()?;
     let mut deserializer = serde_json::Deserializer::from_slice(bytes);
@@ -1445,13 +1445,13 @@ pub(crate) fn saved_file_reference(
 struct Preflight<'a> {
     bytes: &'a [u8],
     position: usize,
-    nodes: usize,
+    path: Vec<diagnostics::JsonPathSegment>,
 }
 
 impl Preflight<'_> {
     fn document(mut self) -> Result<(), ProtocolError> {
         self.whitespace();
-        self.value(0)?;
+        self.value()?;
         self.whitespace();
         if self.position != self.bytes.len() {
             return self.syntax("trailing content after the complete JSON value");
@@ -1485,12 +1485,11 @@ impl Preflight<'_> {
         }
     }
 
-    fn value(&mut self, depth: usize) -> Result<(), ProtocolError> {
+    fn value(&mut self) -> Result<(), ProtocolError> {
         self.whitespace();
-        self.nodes += 1;
         match self.byte() {
-            Some(b'{') => self.object(depth + 1),
-            Some(b'[') => self.array(depth + 1),
+            Some(b'{') => self.object(),
+            Some(b'[') => self.array(),
             Some(b'"') => self.string().map(|_| ()),
             Some(b't') => self.literal(b"true"),
             Some(b'f') => self.literal(b"false"),
@@ -1501,7 +1500,7 @@ impl Preflight<'_> {
         }
     }
 
-    fn object(&mut self, depth: usize) -> Result<(), ProtocolError> {
+    fn object(&mut self) -> Result<(), ProtocolError> {
         let object_offset = self.position;
         self.position += 1;
         self.whitespace();
@@ -1517,14 +1516,9 @@ impl Preflight<'_> {
             }
             let key = self.string()?;
             if let Some(first_offset) = keys.get(&key) {
-                // Only a schema-owned root member may enter the hint. Nested
-                // or unknown keys can be arbitrary authored data; their exact
-                // locations suffice without echoing that data into recovery.
-                let hint = if depth == 1 {
-                    diagnostics::root_member_hint(&key)
-                } else {
-                    ShapeHint::default()
-                };
+                // Resolve names against the schema, including nested fields.
+                // Unknown keys and opaque payloads never enter recovery text.
+                let hint = diagnostics::duplicate_member_hint(&self.path, &key);
                 return Err(ProtocolError::DuplicateKey {
                     offset,
                     first_offset: *first_offset,
@@ -1532,12 +1526,14 @@ impl Preflight<'_> {
                     hint,
                 });
             }
-            keys.insert(key, offset);
+            keys.insert(key.clone(), offset);
             self.whitespace();
             if !self.take(b':') {
                 return self.syntax("expected a colon after the object member name");
             }
-            self.value(depth)?;
+            self.path.push(diagnostics::JsonPathSegment::Member(key));
+            self.value()?;
+            self.path.pop();
             self.whitespace();
             if self.take(b'}') {
                 return Ok(());
@@ -1548,14 +1544,17 @@ impl Preflight<'_> {
         }
     }
 
-    fn array(&mut self, depth: usize) -> Result<(), ProtocolError> {
+    fn array(&mut self) -> Result<(), ProtocolError> {
         self.position += 1;
         self.whitespace();
         if self.take(b']') {
             return Ok(());
         }
+        let mut index = 0;
         loop {
-            self.value(depth)?;
+            self.path.push(diagnostics::JsonPathSegment::Element(index));
+            self.value()?;
+            self.path.pop();
             self.whitespace();
             if self.take(b']') {
                 return Ok(());
@@ -1563,6 +1562,7 @@ impl Preflight<'_> {
             if !self.take(b',') {
                 return self.syntax("expected a comma or closing array delimiter");
             }
+            index += 1;
         }
     }
 
