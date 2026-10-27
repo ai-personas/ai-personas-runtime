@@ -25,7 +25,7 @@ pub(super) fn project_pending(
             "original_references":roots.iter().map(wire_reference).collect::<Vec<_>>(),
             "body_supplied":false,
             "provider_rejection":{"invocation":pending.invocation,"terminal":pending.terminal},
-            "meaning":"The provider rejected the earlier input containing this pending read with context_length_exceeded. This input supplies exact byte metadata and current required qualifications. The requested file body was not supplied successfully. The original read and failed request remain retained; optional selections and the file are unchanged. Choose a useful representation or measured text range through ordinary reads or next-context selection, or use the retained bytes through host stdin_asset. This reference delivery ends when an accepted decision consumes this observation."
+            "meaning":"The provider rejected the earlier input containing this pending read with an explicit context or input-text length error. This input supplies exact byte metadata and current required qualifications. The requested file body was not supplied successfully. The original read and failed request remain retained; optional selections and the file are unchanged. Choose a useful representation or measured text range through ordinary reads or next-context selection, or use the retained bytes through host stdin_asset. This reference delivery ends when an accepted decision consumes this observation."
         });
         return Ok((value, inherited, exact, roots.clone()));
     }

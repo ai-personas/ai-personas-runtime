@@ -249,15 +249,17 @@ fn provider_context_failure(
     let attempt = &receipt["attempt_receipt"];
     let stream = &attempt["stream_diagnostic"];
     let http = &attempt["http_diagnostic"];
+    let input_text_length = provider::input_text_length_rejected(http);
     let context_length = stream["remote_error_code"] == "context_length_exceeded"
-        || http["error_code"] == "context_length_exceeded";
+        || http["error_code"] == "context_length_exceeded" || input_text_length;
     let supported = |code: &Value| code == "context_length_exceeded"
         || (prepared.input_history.is_some() && code == "invalid_encrypted_content");
     let observed = (attempt["http_status"] == 200 && receipt["failure"] == "remote_failure"
         && matches!(stream["event_type"].as_str(), Some("error" | "response.failed" | "response.incomplete"))
         && supported(&stream["remote_error_code"]))
         || (attempt["http_status"] == 400 && receipt["failure"] == "http_status"
-            && http["body_complete"] == true && supported(&http["error_code"]));
+            && http["body_complete"] == true
+            && (supported(&http["error_code"]) || input_text_length));
     if !observed || attempt["response_completed"] != false
         || !failed_response_only_attempt(invocation, prepared, evidence, true)?
     {

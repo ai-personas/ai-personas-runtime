@@ -165,6 +165,15 @@ text was successfully considered, truncate the retained output, change selected
 fragments/assets or repeat the command. The persona chooses useful reads, ranges,
 next context, further work and maintenance through the ordinary interface.
 
+A complete HTTP 400 `invalid_request_error` can report the same input problem
+as an overlong `input[n].content[m].text` field. The runtime also recognizes the
+exact structured explanation giving the maximum and actual string lengths,
+with actual length exceeding the reported maximum. The retained diagnostic and
+failed request stay unchanged. This uses the same reference recovery only when
+an eligible pending body or provider continuation can change projection. Other
+request errors and unrecognized explanations retain their existing disposition;
+the reported length does not become an application limit.
+
 For a pending supporting-file read, the next input supplies `bytes_metadata`
 for the same retained revision together with its current qualifications. The
 original requested reference remains available. This supplies byte identity,

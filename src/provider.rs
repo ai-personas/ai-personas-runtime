@@ -12,6 +12,7 @@ mod network_error;
 mod output_items;
 mod input_history;
 pub use http_error::Diagnostic as HttpErrorDiagnostic;
+pub(crate) use http_error::input_text_length_rejected;
 pub use network_error::{Diagnostic as NetworkDiagnostic, Stage as NetworkFailureStage, TransportDiagnostics};
 pub use output_items::RetainedOutputItems;
 pub use input_history::InputHistory;
