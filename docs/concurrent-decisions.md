@@ -170,9 +170,10 @@ also exclude remaining shared spend counters: each request has its own
 admission and reservation records. Accounting records actual use without applying
 a cumulative quota, and adoption preserves concurrent spending.
 
-New ordinary admissions also seal `independent_work` hashes for navigation and
-tool responses. A response containing only file/image/history/work inspection,
-search/discovery, or host, computation and HTTP effects can tolerate changes to
+New ordinary admissions also seal `independent_work` hashes for operations that
+do not change shared work records. A response containing only file, image,
+history or work inspection, search/discovery, or host, computation and HTTP
+effects can tolerate changes to
 peer artifact, evidence, judgment, finding, release and delivery records. New
 admissions also seal `independent_messages: true`, allowing ordinary local
 messages, authored replies and personal message-wait registrations to use this
@@ -182,10 +183,20 @@ decision nor formal delivery. An empty operation list can use the same scope.
 Those records and their accumulated
 work metadata are separate from the current task, membership, commitments,
 arrangements, pending dependencies and the exact source lineage actually supplied
-to the invocation. All of those dependencies remain checked. Native file
-mutations, responsibility, persona/need creation and other work
-commands retain the complete shared-record comparison. A mixed response uses
-that complete comparison as one atomic unit.
+to the invocation. All of those dependencies remain checked.
+
+New ordinary admissions additionally seal `independent_assets: true`. Native
+supporting-asset `file_write`, `file_edit` and `file_import` operations can use
+the same independent scope. A peer registering an artifact cannot by itself
+invalidate an unrelated supporting-file save. Adoption still checks the actual
+current source head, purpose scope, path uniqueness, policy and qualification
+lineage, exact edit matches and any supplied import-byte hash. It applies the
+complete response to current state, preserving peer records. Character/fragment
+changes, file retirement, responsibility, persona/need creation and other work
+commands retain the complete shared-record comparison. A response containing any
+of those operations uses that comparison as one atomic unit. Already admitted
+decisions without the new flag retain their original scope; their rejected
+responses are not replayed.
 
 With this sealed message scope, another persona's voluntary inbox wait is also
 independent. Registering it, receiving its message or retiring it does not discard

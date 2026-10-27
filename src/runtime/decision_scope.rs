@@ -34,14 +34,18 @@ pub struct Snapshot {
     optional_activity_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     saved_sources: BTreeMap<String, String>,
-    /// Separately sealed authority for navigation and tool responses that do
-    /// not change shared work records. Absence preserves the admitted scope.
+    /// Separately sealed authority for responses that do not change shared
+    /// work records. Absence preserves the admitted scope.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     independent_work: Option<IndependentWork>,
     /// New ordinary admissions also isolate personal message coordination.
     /// Older snapshots retain their complete message and wait dependencies.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     independent_messages: bool,
+    /// Native supporting-asset saves use their exact source and lineage checks
+    /// without depending on unrelated peer result records. Seal at admission.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    independent_assets: bool,
     /// New accepted actions distinguish a peer's ended-call cleanup from an
     /// actual control change. Already sealed actions retain their exact scope.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -55,6 +59,7 @@ pub(super) fn seal(state: &State, prepared: &Prepared) -> Result<Option<Snapshot
         return Ok(None);
     }
     Ok(Some(snapshot(state, prepared, FORMAT,
+        prepared.request.mode == Mode::Ordinary,
         prepared.request.mode == Mode::Ordinary,
         prepared.request.mode == Mode::Ordinary,
         prepared.request.mode == Mode::Ordinary,
@@ -79,6 +84,7 @@ fn snapshot(
     defer_incoming_child_messages: bool,
     independent_work: bool,
     independent_messages: bool,
+    independent_assets: bool,
     independent_peer_recovery: bool,
 ) -> Result<Snapshot> {
     let actor = &prepared.request.persona;
@@ -225,6 +231,7 @@ fn snapshot(
         saved_sources: BTreeMap::new(),
         independent_work,
         independent_messages,
+        independent_assets,
         independent_peer_recovery,
     })
 }
@@ -272,10 +279,13 @@ fn exclude_peer_message_waits(work: &mut w::Work, metadata: &mut WorkMeta, actor
 }
 
 /// Personal message-wait registration uses the same independence as ordinary
-/// messaging. Its current sender, unique dependency identity and matching wait
-/// continuation are still checked during adoption. Other work commands keep the
-/// complete shared-record check, including in a mixed response.
-fn independent_operations(decision: &p::Decision, independent_messages: bool) -> bool {
+/// messaging. Supporting-asset saves retain their current source/base, path,
+/// qualification and import-byte checks. Neither changes shared work records.
+/// Other work commands and fragment changes keep the complete shared-record
+/// check, including in a mixed response.
+fn independent_operations(
+    decision: &p::Decision, independent_messages: bool, independent_assets: bool,
+) -> bool {
     if !independent_messages && !matches!(&decision.reply, p::ReplyDisposition::None { .. }) {
         return false;
     }
@@ -285,6 +295,9 @@ fn independent_operations(decision: &p::Decision, independent_messages: bool) ->
         | p::Operation::HistoryQuery { .. } | p::Operation::HistoryRead { .. }
         | p::Operation::HistoryRecordsQuery { .. } | p::Operation::HistoryRecordRead { .. }
         | p::Operation::HistoryRecordReadFromInput { .. } | p::Operation::InspectWork { .. } => true,
+        p::Operation::FileWrite { scope: p::Scope::Assets {}, .. }
+        | p::Operation::FileEdit { scope: p::Scope::Assets {}, .. }
+        | p::Operation::FileImport { .. } => independent_assets,
         p::Operation::Communicate { .. } => independent_messages,
         p::Operation::WorkCommand { inputs, .. } => independent_messages
             && matches!(action(inputs), Ok(WorkAction::RegisterMessageWait { .. })),
@@ -410,8 +423,10 @@ pub(super) fn seal_intents(
         prepared.decision_scope.as_ref().is_some_and(|scope| scope.defer_incoming_child_messages),
         prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_work.is_some())
             && independent_operations(decision,
-                prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_messages)),
-        prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_messages), true)?;
+                prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_messages),
+                prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_assets)),
+        prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_messages),
+        prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_assets), true)?;
     for intent in intents {
         let operation = intent.body["operation"]
             .as_str()
@@ -469,7 +484,7 @@ pub(super) fn require_intent_current(
     let mut current = snapshot(state, prepared, INTENT_FORMAT,
         admitted.defer_incoming_peer_messages, admitted.defer_incoming_child_messages,
         admitted.independent_work.is_some(),
-        admitted.independent_messages, admitted.independent_peer_recovery)?;
+        admitted.independent_messages, admitted.independent_assets, admitted.independent_peer_recovery)?;
     for source in admitted.saved_sources.keys() {
         current
             .saved_sources
@@ -562,10 +577,10 @@ pub(super) fn require_current(
     let current = snapshot(state, prepared, &admitted.format,
         admitted.defer_incoming_peer_messages, admitted.defer_incoming_child_messages,
         admitted.independent_work.is_some(),
-        admitted.independent_messages, admitted.independent_peer_recovery)?;
+        admitted.independent_messages, admitted.independent_assets, admitted.independent_peer_recovery)?;
     require_match(
         admitted, &current, decision.is_some_and(|decision|
-            independent_operations(decision, admitted.independent_messages)),
+            independent_operations(decision, admitted.independent_messages, admitted.independent_assets)),
         "decision authority or supplied lineage changed",
     )?;
     Ok(true)
