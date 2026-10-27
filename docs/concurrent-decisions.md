@@ -381,6 +381,16 @@ structural recovery retain their quiescent boundaries. Local failed-lease
 retirement uses the completed invocation's exact ID and can preserve other owned
 calls. The latest call pointer for a work is not completion evidence.
 
+A completed character unit waiting for that boundary does not stop independent
+eligible peers from receiving calls while transports already pending at that
+boundary remain. Once those exact calls finish, new admission stops and any
+successors drain, so the handover cannot be starved by continual refilling.
+In particular, an initial-character response
+rejected by complete validation can recover through its retained invitation while
+another persona is still waiting for its provider. Selection continues to exclude
+the actor awaiting handover, and shared responsibility changes still drain owned
+calls before admission. Other deferred recovery keeps its existing fence.
+
 Final host-command workers may run alongside primary calls. The coordinator
 publishes their results between adoptions; affected requests must still pass
 freshness checks. Earlier commands in a response keep their authored order and

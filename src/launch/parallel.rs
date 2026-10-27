@@ -65,6 +65,7 @@ async fn run_with_subtree<D: Driver>(
     let mut owned = BTreeSet::new();
     let mut exclusive = BTreeSet::new();
     let mut deferred: Vec<(String, String, AdoptionStatus)> = Vec::new();
+    let mut handover_barrier = BTreeSet::new();
     let mut works = vec![root.to_owned()];
     let mut after = 0;
     let mut visited = BTreeSet::new();
@@ -80,6 +81,7 @@ async fn run_with_subtree<D: Driver>(
         // IDs, never Saved.works' newest call.
         if pending.is_empty() {
             draining_for_exclusive = false;
+            handover_barrier.clear();
             for (id, work, status) in std::mem::take(&mut deferred) {
                 let follow_up = (|| {
                     driver.before_step(app)?;
@@ -169,7 +171,12 @@ async fn run_with_subtree<D: Driver>(
 
         let mut next_scheduled_at = None;
         while stop.is_none()
-            && deferred.is_empty()
+            // A completed character unit waits for a settled handover, but
+            // does not hold independent initial-character attempts or ordinary
+            // peers. Selection still excludes held actors and drains before
+            // any transition that changes shared responsibility.
+            && (deferred.is_empty() || (!handover_barrier.is_empty()
+                && deferred.iter().all(|(_, _, status)| *status == AdoptionStatus::CharacterOnly)))
             && exclusive.is_empty()
             && !draining_for_exclusive
         {
@@ -257,8 +264,15 @@ async fn run_with_subtree<D: Driver>(
                     let work = completion.prepared.request.work.clone();
                     owned.remove(&id);
                     exclusive.remove(&id);
+                    handover_barrier.remove(&id);
                     match driver.finish(app, completion) {
                         Ok(report) if report.status == AdoptionStatus::CharacterOnly => {
+                            if deferred.is_empty() {
+                                // Refill only while calls already pending at
+                                // this boundary remain. Once they finish, drain
+                                // any successors so handover cannot starve.
+                                handover_barrier = owned.clone();
+                            }
                             deferred.push((id, work, report.status));
                         }
                         Ok(report) if report.status == AdoptionStatus::Held => {
