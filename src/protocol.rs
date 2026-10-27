@@ -152,11 +152,18 @@ pub enum WorkDisposition {
         #[schemars(schema_with = "work_evidence_schema")]
         evidence: Vec<String>,
     },
-    /// Your contribution satisfies the requested scope with its stated limits.
-    /// Unknowns explicitly allowed by the need may remain in a sufficient result;
-    /// do not invent additional deliverables or stakeholder acceptance requirements.
-    /// A self-chosen preliminary scope or disclaimer does not discharge the actual
-    /// request. Inspection and correction needed for it require no new request.
+    /// Your contribution fulfills the actual request or an accepted narrower
+    /// commitment. Explain what the result enables, which evidence supports that
+    /// use, and what remains of the requested result beyond your contribution.
+    /// A working interpretation, concept label, disclaimer or list of future
+    /// work does not make essential missing behavior an accepted limitation.
+    /// Necessary work still possible with available tools belongs to ongoing;
+    /// an indispensable unavailable input can justify blocked. Unavailable outside
+    /// validation is distinct from design, analysis or correction you can perform.
+    /// If your accepted part is finished but the request is not, identify actual
+    /// follow-through responsibility or the ownership gap. Unknowns explicitly
+    /// allowed by the need may remain; optional extensions are not compulsory.
+    /// Inspection and correction needed for the request require no new prompt.
     /// This attributed judgment does not perform shared selection, release,
     /// delivery or CloseGoal, whose actual authority and evidence gates still apply.
     IndividualSufficient {

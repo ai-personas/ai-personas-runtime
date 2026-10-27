@@ -3,6 +3,12 @@
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
 
+const DECISION_FIELDS: &[&str] = &[
+    "version", "invocation_id", "epoch", "work", "operations", "reply",
+    "fragment_maintenance", "asset_maintenance", "next_fragments", "next_assets",
+    "continuation",
+];
+
 const INTRO: &str = "Compact wire types (compact-decision-types-v1), generated from the application JSON Schema. Return one Decision JSON object, not type declarations. Fields are required unless marked ?. Objects reject extra fields unless [key: string] is shown; that index type constrains every extra field. Array<T> contains elements of type T. JSON allows any JSON value; never allows none; integer requires an integer JSON number. JSON literals denote exact values. oneOf(...) requires exactly one matching alternative; anyOf(...) requires at least one; allOf(...) requires every alternative. A | B allows either type. Each /* JSON */ note retains the JSON Schema descriptions, constraints and defaults for the immediately following type or field. Defaults do not make a required field optional. Native parsing, exact current references and cross-field checks still apply.\n\n";
 
 /// Fall back to the complete generated JSON for any unsupported construct, or
@@ -53,7 +59,7 @@ fn compact(schema: &Value) -> Option<String> {
     root.remove("$defs");
     let mut output = INTRO.to_owned();
     output.push_str("type Decision = ");
-    output.push_str(&node(&Value::Object(root), &names)?);
+    output.push_str(&ordered_node(&Value::Object(root), &names, DECISION_FIELDS)?);
     output.push_str(";\n");
     for (name, definition) in definitions {
         output.push_str(&format!(
@@ -100,6 +106,10 @@ fn note(values: Map<String, Value>) -> Option<String> {
 }
 
 fn node(schema: &Value, names: &BTreeSet<&str>) -> Option<String> {
+    ordered_node(schema, names, &[])
+}
+
+fn ordered_node(schema: &Value, names: &BTreeSet<&str>, order: &[&str]) -> Option<String> {
     if let Some(value) = schema.as_bool() {
         return Some(if value { "JSON" } else { "never" }.into());
     }
@@ -169,7 +179,7 @@ fn node(schema: &Value, names: &BTreeSet<&str>) -> Option<String> {
                 .map(|kind| primitive(kind.as_str()?))
                 .collect::<Option<Vec<_>>>()?
                 .join(" | "),
-            Some(Value::String(kind)) if kind == "object" => object_type(&mut shape, names)?,
+            Some(Value::String(kind)) if kind == "object" => object_type(&mut shape, names, order)?,
             Some(Value::String(kind)) if kind == "array" => {
                 let items = shape.remove("items").unwrap_or(Value::Bool(true));
                 if !shape.is_empty() {
@@ -199,7 +209,7 @@ fn literal(value: &Value) -> Option<String> {
     serde_json::to_string(value).ok()
 }
 
-fn object_type(shape: &mut Map<String, Value>, names: &BTreeSet<&str>) -> Option<String> {
+fn object_type(shape: &mut Map<String, Value>, names: &BTreeSet<&str>, order: &[&str]) -> Option<String> {
     let properties = shape
         .remove("properties")
         .unwrap_or_else(|| Value::Object(Map::new()));
@@ -222,11 +232,16 @@ fn object_type(shape: &mut Map<String, Value>, names: &BTreeSet<&str>) -> Option
         return None;
     }
     let mut fields = Vec::new();
-    // Show a variant's fixed tag before its payload. This changes presentation
-    // order only; every field and annotation retains its original meaning.
+    // Present the root's work judgment and actions before maintenance and next
+    // context. Nested variants still put their fixed tag before their payload.
+    // This changes no field, annotation, accepted key order or operation order.
     let mut ordered: Vec<_> = properties.iter().collect();
     ordered.sort_by_key(|(name, value)| {
-        name.as_str() != "kind" || !value.get("const").is_some_and(Value::is_string)
+        if name.as_str() == "kind" && value.get("const").is_some_and(Value::is_string) {
+            0
+        } else {
+            1 + order.iter().position(|field| *field == name.as_str()).unwrap_or(order.len())
+        }
     });
     for (name, value) in ordered {
         let field = if identifier(name) {
