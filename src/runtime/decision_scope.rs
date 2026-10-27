@@ -24,6 +24,10 @@ pub struct Snapshot {
     /// Absence retains the exact fence of an already admitted older request.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     defer_incoming_peer_messages: bool,
+    /// Exact child replies may enter the requester's parent inbox while its
+    /// decision runs. Absence preserves the admitted same-work-only rule.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    defer_incoming_child_messages: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     control_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -53,6 +57,7 @@ pub(super) fn seal(state: &State, prepared: &Prepared) -> Result<Option<Snapshot
     Ok(Some(snapshot(state, prepared, FORMAT,
         prepared.request.mode == Mode::Ordinary,
         prepared.request.mode == Mode::Ordinary,
+        prepared.request.mode == Mode::Ordinary,
         prepared.request.mode == Mode::Ordinary, false)?))
 }
 
@@ -71,6 +76,7 @@ fn snapshot(
     prepared: &Prepared,
     format: &str,
     defer_incoming_peer_messages: bool,
+    defer_incoming_child_messages: bool,
     independent_work: bool,
     independent_messages: bool,
     independent_peer_recovery: bool,
@@ -89,6 +95,8 @@ fn snapshot(
         // admission serial and failure holds still belong to this snapshot.
         persona.focus.retain(|id, _| id == work_id);
     }
+    require(!defer_incoming_child_messages || defer_incoming_peer_messages,
+        "child message deferral requires peer message deferral")?;
     if defer_incoming_peer_messages {
         require(
             (format == FORMAT || format == INTENT_FORMAT)
@@ -96,14 +104,15 @@ fn snapshot(
             "unsupported peer message deferral scope",
         )?;
         if let Some(focus) = persona.focus.get_mut(work_id) {
-            // Only an ordinary, unsupplied message from another current-work
-            // persona is independent of this admitted decision. Adoption keeps
-            // the actual queue and consumes only supplied observations. User
-            // feedback, shared questions, wait events and all other focus and
-            // work changes retain their existing freshness checks.
+            // Unsupplied ordinary messages, including exact child replies when
+            // separately sealed, remain queued for the next input. Adoption
+            // consumes only supplied observations. User feedback, shared
+            // questions, wait events and all other focus and work changes
+            // retain their existing freshness checks.
             focus.pending_observations.retain(|id| {
                 prepared.supplied_observations.contains(id)
-                    || !deferrable_peer_message(state, actor, work_id, id)
+                    || !deferrable_peer_message(state, actor, work_id, id,
+                        defer_incoming_child_messages)
             });
         }
     }
@@ -193,6 +202,7 @@ fn snapshot(
         metadata_sha256: digest(&metadata)?,
         supplied_lineage_sha256: digest(&(exposure, bindings))?,
         defer_incoming_peer_messages,
+        defer_incoming_child_messages,
         // Retain relevant control history as well as current state: a rapid
         // pause/resume must not revive an earlier undispatched action.
         control_sha256: if format == INTENT_FORMAT {
@@ -320,34 +330,43 @@ fn require_match(
         serde_json::to_string(&changed)?)))
 }
 
-fn deferrable_peer_message(state: &State, actor: &str, work: &str, id: &str) -> bool {
+fn deferrable_peer_message(
+    state: &State, actor: &str, work: &str, id: &str, include_child: bool,
+) -> bool {
     let (Some(observation), Some(message)) =
         (state.observations.get(id), state.messages.get(id))
     else { return false };
     observation.id == id
         && observation.actor == actor
         && observation.work == work
-        && observation.kind == "received_local_persona_message"
         && observation.invocation.as_ref() == Some(&message.invocation)
         && message.id == id
         && message.recipient == actor
-        && message.work == work
         && message.sender != actor
-        && state.board.work(&w::WorkId(work.into())).is_ok_and(|current| {
+        && state.board.work(&w::WorkId(message.work.clone())).is_ok_and(|current| {
             current.participants.contains_key(&w::PersonaId(message.sender.clone()))
         })
         && observation.payload["sender"] == message.sender
         && observation.payload["text"] == message.text
         && message.local_deposit_only
+        && ((message.work == work && observation.kind == "received_local_persona_message")
+            || (include_child && message.work != work && message.thread_work.is_none()
+                && observation.kind == "received_child_work_message"
+                // Use the same exact child/requester/parent routing as deposit
+                // and wait satisfaction. A cross-work notice or an unrelated
+                // message cannot become independent through its kind alone.
+                && requester_results::message_observation_work(state, message)
+                    .is_ok_and(|receiving_work| receiving_work == work)))
 }
 
 /// Actual inbox arrivals since admission, in deposit order. The sealed baseline
 /// excludes old queued messages even if their bodies were unavailable. A stored
 /// request without that boundary cannot retroactively match its earlier inbox.
 pub(super) fn deferred_peer_messages<'a>(state: &'a State, prepared: &Prepared) -> Vec<&'a Message> {
-    if !prepared.decision_scope.as_ref().is_some_and(|scope| scope.defer_incoming_peer_messages) {
+    let Some(scope) = prepared.decision_scope.as_ref()
+        .filter(|scope| scope.defer_incoming_peer_messages) else {
         return Vec::new();
-    }
+    };
     let Some(baseline) = &prepared.pending_observations_at_admission else {
         return Vec::new();
     };
@@ -356,7 +375,8 @@ pub(super) fn deferred_peer_messages<'a>(state: &'a State, prepared: &Prepared) 
     state.personas[actor].focus[work].pending_observations.iter()
         .filter(|id| !baseline.contains(*id)
             && !prepared.supplied_observations.contains(id)
-            && deferrable_peer_message(state, actor, work, id))
+            && deferrable_peer_message(state, actor, work, id,
+                scope.defer_incoming_child_messages))
         .filter_map(|id| state.messages.get(id))
         .collect()
 }
@@ -387,6 +407,7 @@ pub(super) fn seal_intents(
     }
     let common = snapshot(state, prepared, INTENT_FORMAT,
         prepared.decision_scope.as_ref().is_some_and(|scope| scope.defer_incoming_peer_messages),
+        prepared.decision_scope.as_ref().is_some_and(|scope| scope.defer_incoming_child_messages),
         prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_work.is_some())
             && independent_operations(decision,
                 prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_messages)),
@@ -446,7 +467,8 @@ pub(super) fn require_intent_current(
         "unsupported scoped intent admission",
     )?;
     let mut current = snapshot(state, prepared, INTENT_FORMAT,
-        admitted.defer_incoming_peer_messages, admitted.independent_work.is_some(),
+        admitted.defer_incoming_peer_messages, admitted.defer_incoming_child_messages,
+        admitted.independent_work.is_some(),
         admitted.independent_messages, admitted.independent_peer_recovery)?;
     for source in admitted.saved_sources.keys() {
         current
@@ -538,7 +560,8 @@ pub(super) fn require_current(
         "unsupported scoped decision admission",
     )?;
     let current = snapshot(state, prepared, &admitted.format,
-        admitted.defer_incoming_peer_messages, admitted.independent_work.is_some(),
+        admitted.defer_incoming_peer_messages, admitted.defer_incoming_child_messages,
+        admitted.independent_work.is_some(),
         admitted.independent_messages, admitted.independent_peer_recovery)?;
     require_match(
         admitted, &current, decision.is_some_and(|decision|

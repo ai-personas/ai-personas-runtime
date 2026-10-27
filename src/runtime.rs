@@ -10897,7 +10897,8 @@ fn apply_work_actions(
             .insert(wait.id.clone(), wait);
     }
     invalidate_replaced_message_waits(state, &wid.0)?;
-    // An ordinary peer reply can be deposited while this model call runs,
+    // An ordinary peer reply, including a child reply under its sealed scope,
+    // can be deposited while this model call runs,
     // before its chosen wait exists. Match only arrivals after the sealed inbox
     // boundary and only this response's new registrations. Earlier inbox
     // messages, Stop/Pause and unrelated waits acquire no new event. The exact

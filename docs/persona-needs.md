@@ -216,8 +216,15 @@ wait naming the invited existing persona and choose `continuation.kind=wait`
 with that dependency and a future deadline. The sender need not already
 participate in the parent work. A later child reply satisfies that exact wait in
 the immediate parent and preserves the original child message attribution. It
-does not bypass Stop/Pause, match an earlier inbox item or infer a reply. A new invitee receives an initial opportunity without a
-separate initial-recipient approval. It can accept, decline or stop under the
+does not bypass Stop/Pause, match an earlier inbox item or infer a reply.
+If the child replies while a newly admitted parent decision is running, the
+ordinary unsupplied message remains queued for
+the next parent input instead of invalidating that decision. A wait registered
+by the response can match this actual arrival after its sealed inbox boundary;
+an already active wait's event remains a decision dependency.
+
+A new invitee receives an initial opportunity without a separate
+initial-recipient approval. It can accept, decline or stop under the
 ordinary work rules. Existing Stop/Pause choices and unfinished invocations are
 not reset by removing the participant gates. The recorded `PersonaArranged`
 eligible list is also metadata: accepted participants can form arrangements
