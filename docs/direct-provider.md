@@ -318,7 +318,26 @@ for freshness, accounting, compatibility and the paths that remain sequential.
 
 ## Wire and stream validation
 
-New persona admissions request the complete Decision directly. Ordinary work uses `text.format: {"type":"json_object"}`; initial character authorship uses a strict schema derived from its closed operation subset. The prompt supplies `APPLICATION_DECISION_SCHEMA`; the native parser validates the entire received object, including duplicate keys, required fields, tagged variants and cross-field rules, before any adoption. Provider formatting alone does not establish application-schema validity. Direct JSON removes the extra escaping layer that a JSON-string carrier imposed on scripts and other text.
+New persona admissions request the complete Decision directly. Ordinary work uses
+`text.format` with `type: "json_schema"`, `name: "persona_decision"` and
+`strict: false`; initial character authorship uses a strict schema derived from
+its closed operation subset. The prompt supplies `APPLICATION_DECISION_SCHEMA`;
+the native parser validates the entire received object, including duplicate
+keys, required fields, tagged variants and cross-field rules, before any
+adoption. Provider formatting alone does not establish application-schema
+validity. Direct JSON removes the extra escaping layer that a JSON-string
+carrier imposed on scripts and other text.
+
+The ordinary transport schema comes from the same applicable native contract as
+the prompt. It retains optional fields, tagged alternatives, constraints and
+arbitrary JSON capability inputs. Non-strict formatting can assist authorship
+without narrowing those open inputs to a provider-supported strict subset.
+Descriptions, defaults and other presentation annotations are omitted only from
+schema nodes in the transport copy; they remain in the complete prompt contract.
+Authored property names and literal values are preserved. Need proposals appear
+only when their intake interface is offered. The saved request and input-size
+accounting use the actual selected schema, including during initialization;
+these byte counts do not measure billed tokens or establish improved decisions.
 
 The initial-character transport schema makes nullable fields and defaulted
 collections explicit, retains closed objects, and converts disjoint fixed-tag
@@ -392,7 +411,11 @@ explanations retain their text with the actual request credentials redacted;
 headers and non-JSON bodies are not copied. Interrupted reads remain partial; an HTTP rejection still
 does not establish token usage, remote cancellation or permission to replay.
 
-The application permits operation-specific inputs and maps whose keys are authored at runtime. These are not closed objects suitable for a fixed strict response schema. [OpenAI's JSON-mode documentation](https://developers.openai.com/api/docs/guides/structured-outputs#json-mode) describes JSON-object transport and its application-validation requirement. Incomplete, invalid or refused output remains a retained failure, with no transport retry or JSON repair.
+The application permits operation-specific inputs and maps whose keys are
+authored at runtime. These are not closed objects suitable for a fixed strict
+response schema, so ordinary output uses the non-strict contract described
+above. Incomplete, invalid or refused output remains a retained failure, with
+no transport retry or JSON repair.
 
 Within an authorized foreground session, a complete rejected ordinary decision
 can release its failed local invocation when the persona already has an accepted
@@ -452,7 +475,17 @@ roles and instructions. Traditional routing uses truthful application identity
 and its explicit beta header; mode-specific headers cannot leak into the public
 routes.
 
-The saved `output_schema` is `{"type":"object"}` for ordinary direct Decision transport, or the generated strict schema for initial character authorship. Its audit digest identifies that response contract; the serialized provider request binds the actual format. Historical admissions and the isolated onboarding echo retain the strict `{"decision_json":"..."}` carrier. Response decoding follows the exact admitted format, never a guessed fallback. Direct responses retain their original UTF-8 bytes without reserialization; historical carriers are decoded once. Completion receipts identify `direct_decision_json_v1` or `decision_json_string_v1`, and the exact application bytes still receive the same complete parser.
+The saved `output_schema` is the generated non-strict ordinary schema or the
+generated strict initialization schema. Its audit digest identifies that response
+contract; the serialized provider request binds the actual format.
+`ai-personas schema` exposes both ordinary variants and the initialization schema.
+Earlier direct JSON-object admissions retain `{"type":"object"}`; older
+admissions and the isolated onboarding echo retain the strict
+`{"decision_json":"..."}` carrier. Response decoding follows the exact admitted
+format, never a guessed fallback. Direct responses retain their original UTF-8
+bytes without reserialization; historical carriers are decoded once. Completion
+receipts identify `direct_decision_json_v1` or `decision_json_string_v1`, and the
+exact application bytes still receive the same complete parser.
 
 Completion requires one completed assistant output-text message, consistent response/model/item identity, agreement with observed text deltas, and EOF after the terminal event. OAuth routes may omit the response Content-Type header; the same complete SSE validation still applies. A conflicting media type, duplicate headers or encoded body remains invalid. Refusals, returned tools, unsupported snapshots, malformed streams, duplicate/conflicting terminals, trailing errors and incomplete output retain their actual failures. Reasoning is never adopted as a response.
 

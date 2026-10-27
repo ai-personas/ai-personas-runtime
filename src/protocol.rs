@@ -1309,6 +1309,16 @@ pub fn initialization_provider_schema() -> Option<Value> {
     SCHEMA.get_or_init(schema_transport::initialization).clone()
 }
 
+/// Non-strict provider assistance for ordinary decisions, retaining optional
+/// fields, tagged alternatives, constraints and arbitrary tool-input values.
+/// Descriptions and defaults remain in the complete model-facing contract.
+pub fn ordinary_provider_schema(need_proposals: bool) -> Value {
+    static WITH_NEEDS: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    static WITHOUT_NEEDS: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    let cache = if need_proposals { &WITH_NEEDS } else { &WITHOUT_NEEDS };
+    cache.get_or_init(|| schema_transport::ordinary(need_proposals)).clone()
+}
+
 /// Present the same Decision envelope with only the restricted repair shapes.
 /// This does not admit a repair, authorize a read, establish a selection subset,
 /// or replace the complete parser and runtime's current-state validation.

@@ -1,7 +1,39 @@
-//! Provider decoding assistance for the closed initial-character contract.
+//! Provider decoding assistance derived from the native response contract.
 //! Native validation remains authoritative, including constraints omitted here.
 use serde_json::Value;
 use std::collections::BTreeSet;
+
+pub(super) fn ordinary(need_proposals: bool) -> Value {
+    let mut schema = super::ordinary_schema(need_proposals);
+    remove_annotations(&mut schema);
+    schema
+}
+
+/// The prompt already supplies the complete descriptions and defaults. Remove
+/// only presentation annotations from schema nodes, never similarly named
+/// object properties, enum/const values, or open-ended authored payloads.
+fn remove_annotations(schema: &mut Value) {
+    let Some(object) = schema.as_object_mut() else { return; };
+    for key in ["title", "description", "$comment", "default", "examples"] {
+        object.remove(key);
+    }
+    for key in ["$defs", "definitions", "properties", "patternProperties", "dependentSchemas"] {
+        if let Some(fields) = object.get_mut(key).and_then(Value::as_object_mut) {
+            for field in fields.values_mut() { remove_annotations(field); }
+        }
+    }
+    for key in ["oneOf", "anyOf", "allOf", "prefixItems"] {
+        if let Some(branches) = object.get_mut(key).and_then(Value::as_array_mut) {
+            for branch in branches { remove_annotations(branch); }
+        }
+    }
+    for key in ["items", "additionalProperties", "additionalItems", "contains",
+        "not", "if", "then", "else", "propertyNames", "unevaluatedProperties",
+        "unevaluatedItems", "contentSchema"]
+    {
+        if let Some(child) = object.get_mut(key) { remove_annotations(child); }
+    }
+}
 
 pub(super) fn initialization() -> Option<Value> {
     let mut schema = super::initialization_schema();

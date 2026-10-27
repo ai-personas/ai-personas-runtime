@@ -847,9 +847,9 @@ pub struct ProviderRequest {
     pub reusable_prefix_bytes: Option<usize>,
     pub input_history: Option<InputHistory>,
     pub images: Vec<ImageInput>,
-    /// The unconstrained object schema selects JSON-object transport. Other
-    /// schemas use strict structured output. The application validates its
-    /// complete response in either case.
+    /// The unconstrained object schema selects JSON-object transport. Native
+    /// ordinary schemas use non-strict structure; other schemas use strict
+    /// structure. The application always validates the complete response.
     pub output_schema: Value,
     pub invocation_id: String,
 }
@@ -1297,7 +1297,9 @@ fn response_only_body(
     let format = if schema == &json_object_schema() {
         json!({"type":"json_object"})
     } else {
-        json!({"type":"json_schema","name":"persona_decision","strict":true,"schema":schema})
+        let ordinary = [false, true].into_iter()
+            .any(|needs| schema == &crate::protocol::ordinary_provider_schema(needs));
+        json!({"type":"json_schema","name":"persona_decision","strict":!ordinary,"schema":schema})
     };
     let mut input = input_history.map(|history| history.items(model, profile)).transpose()?.unwrap_or_default();
     input.extend(current_input(profile, prompt, reusable_prefix_bytes, images)?);

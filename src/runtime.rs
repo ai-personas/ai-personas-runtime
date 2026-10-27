@@ -119,9 +119,9 @@ fn terminal_evidence_capacity(response_bytes: usize) -> Result<u64> {
 }
 
 /// Historical strict carrier, retained for onboarding and exact old admissions.
-/// New persona admissions return the complete Decision directly, using either
-/// JSON-object transport or the closed initial-character schema. adopt_response
-/// always accepts raw Decisions.
+/// New persona admissions return the complete Decision directly, using the
+/// applicable ordinary or initial-character schema. adopt_response always
+/// accepts raw Decisions.
 pub fn provider_schema() -> Value {
     json!({"type":"object","properties":{"decision_json":{"type":"string"}},
         "required":["decision_json"],"additionalProperties":false})
@@ -163,6 +163,15 @@ fn decode_provider_decision(bytes: &[u8], schema: &Value) -> Result<String> {
 fn direct_decision_schema(schema: &Value) -> bool {
     schema == &provider::json_object_schema()
         || p::initialization_provider_schema().as_ref() == Some(schema)
+        || [false, true].into_iter().any(|needs| schema == &p::ordinary_provider_schema(needs))
+}
+
+fn persona_output_schema(initial_character: bool, need_proposals: bool) -> Value {
+    if initial_character {
+        p::initialization_provider_schema().unwrap_or_else(provider::json_object_schema)
+    } else {
+        p::ordinary_provider_schema(need_proposals)
+    }
 }
 
 fn composite_id(kind: &str, parts: &[&str]) -> String {
@@ -4239,11 +4248,7 @@ impl Runtime {
             input_history: rendered.input_history,
             images: rendered.images,
             prompt_encoding: rendered.prompt_encoding,
-            output_schema: if persona.character.is_none() {
-                p::initialization_provider_schema().unwrap_or_else(provider::json_object_schema)
-            } else {
-                provider::json_object_schema()
-            },
+            output_schema: persona_output_schema(persona.character.is_none(), rendered.need_interface.is_some()),
             reconsideration_interface: persona.character.is_some()
                 .then(|| RECONSIDERATION_INTERFACE.into()),
             history_records_interface: persona.character.is_some()
@@ -7732,7 +7737,9 @@ fn render_mode_with_history(
         .transpose().map_err(|_| invalid("provider continuation input accounting"))?.unwrap_or(0);
     growth_bytes = growth_bytes.checked_add(input_history_bytes)
         .ok_or_else(|| invalid("provider continuation input size overflow"))?;
-    let schema_bytes = serde_json::to_vec(&provider::json_object_schema())?.len();
+    let schema_bytes = serde_json::to_vec(&persona_output_schema(
+        persona.character.is_none(), need_interface.is_some(),
+    ))?.len();
     // Measure only the actual instruction/schema components, not dynamic
     // control fields, counters, invocation identifiers or resource formatting.
     let mut fixed_contract_bytes = [
