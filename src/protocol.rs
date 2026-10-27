@@ -1143,6 +1143,8 @@ pub enum ProtocolError {
     },
     #[error("invalid {path}: {rule}")]
     Invalid { path: String, rule: &'static str },
+    #[error("invalid operations[{index}].id: duplicate operation identifier; first used at operations[{first_index}].id; every operation needs a distinct id within this response")]
+    DuplicateOperationId { index: usize, first_index: usize },
 }
 
 /// Parse and validate the complete response without performing any mutation.
@@ -2752,8 +2754,8 @@ pub fn validate_decision(
     let mut input_nodes = 0;
     for (index, operation) in decision.operations.iter().enumerate() {
         check_operation(operation, index, &mut input_nodes)?;
-        if by_id.insert(operation.id(), index).is_some() {
-            return Err(invalid("operations", "duplicate operation identifier"));
+        if let Some(first_index) = by_id.insert(operation.id(), index) {
+            return Err(ProtocolError::DuplicateOperationId { index, first_index });
         }
         match operation {
             Operation::WarningAdopt { warning_id, .. }

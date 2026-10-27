@@ -466,6 +466,12 @@ dynamic map keys and opaque input bodies remain undisclosed. No first or last
 duplicate value is selected as authoritative, and the complete response remains
 rejected for the persona to correct in a fresh eligible decision.
 
+Repeated operation identifiers are a separate cross-object error. Their
+diagnostic names both `operations[index].id` positions, including the first
+occurrence, without copying the identifier or either operation's payload.
+The complete response is still rejected; the persona authors distinct operation
+IDs and any corresponding reference changes in a fresh decision.
+
 Current persona instructions no longer advertise removed navigation,
 source-ID, metadata or history-page ceilings.
 
