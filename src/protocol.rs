@@ -896,6 +896,13 @@ pub enum Operation {
         disposition: String,
         reason: String,
     },
+    /// Record an attributed informal interpretation of an exact saved file.
+    /// The authored assessment remains in the accepted Decision history.
+    /// Formal work assessments are separate work_command operations with
+    /// artifact, outcome, role and formal-evidence bindings; inspect_work's
+    /// assessments collection contains those formal records. This informal
+    /// interpretation creates no formal evidence, judgment, shared selection
+    /// or release and does not authenticate the cited evidence.
     Assess {
         id: String,
         subject: ExactRef,

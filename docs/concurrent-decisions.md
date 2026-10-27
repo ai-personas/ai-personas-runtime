@@ -198,6 +198,16 @@ of those operations uses that comparison as one atomic unit. Already admitted
 decisions without the new flag retain their original scope; their rejected
 responses are not replayed.
 
+New ordinary admissions also seal `independent_assessments: true`. The native
+`assess` operation records an informal interpretation of an exact qualified
+source. It can tolerate unrelated peer result-record changes while preserving
+its admitted actor, task authority and supplied lineage checks. The qualified
+subject and unique interpretation identity are still checked during adoption.
+Its authored operation remains in accepted Decision history. Formal work
+assessments, judgments, shared selection and release remain separate work
+commands with the complete comparison, including in a mixed response. An
+admission without this flag keeps its original assessment scope.
+
 With this sealed message scope, another persona's voluntary inbox wait is also
 independent. Registering it, receiving its message or retiring it does not discard
 unrelated pending responses or accepted commands. Only exact dependencies with

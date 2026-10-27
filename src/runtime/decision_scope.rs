@@ -46,6 +46,9 @@ pub struct Snapshot {
     /// without depending on unrelated peer result records. Seal at admission.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     independent_assets: bool,
+    /// Informal source interpretations do not alter formal shared work records.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    independent_assessments: bool,
     /// New accepted actions distinguish a peer's ended-call cleanup from an
     /// actual control change. Already sealed actions retain their exact scope.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -59,6 +62,7 @@ pub(super) fn seal(state: &State, prepared: &Prepared) -> Result<Option<Snapshot
         return Ok(None);
     }
     Ok(Some(snapshot(state, prepared, FORMAT,
+        prepared.request.mode == Mode::Ordinary,
         prepared.request.mode == Mode::Ordinary,
         prepared.request.mode == Mode::Ordinary,
         prepared.request.mode == Mode::Ordinary,
@@ -85,6 +89,7 @@ fn snapshot(
     independent_work: bool,
     independent_messages: bool,
     independent_assets: bool,
+    independent_assessments: bool,
     independent_peer_recovery: bool,
 ) -> Result<Snapshot> {
     let actor = &prepared.request.persona;
@@ -232,6 +237,7 @@ fn snapshot(
         independent_work,
         independent_messages,
         independent_assets,
+        independent_assessments,
         independent_peer_recovery,
     })
 }
@@ -280,11 +286,13 @@ fn exclude_peer_message_waits(work: &mut w::Work, metadata: &mut WorkMeta, actor
 
 /// Personal message-wait registration uses the same independence as ordinary
 /// messaging. Supporting-asset saves retain their current source/base, path,
-/// qualification and import-byte checks. Neither changes shared work records.
+/// qualification and import-byte checks. Informal source assessments retain
+/// their exact qualified subject and attribution. None changes shared work records.
 /// Other work commands and fragment changes keep the complete shared-record
 /// check, including in a mixed response.
 fn independent_operations(
     decision: &p::Decision, independent_messages: bool, independent_assets: bool,
+    independent_assessments: bool,
 ) -> bool {
     if !independent_messages && !matches!(&decision.reply, p::ReplyDisposition::None { .. }) {
         return false;
@@ -298,6 +306,7 @@ fn independent_operations(
         p::Operation::FileWrite { scope: p::Scope::Assets {}, .. }
         | p::Operation::FileEdit { scope: p::Scope::Assets {}, .. }
         | p::Operation::FileImport { .. } => independent_assets,
+        p::Operation::Assess { .. } => independent_assessments,
         p::Operation::Communicate { .. } => independent_messages,
         p::Operation::WorkCommand { inputs, .. } => independent_messages
             && matches!(action(inputs), Ok(WorkAction::RegisterMessageWait { .. })),
@@ -424,9 +433,11 @@ pub(super) fn seal_intents(
         prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_work.is_some())
             && independent_operations(decision,
                 prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_messages),
-                prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_assets)),
+                prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_assets),
+                prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_assessments)),
         prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_messages),
-        prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_assets), true)?;
+        prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_assets),
+        prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_assessments), true)?;
     for intent in intents {
         let operation = intent.body["operation"]
             .as_str()
@@ -484,7 +495,8 @@ pub(super) fn require_intent_current(
     let mut current = snapshot(state, prepared, INTENT_FORMAT,
         admitted.defer_incoming_peer_messages, admitted.defer_incoming_child_messages,
         admitted.independent_work.is_some(),
-        admitted.independent_messages, admitted.independent_assets, admitted.independent_peer_recovery)?;
+        admitted.independent_messages, admitted.independent_assets,
+        admitted.independent_assessments, admitted.independent_peer_recovery)?;
     for source in admitted.saved_sources.keys() {
         current
             .saved_sources
@@ -577,10 +589,12 @@ pub(super) fn require_current(
     let current = snapshot(state, prepared, &admitted.format,
         admitted.defer_incoming_peer_messages, admitted.defer_incoming_child_messages,
         admitted.independent_work.is_some(),
-        admitted.independent_messages, admitted.independent_assets, admitted.independent_peer_recovery)?;
+        admitted.independent_messages, admitted.independent_assets,
+        admitted.independent_assessments, admitted.independent_peer_recovery)?;
     require_match(
         admitted, &current, decision.is_some_and(|decision|
-            independent_operations(decision, admitted.independent_messages, admitted.independent_assets)),
+            independent_operations(decision, admitted.independent_messages, admitted.independent_assets,
+                admitted.independent_assessments)),
         "decision authority or supplied lineage changed",
     )?;
     Ok(true)
