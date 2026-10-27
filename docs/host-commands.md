@@ -66,6 +66,25 @@ interface (or the foreground directory without a saved launch). Relative paths
 resolve against that directory. `stdin` optionally
 supplies UTF-8 input. A persona may choose `timeout_seconds`; omission or `null`
 means no timeout. A chosen timeout stops that command's process group.
+
+For an interpreter script, put its source in `stdin` and invoke the interpreter
+with `command`, for example:
+
+```json
+{
+  "command": "python3 -",
+  "result_context": "complete",
+  "stdin": "from pathlib import Path\nprint(Path.cwd())\n"
+}
+```
+
+Encode the script once as a JSON string. The runner supplies the decoded UTF-8
+bytes directly as standard input; no shell quoting, heredoc delimiter, or second
+JSON encoding is needed inside `stdin`. The command itself is still interpreted
+by Bash. This avoids another quoting layer; the persona remains responsible for
+valid source and for inspecting its actual result. The supplied input schema
+includes this guidance, so it does not depend on reading this guide first.
+
 An explicit work pause or cancellation, or a pause/quarantine of the owning
 persona, also stops a running command's process group. The runner observes the
 retained control before starting the process and while waiting for its exit.

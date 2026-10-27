@@ -16,6 +16,8 @@ use schemars::JsonSchema;
 /// each check against the property it actually inspects.
 pub(super) struct Inputs {
     /// Bash command or script; tools and packages may be installed directly.
+    /// For an interpreter script, use a command such as python3 - with the script
+    /// in stdin, avoiding an extra layer of shell quoting or a heredoc.
     pub command: String,
     /// Choose the next decision's result context: complete supplies all retained
     /// command and output text; reference supplies execution metadata and exact
@@ -24,7 +26,10 @@ pub(super) struct Inputs {
     /// Host working directory; omission uses the offered default.
     #[serde(default)]
     pub working_directory: Option<String>,
-    /// Literal UTF-8 stdin. Mutually exclusive with stdin_asset.
+    /// Literal UTF-8 stdin, supplied directly to the process. For command
+    /// "python3 -", put the Python source here. Encode the intended text once as
+    /// a JSON string; do not JSON-encode it again inside this string or shell-escape
+    /// it. Mutually exclusive with stdin_asset.
     #[serde(default)]
     pub stdin: Option<String>,
     /// Supply exact supporting-asset bytes as stdin without copying them into this
