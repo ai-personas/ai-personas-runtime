@@ -114,9 +114,15 @@ separate from host filesystem files.
 Host files are shared and mutable. Participants use the same configured task
 directory; commands do not receive a private copy or a filesystem transaction.
 The supplied interface makes this explicit so personas can choose useful
-coordination and inspect current versions before editing or judging a package.
+coordination and appropriate checks before editing or judging a package.
 A retained command result or image capture describes the bytes observed then;
 it does not establish the current contents of a path that another command changed.
+That observation remains usable evidence: a new admission, elapsed time or activity
+on unrelated files does not by itself invalidate it. Personas choose further
+inspection when a relevant change or concrete uncertainty warrants it. A command
+may check current preconditions and perform the intended change together; no
+separate inspection-only call is required.
+
 Selected command-output fields retain their originating invocation and observation
 ID, with the time the runtime recorded that outcome. A selected stdout or stderr
 field supplies only that field and range, not the complete command, exit status
