@@ -16,6 +16,8 @@ pub fn export_result_at(root: &Path, operator: Option<&str>, work: &str, destina
 
 fn export(state: &State, output: &Output, destination: &Path, now: i64) -> Result<Value> {
     let mut files = Vec::new();
+    let mut delivered_index = Vec::new();
+    let mut cited_index = Vec::new();
     for (delivery_index, record) in output.local_deliveries.iter().enumerate() {
         let delivery = &record.body;
         let artifacts = delivery["artifacts"].as_array()
@@ -42,12 +44,19 @@ fn export(state: &State, output: &Output, destination: &Path, now: i64) -> Resul
             let name = Path::new(path).file_name().and_then(|name| name.to_str())
                 .ok_or_else(|| invalid("export artifact filename unavailable"))?;
             let artifact_prefix = format!("{prefix}/artifact-{}", artifact_index + 1);
-            files.push((format!("{artifact_prefix}/content/{name}"), bytes));
-            files.push((format!("{artifact_prefix}/qualified-bundle.json"), bundle_text.as_bytes().to_vec()));
+            let content_path = format!("{artifact_prefix}/content/{name}");
+            let bundle_path = format!("{artifact_prefix}/qualified-bundle.json");
+            delivered_index.push(IndexEntry {
+                name: name.into(), content_path: content_path.clone(),
+                attribution: format!("Delivery package {}", delivery_index + 1),
+                source_path: format!("{prefix}/receipt.json"), bundle_path: bundle_path.clone(),
+            });
+            files.push((content_path, bytes));
+            files.push((bundle_path, bundle_text.as_bytes().to_vec()));
         }
     }
     let mut cited = BTreeSet::new();
-    for message in &output.messages {
+    for (message_index, message) in output.messages.iter().enumerate() {
         let sender = state.personas.get(&message.sender)
             .ok_or_else(|| invalid("export citation sender unavailable"))?;
         let mut a = admission(sender, now);
@@ -79,9 +88,17 @@ fn export(state: &State, output: &Output, destination: &Path, now: i64) -> Resul
             let name = Path::new(&stored.record.path).file_name().and_then(|name| name.to_str())
                 .ok_or_else(|| invalid("export cited filename unavailable"))?;
             let prefix = format!("referenced-file-{}", cited.len());
-            files.push((format!("{prefix}/content/{name}"), stored.record.bytes.clone()));
-            files.push((format!("{prefix}/qualified-bundle.json"), bundle.as_bytes().to_vec()));
-            files.push((format!("{prefix}/source.json"), serde_json::to_vec_pretty(&json!({
+            let content_path = format!("{prefix}/content/{name}");
+            let bundle_path = format!("{prefix}/qualified-bundle.json");
+            let source_path = format!("{prefix}/source.json");
+            cited_index.push(IndexEntry {
+                name: name.into(), content_path: content_path.clone(),
+                attribution: format!("{}, reply {}: {}", sender.seed.label, message_index + 1, message.subject),
+                source_path: source_path.clone(), bundle_path: bundle_path.clone(),
+            });
+            files.push((content_path, stored.record.bytes.clone()));
+            files.push((bundle_path, bundle.as_bytes().to_vec()));
+            files.push((source_path, serde_json::to_vec_pretty(&json!({
                 "kind":"requested_cited_file_export", "cited_reference":subject,
                 "metadata_reference":wire_reference(&metadata),
                 "bytes":stored.record.bytes.len(),"sha256":s::sha256_bytes(&stored.record.bytes),
@@ -98,6 +115,7 @@ fn export(state: &State, output: &Output, destination: &Path, now: i64) -> Resul
             "destination":null,"files":[],"delivery_count":0,"cited_file_count":0,
             "inference_performed":false,"artifacts_executed":false,"goal_completed":false}));
     }
+    files.push(("index.html".into(), render_index(&delivered_index, &cited_index).into_bytes()));
     if let Some(parent) = destination.parent().filter(|parent| !parent.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)?;
     }
@@ -112,7 +130,60 @@ fn export(state: &State, output: &Output, destination: &Path, now: i64) -> Resul
         file.sync_all()?;
         written.push(json!({"path":path,"bytes":bytes.len(),"sha256":s::sha256_bytes(&bytes)}));
     }
-    Ok(json!({"work":output.work_id,"status":"exported","destination":destination,"files":written,
+    Ok(json!({"work":output.work_id,"status":"exported","destination":destination,
+        "index_path":destination.join("index.html"),"files":written,
         "delivery_count":output.local_deliveries.len(),"cited_file_count":cited.len(),"inference_performed":false,
         "artifacts_executed":false,"goal_completed":false}))
+}
+
+struct IndexEntry {
+    name: String,
+    content_path: String,
+    attribution: String,
+    source_path: String,
+    bundle_path: String,
+}
+
+fn html_text(value: &str) -> String {
+    value.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+        .replace('"', "&quot;").replace('\'', "&#39;")
+}
+
+fn relative_url(path: &str) -> String {
+    let mut encoded = String::new();
+    for byte in path.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-._~/".contains(&byte) {
+            encoded.push(byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
+}
+
+/// Only escaped labels and relative links are rendered. Artifact bodies remain
+/// separate files; opening the index neither embeds nor executes their content.
+fn render_index(delivered: &[IndexEntry], cited: &[IndexEntry]) -> String {
+    let mut html = String::from(r#"<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Exported files</title>
+<style>body{font:1rem/1.6 system-ui,sans-serif;max-width:54rem;margin:3rem auto;padding:0 1.5rem;color:#20252b;background:#fff}h1,h2{line-height:1.2}a{color:#0758ae;overflow-wrap:anywhere}li{margin:1.2rem 0;padding-bottom:1rem;border-bottom:1px solid #dde1e6}p{margin:.35rem 0}details{font-size:.9rem}summary{cursor:pointer}ul{padding-left:1.3rem}</style>
+</head><body><h1>Exported files</h1>
+<p>Open a file below. Different versions remain separate, with their reply or delivery attribution.</p>
+"#);
+    for (heading, entries) in [("Delivered files", delivered), ("Files cited in replies", cited)] {
+        if entries.is_empty() { continue; }
+        html.push_str(&format!("<h2>{heading}</h2><ul>\n"));
+        for entry in entries {
+            html.push_str(&format!(
+                "<li><a href=\"{}\" download>{}</a><p>{}</p><details><summary>Source and qualifications</summary><a href=\"{}\">Source record</a> · <a href=\"{}\">Qualifications</a></details></li>\n",
+                relative_url(&entry.content_path), html_text(&entry.name), html_text(&entry.attribution),
+                relative_url(&entry.source_path), relative_url(&entry.bundle_path),
+            ));
+        }
+        html.push_str("</ul>\n");
+    }
+    html.push_str("</body></html>\n");
+    html
 }

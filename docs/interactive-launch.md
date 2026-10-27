@@ -431,6 +431,12 @@ the original citation remains metadata, and export does not create a release or
 acceptance. Ranges and decoded string citations do not select their whole files.
 The export summary counts delivery packages and cited files separately; their
 source and qualification records do not inflate the displayed content count.
+The launcher points to an offline `index.html` with links to every exported
+content file and its source and qualification records. Cited files show their
+sender and reply position; delivery artifacts retain their package attribution.
+Different exact versions remain separate even when their filenames match.
+Labels and relative URLs are escaped; the index embeds no artifact body and
+does not choose a preferred version or establish task completion.
 Export copies retained bytes rather than reopening
 mutable task paths. It starts no model call and executes no artifact. The native
 `result WORK --export-directory DIRECTORY` command offers the same operation.

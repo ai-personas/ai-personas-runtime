@@ -2186,6 +2186,7 @@ class Dialogue:
                             saved.append(f"{cited} cited file{'s' if cited != 1 else ''}")
                         self.ui.say(f"Saved {' and '.join(saved)} with source and qualification records "
                                     f"in {receipt['destination']}.")
+                        self.ui.say(f"Open {receipt['index_path']} to find the files and their reply or delivery attribution.")
             elif choice == "q":
                 self.questions(work["id"])
             elif choice == "f":
