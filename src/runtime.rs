@@ -1784,6 +1784,11 @@ pub enum WorkAction {
     /// the new judgment reaches the same conclusion.
     /// completion-record-v1: record this release as completed without ending
     /// work or peers; the independently authored continuation still governs.
+    /// After adoption, CONTROL.recorded_completion identifies the accepted
+    /// CloseGoal by release and by.invocation. This record can coexist with an
+    /// Open CONTROL.work_phase. Its historical_only flag scopes the claim to
+    /// that release; it does not mean the command was unaccepted. Current
+    /// support and continuation remain separate.
     CloseGoal {
         release: String,
     },

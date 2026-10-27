@@ -108,6 +108,10 @@ and request revision, and labels a record from an earlier request revision.
 This is historical metadata, not a fresh quality judgment or an instruction to
 stop further work. The native inspection supplies it without artifact bodies,
 inference or a change to any participant's continuation.
+The record identifies an accepted `CloseGoal` command, its release and originating
+invocation. Personas receive it as `CONTROL.recorded_completion`; an `Open`
+operational phase does not undo that accepted record. Its `historical_only` flag
+limits the claim to the recorded release rather than asserting current support.
 After a session, the launcher also identifies feedback still awaiting a response.
 Feedback queued while a final call was already in progress may need an explicit
 participant resume before the persona receives and addresses it.
