@@ -1203,6 +1203,8 @@ pub struct AttemptView {
     pub id: String,
     pub work: String,
     pub persona: String,
+    /// Recorded admission time, not provider dispatch or evidence of progress.
+    pub admitted_at_unix: Option<i64>,
     pub state: s::InvocationState,
     pub status: AttemptStatus,
     pub prepare_hash: String,
@@ -1281,6 +1283,8 @@ fn attempt_view(records: &s::RuntimeInspection<'_, '_>, id: &str) -> BoundaryRes
         id: inv.id,
         work,
         persona,
+        admitted_at_unix: inv.request.as_ref()
+            .and_then(|value| value.get("at_unix")).and_then(Value::as_i64),
         state: inv.state,
         status,
         prepare_hash: inv.prepare_hash,

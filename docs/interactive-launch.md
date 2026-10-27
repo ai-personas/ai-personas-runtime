@@ -367,7 +367,12 @@ same session.
 While a session runs, the launcher checks its current work status every 15 seconds
 and displays changed activity, with a status reminder each minute. It names active
 persona calls, pending host commands, recorded attempts, and participants needing
-attention, including identities invited after initial setup. Tool status comes
+attention, including identities invited after initial setup. Active calls in this
+work and calls in other work show their age from the retained admission time.
+This includes preparation and waiting; it is not provider execution time or
+evidence of progress. Reopening the launcher does not reset that age. Missing or
+future admission timestamps display an unavailable age rather than zero. Age is
+informational and imposes no timeout. Tool status comes
 from the retained dispatch record; an outstanding command is not proof that its
 process is still alive or that it succeeded. These are current observations, not
 proof of task completion. An unavailable status read

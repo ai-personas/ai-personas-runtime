@@ -2361,19 +2361,29 @@ class Dialogue:
             after = snapshot["next_after"]
 
     @staticmethod
-    def attempt_status(attempt):
-        return {"Prepared": "preparing the call", "Dispatched": "waiting for the model",
-                "Responded": "applying the response"}.get(attempt["state"], attempt["status"])
+    def attempt_status(attempt, now=None):
+        status = {"Prepared": "preparing the call", "Dispatched": "waiting for the model",
+                  "Responded": "applying the response"}.get(attempt["state"], attempt["status"])
+        if now is None:
+            now = int(time.time())
+        admitted = attempt.get("admitted_at_unix")
+        if type(admitted) is not int or admitted > now:
+            return f"{status}, call age unavailable"
+        minutes = (now - admitted) // 60
+        age = ("under 1 min" if minutes == 0 else f"{minutes} min" if minutes < 60
+               else f"{minutes // 60}h {minutes % 60:02d}m")
+        return f"{status}, call age {age}"
 
     def work_progress(self, work):
         current, snapshot = self.work_snapshot(work)
+        now = snapshot["inspected_at_unix"]
         participants = [] if current is None else current["participants"]
-        active = [f"{participant['label']} ({attempt['id']}, {self.attempt_status(attempt)})"
+        active = [f"{participant['label']} ({attempt['id']}, {self.attempt_status(attempt, now)})"
                   for participant in participants
                   if (attempt := participant.get("active_invocation"))
                   and attempt["state"] in ("Prepared", "Dispatched", "Responded")]
         elsewhere = [f"{participant['label']} ({attempt['work']}, {attempt['id']}, "
-                     f"{self.attempt_status(attempt)})"
+                     f"{self.attempt_status(attempt, now)})"
                      for participant in participants
                      if (attempt := participant.get("other_work_attempt"))]
         tool_states = {"Admitted": "queued", "Dispatched": "awaiting outcome",
