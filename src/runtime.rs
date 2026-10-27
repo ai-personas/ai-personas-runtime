@@ -7664,6 +7664,9 @@ fn render_mode_with_history(
                         }
                     }
                 }
+                control_guides.extend(work_guides::arrangement_control_guides(
+                    state, &core["arrangements"], &a, &mut exposure,
+                )?);
                 if !control_guides.is_empty() {
                     discovery["control_guides"] = serde_json::to_value(control_guides)?;
                 }
