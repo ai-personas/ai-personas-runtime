@@ -547,6 +547,8 @@ scheduler's `last` entries cover the complete committed pass. Selection itself
 does not establish admission, model execution or responsibility acceptance.
 When an exclusive candidate waits for existing calls to settle, the next settled
 scan reconsiders its exact work and persona first, with current eligibility.
+If that candidate is no longer eligible, the scan follows the saved circular
+order for all other pairs, without giving the candidate's whole work priority.
 `deferred_exclusive_candidate` records that scheduling preference when present;
 it does not claim that the candidate remains eligible or was admitted.
 

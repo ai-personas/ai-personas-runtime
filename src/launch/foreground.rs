@@ -60,13 +60,18 @@ pub(super) fn select(
     // settle after its cursor was committed. Reconsider that exact work/persona
     // first, using this fresh snapshot and the ordinary eligibility checks.
     // Resolve by identity because structural maintenance can change the subtree.
-    let priority_work = priority.and_then(|(work, _)| works.iter().position(|id| id == work));
+    let preferred = priority.and_then(|(work, actor)|
+        works.iter().position(|id| id == work).map(|index| (index, Some(actor.as_str()))));
     let circular_works = (0..works.len())
-        .map(|offset| (started_after % works.len() + offset) % works.len())
-        .filter(|index| Some(*index) != priority_work);
-    for index in priority_work.into_iter().chain(circular_works) {
+        .map(|offset| ((started_after % works.len() + offset) % works.len(), None));
+    for (index, preferred_actor) in preferred.into_iter().chain(circular_works) {
         let work = &works[index];
-        next_after = (index + 1) % works.len();
+        // Only the exact deferred actor gets the extra first consideration.
+        // If it is no longer eligible, retain both circular cursors and visit
+        // the ordinary work/persona order, skipping that already checked pair.
+        if preferred_actor.is_none() {
+            next_after = (index + 1) % works.len();
+        }
         let wid = w::WorkId(work.clone());
         let current = state.board.work(&wid)?;
         if !matches!(current.phase, w::Phase::Open) {
@@ -80,11 +85,12 @@ pub(super) fn select(
         // A page requested by an inspection never limits foreground eligibility.
         let priority_persona = priority.filter(|(id, _)| id == work)
             .map(|(_, actor)| actor.as_str());
-        let first = priority_persona.and_then(|preferred|
+        let first = preferred_actor.and_then(|preferred|
             pairs().find(|(_, actor)| actor.0 == preferred));
         let circular_personas = pairs()
             .filter(|pair| previous.as_ref().is_none_or(|last| pair > last))
             .chain(pairs().filter(|pair| previous.as_ref().is_some_and(|last| pair <= last)))
+            .filter(|_| preferred_actor.is_none())
             .filter(|(_, actor)| Some(actor.0.as_str()) != priority_persona);
         let page = first.into_iter().chain(circular_personas);
         for (wid, actor) in page {
@@ -116,11 +122,16 @@ pub(super) fn select(
                         .map_or(at, |earlier: u64| earlier.min(at)));
                 }
             }
-            cursor.foreground_after.insert(wid.0.clone(), actor.0.clone());
-            cursor.after = Some((wid, actor));
+            if preferred_actor.is_none() || selected.is_some() {
+                cursor.foreground_after.insert(wid.0.clone(), actor.0.clone());
+                cursor.after = Some((wid, actor));
+            }
             cursor.considered = increment(cursor.considered)?;
             cursor.last.push(entry);
-            if selected.is_some() { break; }
+            if selected.is_some() {
+                next_after = (index + 1) % works.len();
+                break;
+            }
         }
         if selected.is_some() { break; }
     }

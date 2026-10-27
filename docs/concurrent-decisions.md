@@ -58,8 +58,10 @@ until current transports settle. An exclusive candidate also drains current
 calls. Because selection already advanced the cursor, the coordinator retains
 that candidate's exact work and persona and reconsiders it first after the drain
 and structural maintenance. This fresh scan checks current eligibility; a removed,
-stopped or otherwise ineligible candidate does not block ordinary rotation. The
-preference neither reserves a call nor preserves old authority. Structural
+stopped or otherwise ineligible candidate falls through to the saved circular
+work and persona order. Its unsuccessful preferred consideration does not advance
+those cursors or promote the other participants in its work. The preference
+neither reserves a call nor preserves old authority. Structural
 maintenance runs before a settled owner admits more work.
 These boundaries prevent ongoing parent work from starving a new child or input;
 they add no call or time quota and do not cancel a slow peer. Children still need
