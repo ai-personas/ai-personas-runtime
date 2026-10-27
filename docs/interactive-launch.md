@@ -54,8 +54,10 @@ with its author, producing call and recorded input time. Calls can finish out
 of order; a later displayed account can use earlier information. An unavailable
 input time remains labeled unavailable. These updates preserve the persona's full
 explanation and appear once per changed record during a session. They describe
-the persona's judgment at that time; the work phase and delivered results remain
-separate. Results show these accounts again, including when no reply was sent.
+the persona's judgment at that time; its continuation choice, the work phase and
+delivered results remain separate. Judging work ongoing does not mean that the
+persona chose to continue its own contribution. Results show these accounts again,
+including when no reply was sent.
 An account from an earlier task amendment is labeled with its original mandate.
 Available local deliveries appear as qualified file lists while other personas
 continue, including when no reply announces the delivery. Each exact permitted

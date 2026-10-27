@@ -1454,7 +1454,7 @@ class Dialogue:
         return displayed
 
     def show_persona_activity(self, result, shown_activity=None):
-        descriptions = {"ongoing": "continuing", "blocked": "reports a blocker",
+        descriptions = {"ongoing": "judges work ongoing", "blocked": "reports a blocker",
                         "individual_sufficient": "judges own contribution sufficient",
                         "shared_sufficient": "judges the shared result sufficient",
                         "closed": "reports work closed"}
