@@ -23,6 +23,7 @@ use thiserror::Error;
 pub mod need;
 mod diagnostics;
 mod schema_text;
+mod schema_transport;
 pub use diagnostics::ShapeHint;
 
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -1298,6 +1299,14 @@ pub(crate) fn initialization_schema() -> Value {
     omit_additional_asset_selection(&mut schema);
     retain_reachable_definitions(&mut schema);
     schema
+}
+
+/// Strict provider structure for initial character authorship when its generated
+/// contract is closed. This changes decoding assistance, not native validation,
+/// the character fence, persona content or application resource allowances.
+pub fn initialization_provider_schema() -> Option<Value> {
+    static SCHEMA: std::sync::OnceLock<Option<Value>> = std::sync::OnceLock::new();
+    SCHEMA.get_or_init(schema_transport::initialization).clone()
 }
 
 /// Present the same Decision envelope with only the restricted repair shapes.

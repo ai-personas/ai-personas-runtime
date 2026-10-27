@@ -856,6 +856,7 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         Command::Schema => {
             return emit(&serde_json::json!({"decision":protocol::decision_schema(),
             "provider_transport":provider::json_object_schema(),
+            "initialization_provider_transport":protocol::initialization_provider_schema(),
             "provider_text_format":{"type":"json_object"},
             "legacy_provider_transport":runtime::provider_schema(),
             "adopt_response_input":"complete raw Decision JSON",

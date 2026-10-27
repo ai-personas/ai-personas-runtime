@@ -119,8 +119,9 @@ fn terminal_evidence_capacity(response_bytes: usize) -> Result<u64> {
 }
 
 /// Historical strict carrier, retained for onboarding and exact old admissions.
-/// New persona admissions use provider::json_object_schema() and return the
-/// complete Decision directly. adopt_response always accepts raw Decisions.
+/// New persona admissions return the complete Decision directly, using either
+/// JSON-object transport or the closed initial-character schema. adopt_response
+/// always accepts raw Decisions.
 pub fn provider_schema() -> Value {
     json!({"type":"object","properties":{"decision_json":{"type":"string"}},
         "required":["decision_json"],"additionalProperties":false})
@@ -148,8 +149,7 @@ pub fn decode_provider_carrier(bytes: &[u8]) -> Result<String> {
 /// Interpret only the response format bound to this exact admission. Direct
 /// JSON keeps the original UTF-8 bytes; it performs no repair or reserialization.
 fn decode_provider_decision(bytes: &[u8], schema: &Value) -> Result<String> {
-    if schema == &provider::json_object_schema() {
-
+    if direct_decision_schema(schema) {
         String::from_utf8(bytes.to_vec()).map_err(|_| invalid("provider decision is not UTF-8"))
     } else {
         require(
@@ -158,6 +158,11 @@ fn decode_provider_decision(bytes: &[u8], schema: &Value) -> Result<String> {
         )?;
         decode_provider_carrier(bytes)
     }
+}
+
+fn direct_decision_schema(schema: &Value) -> bool {
+    schema == &provider::json_object_schema()
+        || p::initialization_provider_schema().as_ref() == Some(schema)
 }
 
 fn composite_id(kind: &str, parts: &[&str]) -> String {
@@ -4234,7 +4239,11 @@ impl Runtime {
             input_history: rendered.input_history,
             images: rendered.images,
             prompt_encoding: rendered.prompt_encoding,
-            output_schema: provider::json_object_schema(),
+            output_schema: if persona.character.is_none() {
+                p::initialization_provider_schema().unwrap_or_else(provider::json_object_schema)
+            } else {
+                provider::json_object_schema()
+            },
             reconsideration_interface: persona.character.is_some()
                 .then(|| RECONSIDERATION_INTERFACE.into()),
             history_records_interface: persona.character.is_some()
@@ -5822,7 +5831,7 @@ impl Runtime {
         };
         let mut metadata = json!({"kind":"provider_complete","synthetic":false,
             "transport_sha256":transport_hash,"inner_sha256":inner_hash,
-            "response_encoding":if prepared.output_schema == provider::json_object_schema() {
+            "response_encoding":if direct_decision_schema(&prepared.output_schema) {
                 "direct_decision_json_v1"
             } else { "decision_json_string_v1" },
             "transport_response_bytes":transport_response_bytes,

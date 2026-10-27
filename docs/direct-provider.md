@@ -318,7 +318,18 @@ for freshness, accounting, compatibility and the paths that remain sequential.
 
 ## Wire and stream validation
 
-New persona admissions request the complete Decision directly with `text.format: {"type":"json_object"}`. The prompt supplies `APPLICATION_DECISION_SCHEMA`; the native parser validates the entire received object, including duplicate keys, required fields, tagged variants and cross-field rules, before any adoption. JSON mode alone does not establish application-schema validity. It removes the extra escaping layer that a JSON-string carrier imposed on scripts and other text.
+New persona admissions request the complete Decision directly. Ordinary work uses `text.format: {"type":"json_object"}`; initial character authorship uses a strict schema derived from its closed operation subset. The prompt supplies `APPLICATION_DECISION_SCHEMA`; the native parser validates the entire received object, including duplicate keys, required fields, tagged variants and cross-field rules, before any adoption. Provider formatting alone does not establish application-schema validity. Direct JSON removes the extra escaping layer that a JSON-string carrier imposed on scripts and other text.
+
+The initial-character transport schema makes nullable fields and defaulted
+collections explicit, retains closed objects, and converts disjoint fixed-tag
+unions to `anyOf`. Integer-format annotations, string-length constraints and
+collection uniqueness stay in the native contract instead of the provider
+schema. Native parsing, exact references, maintenance accounting and the
+character handover still apply. No initial voice, work judgment or continuation
+is supplied by this conversion. A future schema construct that cannot be
+converted uses the existing JSON-object transport; the complete native contract
+is unchanged. `ai-personas schema` exposes the actual initialization transport
+schema. This follows the provider's [structured-output contract](https://developers.openai.com/api/docs/guides/structured-outputs).
 
 The prompt can present that generated schema as compact wire types. Its legend
 defines required and optional fields, closed objects, literals, references,
@@ -438,7 +449,7 @@ roles and instructions. Traditional routing uses truthful application identity
 and its explicit beta header; mode-specific headers cannot leak into the public
 routes.
 
-The saved `output_schema` is `{"type":"object"}` for direct Decision transport. Its audit digest identifies that response contract; the serialized provider request binds the actual JSON mode. Historical admissions and the isolated onboarding echo retain the strict `{"decision_json":"..."}` carrier. Response decoding follows the exact admitted format, never a guessed fallback. Direct responses retain their original UTF-8 bytes without reserialization; historical carriers are decoded once. Completion receipts identify `direct_decision_json_v1` or `decision_json_string_v1`, and the exact application bytes still receive the same complete parser.
+The saved `output_schema` is `{"type":"object"}` for ordinary direct Decision transport, or the generated strict schema for initial character authorship. Its audit digest identifies that response contract; the serialized provider request binds the actual format. Historical admissions and the isolated onboarding echo retain the strict `{"decision_json":"..."}` carrier. Response decoding follows the exact admitted format, never a guessed fallback. Direct responses retain their original UTF-8 bytes without reserialization; historical carriers are decoded once. Completion receipts identify `direct_decision_json_v1` or `decision_json_string_v1`, and the exact application bytes still receive the same complete parser.
 
 Completion requires one completed assistant output-text message, consistent response/model/item identity, agreement with observed text deltas, and EOF after the terminal event. OAuth routes may omit the response Content-Type header; the same complete SSE validation still applies. A conflicting media type, duplicate headers or encoded body remains invalid. Refusals, returned tools, unsupported snapshots, malformed streams, duplicate/conflicting terminals, trailing errors and incomplete output retain their actual failures. Reasoning is never adopted as a response.
 
