@@ -86,6 +86,13 @@ Calls and recovery holds are attributed to their actual work. A persona working
 on a later task does not make an earlier stopped task show pending calls.
 Participant and progress views identify calls on other work separately; those
 leases still affect the persona's availability without changing its earlier choice.
+Progress also identifies a participant's pending tool commands in other work,
+including when the persona has already started a new call here. Each command
+keeps its originating work, invocation and operation in the native inspection.
+The display uses the retained dispatch status while the complete result remains
+unpublished; it does not establish that a process is still running. Commands in
+other work neither resume this participation nor make it ineligible. The work
+list distinguishes pending tool commands here from commands in other work.
 It shows each saved task's complete request text beside its work ID, so tasks can
 be distinguished without opening their results. Optional activities use a short
 label from their recorded activity binding; their complete original text remains

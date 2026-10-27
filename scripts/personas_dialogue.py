@@ -2261,12 +2261,16 @@ class Dialogue:
         if any(p.get("active_invocation") and p["active_invocation"]["state"] in
                ("Prepared", "Dispatched", "Responded") for p in work["participants"]):
             return "has pending calls; inspect their outcomes"
+        if any(p["pending_host_commands"] for p in work["participants"]):
+            return "has pending tool commands; inspect their outcomes"
         if any(p.get("failed_attempt_hold") or p.get("resume_recovery") for p in work["participants"]):
             return "review failed attempts"
         if work["participants"] and all(p["continuation"] == "persona_stop" for p in work["participants"]):
             return "participants stopped; review their results"
         if any(p.get("other_work_attempt") for p in work["participants"]):
             return "participants are occupied by another work"
+        if any(p.get("other_work_host_commands") for p in work["participants"]):
+            return "participants have pending tool commands in other work"
         return "no participant ready to continue"
 
     def codex_auth_defaults(self):
@@ -2393,6 +2397,10 @@ class Dialogue:
                  f"{tool_states.get(command['state'], command['state'])})"
                  for participant in participants
                  for command in participant["pending_host_commands"]]
+        tools_elsewhere = [f"{participant['label']} ({command['work']}, {command['operation']}, "
+                           f"{tool_states.get(command['state'], command['state'])})"
+                           for participant in participants
+                           for command in participant.get("other_work_host_commands", [])]
         held = [participant["label"] for participant in participants
                 if participant.get("failed_attempt_hold")]
         recovery = [participant["label"] for participant in participants
@@ -2405,6 +2413,8 @@ class Dialogue:
             activity.append("Calls in other work: " + "; ".join(elsewhere))
         if tools:
             activity.append("Pending tool commands: " + "; ".join(tools))
+        if tools_elsewhere:
+            activity.append("Tool commands in other work: " + "; ".join(tools_elsewhere))
         scheduled = [f"{participant['label']} ({self.format_time(participant['scheduled_for_unix'])})"
                      for participant in participants if participant.get("scheduled_for_unix") is not None]
         if scheduled:

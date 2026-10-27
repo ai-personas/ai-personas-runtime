@@ -1330,6 +1330,7 @@ pub enum ContinuationStatus {
 #[derive(Clone, Debug, Serialize)]
 pub struct PendingHostCommandView {
     pub intent: String,
+    pub work: String,
     pub invocation: String,
     pub operation: String,
     /// Durable dispatch status, not proof that a process is still alive.
@@ -1353,6 +1354,10 @@ pub struct ParticipantView {
     pub other_work_attempt: Option<AttemptView>,
     /// Commands whose complete result has not yet been published to this work.
     pub pending_host_commands: Vec<PendingHostCommandView>,
+    /// This participant's unpublished command results belonging to other work.
+    /// These commands do not change this work's continuation or eligibility.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub other_work_host_commands: Vec<PendingHostCommandView>,
     /// Candidate only. Not admission, a provider check, or a grant to resume Stop.
     pub eligible_candidate: bool,
     /// Exact failed lease can retire through an unchanged invitation or authored
@@ -1604,8 +1609,9 @@ fn inspect_snapshot(
                 && leases_quiescent
                 && participant_resume::candidate(&state, &saved, id, &actor, resume_recovery.as_ref());
             let mut pending_host_commands = Vec::new();
+            let mut other_work_host_commands = Vec::new();
             for (intent, job) in state.host_command_jobs.iter().filter(|(_, job)| {
-                job.work == *id && job.actor == actor
+                job.actor == actor
                     && (job.observation.is_none() || job.result_source.is_none())
             }) {
                 // The marker can precede dispatch or result publication. Read
@@ -1615,17 +1621,23 @@ fn inspect_snapshot(
                     retained.intent.id == *intent
                         && retained.invocation_id == job.invocation
                         && retained.intent.body["actor"] == actor
-                        && retained.intent.body["work"] == *id
+                        && retained.intent.body["work"] == job.work
                         && retained.intent.body["invocation"] == job.invocation
                         && retained.intent.body["operation"] == job.operation,
                     BoundaryError::InvalidState,
                 )?;
-                pending_host_commands.push(PendingHostCommandView {
+                let command = PendingHostCommandView {
                     intent: intent.clone(),
+                    work: job.work.clone(),
                     invocation: job.invocation.clone(),
                     operation: job.operation.clone(),
                     state: retained.state,
-                });
+                };
+                if job.work == *id {
+                    pending_host_commands.push(command);
+                } else {
+                    other_work_host_commands.push(command);
+                }
             }
             participants.push(ParticipantView {
                 label: persona.seed.label.clone(),
@@ -1639,6 +1651,7 @@ fn inspect_snapshot(
                 active_invocation,
                 other_work_attempt,
                 pending_host_commands,
+                other_work_host_commands,
                 eligible_candidate,
                 continuation_recovery_candidate,
                 scheduled_for_unix,
