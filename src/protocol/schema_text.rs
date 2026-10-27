@@ -130,10 +130,21 @@ fn ordered_node(schema: &Value, names: &BTreeSet<&str>, order: &[&str]) -> Optio
     let body = if selectors.len() == 1 {
         let selector = selectors[0];
         let value = shape.remove(selector)?;
-        // A sibling type is an additional constraint, including on literals
-        // and references. Preserve it rather than assuming it is redundant.
-        if let Some(value) = shape.remove("type") {
-            annotations.insert("type".into(), value);
+        // Exact string literals already exclude every other JSON type. Keep
+        // other sibling types, including on references and compound schemas:
+        // their additional constraint need not follow from the rendered shape.
+        if let Some(type_constraint) = shape.remove("type") {
+            let implied_by_literals = type_constraint.as_str() == Some("string")
+                && match selector {
+                    "const" => value.is_string(),
+                    "enum" => value.as_array().is_some_and(|values| {
+                        !values.is_empty() && values.iter().all(Value::is_string)
+                    }),
+                    _ => false,
+                };
+            if !implied_by_literals {
+                annotations.insert("type".into(), type_constraint);
+            }
         }
         if !shape.is_empty() {
             return None;

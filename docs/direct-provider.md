@@ -353,9 +353,12 @@ schema. This follows the provider's [structured-output contract](https://develop
 The prompt can present that generated schema as compact wire types. Its legend
 defines required and optional fields, closed objects, literals, references,
 arrays and schema alternatives; JSON notes retain every description, default
-and additional constraint at its original scope. A variant's fixed `kind` tag
-appears before its payload fields, so a long input shape does not precede the
-operation's type. This is display order, not a required JSON member order.
+and additional constraint at its original scope. Exact string literals and
+unions of string literals already imply the string type, so the presentation
+omits that redundant type note. Other sibling type constraints remain explicit.
+A variant's fixed `kind` tag appears before its payload fields, so a long input
+shape does not precede the operation's type. This is display order, not a
+required JSON member order.
 The ordinary instructions distinguish the outer operation tag from a capability
 identifier or a native command tag inside `inputs`. The rendering includes every
 definition in the applicable schema. Unsupported constructs or a larger rendering fall
