@@ -8,7 +8,7 @@ pub struct ShapeHint {
     pub section: String,
     /// Fields of this exact known object variant, not a suggested repair.
     pub allowed_fields: Vec<String>,
-    /// Missing members and definite mismatches at schema-owned nested paths.
+    /// Missing members and definite mismatches throughout the complete Decision.
     pub issues: Vec<String>,
 }
 
@@ -148,6 +148,9 @@ pub(super) fn hint(path: &Path, bytes: &[u8]) -> ShapeHint {
             .expect("resolved object properties");
         hint.allowed_fields = fields.keys().cloned().collect();
     }
-    hint.issues = crate::schema_diagnostics::issues(target_schema, &schema, target, &hint.section);
+    // A decoder can stop inside an operation before noticing omitted siblings
+    // or response-level fields. Report all definite schema-owned mismatches in
+    // the complete rejected value; the local section still locates its error.
+    hint.issues = crate::schema_diagnostics::issues(&schema, &schema, &received, "response");
     hint
 }
