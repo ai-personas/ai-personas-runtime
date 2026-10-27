@@ -431,6 +431,9 @@ Decision structural validation and previously retained failures are unchanged.
 Host-command, HTTP and computation input-shape errors report the structural
 category and schema-owned field hints. Unknown field names, rejected values
 and script bodies are not copied into failure metadata or recovery prompts.
+For an unrecognized `kind` in a fully tagged union, the hint names the field
+and lists its schema-declared tag values. A broad or opaque alternative prevents
+that list; the runtime does not guess which operation the persona intended.
 The complete rejected response remains retained for explicit inspection; the
 diagnostic neither rewrites that response nor executes any of its operations.
 
