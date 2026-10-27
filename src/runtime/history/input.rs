@@ -68,6 +68,20 @@ fn choices(control: &Value, invocation: &str) -> Result<Vec<Choice>> {
     let mut found = Candidates::default();
     found.add(&control["history_retrieval"]["recent_other_work"]["reference"],
         "/history_retrieval/recent_other_work/reference".into())?;
+    if let Some(requests) = control["requested_work"]["records"].as_array() {
+        for (index, request) in requests.iter().enumerate() {
+            let path = format!("/requested_work/records/{index}");
+            found.add(&request["proposal"]["reference"], format!("{path}/proposal/reference"))?;
+            if let Some(participants) = request["participants"].as_array() {
+                for (peer, participant) in participants.iter().enumerate() {
+                    for field in ["last_attributed_work_judgment", "last_authored_continuation"] {
+                        found.add(&participant[field]["reference"],
+                            format!("{path}/participants/{peer}/{field}/reference"))?;
+                    }
+                }
+            }
+        }
+    }
     // Only native lookup metadata is a reference index. The adjacent authored
     // judgment, reason and evidence strings never manufacture a read handle.
     found.judgment_citations(&control["last_attributed_work_judgment"],

@@ -131,6 +131,29 @@ call and changes no participation or Stop/Pause choice. Reopening its exact ID
 returns the original receipt and the current selection; it never reselects an
 older source after a later change.
 
+## Follow your admitted requests
+
+Ordinary inputs include `CONTROL.requested_work` when the current persona has
+admitted requests originating in the current work. Each entry binds the actual
+child and admission receipt to the original proposal invocation and operation.
+It reports the child's recorded phase, mandate revision, participants, current
+acceptance identities and last authored continuation kinds. Latest judgment and
+continuation invocations are lookup cues; their exact retained commit references
+also receive `input_history_choices` handles when available. This reads indexed
+commit metadata, without loading the corresponding decision bodies. The persona
+chooses which records to read.
+
+This view includes only the actor's own requests with this exact immediate
+parent, across retained episodes. It is not an inventory of pending proposals,
+other personas' requests or all descendants. Child briefs, judgment reasons,
+continuation conditions, results, artifacts and private context selections are
+not automatically supplied. A continuation kind is only its recorded variant;
+read its decision for the full reason, dependencies or timing. A stopped peer,
+an open work or a recorded completion phase establishes no present quality or
+execution verdict. Unavailable lineage is marked as omitted. The snapshot
+creates no wait, reservation, assignment, resumption or replay, and later child
+progress does not invalidate an independent parent decision.
+
 ## Further requests from child work
 
 An admitted child receives the same proposal interface during ordinary work and

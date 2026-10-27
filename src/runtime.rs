@@ -84,6 +84,7 @@ mod requester_wait;
 pub use requester_feedback::Disposition as RequesterFeedbackDisposition;
 mod peer_feedback;
 mod collaborators;
+mod requested_work;
 mod provider_continuation;
 mod judgment_citations;
 pub(crate) mod affect;
@@ -7598,6 +7599,13 @@ fn render_mode_with_history(
     if ordinary_interfaces {
         core["affect_interface"] = affect::interface(now)?;
         core["history_retrieval"] = history::retrieval_rules();
+        if let Some(requests) = requested_work::context(
+            state, history_material, actor, work_id, &a, &mut exposure,
+        )? {
+            growth_bytes = growth_bytes.checked_add(serde_json::to_vec(&requests)?.len())
+                .ok_or_else(|| invalid("requested work metadata accounting"))?;
+            core["requested_work"] = requests;
+        }
         if let Some(previous) = history::recent_other_work(state, history_material, actor, work_id, &a, &mut exposure) {
             growth_bytes = growth_bytes.checked_add(serde_json::to_vec(&previous)?.len())
                 .ok_or_else(|| invalid("prior work locator accounting"))?;
