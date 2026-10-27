@@ -95,6 +95,18 @@ that return without a change. Their nested runtime phases overlap with their
 durations; adding them together would double-count elapsed work. Native timing
 observations do not by themselves establish a controlled performance improvement.
 
+`CONTROL.host_command_state.unresolved` describes the current persona's accepted
+host commands across all work whose complete result has not been published or
+whose outcome remains uncertain. Each entry names its work, invocation,
+operation and recorded launch directory, and identifies whether it belongs to
+the current work. Switching work does not settle an accepted command; another
+work's pending command can still affect shared files. This is current operational
+metadata, not automatic transfer of another work's selected context or command
+body. A retained marker can lag dispatch, and publication status does not prove
+a live process. Unavailable lineage is reported as an omission. These admission
+snapshots neither lock files nor reserve work, authorize replay or change
+eligibility. Completed results remain selectively discoverable.
+
 Ordinary inputs can include `CONTROL.collaborators`: other current-work
 participants, their labels and current acceptance IDs, and their latest accepted
 work judgment and continuation with their original invocation and mandate

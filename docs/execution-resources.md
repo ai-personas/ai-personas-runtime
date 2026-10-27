@@ -195,7 +195,11 @@ required `result_context` choice supplies complete text or execution metadata
 and exact readable text references in the next decision. Either choice preserves
 complete capture and required qualifications, with no later read quota. Historical
 observations without a choice keep complete text. Result-reference catalogues
-have no fixed entry cap. Native host-file import reads the complete
+have no fixed entry cap. Current own-command metadata includes unresolved host
+commands from other work, with their exact invocation, operation and recorded
+launch directory. It supplies neither their command bodies nor historical
+results, and does not require another work's command to settle before admission.
+Native host-file import reads the complete
 regular UTF-8 file without its former import byte cap. File-corpus byte and
 count quotas are also removed. Historical incomplete captures are not rewritten.
 
