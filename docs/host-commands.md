@@ -85,6 +85,23 @@ by Bash. This avoids another quoting layer; the persona remains responsible for
 valid source and for inspecting its actual result. The supplied input schema
 includes this guidance, so it does not depend on reading this guide first.
 
+The ordinary decision contract also includes a concrete escaping example:
+
+~~~json
+{
+  "command": "python3 -",
+  "result_context": "complete",
+  "stdin": "import re\nprint(re.findall(r'\\d+', 'item42'))\n"
+}
+~~~
+
+After JSON decoding, the Python raw string contains one backslash before `d`.
+That program prints `['42']`. Two backslashes in the decoded raw string would
+describe a different regular expression. The example explains the interface;
+it does not prescribe a task method or ask the persona to run a probe.
+The runtime preserves the authored decoded source and actual process result.
+It does not guess a correction or unescape the program again.
+
 An explicit work pause or cancellation, or a pause/quarantine of the owning
 persona, also stops a running command's process group. The runner observes the
 retained control before starting the process and while waiting for its exit.
