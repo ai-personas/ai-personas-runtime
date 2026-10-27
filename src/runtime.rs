@@ -2216,6 +2216,10 @@ pub struct ForegroundScan {
     pub at_unix: i64,
     pub selected: Option<(String, String)>,
     pub requires_exclusive: bool,
+    /// Previously selected candidate reconsidered first after owned calls settled.
+    /// This is a scheduling preference, never retained eligibility or authority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deferred_exclusive_candidate: Option<(String, String)>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

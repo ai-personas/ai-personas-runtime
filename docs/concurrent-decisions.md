@@ -54,9 +54,13 @@ While a settled transaction or exclusive transition needs the current calls to
 drain, no independent clock wake repeatedly bypasses that boundary.
 
 Pending child admission, persona creation and requester input stop refilling
-until current transports settle. An exclusive
-candidate also drains current calls without repeatedly admitting visited peers
-ahead of it. Structural maintenance runs before a settled owner admits more work.
+until current transports settle. An exclusive candidate also drains current
+calls. Because selection already advanced the cursor, the coordinator retains
+that candidate's exact work and persona and reconsiders it first after the drain
+and structural maintenance. This fresh scan checks current eligibility; a removed,
+stopped or otherwise ineligible candidate does not block ordinary rotation. The
+preference neither reserves a call nor preserves old authority. Structural
+maintenance runs before a settled owner admits more work.
 These boundaries prevent ongoing parent work from starving a new child or input;
 they add no call or time quota and do not cancel a slow peer. Children still need
 their exact adopted proposal and a separate atomic receipt. Parent and child

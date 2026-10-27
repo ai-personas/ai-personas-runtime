@@ -545,6 +545,10 @@ truncated to reduce processing. No snapshot cache survives the pass.
 `last_foreground_scan` retains the exact basis and chosen candidate, while the
 scheduler's `last` entries cover the complete committed pass. Selection itself
 does not establish admission, model execution or responsibility acceptance.
+When an exclusive candidate waits for existing calls to settle, the next settled
+scan reconsiders its exact work and persona first, with current eligibility.
+`deferred_exclusive_candidate` records that scheduling preference when present;
+it does not claim that the candidate remains eligible or was admitted.
 
 Native foreground work no longer needs an initial delegation grant or selection
 file. The driver records a deterministic source under its existing execution

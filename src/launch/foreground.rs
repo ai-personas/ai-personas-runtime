@@ -21,6 +21,7 @@ pub(super) fn select(
     now: i64,
     owned: &BTreeSet<String>,
     visited: &BTreeSet<(String, String)>,
+    priority: Option<&(String, String)>,
 ) -> Result<Selection> {
     let time = u64::try_from(now).map_err(|_| invalid("negative scheduling time"))?;
     require(!works.is_empty(), "foreground work subtree absent")?;
@@ -55,9 +56,17 @@ pub(super) fn select(
     let mut selected = None;
     let mut next_scheduled_at = None;
     cursor.last.clear();
-    for _ in 0..works.len() {
-        let work = &works[next_after % works.len()];
-        next_after = (next_after % works.len() + 1) % works.len();
+    // A selected exclusive candidate may have waited for unrelated calls to
+    // settle after its cursor was committed. Reconsider that exact work/persona
+    // first, using this fresh snapshot and the ordinary eligibility checks.
+    // Resolve by identity because structural maintenance can change the subtree.
+    let priority_work = priority.and_then(|(work, _)| works.iter().position(|id| id == work));
+    let circular_works = (0..works.len())
+        .map(|offset| (started_after % works.len() + offset) % works.len())
+        .filter(|index| Some(*index) != priority_work);
+    for index in priority_work.into_iter().chain(circular_works) {
+        let work = &works[index];
+        next_after = (index + 1) % works.len();
         let wid = w::WorkId(work.clone());
         let current = state.board.work(&wid)?;
         if !matches!(current.phase, w::Phase::Open) {
@@ -69,9 +78,15 @@ pub(super) fn select(
         let pairs = || current.participants.keys().map(|actor| (wid.clone(), actor.clone()));
         // Preserve the complete circular participant order and per-work cursor.
         // A page requested by an inspection never limits foreground eligibility.
-        let page = pairs()
+        let priority_persona = priority.filter(|(id, _)| id == work)
+            .map(|(_, actor)| actor.as_str());
+        let first = priority_persona.and_then(|preferred|
+            pairs().find(|(_, actor)| actor.0 == preferred));
+        let circular_personas = pairs()
             .filter(|pair| previous.as_ref().is_none_or(|last| pair > last))
-            .chain(pairs().filter(|pair| previous.as_ref().is_some_and(|last| pair <= last)));
+            .chain(pairs().filter(|pair| previous.as_ref().is_some_and(|last| pair <= last)))
+            .filter(|(_, actor)| Some(actor.0.as_str()) != priority_persona);
+        let page = first.into_iter().chain(circular_personas);
         for (wid, actor) in page {
             if visited.contains(&(wid.0.clone(), actor.0.clone())) {
                 continue;
@@ -117,6 +132,7 @@ pub(super) fn select(
             visited: visited.clone(), owned_invocations: owned.clone(), at_unix: now,
             selected: selected.as_ref().map(|value| (value.work.clone(), value.persona.clone())),
             requires_exclusive: selected.as_ref().is_some_and(|value| value.requires_exclusive),
+            deferred_exclusive_candidate: priority.cloned(),
         });
         let mut change = scheduler_change(old.as_ref(), &cursor)?;
         change.depends_on.push(runtime);
