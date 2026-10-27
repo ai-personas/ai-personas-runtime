@@ -1,5 +1,6 @@
 //! Save freshly projected deliveries and explicitly cited supporting files.
 use super::*;
+use std::collections::btree_map::Entry;
 use std::io::Write;
 
 /// Export does not execute artifacts, infer task completion, or resume work.
@@ -56,6 +57,7 @@ fn export(state: &State, output: &Output, destination: &Path, now: i64) -> Resul
         }
     }
     let mut cited = BTreeSet::new();
+    let mut citation_corpora = BTreeMap::new();
     for (message_index, message) in output.messages.iter().enumerate() {
         let sender = state.personas.get(&message.sender)
             .ok_or_else(|| invalid("export citation sender unavailable"))?;
@@ -80,7 +82,14 @@ fn export(state: &State, output: &Output, destination: &Path, now: i64) -> Resul
             // without copying the file body into the metadata document as well.
             let metadata = f::Reference::full(&reference.source, &reference.revision,
                 f::Representation::BytesMetadata);
-            let assembly = f::assemble(&corpus_for_delivery(state, &a)?,
+            // State and admission time are fixed for this export. Reuse only
+            // the same sender/recipient catalogue within this view; each exact
+            // root still receives its own lineage and qualification checks.
+            let corpus = match citation_corpora.entry((message.sender.as_str(), message.recipient.as_str())) {
+                Entry::Occupied(entry) => entry.into_mut(),
+                Entry::Vacant(entry) => entry.insert(corpus_for_delivery(state, &a)?),
+            };
+            let assembly = f::assemble(corpus,
                 std::slice::from_ref(&metadata), &[], &[], &a, usize::MAX, 0, 0)?;
             let references = assembly.entries.iter().map(|entry| entry.reference.clone()).collect::<Vec<_>>();
             let bundle = attributed_context(state, &assembly.rendered_context, &references)?;

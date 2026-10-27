@@ -440,6 +440,10 @@ does not choose a preferred version or establish task completion.
 Export copies retained bytes rather than reopening
 mutable task paths. It starts no model call and executes no artifact. The native
 `result WORK --export-directory DIRECTORY` command offers the same operation.
+Every export uses a fresh consistent snapshot. Within that snapshot, cited files
+from the same sender to the same recipient share catalogue construction; each
+exact file still receives its own lineage and qualification checks. This reuse
+does not extend across export requests.
 An existing destination is left untouched. If a filesystem write fails, files
 already written in the new destination remain available for inspection.
 
