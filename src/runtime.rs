@@ -6494,6 +6494,14 @@ fn trace_exposure<const RETAIN: bool>(
     sources: &[f::Reference],
     policies: &[ScopedPolicy],
 ) -> Result<Exposure> {
+    trace_exposure_with_validated::<RETAIN>(state, sources, policies, None)
+}
+fn trace_exposure_with_validated<const RETAIN: bool>(
+    state: &State,
+    sources: &[f::Reference],
+    policies: &[ScopedPolicy],
+    validated: Option<&mut BTreeSet<f::Reference>>,
+) -> Result<Exposure> {
     // The visited set is the complete final source list. Do not repeatedly
     // merge and sort an intermediate list that would be replaced at the end.
     // Validation follows every edge but needs no returned sources or policies.
@@ -6505,6 +6513,11 @@ fn trace_exposure<const RETAIN: bool>(
     let mut seen = BTreeSet::new();
     while let Some(reference) = pending.pop() {
         if !seen.insert(reference.clone()) {
+            continue;
+        }
+        // Validation can reuse a fully checked ancestry within one immutable
+        // snapshot. Collection must still visit every source and policy.
+        if !RETAIN && validated.as_ref().is_some_and(|known| known.contains(&reference)) {
             continue;
         }
 
@@ -6562,6 +6575,10 @@ fn trace_exposure<const RETAIN: bool>(
     }
     if RETAIN {
         result.sources = seen.into_iter().collect();
+    } else if let Some(validated) = validated {
+        // Commit only after the complete traversal succeeds. In particular,
+        // nodes visited before a missing edge or invalid receipt are not valid.
+        validated.extend(seen);
     }
 
     Ok(result)
@@ -6664,13 +6681,20 @@ fn attributed_context(
         );
     Ok(serde_json::to_string(&value)?)
 }
-fn corpus(state: &State, a: &f::Admission) -> Result<f::Corpus> {
+fn corpus(state: &State, _a: &f::Admission) -> Result<f::Corpus> {
     phase_timing::measure("runtime.build_corpus", || {
+        // This cache never crosses a catalogue build or a runtime-state change.
+        let mut validated = BTreeSet::new();
         let records = state
             .sources
             .values()
             .flat_map(|s| s.revisions.iter())
-            .filter(|r| lineage_permitted(state, &[r.record.reference(f::Representation::Utf8)], a))
+            .filter(|r| trace_exposure_with_validated::<false>(
+                state,
+                &[r.record.reference(f::Representation::Utf8)],
+                &[],
+                Some(&mut validated),
+            ).is_ok())
             .map(|r| r.record.clone())
             .collect::<Vec<_>>();
         let mut bindings = state.accepted_bindings.clone();
