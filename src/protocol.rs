@@ -664,6 +664,9 @@ pub enum Operation {
     FileWrite {
         id: String,
         scope: Scope,
+        /// Identity of one native file, reused for revisions of that file.
+        /// Separate files need distinct sources even when their paths differ.
+        /// Only one file mutation may target a source in a response.
         source: String,
         /// Relative path in the native fragment or asset store, for example
         /// notes/review.md. This does not write to the host filesystem. Use
@@ -707,6 +710,8 @@ pub enum Operation {
     FileEdit {
         id: String,
         scope: Scope,
+        /// Existing native file identity. Only one file mutation may target
+        /// this source in a response, including writes, imports and retirement.
         source: String,
         /// Relative native-store path, with the same rules as file_write.
         path: String,
@@ -728,6 +733,11 @@ pub enum Operation {
     /// receive the saved revision in a later input, or discover it later.
     FileImport {
         id: String,
+        /// Identity of one native file, reused for revisions of that file.
+        /// Separate files need distinct sources: a script and its report are
+        /// different files even when they share a filename stem. Different paths
+        /// do not distinguish a reused source. Only one file mutation may target
+        /// a source in a response.
         source: String,
         /// Relative native asset-store destination, with the same path rules
         /// as file_write. This does not move or modify the host file.
@@ -755,6 +765,8 @@ pub enum Operation {
     FileRetire {
         id: String,
         scope: Scope,
+        /// Existing native file identity. This response cannot also write,
+        /// edit, import or retire the same source in another operation.
         source: String,
         base_revision: String,
     },
@@ -1192,6 +1204,10 @@ pub enum ProtocolError {
     Invalid { path: String, rule: &'static str },
     #[error("invalid operations[{index}].id: duplicate operation identifier; first used at operations[{first_index}].id; every operation needs a distinct id within this response")]
     DuplicateOperationId { index: usize, first_index: usize },
+    #[error("invalid operations[{index}].source: multiple file mutations target the same source; first targeted at operations[{first_index}].source; a source identifies one file and may be mutated only once per response; separate files need distinct source identities")]
+    DuplicateFileSource { index: usize, first_index: usize },
+    #[error("invalid operations[{index}].path: multiple file writes target the same scoped path; first targeted at operations[{first_index}].path; separate files need distinct paths within their scope")]
+    DuplicateFilePath { index: usize, first_index: usize },
 }
 
 /// Parse and validate the complete response without performing any mutation.
@@ -2799,9 +2815,9 @@ pub fn validate_decision(
     check_count(decision.operations.len(), 0, MAX_OPERATIONS, "operations")?;
 
     let mut by_id = BTreeMap::new();
-    let mut mutation_sources = BTreeSet::new();
+    let mut mutation_sources = BTreeMap::new();
     let mut warning_ids = BTreeSet::new();
-    let mut write_paths = BTreeSet::new();
+    let mut write_paths = BTreeMap::new();
     let mut characters = 0;
     let mut input_nodes = 0;
     for (index, operation) in decision.operations.iter().enumerate() {
@@ -2821,24 +2837,17 @@ pub fn validate_decision(
             }
             Operation::FileWrite { .. } | Operation::FileEdit { .. } | Operation::FileImport { .. } => {
                 let FileSave { source, scope, path, .. } = operation.file_save().unwrap();
-                if !mutation_sources.insert(source.as_str()) {
-                    return Err(invalid(
-                        "operations",
-                        "multiple file mutations target the same source",
-                    ));
+                if let Some(first_index) = mutation_sources.insert(source.as_str(), index) {
+                    return Err(ProtocolError::DuplicateFileSource { index, first_index });
                 }
-                if !write_paths.insert((scope, path.as_str())) {
-                    return Err(invalid(
-                        "operations",
-                        "multiple file writes target the same scoped path",
-                    ));
+                if let Some(first_index) = write_paths.insert((scope, path.as_str()), index) {
+                    return Err(ProtocolError::DuplicateFilePath { index, first_index });
                 }
             }
-            Operation::FileRetire { source, .. } if !mutation_sources.insert(source.as_str()) => {
-                return Err(invalid(
-                    "operations",
-                    "multiple file mutations target the same source",
-                ));
+            Operation::FileRetire { source, .. } => {
+                if let Some(first_index) = mutation_sources.insert(source.as_str(), index) {
+                    return Err(ProtocolError::DuplicateFileSource { index, first_index });
+                }
             }
             Operation::CharacterAdopt { .. } => {
                 characters += 1;

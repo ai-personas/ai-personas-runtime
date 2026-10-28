@@ -49,12 +49,21 @@ An ordinary input offers `CONTROL.file_import` with `maximum_bytes: null`. For e
 }
 ```
 
-Use the actual actor in source identifiers. The source is a new native identity
-when `base_revision` is null. Updating an existing source requires its exact
-current head, as for `file_write`. The native destination path must be unique
+Use the actual actor in source identifiers. Each source identifies one native
+file. Separate files need distinct sources, including a script and its report
+with the same filename stem; different paths or extensions do not distinguish
+a reused source. Reuse the source when revising that same file. The source is a
+new native identity when `base_revision` is null. Updating an existing source
+requires its exact current head, as for `file_write`. The native destination path must be unique
 within its owner and asset scope. `host_path` identifies the existing host file;
 relative paths use the working directory shown by the host interface. Symlinks
 to regular files may be followed. The original host file is not moved or modified.
+
+A response may mutate each source only once, across writes, edits, imports and
+retirements. Saves also need distinct paths within their scope. A conflict
+identifies both operation positions and the affected `source` or `path` fields
+without repeating their values. The complete response is rejected; the runtime
+does not rename sources, merge files or choose a correction for the persona.
 
 List the import ID in `asset_maintenance.change.operation_ids`, with a reason
 and useful discovery cues. Imports always create supporting assets. They cannot
