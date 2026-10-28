@@ -71,35 +71,75 @@ fn identity(reference: &Value, text: &str) -> Result<String> {
     digest(&(ENCODING, reference, text))
 }
 
-// Never recursively search arbitrary payloads, authored documents, messages or
-// historical records for text-like fields. Only these current qualified bundles
-// have the file-entry contract needed for a shared-body supply claim.
+// Enumerate only host-rendered qualified bundles, never arbitrary text-like
+// fields in authored documents, messages, tool payloads or Decision JSON.
+fn observation_bundle_paths(observation: &Value, prefix: &[String], paths: &mut Vec<Vec<String>>) {
+    if matches!(
+        observation["kind"].as_str(),
+        Some("qualified_read" | "selection_repair_read" | "local_dependency_event")
+    ) && observation["payload"]["result"]["profile"] == "qualified-exact-context-json-v1"
+    {
+        let mut path = prefix.to_vec();
+        path.extend(["payload".into(), "result".into()]);
+        paths.push(path);
+    }
+    if let Some(bundles) = observation["current_required_qualifications"].as_array() {
+        for (index, bundle) in bundles.iter().enumerate() {
+            if bundle["profile"] == "qualified-exact-context-json-v1" {
+                let mut path = prefix.to_vec();
+                path.extend(["current_required_qualifications".into(), index.to_string()]);
+                paths.push(path);
+            }
+        }
+    }
+}
+
+// Current operative supply uses only these paths. Encoding historical bundles
+// below must not expose a capability, reactivate an event or add current roots.
 fn bundle_paths(control: &Value) -> Vec<Vec<String>> {
     let mut paths = Vec::new();
     if let Some(observations) = control["actual_observations"].as_array() {
         for (index, observation) in observations.iter().enumerate() {
-            let prefix = vec!["actual_observations".into(), index.to_string()];
-            if matches!(
-                observation["kind"].as_str(),
-                Some("qualified_read" | "selection_repair_read" | "local_dependency_event")
-            ) && observation["payload"]["result"]["profile"] == "qualified-exact-context-json-v1"
+            observation_bundle_paths(observation, &["actual_observations".into(), index.to_string()], &mut paths);
+        }
+    }
+    paths
+}
+
+fn encoding_bundle_paths(control: &Value) -> Vec<Vec<String>> {
+    let mut paths = bundle_paths(control);
+    let mut pending: Vec<_> = control["actual_observations"].as_array().into_iter()
+        .flatten().enumerate().map(|(index, observation)|
+            (vec!["actual_observations".into(), index.to_string()], observation)).collect();
+    while let Some((mut prefix, observation)) = pending.pop() {
+        let payload = &observation["payload"];
+        let record = &payload["record"];
+        if observation["kind"] != "history_record_read"
+            || payload["profile"] != history::records::INTERFACE
+            || payload["body_supplied"] != true
+            || record["historical_only"] != true
+            || record["operative_evidence_or_event"] != false
+            || record["reference"] != payload["reference"]
+        {
+            continue;
+        }
+        let historical = &record["historical_record"];
+        prefix.extend(["payload".into(), "record".into(), "historical_record".into()]);
+        match record["reference"]["kind"].as_str() {
+            Some("observation") if record["reference"]["observation_id"].is_string()
+                && historical["id"] == record["reference"]["observation_id"] =>
             {
-                let mut path = prefix.clone();
-                path.extend(["payload".into(), "result".into()]);
-                paths.push(path);
+                observation_bundle_paths(historical, &prefix, &mut paths);
+                pending.push((prefix, historical));
             }
-            if let Some(bundles) = observation["current_required_qualifications"].as_array() {
-                for (bundle_index, bundle) in bundles.iter().enumerate() {
-                    if bundle["profile"] == "qualified-exact-context-json-v1" {
-                        let mut path = prefix.clone();
-                        path.extend([
-                            "current_required_qualifications".into(),
-                            bundle_index.to_string(),
-                        ]);
-                        paths.push(path);
-                    }
-                }
+            Some("adopted_decision") if record["reference"]["invocation_id"].is_string()
+                && historical["invocation"] == record["reference"]["invocation_id"]
+                && historical["current_accompaniment"]["profile"] == "qualified-exact-context-json-v1" =>
+            {
+                prefix.push("current_accompaniment".into());
+                paths.push(prefix);
             }
+            _ => (),
         }
     }
     paths
@@ -208,7 +248,7 @@ fn encode_qualified<'a>(control: &'a Value, qualified: &'a Value) -> Result<Enco
         "request context is already encoded",
     )?;
     let original_bytes = sections_size(control, qualified)?;
-    let paths = bundle_paths(control);
+    let paths = encoding_bundle_paths(control);
     let mut groups = BTreeMap::new();
     collect(qualified, &mut groups)?;
     for path in &paths {
@@ -348,7 +388,7 @@ pub(super) fn decode(prepared: &Prepared) -> Result<Decoded<'_>> {
         work_sharing.is_some() == (prepared.prompt_encoding.as_deref() == Some(WORK_ENCODING)),
         "retained work text encoding mismatch",
     )?;
-    let paths = bundle_paths(&control);
+    let paths = encoding_bundle_paths(&control);
     let mut accounting = Accounting {
         encoded_sections_utf8_bytes: encoded_bytes,
         expanded_sections_utf8_bytes: encoded_bytes,

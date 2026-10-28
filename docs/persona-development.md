@@ -412,6 +412,10 @@ included text while preserving field roles, record identities, attribution,
 restrictions and qualifications. Equal wording does not merge commitments or
 establish consent. The difference in serialized bytes is a representation saving
 for that request, not a measured token or charge saving.
+Qualified bodies inside actual historical-record projections also participate
+in exact text sharing. Their historical wrappers and all attribution remain
+unchanged, and decoding restores each complete bundle. They do not join the
+current operative file-supply set merely because their text is shared.
 Provider-reported usage and transport size are shown only for a matching completed
 provider input. They remain distinct from Store reservation accounting, which may
 still be uncertain. These figures describe one call, not total episode cost or

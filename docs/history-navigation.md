@@ -91,6 +91,16 @@ handle does not require another read. A body received only in an earlier input
 is not supplied again by listing its reference. Query descriptors and artifact
 receipts have their own metadata contracts and do not establish body supply.
 
+Exact qualified text inside a supplied historical record can share the request's
+`QUALIFIED_CONTEXT.shared_texts` pool with identical qualified text elsewhere.
+Each `text_ref` binds the same exact file reference and complete text; decoding
+restores the original bundle. Observation qualifications, qualified-read results
+and adopted-Decision accompaniment use this encoding only at their host-rendered
+paths. Authored JSON, message text and arbitrary tool payloads remain unchanged.
+Historical wrappers, original identities, attribution and qualification roles
+remain in place. Sharing does not make historical material a current event or
+add it to the operative file-supply set used for capability exposure.
+
 A full read of an original [image capture](image-input.md) can also supply its
 retained pixels. `CONTROL.image_inputs` identifies the actual image parts;
 query metadata alone does not supply them. This reuses the exact captured bytes
