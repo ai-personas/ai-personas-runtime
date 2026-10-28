@@ -138,6 +138,13 @@ Ordinary conversation does not automatically become a continuing obligation.
 This choice creates neither a peer commitment nor an automatic wake or extra
 resources; the persona still authors its continuation separately.
 
+Authored replies and peer messages address their audience's actual topic in the
+persona's own voice. Routine acceptance, maintenance, continuation and closure
+accounts remain in the Decision fields; messages include that status when it
+helps the recipient. Optional conversation needs no repeated procedural preamble
+or completion report. Relevant qualifications and remaining commitments stay
+explicit, while the persona chooses whether and how to engage or stop.
+
 ## Maintain fragments and supporting files during ordinary work
 
 Every ordinary decision includes maintenance outcomes for both scopes and an
