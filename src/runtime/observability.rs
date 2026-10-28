@@ -201,7 +201,7 @@ pub(super) fn accepted_writes(
     now: i64,
 ) -> Result<()> {
     for operation in &decision.operations {
-        let Some(p::FileSave { id, source, .. }) = operation.file_save() else {
+        let Some(p::FileSave { id, source, content, .. }) = operation.file_save() else {
             continue;
         };
         if !allowed.contains(id) {
@@ -209,7 +209,12 @@ pub(super) fn accepted_writes(
         }
         let revision = &proposals[&format!("{}{}", p::PROPOSED_OPERATION_PREFIX, id)];
         let entry = &state.sources[source];
-        let reference = f::Reference::full(source, revision, f::Representation::Utf8);
+        let representation = match content {
+            p::FileContent::Host { format: p::FileImportFormat::Bytes, .. } =>
+                f::Representation::BytesMetadata,
+            _ => f::Representation::Utf8,
+        };
+        let reference = f::Reference::full(source, revision, representation);
         let stored = record(state, &reference)?;
         let payload = json!({
             "operation_id":id,

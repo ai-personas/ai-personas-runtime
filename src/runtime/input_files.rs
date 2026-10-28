@@ -235,6 +235,7 @@ fn candidates(control: &Value, qualified: &Value) -> Result<Candidates> {
     }
     if let Some(peers) = control["collaborators"]["records"].as_array() {
         for peer in peers {
+            candidates.entries(&peer["latest_native_asset_saves"], "file_reference")?;
             if let Some(messages) = peer["latest_message_file_citations"].as_array() {
                 for message in messages {
                     if let Some(references) = message["file_references"].as_array() {

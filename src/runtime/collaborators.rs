@@ -1,6 +1,58 @@
-//! Current-work peer accounts, pending commands and latest result/citation cues.
+//! Current-work peer accounts, pending commands and latest result/file cues.
 //! This supplies neither private context nor proof that a process is running.
 use super::*;
+
+fn native_asset_save(
+    state: &State,
+    observation: &Observation,
+    a: &f::Admission,
+    exposure: &mut Exposure,
+) -> Option<Value> {
+    let invocation = observation.invocation.as_deref()?;
+    let operation = observation.payload["operation_id"].as_str()?;
+    let wire: p::ExactRef = serde_json::from_value(observation.payload["source"].clone()).ok()?;
+    let reference = file_reference(&wire).ok()?;
+    let stored = record(state, &reference).ok()?;
+    if observation.id != observation_id(invocation, "accepted_file_write", operation)
+        || observation.payload["accepted_head"] != reference.revision
+        || observation.payload["metadata_only"] != true
+        || stored.record.scope != f::Scope::Assets
+        || stored.record.author != observation.actor
+    {
+        return None;
+    }
+    let (kind, author, call, id) = match stored.origin.as_ref()? {
+        RevisionOrigin::PersonaInvocation { persona, invocation_id, operation_id } =>
+            ("file_write", persona, invocation_id, operation_id),
+        RevisionOrigin::NativeFileEdit { persona, invocation_id, operation_id, .. } =>
+            ("file_edit", persona, invocation_id, operation_id),
+        RevisionOrigin::HostFileImport { persona, invocation_id, operation_id, .. } =>
+            ("file_import", persona, invocation_id, operation_id),
+        _ => return None,
+    };
+    if author != &observation.actor || call != invocation || id != operation {
+        return None;
+    }
+    let mut inherited = observation.exposure.as_ref()?.clone();
+    inherited.sources.extend(observation.sources.iter().cloned());
+    inherited.sources.extend(observation.qualified_roots.iter().cloned());
+    inherited.sources.push(reference.clone());
+    if !exposure_permitted(state, &inherited, a) {
+        return None;
+    }
+    let (receipt, _) = history::records::observation_identity(observation)?;
+    let source = state.sources.get(&reference.source)?;
+    let value = json!({
+        "invocation":invocation,"operation":operation,"save_kind":kind,
+        "actor":observation.actor,"work":observation.work,"receipt":receipt,
+        "file_reference":wire_reference(&reference),"path":stored.record.path,
+        "file_revision_is_current_head":source.head == reference.revision,
+        "source_retired":source.retired,
+        "receipt_body_supplied_by_cue":false,"file_body_supplied_by_cue":false
+    });
+    extend_exposure(exposure, &inherited);
+    Some(value)
+}
 
 pub(super) fn last_judgment(
     state: &State,
@@ -43,11 +95,11 @@ pub(super) fn context(
     // The roster stays within this work. Its judgments can cite retained receipts
     // from other work; citation lookup supplies identities, not private context.
     let mut projection = json!({
-        "profile":"current-work-collaborators-v8",
+        "profile":"current-work-collaborators-v9",
         "work":work_id,
         "records":[],
         "records_omitted":false,
-        "meaning":"Snapshot of this runtime's named work at this input's context_at_unix. Persona, invocation and work identifiers are local to this runtime; matching labels elsewhere do not establish the same participant. Each last_attributed_work_judgment and last_authored_continuation is the peer's own accepted account or intention, not verified execution, quality, readiness, agreement or a new commitment. pending_host_commands names accepted operations whose complete result has not been published. latest_host_command_results links published receipts for commands from that peer's latest accepted work-judgment invocation, even before the peer has received or discussed those results. These exact history references and recorded execution states supply neither result bodies nor a quality verdict. Choose a useful receipt through CONTROL.input_history_choices or exact history lookup. latest_message_file_citations names exact native files attached to actual messages from that same latest work-judgment invocation, with original sender, recipient and message identity. Choose an exact native read, or use current input_file_choices handles for next-context selection or citation. Native paths name retained files, not host workspace paths; use their exact references instead of assuming a host copy exists. These cues supply neither message nor file bodies, establish no recipient attention or quality, and choose no shared candidate. Earlier messages remain discoverable in history. working_directory is the retained launch directory when recorded, not a restriction on accessed paths, file ownership, a live process identifier or proof that a command is running. A command may change directory or access other paths. Native parent and child work relationships do not imply parent or sibling filesystem directories. Host-wide listings and matching filenames or local IDs may belong to other runtimes. Establish the source work and participant connection before attributing a host file or export to a peer or relying on it as this work's output. Shared host files can change while your call runs, including after a peer's judgment. Choose useful work, communication, coordination and inspection yourself. These records supply no command bodies, cited evidence or peer artifact bodies. Communicate sends a message without resuming a stopped peer. When useful, CONTROL.need_capability can invite existing personas to new work; acceptance remains their choice. Empty or omitted entries do not establish that files are unchanged or safe to overwrite."
+        "meaning":"Snapshot of this runtime's named work at this input's context_at_unix. Persona, invocation and work identifiers are local to this runtime; matching labels elsewhere do not establish the same participant. Each last_attributed_work_judgment and last_authored_continuation is the peer's own accepted account or intention, not verified execution, quality, readiness, agreement or a new commitment. pending_host_commands names accepted operations whose complete result has not been published. latest_host_command_results links published receipts for commands from that peer's latest accepted work-judgment invocation, even before the peer has received or discussed those results. These exact history references and recorded execution states supply neither result bodies nor a quality verdict. Choose a useful receipt through CONTROL.input_history_choices or exact history lookup. latest_native_asset_saves names supporting files actually saved by that same latest work-judgment invocation, binding each exact file revision to its accepted save receipt and native path. A saved draft is not a delivery, shared candidate or quality judgment; file_import establishes imported bytes, not content authorship. The current-head and retirement fields describe this admission snapshot. latest_message_file_citations names exact native files attached to actual messages from that same invocation, with original sender, recipient and message identity. Choose an exact native read, or use current input_file_choices handles for next-context selection or citation. Native paths name retained files, not host workspace paths; use their exact references instead of assuming a host copy exists. These cues supply neither message nor file bodies, establish no recipient attention or quality, and choose no shared candidate. Earlier messages and save receipts remain discoverable in history; other native files remain discoverable by path and text. working_directory is the retained launch directory when recorded, not a restriction on accessed paths, file ownership, a live process identifier or proof that a command is running. A command may change directory or access other paths. Native parent and child work relationships do not imply parent or sibling filesystem directories. Host-wide listings and matching filenames or local IDs may belong to other runtimes. Establish the source work and participant connection before attributing a host file or export to a peer or relying on it as this work's output. Shared host files can change while your call runs, including after a peer's judgment. Choose useful work, communication, coordination and inspection yourself. These records supply no command bodies, cited evidence or peer artifact bodies. Communicate sends a message without resuming a stopped peer. When useful, CONTROL.need_capability can invite existing personas to new work; acceptance remains their choice. Empty or omitted entries do not establish that files are unchanged or safe to overwrite."
     });
     let mut records = Vec::new();
     for peer in work.participants.keys().filter(|peer| peer.0 != actor) {
@@ -85,6 +137,8 @@ pub(super) fn context(
             "pending_host_commands_omitted":false,
             "latest_host_command_results":[],
             "latest_host_command_results_omitted":false,
+            "latest_native_asset_saves":[],
+            "latest_native_asset_saves_omitted":false,
             "latest_message_file_citations":[],
             "latest_message_file_citations_omitted":false
         });
@@ -112,6 +166,24 @@ pub(super) fn context(
         let latest_invocation = persona.focus.get(work_id)
             .and_then(|focus| focus.judgment_origin.as_ref())
             .map(|origin| origin.invocation.as_str());
+        let mut saves = Vec::new();
+        for (id, observation) in state.observations.iter().filter(|(_, observation)| {
+            observation.work == work_id && observation.actor == peer.0
+                && observation.invocation.is_some()
+                && observation.invocation.as_deref() == latest_invocation
+                && observation.kind == "accepted_file_write"
+                && observation.payload["scope"] == "assets"
+        }) {
+            // Use the atomic accepted-save receipt and immutable revision's
+            // origin, never a planned write or an inferred host workspace path.
+            match (observation.id == *id).then(||
+                native_asset_save(state, observation, a, &mut inherited)).flatten()
+            {
+                Some(saved) => saves.push(saved),
+                None => value["latest_native_asset_saves_omitted"] = json!(true),
+            }
+        }
+        value["latest_native_asset_saves"] = json!(saves);
         let mut citations = Vec::new();
         for (id, message) in state.messages.iter().filter(|(_, message)| {
             message.work == work_id && message.sender == peer.0

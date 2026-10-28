@@ -121,7 +121,7 @@ eligibility. Completed results remain selectively discoverable.
 Ordinary inputs can include `CONTROL.collaborators`: other current-work
 participants, their labels and current acceptance IDs, and their latest accepted
 work judgment and continuation with their original invocation and mandate
-attribution. `current-work-collaborators-v8` keeps each judgment's relation to
+attribution. `current-work-collaborators-v9` keeps each judgment's relation to
 the current mandate explicit and lists accepted host-command identities awaiting
 complete result publication, including their recorded launch directories. A
 directory is where the command starts; it neither restricts accessed paths nor
@@ -146,6 +146,19 @@ reads. They supply no command, output or artifact bodies, do not manufacture a p
 citation, and establish neither quality nor the peer's awareness of the result.
 Partial publication remains pending. Publication does not itself invalidate a
 peer's unrelated decision; the collaborator context remains an admission snapshot.
+
+`latest_native_asset_saves` identifies supporting files saved through
+`file_write`, `file_edit` or `file_import` in that latest work-judgment invocation.
+Each cue binds the atomic accepted-save receipt to the immutable revision's
+actor, invocation and operation, preserving its native path and exact reference.
+The file reference joins `input_file_choices`; the receipt joins
+`input_history_choices`. The current-head and source-retirement flags describe
+the admission snapshot without replacing the saved revision. Binary import
+receipts use `bytes_metadata`, so their handles do not promise UTF-8 contents.
+These cues load no file or receipt bodies. They expose saved drafts without
+claiming delivery, content authorship for imports, quality or a shared candidate.
+They include no characteristic fragments or unadopted writes. Earlier saves
+remain selectively discoverable; unavailable provenance is an explicit omission.
 
 `latest_message_file_citations` exposes exact native file references attached to
 actual messages from that same latest work-judgment invocation. Each entry keeps

@@ -97,6 +97,13 @@ fn choices(control: &Value, invocation: &str) -> Result<Vec<Choice>> {
                     ))?;
                 }
             }
+            if let Some(saves) = peer["latest_native_asset_saves"].as_array() {
+                for (saved, value) in saves.iter().enumerate() {
+                    found.add(&value["receipt"], format!(
+                        "/collaborators/records/{index}/latest_native_asset_saves/{saved}/receipt"
+                    ))?;
+                }
+            }
         }
     }
     if let Some(images) = control["image_inputs"]["images"].as_array() {
