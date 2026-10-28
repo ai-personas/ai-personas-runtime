@@ -968,8 +968,10 @@ pub enum Operation {
         /// Select the unique interface with this ID retained for the current
         /// invocation. The runtime binds its exact revision; do not echo a hash.
         capability_id: String,
-        /// Match the selected capability's inputs_schema. Put depends_on beside
-        /// inputs on this effect operation, never inside the input object.
+        /// All capability arguments belong inside this object, matching the
+        /// selected inputs_schema. For host.command.v1 this includes command,
+        /// result_context, working_directory, stdin, stdin_asset and timeout_seconds.
+        /// Put depends_on beside inputs on the effect, never inside this object.
         inputs: Value,
         /// Follow this capability's supplied dependency contract. For
         /// work.command.v1, name only consumed file_write/file_edit/file_import proposals; use [] for
