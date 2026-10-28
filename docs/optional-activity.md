@@ -179,5 +179,6 @@ The native entry point handles registration and admission in one command.
 There is no background timer or automatic recurrence; choosing another activity
 opens another opportunity. Participants retain their lifecycle and each call's exact
 inference binding. Optional work can request ordinary child work through the
-native delegation interface. Remaining workflow restrictions are tracked in
-[execution resources](execution-resources.md); removal is not complete.
+native delegation interface. [Execution resources](execution-resources.md)
+describes the removed application gates and retained usage accounting. Their
+removal alone establishes neither useful autonomous activity nor development.
