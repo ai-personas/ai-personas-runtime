@@ -674,6 +674,7 @@ fn select_owned(
     let mut after = 0;
     let selection = foreground::select(
         app, &[work.into()], &mut after, now, owned, &BTreeSet::new(), None,
+        &BTreeSet::new(),
     )?;
     Ok((selection.considered, selection.candidate.map(|candidate| candidate.persona)))
 }

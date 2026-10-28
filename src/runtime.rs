@@ -2227,10 +2227,16 @@ pub struct ForegroundScan {
     pub at_unix: i64,
     pub selected: Option<(String, String)>,
     pub requires_exclusive: bool,
-    /// Previously selected candidate reconsidered first after owned calls settled.
+    /// New scans distinguish work-local acceptance from runtime-wide recovery.
+    /// An older omission does not acquire the current scheduling semantics.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exclusive_scope: Option<String>,
+    /// Previously selected candidate reconsidered after the affected calls settled.
     /// This is a scheduling preference, never retained eligibility or authority.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deferred_exclusive_candidate: Option<(String, String)>,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub blocked_works: BTreeSet<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

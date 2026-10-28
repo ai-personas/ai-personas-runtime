@@ -1,6 +1,8 @@
 //! One foreground owner, independent transport futures, sequential adoption.
 use super::*;
 use futures_util::{stream::FuturesUnordered, StreamExt};
+use foreground::Exclusivity;
+use std::collections::VecDeque;
 
 fn failed_call_allows_progress(app: &mut Runtime, id: &str, owned: &BTreeSet<String>) -> Result<bool> {
     let invocation = match app.invocation(id) {
@@ -63,14 +65,15 @@ async fn run_with_subtree<D: Driver>(
     let mut stop = None;
     let mut pending = FuturesUnordered::new();
     let mut owned = BTreeSet::new();
-    let mut exclusive = BTreeSet::new();
+    let mut owned_work = BTreeMap::new();
+    let mut exclusive = BTreeMap::new();
     let mut deferred: Vec<(String, String, AdoptionStatus)> = Vec::new();
     let mut handover_barrier = BTreeSet::new();
     let mut works = vec![root.to_owned()];
     let mut after = 0;
     let mut visited = BTreeSet::new();
     let mut round_started = false;
-    let mut pending_exclusive: Option<(String, String)> = None;
+    let mut pending_exclusive: VecDeque<foreground::Candidate> = VecDeque::new();
 
     loop {
         if crate::process_control::signal().is_some() {
@@ -176,39 +179,67 @@ async fn run_with_subtree<D: Driver>(
             // any transition that changes shared responsibility.
             && (deferred.is_empty() || (!handover_barrier.is_empty()
                 && deferred.iter().all(|(_, _, status)| *status == AdoptionStatus::CharacterOnly)))
-            && exclusive.is_empty()
-            && (pending_exclusive.is_none() || pending.is_empty())
+            && !exclusive.values().any(|scope| *scope == Exclusivity::Runtime)
+            && (!pending_exclusive.iter().any(|candidate|
+                candidate.exclusivity == Exclusivity::Runtime) || pending.is_empty())
         {
             if crate::process_control::signal().is_some() {
                 stop.get_or_insert("interrupted");
                 break;
             }
             let mut attempted_id = None;
-            let mut needs_exclusive = false;
+            let mut exclusivity = Exclusivity::None;
+            let mut deferred_candidate = false;
             let admission = (|| {
                 driver.before_step(app)?;
-                let priority = pending_exclusive.take();
+                let ready = pending_exclusive.iter().position(|candidate| match candidate.exclusivity {
+                    Exclusivity::Work => !owned_work.values().any(|work| work == &candidate.work),
+                    Exclusivity::Runtime => pending.is_empty(),
+                    Exclusivity::None => true,
+                });
+                let priority = ready.map(|index| {
+                    let candidate = &pending_exclusive[index];
+                    (candidate.work.clone(), candidate.persona.clone())
+                });
+                let mut blocked_works: BTreeSet<String> = exclusive.iter()
+                    .filter(|(_, scope)| **scope == Exclusivity::Work)
+                    .filter_map(|(id, _)| owned_work.get(id).cloned())
+                    .collect();
+                blocked_works.extend(pending_exclusive.iter().enumerate()
+                    .filter(|(index, _)| Some(*index) != ready)
+                    .map(|(_, candidate)| candidate.work.clone()));
                 let selection = foreground::select(
                     app, &works, &mut after, unix_now()?, &owned, &visited,
-                    priority.as_ref(),
+                    priority.as_ref(), &blocked_works,
                 )?;
+                // A pending structural transaction may prevent any consideration.
+                // Retain the preference until an actual fresh scan considers it.
+                if selection.considered > 0 {
+                    if let Some(index) = ready { pending_exclusive.remove(index); }
+                }
                 let Some(candidate) = selection.candidate else {
                     next_scheduled_at = selection.next_scheduled_at;
                     return Ok(None);
                 };
-                // First responsibility acceptance changes shared work authority.
+                // First responsibility acceptance changes only its work's
+                // authority. Other work retains its exact sealed scope checks.
                 // Initial character calls in a fresh cohort change only their
                 // own character units; their handovers wait for settled calls.
-                // The candidate identifies which transition needs a serial turn.
-                let foreground::Candidate { work, persona, requires_exclusive } = candidate;
-                needs_exclusive = requires_exclusive;
-                if needs_exclusive && !pending.is_empty() {
+                exclusivity = candidate.exclusivity;
+                let must_drain = match exclusivity {
+                    Exclusivity::None => false,
+                    Exclusivity::Work => owned_work.values().any(|work| work == &candidate.work),
+                    Exclusivity::Runtime => !pending.is_empty(),
+                };
+                if must_drain {
                     // Selection has already advanced the saved cursor. Retain
-                    // this exact candidate so the next settled scan considers
-                    // it first, with current eligibility, before refilling peers.
-                    pending_exclusive = Some((work, persona));
+                    // one exact candidate per blocked work and reconsider it
+                    // once its own calls settle, without refilling that work.
+                    pending_exclusive.push_back(candidate);
+                    deferred_candidate = true;
                     return Ok(None);
                 }
+                let foreground::Candidate { work, persona, .. } = candidate;
                 visited.insert((work.clone(), persona.clone()));
                 driver.before_step(app)?;
                 let (request, current) =
@@ -218,14 +249,19 @@ async fn run_with_subtree<D: Driver>(
             })();
             match admission {
                 Ok(Some(call)) => {
-                    if needs_exclusive || call.request.mode == Mode::SelectionRepair {
-                        exclusive.insert(call.request.id.clone());
+                    if call.request.mode == Mode::SelectionRepair {
+                        exclusivity = Exclusivity::Runtime;
                     }
+                    if exclusivity != Exclusivity::None {
+                        exclusive.insert(call.request.id.clone(), exclusivity);
+                    }
+                    owned_work.insert(call.request.id.clone(), call.request.work.clone());
                     owned.insert(call.request.id);
                     // Provider I/O and control observation must keep progressing
                     // while this coordinator prepares or adopts another decision.
                     pending.push(transport_tasks::spawn(call.completion));
                 }
+                Ok(None) if deferred_candidate => continue,
                 Ok(None) => break,
                 Err(error) => {
                     let peer_progress = attempted_id
@@ -265,6 +301,7 @@ async fn run_with_subtree<D: Driver>(
                     let id = completion.prepared.request.id.clone();
                     let work = completion.prepared.request.work.clone();
                     owned.remove(&id);
+                    owned_work.remove(&id);
                     exclusive.remove(&id);
                     handover_barrier.remove(&id);
                     match driver.finish(app, completion) {
@@ -301,9 +338,9 @@ async fn run_with_subtree<D: Driver>(
             // A result or an authored return time can make a previously visited
             // persona ready again. Active invocations remain excluded by their
             // exact lease state, and the saved circular cursors preserve order.
-            if pending_exclusive.is_none() {
-                visited.clear();
-            }
+            // Deferred candidates retain their exact preference and block only
+            // the affected work. Other ready peers can be considered afresh.
+            visited.clear();
             if pending.is_empty() {
                 // Always perform structural maintenance before refilling a
                 // settled owner, even when a peer just requested another turn.

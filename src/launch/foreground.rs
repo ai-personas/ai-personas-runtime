@@ -1,10 +1,18 @@
 //! One coherent foreground consideration pass over the actual work subtree.
 use super::*;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Exclusivity {
+    None,
+    Work,
+    Runtime,
+}
+
+#[derive(Clone)]
 pub(super) struct Candidate {
     pub work: String,
     pub persona: String,
-    pub requires_exclusive: bool,
+    pub exclusivity: Exclusivity,
 }
 
 #[derive(Default)]
@@ -22,6 +30,7 @@ pub(super) fn select(
     owned: &BTreeSet<String>,
     visited: &BTreeSet<(String, String)>,
     priority: Option<&(String, String)>,
+    blocked_works: &BTreeSet<String>,
 ) -> Result<Selection> {
     let time = u64::try_from(now).map_err(|_| invalid("negative scheduling time"))?;
     require(!works.is_empty(), "foreground work subtree absent")?;
@@ -56,7 +65,7 @@ pub(super) fn select(
     let mut selected = None;
     let mut next_scheduled_at = None;
     cursor.last.clear();
-    // A selected exclusive candidate may have waited for unrelated calls to
+    // A selected exclusive candidate may have waited for the affected calls to
     // settle after its cursor was committed. Reconsider that exact work/persona
     // first, using this fresh snapshot and the ordinary eligibility checks.
     // Resolve by identity because structural maintenance can change the subtree.
@@ -66,6 +75,12 @@ pub(super) fn select(
         .map(|offset| ((started_after % works.len() + offset) % works.len(), None));
     for (index, preferred_actor) in preferred.into_iter().chain(circular_works) {
         let work = &works[index];
+        // A first acceptance changes this work's authority, not another work's
+        // sealed decision scope. Keep its current calls draining without
+        // preventing independent work from receiving a turn.
+        if blocked_works.contains(work) {
+            continue;
+        }
         // Only the exact deferred actor gets the extra first consideration.
         // If it is no longer eligible, retain both circular cursors and visit
         // the ordinary work/persona order, skipping that already checked pair.
@@ -111,8 +126,13 @@ pub(super) fn select(
                     && current.acceptances.is_empty();
                 selected = Some(Candidate {
                     work: work.clone(), persona: actor.0.clone(),
-                    requires_exclusive: (!initial_character && current.acceptance(&actor).is_none())
-                        || state.personas[&actor.0].focus[work].repair_trigger.is_some(),
+                    exclusivity: if state.personas[&actor.0].focus[work].repair_trigger.is_some() {
+                        Exclusivity::Runtime
+                    } else if !initial_character && current.acceptance(&actor).is_none() {
+                        Exclusivity::Work
+                    } else {
+                        Exclusivity::None
+                    },
                 });
             } else if let Some(at) = scheduled_at(&state, &wid, &actor, now)? {
                 // Use this same eligible-subtree snapshot for the next wake.
@@ -142,8 +162,15 @@ pub(super) fn select(
             runtime: runtime.clone(), works: works.into(), started_after, next_after,
             visited: visited.clone(), owned_invocations: owned.clone(), at_unix: now,
             selected: selected.as_ref().map(|value| (value.work.clone(), value.persona.clone())),
-            requires_exclusive: selected.as_ref().is_some_and(|value| value.requires_exclusive),
+            requires_exclusive: selected.as_ref().is_some_and(|value|
+                value.exclusivity != Exclusivity::None),
+            exclusive_scope: selected.as_ref().and_then(|value| match value.exclusivity {
+                Exclusivity::None => None,
+                Exclusivity::Work => Some("work".into()),
+                Exclusivity::Runtime => Some("runtime".into()),
+            }),
             deferred_exclusive_candidate: priority.cloned(),
+            blocked_works: blocked_works.clone(),
         });
         let mut change = scheduler_change(old.as_ref(), &cursor)?;
         change.depends_on.push(runtime);

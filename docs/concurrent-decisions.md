@@ -21,9 +21,11 @@ actions or change shared work. Responses still commit one at a time, checking
 their actual persona and source dependencies. Once the calls settle, each exact
 initialization receives its own handover before ordinary work can begin.
 
-First responsibility acceptance runs alone because it changes shared work
-authority. Initializing another persona in work that already has accepted
-participants also retains that serial boundary. This includes first acceptance
+First responsibility acceptance runs alone within its work because it changes
+that work's shared authority. It may overlap direct calls in other work, whose
+actor, work and supplied-lineage dependencies still receive their complete
+native checks. Initializing another persona in work that already has accepted
+participants retains that work-local boundary. This includes first acceptance
 in optional activity; its already accepted participants may overlap afterward.
 Foreground work is not a background service across roots.
 
@@ -54,10 +56,13 @@ While a settled transaction or exclusive transition needs the current calls to
 drain, no independent clock wake repeatedly bypasses that boundary.
 
 Pending child admission, persona creation and requester input stop refilling
-until current transports settle. An exclusive candidate also drains current
-calls. Because selection already advanced the cursor, the coordinator retains
-that candidate's exact work and persona and reconsiders it first after the drain
-and structural maintenance. This fresh scan checks current eligibility; a removed,
+until current transports settle. Runtime-wide recovery retains that boundary.
+A work-local exclusive candidate drains only calls in its work and prevents
+refilling that work; independent work remains eligible. Because selection already
+advanced the cursor, the coordinator retains each deferred candidate's exact work
+and persona. It reconsiders the earliest ready candidate after its required drain,
+while preserving structural maintenance before refilling a settled owner.
+This fresh scan checks current eligibility; a removed,
 stopped or otherwise ineligible candidate falls through to the saved circular
 work and persona order. Its unsuccessful preferred consideration does not advance
 those cursors or promote the other participants in its work. The preference
@@ -67,6 +72,12 @@ These boundaries prevent ongoing parent work from starving a new child or input;
 they add no call or time quota and do not cancel a slow peer. Children still need
 their exact adopted proposal and a separate atomic receipt. Parent and child
 continuations remain independent.
+
+New foreground scan receipts identify `exclusive_scope` as `work` or `runtime`
+when applicable and list the temporarily `blocked_works`. These are scheduling
+facts, not inferred task dependencies or approval gates. Earlier receipts that
+lack the scope field retain their original unknown scope; inspection does not
+reclassify them using the current scheduler.
 
 A recoverable failed call can retire its own ended lease while the coordinator
 still owns other direct-call futures. The runtime and Store transaction check
