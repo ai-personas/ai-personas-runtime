@@ -176,6 +176,15 @@ invalid native path at the corresponding operation's `path` field.
 Native paths must also be unique within the persona and scope; see
 [native file conflicts](native-file-conflicts.md) for revisions and recovery.
 
+## Export cited command evidence
+
+A requester can export an explicitly cited output-string reference through the
+launcher. This saves that exact decoded text, or its selected UTF-8 range, with
+source identity and qualifications. Citing a historical command-result record
+instead exports its historical receipt and current qualifications. Neither route
+collects files written by the command; import and cite those files separately
+when they are intended attachments.
+
 ## Use a retained asset as standard input
 
 The `bytes_metadata` representation passes the complete original retained file

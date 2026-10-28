@@ -11,11 +11,12 @@ pub fn export_result_at(root: &Path, operator: Option<&str>, work: &str, destina
         require(operator.is_none_or(|value| value == snapshot.saved.operator), "saved operator mismatch")?;
         let now = unix_now()?;
         let output = results::project_state(&snapshot.state, work, &snapshot.saved, now, records)?;
-        export(snapshot, &output, destination, now)
+        export(snapshot, &output, destination, now, records)
     })
 }
 
-fn export(snapshot: &inspection::Snapshot, output: &Output, destination: &Path, now: i64) -> Result<Value> {
+fn export(snapshot: &inspection::Snapshot, output: &Output, destination: &Path, now: i64,
+    records: &s::RuntimeInspection<'_, '_>) -> Result<Value> {
     let state = &snapshot.state;
     let work = state.board.work(&w::WorkId(output.work_id.clone())).ok();
     let participants = work.into_iter().flat_map(|work| work.participants.keys())
@@ -36,6 +37,7 @@ fn export(snapshot: &inspection::Snapshot, output: &Output, destination: &Path, 
     let mut files = Vec::new();
     let mut delivered_index = Vec::new();
     let mut cited_index = Vec::new();
+    let mut history_index = Vec::new();
     for (delivery_index, record) in output.local_deliveries.iter().enumerate() {
         let delivery = &record.body;
         let artifacts = delivery["artifacts"].as_array()
@@ -75,6 +77,10 @@ fn export(snapshot: &inspection::Snapshot, output: &Output, destination: &Path, 
         }
     }
     let mut cited = BTreeSet::new();
+    let mut cited_file_count = 0;
+    let mut cited_text_count = 0;
+    let mut cited_history_count = 0;
+    let mut unavailable_history_count = 0;
     let mut citation_corpora = BTreeMap::new();
     for (message_index, message) in output.messages.iter().enumerate() {
         let sender = state.personas.get(&message.sender)
@@ -82,24 +88,21 @@ fn export(snapshot: &inspection::Snapshot, output: &Output, destination: &Path, 
         let mut a = admission(sender, now);
         a.audience = BTreeSet::from([message.recipient.clone()]);
         for subject in &message.file_references {
-            // A range or decoded string is a citation to a projection, not an
-            // instruction to export its entire containing file.
-            if subject.start.is_some() || subject.end.is_some()
-                || !matches!(subject.representation.as_str(), "utf8" | "bytes_metadata") {
-                continue;
-            }
             let reference = file_reference(subject)?;
             let stored = record(state, &reference)?;
             if stored.record.scope != f::Scope::Assets
-                || !cited.insert((reference.source.clone(), reference.revision.clone())) {
+                || !cited.insert((message.id.clone(), reference.clone())) {
                 continue;
             }
             require(lineage_permitted(state, std::slice::from_ref(&reference), &a),
                 "cited file export unavailable")?;
-            // Export is an explicit reader action. Resolve current qualifications
-            // without copying the file body into the metadata document as well.
-            let metadata = f::Reference::full(&reference.source, &reference.revision,
-                f::Representation::BytesMetadata);
+            let complete_file = reference.start.is_none() && reference.end.is_none()
+                && matches!(reference.representation, f::Representation::Utf8 | f::Representation::BytesMetadata);
+            // Whole-file exports keep the original bytes. A text citation selects
+            // only its exact decoded field/range, never the containing document.
+            let qualification_root = if complete_file {
+                f::Reference::full(&reference.source, &reference.revision, f::Representation::BytesMetadata)
+            } else { reference.clone() };
             // State and admission time are fixed for this export. Reuse only
             // the same sender/recipient catalogue within this view; each exact
             // root still receives its own lineage and qualification checks.
@@ -108,28 +111,46 @@ fn export(snapshot: &inspection::Snapshot, output: &Output, destination: &Path, 
                 Entry::Vacant(entry) => entry.insert(corpus_for_delivery(state, &a)?),
             };
             let assembly = f::assemble(corpus,
-                std::slice::from_ref(&metadata), &[], &[], &a, usize::MAX, 0, 0)?;
+                std::slice::from_ref(&qualification_root), &[], &[], &a, usize::MAX, 0, 0)?;
+            let bytes = if complete_file {
+                stored.record.bytes.clone()
+            } else {
+                assembly.entries.iter().find(|entry| entry.reference == reference)
+                    .ok_or_else(|| invalid("export cited text projection unavailable"))?.text.as_bytes().to_vec()
+            };
             let references = assembly.entries.iter().map(|entry| entry.reference.clone()).collect::<Vec<_>>();
             let bundle = attributed_context(state, &assembly.rendered_context, &references)?;
             require(f::canonical_relative_path(&stored.record.path), "export cited path is not canonical")?;
-            let name = Path::new(&stored.record.path).file_name().and_then(|name| name.to_str())
+            let original_name = Path::new(&stored.record.path).file_name().and_then(|name| name.to_str())
                 .ok_or_else(|| invalid("export cited filename unavailable"))?;
+            let name = if complete_file { original_name.to_owned() } else { format!("{original_name}.excerpt.txt") };
+            let label = if complete_file { name.clone() } else {
+                let range = match (reference.start, reference.end) {
+                    (Some(start), Some(end)) => format!(", UTF-8 bytes {start}..{end}"),
+                    _ => String::new(),
+                };
+                format!("{original_name} — {}{range}", subject.representation)
+            };
             let prefix = format!("referenced-file-{}", cited.len());
             let content_path = format!("{prefix}/content/{name}");
             let bundle_path = format!("{prefix}/qualified-bundle.json");
             let source_path = format!("{prefix}/source.json");
             cited_index.push(IndexEntry {
-                name: name.into(), content_path: content_path.clone(),
-                content_sha256: s::sha256_bytes(&stored.record.bytes),
+                name: label, content_path: content_path.clone(),
+                content_sha256: s::sha256_bytes(&bytes),
                 attribution: format!("{}, reply {}: {}", sender.seed.label, message_index + 1, message.subject),
                 source_path: source_path.clone(), bundle_path: bundle_path.clone(),
             });
-            files.push((content_path, stored.record.bytes.clone()));
+            let content_sha256 = s::sha256_bytes(&bytes);
+            let content_bytes = bytes.len();
+            files.push((content_path, bytes));
             files.push((bundle_path, bundle.as_bytes().to_vec()));
             files.push((source_path, serde_json::to_vec_pretty(&json!({
                 "kind":"requested_cited_file_export", "cited_reference":subject,
-                "metadata_reference":wire_reference(&metadata),
-                "bytes":stored.record.bytes.len(),"sha256":s::sha256_bytes(&stored.record.bytes),
+                "content_kind":if complete_file { "complete_file" } else { "text_projection" },
+                "qualification_root":wire_reference(&qualification_root),
+                "bytes":content_bytes,"sha256":content_sha256,
+                "source_file_bytes":stored.record.bytes.len(),"source_file_sha256":s::sha256_bytes(&stored.record.bytes),
                 "recorded_author":stored.record.author,
                 "recorded_author_label":state.personas.get(&stored.record.author).map(|persona| &persona.seed.label),
                 "origin":stored.origin,
@@ -138,17 +159,52 @@ fn export(snapshot: &inspection::Snapshot, output: &Output, destination: &Path, 
                     "recipient":message.recipient,"invocation":message.invocation},
                 "export_context":{"path":"../export-context.json","sha256":context_sha256},
                 "qualified_bundle_sha256":s::sha256_bytes(bundle.as_bytes()),
-                "meaning":"The reader requested these exact cited file bytes. The original message citation supplied no body; this export is not a formal release, acceptance or task completion."
+                "meaning":"The reader requested this exact citation. Complete-file citations export the original bytes; text projections export only the specified representation and UTF-8 range. Source-file identity is recorded separately. The original message citation supplied no body; this export is not a formal release, acceptance or task completion."
             }))?));
+            if complete_file { cited_file_count += 1; } else { cited_text_count += 1; }
+        }
+        for reference in &message.history_references {
+            let corpus = match citation_corpora.entry((message.sender.as_str(), message.recipient.as_str())) {
+                Entry::Occupied(entry) => entry.into_mut(),
+                Entry::Vacant(entry) => entry.insert(corpus_for_delivery(state, &a)?),
+            };
+            let projection = history::records::export_projection(state, reference, &a, corpus, records)?;
+            let available = projection["body_supplied"] == true;
+            let bytes = serde_json::to_vec_pretty(&projection)?;
+            let content_sha256 = s::sha256_bytes(&bytes);
+            let prefix = format!("referenced-history-{}", history_index.len() + 1);
+            let content_path = format!("{prefix}/content/record.json");
+            let source_path = format!("{prefix}/source.json");
+            history_index.push(IndexEntry {
+                name: if available { "Historical record" } else { "Unavailable historical record" }.into(),
+                content_path: content_path.clone(), content_sha256: content_sha256.clone(),
+                attribution: format!("{}, reply {}: {}", sender.seed.label, message_index + 1, message.subject),
+                source_path: source_path.clone(), bundle_path: content_path.clone(),
+            });
+            files.push((source_path, serde_json::to_vec_pretty(&json!({
+                "kind":"requested_cited_history_export","cited_reference":reference,
+                "status":projection["status"],"body_supplied":available,
+                "bytes":bytes.len(),"sha256":content_sha256,
+                "citation_message":{"id":message.id,"sender":message.sender,
+                    "sender_label":sender.seed.label,"work":message.work,
+                    "recipient":message.recipient,"invocation":message.invocation},
+                "export_context":{"path":"../export-context.json","sha256":context_sha256},
+                "qualifications":"Embedded in the historical record's current projection when available.",
+                "historical_only":true,"operative_evidence_or_event":false,
+                "meaning":"Explicit retrieval of the cited historical record with original attribution and current qualifications. The projection preserves its exact record identity; its serialized digest is separate from the original record digest. Export does not replay an operation, revive an event, supply opaque provider reasoning or claim that a generated host file is attached. An unavailable record is reported without reconstructing its body."
+            }))?));
+            files.push((content_path, bytes));
+            if available { cited_history_count += 1; } else { unavailable_history_count += 1; }
         }
     }
     if files.is_empty() {
         return Ok(json!({"work":output.work_id,"status":"no_exportable_files",
             "destination":null,"files":[],"delivery_count":0,"cited_file_count":0,
+            "cited_text_count":0,"cited_history_count":0,"unavailable_history_count":0,
             "inference_performed":false,"artifacts_executed":false,"goal_completed":false}));
     }
     files.push(("export-context.json".into(), context));
-    files.push(("index.html".into(), render_index(&delivered_index, &cited_index, request, &participants).into_bytes()));
+    files.push(("index.html".into(), render_index(&delivered_index, &cited_index, &history_index, request, &participants).into_bytes()));
     if let Some(parent) = destination.parent().filter(|parent| !parent.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)?;
     }
@@ -166,7 +222,9 @@ fn export(snapshot: &inspection::Snapshot, output: &Output, destination: &Path, 
     Ok(json!({"work":output.work_id,"status":"exported","destination":destination,
         "index_path":destination.join("index.html"),"files":written,
         "export_context_path":destination.join("export-context.json"),"export_context_sha256":context_sha256,
-        "delivery_count":output.local_deliveries.len(),"cited_file_count":cited.len(),"inference_performed":false,
+        "delivery_count":output.local_deliveries.len(),"cited_file_count":cited_file_count,
+        "cited_text_count":cited_text_count,"cited_history_count":cited_history_count,
+        "unavailable_history_count":unavailable_history_count,"inference_performed":false,
         "artifacts_executed":false,"goal_completed":false}))
 }
 
@@ -198,7 +256,7 @@ fn relative_url(path: &str) -> String {
 
 /// Only escaped labels and relative links are rendered. Artifact bodies remain
 /// separate files; opening the index neither embeds nor executes their content.
-fn render_index(delivered: &[IndexEntry], cited: &[IndexEntry], request: Option<&str>, participants: &[Value]) -> String {
+fn render_index(delivered: &[IndexEntry], cited: &[IndexEntry], history: &[IndexEntry], request: Option<&str>, participants: &[Value]) -> String {
     let mut html = String::from(r#"<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -216,7 +274,8 @@ fn render_index(delivered: &[IndexEntry], cited: &[IndexEntry], request: Option<
         html.push_str(&format!("<p>Participants in this work: {labels}</p>\n"));
     }
     html.push_str("<p><a href=\"export-context.json\">Source work and participant identities</a>. Identifiers belong to the source runtime; matching IDs in another export do not establish the same participants or work.</p>\n");
-    for (heading, entries) in [("Delivered files", delivered), ("Files cited in replies", cited)] {
+    for (heading, entries) in [("Delivered files", delivered), ("Files and text cited in replies", cited),
+        ("Historical records cited in replies", history)] {
         if entries.is_empty() { continue; }
         html.push_str(&format!("<h2>{heading}</h2><ul>\n"));
         // Group the index only. Every exact copy and its provenance remains

@@ -27,7 +27,8 @@ menu, **r: results** shows work history and a list of delivered files with their
 sizes. The file list is metadata, not the files' contents or qualifications.
 **v: full delivery contents and qualifications** shows the complete retained
 view, **j** shows exact delivery receipts, and **e** exports files with their
-qualifications. If no delivered package or complete cited file is available,
+qualifications. This also saves explicitly cited text excerpts and historical
+records. If no delivered package or citation is available,
 Export explains this and returns to the work menu without creating a directory
 or starting inference. Files written directly by host commands remain in the
 displayed task workspace; a command-output citation does not export those files.
@@ -438,13 +439,31 @@ permission-projected result and retain its complete contents.
 
 Binary artifacts show their verified byte length and SHA-256, with their complete
 qualifications and source attribution. Choose **e: export files** and enter a new
-directory to save currently delivered artifact roots and complete supporting files
-cited in requester messages, together with qualified bundles and provenance.
+directory to save currently delivered artifact roots and supporting files, text
+excerpts and historical records cited in requester messages, together with
+qualifications and provenance.
 Formal delivery packages also retain their original receipts. Saving a cited file
 is an explicit reader action and needs no shared-release or peer-consent record;
 the original citation remains metadata, and export does not create a release or
-acceptance. Ranges and decoded string citations do not select their whole files.
-The export summary counts delivery packages and cited files separately; their
+acceptance. Ranges and decoded string citations save only the exact selected
+UTF-8 text as an excerpt; they do not select their whole containing files.
+Their source records distinguish the exported text's length and digest from the
+original file's identity, and their bundles retain the selected representation,
+range and current qualification closure. A complete UTF-8 or binary-metadata
+citation continues to export the original file bytes.
+
+Historical citations export the same exact record and current qualifications
+available through native history reads. Observations keep their original actor,
+work, producing invocation and historical status; adopted Decisions retain their
+exact authored text without claiming that every proposed operation executed.
+Provider reasoning is not part of this view. An unavailable historical body gets
+an explicit notice with its citation, never a reconstructed body. These records
+appear in a separate index section and do not replay tools or attach files merely
+named in the record. Source records bind the exported projection separately from
+the immutable historical identity; qualifications remain inside that projection.
+
+The export summary counts delivery packages, cited files, text excerpts,
+historical records and unavailable history notices separately; their
 source and qualification records do not inflate the displayed content count.
 The launcher points to an offline `index.html` with links to every exported
 content file and its source and qualification records. Cited files show their
@@ -490,8 +509,10 @@ one atomic adoption use their IDs as a deterministic tie-break, without implying
 separate delivery times. There is no output quota. Each message keeps its own
 attribution; an earlier successful reply does not become a later call's result.
 
-The exported index groups byte-identical file contents within its delivered and
-cited sections. Each group retains links to every exported copy, its attribution,
+The exported index groups byte-identical contents within each section. Repeated
+citations in different replies retain each reply's attribution and source record,
+including when they name the same exact file revision or historical record.
+Each group retains links to every exported copy, its attribution,
 source record and qualifications. Changed contents remain separate, and grouping
 does not merge source identities, authorship or delivery status.
 

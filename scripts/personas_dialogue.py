@@ -2173,17 +2173,26 @@ class Dialogue:
                 if destination:
                     receipt = self.session("result", work["id"], "--export-directory", destination)
                     if receipt.get("status") == "no_exportable_files":
-                        self.ui.say("No delivered package or complete cited file is available to export. "
+                        self.ui.say("No delivered package or cited file, text or historical record is available to export. "
                                     "Choose Results to read the personas' replies. "
                                     "Files they created directly are in the task workspace shown in the work list.")
                     else:
                         saved = []
                         deliveries = receipt["delivery_count"]
                         cited = receipt["cited_file_count"]
+                        excerpts = receipt["cited_text_count"]
+                        history = receipt["cited_history_count"]
+                        unavailable = receipt["unavailable_history_count"]
                         if deliveries:
                             saved.append(f"{deliveries} delivery package{'s' if deliveries != 1 else ''}")
                         if cited:
                             saved.append(f"{cited} cited file{'s' if cited != 1 else ''}")
+                        if excerpts:
+                            saved.append(f"{excerpts} cited text excerpt{'s' if excerpts != 1 else ''}")
+                        if history:
+                            saved.append(f"{history} cited historical record{'s' if history != 1 else ''}")
+                        if unavailable:
+                            saved.append(f"{unavailable} unavailable history notice{'s' if unavailable != 1 else ''}")
                         self.ui.say(f"Saved {' and '.join(saved)} with source and qualification records "
                                     f"in {receipt['destination']}.")
                         self.ui.say(f"Open {receipt['index_path']} to find the files and their reply or delivery attribution.")

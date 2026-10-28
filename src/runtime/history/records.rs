@@ -399,6 +399,40 @@ fn record(
     (candidate.reference == *reference).then_some(candidate)
 }
 
+/// Explicit requester retrieval of a message's exact history citation. Use the
+/// same body and qualification projection as persona history reads, without
+/// manufacturing a pending observation or applying model-input recovery.
+pub(crate) fn export_projection(
+    state: &State,
+    reference: &p::HistoryRecordReference,
+    a: &f::Admission,
+    corpus: &f::Corpus,
+    records: &s::RuntimeInspection<'_, '_>,
+) -> Result<Value> {
+    p::check_history_reference(reference, "export.history_reference")?;
+    let mut material = Material::default();
+    if let p::HistoryRecordReference::AdoptedDecision { invocation_id, archive_id, .. } = reference {
+        if let Some(object) = records.object(archive_id)? {
+            material.archives.insert(invocation_id.clone(), (records.decision(invocation_id)?, object));
+        }
+    }
+    let permissions = Permissions::new(state, a)?;
+    let candidate = record(state, reference, a, corpus, &material, &permissions, true);
+    Ok(match candidate {
+        Some(candidate) => json!({
+            "profile":INTERFACE,"status":"read","body_supplied":true,
+            "reference":candidate.reference,"metadata":candidate.metadata,
+            "historical_record":candidate.body,
+            "historical_only":true,"operative_evidence_or_event":false,
+        }),
+        None => json!({
+            "profile":INTERFACE,"status":"unavailable","body_supplied":false,
+            "reference":reference,"historical_record":null,
+            "historical_only":true,"operative_evidence_or_event":false,
+        }),
+    })
+}
+
 /// Aggregate per-render projection envelope, separate from retained bodies and
 /// shared across all history receipts. Exceeding it supplies unavailable status.
 pub(crate) fn render_permissions<'a>(
