@@ -25,6 +25,18 @@ different resource identifiers need their appropriate discovery method; the host
 does not invent a record reference. Peer judgments supply no cited bodies
 automatically, and reading a receipt does not verify the claim it supports.
 
+An exact historical host-result read can itself exceed the provider's context.
+After an actual context or input-text length rejection, its pending receipt may
+be delivered with `status: provider_context_reference` and `body_supplied: false`.
+The record retains historical attribution, execution metadata and current
+qualifications, while exact field references, byte counts and hashes replace
+command, literal stdin and captured output text. Those references are available
+for ordinary file reads, measured ranges, next-context selection or host
+`stdin_asset`. Repeating a complete history read can request the same large body
+again. The immutable observation, failed input and authored selection remain
+unchanged. This recovery belongs to the current reader's pending read, even when
+the result came from another persona or work; it ends upon accepted consumption.
+
 Prior judgments also carry `citation_lookup` for exact observation, message and
 native tool-result identifiers. This matches native record identities rather
 than text that merely quotes an identifier. A match offers an exact history

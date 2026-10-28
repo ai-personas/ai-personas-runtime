@@ -215,6 +215,22 @@ impl Candidates {
         }
         Ok(())
     }
+
+    fn host_result(&mut self, payload: &Value) -> Result<()> {
+        self.add(&payload["inputs"]["stdin_asset"]["reference"])?;
+        self.add(&payload["context_projection"]["retained_result"]["source"])?;
+        if matches!(payload["context_projection"]["format"].as_str(),
+            Some("host-command-pending-reference-v1" | "host-command-pending-reference-v2"
+                | "host-command-pending-complete-v2" | "host-command-pending-provider-context-recovery-v1"
+                | "host-command-historical-provider-context-recovery-v1")) {
+            self.add(&payload["inputs"]["command_reference"])?;
+            self.add(&payload["inputs"]["stdin_reference"])?;
+            for stream in ["stdout", "stderr"] {
+                self.entries(&payload["result"][stream]["segments"], "text_reference")?;
+            }
+        }
+        Ok(())
+    }
 }
 
 fn candidates(control: &Value, qualified: &Value) -> Result<Candidates> {
@@ -247,8 +263,9 @@ fn candidates(control: &Value, qualified: &Value) -> Result<Candidates> {
             }
         }
     }
-    // Only current host projections have these contracts. Do not recursively
-    // interpret documents, messages, nested histories or authored JSON as offers.
+    // Only named host projections have these contracts. Historical recovery is
+    // an explicit metadata offer; do not recursively scan authored documents,
+    // messages or arbitrary historical bodies for reference-shaped fields.
     if let Some(observations) = control["actual_observations"].as_array() {
         for observation in observations {
             match observation["kind"].as_str() {
@@ -261,18 +278,23 @@ fn candidates(control: &Value, qualified: &Value) -> Result<Candidates> {
                     candidates.entries(&page["hits"], "reference")?;
                 }
                 Some("accepted_file_write") => candidates.add(&observation["payload"]["source"])?,
-                Some("host_command_result") => {
+                Some("host_command_result") => candidates.host_result(&observation["payload"])?,
+                Some("history_record_read") => {
                     let payload = &observation["payload"];
-                    candidates.add(&payload["inputs"]["stdin_asset"]["reference"])?;
-                    candidates.add(&payload["context_projection"]["retained_result"]["source"])?;
-                    if matches!(payload["context_projection"]["format"].as_str(),
-                        Some("host-command-pending-reference-v1" | "host-command-pending-reference-v2"
-                            | "host-command-pending-complete-v2")) {
-                        candidates.add(&payload["inputs"]["command_reference"])?;
-                        candidates.add(&payload["inputs"]["stdin_reference"])?;
-                        for stream in ["stdout", "stderr"] {
-                            candidates.entries(&payload["result"][stream]["segments"], "text_reference")?;
-                        }
+                    let record = &payload["record"];
+                    let historical = &record["historical_record"];
+                    if payload["profile"] == history::records::INTERFACE
+                        && payload["context_projection"]["format"] == "history-read-provider-context-recovery-v1"
+                        && payload["body_supplied"] == false
+                        && payload["historical_only"] == true && payload["operative_evidence_or_event"] == false
+                        && record["reference"] == payload["reference"]
+                        && record["historical_only"] == true && record["operative_evidence_or_event"] == false
+                        && payload["reference"]["kind"] == "observation"
+                        && payload["reference"]["observation_id"] == historical["id"]
+                        && historical["kind"] == "host_command_result"
+                        && historical["payload"]["context_projection"]["format"] == "host-command-historical-provider-context-recovery-v1"
+                    {
+                        candidates.host_result(&historical["payload"])?;
                     }
                 }
                 Some("qualified_read" | "selection_repair_read" | "local_dependency_event") => {

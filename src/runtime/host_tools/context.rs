@@ -23,6 +23,33 @@ pub(in crate::runtime) fn pending_projection(
     audience: &f::Admission,
     payload: &mut Value,
 ) -> Result<Projection> {
+    project_result(state, observation, audience, payload, None)
+}
+
+/// The current reader's rejected historical read is distinct from the original
+/// producer's pending-result choice. Only its exact retained rejection permits
+/// reference delivery; ordinary historical reads still supply complete bodies.
+pub(in crate::runtime) fn historical_recovery_projection(
+    state: &State,
+    observation: &Observation,
+    audience: &f::Admission,
+    payload: &mut Value,
+    rejection: &provider_context_recovery::Pending,
+) -> Result<Projection> {
+    let reference = history::records::observation_identity(observation)
+        .ok_or_else(|| held("historical result identity unavailable"))?.0;
+    require(rejection.historical_results.values().any(|selected| *selected == reference),
+        "historical result was not in the rejected input")?;
+    project_result(state, observation, audience, payload, Some(rejection))
+}
+
+fn project_result(
+    state: &State,
+    observation: &Observation,
+    audience: &f::Admission,
+    payload: &mut Value,
+    historical_recovery: Option<&provider_context_recovery::Pending>,
+) -> Result<Projection> {
     if observation.kind != "host_command_result" {
         return Ok(Projection::default());
     }
@@ -56,15 +83,16 @@ pub(in crate::runtime) fn pending_projection(
         .map(|value| serde_json::from_value::<ResultContext>(value.clone()))
         .transpose()?
         .unwrap_or(ResultContext::Complete);
-    let recovery = state.personas.get(&observation.actor)
+    let pending_recovery = state.personas.get(&observation.actor)
         .and_then(|persona| persona.focus.get(&observation.work))
-        .and_then(|focus| focus.provider_context_recovery.as_ref())
-        .filter(|pending| pending.results.contains_key(&observation.id));
-    if let Some(pending) = recovery {
+        .and_then(|focus| focus.provider_context_recoveries.iter().rev()
+            .find(|pending| pending.results.contains_key(&observation.id)));
+    if let Some(pending) = pending_recovery.filter(|_| historical_recovery.is_none()) {
         let body = &pending.results[&observation.id];
         require(body.source == *source && body.payload_sha256 == digest(&observation.payload)?,
             "context rejection result binding changed")?;
     }
+    let recovery = historical_recovery.or(pending_recovery);
     let mut references = vec![reference.clone()];
     let supplied = recovery.is_none() && matches!(choice, ResultContext::Complete);
     let mut fields = vec![reference_text(
@@ -127,6 +155,14 @@ pub(in crate::runtime) fn pending_projection(
             "original_result_context":choice,"original_request_preserved":true,
             "selected_context_changed":false
         });
+    }
+    if historical_recovery.is_some() {
+        payload["context_projection"]["format"] = json!("host-command-historical-provider-context-recovery-v1");
+        payload["context_projection"]["context_lifetime"] = json!({
+            "pending_history_read_consumed":"after_this_accepted_decision",
+            "automatically_selected_for_later":false,"retain_with":"next_assets"
+        });
+        payload["context_projection"]["meaning"] = json!("The provider rejected the current reader's earlier input containing this complete historical host result. This historical projection supplies execution metadata and exact references instead of command, literal stdin and output text. The original observation, requested read, failed input and captured bytes remain intact. Field byte counts and hashes describe retained text, not supplied bodies. Choose useful fields or measured ranges through ordinary file reads or next-context selection; stdin_asset can pass exact retained bytes to a host command. Original actor, work, invocation, historical status and current required qualifications remain unchanged. This does not repeat the original command, reactivate an event, change a selection or claim successful body supply. The override ends when an accepted decision consumes the current reader's pending history read.");
     }
     Ok(Projection {
         references,

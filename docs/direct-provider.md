@@ -165,6 +165,19 @@ text was successfully considered, truncate the retained output, change selected
 fragments/assets or repeat the command. The persona chooses useful reads, ranges,
 next context, further work and maintenance through the ordinary interface.
 
+The same recovery covers pending exact history reads of host-command results,
+including another persona's result. The current reader's rejection binds the
+pending history-read receipt and the original observation separately. The
+historical projection keeps execution metadata, provenance and qualifications,
+and supplies exact command, stdin and output-field references instead of those
+text bodies. `body_supplied: false` and `provider_context_reference` identify this
+delivery. It does not change the producer's pending result or the reader's
+selected context. Ordinary historical reads remain complete; reference recovery
+requires the actual failed input, and consuming the pending read ends it.
+If another body is rejected before that consumption, both overrides retain their
+own rejection provenance. A later recovery does not resupply earlier rejected
+text or relabel it as rejected by a different call.
+
 A complete HTTP 400 `invalid_request_error` can report the same input problem
 as an overlong `input[n].content[m].text` field. The runtime also recognizes the
 exact structured explanation giving the maximum and actual string lengths,

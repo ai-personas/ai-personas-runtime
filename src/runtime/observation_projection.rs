@@ -10,8 +10,8 @@ pub(super) fn project_pending(
 ) -> Result<(Value, Exposure, Vec<f::Reference>, Vec<f::Reference>)> {
     let recovery = state.personas.get(&observation.actor)
         .and_then(|persona| persona.focus.get(&observation.work))
-        .and_then(|focus| focus.provider_context_recovery.as_ref())
-        .filter(|pending| pending.reads.contains_key(&observation.id));
+        .and_then(|focus| focus.provider_context_recoveries.iter().rev()
+            .find(|pending| pending.reads.contains_key(&observation.id)));
     if let Some(pending) = recovery {
         let roots = &pending.reads[&observation.id];
         require(observation.kind == "qualified_read" && *roots == observation.qualified_roots,

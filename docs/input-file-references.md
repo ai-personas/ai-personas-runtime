@@ -15,6 +15,13 @@ use this work-specific sequence. The sealed global admission serial remains a
 separate call identity. Retained focus and prepared records require the work
 counter; older global deadlines are not reinterpreted or migrated.
 
+After an actual provider context rejection, reference delivery of a pending host
+result or exact historical host-result read offers file handles for the retained
+command, literal stdin and output fields. Each handle identifies the displayed
+exact decoded-string reference without claiming that its body was supplied.
+Historical recovery keeps the original actor, work and invocation; arbitrary
+historical text and authored JSON do not become file offers through this route.
+
 An ordinary initialized admission may supply `CONTROL.input_file_choices`.
 Each entry pairs a short handle with an exact file reference already identified
 in that input. A handle includes the invocation identity, for example
@@ -132,7 +139,8 @@ host never silently repairs an unknown handle or malformed literal reference.
 The complete table has no application entry or serialized-byte cap.
 Candidates come only from current host
 projections and qualified entries. These include explicitly discovered files,
-referenced tool guides and results, and structured citations in received local
+referenced tool guides and results, explicit historical-result recovery metadata,
+and structured citations in received local
 messages. The host does not add the complete retained fragment collection or
 past tool-result catalogue to each request. Arbitrary document text, nested
 history and quoted JSON are not parsed

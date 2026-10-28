@@ -551,10 +551,10 @@ pub struct Focus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) authored_continuation: Option<AuthoredContinuation>,
     pub pending_observations: Vec<String>,
-    /// Actual provider rejection permits reference delivery of the same pending
-    /// host results, without editing their bodies or authored context choices.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) provider_context_recovery: Option<provider_context_recovery::Pending>,
+    /// Each actual provider rejection keeps its own pending delivery overrides
+    /// and provenance. A later rejection cannot restore an earlier rejected body.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) provider_context_recoveries: Vec<provider_context_recovery::Pending>,
     /// Feedback remains pending until a persona account or explicit requester replacement.
     /// Ordinary observation consumption cannot erase an unresolved direction.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]

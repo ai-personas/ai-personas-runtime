@@ -122,7 +122,7 @@ impl Material {
         let active = selected.filter(|selected| selected.active(serial));
         let mut unavailable = None;
         let mut history = None;
-        let rejection = focus.provider_context_recovery.as_ref().filter(|pending|
+        let rejection = focus.provider_context_recoveries.iter().rev().find(|pending|
             active.is_some() && pending.rejected_provider_context.as_ref() == active);
         if let Some(selected) = active {
             if rejection.is_some() {

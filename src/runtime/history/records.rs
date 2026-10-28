@@ -529,12 +529,32 @@ pub(crate) fn supply(
             true,
         )
     });
-    let Some(candidate) = candidate else {
+    let Some(mut candidate) = candidate else {
         wrapper["payload"]["status"] = json!("unavailable");
         wrapper["payload"]["body_supplied"] = json!(false);
         wrapper["payload"]["record"] = Value::Null;
         return Ok((wrapper, exposure, Vec::new(), Vec::new()));
     };
+    let recovery = state.personas.get(&receipt.actor)
+        .and_then(|persona| persona.focus.get(&receipt.work))
+        .and_then(|focus| focus.provider_context_recoveries.iter().rev()
+            .find(|pending| pending.historical_results.contains_key(&receipt.id)));
+    if let Some(pending) = recovery {
+        require(pending.historical_results[&receipt.id] == candidate.reference,
+            "rejected historical result reference changed")?;
+        let p::HistoryRecordReference::Observation { observation_id, .. } = &candidate.reference else {
+            return Err(held("rejected historical result is not an observation"));
+        };
+        let original = state.observations.get(observation_id)
+            .ok_or_else(|| held("rejected historical result unavailable"))?;
+        let projected = host_tools::historical_recovery_projection(
+            state, original, a, &mut candidate.body["payload"], pending,
+        )?;
+        candidate.exposure.sources.extend(projected.references.iter().cloned());
+        // These references make exact fields discoverable without supplying
+        // their bodies or adding them to mandatory qualification root groups.
+        candidate.roots.extend(projected.references);
+    }
     let maximum = receipt.payload["supply_byte_limit"].as_u64().unwrap_or(0) as usize;
     let body = json!({"reference":candidate.reference,"historical_record":candidate.body,
         "historical_only":true,"operative_evidence_or_event":false});
@@ -548,6 +568,16 @@ pub(crate) fn supply(
     wrapper["payload"]["record"] = body;
     wrapper["payload"]["status"] = json!("read");
     wrapper["payload"]["body_supplied"] = json!(true);
+    if let Some(pending) = recovery {
+        wrapper["payload"]["status"] = json!("provider_context_reference");
+        wrapper["payload"]["body_supplied"] = json!(false);
+        wrapper["payload"]["context_projection"] = json!({
+            "format":"history-read-provider-context-recovery-v1",
+            "reference":candidate.reference,"metadata_supplied":true,
+            "provider_rejection":{"invocation":pending.invocation,"terminal":pending.terminal},
+            "meaning":"The earlier provider request containing this historical host result was rejected for context or input-text length. The record below preserves its original attribution, execution metadata and current required qualifications, with exact references to retained command, stdin and output text. Its full body was not supplied successfully. Choose useful fields or measured ranges through ordinary file reads or next-context selection; repeating a full history read can request the same large body again. Original records and authored selections are unchanged. This projection is historical metadata, not an operative event or evidence of current host-file contents."
+        });
+    }
     // All historical qualification bundles stay inside historical_record; the
     // outer current_required_qualifications stays empty to avoid evidence reuse.
     Ok((wrapper, exposure, candidate.roots, candidate.root_groups))
