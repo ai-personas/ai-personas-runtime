@@ -300,7 +300,10 @@ serialized byte size. Serialized bytes are not an estimate of rendered tokens.
 The exact wire hash covers the complete input, and provider usage stays attributed
 to the provider's report. No previous-response ID or server-side storage is used.
 
-`lifetime` defaults to `work`; `next_call` expires after the next admission.
+`lifetime` defaults to `work`; `next_call` expires after the next admission of the
+same persona on this work. Intervening calls on other work do not consume it.
+An admitted call consumes the lifetime even if its response is later rejected;
+failed preparation does not.
 `provider_context:{"kind":"preserve"}` in a replacement keeps the existing turn
 without appending the current one or renewing its lifetime. Omission from a
 replacement clears provider history. Whole-selection `preserve` retains surviving

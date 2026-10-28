@@ -9,12 +9,13 @@ pub(in crate::runtime) const INTERFACE: &str = "retained-image-selection-v1";
 pub(crate) struct Selected {
     pub reference: p::HistoryRecordReference,
     pub lifetime: String,
+    /// Inclusive deadline in this persona/work's admission sequence.
     pub last_admission: Option<u64>,
 }
 
 pub(super) fn interface() -> Value {
     json!({"interface":INTERFACE,
-        "rule":"To keep captured images in later inputs for this work, include images in a next_assets replacement. Each item is {kind:from_input_history,handle:<current input_history_choices handle>,lifetime:work} or {kind:exact,reference:<original image_read history_reference>,lifetime:work}. The reference must name a successful original image_read observation. Select only useful captures; no image catalogue is loaded. Use next_call for just the next admission. All three replacement kinds replace text and images together: include text still needed, and use references:[] or handles:[] for images alone. Omitting images from a replacement clears previous image choices. Preserve retains existing text and image selections without renewing lifetimes; clear removes both. A pending or historical read does not itself select an image. Selection preserves exact captured pixels and detail, not current host-file contents; it adds no read, model call, file mutation, approval, resize or count/byte quota. No image can be a characteristic fragment. Character adoption permits only unchanged surviving selections or their reduction. Actual later image_inputs establishes pixel supply; unavailable captures remain explicitly unavailable."})
+        "rule":"To keep captured images in later inputs for this work, include images in a next_assets replacement. Each item is {kind:from_input_history,handle:<current input_history_choices handle>,lifetime:work} or {kind:exact,reference:<original image_read history_reference>,lifetime:work}. The reference must name a successful original image_read observation. Select only useful captures; no image catalogue is loaded. Use next_call for just the next admission of this persona on this work; calls on other work do not consume it. All three replacement kinds replace text and images together: include text still needed, and use references:[] or handles:[] for images alone. Omitting images from a replacement clears previous image choices. Preserve retains existing text and image selections without renewing lifetimes; clear removes both. A pending or historical read does not itself select an image. Selection preserves exact captured pixels and detail, not current host-file contents; it adds no read, model call, file mutation, approval, resize or count/byte quota. No image can be a characteristic fragment. Character adoption permits only unchanged surviving selections or their reduction. Actual later image_inputs establishes pixel supply; unavailable captures remain explicitly unavailable."})
 }
 
 pub(in crate::runtime) fn active(selected: &[Selected], serial: u64) -> Vec<Selected> {
@@ -66,7 +67,7 @@ pub(in crate::runtime) fn select(
     old: &[Selected],
     reduction_only: bool,
 ) -> Result<Vec<Selected>> {
-    let next_serial = increment(prepared.admission_serial)?;
+    let next_serial = increment(prepared.work_admission_serial)?;
     let current = active(old, next_serial);
     if matches!(intent, p::SelectionIntent::Preserve { .. }) {
         return Ok(current);

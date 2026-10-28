@@ -87,7 +87,9 @@ Omitting `images` from a replacement clears earlier image choices. Use empty
 `handles` or `references` to select images alone. `preserve` retains both kinds
 without renewing their lifetimes; `clear` removes both. The default `work`
 lifetime lasts in this work until replacement or clearing; `next_call` lasts
-only through the next admission. Other work does not inherit this selection.
+only through the next admission of this persona on this work. Calls on other work
+neither inherit nor consume this selection. A later rejected response still
+consumes an admitted call's lifetime; a failed preparation does not.
 An accepted character change permits only preservation or reduction of whole
 surviving image choices, without renewing a lifetime.
 

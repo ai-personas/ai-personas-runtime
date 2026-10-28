@@ -476,6 +476,7 @@ pub struct PersonaImport {
 #[serde(deny_unknown_fields)]
 pub struct Selected {
     pub reference: p::ExactRef,
+    /// Inclusive deadline in this persona/work's admission sequence.
     pub last_admission: Option<u64>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -522,6 +523,9 @@ pub(crate) struct WorkJudgmentOrigin {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Focus {
+    /// Advances only when this persona is admitted on this work. Required in
+    /// retained state: a former global deadline must not acquire this meaning.
+    pub work_admission_serial: u64,
     pub fragments: Option<Vec<Selected>>,
     pub assets: Option<Vec<Selected>>,
     /// Primary-selected immutable image captures, part of next_assets.
@@ -1377,6 +1381,8 @@ pub struct Prepared {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub explicit_resume_at_admission: bool,
     pub admission_serial: u64,
+    /// This work's sealed admission sequence, used for optional context expiry.
+    pub work_admission_serial: u64,
     pub at_unix: i64,
     pub destination: String,
     pub audience: BTreeSet<String>,
@@ -4145,18 +4151,15 @@ impl Runtime {
         let unadmitted = state.clone();
         // The previous admitted call consumed next_call lifetimes even if its
         // response was rejected. Derive a witness only for that exact expiry
-        // subset before rendering the prospective call, including old checkpoints.
+        // subset before rendering the prospective call on the same work.
         // Keep unadmitted unchanged: failed preparation may record its existing
         // overflow diagnostic, but cannot commit a fit or ownership transition.
         let persona = state.personas.get_mut(&request.persona).unwrap();
         launch::persona_birth::charge_initialization(persona)?;
-        for focus in persona.focus.values_mut() {
-            carry_expiry_witness(
-                focus,
-                persona.character.as_ref().map(|c| c.revision.as_str()),
-                persona.admission_serial,
-            )?;
-        }
+        let focus = persona.focus.get_mut(&request.work).unwrap();
+        carry_expiry_witness(focus, persona.character.as_ref().map(|c| c.revision.as_str()))?;
+        focus.work_admission_serial = increment(focus.work_admission_serial)?;
+        let work_admission_serial = focus.work_admission_serial;
         persona.owner_epoch = increment(persona.owner_epoch)?;
         persona.admission_serial = increment(persona.admission_serial)?;
         persona.active_invocation = Some(request.id.clone());
@@ -4258,6 +4261,7 @@ impl Runtime {
             character_revision,
             explicit_resume_at_admission,
             admission_serial,
+            work_admission_serial,
             at_unix: now,
             destination: persona.seed.destination.clone(),
             audience: persona.seed.audience.clone(),
@@ -6847,8 +6851,8 @@ fn selection_digest(
 fn carry_expiry_witness(
     focus: &mut Focus,
     character_revision: Option<&str>,
-    serial: u64,
 ) -> Result<()> {
+    let serial = focus.work_admission_serial;
     let next = increment(serial)?;
     if focus.selection_fit.is_none() && focus.repair_trigger.is_none() {
         return Ok(());
@@ -7144,9 +7148,9 @@ fn render_mode_with_history(
     };
     let protected_maintenance = maintenance::project(state, actor, work_id, &a, &mut exposure)?;
     let serial = if admitted {
-        persona.admission_serial
+        focus.work_admission_serial
     } else {
-        increment(persona.admission_serial)?
+        increment(focus.work_admission_serial)?
     };
     let fragments = active_selection(&focus.fragments, serial);
     let assets = active_selection(&focus.assets, serial);
@@ -8529,13 +8533,13 @@ fn apply_writes(
 fn select(
     intent: &p::SelectionIntent,
     old: &Option<Vec<Selected>>,
-    serial: u64,
     prepared: &Prepared,
     decision: &p::Decision,
     proposals: &BTreeMap<String, String>,
     reduction_only: bool,
 ) -> Result<Option<Vec<Selected>>> {
-    let current = active_selection(old, increment(serial)?);
+    let next_serial = increment(prepared.work_admission_serial)?;
+    let current = active_selection(old, next_serial);
     match intent {
         p::SelectionIntent::Preserve { .. } => {
             // An explicit preserve also records the first optional-context
@@ -8561,7 +8565,7 @@ fn select(
                     result.push(item.clone());
                 } else {
                     let last_admission = if reference.lifetime.as_deref() == Some("next_call") {
-                        Some(increment(serial)?)
+                        Some(next_serial)
                     } else {
                         None
                     };
@@ -8645,7 +8649,7 @@ fn check_aggregate_replacement(
     if preserved_withheld.is_empty() {
         return Ok(());
     }
-    let serial = increment(prepared.admission_serial)?;
+    let serial = increment(prepared.work_admission_serial)?;
     let old_fragments = active_selection(&previous.fragments, serial)
         .iter()
         .map(|s| file_reference(&s.reference))
@@ -8940,7 +8944,6 @@ fn plan_response(
     let fragments = select(
         &decision.next_fragments,
         &previous_focus.fragments,
-        prepared.admission_serial,
         prepared,
         decision,
         &proposals,
@@ -8949,7 +8952,6 @@ fn plan_response(
     let assets = select(
         &decision.next_assets,
         &previous_focus.assets,
-        prepared.admission_serial,
         prepared,
         decision,
         &proposals,
@@ -9627,7 +9629,6 @@ fn plan_selection_repair(
     let fragments = select(
         &decision.next_fragments,
         &previous.fragments,
-        prepared.admission_serial,
         prepared,
         decision,
         &proposals,
@@ -9636,7 +9637,6 @@ fn plan_selection_repair(
     let assets = select(
         &decision.next_assets,
         &previous.assets,
-        prepared.admission_serial,
         prepared,
         decision,
         &proposals,

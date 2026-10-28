@@ -78,7 +78,8 @@ pub(super) fn selection_state(
     Ok(json!({
         "fragments_initialized":focus.fragments.is_some(),
         "assets_initialized":focus.assets.is_some(),
-        "admission_serial":serial,
+        "work_admission_serial":serial,
+        "lifetime_scope":"this persona on this work; other work does not consume next_call",
         "fragments":entries(&focus.fragments)?,
         "assets":entries(&focus.assets)?,
         "scope":"exact authored selections; inaccessible entries omitted; no lifetime renewal"

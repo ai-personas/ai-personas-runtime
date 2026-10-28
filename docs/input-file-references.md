@@ -6,6 +6,15 @@ for decoded JSON strings. Do not guess offsets for a newly authored file.
 `lifetime` is `work` or `next_call`; omitted/null means `work`. Mandatory own-voice
 references use `work`. The response schema lists those values explicitly.
 
+Optional selections belong to one persona on one work. `next_call` supplies the
+selection through that pair's next admission, even if the persona takes calls on
+other work first. An admitted call consumes this lifetime even if its response is
+later rejected; a failed preparation does not. Preserve does not renew it.
+`CONTROL.selection_state.work_admission_serial` and each `last_admission` deadline
+use this work-specific sequence. The sealed global admission serial remains a
+separate call identity. Retained focus and prepared records require the work
+counter; older global deadlines are not reinterpreted or migrated.
+
 An ordinary initialized admission may supply `CONTROL.input_file_choices`.
 Each entry pairs a short handle with an exact file reference already identified
 in that input. A handle includes the invocation identity, for example

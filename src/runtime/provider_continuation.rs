@@ -3,7 +3,7 @@
 use super::*;
 
 pub(super) const INTERFACE: &str = "selected-provider-context-v1";
-const RULE: &str = "Provider continuation is optional supporting context. To carry this invocation's complete provider input and completed output into the next decision, add provider_context:{kind:current,lifetime:work} to a next_assets replacement. Use lifetime:next_call for one following admission. This includes any earlier provider history actually supplied to this invocation, its old text and images, and opaque reasoning items when returned. It can be large; select it only when useful. To keep the existing provider turn while replacing files or images, use provider_context:{kind:preserve}. That preserves the old turn without appending this invocation or renewing its lifetime. Omitting provider_context from a replacement clears that selection; next_assets clear clears text, images and provider history, while next_assets preserve retains surviving selections without appending a turn. To select only provider context use kind:replace, references:[], provider_context:{kind:current}, and your reason. No full history or item bodies are placed in this metadata. supplied_history describes the actual extra provider input for this admission, with complete serialized bytes rather than an invented token estimate. unavailable means no earlier provider items were supplied; choose current to start a new continuation from this actual input, or clear it. Current requires the declared interface and a completed direct provider response; thin or unavailable output remains explicit without inventing history. The selected model and transport route must remain compatible with the retained turn. Current character, the latest CONTROL and schema, current request and observed effects govern the new response. Earlier assistant messages are historical proposals, including any fenced operations, not new actions, current authority or proof of successful effects. Character adoption can preserve or clear an existing selection but cannot add this turn. Retention or later item supply alone proves neither rendered reasoning reuse nor better work or character maturation.";
+const RULE: &str = "Provider continuation is optional supporting context. To carry this invocation's complete provider input and completed output into the next decision, add provider_context:{kind:current,lifetime:work} to a next_assets replacement. Use lifetime:next_call for one following admission of this persona on this work; calls on other work do not consume it. This includes any earlier provider history actually supplied to this invocation, its old text and images, and opaque reasoning items when returned. It can be large; select it only when useful. To keep the existing provider turn while replacing files or images, use provider_context:{kind:preserve}. That preserves the old turn without appending this invocation or renewing its lifetime. Omitting provider_context from a replacement clears that selection; next_assets clear clears text, images and provider history, while next_assets preserve retains surviving selections without appending a turn. To select only provider context use kind:replace, references:[], provider_context:{kind:current}, and your reason. No full history or item bodies are placed in this metadata. supplied_history describes the actual extra provider input for this admission, with complete serialized bytes rather than an invented token estimate. unavailable means no earlier provider items were supplied; choose current to start a new continuation from this actual input, or clear it. Current requires the declared interface and a completed direct provider response; thin or unavailable output remains explicit without inventing history. The selected model and transport route must remain compatible with the retained turn. Current character, the latest CONTROL and schema, current request and observed effects govern the new response. Earlier assistant messages are historical proposals, including any fenced operations, not new actions, current authority or proof of successful effects. Character adoption can preserve or clear an existing selection but cannot add this turn. Retention or later item supply alone proves neither rendered reasoning reuse nor better work or character maturation.";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -15,6 +15,7 @@ pub(crate) struct Selected {
     pub model: String,
     pub character_revision: Option<String>,
     pub lifetime: String,
+    /// Inclusive deadline in this persona/work's admission sequence.
     pub last_admission: Option<u64>,
 }
 
@@ -159,7 +160,7 @@ pub(super) fn select(
     reduction_only: bool,
     material: &mut Material,
 ) -> Result<Option<Selected>> {
-    let next_serial = increment(prepared.admission_serial)?;
+    let next_serial = increment(prepared.work_admission_serial)?;
     let surviving = old.filter(|selected| selected.active(next_serial)).cloned();
     if matches!(intent, p::SelectionIntent::Preserve { .. })
         || matches!(intent.provider_context(), Some(p::ProviderContextSelection::Preserve)) {

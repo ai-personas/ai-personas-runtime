@@ -346,7 +346,7 @@ pub enum ProviderContextSelection {
     /// this invocation. The host binds the actual terminal after completion.
     /// This may add substantial context; choose only when useful.
     Current {
-        /// work (default) or next_call. Preserve never renews next_call.
+        /// work (default) or next_call on this persona/work. Preserve never renews it.
         lifetime: Option<String>,
     },
     /// Keep the already selected provider turn while replacing other assets.
@@ -364,14 +364,14 @@ pub enum ImageSelection {
     /// names an original captured image_read observation.
     FromInputHistory {
         handle: String,
-        /// work (default) or next_call. Preserve never renews next_call.
+        /// work (default) or next_call on this persona/work. Preserve never renews it.
         lifetime: Option<String>,
     },
     /// Choose a known exact original image_read history_reference. It must be
     /// an observation reference, not an adopted decision or history-read receipt.
     Exact {
         reference: HistoryRecordReference,
-        /// work (default) or next_call. Preserve never renews next_call.
+        /// work (default) or next_call on this persona/work. Preserve never renews it.
         lifetime: Option<String>,
     },
 }
@@ -381,7 +381,7 @@ pub enum ImageSelection {
 pub struct SavedFileSelection {
     /// Exact ID of a file_write, file_edit or file_import operation in this response.
     pub operation: String,
-    /// Optional selection lifetime: work or next_call. Omitted/null uses work.
+    /// work or next_call on this persona/work. Omitted/null uses work.
     pub lifetime: Option<String>,
 }
 
@@ -409,7 +409,7 @@ pub struct ExactRef {
     /// Exclusive UTF-8 byte end, paired with start. Omit/null with start for
     /// complete text, including a newly authored own-voice file.
     pub end: Option<u64>,
-    /// "work" (also the omitted/null default) or "next_call". Mandatory own
+    /// "work" (also the omitted/null default) or "next_call" on this persona/work. Mandatory own
     /// voice uses "work"; "character", "permanent" and "lifetime" are not values.
     pub lifetime: Option<String>,
 }
