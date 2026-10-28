@@ -233,6 +233,19 @@ fn candidates(control: &Value, qualified: &Value) -> Result<Candidates> {
         candidates.entries(&control[family]["allocations"], "guide")?;
         candidates.entries(&control[family]["retained_results"], "source")?;
     }
+    if let Some(peers) = control["collaborators"]["records"].as_array() {
+        for peer in peers {
+            if let Some(messages) = peer["latest_message_file_citations"].as_array() {
+                for message in messages {
+                    if let Some(references) = message["file_references"].as_array() {
+                        for reference in references {
+                            candidates.add(reference)?;
+                        }
+                    }
+                }
+            }
+        }
+    }
     // Only current host projections have these contracts. Do not recursively
     // interpret documents, messages, nested histories or authored JSON as offers.
     if let Some(observations) = control["actual_observations"].as_array() {

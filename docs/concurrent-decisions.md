@@ -110,7 +110,7 @@ eligibility. Completed results remain selectively discoverable.
 Ordinary inputs can include `CONTROL.collaborators`: other current-work
 participants, their labels and current acceptance IDs, and their latest accepted
 work judgment and continuation with their original invocation and mandate
-attribution. `current-work-collaborators-v6` keeps each judgment's relation to
+attribution. `current-work-collaborators-v8` keeps each judgment's relation to
 the current mandate explicit and lists accepted host-command identities awaiting
 complete result publication, including their recorded launch directories. A
 directory is where the command starts; it neither restricts accessed paths nor
@@ -135,6 +135,17 @@ reads. They supply no command, output or artifact bodies, do not manufacture a p
 citation, and establish neither quality nor the peer's awareness of the result.
 Partial publication remains pending. Publication does not itself invalidate a
 peer's unrelated decision; the collaborator context remains an admission snapshot.
+
+`latest_message_file_citations` exposes exact native file references attached to
+actual messages from that same latest work-judgment invocation. Each entry keeps
+the message's immutable identity, work, sender and original recipient, including
+replies addressed to the requester. These references join `input_file_choices`
+with native paths and actual body-supply status, so peers can select or cite them
+without first locating a host copy or retrieving an entire decision. Native paths
+do not imply host files. No message or artifact body is loaded by these cues, no
+review is assigned and no shared candidate is chosen. Earlier messages remain
+discoverable in history; an empty list does not establish that no file was ever
+shared. Unavailable message provenance is recorded as an omission.
 
 The judgment's separate citation lookup links exact retained observation,
 message and native tool-result identifiers, or reports them unresolved within

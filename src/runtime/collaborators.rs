@@ -1,4 +1,4 @@
-//! Current-work peer accounts, pending commands and latest published result cues.
+//! Current-work peer accounts, pending commands and latest result/citation cues.
 //! This supplies neither private context nor proof that a process is running.
 use super::*;
 
@@ -43,11 +43,11 @@ pub(super) fn context(
     // The roster stays within this work. Its judgments can cite retained receipts
     // from other work; citation lookup supplies identities, not private context.
     let mut projection = json!({
-        "profile":"current-work-collaborators-v7",
+        "profile":"current-work-collaborators-v8",
         "work":work_id,
         "records":[],
         "records_omitted":false,
-        "meaning":"Snapshot of this runtime's named work at this input's context_at_unix. Persona, invocation and work identifiers are local to this runtime; matching labels elsewhere do not establish the same participant. Each last_attributed_work_judgment and last_authored_continuation is the peer's own accepted account or intention, not verified execution, quality, readiness, agreement or a new commitment. pending_host_commands names accepted operations whose complete result has not been published. latest_host_command_results links published receipts for commands from that peer's latest accepted work-judgment invocation, even before the peer has received or discussed those results. These exact history references and recorded execution states supply neither result bodies nor a quality verdict. Choose a useful receipt through CONTROL.input_history_choices or exact history lookup. working_directory is the retained launch directory when recorded, not a restriction on accessed paths, file ownership, a live process identifier or proof that a command is running. A command may change directory or access other paths. Native parent and child work relationships do not imply parent or sibling filesystem directories. Host-wide listings and matching filenames or local IDs may belong to other runtimes. Establish the source work and participant connection before attributing a host file or export to a peer or relying on it as this work's output. Shared host files can change while your call runs, including after a peer's judgment. Choose useful work, communication, coordination and inspection yourself. These records supply no command bodies, cited evidence or peer artifact bodies. Communicate sends a message without resuming a stopped peer. When useful, CONTROL.need_capability can invite existing personas to new work; acceptance remains their choice. Empty or omitted entries do not establish that files are unchanged or safe to overwrite."
+        "meaning":"Snapshot of this runtime's named work at this input's context_at_unix. Persona, invocation and work identifiers are local to this runtime; matching labels elsewhere do not establish the same participant. Each last_attributed_work_judgment and last_authored_continuation is the peer's own accepted account or intention, not verified execution, quality, readiness, agreement or a new commitment. pending_host_commands names accepted operations whose complete result has not been published. latest_host_command_results links published receipts for commands from that peer's latest accepted work-judgment invocation, even before the peer has received or discussed those results. These exact history references and recorded execution states supply neither result bodies nor a quality verdict. Choose a useful receipt through CONTROL.input_history_choices or exact history lookup. latest_message_file_citations names exact native files attached to actual messages from that same latest work-judgment invocation, with original sender, recipient and message identity. Choose an exact native read, or use current input_file_choices handles for next-context selection or citation. Native paths name retained files, not host workspace paths; use their exact references instead of assuming a host copy exists. These cues supply neither message nor file bodies, establish no recipient attention or quality, and choose no shared candidate. Earlier messages remain discoverable in history. working_directory is the retained launch directory when recorded, not a restriction on accessed paths, file ownership, a live process identifier or proof that a command is running. A command may change directory or access other paths. Native parent and child work relationships do not imply parent or sibling filesystem directories. Host-wide listings and matching filenames or local IDs may belong to other runtimes. Establish the source work and participant connection before attributing a host file or export to a peer or relying on it as this work's output. Shared host files can change while your call runs, including after a peer's judgment. Choose useful work, communication, coordination and inspection yourself. These records supply no command bodies, cited evidence or peer artifact bodies. Communicate sends a message without resuming a stopped peer. When useful, CONTROL.need_capability can invite existing personas to new work; acceptance remains their choice. Empty or omitted entries do not establish that files are unchanged or safe to overwrite."
     });
     let mut records = Vec::new();
     for peer in work.participants.keys().filter(|peer| peer.0 != actor) {
@@ -84,7 +84,9 @@ pub(super) fn context(
             "pending_host_commands":[],
             "pending_host_commands_omitted":false,
             "latest_host_command_results":[],
-            "latest_host_command_results_omitted":false
+            "latest_host_command_results_omitted":false,
+            "latest_message_file_citations":[],
+            "latest_message_file_citations_omitted":false
         });
         if let Some(focus) = persona.focus.get(work_id) {
             value["last_attributed_work_judgment"] =
@@ -110,6 +112,40 @@ pub(super) fn context(
         let latest_invocation = persona.focus.get(work_id)
             .and_then(|focus| focus.judgment_origin.as_ref())
             .map(|origin| origin.invocation.as_str());
+        let mut citations = Vec::new();
+        for (id, message) in state.messages.iter().filter(|(_, message)| {
+            message.work == work_id && message.sender == peer.0
+                && latest_invocation == Some(message.invocation.as_str())
+                && !message.file_references.is_empty()
+        }) {
+            // Only immutable message formats that bind their attachments can
+            // supply this metadata. Never derive citations from authored prose
+            // or the unadopted operations in an archived Decision.
+            let complete = message.record_format.as_deref() == Some(history::MESSAGE_RECORD_V3)
+                || (message.record_format.is_none() && message.thread_work.is_some());
+            let Some(source) = message.exposure.as_ref().filter(|source| {
+                message.id == *id && complete && exposure_permitted(state, source, a)
+                    && lineage_permitted(state, &message.lineage, a)
+            }) else {
+                value["latest_message_file_citations_omitted"] = json!(true);
+                continue;
+            };
+            let Some(sha256) = history::message_identity(message) else {
+                value["latest_message_file_citations_omitted"] = json!(true);
+                continue;
+            };
+            citations.push(json!({
+                "message_id":message.id,"sha256":sha256,
+                "work":message.work,"invocation":message.invocation,
+                "sender":message.sender,"recipient":message.recipient,
+                "file_references":message.file_references,
+                "local_deposit_only":message.local_deposit_only,
+                "message_body_supplied_by_cue":false,"file_bodies_supplied_by_cue":false
+            }));
+            extend_exposure(&mut inherited, source);
+            inherited.sources.extend(message.lineage.iter().cloned());
+        }
+        value["latest_message_file_citations"] = json!(citations);
         for (intent, job) in state.host_command_jobs.iter().filter(|(_, job)| {
             job.work == work_id && job.actor == peer.0
         }) {
