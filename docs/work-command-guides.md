@@ -10,6 +10,14 @@ and resolves the same retained interface. Neither form includes an authored
 Complete-response, exact-record and current work-state checks preserve meaningful
 outcomes.
 
+A rejected native command identifies its `operations[index].inputs` location.
+Schema-derived hints include a missing or unknown `inputs.kind`, known nested
+field mismatches and the fields of an identified command. An unknown tag does
+not select a command or suggest an intended replacement. Diagnostics preserve
+the decoder's structural category without repeating arbitrary authored keys or
+values; the complete rejected response remains retained separately. No proposed
+operation executes merely because its failure can be explained.
+
 Model evidence, findings, assessments, judgments, shared decisions and releases
 have immutable identities within their record type. Their `inputs.id` differs
 from the response's operation ID. A later creation using an existing identity is

@@ -1905,7 +1905,7 @@ fn check_supplied_operation_inputs(prepared: &Prepared, decision: &p::Decision) 
         // actions. Malformed fenced inputs cannot reject that character unit.
         return Ok(());
     }
-    for operation in &decision.operations {
+    for (index, operation) in decision.operations.iter().enumerate() {
         if host_tools::is_host_command(operation) {
             host_tools::validate_inputs(prepared, decision, operation)?;
         } else if http_tools::is_http_fetch(operation) {
@@ -1916,7 +1916,7 @@ fn check_supplied_operation_inputs(prepared: &Prepared, decision: &p::Decision) 
             // Parsing and input validation consult no current Board or source
             // state. Keep their rejection bound to the admitted request, so an
             // existing continuation can receive it without an operator resume.
-            action(inputs)?;
+            action_at(inputs, &format!("operations[{index}].inputs"))?;
         }
     }
     Ok(())
@@ -2059,6 +2059,10 @@ fn check_supplied_closure_record(prepared: &Prepared, decision: &p::Decision) ->
 }
 
 fn action(value: &Value) -> Result<WorkAction> {
+    action_at(value, "inputs")
+}
+
+fn action_at(value: &Value, section: &str) -> Result<WorkAction> {
     let object = |value: &Value| -> Result<()> {
         require(
             value.is_object(),
@@ -2101,7 +2105,7 @@ fn action(value: &Value) -> Result<WorkAction> {
     // absent/null equivalence. BTreeSet deserialization alone would silently
     // remove duplicates; check raw cardinality while allowing any unique order.
     let parsed: WorkAction = serde_json::from_value(value.clone())
-        .map_err(|error| work_input_diagnostics::enrich(value, error))?;
+        .map_err(|error| work_input_diagnostics::enrich(value, error, section))?;
     arrangements::validate_action(value, &parsed)?;
     questions::validate(&parsed)?;
     let unique = |raw: &Value, count: usize| -> Result<()> {
@@ -8676,7 +8680,7 @@ fn validate_operation_interfaces(
     allowed: &BTreeSet<String>,
 ) -> Result<BTreeMap<String, WorkAction>> {
     let mut actions = BTreeMap::new();
-    for operation in &decision.operations {
+    for (index, operation) in decision.operations.iter().enumerate() {
         if !allowed.contains(operation.id()) {
             continue;
         }
@@ -8713,7 +8717,7 @@ fn validate_operation_interfaces(
                     require(decision.operations.iter().any(|o| o.id() == dependency && o.file_save().is_some()),
                         "capability dependencies may bind exact local saves only; unobserved results require a fresh decision")?;
                 }
-                let input = action(inputs)?;
+                let input = action_at(inputs, &format!("operations[{index}].inputs"))?;
                 if let WorkAction::PutArtifact { subject, .. } = &input {
                     lifetime(subject)?;
                     if let Some(op) = subject.revision.strip_prefix(p::PROPOSED_OPERATION_PREFIX) {

@@ -2,27 +2,22 @@
 //! validates, repairs or executes an input, and runs only after Serde rejects it.
 use super::*;
 
-pub(super) fn enrich(received: &Value, error: serde_json::Error) -> serde_json::Error {
+pub(super) fn enrich(received: &Value, error: serde_json::Error, section: &str) -> serde_json::Error {
     let schema = work_schema();
-    let Some(variant) = schema["oneOf"].as_array().and_then(|variants| {
-        let kind = received.get("kind")?.as_str()?;
-        variants.iter().find(|variant| {
-            variant["properties"]["kind"]["const"].as_str() == Some(kind)
-        })
-    }) else {
-        // An unknown command has no known object variant to describe.
-        return error;
+    let hint = p::ShapeHint {
+        section: section.into(),
+        allowed_fields: crate::schema_diagnostics::object_variant(&schema, &schema, received)
+            .and_then(|variant| variant["properties"].as_object())
+            .map(|fields| fields.keys().cloned().collect())
+            .unwrap_or_default(),
+        // Inspect the whole union even when no command can be selected. This
+        // locates a missing or unknown inputs.kind without choosing its value.
+        issues: crate::schema_diagnostics::issues(&schema, &schema, received, section),
     };
-    let Some(properties) = variant["properties"].as_object() else {
-        return error;
-    };
-    let command = variant["properties"]["kind"]["const"].as_str().unwrap();
-    let mut details = vec![format!(
-        "native work input {command}; allowed fields: {}",
-        properties.keys().map(String::as_str).collect::<Vec<_>>().join(", ")
-    )];
-    details.extend(crate::schema_diagnostics::issues(variant, &schema, received, "inputs"));
-    // Keep the original Serde error and its RuntimeError::Json classification.
-    // No successful parse takes this path, and no authored value is replaced.
-    <serde_json::Error as serde::de::Error>::custom(format!("{error}; {}", details.join("; ")))
+    // Keep the decoder's structural category and RuntimeError::Json class,
+    // without copying rejected keys or values into a later recovery prompt.
+    // The exact response remains retained; no successful parse takes this path.
+    <serde_json::Error as serde::de::Error>::custom(format!(
+        "{hint}: {}", p::shape_rule(&error)
+    ))
 }
