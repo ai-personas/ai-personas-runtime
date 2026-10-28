@@ -54,6 +54,36 @@ fn native_asset_save(
     Some(value)
 }
 
+/// Exact supporting-file saves from one accepted invocation. The same receipt
+/// checks apply to a peer's latest work and the actor's recent other work.
+pub(super) fn native_asset_saves(
+    state: &State,
+    actor: &str,
+    work: &str,
+    invocation: &str,
+    a: &f::Admission,
+    exposure: &mut Exposure,
+) -> (Vec<Value>, bool) {
+    let mut saves = Vec::new();
+    let mut omitted = false;
+    for (id, observation) in state.observations.iter().filter(|(_, observation)| {
+        observation.work == work && observation.actor == actor
+            && observation.invocation.as_deref() == Some(invocation)
+            && observation.kind == "accepted_file_write"
+            && observation.payload["scope"] == "assets"
+    }) {
+        // Bind the atomic save receipt to the immutable revision's origin,
+        // never a planned write or an inferred host workspace path.
+        match (observation.id == *id).then(||
+            native_asset_save(state, observation, a, exposure)).flatten()
+        {
+            Some(saved) => saves.push(saved),
+            None => omitted = true,
+        }
+    }
+    (saves, omitted)
+}
+
 pub(super) fn last_judgment(
     state: &State,
     focus: &Focus,
@@ -166,24 +196,13 @@ pub(super) fn context(
         let latest_invocation = persona.focus.get(work_id)
             .and_then(|focus| focus.judgment_origin.as_ref())
             .map(|origin| origin.invocation.as_str());
-        let mut saves = Vec::new();
-        for (id, observation) in state.observations.iter().filter(|(_, observation)| {
-            observation.work == work_id && observation.actor == peer.0
-                && observation.invocation.is_some()
-                && observation.invocation.as_deref() == latest_invocation
-                && observation.kind == "accepted_file_write"
-                && observation.payload["scope"] == "assets"
-        }) {
-            // Use the atomic accepted-save receipt and immutable revision's
-            // origin, never a planned write or an inferred host workspace path.
-            match (observation.id == *id).then(||
-                native_asset_save(state, observation, a, &mut inherited)).flatten()
-            {
-                Some(saved) => saves.push(saved),
-                None => value["latest_native_asset_saves_omitted"] = json!(true),
-            }
+        if let Some(invocation) = latest_invocation {
+            let (saves, omitted) = native_asset_saves(
+                state, &peer.0, work_id, invocation, a, &mut inherited,
+            );
+            value["latest_native_asset_saves"] = json!(saves);
+            value["latest_native_asset_saves_omitted"] = json!(omitted);
         }
-        value["latest_native_asset_saves"] = json!(saves);
         let mut citations = Vec::new();
         for (id, message) in state.messages.iter().filter(|(_, message)| {
             message.work == work_id && message.sender == peer.0

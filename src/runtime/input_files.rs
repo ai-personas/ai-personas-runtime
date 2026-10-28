@@ -245,6 +245,10 @@ fn candidates(control: &Value, qualified: &Value) -> Result<Candidates> {
         "reference",
     )?;
     candidates.bundle(qualified)?;
+    candidates.entries(
+        &control["history_retrieval"]["recent_other_work"]["native_asset_saves"],
+        "file_reference",
+    )?;
     for family in ["computation_state", "http_fetch_state", "host_command_state"] {
         candidates.entries(&control[family]["allocations"], "guide")?;
         candidates.entries(&control[family]["retained_results"], "source")?;

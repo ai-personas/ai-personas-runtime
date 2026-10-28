@@ -63,13 +63,17 @@ pub(super) fn recent_other_work(
         return Some(json!({"status":"withheld_unavailable","body_supplied":false}));
     }
     extend_exposure(exposure, inherited);
+    let (saves, saves_omitted) = collaborators::native_asset_saves(
+        state, actor, work, &origin.invocation, admission, exposure,
+    );
     let mut cue = json!({
         "work":work,"invocation":origin.invocation,
         "admission_serial":serial,"admitted_at_unix":origin.admitted_at_unix,
+        "native_asset_saves":saves,"native_asset_saves_omitted":saves_omitted,
         "query":{"kind":"history_records_query","record_kind":"adopted_decision",
             "mode":{"kind":"literal","needle":origin.invocation}},
         "body_supplied":false,
-        "meaning":"Lookup cue for your latest indexed accepted judgment in another work, ordered by your recorded admission serial. When reference is present, it is the exact archive identity recorded by that invocation's commit: use history_record_read or its current input_history_choices handle directly, with no preliminary query. A read checks actual retained body availability and identity. The query remains available and may also match decisions citing this invocation. Older judgments without recorded chronology are not ranked; absence of this cue does not establish absence of history. This cue supplies no earlier decision or task result, selects no body and establishes no relevance, success or character development."
+        "meaning":"Lookup cue for your latest indexed accepted judgment in another work, ordered by your recorded admission serial. When reference is present, it is the exact archive identity recorded by that invocation's commit: use history_record_read or its current input_history_choices handle directly, with no preliminary query. A read checks actual retained body availability and identity. The query remains available and may also match decisions citing this invocation. native_asset_saves identifies supporting files actually saved by that invocation, with native paths, exact file references and accepted-save receipts. File references join input_file_choices and receipts join input_history_choices, so you can choose a useful file without first loading the whole earlier decision. These are retained native files, not assumed host workspace copies. Current-head and retirement flags describe this admission snapshot without replacing the saved revision. A save is not delivery or verified quality; an import does not establish content authorship. Older judgments without recorded chronology are not ranked; absence of this cue or of saves does not establish absence of history or files. This cue supplies no earlier decision, receipt or file body, transfers no optional selection and establishes no relevance, success or character development."
     });
     if let Some(reference) = material.recent_decision.as_ref()
         .filter(|record| record.invocation_id == origin.invocation)

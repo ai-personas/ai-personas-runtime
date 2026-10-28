@@ -63,6 +63,19 @@ The persona can read it directly with `history_record_read` or
 The read checks actual body availability and immutable identity; a commit
 reference alone does not establish either body supply or current readability.
 
+The locator's `native_asset_saves` also identifies supporting files saved by that
+same invocation. Each entry binds an accepted file write, edit or import to its
+exact native revision, path and save receipt. The file joins
+`input_file_choices`, and the receipt joins `input_history_choices`, allowing a
+returning persona to choose a useful saved file without first reading its entire
+earlier decision. These cues use the same provenance checks as current-work peer
+saves. They include no characteristic fragments, unadopted writes or file bodies.
+Current-head and retirement flags describe the admission snapshot; they do not
+advance the saved reference. Binary imports retain their byte-metadata
+representation. Native paths do not imply host workspace copies, and a save
+establishes neither delivery nor quality. Missing provenance is an explicit
+omission; an empty list does not establish that no older files exist.
+
 The literal query remains available when useful, including when commit metadata
 is unavailable. It may also match decisions citing the invocation, so the persona
 chooses the matching record from the returned metadata before reading its body.

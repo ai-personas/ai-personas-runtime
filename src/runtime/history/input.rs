@@ -68,6 +68,13 @@ fn choices(control: &Value, invocation: &str) -> Result<Vec<Choice>> {
     let mut found = Candidates::default();
     found.add(&control["history_retrieval"]["recent_other_work"]["reference"],
         "/history_retrieval/recent_other_work/reference".into())?;
+    if let Some(saves) = control["history_retrieval"]["recent_other_work"]["native_asset_saves"].as_array() {
+        for (saved, value) in saves.iter().enumerate() {
+            found.add(&value["receipt"], format!(
+                "/history_retrieval/recent_other_work/native_asset_saves/{saved}/receipt"
+            ))?;
+        }
+    }
     if let Some(requests) = control["requested_work"]["records"].as_array() {
         for (index, request) in requests.iter().enumerate() {
             let path = format!("/requested_work/records/{index}");
