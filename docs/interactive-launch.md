@@ -164,8 +164,11 @@ An accepted `reconsider_at` time or wait deadline keeps the foreground session
 open when no participant is ready now. Status shows the scheduled UTC time. The
 runtime waits for that time, an actual command result, or new input/control state,
 then checks current eligibility again. Waiting adds no model calls or recurring
-schedule. Stop, Pause, revocation and consumed one-shot opportunities remain
-effective. Leaving or interrupting the process creates no background service;
+schedule. An authored time can pass during model inference; if it was after the
+input's clock, adoption keeps that time and permits due consideration without
+discarding the response or extending the wait. Stop, Pause, revocation and
+consumed one-shot opportunities remain effective. Leaving or interrupting the
+process creates no background service;
 **c: continue** can reopen the same retained schedule in a new foreground session.
 
 Ctrl-C stops new admissions and waits for owned calls and commands to settle.

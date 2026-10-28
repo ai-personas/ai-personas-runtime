@@ -591,7 +591,8 @@ pub struct DecisionContext {
     invocation: InvocationId,
     version: Version,
     authority: ExactRef,
-    now: u64,
+    /// Clock supplied in this decision's input, before provider inference.
+    context_at: u64,
     separation: BTreeMap<ArtifactRef, Separation>,
     observed: BTreeSet<EventKey>,
 }
@@ -603,7 +604,7 @@ impl DecisionContext {
         invocation: InvocationId,
         version: Version,
         authority: ExactRef,
-        now: u64,
+        context_at: u64,
         separation: BTreeMap<ArtifactRef, Separation>,
         observed: BTreeSet<EventKey>,
     ) -> Self {
@@ -613,7 +614,7 @@ impl DecisionContext {
             invocation,
             version,
             authority,
-            now,
+            context_at,
             separation,
             observed,
         }
@@ -1112,7 +1113,7 @@ impl WorkBoard {
             {
                 return Err(WorkError::Unmet);
             }
-            set_continuation(w, &ctx.persona, response.continuation, ctx.now)?;
+            set_continuation(w, &ctx.persona, response.continuation, ctx.context_at)?;
             w.participants
                 .get_mut(&ctx.persona)
                 .unwrap()
@@ -2375,7 +2376,7 @@ fn set_continuation(
     w: &mut Work,
     persona: &PersonaId,
     continuation: Continuation,
-    now: u64,
+    context_at: u64,
 ) -> Result<()> {
     let has_responsibility = w.acceptance(persona).is_some();
     let mut wake = None;
@@ -2394,9 +2395,11 @@ fn set_continuation(
             not_before,
             purpose,
         } => {
+            // The authored time can become due during inference or adoption.
+            // Keep it unchanged; eligibility uses the actual scheduling clock.
             require(
-                *not_before > now && *not_before <= i64::MAX as u64 && text(purpose),
-                "future bounded reconsideration and purpose",
+                *not_before > context_at && *not_before <= i64::MAX as u64 && text(purpose),
+                "reconsideration after the supplied context time and a purpose",
             )?;
         }
         Continuation::Wait {
@@ -2404,7 +2407,8 @@ fn set_continuation(
             deadline,
             purpose,
         } => {
-            require(*deadline > now && text(purpose), "bounded wait and purpose")?;
+            require(*deadline > context_at && text(purpose),
+                "wait deadline after the supplied context time and a purpose")?;
             wake = registered_wait_wake(w, persona, std::iter::once(dependency))?;
         }
         Continuation::WaitAny {
@@ -2414,9 +2418,9 @@ fn set_continuation(
         } => {
             require(
                 dependencies.len() >= 2
-                    && *deadline > now
+                    && *deadline > context_at
                     && text(purpose),
-                "bounded wait set and purpose",
+                "wait set deadline after the supplied context time and a purpose",
             )?;
             require(
                 dependencies.iter().map(|d| &d.id).collect::<BTreeSet<_>>().len()
@@ -2431,8 +2435,8 @@ fn set_continuation(
             reconsider_at,
         } => {
             require(
-                text(reason) && *reconsider_at > now,
-                "bounded accountable block",
+                text(reason) && *reconsider_at > context_at,
+                "accountable block with reconsideration after the supplied context time",
             )?;
             check_accountability(w, accountability)?;
         }

@@ -367,6 +367,15 @@ the fresh decision under that character. Neither case creates periodic polling,
 changes the authored time or purpose, bypasses current work controls or replays
 the failed response. Earlier consumed opportunities remain spent.
 
+Authored reconsideration times and wait deadlines must follow the clock supplied
+in the admitted input. They can become due while the provider generates the
+response or adoption waits for another transaction. This elapsed time does not
+invalidate the complete Decision: adoption retains the exact authored time, and
+the scheduler considers an already-due continuation against current state. Work,
+dependency and message checks still use their actual current state; an expired
+deadline is no proof that a reply arrived. No time is extended, response replayed,
+or recurring schedule created.
+
 The response's `epoch` remains its original request nonce. Store adoption checks
 the exact current Runtime head and current global epoch atomically, then records
 the actual commit. A scoped `DecisionRecord` adds `prepared_epoch`; `previous_epoch`

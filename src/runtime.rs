@@ -10800,7 +10800,7 @@ fn apply_work_actions(
         w::InvocationId(prepared.request.id.clone()),
         initial.version,
         initial.mandate().authority.clone(),
-        u64::try_from(now).map_err(|_| invalid("negative work time"))?,
+        u64::try_from(prepared.at_unix).map_err(|_| invalid("negative work input time"))?,
         BTreeMap::new(),
         observed_events,
     );

@@ -429,6 +429,8 @@ pub enum Continuation {
     /// Pending until an ordinary decision adopts its next continuation. Only one
     /// invocation can own it at a time; a rejected response or recoverable provider
     /// failure does not settle it. It grants no new scope or recurring polling loop.
+    /// Choose a time after CONTROL.context_at_unix. If it passes while this
+    /// response is being generated, it remains valid and is due after adoption.
     ReconsiderAt {
         not_before_unix: u64,
         purpose: String,
@@ -437,6 +439,8 @@ pub enum Continuation {
     /// message waits, or until the deadline. One arrival permits a fresh decision;
     /// it does not prove all replies arrived. Include every new registration id.
     /// This does not invent an external subscription or a sender commitment.
+    /// The deadline must follow CONTROL.context_at_unix; elapsed inference does
+    /// not invalidate it or move it to a later time.
     Wait {
         #[schemars(length(min = 1))]
         dependency_ids: Vec<String>,
