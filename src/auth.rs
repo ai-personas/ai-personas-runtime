@@ -31,7 +31,9 @@ macro_rules! opaque_debug {
 #[cfg(unix)]
 pub(crate) mod codex_adapter;
 #[cfg(unix)]
-pub use codex_adapter::configure_codex;
+pub use codex_adapter::{catalogue_codex, catalogue_codex_cancellable, codex_account, configure_codex, CodexModelCatalogue};
+#[cfg(unix)]
+pub use codex_jsonrpc::{CodexEffortChoice, CodexModelChoice};
 #[cfg(unix)]
 pub(crate) mod codex_jsonrpc;
 #[cfg(unix)]

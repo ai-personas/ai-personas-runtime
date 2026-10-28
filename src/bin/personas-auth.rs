@@ -60,6 +60,9 @@ enum Command {
         /// Bind only 127.0.0.1; zero selects an available port.
         #[arg(long, default_value_t = 0)]
         callback_port: u16,
+        /// Emit browser authorization events as JSON lines on stderr for desktop clients.
+        #[arg(long)]
+        json_events: bool,
     },
     /// Explicitly renew the selected grant; saved runtime configuration is unchanged.
     Refresh {
@@ -251,9 +254,10 @@ pub(crate) async fn run(cli: Cli) -> Result<i32> {
         Command::SignIn {
             authorize: _,
             callback_port,
+            json_events,
         } => {
             let vault = cli.vault.ok_or(AuthError::Vault)?;
-            cancellable(sign_in(&vault, callback_port)).await?;
+            cancellable(sign_in(&vault, callback_port, json_events)).await?;
         }
         Command::Refresh { authorize: _ } => {
             let vault = cli.vault.ok_or(AuthError::Vault)?;
@@ -370,7 +374,7 @@ impl SignInAttempt {
     }
 }
 
-async fn sign_in(path: &Path, port: u16) -> Result<()> {
+async fn sign_in(path: &Path, port: u16, json_events: bool) -> Result<()> {
     let guard = open_locked(path, true).await?;
     let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))
         .await
@@ -387,8 +391,12 @@ async fn sign_in(path: &Path, port: u16) -> Result<()> {
     let verifier = transport.verifier().await?;
     // Only this library-generated authorization URL is displayed. Callback
     // queries, token requests, credentials, and transport errors are never logged.
-    eprintln!("Open this new authorization URL in a browser on this same host:");
-    eprintln!("{}", attempt.authorization_url());
+    if json_events {
+        eprintln!("{}", json!({"event":"authorization", "url":attempt.authorization_url(), "user_code":null}));
+    } else {
+        eprintln!("Open this new authorization URL in a browser on this same host:");
+        eprintln!("{}", attempt.authorization_url());
+    }
     let callback = receive_callback(listener, port).await?;
     // receive_callback owns and closes the listener before this single exchange.
     // The selected vault lock remains held through receipt and credential commits.

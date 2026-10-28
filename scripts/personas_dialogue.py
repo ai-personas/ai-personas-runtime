@@ -276,8 +276,13 @@ class PrivateDirectory:
                         os.close(fd)
                         return None
                     require(create, "private_directory_missing")
-                    os.mkdir(part, 0o700, dir_fd=fd)
-                    os.fsync(fd)
+                    try:
+                        os.mkdir(part, 0o700, dir_fd=fd)
+                        os.fsync(fd)
+                    except FileExistsError:
+                        # Another launcher may have created it since open failed.
+                        # The descriptor open below still validates its identity.
+                        pass
                     child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
                 os.close(fd)
                 fd = child
@@ -435,7 +440,9 @@ def validate_progress(p):
         elif item["kind"] == "answer-question":
             require(set(request) == {"work", "reply"} and isinstance(request["reply"], dict))
             reply = request["reply"]
-            require(set(reply) == {"id", "question", "question_revision", "text", "basis"}
+            require({"id", "question", "question_revision", "text", "basis"} <= set(reply)
+                    <= {"id", "question", "question_work", "question_revision", "text", "basis"}
+                    and ("question_work" not in reply or reply["question_work"] == request["work"])
                     and identifier(reply["id"]) and safe_text(reply["question"])
                     and re.fullmatch(r"[a-f0-9]{64}", reply["question_revision"]) is not None
                     and safe_text(reply["text"]) and safe_text(reply["basis"]))
@@ -468,28 +475,71 @@ def validate_progress(p):
                         and re.fullmatch(r"[a-f0-9]{64}", ref["sha256"]) is not None)
 
 
+def only_empty_journal_locks(directory):
+    """Recognize disposable lock remnants, never saved requests or credentials."""
+    names = os.listdir(directory.fd)
+    if not set(names) <= {"interaction.lock", "personas-account.json.lock"}:
+        return False
+    for name in names:
+        info = os.stat(name, dir_fd=directory.fd, follow_symlinks=False)
+        if not (stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and info.st_size == 0):
+            return False
+    return True
+
+
+def lock_journal_file(directory, name, create=False):
+    flags = os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK
+    fd = os.open(name, flags | (os.O_CREAT if create else 0), 0o600, dir_fd=directory.fd)
+    try:
+        directory.file_ok(os.fstat(fd))
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise Blocked("progress_in_use") from None
+        held = os.fstat(fd)
+        linked = os.stat(name, dir_fd=directory.fd, follow_symlinks=False)
+        directory.file_ok(held)
+        require((held.st_dev, held.st_ino) == (linked.st_dev, linked.st_ino), "invalid_journal_file")
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
 class Journal:
-    def __init__(self, directory, create=False):
+    def __init__(self, directory):
         self.directory = directory
-        flags = os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC
+        # Avoid adding even a lock to an unrelated or incomplete state folder.
+        journal_files = {"interaction.lock", "progress.json"}
+        if not journal_files.intersection(os.listdir(directory.fd)) and not only_empty_journal_locks(directory):
+            # Another launcher may have started its first write since the check.
+            # Consult its lock before interpreting temporary files as lost state.
+            require(journal_files.intersection(os.listdir(directory.fd)), "progress_missing_do_not_reset")
+        # A lock is synchronization metadata, not saved progress. Recreate it
+        # when a journal was copied without locks, and reuse it after a crash.
+        self.lock = lock_journal_file(directory, "interaction.lock", create=True)
         try:
-            self.lock = os.open("interaction.lock", flags | (os.O_CREAT if create else 0),
-                                0o600, dir_fd=directory.fd)
-        except FileNotFoundError:
-            raise Blocked("progress_missing_do_not_reset") from None
-        try:
-            directory.file_ok(os.fstat(self.lock), 0)
-            fcntl.flock(self.lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             raw = directory.read("progress.json")
-            if create:
-                require(raw is None, "progress_already_exists")
-                require(set(os.listdir(directory.fd)) <= {"interaction.lock"}, "progress_missing_do_not_reset")
-                self.data = new_progress()
-                self.save()
+            self.created = raw is None
+            if self.created:
+                account_lock = None
+                try:
+                    if "personas-account.json.lock" in os.listdir(directory.fd):
+                        account_lock = lock_journal_file(directory, "personas-account.json.lock")
+                    # Recheck under the locks. An active authentication process,
+                    # saved request, runtime or unfinished write prevents setup.
+                    require(only_empty_journal_locks(directory), "progress_missing_do_not_reset")
+                    self.data = new_progress()
+                    self.save()
+                finally:
+                    if account_lock is not None:
+                        os.close(account_lock)
             else:
-                require(raw is not None, "progress_missing_do_not_reset")
-                self.data = decode(raw)
-                validate_progress(self.data)
+                try:
+                    self.data = decode(raw)
+                    validate_progress(self.data)
+                except (KeyError, TypeError, ValueError, AttributeError, RecursionError):
+                    raise Blocked("invalid_private_progress") from None
         except BaseException:
             os.close(self.lock)
             raise
@@ -1192,21 +1242,113 @@ class Dialogue:
             self.h.call("personas-auth", ["--vault", self.p["vault"], command],
                         timeout=240, auth_display=True)
 
-    def select_provider(self, catalog=None):
-        models = [] if catalog is None else catalog.get("models")
+    def model_catalogue(self):
+        while True:
+            try:
+                self.ui.say("Finding available models...")
+                if self.p["codex_auth"] is not None:
+                    route = self.codex_auth_source()
+                    if route is None:
+                        raise Halt()
+                    catalog = self.h.call("personas-provider", ["catalogue-codex",
+                        "--codex-executable", route["executable"], "--host-home", route["host_home"],
+                        "--codex-home", route["codex_home"]])
+                else:
+                    catalog = self.provider("catalogue")
+                require(isinstance(catalog, dict) and isinstance(catalog.get("models"), list)
+                        and bool(catalog["models"]), "catalogue_unavailable")
+                for model in catalog["models"]:
+                    require(isinstance(model, dict) and provider_label(model.get("slug"))
+                            and safe_text(model.get("display_name")), "catalogue_unavailable")
+                return catalog
+            except Blocked as error:
+                self.ui.say(f"The model list could not be loaded ({error.code}).")
+                if error.code == "invalid_arguments":
+                    self.ui.say("The selected helper installation needs updating to support model discovery.")
+                while True:
+                    choice = self.ui.ask("r: retry; m: enter a model manually; q: leave [q]:").strip().lower()
+                    if choice in ("", "q"):
+                        raise Halt()
+                    if choice == "m":
+                        return None
+                    if choice == "r":
+                        break
+                    self.ui.say("Choose r, m, or q.")
+
+    def select_provider(self, catalog=None, manual=False, default_model=None, default_effort=None):
+        if catalog is None and not manual:
+            catalog = self.model_catalogue()
+        models = [] if catalog is None else catalog.get("models", [])
         require(isinstance(models, list), "catalogue_unavailable")
-        for i, model in enumerate(models, 1):
-            self.ui.say(f"{i}: {model['display_name']} ({model['slug']})")
-        prompt = "Choose a listed number or enter an exact model slug (no default):" if models else "Exact model slug (no default):"
-        raw = self.ui.ask(prompt).strip()
-        model = {str(i): m["slug"] for i, m in enumerate(models, 1)}.get(raw, raw)
-        require(provider_label(model), "model_selection_required")
-        if catalog is not None:
-            efforts = catalog.get("effort_candidates_unverified", [])
-            self.ui.say("Example effort labels, with no advertised support: " + ", ".join(efforts))
-        effort = self.ui.ask("Exact effort label (no default):").strip()
-        require(provider_label(effort), "effort_selection_required")
-        return model, effort
+        models = list(models)
+        if default_model and not any(model["slug"] == default_model for model in models):
+            models.append({"slug": default_model, "display_name": "Current selection",
+                           "default_effort": default_effort})
+        selected = next((model for model in models if model["slug"] == default_model), None)
+        selected = selected or next((model for model in models if model.get("is_default")), None)
+        selected = selected or (models[0] if models else None)
+        default_number = models.index(selected) + 1 if selected else None
+        if models:
+            self.ui.say("Choose a model:")
+            for i, model in enumerate(models, 1):
+                suffix = " — default" if i == default_number else ""
+                self.ui.say(f"{i}: {model['display_name']} ({model['slug']}){suffix}")
+                if model.get("description"):
+                    self.ui.say(f"   {model['description']}")
+        while True:
+            prompt = (f"Model [{default_number}]; number, model name, m: manual entry, q: leave:"
+                      if models else "Model name (q: leave):")
+            raw = self.ui.ask(prompt).strip()
+            if raw.lower() == "q":
+                raise Halt()
+            if not raw and selected is not None:
+                model_name = selected["slug"]
+                break
+            if raw.lower() == "m" and models:
+                return self.select_provider(manual=True)
+            if models and raw.isdecimal():
+                if 1 <= int(raw) <= len(models):
+                    selected = models[int(raw) - 1]
+                    model_name = selected["slug"]
+                    break
+                self.ui.say(f"Choose a number from 1 to {len(models)}, or enter a model name.")
+                continue
+            if provider_label(raw):
+                model_name = raw
+                selected = next((model for model in models if model["slug"] == raw), None)
+                break
+            self.ui.say("Enter a model name without spaces, or q to leave.")
+        efforts = selected.get("efforts", []) if selected else []
+        effort_default = (default_effort if model_name == default_model else None)
+        effort_default = effort_default or (selected.get("default_effort") if selected else None)
+        if not efforts:
+            # Native catalogues and manually entered models may not advertise
+            # efforts. Offer suggestions without inventing capability evidence.
+            labels = (catalog or {}).get("effort_candidates_unverified") or ["low", "medium", "high"]
+            efforts = [{"label": label, "description": ""} for label in labels]
+            effort_default = effort_default or ("medium" if "medium" in labels else labels[0])
+            self.ui.say("Reasoning effort suggestions (this model's catalogue does not specify supported levels):")
+        else:
+            self.ui.say("Reasoning options from Codex:")
+        effort_default = effort_default or efforts[0]["label"]
+        for i, option in enumerate(efforts, 1):
+            suffix = " — default" if option["label"] == effort_default else ""
+            description = f": {option['description']}" if option.get("description") else ""
+            self.ui.say(f"{i}: {option['label']}{suffix}{description}")
+        while True:
+            raw = self.ui.ask(f"Reasoning effort [{effort_default}]; number or name, q: leave:").strip()
+            if raw.lower() == "q":
+                raise Halt()
+            if raw.isdecimal():
+                if not 1 <= int(raw) <= len(efforts):
+                    self.ui.say(f"Choose a number from 1 to {len(efforts)}, or enter an effort name.")
+                    continue
+                effort = efforts[int(raw) - 1]["label"]
+            else:
+                effort = raw or effort_default
+            if provider_label(effort):
+                return model_name, effort
+            self.ui.say("Enter an effort name without spaces, or q to leave.")
 
     def new_probe(self):
         model, effort = self.select_provider()
@@ -1251,18 +1393,17 @@ class Dialogue:
                 self.j.keep("settings", saved, key)
                 return saved
         while True:
-            self.ui.say("Model setup: d: enter model and effort (default); c: browse models; p: optional capability check; q: leave.")
+            self.ui.say("Model setup: c: choose from available models (default); d: manual entry; p: optional capability check; q: leave.")
             if self.p["probes"]:
                 self.ui.say("Previous check: r: inspect/continue it; u: use its model and effort without requiring proof.")
-            choice = self.ui.ask("Model setup:").strip().lower() or "d"
+            choice = self.ui.ask("Model setup [c]:").strip().lower() or "c"
             if choice in ("d", "c", "u"):
                 if choice == "u":
                     require(bool(self.p["probes"]), "probe_unavailable")
                     q = self.p["probes"][-1]["request"]
                     model, effort = q["model"], q["effort"]
                 else:
-                    catalog = self.provider("catalogue") if choice == "c" else None
-                    model, effort = self.select_provider(catalog)
+                    model, effort = self.select_provider(manual=choice == "d")
                 return self.selected_settings(model, effort)
             if choice == "p":
                 probe = self.new_probe()
@@ -1321,43 +1462,90 @@ class Dialogue:
                 self.ui.say(f"Capability remains unestablished: {phase}, {status.get('code')}. "
                             "No model/effort substitution or fabricated evidence is permitted.")
 
-    def bootstrap(self):
-        if self.p["bootstrap"] is None:
-            if self.p["codex_auth"] is None and self.p["vault"] is None:
-                defaults = self.codex_auth_defaults()
-                self.ui.say("Sign in: c: use the existing Codex ChatGPT login shown below; "
-                            "p: choose other Codex locations; n: native browser sign-in.")
-                self.ui.say(f"Codex: {defaults['executable'] or 'not found on PATH'}; "
-                            f"home: {defaults['host_home']}; state: {defaults['codex_home']}.")
-                choice = self.ui.ask("Account route [c]:").strip().lower() or "c"
-                if choice == "c":
-                    self.codex_auth_source(use_defaults=True)
-                elif choice == "p":
-                    self.codex_auth_source(change=True)
-                elif choice == "n":
-                    self.account()
-                else:
-                    raise Halt()
+    def choose_setup_account(self):
+        # Only unconfigured setup may select another provider/account route.
+        require(self.p["settings"] is None and self.p["bootstrap"] is None,
+                "saved_provider_binding_unsupported")
+        while True:
+            defaults = self.codex_auth_defaults()
+            _, problem = self.resolve_codex_auth_paths(defaults)
+            self.ui.say(f"Codex: {defaults['executable'] or 'not found in standard installation locations'}; "
+                        f"home: {defaults['host_home']}; state: {defaults['codex_home']}.")
+            if problem:
+                self.ui.say(problem)
+                self.ui.say("p: locate an existing Codex installation; n: native browser sign-in; q: leave.")
+                default = "n"
+            else:
+                self.ui.say("c: use this Codex installation (ChatGPT login checked next); "
+                            "p: choose other Codex locations; n: native browser sign-in; q: leave.")
+                default = "c"
+            choice = self.ui.ask(f"Account route [{default}]:").strip().lower() or default
+            if choice == "q":
+                raise Halt()
+            if choice == "n":
+                self.p["codex_auth"] = None
+                if self.p["vault"] is None:
+                    self.p["vault"] = str(self.j.directory.path / "personas-account.json")
+                    self.ui.say(f"Native Personas credential vault location: {self.p['vault']}")
+                self.j.save()
+                return
+            if choice == "p" or (choice == "c" and not problem):
+                if self.codex_auth_source(change=choice == "p", use_defaults=choice == "c") is not None:
+                    return
+            else:
+                self.ui.say("Choose one of the available sign-in options.")
+
+    def setup_settings(self):
+        if self.p["settings"] is not None:
             if self.p["codex_auth"] is not None:
-                if self.p["settings"] is None:
-                    route = self.codex_auth_source()
-                    model, effort = self.select_provider()
-                    self.ui.say("Reading the selected Codex login for direct provider requests. No model call is started.")
-                    try:
-                        settings = self.h.call("personas-provider", ["configure-codex",
-                            "--codex-executable", route["executable"], "--host-home", route["host_home"],
-                            "--codex-home", route["codex_home"], "--model", model, "--effort", effort])
-                    except Blocked as error:
-                        if error.code in ("credential_unavailable", "credential_expired"):
-                            self.ui.say("The selected Codex login is unavailable. Sign in to ChatGPT using that Codex installation, then reopen ./personas.")
-                        raise
-                    key = "selected-" + hashlib.sha256(encoded(settings)).hexdigest()
-                    self.j.keep("settings", settings, key)
                 _, settings = self.j.document("settings")
                 require(settings.get("mode") == "chatgpt_oauth", "saved_provider_binding_unsupported")
-            else:
+                return settings
+            self.account()
+            return self.settings()
+        while True:
+            if self.p["codex_auth"] is None and self.p["vault"] is None:
+                self.choose_setup_account()
+            if self.p["codex_auth"] is None:
                 self.account()
-                settings = self.settings()
+                return self.settings()
+            route = self.codex_auth_source()
+            if route is None:
+                self.choose_setup_account()
+                continue
+            model, effort = self.select_provider()
+            while True:
+                self.ui.say("Reading the selected Codex login for direct provider requests. No model call is started.")
+                try:
+                    settings = self.h.call("personas-provider", ["configure-codex",
+                        "--codex-executable", route["executable"], "--host-home", route["host_home"],
+                        "--codex-home", route["codex_home"], "--model", model, "--effort", effort])
+                except Blocked as error:
+                    if error.code not in ("credential_unavailable", "credential_expired"):
+                        raise
+                    self.ui.say("Codex could not provide a current ChatGPT login. "
+                                "Sign in with ChatGPT using the selected installation and home/state directories, then retry.")
+                    self.ui.say("Codex login help (including device-code login for remote terminals): "
+                                "https://learn.chatgpt.com/docs/auth#login-on-headless-devices")
+                    while True:
+                        choice = self.ui.ask("r: retry login check; b: choose another sign-in route; q: leave [q]:").strip().lower()
+                        if choice in ("", "q"):
+                            raise Halt()
+                        if choice in ("r", "b"):
+                            break
+                        self.ui.say("Choose r, b, or q.")
+                    if choice == "r":
+                        continue
+                    self.choose_setup_account()
+                    break
+                require(settings.get("mode") == "chatgpt_oauth", "saved_provider_binding_unsupported")
+                key = "selected-" + hashlib.sha256(encoded(settings)).hexdigest()
+                self.j.keep("settings", settings, key)
+                return settings
+
+    def bootstrap(self):
+        if self.p["bootstrap"] is None:
+            settings = self.setup_settings()
             cohort = self.ui.number("Number of continuing personas", 2, 1, None)
             noun = "persona" if cohort == 1 else "personas"
             self.ui.say(f"Proposed local cohort: {cohort} continuing {noun} and you, without assigned owner/reviewer roles. "
@@ -1378,9 +1566,9 @@ class Dialogue:
                 seeds[persona] = {"label": label, "text": profile,
                                   "provenance": f"Starting profile supplied by {self.p['operator']} during setup; no prior experience asserted."}
                 if per_persona:
-                    model = self.ui.ask(f"Model for {label} [{settings['model']}]:").strip() or settings["model"]
-                    effort = self.ui.ask(f"Effort for {label} [{settings['effort']}]:").strip() or settings["effort"]
-                    require(provider_label(model) and provider_label(effort), "invalid_model_selection")
+                    self.ui.say(f"Choose model and reasoning effort for {label}:")
+                    model, effort = self.select_provider(default_model=settings["model"],
+                                                         default_effort=settings["effort"])
                     seeds[persona].update(model=model, effort=effort)
             default_directory = self.j.directory.path / "workspace"
             directory = self.ui.ask(f"Task working directory [{default_directory}]:").strip() or str(default_directory)
@@ -2272,32 +2460,82 @@ class Dialogue:
     def codex_auth_defaults(self):
         previous = self.p["codex_auth"] or {}
         host_home = previous.get("host_home") or os.environ.get("HOME", "")
-        return {"executable": previous.get("executable") or shutil.which("codex") or "",
+        executable = previous.get("executable") or shutil.which("codex") or ""
+        if not executable:
+            # User-local installations are often absent from a container's or
+            # newly opened shell's PATH. Inspect the launcher, not credentials.
+            candidates = []
+            if host_home:
+                home = Path(host_home).expanduser()
+                candidates += [home / ".local/bin/codex", home / ".npm-global/bin/codex",
+                               home / ".cargo/bin/codex"]
+            candidates += [Path("/opt/homebrew/bin/codex"), Path("/usr/local/bin/codex")]
+            for candidate in candidates:
+                if candidate.is_file() and os.access(candidate, os.X_OK):
+                    executable = str(candidate)
+                    break
+        return {"executable": executable,
                 "host_home": host_home,
                 "codex_home": previous.get("codex_home") or os.environ.get("CODEX_HOME")
                               or str(Path(host_home) / ".codex")}
 
+    @staticmethod
+    def resolve_codex_auth_path(name, value):
+        label = {"executable": "Codex executable", "host_home": "Home directory",
+                 "codex_home": "Codex state directory"}[name]
+        if not value or "\0" in value:
+            raise ValueError(f"{label} is required. Enter its existing location, or go back to choose another sign-in route.")
+        if name == "executable" and "/" not in value:
+            value = shutil.which(value) or value
+        try:
+            path = Path(value).expanduser().resolve(strict=True)
+            usable = (path.is_file() and os.access(path, os.X_OK)) if name == "executable" else path.is_dir()
+        except (OSError, RuntimeError, ValueError):
+            usable = False
+        if not usable:
+            requirement = "an executable file" if name == "executable" else "an existing directory"
+            raise ValueError(f"{label} is unavailable at {value}. Choose {requirement} you can access.")
+        return str(path)
+
+    def resolve_codex_auth_paths(self, paths):
+        try:
+            return {name: self.resolve_codex_auth_path(name, value) for name, value in paths.items()}, None
+        except ValueError as error:
+            return None, str(error)
+
     def codex_auth_source(self, change=False, use_defaults=False):
-        if self.p["codex_auth"] is None or change:
-            paths = self.codex_auth_defaults()
-            if not use_defaults:
-                paths["executable"] = self.ui.ask(f"Trusted Codex executable (authentication only) [{paths['executable']}]:").strip() or paths["executable"]
-                paths["host_home"] = self.ui.ask(f"Home directory to give that Codex process [{paths['host_home']}]:").strip() or paths["host_home"]
-                if self.p["codex_auth"] is None and not os.environ.get("CODEX_HOME"):
+        paths = self.codex_auth_defaults()
+        resolved = None
+        if use_defaults or (self.p["codex_auth"] is not None and not change):
+            resolved, problem = self.resolve_codex_auth_paths(paths)
+            if problem:
+                self.ui.say(problem)
+                while True:
+                    choice = self.ui.ask("p: enter Codex locations; b: go back [b]:").strip().lower()
+                    if choice in ("", "b", "q"):
+                        return None
+                    if choice == "p":
+                        break
+                    self.ui.say("Choose p or b.")
+        if resolved is None:
+            for name, label in (("executable", "Trusted Codex executable (authentication only)"),
+                                ("host_home", "Home directory to give that Codex process"),
+                                ("codex_home", "Existing Codex state directory")):
+                while True:
+                    default = f" [{paths[name]}]" if paths[name] else ""
+                    value = self.ui.ask(f"{label}{default} (q: go back):").strip()
+                    if value.lower() == "q":
+                        return None
+                    try:
+                        paths[name] = self.resolve_codex_auth_path(name, value or paths[name])
+                        break
+                    except ValueError as error:
+                        self.ui.say(str(error))
+                if name == "host_home" and self.p["codex_auth"] is None and not os.environ.get("CODEX_HOME"):
                     paths["codex_home"] = str(Path(paths["host_home"]) / ".codex")
-                paths["codex_home"] = self.ui.ask(f"Existing Codex state directory [{paths['codex_home']}]:").strip() or paths["codex_home"]
-            try:
-                require(all(path and "\0" not in path for path in paths.values()), "invalid_codex_auth_paths")
-                paths = {name: str(Path(path).resolve(strict=True)) for name, path in paths.items()}
-                require(valid_codex_paths(paths), "invalid_codex_auth_paths")
-                require(Path(paths["executable"]).is_file() and os.access(paths["executable"], os.X_OK)
-                        and Path(paths["host_home"]).is_dir() and Path(paths["codex_home"]).is_dir(),
-                        "codex_auth_source_unavailable")
-            except (Blocked, OSError, RuntimeError):
-                if use_defaults:
-                    self.ui.say("The displayed Codex locations are unavailable. Select the existing installation and login to use.")
-                    return self.codex_auth_source(change=True)
-                raise Blocked("codex_auth_source_unavailable") from None
+        else:
+            paths = resolved
+        if paths != self.p["codex_auth"]:
             self.p["codex_auth"] = paths
             self.j.save()
             self.ui.say("Saved these locations. No authentication request or model call was made.")
@@ -2469,6 +2707,8 @@ class Dialogue:
             route = {"kind": "native_siwc", "vault": self.p["vault"]}
         elif settings.get("codex_auth_only_supported") is True:
             route = self.codex_auth_source()
+            if route is None:
+                return
         else:
             raise Blocked("interactive_provider_route_unsupported")
         if route["kind"] == "native_siwc":
@@ -2638,7 +2878,14 @@ class Dialogue:
 
     def run(self):
         if not self.p["needs"] and self.p["runtime"] is None:
-            choice = self.ui.ask("Start with a task [t], optional exploration and conversation [o], or existing work [Enter]:").strip().lower()
+            while True:
+                choice = self.ui.ask("Start with a task [t], optional exploration and conversation [o], "
+                                     "or existing work [Enter]; q: quit:").strip().lower()
+                if choice == "q":
+                    return
+                if choice in ("t", "o", ""):
+                    break
+                self.ui.say("Choose t, o, Enter for existing work, or q to quit.")
             if choice == "o":
                 self.capture_optional_activity()
             elif choice == "t":
@@ -2767,7 +3014,7 @@ def progress_candidates():
     explicit = os.environ.get("PERSONAS_LAUNCHER_HOME")
     if explicit is not None:
         require(bool(explicit) and "\x00" not in explicit, "invalid_explicit_state_path")
-        explicit = str(Path(explicit).resolve(strict=False))
+        explicit = str(Path(explicit).expanduser().resolve(strict=False))
         require(path_text(explicit), "invalid_explicit_private_path")
         return [explicit]
     candidates = []
@@ -2822,42 +3069,105 @@ def preflight_progress_creation(path):
         os.close(fd)
 
 
-def select_progress_directory(ui, default=None):
-    """Automatically select standard persistent state without moving/resetting journals."""
-    candidates = progress_candidates()
+def select_progress_path(ui):
+    """Select persistent state, asking in the terminal when locations are ambiguous."""
+    candidates = list(dict.fromkeys(str(Path(path).resolve(strict=False))
+                                   for path in progress_candidates()))
     require(candidates, "no_supported_persistent_state_location")
-    existing, safe_missing = [], []
+    existing = []
     for path in candidates:
         try:
             fd = PrivateDirectory.open_path(path, missing_ok=True)
-            if fd is None:
-                safe_missing.append(path)
-            else:
-                try:
-                    existing.append((path, not os.listdir(fd)))
-                finally:
-                    os.close(fd)
+            if fd is not None:
+                existing.append(path)
+                os.close(fd)
         except (Blocked, OSError):
-            # Inaccessible is not absent. Never fall through to HOME and thereby
-            # strand pending identities in an XDG journal we could not inspect.
-            raise Blocked("progress_location_unavailable") from None
-    require(len(existing) <= 1, "multiple_saved_progress_locations_choose_explicit_override")
-    if existing:
-        path, empty = existing[0]
-        # An existing empty directory has no saved operation to recover. Journal
-        # rechecks its contents under the exclusive lock before initializing it.
-        # Nonempty directories without progress still cannot be reset here.
-        return PrivateDirectory(path), empty
-    require(safe_missing, "no_supported_persistent_state_location")
-    path = safe_missing[0]
-    # Check actual host access before creating the selected journal.
-    preflight_progress_creation(path)
-    ui.say(f"Selected private persistent progress location: {path}")
-    ui.say("The journal stores pending requests and operation identities, not credentials.")
-    try:
-        return PrivateDirectory(path, create=True), True
-    except (Blocked, OSError):
-        raise Blocked("progress_location_unavailable") from None
+            # Inaccessible is not absent. Keep it selectable so its access
+            # problem can be explained instead of silently choosing new state.
+            existing.append(path)
+    if len(existing) <= 1:
+        return existing[0] if existing else candidates[0]
+    ui.say("More than one Personas progress folder exists. Choose the one to open:")
+    for number, path in enumerate(existing, 1):
+        ui.say(f"{number}: {path}")
+    while True:
+        choice = ui.ask("Folder number; p: enter another folder; q: quit [q]:").strip().lower()
+        if choice in ("", "q"):
+            raise Halt()
+        if choice.isdecimal() and 1 <= int(choice) <= len(existing):
+            return existing[int(choice) - 1]
+        if choice == "p":
+            path = ui.ask("Progress folder (existing or new; Enter to go back):").strip()
+            if path:
+                return path
+        else:
+            ui.say("Choose a listed folder number, p, or q.")
+
+
+def explain_progress_problem(ui, path, error):
+    ui.say(f"Could not open Personas progress at: {path}" if path else "Could not select a Personas progress folder.")
+    code = error.code if isinstance(error, Blocked) else None
+    if code == "progress_missing_do_not_reset":
+        ui.say("progress.json is missing, but this folder contains other files. "
+               "Restore that file from a backup to reopen this journal, or choose another folder for a separate setup.")
+    elif code in ("invalid_json", "invalid_private_progress", "invalid_journal_file"):
+        ui.say("The saved progress or a journal file is invalid. "
+               "Restore the journal from a backup, or choose another folder for a separate setup.")
+    elif code == "progress_in_use":
+        ui.say("Another Personas process is using this folder. Close that session or wait for it to finish, "
+               "then retry. Leave its lock files in place.")
+    elif code == "no_supported_persistent_state_location":
+        ui.say("No default progress location is available. Choose a folder where Personas can save your work.")
+    elif isinstance(error, PermissionError) or code in ("progress_location_not_writable", "progress_location_unavailable"):
+        ui.say("This folder cannot be read or written. Check its access permissions, or choose a writable folder.")
+    elif isinstance(error, OSError):
+        ui.say(f"The filesystem reported: {error.strerror or str(error)}. "
+               "Check the folder and available disk space, or choose another folder.")
+    elif isinstance(error, (ValueError, RuntimeError)) or code in (
+            "invalid_explicit_state_path", "invalid_explicit_private_path", "invalid_state_path", "unsafe_private_path"):
+        ui.say("This path cannot be used as a progress folder. Choose an accessible directory.")
+    else:
+        ui.say(f"This progress folder could not be opened ({code or type(error).__name__}). See {DOC}.")
+    ui.say("Existing saved files are kept. You can retry here or choose a different progress folder.")
+
+
+def open_progress(ui):
+    """Recover startup problems locally, before helpers or provider calls exist."""
+    path = None
+    while True:
+        directory = None
+        try:
+            if path is None:
+                path = select_progress_path(ui)
+            path = str(Path(path).expanduser().resolve(strict=False))
+            fd = PrivateDirectory.open_path(path, missing_ok=True)
+            if fd is None:
+                preflight_progress_creation(path)
+                directory = PrivateDirectory(path, create=True)
+            else:
+                os.close(fd)
+                directory = PrivateDirectory(path)
+            journal = Journal(directory)
+            return directory, journal
+        except BaseException as error:
+            if directory is not None:
+                directory.close()
+            if not isinstance(error, (Blocked, OSError, ValueError, RuntimeError)):
+                raise
+            explain_progress_problem(ui, path, error)
+        while True:
+            choice = ui.ask("r: retry; p: choose another folder (existing or new); q: quit [q]:").strip().lower()
+            if choice in ("", "q"):
+                raise Halt()
+            if choice == "r":
+                break
+            if choice == "p":
+                selected = ui.ask("Progress folder (existing or new; Enter to go back):").strip()
+                if selected:
+                    path = selected
+                    break
+            else:
+                ui.say("Choose r, p, or q.")
 
 
 def main():
@@ -2870,8 +3180,10 @@ def main():
         return 2
     directory = journal = helpers = None
     try:
-        directory, create = select_progress_directory(ui)
-        journal = Journal(directory, create=create)
+        directory, journal = open_progress(ui)
+        ui.say(f"Progress folder: {directory.path}")
+        if journal.created:
+            ui.say("Starting setup. Your choices will be saved here as you go.")
         checkout = Path(__file__).resolve().parents[1]
         helpers = Helpers(journal, checkout, ui)
         Dialogue(journal, helpers, ui, checkout).run()
