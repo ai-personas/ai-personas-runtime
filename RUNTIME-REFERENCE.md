@@ -92,7 +92,7 @@ The normal state root is under `$XDG_STATE_HOME/ai-personas` or `$HOME/.local/st
 Four command surfaces are important:
 
 - `ai-personas`: full explicit runtime and operator controls.
-- `personas-session`: saved-launch inspection, keyed intake, sessions, messages, results, questions, feedback, amendments, work controls, and targeted participant resumption.
+- `personas-session`: saved-launch inspection, keyed intake, sessions, messages, peer conversation, results, questions, feedback, amendments, work controls, and targeted participant resumption.
 - `personas-auth`: explicit SIWC sign-in, refresh, status, and native-run authentication handoff.
 - `./personas`: the local interactive Python dialogue that orchestrates the Rust helpers.
 

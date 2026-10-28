@@ -40,6 +40,19 @@ files automatically. Attaching a file establishes neither its quality nor work
 completion.
 The normal results view keeps internal receipt data out of the
 file list; no retained content or qualification is shortened or removed.
+
+**t: persona conversation** shows the work's recorded persona messages, including
+peer exchanges. Each entry identifies its sender, original recipient and
+producing call; file and history citations retain their exact references. Matching
+deposits from one decision may share a displayed body with all recipients listed.
+Different calls, citations and other provenance remain distinct. This view reads
+one current snapshot without inference, message redelivery, acknowledgment or
+resumption. It does not turn peer messages into requester deliveries or establish
+that a recipient read or accepted them. **r: results** keeps its requester scope.
+The native equivalent is `personas-session --state-root RUNTIME_DIRECTORY
+--operator OPERATOR conversation WORK_ID`; its structured output retains every
+original message separately.
+
 **c: continue** requests a fresh session without application call quotas. For a stopped or individually paused participant, first choose
 **u: resume participant**, then **c**. Resume grants that participant permission
 to continue; it starts no inference and does not lift a work-wide pause.
@@ -74,7 +87,8 @@ contents, qualifications and export. It does not establish acceptance or quality
 Native result entries and exported `receipt.json` files pair the exact deposit
 reference (`receipt`) with its original retained payload (`body`). Separate
 deposits remain distinct even when they contain identical files.
-Type **r** and Enter to inspect results, **v** for full delivery contents and
+Type **r** and Enter to inspect results, **t** for persona conversation,
+**v** for full delivery contents and
 qualifications, **q** to read and answer shared questions,
 or **f** to send feedback to a participant. These controls leave the current
 session running. Feedback can be queued until the current call and commands

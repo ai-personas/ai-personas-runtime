@@ -15,7 +15,7 @@ mod work_control;
 pub use work_control::{stop_work, resume_work, StopAction, WorkStopRequest, WorkResumeRequest};
 #[path = "session_messages.rs"]
 mod messages;
-pub use messages::{session_messages, SessionMessages};
+pub use messages::{session_messages, work_conversation, SessionMessages, WorkConversation};
 
 pub type BoundaryResult<T> = std::result::Result<T, BoundaryError>;
 const NEED_KIND: &str = "launch-keyed-need-v1";

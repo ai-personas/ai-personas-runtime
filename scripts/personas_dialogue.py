@@ -133,17 +133,25 @@ def readable_references(files, history, details=False):
     return parts
 
 
-def readable_messages(messages, show_invocation=False, sender_labels=None, reference_details=False):
+def readable_messages(messages, show_invocation=False, sender_labels=None, reference_details=False,
+                      recipient_labels=None):
     """Render already-permitted messages, preserving citations and copy counts.
 
-    Group exact copies only within an attributed decision. Keep every distinct
-    subject; references identify files or history without supplying their bodies.
+    Group exact copies only within an attributed decision. Conversation views
+    may group matching deposits to different recipients, listing every recipient.
+    Keep every distinct subject and all remaining scope metadata. References
+    identify files or history without supplying their bodies.
     """
     groups, positions = [], {}
     for message in messages:
         # Retain every supplied scope field, including any future metadata.
         # Empty citations were omitted by historical/native serialization.
-        scope = {key: value for key, value in message.items() if key not in ("id", "subject")}
+        excluded = {"id"}
+        if recipient_labels is not None:
+            excluded.add("recipient")
+        else:
+            excluded.add("subject")
+        scope = {key: value for key, value in message.items() if key not in excluded}
         scope.setdefault("file_references", [])
         scope.setdefault("history_references", [])
         attributed = all(isinstance(message.get(field), str) and message[field]
@@ -154,12 +162,15 @@ def readable_messages(messages, show_invocation=False, sender_labels=None, refer
         if index is None:
             if key is not None:
                 positions[key] = len(groups)
-            groups.append({"message": message, "count": 1, "subjects": [subject]})
+            groups.append({"message": message, "count": 1, "subjects": [subject],
+                           "recipients": {message.get("recipient", "unknown recipient"): 1}})
         else:
             group = groups[index]
             group["count"] += 1
             if subject not in group["subjects"]:
                 group["subjects"].append(subject)
+            recipient = message.get("recipient", "unknown recipient")
+            group["recipients"][recipient] = group["recipients"].get(recipient, 0) + 1
     parts = []
     for group in groups:
         message = group["message"]
@@ -167,11 +178,22 @@ def readable_messages(messages, show_invocation=False, sender_labels=None, refer
         label = (sender_labels or {}).get(author)
         if label and label != author:
             author = f"{label} ({author})"
+        if recipient_labels is not None:
+            recipients = []
+            for recipient, count in group["recipients"].items():
+                label = recipient_labels.get(recipient)
+                name = f"{label} ({recipient})" if label and label != recipient else recipient
+                recipients.append(f"{name} [{count} messages]" if count > 1 else name)
+            author += " → " + ", ".join(recipients)
         if show_invocation:
             author += f" ({message.get('invocation', 'unavailable call')})"
         parts.append(f"{author}: {message.get('text', '')}")
         if group["count"] > 1:
-            parts.append(f"Recorded {group['count']} times in the same decision.")
+            if recipient_labels is not None:
+                parts.append(f"Recorded {group['count']} messages in the same decision.")
+            else:
+                parts.append(f"Recorded {group['count']} times in the same decision.")
+        if group["count"] > 1 or recipient_labels is not None:
             parts.extend(f"Subject: {subject}" for subject in group["subjects"])
         parts.extend(readable_references(message.get("file_references", []),
                                          message.get("history_references", []), reference_details))
@@ -1460,16 +1482,26 @@ class Dialogue:
                 self.ui.say(f"   {label}: {failure['provider_message']}")
 
     def show_messages(self, messages, show_invocation=False, shown_messages=None,
-                      sender_labels=None, reference_details=False):
+                      sender_labels=None, reference_details=False, recipient_labels=None):
         if shown_messages is not None:
             messages = [message for message in messages if message["id"] not in shown_messages]
         for part in readable_messages(messages, show_invocation=show_invocation,
-                                      sender_labels=sender_labels, reference_details=reference_details):
+                                      sender_labels=sender_labels, reference_details=reference_details,
+                                      recipient_labels=recipient_labels):
             self.ui.say(part)
         displayed = {message["id"] for message in messages}
         if shown_messages is not None:
             shown_messages.update(displayed)
         return displayed
+
+    def conversation(self, work):
+        view = self.session("conversation", work)
+        self.ui.say(f"Persona conversation for {work} — sender → recipient:")
+        if not view["messages"]:
+            self.ui.say("No persona messages are recorded for this work.")
+        self.show_messages(view["messages"], show_invocation=True,
+                           sender_labels=view["persona_labels"],
+                           recipient_labels=view["persona_labels"], reference_details=True)
 
     def show_persona_activity(self, result, shown_activity=None):
         descriptions = {"ongoing": "judges work ongoing", "blocked": "reports a blocker",
@@ -2175,7 +2207,7 @@ class Dialogue:
         if work.get("task_amendment"):
             self.ui.say("Current amended request: " + work["task_amendment"]["current_scope"]["request"])
         while True:
-            self.ui.say("r: results; v: full delivery contents and qualifications; j: exact references and delivery JSON; e: export files; q: questions and answers; f: feedback; d: persona development; "
+            self.ui.say("r: results; t: persona conversation; v: full delivery contents and qualifications; j: exact references and delivery JSON; e: export files; q: questions and answers; f: feedback; d: persona development; "
                         "m: amend task; u: resume participant; c: continue; p: pause work; x: cancel work; "
                         "w: resume work; i: confirm pending control; a: Codex auth source; b: back")
             choice = self.ui.ask("Work action:").strip().lower()
@@ -2183,6 +2215,8 @@ class Dialogue:
                 return
             if choice == "r":
                 self.output(work["id"])
+            elif choice == "t":
+                self.conversation(work["id"])
             elif choice == "v":
                 self.output(work["id"], delivery_details=True)
             elif choice == "j":
@@ -2471,6 +2505,8 @@ class Dialogue:
                 if shown_deliveries is not None:
                     shown_deliveries.update(delivery_display_key(delivery)
                                             for delivery in result.get("local_deliveries", []))
+            elif choice == "t":
+                self.conversation(work)
             elif choice == "q":
                 self.questions(work)
             elif choice == "f":
@@ -2487,7 +2523,7 @@ class Dialogue:
             elif choice in ("p", "x"):
                 self.control_work(work, "pause" if choice == "p" else "cancel")
             elif choice:
-                self.ui.say("Use r: results; v: full delivery contents and qualifications; q: questions and answers; f: feedback; p: pause work; x: cancel work; i: confirm pending input/control.")
+                self.ui.say("Use r: results; t: persona conversation; v: full delivery contents and qualifications; q: questions and answers; f: feedback; p: pause work; x: cancel work; i: confirm pending input/control.")
             else:
                 self.ui.say(self.work_progress(work))
         except Halt:
@@ -2569,7 +2605,7 @@ class Dialogue:
         except (Blocked, OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
             pass
         self.ui.say(f"Submitting {s['id']}. Waiting for its recorded native outcome.")
-        self.ui.say("Work updates, replies and delivered file lists appear as work continues. Type r for results, v for full delivery contents and qualifications, q for questions and answers, "
+        self.ui.say("Work updates, replies and delivered file lists appear as work continues. Type r for results, t for persona conversation, v for full delivery contents and qualifications, q for questions and answers, "
                     "f for feedback, p to pause work, x to cancel work, or i to confirm pending input/control, then press Enter.")
         last_update = [None, 0.0]
 

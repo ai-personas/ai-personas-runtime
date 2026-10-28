@@ -102,6 +102,8 @@ enum Command {
         #[arg(long)]
         id: String,
     },
+    /// All retained persona messages in one work, with original recipients. No inference.
+    Conversation { work: String },
     /// Current retained result in its requester scope; no cached output replay.
     Result {
         work: String,
@@ -306,6 +308,7 @@ async fn main() {
         }
         Command::SessionStatus { id } => emit(session::session_status(&root, &operator, &id)),
         Command::SessionMessages { id } => emit(session::session_messages(&root, &operator, &id)),
+        Command::Conversation { work } => emit(session::work_conversation(&root, &operator, &work)),
         Command::Result { work, export_directory } => {
             if let Some(destination) = export_directory {
                 emit(ai_personas::launch::export_result_at(&root, Some(&operator), &work, &destination)
