@@ -11,11 +11,28 @@ pub fn export_result_at(root: &Path, operator: Option<&str>, work: &str, destina
         require(operator.is_none_or(|value| value == snapshot.saved.operator), "saved operator mismatch")?;
         let now = unix_now()?;
         let output = results::project_state(&snapshot.state, work, &snapshot.saved, now, records)?;
-        export(&snapshot.state, &output, destination, now)
+        export(snapshot, &output, destination, now)
     })
 }
 
-fn export(state: &State, output: &Output, destination: &Path, now: i64) -> Result<Value> {
+fn export(snapshot: &inspection::Snapshot, output: &Output, destination: &Path, now: i64) -> Result<Value> {
+    let state = &snapshot.state;
+    let work = state.board.work(&w::WorkId(output.work_id.clone())).ok();
+    let participants = work.into_iter().flat_map(|work| work.participants.keys())
+        .map(|id| json!({"id":id,"label":state.personas.get(&id.0).map(|persona| &persona.seed.label)}))
+        .collect::<Vec<_>>();
+    let request = state.work_meta.get(&output.work_id).map(|meta| meta.original.request.as_str());
+    let context = serde_json::to_vec_pretty(&json!({
+        "kind":"local_result_export_context", "exported_at_unix":now,
+        "runtime_snapshot":snapshot.runtime.exact_ref()?,
+        "launch_snapshot":snapshot.launch.exact_ref()?,
+        "work":output.work_id,"request_at_intake":request,
+        "current_mandate_revision":work.map(|work| work.current_mandate),
+        "task_working_directory":snapshot.saved.working_directory,
+        "participants":participants,
+        "meaning":"These identifiers and participant labels describe the source runtime at export. Persona, work and invocation IDs are runtime-local; matching IDs, request text or nearby host paths do not establish the same work or participant elsewhere. Snapshot references identify this captured state, not a permanent runtime ID. The task directory is an execution location, not an access boundary or evidence of file ownership. Export neither resumes work nor establishes completion."
+    }))?;
+    let context_sha256 = s::sha256_bytes(&context);
     let mut files = Vec::new();
     let mut delivered_index = Vec::new();
     let mut cited_index = Vec::new();
@@ -113,9 +130,13 @@ fn export(state: &State, output: &Output, destination: &Path, now: i64) -> Resul
                 "kind":"requested_cited_file_export", "cited_reference":subject,
                 "metadata_reference":wire_reference(&metadata),
                 "bytes":stored.record.bytes.len(),"sha256":s::sha256_bytes(&stored.record.bytes),
-                "recorded_author":stored.record.author,"origin":stored.origin,
+                "recorded_author":stored.record.author,
+                "recorded_author_label":state.personas.get(&stored.record.author).map(|persona| &persona.seed.label),
+                "origin":stored.origin,
                 "citation_message":{"id":message.id,"sender":message.sender,
+                    "sender_label":sender.seed.label,"work":message.work,
                     "recipient":message.recipient,"invocation":message.invocation},
+                "export_context":{"path":"../export-context.json","sha256":context_sha256},
                 "qualified_bundle_sha256":s::sha256_bytes(bundle.as_bytes()),
                 "meaning":"The reader requested these exact cited file bytes. The original message citation supplied no body; this export is not a formal release, acceptance or task completion."
             }))?));
@@ -126,7 +147,8 @@ fn export(state: &State, output: &Output, destination: &Path, now: i64) -> Resul
             "destination":null,"files":[],"delivery_count":0,"cited_file_count":0,
             "inference_performed":false,"artifacts_executed":false,"goal_completed":false}));
     }
-    files.push(("index.html".into(), render_index(&delivered_index, &cited_index).into_bytes()));
+    files.push(("export-context.json".into(), context));
+    files.push(("index.html".into(), render_index(&delivered_index, &cited_index, request, &participants).into_bytes()));
     if let Some(parent) = destination.parent().filter(|parent| !parent.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)?;
     }
@@ -143,6 +165,7 @@ fn export(state: &State, output: &Output, destination: &Path, now: i64) -> Resul
     }
     Ok(json!({"work":output.work_id,"status":"exported","destination":destination,
         "index_path":destination.join("index.html"),"files":written,
+        "export_context_path":destination.join("export-context.json"),"export_context_sha256":context_sha256,
         "delivery_count":output.local_deliveries.len(),"cited_file_count":cited.len(),"inference_performed":false,
         "artifacts_executed":false,"goal_completed":false}))
 }
@@ -175,7 +198,7 @@ fn relative_url(path: &str) -> String {
 
 /// Only escaped labels and relative links are rendered. Artifact bodies remain
 /// separate files; opening the index neither embeds nor executes their content.
-fn render_index(delivered: &[IndexEntry], cited: &[IndexEntry]) -> String {
+fn render_index(delivered: &[IndexEntry], cited: &[IndexEntry], request: Option<&str>, participants: &[Value]) -> String {
     let mut html = String::from(r#"<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -184,6 +207,15 @@ fn render_index(delivered: &[IndexEntry], cited: &[IndexEntry]) -> String {
 </head><body><h1>Exported files</h1>
 <p>Open a file below. Identical contents appear together; changed contents remain separate. Every copy keeps its own attribution, source record and qualifications.</p>
 "#);
+    if let Some(request) = request {
+        html.push_str(&format!("<p>Request at intake: {}</p>\n", html_text(request)));
+    }
+    let labels = participants.iter().filter_map(|persona| persona["label"].as_str())
+        .map(html_text).collect::<Vec<_>>().join(", ");
+    if !labels.is_empty() {
+        html.push_str(&format!("<p>Participants in this work: {labels}</p>\n"));
+    }
+    html.push_str("<p><a href=\"export-context.json\">Source work and participant identities</a>. Identifiers belong to the source runtime; matching IDs in another export do not establish the same participants or work.</p>\n");
     for (heading, entries) in [("Delivered files", delivered), ("Files cited in replies", cited)] {
         if entries.is_empty() { continue; }
         html.push_str(&format!("<h2>{heading}</h2><ul>\n"));

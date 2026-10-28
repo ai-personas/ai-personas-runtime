@@ -452,6 +452,15 @@ sender and reply position; delivery artifacts retain their package attribution.
 Different exact versions remain separate even when their filenames match.
 Labels and relative URLs are escaped; the index embeds no artifact body and
 does not choose a preferred version or establish task completion.
+The index also identifies the request at intake and the work's participant
+names. `export-context.json` records their runtime-local IDs, the configured task
+directory, current mandate revision and exact runtime/launch snapshot references.
+Cited-file source records include the recorded author's label and citing
+sender's label, and bind that context file by its hash. Original delivery
+receipts, artifact bytes and qualification bundles remain unchanged.
+The snapshot identifies a captured state, not a permanent runtime identity.
+Matching local IDs, request text or nearby directories in another export do
+not establish the same work or participants.
 Export copies retained bytes rather than reopening
 mutable task paths. It starts no model call and executes no artifact. The native
 `result WORK --export-directory DIRECTORY` command offers the same operation.

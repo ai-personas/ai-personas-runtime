@@ -57,6 +57,13 @@ A command can still choose any host-accessible `working_directory`; this default
 is not a filesystem boundary. Standalone Runtime admissions without a saved
 launch use their foreground process directory.
 
+Native parent and child work relationships are independent of filesystem
+ancestry. A parent directory is not automatically the parent work's workspace.
+Files and exports found nearby may belong to another runtime with the same
+local persona or work IDs. Establish their source work and participant connection
+before attributing them to current collaborators. This provenance distinction
+does not restrict host access or prevent deliberate reuse of external material.
+
 For `effect` and `work_command`, omitting the operation's `depends_on` means
 an empty prerequisite list. Put it beside `inputs`, not inside the command
 inputs. Consuming a file saved in the same response still requires naming that
