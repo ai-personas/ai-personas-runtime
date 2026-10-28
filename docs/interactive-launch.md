@@ -49,6 +49,8 @@ Different calls, citations and other provenance remain distinct. This view reads
 one current snapshot without inference, message redelivery, acknowledgment or
 resumption. It does not turn peer messages into requester deliveries or establish
 that a recipient read or accepted them. **r: results** keeps its requester scope.
+Session message counts refer to requester messages; zero does not imply that
+the personas exchanged no messages with one another.
 The native equivalent is `personas-session --state-root RUNTIME_DIRECTORY
 --operator OPERATOR conversation WORK_ID`; its structured output retains every
 original message separately.

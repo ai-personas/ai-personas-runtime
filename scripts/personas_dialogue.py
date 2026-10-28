@@ -2390,7 +2390,7 @@ class Dialogue:
             return outcome
         require(scope.get("work") == session["work"], "session_binding_changed")
         messages = view["messages"]
-        summary = f"Messages from session {session['id']}: {len(messages)} available."
+        summary = f"Requester messages from session {session['id']}: {len(messages)} available."
         if shown_messages is not None and messages:
             remaining = sum(message["id"] not in shown_messages for message in messages)
             summary += f" {remaining} not shown yet." if remaining else " All shown above."
@@ -2399,7 +2399,7 @@ class Dialogue:
                            sender_labels=view.get("message_sender_labels"))
         if view.get("truncated"):
             self.ui.say("This view contains the most recent whole messages that fit its output limit.")
-        self.ui.say("Choose r in the work menu for the full reply history, feedback accounts and qualified deliveries.")
+        self.ui.say("Choose r in the work menu for requester replies, feedback and delivered files, or t for persona conversation.")
         return outcome
 
     def show_session_outcome(self, terminal):
@@ -2672,7 +2672,7 @@ class Dialogue:
             self.ui.say(f"Previous session {s['id']}: {status['status']}")
             if status["status"] == "finished":
                 self.show_session_outcome(status["terminal"]["outcome"])
-                self.ui.say("Choose r in the work menu for saved replies, feedback accounts and qualified deliveries.")
+                self.ui.say("Choose r in the work menu for saved requester replies and delivered files, or t for persona conversation.")
         except Blocked as error:
             # Current runtime inspection already succeeded. A failed historical
             # view supplies no outcome or retry permission for this exact session,
