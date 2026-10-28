@@ -481,6 +481,11 @@ one atomic adoption use their IDs as a deterministic tie-break, without implying
 separate delivery times. There is no output quota. Each message keeps its own
 attribution; an earlier successful reply does not become a later call's result.
 
+The exported index groups byte-identical file contents within its delivered and
+cited sections. Each group retains links to every exported copy, its attribution,
+source record and qualifications. Changed contents remain separate, and grouping
+does not merge source identities, authorship or delivery status.
+
 The native `personas-session session-messages --id SESSION_ID` command provides
 this view without inference, recovery or resume. It derives every canonical
 call IDs from the immutable claim and terminal counters, then selects only that

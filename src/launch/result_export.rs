@@ -49,6 +49,7 @@ fn export(state: &State, output: &Output, destination: &Path, now: i64) -> Resul
             let bundle_path = format!("{artifact_prefix}/qualified-bundle.json");
             delivered_index.push(IndexEntry {
                 name: name.into(), content_path: content_path.clone(),
+                content_sha256: s::sha256_bytes(&bytes),
                 attribution: format!("Delivery package {}", delivery_index + 1),
                 source_path: format!("{prefix}/receipt.json"), bundle_path: bundle_path.clone(),
             });
@@ -102,6 +103,7 @@ fn export(state: &State, output: &Output, destination: &Path, now: i64) -> Resul
             let source_path = format!("{prefix}/source.json");
             cited_index.push(IndexEntry {
                 name: name.into(), content_path: content_path.clone(),
+                content_sha256: s::sha256_bytes(&stored.record.bytes),
                 attribution: format!("{}, reply {}: {}", sender.seed.label, message_index + 1, message.subject),
                 source_path: source_path.clone(), bundle_path: bundle_path.clone(),
             });
@@ -148,6 +150,7 @@ fn export(state: &State, output: &Output, destination: &Path, now: i64) -> Resul
 struct IndexEntry {
     name: String,
     content_path: String,
+    content_sha256: String,
     attribution: String,
     source_path: String,
     bundle_path: String,
@@ -179,12 +182,39 @@ fn render_index(delivered: &[IndexEntry], cited: &[IndexEntry]) -> String {
 <title>Exported files</title>
 <style>body{font:1rem/1.6 system-ui,sans-serif;max-width:54rem;margin:3rem auto;padding:0 1.5rem;color:#20252b;background:#fff}h1,h2{line-height:1.2}a{color:#0758ae;overflow-wrap:anywhere}li{margin:1.2rem 0;padding-bottom:1rem;border-bottom:1px solid #dde1e6}p{margin:.35rem 0}details{font-size:.9rem}summary{cursor:pointer}ul{padding-left:1.3rem}</style>
 </head><body><h1>Exported files</h1>
-<p>Open a file below. Different versions remain separate, with their reply or delivery attribution.</p>
+<p>Open a file below. Identical contents appear together; changed contents remain separate. Every copy keeps its own attribution, source record and qualifications.</p>
 "#);
     for (heading, entries) in [("Delivered files", delivered), ("Files cited in replies", cited)] {
         if entries.is_empty() { continue; }
         html.push_str(&format!("<h2>{heading}</h2><ul>\n"));
+        // Group the index only. Every exact copy and its provenance remains
+        // exported; equal bytes do not merge authorship or qualifications.
+        let mut groups: Vec<Vec<&IndexEntry>> = Vec::new();
+        let mut positions = BTreeMap::new();
         for entry in entries {
+            let position = *positions.entry(&entry.content_sha256).or_insert_with(|| {
+                groups.push(Vec::new());
+                groups.len() - 1
+            });
+            groups[position].push(entry);
+        }
+        for group in groups {
+            let entry = group[0];
+            if group.len() > 1 {
+                html.push_str(&format!(
+                    "<li><a href=\"{}\" download>{}</a><p>Identical contents in {} exported copies.</p><details><summary>All copies, sources and qualifications</summary>\n",
+                    relative_url(&entry.content_path), html_text(&entry.name), group.len(),
+                ));
+                for copy in group {
+                    html.push_str(&format!(
+                        "<p><a href=\"{}\" download>{}</a><br>{}<br><a href=\"{}\">Source record</a> · <a href=\"{}\">Qualifications</a></p>\n",
+                        relative_url(&copy.content_path), html_text(&copy.name), html_text(&copy.attribution),
+                        relative_url(&copy.source_path), relative_url(&copy.bundle_path),
+                    ));
+                }
+                html.push_str("</details></li>\n");
+                continue;
+            }
             html.push_str(&format!(
                 "<li><a href=\"{}\" download>{}</a><p>{}</p><details><summary>Source and qualifications</summary><a href=\"{}\">Source record</a> · <a href=\"{}\">Qualifications</a></details></li>\n",
                 relative_url(&entry.content_path), html_text(&entry.name), html_text(&entry.attribution),
