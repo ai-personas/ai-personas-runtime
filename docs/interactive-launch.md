@@ -434,7 +434,8 @@ including their required qualifications. Qualified UTF-8 packages show their ful
 document text, metadata and source attribution without a duplicate numeric byte
 array. The display verifies the package digest and matching artifact text first;
 unrecognized or inconsistent packages keep their original JSON presentation.
-Choose **j** for the original delivery receipt JSON. Both choices request a fresh
+Choose **j** for exact reply and feedback references and the original delivery
+receipt JSON. These choices request a fresh
 permission-projected result and retain its complete contents.
 
 Binary artifacts show their verified byte length and SHA-256, with their complete
@@ -496,8 +497,15 @@ takes precedence. A historical completion or local delivery remains explicit,
 with the current phase shown alongside it. An open task does not mean that a
 persona is currently running, and a creation receipt does not complete the task.
 
-Messages show their attached exact file references as metadata beside the
-authored text. Those references supply no file body. Repeated copies from the
+Messages show each sender's current persona name alongside its stable identity.
+The native result and session views provide `message_sender_labels` for only the
+senders in those views; this display metadata does not change retained messages.
+The normal terminal view summarizes the number of file and history references
+and points to **e** for exporting available content or **j** for exact references.
+The command-line text result likewise summarizes attachments; `--json` retains
+the complete messages and references. A reference count does not establish body
+availability or supply content, and multiple references may name parts of one file.
+Repeated copies from the
 same attributed decision and disclosure scope appear together with the recorded
 count and distinct subjects; each underlying message remains in the native JSON.
 The session view applies its call-range and current permission checks before
@@ -614,8 +622,9 @@ Selecting a work opens its action menu:
 - **r: results** shows the currently permitted delivered file lists and replies.
   **v** shows full delivery contents and qualifications. These explicit views
   remain available after the automatic foreground display.
-- **j: delivery receipt JSON** shows the currently permitted deliveries in their
-  original JSON form, including the byte arrays and serialized qualified bundles.
+- **j: exact references and delivery JSON** shows the complete reply and feedback
+  citations and the currently permitted deliveries in their original JSON form,
+  including the byte arrays and serialized qualified bundles.
 - **q: questions and answers** shows original questions, each reply's attributed
   basis, and the owner's separate conclusions and per-reply dispositions. Select
   a question and enter an answer and basis to retain a requester reply.

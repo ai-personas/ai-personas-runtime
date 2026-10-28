@@ -112,7 +112,28 @@ def feedback_mandate_summary(item):
             "Review whether the direction still applies; only an explicit replacement removes it.")
 
 
-def readable_messages(messages, show_invocation=False):
+def readable_references(files, history, details=False):
+    """Describe citations without implying that their bodies are available."""
+    parts = []
+    if details:
+        for references, label in ((files, "file"), (history, "history")):
+            if references:
+                parts.append(f"Attached exact {label} references (metadata, not supplied content):")
+                parts.extend(json.dumps(reference, ensure_ascii=False, sort_keys=True,
+                                        separators=(",", ":")) for reference in references)
+    else:
+        counts = []
+        if files:
+            counts.append(f"{len(files)} file reference" + ("s" if len(files) != 1 else ""))
+        if history:
+            counts.append(f"{len(history)} history reference" + ("s" if len(history) != 1 else ""))
+        if counts:
+            parts.append("Attachments: " + ", ".join(counts) + ".")
+            parts.append("Choose e to export available content, or j for exact references.")
+    return parts
+
+
+def readable_messages(messages, show_invocation=False, sender_labels=None, reference_details=False):
     """Render already-permitted messages, preserving citations and copy counts.
 
     Group exact copies only within an attributed decision. Keep every distinct
@@ -143,22 +164,17 @@ def readable_messages(messages, show_invocation=False):
     for group in groups:
         message = group["message"]
         author = message.get('sender', 'unknown author')
+        label = (sender_labels or {}).get(author)
+        if label and label != author:
+            author = f"{label} ({author})"
         if show_invocation:
             author += f" ({message.get('invocation', 'unavailable call')})"
         parts.append(f"{author}: {message.get('text', '')}")
         if group["count"] > 1:
             parts.append(f"Recorded {group['count']} times in the same decision.")
             parts.extend(f"Subject: {subject}" for subject in group["subjects"])
-        references = message.get("file_references", [])
-        if references:
-            parts.append("Attached exact file references (metadata, not supplied content):")
-            parts.extend(json.dumps(reference, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-                         for reference in references)
-        history = message.get("history_references", [])
-        if history:
-            parts.append("Attached exact history references (metadata, not supplied records or images):")
-            parts.extend(json.dumps(reference, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-                         for reference in history)
+        parts.extend(readable_references(message.get("file_references", []),
+                                         message.get("history_references", []), reference_details))
     return parts
 
 
@@ -1443,10 +1459,12 @@ class Dialogue:
                 label = "Provider explanation (redacted)" if failure.get("provider_message_redacted") else "Provider explanation"
                 self.ui.say(f"   {label}: {failure['provider_message']}")
 
-    def show_messages(self, messages, show_invocation=False, shown_messages=None):
+    def show_messages(self, messages, show_invocation=False, shown_messages=None,
+                      sender_labels=None, reference_details=False):
         if shown_messages is not None:
             messages = [message for message in messages if message["id"] not in shown_messages]
-        for part in readable_messages(messages, show_invocation=show_invocation):
+        for part in readable_messages(messages, show_invocation=show_invocation,
+                                      sender_labels=sender_labels, reference_details=reference_details):
             self.ui.say(part)
         displayed = {message["id"] for message in messages}
         if shown_messages is not None:
@@ -1590,12 +1608,13 @@ class Dialogue:
                 if item.get("feedback_body_supplied"):
                     self.ui.say("Your feedback: " + item["feedback_text"])
                 if item.get("file_references"):
-                    self.ui.say("Attached exact file references (metadata, not supplied content):")
-                    for reference in item["file_references"]:
-                        self.ui.say(json.dumps(reference, ensure_ascii=False, sort_keys=True))
+                    for part in readable_references(item["file_references"], [], receipt_json):
+                        self.ui.say(part)
                 if item.get("account"):
                     self.ui.say(item["label"] + "'s account: " + item["account"]["reason"])
-        displayed = self.show_messages(messages, shown_messages=shown_messages)
+        displayed = self.show_messages(messages, shown_messages=shown_messages,
+                                       sender_labels=result.get("message_sender_labels"),
+                                       reference_details=receipt_json)
         self.show_deliveries(deliveries, receipt_json=receipt_json, delivery_details=delivery_details,
                              shown_deliveries=shown_deliveries)
         if result.get("truncated"):
@@ -2156,7 +2175,7 @@ class Dialogue:
         if work.get("task_amendment"):
             self.ui.say("Current amended request: " + work["task_amendment"]["current_scope"]["request"])
         while True:
-            self.ui.say("r: results; v: full delivery contents and qualifications; j: delivery receipt JSON; e: export files; q: questions and answers; f: feedback; d: persona development; "
+            self.ui.say("r: results; v: full delivery contents and qualifications; j: exact references and delivery JSON; e: export files; q: questions and answers; f: feedback; d: persona development; "
                         "m: amend task; u: resume participant; c: continue; p: pause work; x: cancel work; "
                         "w: resume work; i: confirm pending control; a: Codex auth source; b: back")
             choice = self.ui.ask("Work action:").strip().lower()
@@ -2342,7 +2361,8 @@ class Dialogue:
             remaining = sum(message["id"] not in shown_messages for message in messages)
             summary += f" {remaining} not shown yet." if remaining else " All shown above."
         self.ui.say(summary)
-        self.show_messages(messages, show_invocation=True, shown_messages=shown_messages)
+        self.show_messages(messages, show_invocation=True, shown_messages=shown_messages,
+                           sender_labels=view.get("message_sender_labels"))
         if view.get("truncated"):
             self.ui.say("This view contains the most recent whole messages that fit its output limit.")
         self.ui.say("Choose r in the work menu for the full reply history, feedback accounts and qualified deliveries.")
@@ -2576,7 +2596,8 @@ class Dialogue:
                              and message["id"] not in shown_messages]
                     if fresh:
                         self.ui.say(f"New replies for {work}:")
-                        self.show_messages(fresh, show_invocation=True, shown_messages=shown_messages)
+                        self.show_messages(fresh, show_invocation=True, shown_messages=shown_messages,
+                                           sender_labels=result.get("message_sender_labels"))
                 if seen_messages is None:
                     seen_messages = set()
                 seen_messages.update(message["id"] for message in messages)

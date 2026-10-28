@@ -484,7 +484,11 @@ fn human_status(status: &str) -> &str {
 }
 /// Group only already-disclosed copies from one exact decision and disclosure
 /// scope. Retain their subjects and count; stored messages and JSON stay exact.
-fn append_messages(lines: &mut Vec<String>, messages: &[runtime::Message]) -> runtime::Result<()> {
+fn append_messages(
+    lines: &mut Vec<String>,
+    messages: &[runtime::Message],
+    sender_labels: &std::collections::BTreeMap<String, String>,
+) -> runtime::Result<()> {
     let mut positions: std::collections::BTreeMap<Vec<u8>, usize> =
         std::collections::BTreeMap::new();
     let mut groups: Vec<(&runtime::Message, usize, Vec<&str>)> = Vec::new();
@@ -514,7 +518,11 @@ fn append_messages(lines: &mut Vec<String>, messages: &[runtime::Message]) -> ru
         }
     }
     for (message, count, subjects) in groups {
-        lines.push(format!("{} says:", message.sender));
+        let author = sender_labels.get(&message.sender)
+            .filter(|label| *label != &message.sender)
+            .map(|label| format!("{label} ({})", message.sender))
+            .unwrap_or_else(|| message.sender.clone());
+        lines.push(format!("{author} says:"));
         lines.push(message.text.clone());
         if count > 1 {
             lines.push(format!("Recorded {count} times in the same decision."));
@@ -523,16 +531,13 @@ fn append_messages(lines: &mut Vec<String>, messages: &[runtime::Message]) -> ru
             }
         }
         if !message.file_references.is_empty() {
-            lines.push("Attached exact file references (metadata, not supplied content):".into());
-            for reference in &message.file_references {
-                lines.push(serde_json::to_string(reference)?);
-            }
+            lines.push(format!("Attached file references: {}.", message.file_references.len()));
         }
         if !message.history_references.is_empty() {
-            lines.push("Attached exact history references (metadata, not supplied records or images):".into());
-            for reference in &message.history_references {
-                lines.push(serde_json::to_string(reference)?);
-            }
+            lines.push(format!("Attached history references: {}.", message.history_references.len()));
+        }
+        if !message.file_references.is_empty() || !message.history_references.is_empty() {
+            lines.push("Use --json to inspect exact references; these counts do not supply their content.".into());
         }
         lines.push(String::new());
     }
@@ -616,8 +621,7 @@ fn readable_result(value: &launch::Output) -> runtime::Result<String> {
                 lines.push(format!("{label} {status}."));
                 if let Some(text) = item["feedback_text"].as_str() { lines.push(format!("Your feedback: {text}")); }
                 if let Some(references) = item["file_references"].as_array().filter(|refs| !refs.is_empty()) {
-                    lines.push("Attached exact file references (metadata, not supplied content):".into());
-                    for reference in references { lines.push(serde_json::to_string(reference)?); }
+                    lines.push(format!("Attached file references: {}. Use --json to inspect exact references.", references.len()));
                 }
                 if let Some(reason) = item["account"]["reason"].as_str() { lines.push(format!("{label}'s account: {reason}")); }
             }
@@ -716,7 +720,7 @@ fn readable_result(value: &launch::Output) -> runtime::Result<String> {
             }
         }
     }
-    append_messages(&mut lines, &value.messages)?;
+    append_messages(&mut lines, &value.messages, &value.message_sender_labels)?;
     if !value.human_decision_pointers.is_empty() {
         lines.push("A separate explicit human decision can be recorded with stakeholder-decision. Historical delivery pointers are available with result --json; current authority requires explicit operator inspection.".into());
     }

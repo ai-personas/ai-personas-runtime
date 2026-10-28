@@ -50,6 +50,9 @@ pub struct Output {
     pub status_delivery: Option<String>,
     pub last_attempt: Option<Value>,
     pub messages: Vec<Message>,
+    /// Current display names for the exact senders in this view. Message
+    /// identities, authorship and retained bodies remain unchanged.
+    pub message_sender_labels: BTreeMap<String, String>,
     pub local_deliveries: Vec<LocalDelivery>,
     pub human_decision_pointers: Vec<HumanDecisionPointer>,
     /// Partial currently permitted facts; never global closure readiness.
@@ -78,6 +81,13 @@ pub(super) fn message_permitted(state: &State, message: &Message, now: i64) -> b
     extend_exposure(&mut exposure, inherited);
     exposure.sources.extend(message.lineage.iter().cloned());
     exposure_permitted(state, &exposure, &a)
+}
+
+pub(super) fn message_sender_labels(state: &State, messages: &[Message]) -> BTreeMap<String, String> {
+    messages.iter().filter_map(|message| {
+        state.personas.get(&message.sender)
+            .map(|persona| (message.sender.clone(), persona.seed.label.clone()))
+    }).collect()
 }
 /// A message becomes visible when its complete Decision adopts, not when its
 /// call starts. Protected Decision receipts survive invocation-history expiry.
@@ -180,6 +190,7 @@ pub(super) fn project_state(
         status_delivery: None,
         last_attempt: None,
         messages: Vec::new(),
+        message_sender_labels: BTreeMap::new(),
         local_deliveries: Vec::new(),
         human_decision_pointers: Vec::new(),
         closure_evidence: Vec::new(),
@@ -376,5 +387,6 @@ pub(super) fn project_state(
         result.messages.push(message.clone());
     }
     order_messages(&mut result.messages, records)?;
+    result.message_sender_labels = message_sender_labels(state, &result.messages);
     Ok(result)
 }

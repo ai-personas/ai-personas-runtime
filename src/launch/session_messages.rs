@@ -15,6 +15,7 @@ pub struct SessionMessages {
     /// Absent when retained metadata cannot establish a complete call range.
     pub message_scope: Option<SessionMessageScope>,
     pub messages: Vec<Message>,
+    pub message_sender_labels: BTreeMap<String, String>,
     pub truncated: bool,
     pub inference_performed: bool,
 }
@@ -46,6 +47,7 @@ fn project(
         SessionView::NotRecorded | SessionView::OutcomeUnrecorded { .. } => None,
     };
     let mut result = SessionMessages { session, message_scope: scope, messages: Vec::new(),
+        message_sender_labels: BTreeMap::new(),
         truncated: false, inference_performed: false };
     let Some(scope) = &result.message_scope else { return Ok(result); };
     if scope.steps_before == scope.steps_after { return Ok(result); }
@@ -58,5 +60,6 @@ fn project(
             && results::message_permitted(state, message, now)
     }).cloned().collect();
     results::order_messages(&mut result.messages, records)?;
+    result.message_sender_labels = results::message_sender_labels(state, &result.messages);
     Ok(result)
 }
