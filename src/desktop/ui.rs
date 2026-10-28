@@ -13,6 +13,8 @@ use std::{
 
 #[path = "browser.rs"]
 mod browser;
+#[path = "society.rs"]
+mod society;
 #[path = "studio.rs"]
 mod studio;
 
@@ -87,6 +89,15 @@ pub struct App {
     library_scope: LibraryScope,
     browse_selected: Option<PathBuf>,
     task_filter: String,
+    conversation_filter: String,
+    conversation_persona: Option<String>,
+    conversation_channel: usize,
+    conversation_mode: usize,
+    conversation_route: Option<(String, String)>,
+    conversation_page: usize,
+    overview_filter: String,
+    profile_filter: String,
+    profile_history: bool,
     inspected_persona: Option<String>,
     show_session_strip: bool,
     initial_discovery: bool,
@@ -99,6 +110,7 @@ impl App {
         helpers: Option<PathBuf>,
     ) -> Self {
         theme::install_fonts(&cc.egui_ctx);
+        egui_extras::install_image_loaders(&cc.egui_ctx);
         let (tx, rx) = backend::start(cc.egui_ctx.clone());
         // A terminal interrupt uses the same durable pause-and-close path as
         // the window button. Runtime work lives in independently owned helpers.
@@ -176,7 +188,7 @@ impl App {
             feedback_persona: String::new(),
             replaced: vec![],
             amend_scope: String::new(),
-            tab: 0,
+            tab: 5,
             focus_files: false,
             file_viewer: super::artifacts::Viewer::new(&cc.egui_ctx, cc.gl.as_ref()),
             preferences: Preferences::default(),
@@ -195,6 +207,15 @@ impl App {
             library_scope: LibraryScope::All,
             browse_selected: None,
             task_filter: String::new(),
+            conversation_filter: String::new(),
+            conversation_persona: None,
+            conversation_channel: 0,
+            conversation_mode: 0,
+            conversation_route: None,
+            conversation_page: 0,
+            overview_filter: String::new(),
+            profile_filter: String::new(),
+            profile_history: false,
             inspected_persona: None,
             show_session_strip: true,
             initial_discovery: choose_progress,
@@ -219,8 +240,13 @@ impl App {
         self.view = View::default();
         self.notice = None;
         self.dialog = None;
-        self.tab = 0;
+        self.tab = 5;
         self.task_filter.clear();
+        self.conversation_filter.clear();
+        self.conversation_persona = None;
+        self.conversation_route = None;
+        self.conversation_page = 0;
+        self.overview_filter.clear();
         self.inspected_persona = None;
         self.setup_step = 0;
         self.workspace = PathBuf::from(&self.progress)
@@ -915,17 +941,6 @@ impl App {
             }
         }
     }
-    fn conversation(&self, ui: &mut Ui) {
-        let messages = models_at(&self.view.result, "messages");
-        if messages.is_empty() {
-            ui.add_space(18.0);
-            ui.label("Replies from your personas will appear here.");
-        }
-        self.messages(ui, messages);
-        if self.view.result["truncated"] == true {
-            ui.label("The runtime returned a partial view of the available messages.");
-        }
-    }
     fn messages(&self, ui: &mut Ui, messages: &[Value]) {
         let colors = theme::palette(ui);
         for m in messages {
@@ -938,23 +953,36 @@ impl App {
                         ui.painter().rect_filled(r, 4, colors.selection);
                         ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, label.chars().next().unwrap_or('P'), egui::FontId::proportional(13.0), colors.text);
                         ui.label(RichText::new(&label).size(14.0).strong());
+                        ui.label(RichText::new("→").weak());
+                        ui.label(RichText::new(self.persona_label(s(m,"recipient"))).strong());
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(RichText::new(s(m,"invocation")).monospace().size(10.5).weak());
+                            if ui.small_button("Copy").clicked() { ui.ctx().copy_text(s(m,"text").to_owned()); }
+                            ui.label(RichText::new(s(m,"invocation")).monospace().size(10.5).weak()).on_hover_text(s(m,"id"));
                         });
                     });
-                    if !s(m,"subject").is_empty() { ui.label(RichText::new(s(m,"subject")).small().weak()); }
+                    if !s(m,"subject").is_empty() { ui.label(RichText::new(s(m,"subject")).strong()); }
                     theme::message_body(ui, s(m,"text"));
-                    if !models_at(m,"file_references").is_empty() || !models_at(m,"history_references").is_empty() {
-                        ui.collapsing("Citations and source references", |ui| {
-                            json_view(ui, &json!({"files":m["file_references"],"history":m["history_references"],"invocation":m["invocation"]}));
+                        ui.collapsing("Message record & citations", |ui| {
+                            json_view(ui, &json!({"id":m["id"],"work":m["work"],"thread_work":m["thread_work"],"files":m["file_references"],"history":m["history_references"],"invocation":m["invocation"],"accepted_epoch":m["accepted_epoch"],"local_deposit_only":m["local_deposit_only"]}));
                         });
-                    }
                 });
                 ui.add_space(3.0);
             });
         }
     }
     fn persona_label(&self, id: &str) -> String {
+        if self
+            .view
+            .progress
+            .as_ref()
+            .and_then(|p| p.operator.as_deref())
+            == Some(id)
+        {
+            return "You".into();
+        }
+        if let Some(label) = self.view.inspection["settings"]["persona_labels"][id].as_str() {
+            return label.into();
+        }
         models_at(&self.view.inspection, "works")
             .iter()
             .flat_map(|w| models_at(w, "participants"))
@@ -1259,14 +1287,46 @@ impl App {
         self.show_preferences = open;
     }
 
-    fn development(&self, ui: &mut Ui) {
-        let v = &self.view.development;
+    fn development(&mut self, ui: &mut Ui) {
+        let v = self.view.development.clone();
         if v.is_null() {
             ui.spinner();
             return;
         }
-        ui.heading(s(v, "label"));
-        ui.label(format!("Identity: {}", s(&v["lifecycle"], "status")));
+        ui.horizontal(|ui| {
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(44.0, 44.0), egui::Sense::hover());
+            let colors = theme::palette(ui);
+            ui.painter().rect_filled(rect, 5, colors.selection);
+            ui.painter().text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                s(&v, "label").chars().next().unwrap_or('P'),
+                egui::FontId::proportional(23.0),
+                colors.text,
+            );
+            ui.vertical(|ui| {
+                ui.heading(s(&v, "label"));
+                ui.label(RichText::new(s(&v, "persona")).small().weak());
+                theme::badge(ui, s(&v["lifecycle"], "status"), theme::GREEN);
+            });
+        });
+        ui.add_space(8.0);
+        let tasks: Vec<_> = models_at(&self.view.inspection, "works")
+            .iter()
+            .filter(|w| {
+                models_at(w, "participants")
+                    .iter()
+                    .any(|p| p["persona"] == v["persona"])
+            })
+            .collect();
+        ui.collapsing(
+            format!("Participation across {} tasks", tasks.len()),
+            |ui| {
+                for task in &tasks {
+                    ui.label(format!("{} · {}", s(task, "phase"), s(task, "need")));
+                }
+            },
+        );
         if v["lifecycle"]["quarantined"] == true {
             ui.label("This identity is quarantined.");
         }
@@ -1277,42 +1337,86 @@ impl App {
                 ("ocean", "Stable tendencies"),
                 ("vad", "Baseline mood and energy"),
             ] {
-                ui.strong(label);
+                theme::header(
+                    ui,
+                    Icon::People,
+                    label,
+                    if key == "ocean" {
+                        "OCEAN"
+                    } else {
+                        "MODELED VAD"
+                    },
+                );
                 if let Some(traits) = v["character"][key].as_object() {
                     for (name, value) in traits {
-                        ui.label(format!(
-                            "{}: {}",
-                            name.replace('_', " "),
-                            value
-                                .as_str()
-                                .map(str::to_owned)
-                                .unwrap_or_else(|| value.to_string())
-                        ));
+                        egui::Frame::new()
+                            .fill(theme::palette(ui).field)
+                            .inner_margin(9)
+                            .corner_radius(3)
+                            .show(ui, |ui| {
+                                ui.set_width(ui.available_width());
+                                ui.strong(name.replace('_', " "));
+                                if let Some(text) = value.as_str() {
+                                    theme::message_body(ui, text);
+                                } else {
+                                    super::data_view::parameters(ui, value);
+                                }
+                            });
                     }
                 }
+                ui.add_space(8.0);
             }
         }
-        for revision in models_at(v, "characteristic_revisions") {
-            ui.collapsing(
-                format!(
-                    "{} · {}",
-                    s(revision, "source"),
-                    if revision["current"] == true {
-                        "current"
-                    } else {
-                        "historical"
-                    }
-                ),
-                |ui| {
-                    for entry in models_at(&revision["context"], "entries") {
-                        ui.strong(s(entry, "path"));
-                        ui.add(egui::Label::new(s(entry, "text")).wrap().selectable(true));
-                    }
-                    ui.collapsing("Authorship and full qualifications", |ui| {
-                        json_view(ui, revision);
-                    });
-                },
-            );
+        theme::header(
+            ui,
+            Icon::Files,
+            "Characteristic fragments",
+            "AUTHORED PROMPT PARTS",
+        );
+        ui.weak("These fragments shape the persona's character. Supporting knowledge, tools, and conversation records have a separate purpose.");
+        ui.add(
+            egui::TextEdit::singleline(&mut self.profile_filter)
+                .hint_text("Find a fragment or phrase…")
+                .desired_width(f32::INFINITY),
+        );
+        ui.checkbox(&mut self.profile_history, "Include historical revisions");
+        let query = self.profile_filter.to_lowercase();
+        for revision in models_at(&v, "characteristic_revisions")
+            .iter()
+            .filter(|r| {
+                (self.profile_history || r["current"] == true)
+                    && (query.is_empty()
+                        || s(r, "source").to_lowercase().contains(&query)
+                        || models_at(&r["context"], "entries").iter().any(|e| {
+                            s(e, "text").to_lowercase().contains(&query)
+                                || s(e, "path").to_lowercase().contains(&query)
+                        }))
+            })
+        {
+            egui::CollapsingHeader::new(format!(
+                "{} · {}",
+                models_at(&revision["context"], "entries")
+                    .first()
+                    .map(|e| s(e, "path"))
+                    .filter(|p| !p.is_empty())
+                    .unwrap_or_else(|| s(revision, "source")),
+                if revision["current"] == true {
+                    "current"
+                } else {
+                    "historical"
+                }
+            ))
+            .id_salt((s(revision, "source"), revision["revision"].to_string()))
+            .default_open(revision["current"] == true)
+            .show(ui, |ui| {
+                for entry in models_at(&revision["context"], "entries") {
+                    ui.strong(s(entry, "path"));
+                    theme::message_body(ui, s(entry, "text"));
+                }
+                ui.collapsing("Authorship and full qualifications", |ui| {
+                    json_view(ui, revision);
+                });
+            });
         }
         if v["transient_affect"]["context"]["status"] != "none_retained" {
             ui.collapsing("Current modeled affect", |ui| {
@@ -1323,7 +1427,7 @@ impl App {
             ui.label("This view contains a subset of retained revisions.");
         }
         ui.collapsing("Exact development record", |ui| {
-            json_view(ui, v);
+            json_view(ui, &v);
         });
     }
 }
@@ -1358,7 +1462,7 @@ impl eframe::App for App {
         if self.view.ready && !self.choose_progress {
             if self.tab != 1 || !self.focus_files {
                 self.sidebar(ctx);
-                if self.tab != 1 || ctx.available_rect().width() > 800.0 {
+                if self.tab != 5 && (self.tab != 1 || ctx.available_rect().width() > 800.0) {
                     self.people(ctx);
                 }
             }

@@ -66,6 +66,34 @@ The top navigation follows persona work: **Workspaces**, **Tasks**, **Personas**
 retained profile and development; the right-hand inspector keeps their model
 and execution state visible.
 
+### A connected view of the workspace
+
+**Overview** opens first for an existing workspace. Its task/persona matrix shows
+who participates in each task, including personas that currently have no task.
+Search by task or persona, open a task from a row, or open a profile from a column.
+The task outliner and properties inspector remain resizable while you explore.
+
+**Conversation → Timeline** includes both replies to you and communication between
+personas. Arrows name the actual sender and recipient; filters select a person,
+channel, subject, or phrase. Messages follow the accepted decision order, using
+the message ID to order messages accepted in the same decision. No reply chain,
+read receipt, agreement, or wall-clock time is invented from the subject line.
+**Collaboration** shows a selectable connection map and directed communication
+paths with message counts. Select a count to read that exact direction of exchange.
+Large populations use the full list and can be focused by persona. The view shows
+current accepted responsibilities, proposed and adopted arrangements, and task
+dependencies. A message and an acceptance remain different observations.
+
+Profiles show semantic OCEAN and modeled VAD descriptions, participation across
+tasks, and searchable current characteristic fragments. **Include historical
+revisions** exposes earlier authored fragments with their provenance. Traits are
+not converted into fabricated numeric scores. Supporting knowledge and tools
+remain distinct from characteristic fragments.
+
+These views use the current runtime's saved inspection records. The new
+`personas-session --state-root PATH --operator ID conversation WORK` command
+provides the same communication and responsibility snapshot without inference.
+
 ## Previewing produced files
 
 Workspace files are shared across the runtime's tasks. They are current disk
@@ -77,15 +105,25 @@ Browse folders or search relative filenames, filter by format, and select a file
 **Expand viewer** gives previews the full workspace width; **Restore panels**
 returns the task outliner and persona inspector. On narrower windows the persona
 inspector yields space to the viewer; profiles remain available from **Personas**.
-**Refresh file list** discovers new outputs. Hidden files, `__pycache__`, and
-`node_modules` are omitted. The browser indexes up to 10,000 files and reports
-unreadable entries. Decoding happens on a worker; a late result cannot replace
+**Refresh file list** discovers new outputs. **Include hidden & cache files**
+includes dotfiles, `__pycache__`, and `node_modules`. The browser reports unreadable
+entries. Decoding happens on a worker; a late result cannot replace
 the preview of a newer selection or another workspace.
 
 - PNG, JPEG, WebP, BMP, TIFF, ICO, GIF (first frame), and SVG render with fit,
   zoom, pan, and a light or dark background.
-- Markdown renders headings, emphasis, and code; source view remains available.
-  UTF-8 text and code are selectable, JSON is formatted, and CSV/TSV use a table.
+- Markdown renders headings, emphasis, lists, quotes, tables, task lists, links,
+  and highlighted code blocks. Workspace Markdown can display local image
+  references relative to its folder; remote images remain explicit links.
+  HTML remains visible text. Source view remains
+  available. Source files use language-aware syntax highlighting and selectable text.
+- JSON opens as an expandable parameter tree with original values and units;
+  the exact source remains available. Arrays of records, arrays of rows, and
+  objects of column arrays also offer a table and numeric plots.
+- CSV/TSV offer a paged table and a plot with selectable horizontal axis and
+  series. Hover for exact values. Missing or nonnumeric values leave gaps;
+  points follow file order. Header detection can be overridden. All rows remain
+  available through page navigation, and plots use the complete loaded dataset.
 - STL, OBJ, and GLB/glTF render in a solid 3D viewport with orbit, pan, zoom,
   fit, a grid, and wireframe. This is a geometry preview, without textures,
   animation, CAD constraints, or engineering validation. GLB is convenient for
@@ -96,10 +134,16 @@ the preview of a newer selection or another workspace.
 - ZIP packages list their contents. Select an entry to preview it without
   extraction; **Back to package** returns to the listing.
 
-Previews limit individual files to 128 MiB, models to one million triangles,
-text to 512 KiB, and tables to 2,000 rows. Large raster images are resized for
-display. Unsupported formats stay accessible through **Actions → Open in
-external application**; the UI does not claim to render them.
+Files, text, tables, archives, and meshes have no application count or byte quota;
+decoding still depends on available memory and graphics resources. Large raster
+images are resized for display. Formats without an embedded decoder, including
+PDF, office documents, audio, video, and specialist simulation/CAD files, use
+**Actions → Open in external application** or **Open with…** to choose an installed
+viewer. This also works for recorded deliveries and archive entries: their exact
+bytes are materialized in a temporary folder retained while the window is open.
+Opening failures are reported. An external viewer's launch does not establish
+that it successfully rendered the format. No generated program is executed by
+merely selecting it for preview.
 
 **Pause** stops further work and waits for current calls and commands to record
 their outcomes. **Cancel task** retains results and records cancellation; it

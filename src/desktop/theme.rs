@@ -355,98 +355,19 @@ pub fn icon_button(ui: &mut Ui, icon: Icon, label: &str) -> egui::Response {
     response.on_hover_text(label)
 }
 
-/// Readable text formatting without HTML, network assets, or executable content.
-/// Unsupported Markdown remains visible as text; retained messages are unchanged.
+/// Shared document formatting preserves the retained source text.
 pub fn message_body(ui: &mut Ui, text: &str) {
-    let mut paragraph = String::new();
-    let mut code = String::new();
-    let mut in_code = false;
-    for line in text.lines() {
-        if line.starts_with("```") {
-            if in_code {
-                code_block(ui, &code);
-                code.clear();
-            } else if !paragraph.is_empty() {
-                rich_paragraph(ui, paragraph.trim_end(), 13.5);
-                paragraph.clear();
-            }
-            in_code = !in_code;
-        } else if in_code {
-            code.push_str(line);
-            code.push('\n');
-        } else if line.trim().is_empty() {
-            if !paragraph.is_empty() {
-                rich_paragraph(ui, paragraph.trim_end(), 13.5);
-                paragraph.clear();
-                ui.add_space(3.0);
-            }
-        } else if line.starts_with("# ") || line.starts_with("## ") || line.starts_with("### ") {
-            if !paragraph.is_empty() {
-                rich_paragraph(ui, paragraph.trim_end(), 13.5);
-                paragraph.clear();
-            }
-            ui.add_space(4.0);
-            rich_paragraph(ui, line.trim_start_matches('#').trim_start(), 16.0);
-        } else {
-            paragraph.push_str(line);
-            paragraph.push('\n');
-        }
-    }
-    if !paragraph.is_empty() {
-        rich_paragraph(ui, paragraph.trim_end(), 13.5);
-    }
-    if in_code {
-        code_block(ui, &code);
-    }
+    super::document::markdown(ui, text);
 }
-fn code_block(ui: &mut Ui, code: &str) {
-    egui::Frame::new()
-        .fill(palette(ui).field)
-        .inner_margin(9)
-        .corner_radius(3)
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.add(
-                egui::Label::new(RichText::new(code.trim_end()).monospace().size(11.5))
-                    .wrap()
-                    .selectable(true),
-            );
-        });
-}
-fn rich_paragraph(ui: &mut Ui, text: &str, size: f32) {
-    let p = palette(ui);
-    let plain = egui::TextFormat {
-        font_id: FontId::proportional(size),
-        color: p.text,
-        ..Default::default()
-    };
-    let mut job = egui::text::LayoutJob::default();
-    let mut rest = text;
-    while !rest.is_empty() {
-        let next = [(rest.find("**"), "**"), (rest.find('`'), "`")]
-            .into_iter()
-            .filter_map(|(at, mark)| at.map(|at| (at, mark)))
-            .min_by_key(|(at, _)| *at);
-        let Some((at, mark)) = next else {
-            job.append(rest, 0.0, plain.clone());
-            break;
-        };
-        let after = &rest[at + mark.len()..];
-        let Some(end) = after.find(mark) else {
-            job.append(rest, 0.0, plain.clone());
-            break;
-        };
-        job.append(&rest[..at], 0.0, plain.clone());
-        let mut format = plain.clone();
-        if mark == "`" {
-            format.font_id = FontId::monospace(size - 1.0);
-            format.background = p.field;
-        } else {
-            format.font_id.size += 0.5;
-            format.color = ui.visuals().strong_text_color();
-        }
-        job.append(&after[..end], 0.0, format);
-        rest = &after[end + mark.len()..];
+
+pub fn continuation_label(value: &str) -> &str {
+    match value {
+        "persona_stop" => "Stopped",
+        "persona_pause" => "Paused",
+        "immediate" => "Continuing",
+        "wait" => "Waiting",
+        "reconsider_at" => "Scheduled",
+        "absent" => "No choice yet",
+        _ => value,
     }
-    ui.add(egui::Label::new(job).wrap().selectable(true));
 }

@@ -1,5 +1,5 @@
 //! Produced-file browser, with decoding isolated from the foreground UI.
-use super::{mesh, theme};
+use super::{data_view, document, mesh, theme};
 use eframe::{egui, glow};
 use std::{
     collections::BTreeSet,
@@ -42,6 +42,7 @@ struct ArchiveEntry {
 enum Body {
     Image(egui::ColorImage, String),
     Text(String, bool),
+    Parameters(serde_json::Value, String, Option<Vec<Vec<String>>>),
     Table(Vec<Vec<String>>),
     Mesh(Arc<mesh::Mesh>),
     Archive(Vec<ArchiveEntry>),
@@ -52,7 +53,7 @@ struct Decoded {
     note: String,
 }
 enum Request {
-    Scan(u64, PathBuf),
+    Scan(u64, PathBuf, bool),
     Delivered(u64, Vec<serde_json::Value>),
     Load(u64, Source),
 }
@@ -73,6 +74,7 @@ pub struct Viewer {
     folder: PathBuf,
     filter: String,
     kind: usize,
+    show_hidden: bool,
     selected: Option<PathBuf>,
     source: Option<Source>,
     trail: Vec<Source>,
@@ -82,14 +84,21 @@ pub struct Viewer {
     image_pan: egui::Vec2,
     white_paper: bool,
     source_text: bool,
+    data_mode: usize,
     archive_filter: String,
     details: Option<String>,
     error: Option<String>,
     model: mesh::Viewport,
+    table: data_view::TableView,
+    external_tx: mpsc::Sender<Result<Option<tempfile::TempDir>, String>>,
+    external_rx: mpsc::Receiver<Result<Option<tempfile::TempDir>, String>>,
+    external_files: Vec<tempfile::TempDir>,
+    external_error: Option<String>,
 }
 impl Viewer {
     pub fn new(ctx: &egui::Context, gl: Option<&Arc<glow::Context>>) -> Self {
         let (tx, requests) = mpsc::channel();
+        let (external_tx, external_rx) = mpsc::channel();
         let (responses, rx) = mpsc::channel();
         let ctx = ctx.clone();
         std::thread::spawn(move || {
@@ -100,7 +109,9 @@ impl Viewer {
                     request = next;
                 }
                 let response = match request {
-                    Request::Scan(id, root) => Response::Catalog(id, loader::scan(&root)),
+                    Request::Scan(id, root, hidden) => {
+                        Response::Catalog(id, loader::scan(&root, hidden))
+                    }
                     Request::Delivered(id, d) => Response::Catalog(id, loader::delivered(d)),
                     Request::Load(id, source) => Response::Preview(id, loader::decode(&source)),
                 };
@@ -125,6 +136,7 @@ impl Viewer {
             folder: PathBuf::new(),
             filter: String::new(),
             kind: 0,
+            show_hidden: false,
             selected: None,
             source: None,
             trail: Vec::new(),
@@ -134,10 +146,16 @@ impl Viewer {
             image_pan: egui::Vec2::ZERO,
             white_paper: true,
             source_text: false,
+            data_mode: 0,
             archive_filter: String::new(),
             details: None,
             error: None,
             model: mesh::Viewport::new(gl),
+            table: data_view::TableView::default(),
+            external_tx,
+            external_rx,
+            external_files: vec![],
+            external_error: None,
         }
     }
     pub fn destroy(&mut self) {
@@ -150,8 +168,10 @@ impl Viewer {
         self.image_zoom = 1.0;
         self.image_pan = egui::Vec2::ZERO;
         self.source_text = false;
+        self.data_mode = 0;
         self.archive_filter.clear();
         self.model.reset();
+        self.table = data_view::TableView::default();
     }
     fn load(&mut self, source: Source) {
         self.reset_preview();
@@ -175,11 +195,18 @@ impl Viewer {
         let request = if self.recorded {
             Request::Delivered(self.serial, deliveries.to_vec())
         } else {
-            Request::Scan(self.serial, root.into())
+            Request::Scan(self.serial, root.into(), self.show_hidden)
         };
         let _ = self.tx.send(request);
     }
     fn poll(&mut self, ctx: &egui::Context) {
+        while let Ok(result) = self.external_rx.try_recv() {
+            match result {
+                Ok(Some(dir)) => self.external_files.push(dir),
+                Ok(None) => {}
+                Err(e) => self.external_error = Some(e),
+            }
+        }
         while let Ok(event) = self.rx.try_recv() {
             match event {
                 Response::Catalog(id, result) if id == self.serial => {
@@ -239,8 +266,16 @@ impl Viewer {
                 self.initialized = false;
             }
             ui.weak(format!("{} files", self.catalog.files.len()));
+            if !self.recorded
+                && ui
+                    .checkbox(&mut self.show_hidden, "Include hidden & cache files")
+                    .changed()
+            {
+                self.initialized = false;
+            }
         });
         if !self.initialized {
+            ui.ctx().forget_all_images();
             self.scan(root, deliveries);
         }
         ui.add(egui::Label::new(egui::RichText::new(&self.catalog.note).small().weak()).truncate())
@@ -294,6 +329,7 @@ impl Viewer {
             });
         });
         if let Some(index) = open {
+            ui.ctx().forget_all_images();
             let entry = &self.catalog.files[index];
             self.selected = Some(entry.path.clone());
             self.details = entry.details.clone();
@@ -315,6 +351,7 @@ impl Viewer {
     }
     fn preview(&mut self, ui: &mut egui::Ui) {
         let mut back = false;
+        let mut external = None;
         ui.horizontal_wrapped(|ui| {
             if !self.trail.is_empty() && ui.button("Back to package").clicked() {
                 back = true;
@@ -327,14 +364,18 @@ impl Viewer {
                         ui.ctx().copy_text(source.label());
                         ui.close();
                     }
+                    if ui.button("Open in external application").clicked() {
+                        external = Some((source.clone(), false));
+                        ui.close();
+                    }
+                    if ui.button("Open with…").clicked() {
+                        external = Some((source.clone(), true));
+                        ui.close();
+                    }
                     if let Source::File(path) = source {
-                        if ui.button("Open in external application").clicked() {
-                            open_external(path);
-                            ui.close();
-                        }
                         if ui.button("Open containing folder").clicked() {
                             if let Some(parent) = path.parent() {
-                                open_external(parent);
+                                external = Some((Source::File(parent.into()), false));
                             }
                             ui.close();
                         }
@@ -342,6 +383,17 @@ impl Viewer {
                 });
             }
         });
+        if let Some((source, choose)) = external {
+            self.open_external(ui.ctx(), source, choose);
+        }
+        if let Some(error) = self.external_error.clone() {
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(theme::ACCENT, error);
+                if ui.small_button("Dismiss").clicked() {
+                    self.external_error = None;
+                }
+            });
+        }
         if back {
             if let Some(source) = self.trail.pop() {
                 self.load(source);
@@ -458,42 +510,45 @@ impl Viewer {
                     .show(ui, |ui| {
                         if *markdown && !self.source_text {
                             ui.set_min_width(ui.available_width());
-                            theme::message_body(ui, text);
+                            let base = match &self.source {
+                                Some(Source::File(path)) => path.parent(),
+                                _ => None,
+                            };
+                            document::markdown_at(ui, text, base);
                         } else {
-                            ui.add(
-                                egui::Label::new(egui::RichText::new(text).monospace())
-                                    .selectable(true)
-                                    .wrap_mode(egui::TextWrapMode::Extend),
-                            );
+                            let language = self
+                                .source
+                                .as_ref()
+                                .map(|s| extension(Path::new(&s.name())))
+                                .unwrap_or_default();
+                            document::code(ui, text, &language);
                         }
                     });
             }
-            Body::Table(rows) => {
-                ui.weak(format!("{} rows", rows.len().saturating_sub(1)));
-                egui::ScrollArea::both()
-                    .id_salt(("artifact-table", self.serial))
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        egui::Grid::new(("csv", self.serial))
-                            .striped(true)
-                            .spacing([18.0, 8.0])
-                            .show(ui, |ui| {
-                                for (n, row) in rows.iter().enumerate() {
-                                    for cell in row {
-                                        ui.add(
-                                            egui::Label::new(if n == 0 {
-                                                egui::RichText::new(cell).strong()
-                                            } else {
-                                                egui::RichText::new(cell)
-                                            })
-                                            .selectable(true)
-                                            .wrap_mode(egui::TextWrapMode::Extend),
-                                        );
-                                    }
-                                    ui.end_row();
-                                }
-                            });
-                    });
+            Body::Table(rows) => self.table.ui(ui, rows),
+            Body::Parameters(value, text, rows) => {
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut self.data_mode, 0, "Parameters");
+                    if rows.is_some() {
+                        ui.selectable_value(&mut self.data_mode, 1, "Table / Plot");
+                    }
+                    ui.selectable_value(&mut self.data_mode, 2, "JSON source");
+                });
+                if self.data_mode == 1 {
+                    if let Some(rows) = rows {
+                        self.table.ui(ui, rows);
+                    }
+                } else {
+                    egui::ScrollArea::both()
+                        .id_salt(("parameters", self.serial))
+                        .show(ui, |ui| {
+                            if self.data_mode == 2 {
+                                document::code(ui, text, "json");
+                            } else {
+                                data_view::parameters(ui, value);
+                            }
+                        });
+                }
             }
             Body::Archive(entries) => {
                 ui.label(format!("{} files in this package", entries.len()));
@@ -530,9 +585,7 @@ impl Viewer {
             }
         }
         if let Some((index, name)) = archive_entry {
-            if self.trail.len() >= 4 {
-                self.error = Some("Nested archive preview is limited to four levels.".into());
-            } else if let Some(source) = self.source.clone() {
+            if let Some(source) = self.source.clone() {
                 self.trail.push(source.clone());
                 self.load(Source::Zip {
                     container: Arc::new(source),
@@ -541,6 +594,65 @@ impl Viewer {
                 });
             }
         }
+    }
+    fn open_external(&self, ctx: &egui::Context, source: Source, choose: bool) {
+        let tx = self.external_tx.clone();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let result = (|| -> Result<Option<tempfile::TempDir>, String> {
+                let application = if choose {
+                    let Some(path) = rfd::FileDialog::new()
+                        .set_title("Choose an application to open this file")
+                        .pick_file()
+                    else {
+                        return Ok(None);
+                    };
+                    Some(path)
+                } else {
+                    None
+                };
+                let mut temporary = None;
+                let path = match &source {
+                    Source::File(path) => path.clone(),
+                    _ => {
+                        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+                        let name = source.name();
+                        let name = Path::new(&name)
+                            .file_name()
+                            .filter(|n| !n.is_empty())
+                            .unwrap_or(std::ffi::OsStr::new("artifact"));
+                        let path = dir.path().join(name);
+                        std::fs::write(&path, source.bytes()?).map_err(|e| e.to_string())?;
+                        temporary = Some(dir);
+                        path
+                    }
+                };
+                let command = application.unwrap_or_else(|| {
+                    if cfg!(target_os = "macos") {
+                        "open".into()
+                    } else {
+                        "xdg-open".into()
+                    }
+                });
+                let mut child = std::process::Command::new(command)
+                    .arg(&path)
+                    .spawn()
+                    .map_err(|e| format!("Could not open {}: {e}", path.display()))?;
+                let errors = tx.clone();
+                let repaint = ctx.clone();
+                std::thread::spawn(move || {
+                    if let Ok(status) = child.wait() {
+                        if !status.success() {
+                            let _=errors.send(Err(format!("The external application exited with {status}. Choose another application with Open with…")));
+                            repaint.request_repaint();
+                        }
+                    }
+                });
+                Ok(temporary)
+            })();
+            let _ = tx.send(result);
+            ctx.request_repaint();
+        });
     }
 }
 fn extension(path: &Path) -> String {
@@ -565,13 +677,4 @@ fn size_label(size: u64) -> String {
     } else {
         format!("{size} B")
     }
-}
-fn open_external(path: &Path) {
-    let command = if cfg!(target_os = "macos") {
-        "open"
-    } else {
-        "xdg-open"
-    };
-    // Explicit reader action. Previews themselves never open an application.
-    let _ = std::process::Command::new(command).arg(path).spawn();
 }

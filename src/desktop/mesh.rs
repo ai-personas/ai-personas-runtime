@@ -15,13 +15,9 @@ pub struct Mesh {
     pub triangles: usize,
     pub extent: [f32; 3],
 }
-const MAX_TRIANGLES: usize = 1_000_000;
 
 impl Mesh {
     fn triangle(&mut self, p: [Vec3; 3], color: [f32; 3]) -> Result<(), String> {
-        if self.triangles >= MAX_TRIANGLES {
-            return Err("This model exceeds the one-million-triangle preview limit.".into());
-        }
         if p.iter().any(|p| !p.is_finite()) {
             return Err("The model contains non-finite coordinates.".into());
         }
@@ -211,6 +207,14 @@ pub fn load(bytes: &[u8], extension: &str, path: Option<&Path>) -> Result<Arc<Me
         _ => return Err("Unsupported mesh format".into()),
     }
     mesh.normalize()?;
+    i32::try_from(
+        mesh.triangles
+            .checked_mul(3)
+            .ok_or("Mesh vertex count overflow")?,
+    )
+    .map_err(|_| {
+        "This geometry exceeds the vertex count addressable by the graphics draw command."
+    })?;
     Ok(Arc::new(mesh))
 }
 

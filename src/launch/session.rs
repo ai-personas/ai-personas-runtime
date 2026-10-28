@@ -1152,6 +1152,7 @@ pub struct SettingsView {
     pub model: Option<String>,
     pub effort: Option<String>,
     pub persona_models: BTreeMap<String, serde_json::Value>,
+    pub persona_labels: BTreeMap<String, String>,
     pub mode: Option<provider::AccessMode>,
     pub account_sha256: Option<String>,
     pub credential_status: CredentialStatus,
@@ -1450,6 +1451,7 @@ fn settings_view(state: &State, saved: &Saved, now: u64) -> SettingsView {
         persona_models: state.personas.iter().map(|(id, persona)| {
             (id.clone(), json!({"model": persona.seed.requested_model, "effort": persona.seed.requested_effort}))
         }).collect(),
+        persona_labels: state.personas.iter().map(|(id, persona)| (id.clone(), persona.seed.label.clone())).collect(),
         mode: provider.as_ref().map(|p| p.mode),
         account_sha256: provider.as_ref().map(|p| p.evidence.account_sha256.clone()),
         credential_status,

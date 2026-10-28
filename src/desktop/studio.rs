@@ -50,6 +50,7 @@ impl App {
                                 ui.close();
                             }
                             for (tab, label) in [
+                                (5, "Workspace overview"),
                                 (0, "Conversation"),
                                 (2, "Shared questions"),
                                 (3, "Persona activity"),
@@ -64,10 +65,13 @@ impl App {
                             ui.checkbox(&mut self.show_session_strip, "Show session history panel");
                         });
                         ui.menu_button("Personas", |ui| {
-                            let participants = self
-                                .selected()
-                                .map(|w| models_at(w, "participants").to_vec())
-                                .unwrap_or_default();
+                            let participants: Vec<_> = self.view.inspection["settings"]
+                                ["persona_labels"]
+                                .as_object()
+                                .into_iter()
+                                .flatten()
+                                .map(|(id, label)| json!({"persona":id,"label":label}))
+                                .collect();
                             for person in participants {
                                 if ui
                                     .add_enabled(
@@ -134,7 +138,7 @@ impl App {
                     if self.view.progress.is_some()
                         && ui
                             .selectable_label(
-                                !self.choose_progress,
+                                !self.choose_progress && self.tab != 5,
                                 if self.view.ready {
                                     "Workspace"
                                 } else {
@@ -144,8 +148,14 @@ impl App {
                             .clicked()
                     {
                         self.choose_progress = false;
+                        self.tab = 0;
                     }
                     if !self.choose_progress {
+                        if self.view.ready
+                            && ui.selectable_label(self.tab == 5, "Overview").clicked()
+                        {
+                            self.tab = 5;
+                        }
                         ui.separator();
                         let title = self
                             .view
@@ -317,6 +327,10 @@ impl App {
                             );
                             if response.on_hover_text(s(work, "need")).clicked() {
                                 self.inspected_persona = None;
+                                self.conversation_persona = None;
+                                self.conversation_route = None;
+                                self.conversation_page = 0;
+                                self.tab = 0;
                                 self.send(Action::Select(id));
                             }
                         }
@@ -391,7 +405,7 @@ impl App {
                         ui.add_space(6.0);
                         ui.label(RichText::new(s(persona, "label")).size(15.0).strong());
                         ui.label(RichText::new(s(persona, "persona")).small().weak());
-                        let continuation = s(persona, "continuation").replace('_', " ");
+                        let continuation = theme::continuation_label(s(persona, "continuation"));
                         theme::badge(
                             ui,
                             &continuation.to_uppercase(),
@@ -472,6 +486,15 @@ impl App {
             });
     }
     pub(super) fn workspace(&mut self, ui: &mut Ui) {
+        if self.tab == 5 {
+            egui::Frame::new().inner_margin(12).show(ui, |ui| {
+                self.banner(ui);
+                egui::ScrollArea::vertical()
+                    .id_salt("workspace-overview-scroll")
+                    .show(ui, |ui| self.overview(ui));
+            });
+            return;
+        }
         let Some(work) = self.selected().cloned() else {
             theme::header(ui, Icon::Conversation, "Workspace", "");
             self.banner(ui);
@@ -608,7 +631,7 @@ impl App {
                     });
                 });
             });
-        if self.show_session_strip && self.tab != 1 {
+        if self.show_session_strip && self.tab != 1 && self.tab != 5 {
             self.session_strip(ui, &id);
         }
         egui::CentralPanel::default()
@@ -623,7 +646,8 @@ impl App {
                             Icon::Questions,
                             Icon::Activity,
                             Icon::Sessions,
-                        ][self.tab.min(4)],
+                            Icon::Workspaces,
+                        ][self.tab.min(5)],
                         p.muted,
                     );
                     for (i, label) in [
@@ -632,6 +656,7 @@ impl App {
                         "Questions",
                         "Activity",
                         "Sessions",
+                        "Overview",
                     ]
                     .iter()
                     .enumerate()
@@ -651,6 +676,7 @@ impl App {
                         0 => self.conversation(ui),
                         2 => self.questions(ui, &id),
                         3 => self.activity(ui, &work),
+                        5 => self.overview(ui),
                         _ => self.sessions(ui, &id),
                     });
             });

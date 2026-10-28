@@ -1,4 +1,6 @@
 mod artifacts;
+mod document;
+mod data_view;
 mod backend;
 mod helpers;
 mod journal;

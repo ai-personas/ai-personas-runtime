@@ -2,26 +2,16 @@
 use super::*;
 use std::io::{Cursor, Read};
 
-pub(super) const MAX_BYTES: u64 = 128 * 1024 * 1024;
 pub(crate) fn read_file(path: &Path) -> Result<Vec<u8>, String> {
     let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
     if !file.metadata().map_err(|e| e.to_string())?.is_file() {
         return Err("This path is not a regular file.".into());
     }
-    limited_read(&mut file)
+    read_all(&mut file)
 }
-fn limited_read(reader: &mut impl Read) -> Result<Vec<u8>, String> {
+fn read_all(reader: &mut impl Read) -> Result<Vec<u8>, String> {
     let mut bytes = Vec::new();
-    reader
-        .take(MAX_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|e| e.to_string())?;
-    if bytes.len() as u64 > MAX_BYTES {
-        return Err(
-            "This file exceeds the 128 MiB preview limit. Open it in its native application."
-                .into(),
-        );
-    }
+    reader.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
     Ok(bytes)
 }
 impl Source {
@@ -49,16 +39,18 @@ impl Source {
             Self::File(p) => read_file(p),
             Self::Memory { bytes, .. } => Ok(bytes.as_ref().clone()),
             Self::Zip {
-                container, index, ..
+                container,
+                index,
+                name,
             } => {
                 let bytes = container.bytes()?;
                 let mut zip =
                     zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| e.to_string())?;
                 let mut entry = zip.by_index(*index).map_err(|e| e.to_string())?;
-                if entry.size() > MAX_BYTES {
-                    return Err("This archive entry exceeds the 128 MiB preview limit.".into());
+                if entry.name() != name {
+                    return Err("The package changed since it was opened. Return to the file list and select it again.".into());
                 }
-                limited_read(&mut entry)
+                read_all(&mut entry)
             }
         }
     }
@@ -95,7 +87,7 @@ impl Source {
     }
 }
 
-pub(super) fn scan(root: &Path) -> Result<Catalog, String> {
+pub(super) fn scan(root: &Path, show_hidden: bool) -> Result<Catalog, String> {
     let root = std::fs::canonicalize(root).map_err(|e| e.to_string())?;
     let mut files = Vec::new();
     let mut folders = vec![root.clone()];
@@ -115,7 +107,10 @@ pub(super) fn scan(root: &Path) -> Result<Catalog, String> {
             };
             let name = entry.file_name();
             let name = name.to_string_lossy();
-            if name.starts_with('.') || matches!(name.as_ref(), "__pycache__" | "node_modules") {
+            if !show_hidden
+                && (name.starts_with('.')
+                    || matches!(name.as_ref(), "__pycache__" | "node_modules"))
+            {
                 continue;
             }
             let Ok(kind) = entry.file_type() else {
@@ -126,7 +121,7 @@ pub(super) fn scan(root: &Path) -> Result<Catalog, String> {
             if kind.is_dir() {
                 folders.push(path);
             } else if kind.is_file() || (kind.is_symlink() && path.is_file()) {
-                let Ok(meta) = entry.metadata() else {
+                let Ok(meta) = std::fs::metadata(&path) else {
                     issues += 1;
                     continue;
                 };
@@ -137,14 +132,11 @@ pub(super) fn scan(root: &Path) -> Result<Catalog, String> {
                     details: None,
                 });
             }
-            if files.len() >= 10_000 {
-                return Ok(Catalog{files,note:"Showing the first 10,000 files. Hidden files and cache folders are omitted.".into()});
-            }
         }
     }
     files.sort_by(|a, b| a.path.cmp(&b.path));
     let note = if issues > 0 {
-        format!("{issues} folders or files could not be read. Hidden files and cache folders are omitted.")
+        format!("{issues} folders or files could not be read.")
     } else {
         "Files in this runtime’s working folder; shared across its tasks.".into()
     };
@@ -171,9 +163,6 @@ pub(super) fn delivered(deliveries: Vec<serde_json::Value>) -> Result<Catalog, S
             let bundle: serde_json::Value = serde_json::from_str(raw).map_err(|e| e.to_string())?;
             let bytes: Vec<u8> =
                 serde_json::from_value(a["bytes"].clone()).map_err(|e| e.to_string())?;
-            if bytes.len() as u64 > MAX_BYTES {
-                return Err("A delivered file exceeds the 128 MiB preview limit. Use Export recorded files to inspect it.".into());
-            }
             if super::super::journal::digest(&bytes)
                 != a["reference"]["digest"].as_str().unwrap_or("")
             {
@@ -258,11 +247,7 @@ pub(super) fn decode(source: &Source) -> Result<Decoded, String> {
             let mut reader = image::ImageReader::new(Cursor::new(&bytes))
                 .with_guessed_format()
                 .map_err(|e| e.to_string())?;
-            let mut limits = image::Limits::default();
-            limits.max_alloc = Some(256 * 1024 * 1024);
-            limits.max_image_width = Some(16384);
-            limits.max_image_height = Some(16384);
-            reader.limits(limits);
+            reader.no_limits();
             let image = reader.decode().map_err(|e| e.to_string())?;
             let info = format!("{} × {} px", image.width(), image.height());
             let image = if image.width().max(image.height()) > 4096 {
@@ -295,7 +280,7 @@ pub(super) fn decode(source: &Source) -> Result<Decoded, String> {
         "zip" => {
             let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| e.to_string())?;
             let mut entries = Vec::new();
-            for index in 0..zip.len().min(10000) {
+            for index in 0..zip.len() {
                 let f = zip.by_index(index).map_err(|e| e.to_string())?;
                 if !f.is_dir() {
                     entries.push(ArchiveEntry {
@@ -304,9 +289,6 @@ pub(super) fn decode(source: &Source) -> Result<Decoded, String> {
                         size: f.size(),
                     });
                 }
-            }
-            if zip.len() > 10000 {
-                note = "Showing the first 10,000 archive entries.".into();
             }
             entries.sort_by(|a, b| a.name.cmp(&b.name));
             Body::Archive(entries)
@@ -319,16 +301,23 @@ pub(super) fn decode(source: &Source) -> Result<Decoded, String> {
                 .from_reader(bytes.as_slice());
             let rows = reader
                 .records()
-                .take(2001)
                 .map(|r| r.map(|r| r.iter().map(str::to_owned).collect::<Vec<_>>()))
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|e| e.to_string())?;
-            let mut rows = rows;
-            if rows.len() > 2000 {
-                rows.truncate(2000);
-                note = "Showing the first 2,000 rows.".into();
-            }
             Body::Table(rows)
+        }
+        "json" => {
+            let text = std::str::from_utf8(&bytes).map_err(|e| e.to_string())?;
+            match serde_json::from_str::<serde_json::Value>(text) {
+                Ok(value) => {
+                    let rows = data_view::json_rows(&value);
+                    Body::Parameters(value, text.into(), rows)
+                }
+                Err(error) => {
+                    note = format!("Invalid JSON: {error}. Showing the original source.");
+                    Body::Text(text.into(), false)
+                }
+            }
         }
         _ => {
             if bytes.contains(&0) || std::str::from_utf8(&bytes).is_err() {
@@ -338,22 +327,7 @@ pub(super) fn decode(source: &Source) -> Result<Decoded, String> {
                 ))
             } else {
                 let text = std::str::from_utf8(&bytes).map_err(|e| e.to_string())?;
-                let text = if text.len() > 512 * 1024 {
-                    let mut end = 512 * 1024;
-                    while !text.is_char_boundary(end) {
-                        end -= 1;
-                    }
-                    note = "Showing the first 512 KiB of text.".into();
-                    text[..end].to_owned()
-                } else if ext == "json" {
-                    serde_json::from_str::<serde_json::Value>(text)
-                        .ok()
-                        .and_then(|v| serde_json::to_string_pretty(&v).ok())
-                        .unwrap_or_else(|| text.into())
-                } else {
-                    text.into()
-                };
-                Body::Text(text, matches!(ext.as_str(), "md" | "markdown"))
+                Body::Text(text.into(), matches!(ext.as_str(), "md" | "markdown"))
             }
         }
     };

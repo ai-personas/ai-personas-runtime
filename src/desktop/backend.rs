@@ -66,6 +66,7 @@ pub struct View {
     pub inspection: Value,
     pub selected: Option<String>,
     pub result: Value,
+    pub conversation: Value,
     pub questions: Value,
     pub development: Value,
     pub session_status: Value,
@@ -139,6 +140,7 @@ pub enum Action {
     ConfirmPendingControl,
     ArchiveSession,
     Development(String),
+    Conversation(String),
     Export {
         work: String,
         parent: PathBuf,
@@ -530,6 +532,9 @@ impl Controller {
         if let Some(work) = &self.view.selected {
             self.view.result = self.session(vec!["result".into(), work.clone()])?;
             self.view.questions = self.session(vec!["questions".into(), work.clone()])?;
+            if self.view.conversation["work"].as_str() == Some(work) {
+                self.view.conversation = self.session(vec!["conversation".into(), work.clone()])?;
+            }
         }
         if let Some(s) = &self.j.data.session {
             let status =
@@ -575,11 +580,19 @@ impl Controller {
             Action::Select(work) => {
                 self.view.selected = Some(work);
                 self.view.result = Value::Null;
+                self.view.conversation = Value::Null;
                 self.view.questions = Value::Null;
                 self.view.development = Value::Null;
                 self.view.selected_session = None;
                 self.view.session_detail = Value::Null;
                 self.refresh()?;
+            }
+            Action::Conversation(work) => {
+                journal::require(
+                    self.view.selected.as_ref() == Some(&work),
+                    "Select this task first.",
+                )?;
+                self.view.conversation = self.session(vec!["conversation".into(), work])?;
             }
             Action::SelectSession(id) => {
                 let session = self
