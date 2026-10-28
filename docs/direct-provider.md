@@ -317,7 +317,9 @@ the provider conversation; it neither executes nor replays a Decision.
 
 Missing or thin output and model incompatibility produce explicit unavailable
 metadata without inventing a complete history. Dispatch also checks the retained
-transport profile. An actual context-length or invalid-encrypted-content rejection
+transport profile. History reconstruction uses the same canonical request check
+as dispatch and response-only recovery, without a separate profile-version list
+that can reject the current carrier. An actual context-length or invalid-encrypted-content rejection
 can make that exact selected history unavailable in a fresh input under an existing
 continuation route. The selection and failed input remain unchanged; the persona
 can preserve the unavailable reference, clear it or choose the fresh current turn.

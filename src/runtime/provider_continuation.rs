@@ -78,10 +78,11 @@ impl Material {
                 && receipt["attempt"]["stream_eof"] == true,
                 "selected provider terminal binding is unavailable")?;
             let audit = &receipt["audit"];
+            // The canonical provider serializer owns supported wire profiles.
+            // A second version list here can reject an otherwise exact current
+            // request when the carrier changes.
             require(prepared.provider_preparation.as_ref() == Some(audit)
                 && audit["invocation_id"] == selected.invocation
-                && matches!(audit["transport_profile"].as_str(), Some(
-                "traditional_chatgpt_responses_v5" | "siwc_documented_public_responses_v5" | "platform_responses_v5"))
                 && provider::response_only_request_matches(audit, &prepared.requested_model,
                     &prepared.requested_effort, &prepared.prompt, prepared.reusable_prefix_bytes,
                     &prepared.images, prepared.input_history.as_ref(), &prepared.output_schema),
