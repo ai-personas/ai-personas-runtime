@@ -100,9 +100,13 @@ pub struct Decision {
     /// about the guidance. Account for every fragment mutation and character
     /// adoption in change.operation_ids, including edits made for this task.
     pub fragment_maintenance: Maintenance,
-    /// Account for every supporting-asset mutation in this response, including
-    /// task deliverable edits. Each file_import and each file_write/file_edit with scope assets belongs in
-    /// change.operation_ids; revising an existing file is still a change.
+    /// Account for supporting-resource maintenance proposed in this response,
+    /// including task deliverable edits. Each file_import and each
+    /// file_write/file_edit with scope assets belongs in change.operation_ids.
+    /// An effect intended to create, revise, organize, install or remove host
+    /// files, tools or other supporting resources may also be listed here.
+    /// Explain its intended target and discovery cues; execution and its actual
+    /// outcome remain separate from this proposal and from native file adoption.
     pub asset_maintenance: Maintenance,
     /// Choose characteristic material for the next call. Current body supply
     /// and next-call selection are separate; no_change does not imply clear.
@@ -204,13 +208,18 @@ pub enum WorkDisposition {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Maintenance {
-    /// Leave stored material unchanged. This is separate from selecting existing
-    /// material for the next context; no_change does not require clearing selection.
+    /// Propose no maintenance of this scope in this response. This is separate
+    /// from selecting existing material for the next context; no_change does
+    /// not require clearing selection or suppress factual host recording.
     NoChange {
         reason: String,
     },
-    /// Nonempty exact-once IDs of this scope's file mutations, warnings and maintenance
-    /// dispositions; character_adopt belongs to fragments. Excludes other operations.
+    /// Nonempty exact-once IDs of this scope's native file mutations, warnings
+    /// and maintenance dispositions; character_adopt belongs to fragments.
+    /// In an ordinary decision, assets may also include effect IDs when those
+    /// effects propose supporting-resource maintenance. Other operations are
+    /// excluded. Listing an effect establishes neither execution nor a saved
+    /// native asset; inspect its actual outcome before claiming a change occurred.
     Change {
         /// Explain what changes and why. For every new or revised fragment or
         /// asset, state its intended file/path and how to find it again, using
@@ -1108,8 +1117,11 @@ impl Operation {
         }
     }
 
-    /// Current-character proposals belong to fragment maintenance in this wire
-    /// protocol. This classification does not authorize their acceptance.
+    /// Native mutations that require maintenance accounting. Effects can be
+    /// declared as supporting-resource maintenance separately; their purpose
+    /// and outcome cannot be inferred from the operation kind alone.
+    /// Current-character proposals belong to fragment maintenance. This
+    /// classification does not authorize acceptance or establish execution.
     pub fn maintenance_scope(&self) -> Option<Scope> {
         match self {
             Self::FileWrite { scope, .. }
@@ -2668,7 +2680,12 @@ fn link_maintenance(
             let index = *by_id
                 .get(id.as_str())
                 .ok_or_else(|| invalid(path, "maintenance references an unknown operation"))?;
-            if operations[index].maintenance_scope() != Some(scope) {
+            // A persona can maintain host resources through a capability
+            // without importing them into native storage. This is an authored
+            // purpose, not a claim that the effect executed or saved a file.
+            let asset_effect = scope == Scope::Assets {}
+                && matches!(operations[index], Operation::Effect { .. });
+            if operations[index].maintenance_scope() != Some(scope) && !asset_effect {
                 return Err(invalid(
                     path,
                     "maintenance operation has the wrong scope or is not maintenance",

@@ -10,6 +10,17 @@ asset store without copying its content through a model response. This supports
 retaining useful skill guides, scripts, code, notes and data for later selective
 discovery. The persona chooses what to import and how to organize it.
 
+Host-side resource maintenance also belongs in the asset-maintenance account.
+An ordinary `asset_maintenance.change.operation_ids` may include an `effect`
+that proposes creating, revising, organizing, installing or removing supporting
+resources, with its intended host target and useful discovery cues in the reason.
+This needs no additional native copy. The later tool receipt establishes the
+observed execution outcome; the maintenance proposal establishes neither success
+nor native persistence. Read-only effects need no maintenance entry merely
+because the host records their results. Native file mutations still require
+exact-once accounting, and host effects cannot adopt character fragments.
+Earlier responses retain the maintenance scope described by their actual input.
+
 `format: "utf8"` validates the original text; explicitly supplying it and
 omitting the default format are both valid. Use
 `format: "bytes"` for archives, CAD, images or other binary files. This retains
