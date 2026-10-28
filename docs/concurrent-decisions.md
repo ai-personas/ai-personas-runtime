@@ -482,8 +482,15 @@ successors drain, so the handover cannot be starved by continual refilling.
 In particular, an initial-character response
 rejected by complete validation can recover through its retained invitation while
 another persona is still waiting for its provider. Selection continues to exclude
-the actor awaiting handover, and shared responsibility changes still drain owned
-calls before admission. Other deferred recovery keeps its existing fence.
+the actor awaiting handover from every work, including newly admitted children.
+Ordinary calls on the handover's work also wait, so another participant cannot
+change its authority before the handover. Other uninitialized peers on that work
+can still author their fenced character units; eligible peers on unrelated work
+can still progress. The foreground scan records these pending actor/work pairs
+as `pending_character_handovers`. The existing exact handover checks remain in
+force; a released call lease alone does not establish that handover occurred.
+Shared responsibility changes still drain owned calls before admission. Other
+deferred recovery keeps its existing fence.
 
 Final host-command workers may run alongside primary calls. The coordinator
 publishes their results between adoptions; affected requests must still pass

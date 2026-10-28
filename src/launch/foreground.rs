@@ -31,6 +31,7 @@ pub(super) fn select(
     visited: &BTreeSet<(String, String)>,
     priority: Option<&(String, String)>,
     blocked_works: &BTreeSet<String>,
+    pending_handovers: &BTreeMap<String, String>,
 ) -> Result<Selection> {
     let time = u64::try_from(now).map_err(|_| invalid("negative scheduling time"))?;
     require(!works.is_empty(), "foreground work subtree absent")?;
@@ -109,6 +110,16 @@ pub(super) fn select(
             .filter(|(_, actor)| Some(actor.0.as_str()) != priority_persona);
         let page = first.into_iter().chain(circular_personas);
         for (wid, actor) in page {
+            // A completed character unit no longer has an active call lease.
+            // Do not admit its actor on another work before the exact handover,
+            // or let ordinary peers change that handover's work authority.
+            // Other uninitialized peers can still author their fenced units.
+            if pending_handovers.contains_key(&actor.0)
+                || (state.personas[&actor.0].character.is_some()
+                    && pending_handovers.values().any(|pending| pending == work))
+            {
+                continue;
+            }
             if visited.contains(&(wid.0.clone(), actor.0.clone())) {
                 continue;
             }
@@ -171,6 +182,7 @@ pub(super) fn select(
             }),
             deferred_exclusive_candidate: priority.cloned(),
             blocked_works: blocked_works.clone(),
+            pending_character_handovers: pending_handovers.clone(),
         });
         let mut change = scheduler_change(old.as_ref(), &cursor)?;
         change.depends_on.push(runtime);

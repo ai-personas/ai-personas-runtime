@@ -68,6 +68,7 @@ async fn run_with_subtree<D: Driver>(
     let mut owned_work = BTreeMap::new();
     let mut exclusive = BTreeMap::new();
     let mut deferred: Vec<(String, String, AdoptionStatus)> = Vec::new();
+    let mut pending_handovers = BTreeMap::new();
     let mut handover_barrier = BTreeSet::new();
     let mut works = vec![root.to_owned()];
     let mut after = 0;
@@ -108,6 +109,7 @@ async fn run_with_subtree<D: Driver>(
                     Ok(None) => (),
                 }
             }
+            pending_handovers.clear();
         }
 
         // All fallible work after admission is caught here or below. A local
@@ -210,7 +212,7 @@ async fn run_with_subtree<D: Driver>(
                     .map(|(_, candidate)| candidate.work.clone()));
                 let selection = foreground::select(
                     app, &works, &mut after, unix_now()?, &owned, &visited,
-                    priority.as_ref(), &blocked_works,
+                    priority.as_ref(), &blocked_works, &pending_handovers,
                 )?;
                 // A pending structural transaction may prevent any consideration.
                 // Retain the preference until an actual fresh scan considers it.
@@ -300,12 +302,16 @@ async fn run_with_subtree<D: Driver>(
                 Wake::Call(completion) => {
                     let id = completion.prepared.request.id.clone();
                     let work = completion.prepared.request.work.clone();
+                    let persona = completion.prepared.request.persona.clone();
                     owned.remove(&id);
                     owned_work.remove(&id);
                     exclusive.remove(&id);
                     handover_barrier.remove(&id);
                     match driver.finish(app, completion) {
                         Ok(report) if report.status == AdoptionStatus::CharacterOnly => {
+                            // The accepted unit has released its call lease, but
+                            // its handover still binds this actor and work.
+                            pending_handovers.insert(persona, work.clone());
                             if deferred.is_empty() {
                                 // Refill only while calls already pending at
                                 // this boundary remain. Once they finish, drain

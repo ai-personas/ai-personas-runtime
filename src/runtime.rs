@@ -2243,6 +2243,11 @@ pub struct ForegroundScan {
     pub deferred_exclusive_candidate: Option<(String, String)>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub blocked_works: BTreeSet<String>,
+    /// Accepted character units awaiting their exact handover, by actor/work.
+    /// Their released call leases do not yet permit another actor admission or
+    /// ordinary work that could change the handover's authority dependencies.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub pending_character_handovers: BTreeMap<String, String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
