@@ -5,7 +5,7 @@ set -eu
 
 interface=auto
 case "${1-}" in
-    --gui) interface=gui; shift ;;
+    -gui|--gui) interface=gui; shift ;;
     --terminal) interface=terminal; shift ;;
 esac
 if [ "$interface" = gui ] || { [ "$#" -eq 0 ] && [ "$interface" = auto ]; }; then
@@ -62,7 +62,7 @@ usage() {
        ./personas [OPTIONS] --answer-question FILE.json
 
 No arguments: desktop when installed in a graphical session; otherwise terminal onboarding.
---gui: require the desktop app. --terminal: require the terminal interface.
+--gui (or -gui): require the desktop app. --terminal: require the terminal interface.
 Explicit options below use the existing installation and saved configuration. No automatic
 setup, sign-in, refresh, build, state reset, recovery, or model substitution.
 A run uses the selected provider account without application call quotas.

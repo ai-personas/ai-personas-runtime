@@ -16,6 +16,8 @@ cargo build --locked --release --features desktop --bins
 ./personas --gui
 ```
 
+`./personas -gui` is also accepted.
+
 Rust 1.88 or newer and a native compiler/linker are required for building.
 Linux builds need the usual X11/Wayland development libraries, including
 `libxkbcommon-dev`; graphical sessions need an OpenGL driver. Folder pickers use

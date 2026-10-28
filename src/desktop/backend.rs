@@ -857,6 +857,7 @@ impl Controller {
                 self.events.send(Event::Notice("The earlier session remains in history. A new session will have its own identity; the earlier outcome remains unresolved.".into()));
             }
             Action::Development(persona) => {
+                self.view.development = Value::Null;
                 self.view.development = self.session(vec!["development".into(), persona])?;
             }
             Action::Export { work, parent } => {

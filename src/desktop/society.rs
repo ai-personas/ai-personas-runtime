@@ -424,9 +424,17 @@ impl App {
                 continue;
             }
             let normal = egui::vec2(-direction.y, direction.x);
-            let start = a + direction * 27.0;
-            let end = b - direction * 27.0;
             let control = (a + b.to_vec2()) * 0.5 + normal * 40.0;
+            // Meet the actual rectangular node boundary along the curve's
+            // tangent so that drawing the node cannot cover the arrowhead.
+            let boundary = |node: egui::Rect, toward: egui::Pos2| {
+                let delta = toward - node.center();
+                let extent = node.expand(7.0).size() * 0.5;
+                let distance = (extent.x / delta.x.abs()).min(extent.y / delta.y.abs());
+                node.center() + delta * distance
+            };
+            let start = boundary(nodes[from], control);
+            let end = boundary(nodes[to], control);
             let middle = (start + end.to_vec2()) * 0.25 + control.to_vec2() * 0.5;
             let hit = ui.interact(
                 egui::Rect::from_center_size(middle, egui::vec2(24.0, 18.0)),

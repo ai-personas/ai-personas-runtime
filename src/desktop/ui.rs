@@ -98,6 +98,7 @@ pub struct App {
     overview_filter: String,
     profile_filter: String,
     profile_history: bool,
+    profile_persona: Option<String>,
     inspected_persona: Option<String>,
     show_session_strip: bool,
     initial_discovery: bool,
@@ -216,6 +217,7 @@ impl App {
             overview_filter: String::new(),
             profile_filter: String::new(),
             profile_history: false,
+            profile_persona: None,
             inspected_persona: None,
             show_session_strip: true,
             initial_discovery: choose_progress,
@@ -230,6 +232,11 @@ impl App {
         app
     }
     fn send(&mut self, a: Action) {
+        if let Action::Development(persona) = &a {
+            self.inspected_persona = Some(persona.clone());
+            self.profile_persona = Some(persona.clone());
+            self.view.development = Value::Null;
+        }
         self.busy = true;
         self.error = None;
         let _ = self.tx.send(Input::Action(a));
@@ -247,6 +254,7 @@ impl App {
         self.conversation_route = None;
         self.conversation_page = 0;
         self.overview_filter.clear();
+        self.profile_persona = None;
         self.inspected_persona = None;
         self.setup_step = 0;
         self.workspace = PathBuf::from(&self.progress)
@@ -1289,8 +1297,21 @@ impl App {
 
     fn development(&mut self, ui: &mut Ui) {
         let v = self.view.development.clone();
-        if v.is_null() {
-            ui.spinner();
+        if v.is_null() || v["persona"].as_str() != self.profile_persona.as_deref() {
+            if let Some(persona) = self.profile_persona.clone() {
+                ui.heading(self.persona_label(&persona));
+                if self.error.is_some() && !self.busy {
+                    ui.label("Profile unavailable.");
+                    if ui.button("Retry profile").clicked() {
+                        self.send(Action::Development(persona));
+                    }
+                } else {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("Loading profile…");
+                    });
+                }
+            }
             return;
         }
         ui.horizontal(|ui| {
