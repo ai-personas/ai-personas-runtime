@@ -702,8 +702,9 @@ pub enum Operation {
         policy_id: String,
     },
     /// Copy an existing regular host file into a native supporting asset without
-    /// rewriting its contents. This is asset maintenance, never a character
-    /// fragment or a claim that you authored the imported bytes. Reads happen
+    /// rewriting its contents. It has no scope field: imports always belong to
+    /// assets. This is asset maintenance, never a character fragment or a claim
+    /// that you authored the imported bytes. Reads happen
     /// during adoption before host commands run; use a fresh decision for a
     /// file produced by a command. Select proposal-op:<id> under next_assets to
     /// receive the saved revision in a later input, or discover it later.
