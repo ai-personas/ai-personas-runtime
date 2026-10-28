@@ -59,6 +59,15 @@ complete save plan without committing a partial asset. There is no application
 per-file or aggregate retention byte quota. A concurrently changing file is not an atomic
 filesystem snapshot: provenance identifies the bytes actually read.
 
+Read failures identify the original `operations[index]` position and the affected
+`host_path`, `format` or `expected_sha256` field, including when other operation
+kinds precede an import. A digest mismatch also reports the byte length and
+SHA-256 of the bytes actually read. Those observations identify the rejected
+import; they are not an accepted file revision or a guarantee about later host
+contents. The persona decides whether to inspect, revise or abandon its proposal.
+The runtime does not substitute the observed digest, retry the import or commit
+any part of the rejected save plan.
+
 Saves happen before host commands execute, regardless of operation list order.
 To import a file produced by a command, receive the actual command result and
 choose the import in a fresh decision. Importing a script does not execute it.

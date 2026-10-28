@@ -8260,16 +8260,17 @@ fn apply_writes(
 ) -> Result<BTreeMap<String, String>> {
     let actor = &prepared.request.persona;
     let a = admission(&state.personas[actor], now);
-    let writes: Vec<&p::Operation> = decision
+    let writes: Vec<(usize, &p::Operation)> = decision
         .operations
         .iter()
-        .filter(|o| allowed.contains(o.id()) && o.file_save().is_some())
+        .enumerate()
+        .filter(|(_, o)| allowed.contains(o.id()) && o.file_save().is_some())
         .collect();
     let mut bindings = BTreeMap::new();
     let mut newly_sealed = BTreeSet::new();
     // Stage every immutable identity first. No partial state is persisted: this
     // complete plan is adopted with its bindings, selection and receipts in one CAS.
-    for operation in &writes {
+    for (operation_index, operation) in &writes {
         let p::FileSave {
             id,
             scope: wire_scope,
@@ -8320,7 +8321,7 @@ fn apply_writes(
                 })
             }
             p::FileContent::Host { path, expected_sha256, format } =>
-                host_import::read(prepared, id, path, expected_sha256, format, state.config.corpus.max_file_bytes)?,
+                host_import::read(prepared, id, path, expected_sha256, format, *operation_index)?,
         };
         let record = f::FileRevision {
             source: source.clone(),
@@ -8377,7 +8378,7 @@ fn apply_writes(
     }
     // All response-local aliases now have immutable targets, including cycles.
     // Bind each required accompaniment separately to the accepted decision unit.
-    for operation in &writes {
+    for (_, operation) in &writes {
         let p::FileSave {
             id,
             source,
@@ -8445,7 +8446,7 @@ fn apply_writes(
             state.accepted_bindings.push(binding);
         }
     }
-    for operation in &writes {
+    for (_, operation) in &writes {
         let p::FileSave { id, source, .. } = operation.file_save().unwrap();
         let revision = &bindings[&format!("{}{}", p::PROPOSED_OPERATION_PREFIX, id)];
         let stored = state.sources[source]
@@ -8510,7 +8511,9 @@ fn apply_writes(
             id.as_str(),
         ) {
             return Err(write_conflicts::rejection(
-                original, state, prepared, &writes, [other, id],
+                original, state, prepared,
+                &writes.iter().map(|(_, operation)| *operation).collect::<Vec<_>>(),
+                [other, id],
             ));
         }
     }

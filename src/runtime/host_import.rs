@@ -10,7 +10,7 @@ pub(super) fn read(
     path: &str,
     expected_sha256: Option<&str>,
     format: p::FileImportFormat,
-    _historical_maximum: usize,
+    operation_index: usize,
 ) -> Result<(Vec<u8>, RevisionOrigin)> {
     let interface = prepared
         .host_command_interface
@@ -37,22 +37,24 @@ pub(super) fn read(
         .read(true)
         .custom_flags(libc::O_NONBLOCK)
         .open(&resolved)
-        .map_err(|e| held(format!("file_import {operation}: {e}")))?;
+        .map_err(|e| held(format!("file_import operations[{operation_index}].host_path: {e}")))?;
     require(
-        file.metadata()?.is_file(),
-        "file_import requires a regular file",
+        file.metadata()
+            .map_err(|e| held(format!("file_import operations[{operation_index}].host_path: {e}")))?
+            .is_file(),
+        &format!("file_import operations[{operation_index}].host_path: requires a regular file"),
     )?;
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)
-        .map_err(|e| held(format!("file_import {operation}: {e}")))?;
+        .map_err(|e| held(format!("file_import operations[{operation_index}].host_path: {e}")))?;
     require(
         format == p::FileImportFormat::Bytes || std::str::from_utf8(&bytes).is_ok(),
-        "file_import requires UTF-8; bytes were not replaced",
+        &format!("file_import operations[{operation_index}].format: utf8 requires UTF-8 content; bytes were not replaced"),
     )?;
     let sha256 = s::sha256_bytes(&bytes);
     require(
         expected_sha256.is_none_or(|expected| expected == sha256),
-        "file_import expected_sha256 does not match the bytes read",
+        &format!("file_import operations[{operation_index}].expected_sha256: does not match the bytes read; observed_bytes={}; observed_sha256={sha256}. This rejected import retained no native asset. The observation does not establish later host-file contents.", bytes.len()),
     )?;
     let origin = RevisionOrigin::HostFileImport {
         persona: prepared.request.persona.clone(),
