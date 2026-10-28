@@ -93,8 +93,12 @@ pub struct Decision {
     /// outcome, not to work. Put additional work explanation in reason.
     /// Supply evidence: [] when no exact evidence identifier applies; never omit it.
     pub work: WorkDisposition,
-    /// Account for every fragment mutation and character adoption in this
-    /// response with change.operation_ids, including edits made for this task.
+    /// Consider whether actual experience suggests a useful refinement of your
+    /// characteristic attention, judgment, communication or ways of working.
+    /// Refining guidance you intend to practice does not require changed OCEAN/VAD
+    /// traits or proof of lasting benefit. No change remains a legitimate judgment
+    /// about the guidance. Account for every fragment mutation and character
+    /// adoption in change.operation_ids, including edits made for this task.
     pub fragment_maintenance: Maintenance,
     /// Account for every supporting-asset mutation in this response, including
     /// task deliverable edits. Each file_import and each file_write/file_edit with scope assets belongs in
@@ -496,8 +500,9 @@ pub enum ReplyDisposition {
 )]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Scope {
-    /// Reusable own-voice characteristic-bearing prompt parts expressing the
-    /// persona's approach, rather than a store of factual task notes.
+    /// Reusable own-voice prompt parts expressing the persona's characteristic
+    /// approach, including contextual habits and intended refinements. These need
+    /// not replace stable traits; factual task notes and generic procedures are assets.
     Fragments {},
     /// Supporting task notes, specifications, knowledge, generic procedures,
     /// tools, skills, code and data, regardless of author or first-person style.
@@ -744,6 +749,14 @@ pub enum Operation {
         source: String,
         base_revision: String,
     },
+    /// Adopt the complete current character designation, including exact required
+    /// own-voice fragments. Use this also when revising a designated own-voice file
+    /// while keeping its OCEAN/VAD descriptions unchanged. A new accepted revision
+    /// records changed guidance; it does not claim demonstrated trait change or
+    /// maturation. Copy the current base and retain all still-wanted own_voice refs.
+    /// This unit fences other actions until a fresh decision receives the change.
+    /// A contextual fragment outside the designated own_voice set can instead use
+    /// ordinary file maintenance and next_fragments without character_adopt.
     CharacterAdopt {
         id: String,
         base_revision: Option<String>,

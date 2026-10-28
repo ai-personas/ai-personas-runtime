@@ -214,6 +214,15 @@ bindings must agree. Other fresh work follows in a decision that receives the
 new account. Ordinary supporting-file revisions and optional fragment upkeep
 remain part of the current work, and need no separate learning process.
 
+Revising designated own-voice guidance can keep the same OCEAN/VAD descriptions.
+Use `character_adopt` to bind the revised required fragments and retain every
+still-wanted reference. That accepted revision records changed guidance, not a
+claim that stable traits changed or maturation has been demonstrated. A useful
+contextual refinement outside the designated `own_voice` set can use ordinary
+fragment maintenance and `next_fragments` instead. Unchanged broad traits alone
+do not settle whether either kind of guidance would benefit from refinement;
+the persona makes that judgment from its experience and intended conduct.
+
 An accepted save, later supply of its text, the persona's subsequent behavior and
 any benefit are separate observations. Use the development view below to inspect
 the accepted operations and exact supplied material. Keep authored conclusions
