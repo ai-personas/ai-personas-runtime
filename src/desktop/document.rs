@@ -3,6 +3,35 @@ use super::theme;
 use eframe::egui::{self, FontId, RichText, Ui};
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 
+/// A short reading preview, with Markdown formatting removed before truncation.
+/// The full source and formatted message remain available in the conversation.
+pub fn excerpt(text: &str, limit: usize) -> String {
+    let mut plain = String::new();
+    for event in Parser::new_ext(text, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH) {
+        match event {
+            Event::Text(text) | Event::Code(text) => plain.push_str(&text),
+            Event::SoftBreak
+            | Event::HardBreak
+            | Event::Rule
+            | Event::End(
+                TagEnd::Paragraph
+                | TagEnd::Heading(_)
+                | TagEnd::Item
+                | TagEnd::TableCell
+                | TagEnd::CodeBlock,
+            ) => plain.push(' '),
+            _ => {}
+        }
+    }
+    let plain = plain.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut chars = plain.chars();
+    let mut preview: String = chars.by_ref().take(limit).collect();
+    if chars.next().is_some() {
+        preview.push('…');
+    }
+    preview
+}
+
 pub fn code(ui: &mut Ui, text: &str, language: &str) {
     let theme = egui_extras::syntax_highlighting::CodeTheme::from_memory(ui.ctx(), ui.style());
     let job =

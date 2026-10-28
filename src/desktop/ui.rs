@@ -101,6 +101,7 @@ pub struct App {
     profile_persona: Option<String>,
     inspected_persona: Option<String>,
     show_session_strip: bool,
+    show_persona_properties: bool,
     initial_discovery: bool,
     initialized: bool,
 }
@@ -220,6 +221,7 @@ impl App {
             profile_persona: None,
             inspected_persona: None,
             show_session_strip: true,
+            show_persona_properties: false,
             initial_discovery: choose_progress,
             initialized: false,
         };
@@ -247,6 +249,7 @@ impl App {
         self.view = View::default();
         self.notice = None;
         self.dialog = None;
+        self.show_persona_properties = false;
         self.tab = 5;
         self.task_filter.clear();
         self.conversation_filter.clear();
@@ -1483,7 +1486,7 @@ impl eframe::App for App {
         if self.view.ready && !self.choose_progress {
             if self.tab != 1 || !self.focus_files {
                 self.sidebar(ctx);
-                if self.tab != 5 && (self.tab != 1 || ctx.available_rect().width() > 800.0) {
+                if self.tab != 5 && ctx.available_rect().width() > 800.0 {
                     self.people(ctx);
                 }
             }
@@ -1513,6 +1516,7 @@ impl eframe::App for App {
                     });
                 }
             });
+        self.people_popup(ctx);
         self.dialogs(ctx);
         self.settings(ctx);
         if self.closing && !self.allow_close {

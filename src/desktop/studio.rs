@@ -65,6 +65,11 @@ impl App {
                             ui.checkbox(&mut self.show_session_strip, "Show session history panel");
                         });
                         ui.menu_button("Personas", |ui| {
+                            if ui.button("Properties & execution…").clicked() {
+                                self.show_persona_properties = true;
+                                ui.close();
+                            }
+                            ui.separator();
                             let participants: Vec<_> = self.view.inspection["settings"]
                                 ["persona_labels"]
                                 .as_object()
@@ -341,6 +346,26 @@ impl App {
             });
     }
     pub(super) fn people(&mut self, ctx: &egui::Context) {
+        egui::SidePanel::right("persona-inspector")
+            .default_width(250.0)
+            .width_range(210.0..=400.0)
+            .frame(theme::panel(ctx))
+            .show(ctx, |ui| self.persona_properties(ui));
+    }
+    pub(super) fn people_popup(&mut self, ctx: &egui::Context) {
+        if !self.show_persona_properties {
+            return;
+        }
+        let mut open = true;
+        egui::Window::new("Persona properties")
+            .open(&mut open)
+            .default_width(300.0)
+            .max_height((ctx.content_rect().height() - 80.0).max(240.0))
+            .vscroll(true)
+            .show(ctx, |ui| self.persona_properties(ui));
+        self.show_persona_properties = open;
+    }
+    fn persona_properties(&mut self, ui: &mut Ui) {
         let work = self.selected().cloned().unwrap_or(Value::Null);
         let participants = models_at(&work, "participants");
         if !participants
@@ -349,139 +374,113 @@ impl App {
         {
             self.inspected_persona = participants.first().map(|p| s(p, "persona").to_owned());
         }
-        egui::SidePanel::right("persona-inspector")
-            .default_width(250.0)
-            .width_range(210.0..=400.0)
-            .frame(theme::panel(ctx))
-            .show(ctx, |ui| {
-                theme::header(
+        theme::header(
+            ui,
+            Icon::People,
+            "Personas",
+            &participants.len().to_string(),
+        );
+        egui::ScrollArea::vertical()
+            .id_salt("persona-outliner")
+            .max_height(175.0)
+            .show(ui, |ui| {
+                for p in participants {
+                    let selected = p["persona"].as_str() == self.inspected_persona.as_deref();
+                    let color = if !p["active_invocation"].is_null() {
+                        theme::GREEN
+                    } else {
+                        theme::palette(ui).muted
+                    };
+                    ui.horizontal(|ui| {
+                        let (r, _) =
+                            ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
+                        ui.painter().circle_filled(r.center(), 3.0, color);
+                        if ui
+                            .add_sized(
+                                [ui.available_width(), 24.0],
+                                egui::Button::new(s(p, "label")).selected(selected),
+                            )
+                            .clicked()
+                        {
+                            self.inspected_persona = Some(s(p, "persona").into());
+                        }
+                    });
+                }
+            });
+        ui.separator();
+        theme::header(ui, Icon::Settings, "Properties", "PERSONA");
+        let Some(persona) = participants
+            .iter()
+            .find(|p| p["persona"].as_str() == self.inspected_persona.as_deref())
+        else {
+            ui.label(RichText::new("Select a task to inspect its personas.").weak());
+            return;
+        };
+        egui::ScrollArea::vertical()
+            .id_salt("persona-properties")
+            .show(ui, |ui| {
+                ui.add_space(6.0);
+                ui.label(RichText::new(s(persona, "label")).size(15.0).strong());
+                ui.label(RichText::new(s(persona, "persona")).small().weak());
+                let continuation = theme::continuation_label(s(persona, "continuation"));
+                theme::badge(
                     ui,
-                    Icon::People,
-                    "Personas",
-                    &participants.len().to_string(),
+                    &continuation.to_uppercase(),
+                    if persona["resume_candidate"] == true {
+                        theme::ACCENT
+                    } else {
+                        theme::GREEN
+                    },
                 );
-                egui::ScrollArea::vertical()
-                    .id_salt("persona-outliner")
-                    .max_height(175.0)
+                egui::CollapsingHeader::new("Model")
+                    .default_open(true)
                     .show(ui, |ui| {
-                        for p in participants {
-                            let selected =
-                                p["persona"].as_str() == self.inspected_persona.as_deref();
-                            let color = if !p["active_invocation"].is_null() {
-                                theme::GREEN
-                            } else {
-                                theme::palette(ui).muted
-                            };
-                            ui.horizontal(|ui| {
-                                let (r, _) = ui.allocate_exact_size(
-                                    egui::vec2(8.0, 8.0),
-                                    egui::Sense::hover(),
-                                );
-                                ui.painter().circle_filled(r.center(), 3.0, color);
-                                if ui
-                                    .add_sized(
-                                        [ui.available_width(), 24.0],
-                                        egui::Button::new(s(p, "label")).selected(selected),
-                                    )
-                                    .clicked()
-                                {
-                                    self.inspected_persona = Some(s(p, "persona").into());
-                                }
+                        let selection = &self.view.inspection["settings"]["persona_models"]
+                            [s(persona, "persona")];
+                        theme::property(ui, "Model", s(selection, "model"));
+                        theme::property(ui, "Reasoning", s(selection, "effort"));
+                    });
+                egui::CollapsingHeader::new("Execution")
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        theme::property(ui, "State", &continuation);
+                        if !persona["active_invocation"].is_null() {
+                            theme::property(ui, "Call", s(&persona["active_invocation"], "state"));
+                        }
+                        if let Some(held) = persona["failed_attempt_hold"].as_str() {
+                            ui.colored_label(theme::ACCENT, format!("Needs attention: {held}"));
+                        }
+                        for command in models_at(persona, "pending_host_commands") {
+                            theme::property(ui, s(command, "operation"), s(command, "state"));
+                        }
+                        if persona["resume_candidate"] == true
+                            && ui
+                                .add_enabled(!self.busy, egui::Button::new("Resume participant"))
+                                .clicked()
+                        {
+                            self.send(Action::ResumePersona {
+                                work: s(&work, "id").into(),
+                                persona: s(persona, "persona").into(),
                             });
                         }
                     });
-                ui.separator();
-                theme::header(ui, Icon::Settings, "Properties", "PERSONA");
-                let Some(persona) = participants
-                    .iter()
-                    .find(|p| p["persona"].as_str() == self.inspected_persona.as_deref())
-                else {
-                    ui.label(RichText::new("Select a task to inspect its personas.").weak());
-                    return;
-                };
-                egui::ScrollArea::vertical()
-                    .id_salt("persona-properties")
+                egui::CollapsingHeader::new("Character & development")
+                    .default_open(true)
                     .show(ui, |ui| {
-                        ui.add_space(6.0);
-                        ui.label(RichText::new(s(persona, "label")).size(15.0).strong());
-                        ui.label(RichText::new(s(persona, "persona")).small().weak());
-                        let continuation = theme::continuation_label(s(persona, "continuation"));
-                        theme::badge(
-                            ui,
-                            &continuation.to_uppercase(),
-                            if persona["resume_candidate"] == true {
-                                theme::ACCENT
-                            } else {
-                                theme::GREEN
-                            },
+                        ui.label(
+                            RichText::new(
+                                "Inspect the persona's retained profile and development.",
+                            )
+                            .small()
+                            .weak(),
                         );
-                        egui::CollapsingHeader::new("Model")
-                            .default_open(true)
-                            .show(ui, |ui| {
-                                let selection = &self.view.inspection["settings"]["persona_models"]
-                                    [s(persona, "persona")];
-                                theme::property(ui, "Model", s(selection, "model"));
-                                theme::property(ui, "Reasoning", s(selection, "effort"));
-                            });
-                        egui::CollapsingHeader::new("Execution")
-                            .default_open(true)
-                            .show(ui, |ui| {
-                                theme::property(ui, "State", &continuation);
-                                if !persona["active_invocation"].is_null() {
-                                    theme::property(
-                                        ui,
-                                        "Call",
-                                        s(&persona["active_invocation"], "state"),
-                                    );
-                                }
-                                if let Some(held) = persona["failed_attempt_hold"].as_str() {
-                                    ui.colored_label(
-                                        theme::ACCENT,
-                                        format!("Needs attention: {held}"),
-                                    );
-                                }
-                                for command in models_at(persona, "pending_host_commands") {
-                                    theme::property(
-                                        ui,
-                                        s(command, "operation"),
-                                        s(command, "state"),
-                                    );
-                                }
-                                if persona["resume_candidate"] == true
-                                    && ui
-                                        .add_enabled(
-                                            !self.busy,
-                                            egui::Button::new("Resume participant"),
-                                        )
-                                        .clicked()
-                                {
-                                    self.send(Action::ResumePersona {
-                                        work: s(&work, "id").into(),
-                                        persona: s(persona, "persona").into(),
-                                    });
-                                }
-                            });
-                        egui::CollapsingHeader::new("Character & development")
-                            .default_open(true)
-                            .show(ui, |ui| {
-                                ui.label(
-                                    RichText::new(
-                                        "Inspect the persona's retained profile and development.",
-                                    )
-                                    .small()
-                                    .weak(),
-                                );
-                                if ui
-                                    .add_enabled(
-                                        !self.busy,
-                                        egui::Button::new("Profile & development"),
-                                    )
-                                    .clicked()
-                                {
-                                    self.dialog = Some(Dialog::Development);
-                                    self.send(Action::Development(s(persona, "persona").into()));
-                                }
-                            });
+                        if ui
+                            .add_enabled(!self.busy, egui::Button::new("Profile & development"))
+                            .clicked()
+                        {
+                            self.dialog = Some(Dialog::Development);
+                            self.send(Action::Development(s(persona, "persona").into()));
+                        }
                     });
             });
     }
@@ -696,10 +695,11 @@ impl App {
             })
             .unwrap_or_default();
         let p = theme::palette(ui);
+        let compact = ui.ctx().content_rect().height() < 700.0;
         egui::TopBottomPanel::bottom("session-history-strip")
-            .default_height(104.0)
-            .height_range(65.0..=240.0)
-            .resizable(true)
+            .default_height(if compact { 38.0 } else { 104.0 })
+            .height_range(if compact { 38.0..=38.0 } else { 65.0..=240.0 })
+            .resizable(!compact)
             .frame(
                 egui::Frame::new()
                     .fill(p.panel)
@@ -730,6 +730,9 @@ impl App {
                         }
                     });
                 });
+                if compact {
+                    return;
+                }
                 ui.separator();
                 if sessions.is_empty() {
                     ui.label(

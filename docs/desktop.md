@@ -74,6 +74,15 @@ and execution state visible.
 who participates in each task, including personas that currently have no task.
 Search by task or persona, open a task from a row, or open a profile from a column.
 The task outliner and properties inspector remain resizable while you explore.
+Below the matrix, **Selected task** shows its brief, current participation,
+persona-authored progress reports, and replies to you. Reports retain their
+self-assessed meaning. Open the full activity record, follow a reply into its
+exact exchange, or move directly to collaboration, questions, and produced files.
+
+On narrow windows the persona inspector moves out of the main reading area;
+**Personas → Properties & execution…** opens all its controls in a separate panel.
+On short windows the session strip contracts to its header, with **View history**
+keeping every retained session accessible.
 
 **Conversation → Timeline** includes both replies to you and communication between
 personas. Arrows name the actual sender and recipient; filters select a person,
@@ -82,6 +91,7 @@ the message ID to order messages accepted in the same decision. No reply chain,
 read receipt, agreement, or wall-clock time is invented from the subject line.
 **Collaboration** shows a selectable connection map and directed communication
 paths with message counts. Select a count to read that exact direction of exchange.
+Compact maps keep the counts in the path list below, leaving the diagram readable.
 Large populations use the full list and can be focused by persona. The view shows
 current accepted responsibilities, proposed and adopted arrangements, and task
 dependencies. A message and an acceptance remain different observations.

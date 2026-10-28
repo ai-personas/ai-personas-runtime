@@ -47,6 +47,10 @@ impl App {
         let filter = self.overview_filter.to_lowercase();
         let mut selected = None;
         let mut profile = None;
+        let task_width = (ui.available_width() * 0.30).clamp(230.0, 340.0);
+        let person_width = ((ui.available_width() - task_width - 12.0 * people.len() as f32)
+            / people.len().max(1) as f32)
+            .clamp(70.0, 180.0);
         egui::ScrollArea::horizontal()
             .id_salt("society-matrix")
             .show(ui, |ui| {
@@ -56,7 +60,11 @@ impl App {
                     .show(ui, |ui| {
                         ui.strong("Task / current phase");
                         for (id, label) in &people {
-                            if ui.button(label).on_hover_text(id).clicked() {
+                            if ui
+                                .add_sized([person_width, 24.0], egui::Button::new(label))
+                                .on_hover_text(id)
+                                .clicked()
+                            {
                                 profile = Some(id.clone());
                             }
                         }
@@ -73,9 +81,12 @@ impl App {
                                 continue;
                             }
                             ui.vertical(|ui| {
-                                ui.set_max_width(230.0);
+                                ui.set_width(task_width);
                                 if ui
-                                    .add(egui::Button::new(short(s(work, "need"), 90)).wrap())
+                                    .add_sized(
+                                        [task_width, 48.0],
+                                        egui::Button::new(short(s(work, "need"), 130)).wrap(),
+                                    )
                                     .on_hover_text(s(work, "need"))
                                     .clicked()
                                 {
@@ -102,7 +113,7 @@ impl App {
                                             .to_owned()
                                     };
                                     if ui
-                                        .button(label)
+                                        .add_sized([person_width, 26.0], egui::Button::new(label))
                                         .on_hover_text("Open this task and inspect the participant")
                                         .clicked()
                                     {
@@ -119,6 +130,8 @@ impl App {
             });
         ui.add_space(10.0);
         ui.weak("Participation and execution state are shown as recorded. Open tasks and stopped personas can coexist with delivered results.");
+        ui.add_space(16.0);
+        self.overview_detail(ui);
         if let Some(id) = selected {
             self.tab = 0;
             self.conversation_persona = None;
@@ -129,6 +142,181 @@ impl App {
         if let Some(id) = profile {
             self.dialog = Some(Dialog::Development);
             self.send(Action::Development(id));
+        }
+    }
+
+    fn overview_detail(&mut self, ui: &mut Ui) {
+        let Some(work) = self.selected().cloned() else {
+            ui.heading("No tasks yet");
+            ui.label("Start a task to see participation, conversations, and produced files here.");
+            if ui
+                .add_enabled(!self.busy, theme::primary("New task…"))
+                .clicked()
+            {
+                self.text.clear();
+                self.dialog = Some(Dialog::Task);
+            }
+            return;
+        };
+        theme::header(ui, Icon::Task, "Selected task", s(&work, "id"));
+        ui.add_space(5.0);
+        ui.add(egui::Label::new(RichText::new(s(&work, "need")).strong()).wrap());
+        ui.horizontal_wrapped(|ui| {
+            theme::badge(ui, &s(&work, "phase").to_uppercase(), theme::BLUE);
+            let participants = models_at(&work, "participants");
+            let working = participants
+                .iter()
+                .filter(|p| !p["active_invocation"].is_null())
+                .count();
+            ui.weak(format!(
+                "{} participants · {working} calls in progress",
+                participants.len()
+            ));
+        });
+        ui.horizontal_wrapped(|ui| {
+            for (mode, label) in [(0, "Conversation"), (1, "Collaboration")] {
+                if ui.button(label).clicked() {
+                    self.tab = 0;
+                    self.conversation_mode = mode;
+                    self.conversation_filter.clear();
+                    self.conversation_persona = None;
+                    self.conversation_route = None;
+                    self.conversation_channel = 0;
+                    self.conversation_page = 0;
+                }
+            }
+            for (tab, label) in [(1, "Produced files"), (2, "Questions"), (3, "Activity")] {
+                if ui.button(label).clicked() {
+                    self.tab = tab;
+                }
+            }
+        });
+        ui.add_space(10.0);
+        if self.view.result["work_id"].as_str() != Some(s(&work, "id")) {
+            ui.weak("Task details are not available in this inspection.");
+            return;
+        }
+        if ui.available_width() >= 850.0 {
+            ui.columns(2, |columns| {
+                self.overview_reports(&mut columns[0]);
+                self.overview_replies(&mut columns[1]);
+            });
+        } else {
+            self.overview_reports(ui);
+            ui.add_space(10.0);
+            self.overview_replies(ui);
+        }
+    }
+
+    fn overview_reports(&mut self, ui: &mut Ui) {
+        let reports = models_at(&self.view.result, "persona_activity").to_vec();
+        theme::header(ui, Icon::People, "Persona reports", "SELF-ASSESSED");
+        egui::ScrollArea::vertical()
+            .id_salt("overview-reports")
+            .max_height(300.0)
+            .show(ui, |ui| {
+                if reports.is_empty() {
+                    ui.weak("No persona reports have been recorded for this task.");
+                }
+                for report in &reports {
+                    egui::Frame::new()
+                        .fill(theme::palette(ui).panel)
+                        .inner_margin(10)
+                        .corner_radius(3)
+                        .show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.horizontal_wrapped(|ui| {
+                                if ui
+                                    .add_enabled(!self.busy, egui::Button::new(s(report, "label")))
+                                    .clicked()
+                                {
+                                    self.dialog = Some(Dialog::Development);
+                                    self.send(Action::Development(s(report, "persona").to_owned()));
+                                }
+                                ui.label(match s(&report["judgment"], "kind") {
+                                    "ongoing" => "Continuing",
+                                    "blocked" => "Reports a blocker",
+                                    "individual_sufficient" => {
+                                        "Judges their contribution sufficient"
+                                    }
+                                    "shared_sufficient" => "Judges the shared result sufficient",
+                                    "closed" => "Reports work closed",
+                                    _ => "Recorded update",
+                                });
+                            });
+                            ui.add(
+                                egui::Label::new(short(s(&report["judgment"], "reason"), 220))
+                                    .wrap(),
+                            );
+                            if report["origin"]["mandate_revision"]
+                                != report["current_mandate_revision"]
+                            {
+                                ui.weak("Recorded before the current task amendment.");
+                            }
+                        });
+                    ui.add_space(4.0);
+                }
+            });
+        if ui.small_button("Read full activity & evidence").clicked() {
+            self.tab = 3;
+        }
+    }
+
+    fn overview_replies(&mut self, ui: &mut Ui) {
+        let replies = models_at(&self.view.result, "messages").to_vec();
+        theme::header(
+            ui,
+            Icon::Conversation,
+            "Replies to you",
+            &format!("{} SHOWN", replies.len()),
+        );
+        egui::ScrollArea::vertical()
+            .id_salt("overview-replies")
+            .max_height(300.0)
+            .show(ui, |ui| {
+                if replies.is_empty() {
+                    ui.weak("No replies to you are recorded for this task.");
+                }
+                for reply in &replies {
+                    egui::Frame::new()
+                        .fill(theme::palette(ui).panel)
+                        .inner_margin(10)
+                        .corner_radius(3)
+                        .show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.horizontal_wrapped(|ui| {
+                                ui.strong(self.persona_label(s(reply, "sender")));
+                                ui.weak(format!("→ {}", self.persona_label(s(reply, "recipient"))));
+                                if ui.small_button("Read exchange").clicked() {
+                                    self.tab = 0;
+                                    self.conversation_mode = 0;
+                                    self.conversation_filter.clear();
+                                    self.conversation_persona = None;
+                                    self.conversation_route = Some((
+                                        s(reply, "sender").to_owned(),
+                                        s(reply, "recipient").to_owned(),
+                                    ));
+                                    self.conversation_channel = 0;
+                                    self.conversation_page = 0;
+                                }
+                            });
+                            ui.add(
+                                egui::Label::new(RichText::new(s(reply, "subject")).strong())
+                                    .wrap(),
+                            );
+                            ui.add(
+                                egui::Label::new(super::super::document::excerpt(
+                                    s(reply, "text"),
+                                    150,
+                                ))
+                                .wrap(),
+                            );
+                        });
+                    ui.add_space(4.0);
+                }
+            });
+        if self.view.result["truncated"] == true {
+            ui.weak("This inspection shows a subset. Open Conversation for the full history.");
         }
     }
 
@@ -396,11 +584,26 @@ impl App {
         }
         let colors = theme::palette(ui);
         let width = ui.available_width().max(220.0);
-        let height = if width > 600.0 { 320.0 } else { 280.0 };
+        let compact = width < 600.0;
+        let node_size = if compact {
+            egui::vec2(90.0, 32.0)
+        } else {
+            egui::vec2(112.0, 36.0)
+        };
+        let height = if ui.ctx().content_rect().height() < 700.0 {
+            220.0
+        } else if width > 600.0 {
+            320.0
+        } else {
+            280.0
+        };
         let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
         let painter = ui.painter().with_clip_rect(rect);
         painter.rect_filled(rect, 3, colors.field);
-        let radius = egui::vec2((width / 2.0 - 80.0).max(35.0), height / 2.0 - 40.0);
+        let radius = egui::vec2(
+            (width / 2.0 - node_size.x * 0.72).max(35.0),
+            height / 2.0 - 40.0,
+        );
         let nodes: BTreeMap<_, _> = ids
             .iter()
             .enumerate()
@@ -409,10 +612,7 @@ impl App {
                     - std::f32::consts::FRAC_PI_2;
                 let center =
                     rect.center() + egui::vec2(angle.cos() * radius.x, angle.sin() * radius.y);
-                (
-                    id.clone(),
-                    egui::Rect::from_center_size(center, egui::vec2(112.0, 36.0)),
-                )
+                (id.clone(), egui::Rect::from_center_size(center, node_size))
             })
             .collect();
         let mut route = None;
@@ -436,14 +636,17 @@ impl App {
             let start = boundary(nodes[from], control);
             let end = boundary(nodes[to], control);
             let middle = (start + end.to_vec2()) * 0.25 + control.to_vec2() * 0.5;
-            let hit = ui.interact(
-                egui::Rect::from_center_size(middle, egui::vec2(24.0, 18.0)),
-                ui.id().with(("connection", from, to)),
-                egui::Sense::click(),
-            );
+            let hit = (!compact).then(|| {
+                ui.interact(
+                    egui::Rect::from_center_size(middle, egui::vec2(24.0, 18.0)),
+                    ui.id().with(("connection", from, to)),
+                    egui::Sense::click(),
+                )
+            });
+            let hovered = hit.as_ref().is_some_and(|hit| hit.hovered());
             let stroke = egui::Stroke::new(
-                if hit.hovered() { 2.0_f32 } else { 1.0_f32 },
-                if hit.hovered() {
+                if hovered { 2.0_f32 } else { 1.0_f32 },
+                if hovered {
                     theme::ACCENT
                 } else {
                     colors.muted.gamma_multiply(0.55)
@@ -459,22 +662,24 @@ impl App {
             let side = egui::vec2(-tangent.y, tangent.x);
             painter.line_segment([end, end - tangent * 7.0 + side * 3.0], stroke);
             painter.line_segment([end, end - tangent * 7.0 - side * 3.0], stroke);
-            painter.rect_filled(hit.rect, 3, colors.field);
-            painter.text(
-                middle,
-                egui::Align2::CENTER_CENTER,
-                count,
-                egui::FontId::monospace(10.0),
-                colors.text,
-            );
-            if hit.clicked() {
-                route = Some((from.clone(), to.clone()));
+            if let Some(hit) = hit {
+                painter.rect_filled(hit.rect, 3, colors.field);
+                painter.text(
+                    middle,
+                    egui::Align2::CENTER_CENTER,
+                    count,
+                    egui::FontId::monospace(10.0),
+                    colors.text,
+                );
+                if hit.clicked() {
+                    route = Some((from.clone(), to.clone()));
+                }
+                hit.on_hover_text(format!(
+                    "{} → {} · {count} recorded messages. Click to read.",
+                    self.persona_label(from),
+                    self.persona_label(to)
+                ));
             }
-            hit.on_hover_text(format!(
-                "{} → {} · {count} recorded messages. Click to read.",
-                self.persona_label(from),
-                self.persona_label(to)
-            ));
         }
         for (id, node) in &nodes {
             let response = ui.interact(
@@ -502,7 +707,7 @@ impl App {
             painter.text(
                 node.center(),
                 egui::Align2::CENTER_CENTER,
-                short(&label, 15),
+                short(&label, if compact { 12 } else { 15 }),
                 egui::FontId::proportional(12.0),
                 colors.text,
             );
@@ -517,6 +722,10 @@ impl App {
             self.conversation_page = 0;
             self.conversation_mode = 0;
         }
-        ui.weak("Select a person to focus; select a count to read that directed exchange.");
+        ui.weak(if compact {
+            "Select a person to focus; read message counts in the list below."
+        } else {
+            "Select a person to focus; select a count to read that directed exchange."
+        });
     }
 }
