@@ -54,9 +54,15 @@ While a settled transaction or exclusive transition needs the current calls to
 drain, no independent clock wake repeatedly bypasses that boundary.
 
 Pending child admission, persona creation and requester input stop refilling
-until current transports settle. An exclusive
-candidate also drains current calls without repeatedly admitting visited peers
-ahead of it. Structural maintenance runs before a settled owner admits more work.
+until current transports settle. An exclusive candidate also drains current
+calls. Because selection already advanced the cursor, the coordinator retains
+that candidate's exact work and persona and reconsiders it first after the drain
+and structural maintenance. This fresh scan checks current eligibility; a removed,
+stopped or otherwise ineligible candidate falls through to the saved circular
+work and persona order. Its unsuccessful preferred consideration does not advance
+those cursors or promote the other participants in its work. The preference
+neither reserves a call nor preserves old authority. Structural
+maintenance runs before a settled owner admits more work.
 These boundaries prevent ongoing parent work from starving a new child or input;
 they add no call or time quota and do not cancel a slow peer. Children still need
 their exact adopted proposal and a separate atomic receipt. Parent and child
@@ -88,6 +94,18 @@ loads. The `launch.maintenance_rejections`, `launch.maintenance_creation` and
 that return without a change. Their nested runtime phases overlap with their
 durations; adding them together would double-count elapsed work. Native timing
 observations do not by themselves establish a controlled performance improvement.
+
+`CONTROL.host_command_state.unresolved` describes the current persona's accepted
+host commands across all work whose complete result has not been published or
+whose outcome remains uncertain. Each entry names its work, invocation,
+operation and recorded launch directory, and identifies whether it belongs to
+the current work. Switching work does not settle an accepted command; another
+work's pending command can still affect shared files. This is current operational
+metadata, not automatic transfer of another work's selected context or command
+body. A retained marker can lag dispatch, and publication status does not prove
+a live process. Unavailable lineage is reported as an omission. These admission
+snapshots neither lock files nor reserve work, authorize replay or change
+eligibility. Completed results remain selectively discoverable.
 
 Ordinary inputs can include `CONTROL.collaborators`: other current-work
 participants, their labels and current acceptance IDs, and their latest accepted
@@ -152,9 +170,10 @@ also exclude remaining shared spend counters: each request has its own
 admission and reservation records. Accounting records actual use without applying
 a cumulative quota, and adoption preserves concurrent spending.
 
-New ordinary admissions also seal `independent_work` hashes for navigation and
-tool responses. A response containing only file/image/history/work inspection,
-search/discovery, or host, computation and HTTP effects can tolerate changes to
+New ordinary admissions also seal `independent_work` hashes for operations that
+do not change shared work records. A response containing only file, image,
+history or work inspection, search/discovery, or host, computation and HTTP
+effects can tolerate changes to
 peer artifact, evidence, judgment, finding, release and delivery records. New
 admissions also seal `independent_messages: true`, allowing ordinary local
 messages, authored replies and personal message-wait registrations to use this
@@ -164,10 +183,30 @@ decision nor formal delivery. An empty operation list can use the same scope.
 Those records and their accumulated
 work metadata are separate from the current task, membership, commitments,
 arrangements, pending dependencies and the exact source lineage actually supplied
-to the invocation. All of those dependencies remain checked. Native file
-mutations, responsibility, persona/need creation and other work
-commands retain the complete shared-record comparison. A mixed response uses
-that complete comparison as one atomic unit.
+to the invocation. All of those dependencies remain checked.
+
+New ordinary admissions additionally seal `independent_assets: true`. Native
+supporting-asset `file_write`, `file_edit` and `file_import` operations can use
+the same independent scope. A peer registering an artifact cannot by itself
+invalidate an unrelated supporting-file save. Adoption still checks the actual
+current source head, purpose scope, path uniqueness, policy and qualification
+lineage, exact edit matches and any supplied import-byte hash. It applies the
+complete response to current state, preserving peer records. Character/fragment
+changes, file retirement, responsibility, persona/need creation and other work
+commands retain the complete shared-record comparison. A response containing any
+of those operations uses that comparison as one atomic unit. Already admitted
+decisions without the new flag retain their original scope; their rejected
+responses are not replayed.
+
+New ordinary admissions also seal `independent_assessments: true`. The native
+`assess` operation records an informal interpretation of an exact qualified
+source. It can tolerate unrelated peer result-record changes while preserving
+its admitted actor, task authority and supplied lineage checks. The qualified
+subject and unique interpretation identity are still checked during adoption.
+Its authored operation remains in accepted Decision history. Formal work
+assessments, judgments, shared selection and release remain separate work
+commands with the complete comparison, including in a mixed response. An
+admission without this flag keeps its original assessment scope.
 
 With this sealed message scope, another persona's voluntary inbox wait is also
 independent. Registering it, receiving its message or retiring it does not discard
@@ -252,15 +291,25 @@ under its normal permission and context checks. Message arrival neither wakes
 a stopped persona nor establishes that the recipient has read it. An existing
 admission without this sealed flag keeps its original fence.
 
+New ordinary admissions additionally seal `defer_incoming_child_messages: true`.
+An unsupplied ordinary child reply routed to its exact requester's immediate
+parent inbox follows the same rule. The message retains its child-work origin;
+the sender must participate in that child, and the retained child binding and
+requester must identify the receiving parent. It grants no parent participation
+or acceptance. Cross-work shared-question notices and local delivery notices do
+not qualify. A request without this additional flag retains its original
+same-work-only message rule.
+
 An unavailable local-message address rejects the complete decision. Its diagnostic
 names the exact recipient, including an invalid entry in a reply's audience, so
 the persona can identify the address to correct. Rejected actions remain unexecuted.
 
 New admissions also retain the exact pending-inbox identities separately from
 the observations actually supplied. If a response registers a message wait,
-an ordinary peer message deferred after that inbox boundary can satisfy the
-new registration in the same atomic adoption. The event binds the actual message
-and named sender; its body remains unobserved until a fresh input supplies it.
+an ordinary peer message, including an eligible child reply, deferred after that
+inbox boundary can satisfy the new registration in the same atomic adoption.
+The event binds the actual message and named sender; its body remains unobserved
+until a fresh input supplies it.
 This closes the interval between the model choosing a wait and the host accepting
 it. Messages already queued at admission cannot match a new wait, including
 messages whose bodies were unavailable. Other senders, existing registrations
@@ -343,7 +392,8 @@ command admitted before that pause. Computation, HTTP(S) and host commands requi
 approval. Their exact supplied inputs, implementation bindings and actual
 execution records remain attributable.
 
-An intent from a new admission retains its sealed peer-message deferral rule.
+An intent from a new admission retains its sealed peer and child message
+deferral rules.
 An ordinary unsupplied peer message alone does not cancel the accepted command;
 all other originating-task controls and prerequisites still apply.
 
@@ -380,6 +430,16 @@ already admitted calls, retaining their actual outcomes. Character handovers and
 structural recovery retain their quiescent boundaries. Local failed-lease
 retirement uses the completed invocation's exact ID and can preserve other owned
 calls. The latest call pointer for a work is not completion evidence.
+
+A completed character unit waiting for that boundary does not stop independent
+eligible peers from receiving calls while transports already pending at that
+boundary remain. Once those exact calls finish, new admission stops and any
+successors drain, so the handover cannot be starved by continual refilling.
+In particular, an initial-character response
+rejected by complete validation can recover through its retained invitation while
+another persona is still waiting for its provider. Selection continues to exclude
+the actor awaiting handover, and shared responsibility changes still drain owned
+calls before admission. Other deferred recovery keeps its existing fence.
 
 Final host-command workers may run alongside primary calls. The coordinator
 publishes their results between adoptions; affected requests must still pass

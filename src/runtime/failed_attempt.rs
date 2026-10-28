@@ -146,7 +146,7 @@ impl Runtime {
                     &prepared.output_schema,
                 )
                 && (prepared.output_schema == provider_schema()
-                    || prepared.output_schema == provider::json_object_schema()),
+                    || direct_decision_schema(&prepared.output_schema)),
             "retained transport does not prove the exact response-only request",
         )?;
         let reservation = self.store.reservation(&inv.reservation)?;

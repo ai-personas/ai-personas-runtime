@@ -23,6 +23,7 @@ use thiserror::Error;
 pub mod need;
 mod diagnostics;
 mod schema_text;
+mod schema_transport;
 pub use diagnostics::ShapeHint;
 
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -152,11 +153,18 @@ pub enum WorkDisposition {
         #[schemars(schema_with = "work_evidence_schema")]
         evidence: Vec<String>,
     },
-    /// Your contribution satisfies the requested scope with its stated limits.
-    /// Unknowns explicitly allowed by the need may remain in a sufficient result;
-    /// do not invent additional deliverables or stakeholder acceptance requirements.
-    /// A self-chosen preliminary scope or disclaimer does not discharge the actual
-    /// request. Inspection and correction needed for it require no new request.
+    /// Your contribution fulfills the actual request or an accepted narrower
+    /// commitment. Explain what the result enables, which evidence supports that
+    /// use, and what remains of the requested result beyond your contribution.
+    /// A working interpretation, concept label, disclaimer or list of future
+    /// work does not make essential missing behavior an accepted limitation.
+    /// Necessary work still possible with available tools belongs to ongoing;
+    /// an indispensable unavailable input can justify blocked. Unavailable outside
+    /// validation is distinct from design, analysis or correction you can perform.
+    /// If your accepted part is finished but the request is not, identify actual
+    /// follow-through responsibility or the ownership gap. Unknowns explicitly
+    /// allowed by the need may remain; optional extensions are not compulsory.
+    /// Inspection and correction needed for the request require no new prompt.
     /// This attributed judgment does not perform shared selection, release,
     /// delivery or CloseGoal, whose actual authority and evidence gates still apply.
     IndividualSufficient {
@@ -465,9 +473,13 @@ pub enum ReplyDisposition {
         /// Use these for exact citations instead of retyping hashes in prose.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         reference_handles: Vec<String>,
-        /// Exact file_write, file_edit or file_import operation IDs in this response. The
-        /// host attaches their accepted full UTF-8 references without reading
-        /// bodies or retyping source IDs/hashes. Can accompany reference_handles.
+        /// Attach complete files saved by exact file_write, file_edit or file_import
+        /// operation IDs in this response. The launcher can export these files.
+        /// A generated host file needs file_import; citing a command result or
+        /// writing its host path in text does not attach that file. The host derives
+        /// accepted full UTF-8 or bytes_metadata references from the save's format,
+        /// without reading bodies or requiring a receipt-only call. Can accompany
+        /// reference_handles. Account for the save in its maintenance disposition.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         reference_operations: Vec<String>,
     },
@@ -690,8 +702,9 @@ pub enum Operation {
         policy_id: String,
     },
     /// Copy an existing regular host file into a native supporting asset without
-    /// rewriting its contents. This is asset maintenance, never a character
-    /// fragment or a claim that you authored the imported bytes. Reads happen
+    /// rewriting its contents. It has no scope field: imports always belong to
+    /// assets. This is asset maintenance, never a character fragment or a claim
+    /// that you authored the imported bytes. Reads happen
     /// during adoption before host commands run; use a fresh decision for a
     /// file produced by a command. Select proposal-op:<id> under next_assets to
     /// receive the saved revision in a later input, or discover it later.
@@ -858,9 +871,13 @@ pub enum Operation {
         /// No body or image is read, supplied or selected by a citation.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         reference_handles: Vec<String>,
-        /// Exact same-response file_write, file_edit or file_import IDs. Attach their
-        /// accepted full UTF-8 references; no extra receipt-only call is needed.
-        /// These references derive prerequisites without a depends_on field.
+        /// Attach complete files saved by exact same-response file_write, file_edit
+        /// or file_import IDs, making them exportable through the launcher.
+        /// Import a generated host file before attaching it; a command-output
+        /// citation or host path in prose is not the file. The host derives full
+        /// UTF-8 or bytes_metadata references from each save's format. These IDs
+        /// derive prerequisites without depends_on or an extra receipt-only call.
+        /// Account for each save in its matching maintenance disposition.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         reference_operations: Vec<String>,
     },
@@ -888,6 +905,13 @@ pub enum Operation {
         disposition: String,
         reason: String,
     },
+    /// Record an attributed informal interpretation of an exact saved file.
+    /// The authored assessment remains in the accepted Decision history.
+    /// Formal work assessments are separate work_command operations with
+    /// artifact, outcome, role and formal-evidence bindings; inspect_work's
+    /// assessments collection contains those formal records. This informal
+    /// interpretation creates no formal evidence, judgment, shared selection
+    /// or release and does not authenticate the cited evidence.
     Assess {
         id: String,
         subject: ExactRef,
@@ -953,8 +977,10 @@ pub enum Operation {
         /// Select the unique interface with this ID retained for the current
         /// invocation. The runtime binds its exact revision; do not echo a hash.
         capability_id: String,
-        /// Match the selected capability's inputs_schema. Put depends_on beside
-        /// inputs on this effect operation, never inside the input object.
+        /// All capability arguments belong inside this object, matching the
+        /// selected inputs_schema. For host.command.v1 this includes command,
+        /// result_context, working_directory, stdin, stdin_asset and timeout_seconds.
+        /// Put depends_on beside inputs on the effect, never inside this object.
         inputs: Value,
         /// Follow this capability's supplied dependency contract. For
         /// work.command.v1, name only consumed file_write/file_edit/file_import proposals; use [] for
@@ -1135,6 +1161,8 @@ pub enum ProtocolError {
     },
     #[error("invalid {path}: {rule}")]
     Invalid { path: String, rule: &'static str },
+    #[error("invalid operations[{index}].id: duplicate operation identifier; first used at operations[{first_index}].id; every operation needs a distinct id within this response")]
+    DuplicateOperationId { index: usize, first_index: usize },
 }
 
 /// Parse and validate the complete response without performing any mutation.
@@ -1146,7 +1174,7 @@ pub fn parse_decision(bytes: &[u8]) -> Result<Decision, ProtocolError> {
     Preflight {
         bytes,
         position: 0,
-        nodes: 0,
+        path: Vec::new(),
     }
     .document()?;
     let mut deserializer = serde_json::Deserializer::from_slice(bytes);
@@ -1291,6 +1319,24 @@ pub(crate) fn initialization_schema() -> Value {
     omit_additional_asset_selection(&mut schema);
     retain_reachable_definitions(&mut schema);
     schema
+}
+
+/// Strict provider structure for initial character authorship when its generated
+/// contract is closed. This changes decoding assistance, not native validation,
+/// the character fence, persona content or application resource allowances.
+pub fn initialization_provider_schema() -> Option<Value> {
+    static SCHEMA: std::sync::OnceLock<Option<Value>> = std::sync::OnceLock::new();
+    SCHEMA.get_or_init(schema_transport::initialization).clone()
+}
+
+/// Non-strict provider assistance for ordinary decisions, retaining optional
+/// fields, tagged alternatives, constraints and arbitrary tool-input values.
+/// Descriptions and defaults remain in the complete model-facing contract.
+pub fn ordinary_provider_schema(need_proposals: bool) -> Value {
+    static WITH_NEEDS: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    static WITHOUT_NEEDS: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    let cache = if need_proposals { &WITH_NEEDS } else { &WITHOUT_NEEDS };
+    cache.get_or_init(|| schema_transport::ordinary(need_proposals)).clone()
 }
 
 /// Present the same Decision envelope with only the restricted repair shapes.
@@ -1445,13 +1491,13 @@ pub(crate) fn saved_file_reference(
 struct Preflight<'a> {
     bytes: &'a [u8],
     position: usize,
-    nodes: usize,
+    path: Vec<diagnostics::JsonPathSegment>,
 }
 
 impl Preflight<'_> {
     fn document(mut self) -> Result<(), ProtocolError> {
         self.whitespace();
-        self.value(0)?;
+        self.value()?;
         self.whitespace();
         if self.position != self.bytes.len() {
             return self.syntax("trailing content after the complete JSON value");
@@ -1485,12 +1531,11 @@ impl Preflight<'_> {
         }
     }
 
-    fn value(&mut self, depth: usize) -> Result<(), ProtocolError> {
+    fn value(&mut self) -> Result<(), ProtocolError> {
         self.whitespace();
-        self.nodes += 1;
         match self.byte() {
-            Some(b'{') => self.object(depth + 1),
-            Some(b'[') => self.array(depth + 1),
+            Some(b'{') => self.object(),
+            Some(b'[') => self.array(),
             Some(b'"') => self.string().map(|_| ()),
             Some(b't') => self.literal(b"true"),
             Some(b'f') => self.literal(b"false"),
@@ -1501,7 +1546,7 @@ impl Preflight<'_> {
         }
     }
 
-    fn object(&mut self, depth: usize) -> Result<(), ProtocolError> {
+    fn object(&mut self) -> Result<(), ProtocolError> {
         let object_offset = self.position;
         self.position += 1;
         self.whitespace();
@@ -1517,14 +1562,9 @@ impl Preflight<'_> {
             }
             let key = self.string()?;
             if let Some(first_offset) = keys.get(&key) {
-                // Only a schema-owned root member may enter the hint. Nested
-                // or unknown keys can be arbitrary authored data; their exact
-                // locations suffice without echoing that data into recovery.
-                let hint = if depth == 1 {
-                    diagnostics::root_member_hint(&key)
-                } else {
-                    ShapeHint::default()
-                };
+                // Resolve names against the schema, including nested fields.
+                // Unknown keys and opaque payloads never enter recovery text.
+                let hint = diagnostics::duplicate_member_hint(&self.path, &key);
                 return Err(ProtocolError::DuplicateKey {
                     offset,
                     first_offset: *first_offset,
@@ -1532,12 +1572,14 @@ impl Preflight<'_> {
                     hint,
                 });
             }
-            keys.insert(key, offset);
+            keys.insert(key.clone(), offset);
             self.whitespace();
             if !self.take(b':') {
                 return self.syntax("expected a colon after the object member name");
             }
-            self.value(depth)?;
+            self.path.push(diagnostics::JsonPathSegment::Member(key));
+            self.value()?;
+            self.path.pop();
             self.whitespace();
             if self.take(b'}') {
                 return Ok(());
@@ -1548,14 +1590,17 @@ impl Preflight<'_> {
         }
     }
 
-    fn array(&mut self, depth: usize) -> Result<(), ProtocolError> {
+    fn array(&mut self) -> Result<(), ProtocolError> {
         self.position += 1;
         self.whitespace();
         if self.take(b']') {
             return Ok(());
         }
+        let mut index = 0;
         loop {
-            self.value(depth)?;
+            self.path.push(diagnostics::JsonPathSegment::Element(index));
+            self.value()?;
+            self.path.pop();
             self.whitespace();
             if self.take(b']') {
                 return Ok(());
@@ -1563,6 +1608,7 @@ impl Preflight<'_> {
             if !self.take(b',') {
                 return self.syntax("expected a comma or closing array delimiter");
             }
+            index += 1;
         }
     }
 
@@ -2726,8 +2772,8 @@ pub fn validate_decision(
     let mut input_nodes = 0;
     for (index, operation) in decision.operations.iter().enumerate() {
         check_operation(operation, index, &mut input_nodes)?;
-        if by_id.insert(operation.id(), index).is_some() {
-            return Err(invalid("operations", "duplicate operation identifier"));
+        if let Some(first_index) = by_id.insert(operation.id(), index) {
+            return Err(ProtocolError::DuplicateOperationId { index, first_index });
         }
         match operation {
             Operation::WarningAdopt { warning_id, .. }

@@ -4,6 +4,7 @@ use crate::host_command as h;
 mod background;
 mod context;
 mod input;
+mod own_commands;
 pub(super) use background::Background;
 pub(super) use context::pending_projection;
 pub(super) use context::supplied_fields;
@@ -49,8 +50,12 @@ struct Terminal {
     outcome: h::Outcome,
 }
 
+pub(crate) fn inputs_schema() -> Result<Value> {
+    Ok(serde_json::to_value(schemars::schema_for!(input::Inputs))?)
+}
+
 pub(super) fn interface(working_directory: Option<&Path>) -> Result<HostCommandInterface> {
-    let schema = serde_json::to_value(schemars::schema_for!(input::Inputs))?;
+    let schema = inputs_schema()?;
     let runner_revision = h::revision();
     let directory = match working_directory {
         Some(directory) => directory.to_path_buf(),
@@ -568,14 +573,21 @@ pub(super) fn control(
 ) -> Value {
     let mut results = Vec::new();
     let mut unresolved = Vec::new();
+    let mut unresolved_omitted = false;
+    for (id, metadata) in own_commands::unresolved(state, actor, work) {
+        let job = &state.host_command_jobs[&id];
+        if !exposure_permitted(state, &job.exposure, a) {
+            unresolved_omitted = true;
+            continue;
+        }
+        extend_exposure(exposure, &job.exposure);
+        unresolved.push(metadata);
+    }
     let mut jobs: Vec<_> = state
         .host_command_jobs
         .iter()
         .filter(|(_, job)| {
-            (job.actor == actor && job.work == work && matches!(
-                job.state,
-                s::IntentState::Admitted | s::IntentState::Dispatched | s::IntentState::Uncertain
-            )) || job.result_source.as_ref().is_some_and(|reference| {
+            job.result_source.as_ref().is_some_and(|reference| {
                 context.includes_result(reference, job.observation.as_deref())
             })
         })
@@ -593,15 +605,7 @@ pub(super) fn control(
         if !exposure_permitted(state, &job.exposure, a) {
             continue;
         }
-        // Unresolved jobs are this participant's current operational state.
         // Referenced result provenance can come from another actor or work.
-        if job.actor == actor && job.work == work && matches!(
-            job.state,
-            s::IntentState::Admitted | s::IntentState::Dispatched | s::IntentState::Uncertain
-        ) {
-            extend_exposure(exposure, &job.exposure);
-            unresolved.push(json!({"intent":id,"state":job.state,"automatic_replay":false}));
-        }
         if let Some(reference) = &job.result_source {
             if !context.includes_result(reference, job.observation.as_deref()) {
                 continue;
@@ -623,13 +627,14 @@ pub(super) fn control(
             }
         }
     }
-    if results.is_empty() && unresolved.is_empty() {
+    if results.is_empty() && unresolved.is_empty() && !unresolved_omitted {
         Value::Null
     } else {
         json!({"retained_results":results,"retained_results_limit":null,
             "retained_results_included":true,
             "retained_results_truncated":false,"unresolved":unresolved,
-            "scope":"Result provenance for exact revisions already referenced in this input; this is not a historical result catalogue. Recorded times identify outcome publication, not a new inspection of host files. Retained output remains an earlier capture even when selected alongside a newer result. Use native file discovery or retained-history queries for other results. Unresolved jobs belong to the current actor/work. A reference supplies no body and never replays its command."})
+            "unresolved_omitted":unresolved_omitted,
+            "scope":"Result provenance covers exact revisions already referenced in this input, not a historical result catalogue. Recorded times identify outcome publication, not a new inspection of host files. Retained output remains an earlier capture even when selected alongside a newer result. Use native file discovery or retained-history queries for other results. Unresolved commands are your accepted operations across all work whose complete result has not been published or remains uncertain. current_work identifies this focus; switching work does not settle another command. state is the retained marker and can lag dispatch; status does not prove a live process. Working directories are recorded launch locations, not path restrictions or file ownership. Use the exact invocation to retrieve an authored command when useful; these entries supply no command or result body. Unresolved omissions identify unavailable lineage, not absence of activity. Metadata grants no replay, reservation or extra authority."})
     }
 }
 

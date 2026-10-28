@@ -1,5 +1,21 @@
 # Provider configuration and optional checks
 
+The launcher discovers models and reasoning options from the selected Codex CLI:
+
+```sh
+personas-provider catalogue-codex \
+  --codex-executable /absolute/path/to/codex \
+  --host-home /absolute/home --codex-home /absolute/codex/state
+```
+
+This command follows all pages of the documented Codex `model/list` interface and
+returns model names, descriptions, recommended defaults and reasoning options.
+It performs no token request, thread creation or inference. The response projects
+only picker metadata and sets `inference_performed` and `capability_verified` to
+false. A catalogue can reflect client metadata; inclusion does not prove account
+entitlement or direct-transport support. The UI uses these choices without fixing
+model names in application code, and still accepts manual selections.
+
 For an existing Codex ChatGPT login, the launcher uses:
 
 ```sh
@@ -92,7 +108,8 @@ cooperative sign-in/refresh writers. Busy is not permission to recover an owner.
 or null. When supplied, it must name the exact retained catalogue for the selected
 account and credential generation; the plan keeps that catalogue's full record.
 Those are its four current fields; the strict input decoder rejects obsolete
-quota members. There is no model or effort default.
+quota members. The native command requires an explicit model and effort; the
+dialogue resolves its displayed defaults to exact values before calling it.
 `effort_candidates_unverified` in catalogue output is only
 an illustrative list, not a required or provider-supported-effort list.
 The user may enter any nonempty model and effort identifiers without whitespace
@@ -103,8 +120,9 @@ recorded without silently substituting another model or effort.
 
 The probe sends an explicitly labeled, isolated host-authored echo specimen in
 the historical strict `decision_json` carrier. Native persona calls return their
-complete Decision directly in JSON-object mode; this echo proves only its own
-shape and reported effort, not every later persona response. It carries no user need, persona,
+complete Decision directly with their applicable ordinary or initialization
+schema; this echo proves only its own shape and reported effort, not every later
+persona response. It carries no user need, persona,
 workspace, asset, tool, or saved history. Whole carrier decoding, native
 `parse_decision`, exact specimen-byte equality, matching reported model/effort,
 known consistent input/output/total token usage, a completed stream and clean EOF
@@ -122,8 +140,10 @@ identifiers, not an instruction to export tokens into environment variables.
 ## CLI and dialogue
 
 The `personas-provider` binary exposes `configure`, `catalogue`, `plan`, `probe`,
-`probe-status`, `configuration` and `renewal-status`. All commands require
-`--vault`; `--help` is available without opening it. The UI can pass ordinary
+`probe-status`, `configuration` and `renewal-status` for native SIWC. These commands
+require `--vault`. `catalogue-codex` and `configure-codex` instead require the
+selected Codex executable and home/state locations and reject `--vault`.
+`--help` is available without opening state. The UI can pass ordinary
 arguments and consume one JSON envelope; no human-written provider JSON is needed.
 Successful envelopes contain `status: "ok"`, `data` and `automatic_retry: false`.
 Errors use static serialized `Code` enum values. Invalid arguments never echo
@@ -131,8 +151,8 @@ supplied values. Do not parse `Display` text: its longer explanatory strings may
 differ from the serialized code.
 
 `configure --model MODEL --effort EFFORT` returns settings without discovery or
-inference. The dialogue uses this path by default and offers optional catalogue
-browsing or a capability check.
+inference. The dialogue browses the account catalogue by default before calling
+this path, and also offers manual model entry or an optional capability check.
 
 `plan` requires explicit `--id`, `--model` and `--effort`.
 `--catalogue-sha256` is optional.

@@ -1,7 +1,35 @@
 #!/bin/sh
-# Explicit options retain the thin launcher. No arguments enter the host dialogue.
+# Explicit runtime options retain the thin launcher. Desktop and terminal share progress.
 # Rust retains authentication, capability evidence, setup, intake and admission.
 set -eu
+
+interface=auto
+case "${1-}" in
+    --gui) interface=gui; shift ;;
+    --terminal) interface=terminal; shift ;;
+esac
+if [ "$interface" = gui ] || { [ "$#" -eq 0 ] && [ "$interface" = auto ]; }; then
+    case "$0" in */*) ui_launcher=$0 ;; *) ui_launcher=$(command -v "$0") ;; esac
+    ui_dir=$(CDPATH= cd -P "${ui_launcher%/*}" && pwd -P)
+    desktop=
+    if [ "${PERSONAS_DESKTOP_BIN+x}" = x ]; then
+        [ -n "$PERSONAS_DESKTOP_BIN" ] && [ -f "$PERSONAS_DESKTOP_BIN" ] && [ -x "$PERSONAS_DESKTOP_BIN" ] || { printf '%s\n' 'PERSONAS_DESKTOP_BIN does not name an executable desktop application.' >&2; exit 126; }
+        desktop=$PERSONAS_DESKTOP_BIN
+    else
+        for candidate in "$ui_dir/personas-desktop" "$ui_dir/target/release/personas-desktop" "$ui_dir/target/debug/personas-desktop"; do
+            if [ -f "$candidate" ] && [ -x "$candidate" ]; then desktop=$candidate; break; fi
+        done
+        if [ -z "$desktop" ]; then desktop=$(command -v personas-desktop 2>/dev/null || :); fi
+    fi
+    if [ -n "$desktop" ] && { [ "$interface" = gui ] || [ -n "${DISPLAY-}${WAYLAND_DISPLAY-}" ] || { [ "$(uname -s)" = Darwin ] && [ -z "${SSH_TTY-}${SSH_CONNECTION-}" ]; }; }; then
+        case "$desktop" in /*) ;; *) desktop=./$desktop ;; esac
+        exec "$desktop" "$@"
+    fi
+    if [ "$interface" = gui ]; then
+        printf '%s\n' 'Personas Desktop is not installed. Install the desktop bundle, or build it with cargo build --locked --release --features desktop --bins. See docs/desktop.md.' >&2
+        exit 127
+    fi
+fi
 
 # Python is only the local terminal UI; no model or external agent authors work.
 if [ "$#" -eq 0 ]; then
@@ -22,7 +50,9 @@ if [ "$#" -eq 0 ]; then
 fi
 
 usage() {
-    printf '%s\n' 'Usage: ./personas [OPTIONS] "Your need"
+    printf '%s\n' 'Usage: ./personas --gui [--progress PATH] [--helpers PATH]
+       ./personas --terminal
+       ./personas [OPTIONS] "Your need"
        ./personas [OPTIONS]                 # explicit-option prompt; no arguments open onboarding
        ./personas [OPTIONS] --resume WORK
        ./personas [OPTIONS] --result WORK
@@ -31,7 +61,8 @@ usage() {
        ./personas [OPTIONS] --questions WORK
        ./personas [OPTIONS] --answer-question FILE.json
 
-No arguments: integrated first-run/returning interaction (see docs/interactive-launch.md).
+No arguments: desktop when installed in a graphical session; otherwise terminal onboarding.
+--gui: require the desktop app. --terminal: require the terminal interface.
 Explicit options below use the existing installation and saved configuration. No automatic
 setup, sign-in, refresh, build, state reset, recovery, or model substitution.
 A run uses the selected provider account without application call quotas.

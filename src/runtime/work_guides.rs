@@ -356,6 +356,34 @@ pub(super) fn control_guide(
     Ok(Some(value))
 }
 
+/// Link commands named by the arrangement metadata actually supplied now.
+/// These are navigation references, not selected definitions or a work plan.
+pub(super) fn arrangement_control_guides(
+    state: &State,
+    arrangements: &Value,
+    audience: &f::Admission,
+    exposure: &mut Exposure,
+) -> Result<Vec<Value>> {
+    let delegation = arrangements.get("delegation_exact").is_some_and(Value::is_object);
+    let proposals = arrangements.get("proposals").and_then(Value::as_array)
+        .is_some_and(|items| !items.is_empty());
+    let current = arrangements.get("current_exact").is_some_and(Value::is_object);
+    let mut guides = Vec::new();
+    for (supplied, command, contract) in [
+        (delegation, "propose_arrangement", "arrangements.delegation_exact"),
+        (proposals, "accept_arrangement", "arrangements.proposals"),
+        (proposals, "decline_arrangement", "arrangements.proposals"),
+        (current, "accept_arranged_offer", "arrangements.joining_rule"),
+    ] {
+        if supplied {
+            if let Some(guide) = control_guide(state, command, contract, audience, exposure)? {
+                guides.push(guide);
+            }
+        }
+    }
+    Ok(guides)
+}
+
 pub(super) fn capability(
     state: &State,
     bodies: &BTreeSet<f::Reference>,

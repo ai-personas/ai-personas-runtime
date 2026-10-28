@@ -6,7 +6,28 @@ edition = "2021"
 rust-version = "1.88"
 license = "Apache-2.0"
 description = "Continuing personas with explicit context, responsibility, and evidence"
+[features]
+default = []
+desktop = ["dep:eframe", "dep:egui_extras", "dep:pulldown-cmark", "dep:rfd", "dep:image", "dep:resvg", "dep:zip", "dep:stl_io", "dep:tobj", "dep:gltf", "dep:glam", "dep:csv"]
+
+[[bin]]
+name = "personas-desktop"
+path = "src/bin/personas-desktop.rs"
+required-features = ["desktop"]
+
 [dependencies]
+eframe = { version = "=0.33.3", optional = true, default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland", "x11"] }
+egui_extras = { version = "=0.33.3", optional = true, default-features = false, features = ["syntect", "file", "image", "svg"] }
+pulldown-cmark = { version = "=0.13.0", optional = true, default-features = false }
+rfd = { version = "=0.15.4", optional = true, default-features = false, features = ["xdg-portal", "async-std"] }
+image = { version = "=0.25.10", optional = true, default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff", "ico"] }
+resvg = { version = "=0.45.1", optional = true, default-features = false, features = ["text", "raster-images"] }
+zip = { version = "=4.6.1", optional = true, default-features = false, features = ["deflate"] }
+stl_io = { version = "=0.8.5", optional = true }
+tobj = { version = "=4.0.3", optional = true, default-features = false }
+gltf = { version = "=1.4.1", optional = true, default-features = false, features = ["utils", "names"] }
+glam = { version = "=0.30.9", optional = true }
+csv = { version = "=1.4.0", optional = true }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = { version = "1", features = ["unbounded_depth"] }
 serde_path_to_error = "=0.1.20"

@@ -195,7 +195,11 @@ required `result_context` choice supplies complete text or execution metadata
 and exact readable text references in the next decision. Either choice preserves
 complete capture and required qualifications, with no later read quota. Historical
 observations without a choice keep complete text. Result-reference catalogues
-have no fixed entry cap. Native host-file import reads the complete
+have no fixed entry cap. Current own-command metadata includes unresolved host
+commands from other work, with their exact invocation, operation and recorded
+launch directory. It supplies neither their command bodies nor historical
+results, and does not require another work's command to settle before admission.
+Native host-file import reads the complete
 regular UTF-8 file without its former import byte cap. File-corpus byte and
 count quotas are also removed. Historical incomplete captures are not rewritten.
 
@@ -458,6 +462,20 @@ dynamic map keys or opaque command payloads into hints. These diagnostics run
 only after rejection: they neither validate additional constraints nor change,
 adopt or execute the submitted response.
 
+Duplicate-member diagnostics retain the two byte offsets and identify known
+nested fields, such as `response.operations[0].source`, through the generated
+schema. This also works when the duplicate precedes the object's tag or the
+remaining JSON is incomplete. Unknown names stop at the enclosing known path;
+dynamic map keys and opaque input bodies remain undisclosed. No first or last
+duplicate value is selected as authoritative, and the complete response remains
+rejected for the persona to correct in a fresh eligible decision.
+
+Repeated operation identifiers are a separate cross-object error. Their
+diagnostic names both `operations[index].id` positions, including the first
+occurrence, without copying the identifier or either operation's payload.
+The complete response is still rejected; the persona authors distinct operation
+IDs and any corresponding reference changes in a fresh decision.
+
 Current persona instructions no longer advertise removed navigation,
 source-ID, metadata or history-page ceilings.
 
@@ -531,6 +549,12 @@ truncated to reduce processing. No snapshot cache survives the pass.
 `last_foreground_scan` retains the exact basis and chosen candidate, while the
 scheduler's `last` entries cover the complete committed pass. Selection itself
 does not establish admission, model execution or responsibility acceptance.
+When an exclusive candidate waits for existing calls to settle, the next settled
+scan reconsiders its exact work and persona first, with current eligibility.
+If that candidate is no longer eligible, the scan follows the saved circular
+order for all other pairs, without giving the candidate's whole work priority.
+`deferred_exclusive_candidate` records that scheduling preference when present;
+it does not claim that the candidate remains eligible or was admitted.
 
 Native foreground work no longer needs an initial delegation grant or selection
 file. The driver records a deterministic source under its existing execution

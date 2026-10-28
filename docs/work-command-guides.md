@@ -40,6 +40,17 @@ the outcome unowned. Editing files, contributing work and judging it sufficient
 do not change that state. This projection supplies current metadata; it assigns
 no role, requires no workflow and establishes neither quality nor completion.
 
+The supplied arrangement metadata links its command guides through
+`work_guide_discovery.control_guides`: an exact formation delegation links
+`propose_arrangement`, supplied proposals link `accept_arrangement` and
+`decline_arrangement`, and an exact current arrangement links
+`accept_arranged_offer`. Each link identifies its referring field, exact
+registered revision and native file path. It supplies no guide body or schema
+and changes no selection, responsibility, consent or decision right. The persona
+can read or select a useful guide through the ordinary file interface. An
+ownership gap remains a matter for voluntary coordination, not a requirement to
+wait for a new user request or a designated external coordinator.
+
 `decide_shared` uses current formal `judge` records supporting its exact candidate
 under the adopted decision rule. An ordinary `Decision.work` sufficiency account,
 a message, or acceptance of outcome ownership does not create a formal judgment.

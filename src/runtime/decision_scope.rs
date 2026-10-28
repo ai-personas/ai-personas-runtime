@@ -24,20 +24,31 @@ pub struct Snapshot {
     /// Absence retains the exact fence of an already admitted older request.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     defer_incoming_peer_messages: bool,
+    /// Exact child replies may enter the requester's parent inbox while its
+    /// decision runs. Absence preserves the admitted same-work-only rule.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    defer_incoming_child_messages: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     control_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     optional_activity_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     saved_sources: BTreeMap<String, String>,
-    /// Separately sealed authority for navigation and tool responses that do
-    /// not change shared work records. Absence preserves the admitted scope.
+    /// Separately sealed authority for responses that do not change shared
+    /// work records. Absence preserves the admitted scope.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     independent_work: Option<IndependentWork>,
     /// New ordinary admissions also isolate personal message coordination.
     /// Older snapshots retain their complete message and wait dependencies.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     independent_messages: bool,
+    /// Native supporting-asset saves use their exact source and lineage checks
+    /// without depending on unrelated peer result records. Seal at admission.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    independent_assets: bool,
+    /// Informal source interpretations do not alter formal shared work records.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    independent_assessments: bool,
     /// New accepted actions distinguish a peer's ended-call cleanup from an
     /// actual control change. Already sealed actions retain their exact scope.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -51,6 +62,9 @@ pub(super) fn seal(state: &State, prepared: &Prepared) -> Result<Option<Snapshot
         return Ok(None);
     }
     Ok(Some(snapshot(state, prepared, FORMAT,
+        prepared.request.mode == Mode::Ordinary,
+        prepared.request.mode == Mode::Ordinary,
+        prepared.request.mode == Mode::Ordinary,
         prepared.request.mode == Mode::Ordinary,
         prepared.request.mode == Mode::Ordinary,
         prepared.request.mode == Mode::Ordinary, false)?))
@@ -71,8 +85,11 @@ fn snapshot(
     prepared: &Prepared,
     format: &str,
     defer_incoming_peer_messages: bool,
+    defer_incoming_child_messages: bool,
     independent_work: bool,
     independent_messages: bool,
+    independent_assets: bool,
+    independent_assessments: bool,
     independent_peer_recovery: bool,
 ) -> Result<Snapshot> {
     let actor = &prepared.request.persona;
@@ -89,6 +106,8 @@ fn snapshot(
         // admission serial and failure holds still belong to this snapshot.
         persona.focus.retain(|id, _| id == work_id);
     }
+    require(!defer_incoming_child_messages || defer_incoming_peer_messages,
+        "child message deferral requires peer message deferral")?;
     if defer_incoming_peer_messages {
         require(
             (format == FORMAT || format == INTENT_FORMAT)
@@ -96,14 +115,15 @@ fn snapshot(
             "unsupported peer message deferral scope",
         )?;
         if let Some(focus) = persona.focus.get_mut(work_id) {
-            // Only an ordinary, unsupplied message from another current-work
-            // persona is independent of this admitted decision. Adoption keeps
-            // the actual queue and consumes only supplied observations. User
-            // feedback, shared questions, wait events and all other focus and
-            // work changes retain their existing freshness checks.
+            // Unsupplied ordinary messages, including exact child replies when
+            // separately sealed, remain queued for the next input. Adoption
+            // consumes only supplied observations. User feedback, shared
+            // questions, wait events and all other focus and work changes
+            // retain their existing freshness checks.
             focus.pending_observations.retain(|id| {
                 prepared.supplied_observations.contains(id)
-                    || !deferrable_peer_message(state, actor, work_id, id)
+                    || !deferrable_peer_message(state, actor, work_id, id,
+                        defer_incoming_child_messages)
             });
         }
     }
@@ -193,6 +213,7 @@ fn snapshot(
         metadata_sha256: digest(&metadata)?,
         supplied_lineage_sha256: digest(&(exposure, bindings))?,
         defer_incoming_peer_messages,
+        defer_incoming_child_messages,
         // Retain relevant control history as well as current state: a rapid
         // pause/resume must not revive an earlier undispatched action.
         control_sha256: if format == INTENT_FORMAT {
@@ -215,6 +236,8 @@ fn snapshot(
         saved_sources: BTreeMap::new(),
         independent_work,
         independent_messages,
+        independent_assets,
+        independent_assessments,
         independent_peer_recovery,
     })
 }
@@ -262,10 +285,15 @@ fn exclude_peer_message_waits(work: &mut w::Work, metadata: &mut WorkMeta, actor
 }
 
 /// Personal message-wait registration uses the same independence as ordinary
-/// messaging. Its current sender, unique dependency identity and matching wait
-/// continuation are still checked during adoption. Other work commands keep the
-/// complete shared-record check, including in a mixed response.
-fn independent_operations(decision: &p::Decision, independent_messages: bool) -> bool {
+/// messaging. Supporting-asset saves retain their current source/base, path,
+/// qualification and import-byte checks. Informal source assessments retain
+/// their exact qualified subject and attribution. None changes shared work records.
+/// Other work commands and fragment changes keep the complete shared-record
+/// check, including in a mixed response.
+fn independent_operations(
+    decision: &p::Decision, independent_messages: bool, independent_assets: bool,
+    independent_assessments: bool,
+) -> bool {
     if !independent_messages && !matches!(&decision.reply, p::ReplyDisposition::None { .. }) {
         return false;
     }
@@ -275,6 +303,10 @@ fn independent_operations(decision: &p::Decision, independent_messages: bool) ->
         | p::Operation::HistoryQuery { .. } | p::Operation::HistoryRead { .. }
         | p::Operation::HistoryRecordsQuery { .. } | p::Operation::HistoryRecordRead { .. }
         | p::Operation::HistoryRecordReadFromInput { .. } | p::Operation::InspectWork { .. } => true,
+        p::Operation::FileWrite { scope: p::Scope::Assets {}, .. }
+        | p::Operation::FileEdit { scope: p::Scope::Assets {}, .. }
+        | p::Operation::FileImport { .. } => independent_assets,
+        p::Operation::Assess { .. } => independent_assessments,
         p::Operation::Communicate { .. } => independent_messages,
         p::Operation::WorkCommand { inputs, .. } => independent_messages
             && matches!(action(inputs), Ok(WorkAction::RegisterMessageWait { .. })),
@@ -320,34 +352,43 @@ fn require_match(
         serde_json::to_string(&changed)?)))
 }
 
-fn deferrable_peer_message(state: &State, actor: &str, work: &str, id: &str) -> bool {
+fn deferrable_peer_message(
+    state: &State, actor: &str, work: &str, id: &str, include_child: bool,
+) -> bool {
     let (Some(observation), Some(message)) =
         (state.observations.get(id), state.messages.get(id))
     else { return false };
     observation.id == id
         && observation.actor == actor
         && observation.work == work
-        && observation.kind == "received_local_persona_message"
         && observation.invocation.as_ref() == Some(&message.invocation)
         && message.id == id
         && message.recipient == actor
-        && message.work == work
         && message.sender != actor
-        && state.board.work(&w::WorkId(work.into())).is_ok_and(|current| {
+        && state.board.work(&w::WorkId(message.work.clone())).is_ok_and(|current| {
             current.participants.contains_key(&w::PersonaId(message.sender.clone()))
         })
         && observation.payload["sender"] == message.sender
         && observation.payload["text"] == message.text
         && message.local_deposit_only
+        && ((message.work == work && observation.kind == "received_local_persona_message")
+            || (include_child && message.work != work && message.thread_work.is_none()
+                && observation.kind == "received_child_work_message"
+                // Use the same exact child/requester/parent routing as deposit
+                // and wait satisfaction. A cross-work notice or an unrelated
+                // message cannot become independent through its kind alone.
+                && requester_results::message_observation_work(state, message)
+                    .is_ok_and(|receiving_work| receiving_work == work)))
 }
 
 /// Actual inbox arrivals since admission, in deposit order. The sealed baseline
 /// excludes old queued messages even if their bodies were unavailable. A stored
 /// request without that boundary cannot retroactively match its earlier inbox.
 pub(super) fn deferred_peer_messages<'a>(state: &'a State, prepared: &Prepared) -> Vec<&'a Message> {
-    if !prepared.decision_scope.as_ref().is_some_and(|scope| scope.defer_incoming_peer_messages) {
+    let Some(scope) = prepared.decision_scope.as_ref()
+        .filter(|scope| scope.defer_incoming_peer_messages) else {
         return Vec::new();
-    }
+    };
     let Some(baseline) = &prepared.pending_observations_at_admission else {
         return Vec::new();
     };
@@ -356,7 +397,8 @@ pub(super) fn deferred_peer_messages<'a>(state: &'a State, prepared: &Prepared) 
     state.personas[actor].focus[work].pending_observations.iter()
         .filter(|id| !baseline.contains(*id)
             && !prepared.supplied_observations.contains(id)
-            && deferrable_peer_message(state, actor, work, id))
+            && deferrable_peer_message(state, actor, work, id,
+                scope.defer_incoming_child_messages))
         .filter_map(|id| state.messages.get(id))
         .collect()
 }
@@ -387,10 +429,15 @@ pub(super) fn seal_intents(
     }
     let common = snapshot(state, prepared, INTENT_FORMAT,
         prepared.decision_scope.as_ref().is_some_and(|scope| scope.defer_incoming_peer_messages),
+        prepared.decision_scope.as_ref().is_some_and(|scope| scope.defer_incoming_child_messages),
         prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_work.is_some())
             && independent_operations(decision,
-                prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_messages)),
-        prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_messages), true)?;
+                prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_messages),
+                prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_assets),
+                prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_assessments)),
+        prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_messages),
+        prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_assets),
+        prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_assessments), true)?;
     for intent in intents {
         let operation = intent.body["operation"]
             .as_str()
@@ -446,8 +493,10 @@ pub(super) fn require_intent_current(
         "unsupported scoped intent admission",
     )?;
     let mut current = snapshot(state, prepared, INTENT_FORMAT,
-        admitted.defer_incoming_peer_messages, admitted.independent_work.is_some(),
-        admitted.independent_messages, admitted.independent_peer_recovery)?;
+        admitted.defer_incoming_peer_messages, admitted.defer_incoming_child_messages,
+        admitted.independent_work.is_some(),
+        admitted.independent_messages, admitted.independent_assets,
+        admitted.independent_assessments, admitted.independent_peer_recovery)?;
     for source in admitted.saved_sources.keys() {
         current
             .saved_sources
@@ -538,11 +587,14 @@ pub(super) fn require_current(
         "unsupported scoped decision admission",
     )?;
     let current = snapshot(state, prepared, &admitted.format,
-        admitted.defer_incoming_peer_messages, admitted.independent_work.is_some(),
-        admitted.independent_messages, admitted.independent_peer_recovery)?;
+        admitted.defer_incoming_peer_messages, admitted.defer_incoming_child_messages,
+        admitted.independent_work.is_some(),
+        admitted.independent_messages, admitted.independent_assets,
+        admitted.independent_assessments, admitted.independent_peer_recovery)?;
     require_match(
         admitted, &current, decision.is_some_and(|decision|
-            independent_operations(decision, admitted.independent_messages)),
+            independent_operations(decision, admitted.independent_messages, admitted.independent_assets,
+                admitted.independent_assessments)),
         "decision authority or supplied lineage changed",
     )?;
     Ok(true)

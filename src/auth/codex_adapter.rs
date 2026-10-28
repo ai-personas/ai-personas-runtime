@@ -79,6 +79,74 @@ fn token_identity_and_expiry(token: &str) -> Result<(String, u64), p::Failure> {
 
 fn account_digest(account: &str) -> String { hex::encode(Sha256::digest(account.as_bytes())) }
 
+/// Public picker metadata, with no bearer tokens or model calls.
+#[derive(serde::Serialize)]
+pub struct CodexModelCatalogue {
+    pub models: Vec<super::codex_jsonrpc::CodexModelChoice>,
+    pub inference_performed: bool,
+    pub capability_verified: bool,
+}
+
+/// Graphical account status/sign-in. All output is a deliberate metadata
+/// projection; bearer tokens never cross this helper boundary.
+pub fn codex_account(
+    executable: &std::path::Path, host_home: &std::path::Path, codex_home: &std::path::Path,
+    login: Option<bool>, cancellation: p::Cancellation, event: impl FnMut(serde_json::Value),
+) -> Result<serde_json::Value, super::onboarding::Code> {
+    use super::onboarding::Code;
+    let executable = std::fs::canonicalize(executable).map_err(|_| Code::CredentialUnavailable)?;
+    let host_home = std::fs::canonicalize(host_home).map_err(|_| Code::CredentialUnavailable)?;
+    // A first Codex sign-in may create its selected home; status never does.
+    if login.is_some() {
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(codex_home)
+            .map_err(|_| Code::CredentialUnavailable)?;
+    }
+    let codex_home = std::fs::canonicalize(codex_home).map_err(|_| Code::CredentialUnavailable)?;
+    if !executable.is_file() || !host_home.is_dir() || !codex_home.is_dir() {
+        return Err(Code::CredentialUnavailable);
+    }
+    let factory = super::codex_jsonrpc::ProcessJsonRpcPeerFactory::new(
+        executable, vec!["app-server".into()], host_home, codex_home,
+    ).with_cancellation(cancellation);
+    let rpc = super::codex_jsonrpc::AuthOnlyJsonRpc::new(factory);
+    match login {
+        Some(device) => rpc.account_login(device, event),
+        None => rpc.account_read(),
+    }.map_err(|_| Code::CredentialUnavailable)
+}
+
+/// Discover models and reasoning options through the selected Codex CLI.
+/// This lists client metadata; it neither requests credentials nor starts inference.
+pub fn catalogue_codex(
+    executable: &std::path::Path,
+    host_home: &std::path::Path,
+    codex_home: &std::path::Path,
+) -> Result<CodexModelCatalogue, super::onboarding::Code> {
+    catalogue_codex_cancellable(executable, host_home, codex_home, p::Cancellation::default())
+}
+
+pub fn catalogue_codex_cancellable(
+    executable: &std::path::Path,
+    host_home: &std::path::Path,
+    codex_home: &std::path::Path,
+    cancellation: p::Cancellation,
+) -> Result<CodexModelCatalogue, super::onboarding::Code> {
+    use super::onboarding::Code;
+    let executable = std::fs::canonicalize(executable).map_err(|_| Code::CatalogueUnavailable)?;
+    let host_home = std::fs::canonicalize(host_home).map_err(|_| Code::CatalogueUnavailable)?;
+    let codex_home = std::fs::canonicalize(codex_home).map_err(|_| Code::CatalogueUnavailable)?;
+    if !executable.is_file() || !host_home.is_dir() || !codex_home.is_dir() {
+        return Err(Code::CatalogueUnavailable);
+    }
+    let factory = super::codex_jsonrpc::ProcessJsonRpcPeerFactory::new(
+        executable, vec!["app-server".into()], host_home, codex_home,
+    ).with_cancellation(cancellation);
+    let models = super::codex_jsonrpc::AuthOnlyJsonRpc::new(factory)
+        .request_models().map_err(|_| Code::CatalogueUnavailable)?;
+    Ok(CodexModelCatalogue { models, inference_performed: false, capability_verified: false })
+}
+
 /// Bind fresh settings to the selected Codex login without exporting credentials.
 /// This performs authentication only; model capability remains unverified.
 #[cfg(unix)]

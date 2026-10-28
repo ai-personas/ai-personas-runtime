@@ -65,11 +65,12 @@ async fn run_with_subtree<D: Driver>(
     let mut owned = BTreeSet::new();
     let mut exclusive = BTreeSet::new();
     let mut deferred: Vec<(String, String, AdoptionStatus)> = Vec::new();
+    let mut handover_barrier = BTreeSet::new();
     let mut works = vec![root.to_owned()];
     let mut after = 0;
     let mut visited = BTreeSet::new();
     let mut round_started = false;
-    let mut draining_for_exclusive = false;
+    let mut pending_exclusive: Option<(String, String)> = None;
 
     loop {
         if crate::process_control::signal().is_some() {
@@ -79,7 +80,7 @@ async fn run_with_subtree<D: Driver>(
         // failed lease retain their quiescent fences. Use the actual completed
         // IDs, never Saved.works' newest call.
         if pending.is_empty() {
-            draining_for_exclusive = false;
+            handover_barrier.clear();
             for (id, work, status) in std::mem::take(&mut deferred) {
                 let follow_up = (|| {
                     driver.before_step(app)?;
@@ -169,9 +170,14 @@ async fn run_with_subtree<D: Driver>(
 
         let mut next_scheduled_at = None;
         while stop.is_none()
-            && deferred.is_empty()
+            // A completed character unit waits for a settled handover, but
+            // does not hold independent initial-character attempts or ordinary
+            // peers. Selection still excludes held actors and drains before
+            // any transition that changes shared responsibility.
+            && (deferred.is_empty() || (!handover_barrier.is_empty()
+                && deferred.iter().all(|(_, _, status)| *status == AdoptionStatus::CharacterOnly)))
             && exclusive.is_empty()
-            && !draining_for_exclusive
+            && (pending_exclusive.is_none() || pending.is_empty())
         {
             if crate::process_control::signal().is_some() {
                 stop.get_or_insert("interrupted");
@@ -181,8 +187,10 @@ async fn run_with_subtree<D: Driver>(
             let mut needs_exclusive = false;
             let admission = (|| {
                 driver.before_step(app)?;
+                let priority = pending_exclusive.take();
                 let selection = foreground::select(
                     app, &works, &mut after, unix_now()?, &owned, &visited,
+                    priority.as_ref(),
                 )?;
                 let Some(candidate) = selection.candidate else {
                     next_scheduled_at = selection.next_scheduled_at;
@@ -195,9 +203,10 @@ async fn run_with_subtree<D: Driver>(
                 let foreground::Candidate { work, persona, requires_exclusive } = candidate;
                 needs_exclusive = requires_exclusive;
                 if needs_exclusive && !pending.is_empty() {
-                    // Remember this opportunity until existing calls settle;
-                    // rotating the cursor must not refill peers ahead of it.
-                    draining_for_exclusive = true;
+                    // Selection has already advanced the saved cursor. Retain
+                    // this exact candidate so the next settled scan considers
+                    // it first, with current eligibility, before refilling peers.
+                    pending_exclusive = Some((work, persona));
                     return Ok(None);
                 }
                 visited.insert((work.clone(), persona.clone()));
@@ -257,8 +266,15 @@ async fn run_with_subtree<D: Driver>(
                     let work = completion.prepared.request.work.clone();
                     owned.remove(&id);
                     exclusive.remove(&id);
+                    handover_barrier.remove(&id);
                     match driver.finish(app, completion) {
                         Ok(report) if report.status == AdoptionStatus::CharacterOnly => {
+                            if deferred.is_empty() {
+                                // Refill only while calls already pending at
+                                // this boundary remain. Once they finish, drain
+                                // any successors so handover cannot starve.
+                                handover_barrier = owned.clone();
+                            }
                             deferred.push((id, work, report.status));
                         }
                         Ok(report) if report.status == AdoptionStatus::Held => {
@@ -285,7 +301,7 @@ async fn run_with_subtree<D: Driver>(
             // A result or an authored return time can make a previously visited
             // persona ready again. Active invocations remain excluded by their
             // exact lease state, and the saved circular cursors preserve order.
-            if !draining_for_exclusive {
+            if pending_exclusive.is_none() {
                 visited.clear();
             }
             if pending.is_empty() {

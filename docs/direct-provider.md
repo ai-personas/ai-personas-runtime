@@ -165,6 +165,15 @@ text was successfully considered, truncate the retained output, change selected
 fragments/assets or repeat the command. The persona chooses useful reads, ranges,
 next context, further work and maintenance through the ordinary interface.
 
+A complete HTTP 400 `invalid_request_error` can report the same input problem
+as an overlong `input[n].content[m].text` field. The runtime also recognizes the
+exact structured explanation giving the maximum and actual string lengths,
+with actual length exceeding the reported maximum. The retained diagnostic and
+failed request stay unchanged. This uses the same reference recovery only when
+an eligible pending body or provider continuation can change projection. Other
+request errors and unrecognized explanations retain their existing disposition;
+the reported length does not become an application limit.
+
 For a pending supporting-file read, the next input supplies `bytes_metadata`
 for the same retained revision together with its current qualifications. The
 original requested reference remains available. This supplies byte identity,
@@ -318,14 +327,47 @@ for freshness, accounting, compatibility and the paths that remain sequential.
 
 ## Wire and stream validation
 
-New persona admissions request the complete Decision directly with `text.format: {"type":"json_object"}`. The prompt supplies `APPLICATION_DECISION_SCHEMA`; the native parser validates the entire received object, including duplicate keys, required fields, tagged variants and cross-field rules, before any adoption. JSON mode alone does not establish application-schema validity. It removes the extra escaping layer that a JSON-string carrier imposed on scripts and other text.
+New persona admissions request the complete Decision directly. Ordinary work uses
+`text.format` with `type: "json_schema"`, `name: "persona_decision"` and
+`strict: false`; initial character authorship uses a strict schema derived from
+its closed operation subset. The prompt supplies `APPLICATION_DECISION_SCHEMA`;
+the native parser validates the entire received object, including duplicate
+keys, required fields, tagged variants and cross-field rules, before any
+adoption. Provider formatting alone does not establish application-schema
+validity. Direct JSON removes the extra escaping layer that a JSON-string
+carrier imposed on scripts and other text.
+
+The ordinary transport schema comes from the same applicable native contract as
+the prompt. It retains optional fields, tagged alternatives, constraints and
+arbitrary JSON capability inputs. Non-strict formatting can assist authorship
+without narrowing those open inputs to a provider-supported strict subset.
+Descriptions, defaults and other presentation annotations are omitted only from
+schema nodes in the transport copy; they remain in the complete prompt contract.
+Authored property names and literal values are preserved. Need proposals appear
+only when their intake interface is offered. The saved request and input-size
+accounting use the actual selected schema, including during initialization;
+these byte counts do not measure billed tokens or establish improved decisions.
+
+The initial-character transport schema makes nullable fields and defaulted
+collections explicit, retains closed objects, and converts disjoint fixed-tag
+unions to `anyOf`. Integer-format annotations, string-length constraints and
+collection uniqueness stay in the native contract instead of the provider
+schema. Native parsing, exact references, maintenance accounting and the
+character handover still apply. No initial voice, work judgment or continuation
+is supplied by this conversion. A future schema construct that cannot be
+converted uses the existing JSON-object transport; the complete native contract
+is unchanged. `ai-personas schema` exposes the actual initialization transport
+schema. This follows the provider's [structured-output contract](https://developers.openai.com/api/docs/guides/structured-outputs).
 
 The prompt can present that generated schema as compact wire types. Its legend
 defines required and optional fields, closed objects, literals, references,
 arrays and schema alternatives; JSON notes retain every description, default
-and additional constraint at its original scope. A variant's fixed `kind` tag
-appears before its payload fields, so a long input shape does not precede the
-operation's type. This is display order, not a required JSON member order.
+and additional constraint at its original scope. Exact string literals and
+unions of string literals already imply the string type, so the presentation
+omits that redundant type note. Other sibling type constraints remain explicit.
+A variant's fixed `kind` tag appears before its payload fields, so a long input
+shape does not precede the operation's type. This is display order, not a
+required JSON member order.
 The ordinary instructions distinguish the outer operation tag from a capability
 identifier or a native command tag inside `inputs`. The rendering includes every
 definition in the applicable schema. Unsupported constructs or a larger rendering fall
@@ -381,7 +423,11 @@ explanations retain their text with the actual request credentials redacted;
 headers and non-JSON bodies are not copied. Interrupted reads remain partial; an HTTP rejection still
 does not establish token usage, remote cancellation or permission to replay.
 
-The application permits operation-specific inputs and maps whose keys are authored at runtime. These are not closed objects suitable for a fixed strict response schema. [OpenAI's JSON-mode documentation](https://developers.openai.com/api/docs/guides/structured-outputs#json-mode) describes JSON-object transport and its application-validation requirement. Incomplete, invalid or refused output remains a retained failure, with no transport retry or JSON repair.
+The application permits operation-specific inputs and maps whose keys are
+authored at runtime. These are not closed objects suitable for a fixed strict
+response schema, so ordinary output uses the non-strict contract described
+above. Incomplete, invalid or refused output remains a retained failure, with
+no transport retry or JSON repair.
 
 Within an authorized foreground session, a complete rejected ordinary decision
 can release its failed local invocation when the persona already has an accepted
@@ -420,6 +466,9 @@ Decision structural validation and previously retained failures are unchanged.
 Host-command, HTTP and computation input-shape errors report the structural
 category and schema-owned field hints. Unknown field names, rejected values
 and script bodies are not copied into failure metadata or recovery prompts.
+For an unrecognized `kind` in a fully tagged union, the hint names the field
+and lists its schema-declared tag values. A broad or opaque alternative prevents
+that list; the runtime does not guess which operation the persona intended.
 The complete rejected response remains retained for explicit inspection; the
 diagnostic neither rewrites that response nor executes any of its operations.
 
@@ -438,7 +487,17 @@ roles and instructions. Traditional routing uses truthful application identity
 and its explicit beta header; mode-specific headers cannot leak into the public
 routes.
 
-The saved `output_schema` is `{"type":"object"}` for direct Decision transport. Its audit digest identifies that response contract; the serialized provider request binds the actual JSON mode. Historical admissions and the isolated onboarding echo retain the strict `{"decision_json":"..."}` carrier. Response decoding follows the exact admitted format, never a guessed fallback. Direct responses retain their original UTF-8 bytes without reserialization; historical carriers are decoded once. Completion receipts identify `direct_decision_json_v1` or `decision_json_string_v1`, and the exact application bytes still receive the same complete parser.
+The saved `output_schema` is the generated non-strict ordinary schema or the
+generated strict initialization schema. Its audit digest identifies that response
+contract; the serialized provider request binds the actual format.
+`ai-personas schema` exposes both ordinary variants and the initialization schema.
+Earlier direct JSON-object admissions retain `{"type":"object"}`; older
+admissions and the isolated onboarding echo retain the strict
+`{"decision_json":"..."}` carrier. Response decoding follows the exact admitted
+format, never a guessed fallback. Direct responses retain their original UTF-8
+bytes without reserialization; historical carriers are decoded once. Completion
+receipts identify `direct_decision_json_v1` or `decision_json_string_v1`, and the
+exact application bytes still receive the same complete parser.
 
 Completion requires one completed assistant output-text message, consistent response/model/item identity, agreement with observed text deltas, and EOF after the terminal event. OAuth routes may omit the response Content-Type header; the same complete SSE validation still applies. A conflicting media type, duplicate headers or encoded body remains invalid. Refusals, returned tools, unsupported snapshots, malformed streams, duplicate/conflicting terminals, trailing errors and incomplete output retain their actual failures. Reasoning is never adopted as a response.
 

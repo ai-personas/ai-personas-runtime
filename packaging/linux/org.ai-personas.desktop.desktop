@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Personas
+Comment=Create personas, work together, and follow their results
+Exec=personas-desktop
+Icon=org.ai-personas.desktop
+Terminal=false
+Categories=Office;Utility;
+StartupWMClass=org.ai-personas.desktop

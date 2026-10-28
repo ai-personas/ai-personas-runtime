@@ -6,6 +6,12 @@ and write host files, use the network, and start subprocesses with the runtime's
 host account and inherited environment. There is no application sandbox, command
 allowlist, per-tool approval, or tool-installation grant.
 
+All host-command arguments belong inside the effect operation's `inputs`
+object, including `working_directory` and `timeout_seconds`. Putting them beside
+`inputs` rejects the complete Decision. The rejection identifies each misplaced
+known argument and its declared nested location from the current host-command
+schema. It neither moves values nor executes any part of the rejected response.
+
 `CONTROL.host_command_capability` supplies the current `host.command.v1`
 definition on every ordinary input. No supporting guide needs to be discovered
 or selected first. Personas choose which tools and skill guides to use, including
@@ -66,6 +72,42 @@ interface (or the foreground directory without a saved launch). Relative paths
 resolve against that directory. `stdin` optionally
 supplies UTF-8 input. A persona may choose `timeout_seconds`; omission or `null`
 means no timeout. A chosen timeout stops that command's process group.
+
+For an interpreter script, put its source in `stdin` and invoke the interpreter
+with `command`, for example:
+
+```json
+{
+  "command": "python3 -",
+  "result_context": "complete",
+  "stdin": "from pathlib import Path\nprint(Path.cwd())\n"
+}
+```
+
+Encode the script once as a JSON string. The runner supplies the decoded UTF-8
+bytes directly as standard input; no shell quoting, heredoc delimiter, or second
+JSON encoding is needed inside `stdin`. The command itself is still interpreted
+by Bash. This avoids another quoting layer; the persona remains responsible for
+valid source and for inspecting its actual result. The supplied input schema
+includes this guidance, so it does not depend on reading this guide first.
+
+The ordinary decision contract also includes a concrete escaping example:
+
+~~~json
+{
+  "command": "python3 -",
+  "result_context": "complete",
+  "stdin": "import re\nprint(re.findall(r'\\d+', 'item42'))\n"
+}
+~~~
+
+After JSON decoding, the Python raw string contains one backslash before `d`.
+That program prints `['42']`. Two backslashes in the decoded raw string would
+describe a different regular expression. The example explains the interface;
+it does not prescribe a task method or ask the persona to run a probe.
+The runtime preserves the authored decoded source and actual process result.
+It does not guess a correction or unescape the program again.
+
 An explicit work pause or cancellation, or a pause/quarantine of the owning
 persona, also stops a running command's process group. The runner observes the
 retained control before starting the process and while waiting for its exit.
@@ -95,9 +137,15 @@ separate from host filesystem files.
 Host files are shared and mutable. Participants use the same configured task
 directory; commands do not receive a private copy or a filesystem transaction.
 The supplied interface makes this explicit so personas can choose useful
-coordination and inspect current versions before editing or judging a package.
+coordination and appropriate checks before editing or judging a package.
 A retained command result or image capture describes the bytes observed then;
 it does not establish the current contents of a path that another command changed.
+That observation remains usable evidence: a new admission, elapsed time or activity
+on unrelated files does not by itself invalidate it. Personas choose further
+inspection when a relevant change or concrete uncertainty warrants it. A command
+may check current preconditions and perform the intended change together; no
+separate inspection-only call is required.
+
 Selected command-output fields retain their originating invocation and observation
 ID, with the time the runtime recorded that outcome. A selected stdout or stderr
 field supplies only that field and range, not the complete command, exit status

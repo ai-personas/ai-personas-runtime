@@ -18,6 +18,30 @@ mod cli {
     }
     #[derive(Subcommand)]
     enum Command {
+        /// Read selected Codex account metadata, or sign in without exporting tokens.
+        AccountCodex {
+            #[arg(long)]
+            codex_executable: PathBuf,
+            #[arg(long)]
+            host_home: PathBuf,
+            #[arg(long)]
+            codex_home: PathBuf,
+            /// Start browser sign-in. Authorization events are JSON lines on stderr.
+            #[arg(long)]
+            sign_in: bool,
+            /// Use device-code sign-in instead of a local browser callback.
+            #[arg(long, requires = "sign_in")]
+            device_code: bool,
+        },
+        /// Discover Codex model names, reasoning options and defaults. No model call.
+        CatalogueCodex {
+            #[arg(long)]
+            codex_executable: PathBuf,
+            #[arg(long)]
+            host_home: PathBuf,
+            #[arg(long)]
+            codex_home: PathBuf,
+        },
         /// Use an existing Codex ChatGPT login for direct inference. No model call.
         ConfigureCodex {
             #[arg(long)]
@@ -84,6 +108,22 @@ mod cli {
         serde_json::to_value(v).map_err(|_| backend::Code::InvalidState)
     }
     async fn run(cli: Cli, cancellation: Cancellation) -> backend::Result<Value> {
+        if let Command::AccountCodex { codex_executable, host_home, codex_home, sign_in, device_code } = &cli.command {
+            if cli.vault.is_some() { return Err(backend::Code::InvalidRequest); }
+            let (executable, home, state, login) = (codex_executable.clone(), host_home.clone(), codex_home.clone(), sign_in.then_some(*device_code));
+            return tokio::task::spawn_blocking(move || ai_personas::auth::codex_account(
+                &executable, &home, &state, login, cancellation, |event| eprintln!("{event}"),
+            )).await.map_err(|_| backend::Code::CredentialUnavailable)?;
+        }
+        if let Command::CatalogueCodex { codex_executable, host_home, codex_home } = &cli.command {
+            if cli.vault.is_some() {
+                return Err(backend::Code::InvalidRequest);
+            }
+            let (executable, home, state) = (codex_executable.clone(), host_home.clone(), codex_home.clone());
+            return value(tokio::task::spawn_blocking(move || ai_personas::auth::catalogue_codex_cancellable(
+                &executable, &home, &state, cancellation,
+            )).await.map_err(|_| backend::Code::CatalogueUnavailable)??);
+        }
         if let Command::ConfigureCodex { codex_executable, host_home, codex_home, model, effort } = &cli.command {
             if cli.vault.is_some() {
                 return Err(backend::Code::InvalidRequest);
@@ -102,7 +142,7 @@ mod cli {
         // Explicit commands retain their actual evidence without another approval flag.
         let mut host = backend::Backend::open(vault)?;
         match cli.command {
-            Command::ConfigureCodex { .. } => unreachable!("handled before vault access"),
+            Command::ConfigureCodex { .. } | Command::CatalogueCodex { .. } | Command::AccountCodex { .. } => unreachable!("handled before vault access"),
             Command::Configure { model, effort } => value(host.configure(&model, &effort)?),
             Command::Catalogue => value(host.catalogue().await?),
             Command::Plan {

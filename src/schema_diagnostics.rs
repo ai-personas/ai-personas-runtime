@@ -61,10 +61,19 @@ pub(crate) fn issues(schema: &Value, root: &Value, received: &Value, section: &s
             issues.insert(format!("{path}: expected {expected}"));
             continue;
         }
+        let alternatives = schema;
         let Some(schema) = resolved(schema, root, received) else {
-            // Without a tag we cannot choose a variant. Report only members
-            // required by every alternative, never fields from a guessed one.
+            // An absent or unknown tag cannot select a variant. Describe the
+            // declared alternatives without guessing which one was intended.
             if let Some(values) = received.as_object() {
+                if let Some(kinds) = tagged_kinds(schema, root, &mut BTreeSet::new()) {
+                    if values.get("kind").is_some_and(|value|
+                        value.as_str().is_none_or(|kind| !kinds.contains(kind)))
+                    {
+                        issues.insert(format!("{path}.kind: expected one of {}",
+                            serde_json::to_string(&kinds).expect("schema tag strings serialize")));
+                    }
+                }
                 for name in required_members(schema, root, &mut BTreeSet::new()) {
                     if !values.contains_key(name) {
                         issues.insert(format!("{path}.{name} is required"));
@@ -80,6 +89,15 @@ pub(crate) fn issues(schema: &Value, root: &Value, received: &Value, section: &s
             if schema["additionalProperties"] == false
                 && values.keys().any(|name| !fields.contains_key(name))
             {
+                // Name a misplaced member only when the schema declares that
+                // exact name at this position in another alternative. This
+                // locates common variant mix-ups without echoing authored keys
+                // or guessing which operation the persona intended.
+                for name in declared_members(alternatives, root) {
+                    if values.contains_key(name) && !fields.contains_key(name) {
+                        issues.insert(format!("{path}.{name} is not allowed for this variant"));
+                    }
+                }
                 issues.insert(format!(
                     "{path} contains unknown members; allowed fields: {}",
                     fields
@@ -119,6 +137,67 @@ pub(crate) fn issues(schema: &Value, root: &Value, received: &Value, section: &s
         }
     }
     issues.into_iter().collect()
+}
+
+fn declared_members<'a>(schema: &'a Value, root: &'a Value) -> BTreeSet<&'a str> {
+    let mut pending = vec![schema];
+    let mut visited = BTreeSet::new();
+    let mut names = BTreeSet::new();
+    while let Some(schema) = pending.pop() {
+        if !visited.insert(schema as *const Value) { continue; }
+        if let Some(reference) = schema["$ref"].as_str() {
+            if let Some(target) = reference.strip_prefix('#').and_then(|p| root.pointer(p)) {
+                pending.push(target);
+            }
+        }
+        for union in ["oneOf", "anyOf", "allOf"] {
+            if let Some(branches) = schema[union].as_array() { pending.extend(branches); }
+        }
+        if let Some(fields) = schema["properties"].as_object() {
+            names.extend(fields.keys().map(String::as_str));
+        }
+    }
+    names
+}
+
+/// Return the complete declared tag set only when every object alternative is
+/// tagged. A broad or opaque branch prevents a claim about allowed values.
+/// The caller has an actual object, so nullable non-object branches cannot apply.
+fn tagged_kinds<'a>(
+    schema: &'a Value,
+    root: &'a Value,
+    visiting: &mut BTreeSet<*const Value>,
+) -> Option<BTreeSet<&'a str>> {
+    let address = schema as *const Value;
+    if !visiting.insert(address) {
+        return None;
+    }
+    let result = (|| {
+        if let Some(reference) = schema["$ref"].as_str() {
+            return tagged_kinds(root.pointer(reference.strip_prefix('#')?)?, root, visiting);
+        }
+        if let Some(options) = schema["oneOf"].as_array()
+            .or_else(|| schema["anyOf"].as_array())
+        {
+            let mut kinds = BTreeSet::new();
+            for option in options.iter().filter(|option| option["type"] != "null") {
+                kinds.extend(tagged_kinds(option, root, visiting)?);
+            }
+            return (!kinds.is_empty()).then_some(kinds);
+        }
+        if !schema["required"].as_array()?.iter().any(|name| name == "kind") {
+            return None;
+        }
+        let tag = &schema["properties"]["kind"];
+        if let Some(kind) = tag["const"].as_str() {
+            return Some(BTreeSet::from([kind]));
+        }
+        let kinds: BTreeSet<_> = tag["enum"].as_array()?.iter()
+            .map(Value::as_str).collect::<Option<_>>()?;
+        (!kinds.is_empty()).then_some(kinds)
+    })();
+    visiting.remove(&address);
+    result
 }
 
 fn required_members<'a>(

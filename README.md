@@ -12,7 +12,30 @@ From this checkout:
 ./personas
 ```
 
-Follow the sign-in and setup prompts. Use an existing Codex ChatGPT login or native Sign in with ChatGPT. You need Unix, Python 3.9+ and network access; native sign-in also needs eligible access and a same-host browser. Builds need Rust/Cargo 1.88+ and a native compiler/linker. Account usage may be charged.
+The launcher opens the Rust desktop app when installed in a graphical session,
+or terminal onboarding otherwise. The desktop provides automatic Codex and model
+discovery, graphical setup, tasks, feedback, questions, results, and file export.
+Use an existing Codex ChatGPT login or sign in from the window. Account usage may
+be charged. [Desktop guide and packaging](docs/desktop.md).
+
+Build the desktop for Linux or macOS with Rust/Cargo 1.88+ and a native compiler/linker:
+
+```sh
+cargo build --locked --release --features desktop --bins
+./personas --gui
+```
+
+Use `./personas --terminal` for the terminal interface (Python 3.9+ required).
+Packaged desktop users need neither Python nor Cargo. Network access is required
+for authentication and model use; native sign-in needs a same-host browser.
+
+Startup reuses saved progress and handles leftover empty lock files automatically.
+If a progress folder needs attention, the terminal explains the problem and lets
+you retry or choose another folder. Press **q** at the first setup prompt to quit.
+
+The launcher finds an installed Codex CLI and loads its model and reasoning
+choices automatically. The desktop uses dropdowns; terminal mode uses numbered
+menus with Enter for the displayed defaults. Manual model entry remains available.
 
 Choose each persona's name and starting traits during setup. Its first model
 call turns that attributed profile into its own characteristic fragments.
