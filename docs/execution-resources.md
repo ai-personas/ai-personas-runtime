@@ -34,6 +34,13 @@ responsibilities, with no automatic quality verdict or mandatory review workflow
 
 ## Implemented removal
 
+Persona-authored child requests no longer require or accept an `allocation`.
+Their ordinary capability supplies exact source references and attribution
+without historical ceilings, remaining balances, participant allowlists or
+funding declarations. New child accounting starts at zero while actual calls
+and navigation continue to append without limits. The full issued source
+remains retained; its original wording does not replace the current task.
+
 Current Direct provider settings no longer require or accept historical
 `limits`. Onboarding stops generating those estimates, and ProviderIntent
 contains only model and effort. Serialization, stream collection and complete

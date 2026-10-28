@@ -11,6 +11,11 @@ remain separate exact records. Admission preserves the persona as requester; it
 does not claim that invitees accepted responsibility or completed the request.
 
 Saved source policies and work allocations are provenance rather than execution quotas. Model calls, navigation, metadata retention and episode expiry have no application resource gate.
+Current proposals contain the exact source grant, purpose, request, outcomes and
+invitees. They have no `allocation` field: personas do not estimate attempt,
+repair or navigation budgets to ask for help. The supplied capability retains
+its exact source and registry references, operator attribution and source policy;
+it omits historical ceilings, remaining balances and funding declarations.
 An intake grant creates no initial work opportunity. A stopped persona needs an
 explicit resume or other eligible opportunity. Saved requester, participant and
 initial-recipient lists are historical metadata. Any existing persona can be
@@ -107,8 +112,10 @@ and funding snapshots do not restrict selection. Earlier episodes, proposals,
 children and charges remain attached to their original source. Subsequent calls
 use the current selection when the option is omitted. No eligible opportunity
 means no model invocation.
-The supplied interface labels `terms_are_historical: true`; its old purpose and
-work list do not replace the current task request or accepted scope.
+The supplied interface identifies the source through `grant`, `intake_operator` and
+`source_policy`. The full original declaration remains in its retained source
+record; its old purpose and work list do not replace the current task request
+or accepted scope.
 An issued source's original policy, cohort and processing destination remain
 provenance; changes to them do not revoke access. Actual provider/account bindings
 and an explicit source revocation retain their separate meanings.
@@ -219,9 +226,10 @@ admission ID. For another proposal, take fresh snapshots and use the original
 issued grant hash from the episode. The current registry hash changes as children
 are added; it is not the proposal's immutable source grant hash.
 
-A parent transfer subtracts the child's allocation from the existing
-parent account. The historical parent remainder saturates at zero. The child receives the requested metadata without being reduced to a finite remainder. Complete episode charge records retain use beyond the original numbers. Admission
-performs no inference and accepts no invitation on an invitee's behalf.
+New child accounting starts at zero without a requested allocation or parent
+resource transfer. Those internal balances impose no execution limit. Complete
+episode charge records retain actual use independently of the initial values.
+Admission performs no inference and accepts no invitation on an invitee's behalf.
 
 A native session visits the requested work and its complete descendant subtree.
 Independent Direct calls overlap across eligible parent and child participants.

@@ -18,12 +18,11 @@ pub struct NeedInterface {
     pub grant: p::need::GrantReference,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub automatically_issued: bool,
-    /// The source's original wording does not replace this work's actual scope.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub terms_are_historical: bool,
-    pub terms: g::IntakeDelegationRequest,
+    /// Saved operator context; automatically_issued separately identifies a
+    /// source created by the native driver rather than an explicit grant action.
+    pub intake_operator: String,
+    pub source_policy: f::Policy,
     pub registry: g::IntakeReference,
-    pub remaining_after_authoring_admission: WorkAllocation,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -621,10 +620,9 @@ pub(super) fn interface(
             sha256: episode.grant_sha256.clone(),
         },
         automatically_issued: episode.grant.automatically_issued,
-        terms_are_historical: true,
-        terms: episode.grant.request.clone(),
+        intake_operator: episode.grant.request.operator.clone(),
+        source_policy: episode.grant.request.policy.clone(),
         registry: episode.last_preparation_registry.clone(),
-        remaining_after_authoring_admission: episode.remaining,
     }))
 }
 
@@ -661,12 +659,13 @@ pub(super) fn validate_operation(
             && prepared.intake_episode.as_ref() == Some(&proposal.grant)
             && proposal.grant.id == episode.grant.request.id
             && proposal.grant.sha256 == episode.grant_sha256
-            && supplied.terms == episode.grant.request,
+            && supplied.intake_operator == episode.grant.request.operator
+            && supplied.source_policy == episode.grant.request.policy,
         "proposal differs from its exact offered interface or grant",
     )?;
-    // Registry and remaining-allocation fields describe this request's actual
-    // admission. Another persona may advance them while inference runs. The
-    // sealed prompt below binds that historical interface; current episode
+    // The registry describes this request's actual admission. Another persona
+    // may advance it while inference runs. The sealed prompt below binds that
+    // historical interface; current episode
     // authority and exact grant identity are checked independently.
     require(
         proposal.invitees.iter().all(|invitee| {

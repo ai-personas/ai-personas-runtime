@@ -50,9 +50,6 @@ pub struct Proposal {
     pub outcomes: Vec<Outcome>,
     #[schemars(length(min = 1))]
     pub invitees: Vec<Invitee>,
-    /// Historical allocation metadata for the requested child. This neither
-    /// limits execution nor reserves child resources.
-    pub allocation: crate::runtime::WorkAllocation,
 }
 
 pub(super) fn check_hash(value: &str, path: &str) -> Result<(), ProtocolError> {

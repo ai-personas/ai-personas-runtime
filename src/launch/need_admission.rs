@@ -533,7 +533,16 @@ fn plan(
                 .all(|persona| !persona.focus.contains_key(&request.child_work_id)),
         "child identity is not the exact unused next launch identity",
     )?;
-    let allocation = proposal.allocation;
+    // Child requests do not declare budgets. Initialize the retained accounting
+    // fields at zero; actual episode charges append independently of these
+    // historical balances, without reserving or limiting child execution.
+    let allocation = WorkAllocation {
+        attempts: 0,
+        navigation: f::NavigationLimits {
+            calls: 0, scanned_bytes: 0, inspected_revisions: 0, matches: 0, result_bytes: 0,
+        },
+        repair_attempts: 0,
+    };
     let (parent_before, parent_after) = match &grant.request.funding {
         IntakeFundingBasis::ExistingParentTransfer { work_id, .. } => {
             let before = remaining(
