@@ -153,7 +153,7 @@ fn terminal_provider_failure(
 
 /// A network failure before response headers, or a lost or malformed stream,
 /// may leave only the remote computation and its charges unknown. Its exact
-/// wire request contained no provider tools, and no local Decision was received
+/// wire request contained no provider-executed tools, and no local Decision was received
 /// or adopted. Retiring this ended local lease can therefore preserve an
 /// existing route without replaying any action. Explicit cancellation, refusal,
 /// binding failures and unavailable configuration retain their distinct paths.
@@ -193,7 +193,7 @@ fn interrupted_response_only_attempt(
 
 /// A complete temporary service-error response ends the local HTTP attempt,
 /// even though it reports no inference outcome or usage. The exact request
-/// contained no provider tools and yielded no local Decision or action intent.
+/// contained no provider-executed tools and yielded no local Decision or action intent.
 /// Authentication, request configuration and provider quota errors are separate.
 fn temporary_http_response_only_failure(
     invocation: &s::InvocationRecord,

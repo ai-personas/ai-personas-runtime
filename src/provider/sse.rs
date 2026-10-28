@@ -50,6 +50,7 @@ type Result<T> = std::result::Result<T, StreamFailure>;
 enum Kind {
     Message,
     Reasoning,
+    Decision,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Phase {
@@ -102,8 +103,17 @@ struct Item {
     deltas: String,
     final_text: Option<String>,
     completed_snapshot: Option<Value>,
+    call_id: Option<String>,
 }
 impl Item {
+    fn observe_call(&mut self, value: &Value) -> Result<()> {
+        let call_id = decision_call_id(value)?;
+        if self.call_id.as_deref().is_some_and(|old| old != call_id) {
+            return Err(protocol("decision_call_id_changed"));
+        }
+        self.call_id = Some(call_id.into());
+        Ok(())
+    }
     fn observe_phase(&mut self, value: &Value) -> Result<()> {
         if let Some(phase) = message_phase(value)? {
             if self.phase.is_some_and(|old| old != phase) {
@@ -126,6 +136,7 @@ impl Item {
 
 pub(super) struct Collector {
     model: String,
+    decision_carrier: bool,
     allow_thin_completed: bool,
     thin_lifecycle: bool,
     line: Vec<u8>,
@@ -166,6 +177,7 @@ impl Collector {
     pub fn new(model: &str) -> Self {
         Self {
             model: model.into(),
+            decision_carrier: false,
             allow_thin_completed: false,
             thin_lifecycle: true,
             line: Vec::new(),
@@ -203,6 +215,10 @@ impl Collector {
     }
     pub fn with_mode(mut self, mode: super::AccessMode) -> Self {
         self.allow_thin_completed = mode == super::AccessMode::SiwcOAuth;
+        self
+    }
+    pub fn with_decision_carrier(mut self, enabled: bool) -> Self {
+        self.decision_carrier = enabled;
         self
     }
     pub fn push(&mut self, bytes: &[u8]) -> std::result::Result<(), Failure> {
@@ -523,6 +539,9 @@ impl Collector {
                         return Err(protocol("duplicate_terminal_item_id"));
                     }
                     let kind = item_kind(item)?;
+                    if kind == Kind::Decision && !self.decision_carrier {
+                        return Err(protocol("unexpected_decision_carrier"));
+                    }
                     if let Some(tracked) = self.items.get(&index) {
                         if tracked.id != id || tracked.kind != kind {
                             return Err(protocol("terminal_item_identity_mismatch"));
@@ -537,9 +556,20 @@ impl Collector {
                                 phase = tracked.phase;
                                 tracked.text(text)?;
                             }
+                            if self.decision_carrier && phase != Some(Phase::Commentary) {
+                                return Err(protocol("decision_carrier_required"));
+                            }
                             carrier.consider(phase, text)?;
                         }
                         Kind::Reasoning => reasoning_item(item, true, false)?,
+                        Kind::Decision => {
+                            let text = decision_text(item, "completed")?;
+                            if let Some(tracked) = self.items.get_mut(&index) {
+                                tracked.observe_call(item)?;
+                                tracked.text(text)?;
+                            }
+                            carrier.consider(Some(Phase::FinalAnswer), text)?;
+                        }
                     }
                 }
                 if self.items.keys().any(|index| *index >= output.len()) {
@@ -608,11 +638,16 @@ impl Collector {
             "response.output_item.added" | "response.output_item.done" => {
                 let value = event.get("item").ok_or(protocol("output_item_missing"))?;
                 let kind_of_item = item_kind(value)?;
+                if kind_of_item == Kind::Decision && !self.decision_carrier {
+                    return Err(protocol("unexpected_decision_carrier"));
+                }
                 let index = index(&event, "output_index")?;
                 let id = wire_id(value, "id")?;
                 let item = self.track(index, id, kind_of_item)?;
                 if kind_of_item == Kind::Message {
                     item.observe_phase(value)?;
+                } else if kind_of_item == Kind::Decision {
+                    item.observe_call(value)?;
                 }
                 if kind == "response.output_item.added" {
                     if item.added
@@ -636,6 +671,10 @@ impl Collector {
                         if message_content(value)?.is_some_and(|text| !text.is_empty()) {
                             return Err(protocol("message_added_shape").at_field("content"));
                         }
+                    } else if kind_of_item == Kind::Decision {
+                        if !decision_text(value, "in_progress")?.is_empty() {
+                            return Err(protocol("decision_added_input_not_empty"));
+                        }
                     } else {
                         reasoning_item(value, false, false)?;
                     }
@@ -654,6 +693,8 @@ impl Collector {
                         }
                     } else if kind_of_item == Kind::Message {
                         item.text(message_text(value)?)?;
+                    } else if kind_of_item == Kind::Decision {
+                        item.text(decision_text(value, if item.incomplete { "incomplete" } else { "completed" })?)?;
                     } else {
                         reasoning_item(value, true, true)?;
                     }
@@ -714,6 +755,18 @@ impl Collector {
                     }
                 }
             }
+            "response.custom_tool_call_input.delta" | "response.custom_tool_call_input.done" => {
+                if !self.decision_carrier { return Err(protocol("unexpected_decision_carrier")); }
+                let item = self.track(index(&event, "output_index")?, wire_id(&event, "item_id")?, Kind::Decision)?;
+                if item.done || item.text_done { return Err(protocol("decision_input_after_done")); }
+                if kind == "response.custom_tool_call_input.delta" {
+                    item.deltas.push_str(string(&event, "delta")?);
+                    item.saw_delta = true;
+                } else {
+                    item.text(string(&event, "input")?)?;
+                    item.text_done = true;
+                }
+            }
             "response.reasoning_summary_part.added"
             | "response.reasoning_summary_part.done"
             | "response.reasoning_summary_text.delta"
@@ -753,12 +806,21 @@ impl Collector {
                 }
                 // Each item's final text was checked against that item's deltas
                 // and done snapshots. Never promote deltas or an item.done alone.
+                if self.decision_carrier && item.phase != Some(Phase::Commentary) {
+                    return Err(protocol("decision_carrier_required"));
+                }
                 carrier.consider(
                     item.phase,
                     item.final_text
                         .as_deref()
                         .ok_or(protocol("thin_carrier_missing"))?,
                 )?;
+            } else if item.kind == Kind::Decision {
+                if !self.decision_carrier || !item.text_done || item.call_id.is_none() {
+                    return Err(protocol("thin_decision_lifecycle_missing"));
+                }
+                carrier.consider(Some(Phase::FinalAnswer), item.final_text.as_deref()
+                    .ok_or(protocol("thin_carrier_missing"))?)?;
             }
         }
         carrier.finish()
@@ -825,6 +887,7 @@ impl Collector {
             deltas: String::new(),
             final_text: None,
             completed_snapshot: None,
+            call_id: None,
         });
         if item.id != id || item.kind != kind {
             return Err(protocol("item_identity_changed"));
@@ -906,8 +969,20 @@ fn item_kind(value: &Value) -> Result<Kind> {
     match string(value, "type")? {
         "message" => Ok(Kind::Message),
         "reasoning" => Ok(Kind::Reasoning),
+        "custom_tool_call" => Ok(Kind::Decision),
         _ => Err(Failure::RemoteFailure.into()),
     }
+}
+fn decision_call_id(value: &Value) -> Result<&str> {
+    if string(value, "name")? != super::decision_grammar::TOOL {
+        return Err(protocol("unexpected_custom_tool"));
+    }
+    wire_id(value, "call_id")
+}
+fn decision_text<'a>(value: &'a Value, status: &str) -> Result<&'a str> {
+    decision_call_id(value)?;
+    if string(value, "status")? != status { return Err(protocol("decision_status_mismatch")); }
+    string(value, "input")
 }
 fn output_text(value: &Value) -> Result<&str> {
     if string(value, "type")? != "output_text" || value.get("refusal").is_some_and(|v| !v.is_null())
@@ -1068,6 +1143,8 @@ fn safe_event_type(name: &str) -> &'static str {
         "response.content_part.done" => "response.content_part.done",
         "response.output_text.delta" => "response.output_text.delta",
         "response.output_text.done" => "response.output_text.done",
+        "response.custom_tool_call_input.delta" => "response.custom_tool_call_input.delta",
+        "response.custom_tool_call_input.done" => "response.custom_tool_call_input.done",
         "response.reasoning_summary_part.added" => "response.reasoning_summary_part.added",
         "response.reasoning_summary_part.done" => "response.reasoning_summary_part.done",
         "response.reasoning_summary_text.delta" => "response.reasoning_summary_text.delta",

@@ -40,7 +40,10 @@ impl InputHistory {
         // event inventory whose completeness has not been established here.
         let output = retained["terminal_output"].as_array()
             .filter(|items| !items.is_empty()).ok_or(Failure::Configuration)?;
-        if !output.iter().all(|item| matches!(item["type"].as_str(), Some("message" | "reasoning"))) {
+        if !output.iter().all(|item| matches!(item["type"].as_str(), Some("message" | "reasoning"))
+            || (item["type"] == "custom_tool_call" && item["name"] == super::decision_grammar::TOOL
+                && item["status"] == "completed" && item["input"].is_string()
+                && item["call_id"].as_str().is_some_and(identifier))) {
             return Err(Failure::Configuration);
         }
         let (mut turns, mut items) = if let Some(previous) = previous {
@@ -60,6 +63,13 @@ impl InputHistory {
             .find(|profile| profile.id == transport_profile).ok_or(Failure::Configuration)?;
         items.extend(current_input(&profile, prompt, reusable_prefix_bytes, images)?);
         items.extend(output.iter().cloned());
+        // Complete the provider's custom-call conversation without claiming
+        // native adoption or tool execution. Current CONTROL supplies those
+        // outcomes; retained reasoning and carrier bytes remain unchanged.
+        for item in output.iter().filter(|item| item["type"] == "custom_tool_call") {
+            items.push(json!({"type":"custom_tool_call_output", "call_id":item["call_id"],
+                "output":super::decision_grammar::ACKNOWLEDGMENT}));
+        }
         turns.push(invocation.to_owned());
         Ok(Self { format: FORMAT.into(), model: model.into(), transport_profile: transport_profile.into(), turns, items })
     }

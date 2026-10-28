@@ -34,9 +34,9 @@ release or evidence checks.
 
 | Serialized mode | Transport profile | Route | Credential grant |
 | --- | --- | --- | --- |
-| `chatgpt_oauth` | `traditional_chatgpt_responses_v5` | `https://chatgpt.com/backend-api/codex/responses` | Traditional ChatGPT OAuth, with the authorized account header |
-| `siwc_oauth` | `siwc_documented_public_responses_v5` | `https://api.openai.com/v1/responses` | SIWC token-sharing OAuth |
-| `platform_api_key` | `platform_responses_v5` | `https://api.openai.com/v1/responses` | Explicit OpenAI Platform API-key access and billing |
+| `chatgpt_oauth` | `traditional_chatgpt_responses_v6` | `https://chatgpt.com/backend-api/codex/responses` | Traditional ChatGPT OAuth, with the authorized account header |
+| `siwc_oauth` | `siwc_documented_public_responses_v6` | `https://api.openai.com/v1/responses` | SIWC token-sharing OAuth |
+| `platform_api_key` | `platform_responses_v6` | `https://api.openai.com/v1/responses` | Explicit OpenAI Platform API-key access and billing |
 
 These modes never substitute for one another. A missing credential, unsupported model/effort, or unsuccessful OAuth request cannot activate API-key billing. The SIWC profile follows the documented public Responses contract; it does not send OpenClaw's preview test header or claim access from that header's existence.
 
@@ -309,6 +309,12 @@ preserve or clear an old selection but cannot add the fenced turn. The current
 character, latest contract, CONTROL and observed effects govern each new decision;
 old assistant Decisions remain historical proposals, not new actions or receipts.
 
+Selected custom-call history retains the exact `submit_decision` output and adds
+a `custom_tool_call_output` acknowledgment that only confirms receipt. It does
+not claim adoption, successful host execution or completion. The current CONTROL
+and supplied observations establish those outcomes. This acknowledgment completes
+the provider conversation; it neither executes nor replays a Decision.
+
 Missing or thin output and model incompatibility produce explicit unavailable
 metadata without inventing a complete history. Dispatch also checks the retained
 transport profile. An actual context-length or invalid-encrypted-content rejection
@@ -328,19 +334,32 @@ for freshness, accounting, compatibility and the paths that remain sequential.
 ## Wire and stream validation
 
 New persona admissions request the complete Decision directly. Ordinary work uses
-`text.format` with `type: "json_schema"`, `name: "persona_decision"` and
-`strict: false`; initial character authorship uses a strict schema derived from
-its closed operation subset. The prompt supplies `APPLICATION_DECISION_SCHEMA`;
+one Responses custom tool, `submit_decision`, with a Lark grammar generated from
+the applicable native schema. The tool's raw input is the complete Decision JSON;
+it is a response carrier with no executable implementation at the provider.
+Initial character authorship uses a strict text schema derived from its closed
+operation subset. The prompt supplies `APPLICATION_DECISION_SCHEMA`;
 the native parser validates the entire received object, including duplicate
 keys, required fields, tagged variants and cross-field rules, before any
 adoption. Provider formatting alone does not establish application-schema
 validity. Direct JSON removes the extra escaping layer that a JSON-string
 carrier imposed on scripts and other text.
 
+The grammar enforces required envelope members, closed objects, tagged
+alternatives and JSON syntax. Optional fields remain omittable; arbitrary JSON
+capability inputs remain arbitrary JSON. Object keys use a deterministic transport
+order without changing native parsing or field meaning. Array lengths and the
+number of operations remain unrestricted by the carrier. Numerical, string,
+reference and cross-field constraints still require native validation. This uses
+the documented [custom-tool grammar interface](https://developers.openai.com/api/docs/guides/function-calling#context-free-grammars).
+Actual provider acceptance establishes support for that request, not every model,
+account or future schema.
+
 The ordinary transport schema comes from the same applicable native contract as
-the prompt. It retains optional fields, tagged alternatives, constraints and
-arbitrary JSON capability inputs. Non-strict formatting can assist authorship
-without narrowing those open inputs to a provider-supported strict subset.
+the prompt. If a future schema contains a construct the grammar compiler cannot
+represent, preparation retains the original non-strict `json_schema` format
+instead of narrowing its values. A provider rejection does not silently switch
+carrier, model or effort.
 Descriptions, defaults and other presentation annotations are omitted only from
 schema nodes in the transport copy; they remain in the complete prompt contract.
 Authored property names and literal values are preserved. Need proposals appear
@@ -384,7 +403,7 @@ current identity. A fresh decision receives its own current values; a mandate
 revision is not the response epoch.
 
 The host seals a UTF-8 boundary after its complete instructions and application
-schema. The v5 transport sends that host-authored prefix in the `developer` role;
+schema. The v6 transport sends that host-authored prefix in the `developer` role;
 the remaining CONTROL and QUALIFIED_CONTEXT use the `user` role. This preserves
 the distinction between application instructions and their current inputs in
 [OpenAI's message-role contract](https://developers.openai.com/api/docs/guides/prompt-engineering#message-roles-and-instruction-following).
@@ -396,7 +415,7 @@ provider audit record `reusable_prefix_bytes`; the versioned wire profile and
 complete body hash bind both message roles and layout. Earlier v2 single-message
 and v3 two-user-message receipts, and v4 developer-prefix receipts without selected
 provider history, remain inspectable with their original roles. Explicitly selected
-history precedes the current developer and user messages in v5.
+history precedes the current developer and user messages in v6.
 
 Within the changing CONTROL object, the renderer presents persona character,
 current work, amendments, the original request and accepted participation before
@@ -425,8 +444,8 @@ does not establish token usage, remote cancellation or permission to replay.
 
 The application permits operation-specific inputs and maps whose keys are
 authored at runtime. These are not closed objects suitable for a fixed strict
-response schema, so ordinary output uses the non-strict contract described
-above. Incomplete, invalid or refused output remains a retained failure, with
+response schema; the grammar represents them as JSON values. Incomplete,
+invalid or refused output remains a retained failure, with
 no transport retry or JSON repair.
 
 Within an authorized foreground session, a complete rejected ordinary decision
@@ -480,17 +499,21 @@ variant-specific fields as required. The original response remains rejected.
 The exact native prompt uses the sealed developer-prefix and user-input layout
 described above. A request without a reusable-prefix boundary uses one user
 input-text message. A fixed JSON-output instruction and the exact requested
-reasoning effort are bound to the request. No tools, previous response,
+reasoning effort are bound to the request. Only the response-carrier tool is
+offered; no provider-executed tools, previous-response identifier, implicit
 conversation, hidden agent history or remote output-token cap are added. The
 immutable wire profile fixes method, endpoint, non-secret header policy, message
 roles and instructions. Traditional routing uses truthful application identity
 and its explicit beta header; mode-specific headers cannot leak into the public
 routes.
 
-The saved `output_schema` is the generated non-strict ordinary schema or the
+The saved `output_schema` is the generated native ordinary schema or the
 generated strict initialization schema. Its audit digest identifies that response
 contract; the serialized provider request binds the actual format.
-`ai-personas schema` exposes both ordinary variants and the initialization schema.
+`ai-personas schema` exposes both ordinary variants, their generated grammars and
+the initialization schema. The v6 request audit binds the grammar, carrier-only
+tool list and complete body. Response-only recovery verifies that exact body;
+it cannot authorize recovery of a request offering provider-executed tools.
 Earlier direct JSON-object admissions retain `{"type":"object"}`; older
 admissions and the isolated onboarding echo retain the strict
 `{"decision_json":"..."}` carrier. Response decoding follows the exact admitted
@@ -499,7 +522,16 @@ bytes without reserialization; historical carriers are decoded once. Completion
 receipts identify `direct_decision_json_v1` or `decision_json_string_v1`, and the
 exact application bytes still receive the same complete parser.
 
-Completion requires one completed assistant output-text message, consistent response/model/item identity, agreement with observed text deltas, and EOF after the terminal event. OAuth routes may omit the response Content-Type header; the same complete SSE validation still applies. A conflicting media type, duplicate headers or encoded body remains invalid. Refusals, returned tools, unsupported snapshots, malformed streams, duplicate/conflicting terminals, trailing errors and incomplete output retain their actual failures. Reasoning is never adopted as a response.
+Completion requires the requested carrier: one completed `submit_decision` call,
+or one completed assistant output-text message for text-format requests. Custom
+calls require stable name and call identity, agreement between input deltas and
+complete snapshots, consistent response/model/item identity, a completed terminal
+event and clean EOF. Other returned tools, multiple carriers, refusals, malformed
+streams, conflicting terminals, trailing errors and incomplete output remain
+failures. Commentary can accompany a carrier but never replaces it. Reasoning is
+never adopted as a response. OAuth routes may omit the response Content-Type
+header; conflicting media types, duplicate headers or encoded bodies remain
+invalid under the same SSE validation.
 
 An added, in-progress assistant message may contain either an empty content list
 or one empty `output_text` part. Both carry no text; allocating the part early

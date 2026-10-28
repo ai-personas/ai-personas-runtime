@@ -11,6 +11,7 @@ mod http_error;
 mod network_error;
 mod output_items;
 mod input_history;
+mod decision_grammar;
 pub use http_error::Diagnostic as HttpErrorDiagnostic;
 pub(crate) use http_error::input_text_length_rejected;
 pub use network_error::{Diagnostic as NetworkDiagnostic, Stage as NetworkFailureStage, TransportDiagnostics};
@@ -29,7 +30,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use tokio::sync::watch;
 
-const INSTRUCTIONS: &str = "Return only the JSON value required by text.format.";
+const INSTRUCTIONS: &str = "Return one complete JSON response using the supplied response format. When submit_decision is present, put the JSON directly in that tool's input; it is a response carrier and executes no operation.";
 const USER_AGENT: &str = "ai-personas/direct-responses-v1";
 const PUBLIC_HEADERS: &[(&str, &str)] = &[
     ("content-type", "application/json"),
@@ -81,19 +82,19 @@ impl AccessMode {
     fn wire_profile(self) -> WireProfile {
         let (id, url, headers, account_header) = match self {
             Self::ChatgptOAuth => (
-                "traditional_chatgpt_responses_v5",
+                "traditional_chatgpt_responses_v6",
                 "https://chatgpt.com/backend-api/codex/responses",
                 CHATGPT_HEADERS,
                 Some("chatgpt-account-id"),
             ),
             Self::SiwcOAuth => (
-                "siwc_documented_public_responses_v5",
+                "siwc_documented_public_responses_v6",
                 "https://api.openai.com/v1/responses",
                 PUBLIC_HEADERS,
                 None,
             ),
             Self::PlatformApiKey => (
-                "platform_responses_v5",
+                "platform_responses_v6",
                 "https://api.openai.com/v1/responses",
                 PUBLIC_HEADERS,
                 None,
@@ -849,8 +850,8 @@ pub struct ProviderRequest {
     pub input_history: Option<InputHistory>,
     pub images: Vec<ImageInput>,
     /// The unconstrained object schema selects JSON-object transport. Native
-    /// ordinary schemas use non-strict structure; other schemas use strict
-    /// structure. The application always validates the complete response.
+    /// ordinary schemas use a grammar carrier when representable; other schemas
+    /// use strict structure. The application always validates the complete response.
     pub output_schema: Value,
     pub invocation_id: String,
 }
@@ -1304,16 +1305,37 @@ fn response_only_body(
     };
     let mut input = input_history.map(|history| history.items(model, profile)).transpose()?.unwrap_or_default();
     input.extend(current_input(profile, prompt, reusable_prefix_bytes, images)?);
-    let body = json!({"model":model,"store":false,"stream":true,
+    let mut body = json!({"model":model,"store":false,"stream":true,
         "instructions":profile.instructions,
         "input":input,
         "reasoning":{"effort":effort},
         "text":{"format":format}});
+    if let Some(grammar) = response_grammar(schema) {
+        body.as_object_mut().ok_or(Failure::Configuration)?.remove("text");
+        body["tools"] = json!([{"type":"custom", "name":decision_grammar::TOOL,
+            "description":decision_grammar::INSTRUCTIONS,
+            "format":{"type":"grammar","syntax":"lark","definition":grammar}}]);
+        body["tool_choice"] = json!("required");
+        // There is one complete response carrier, not one tool operation.
+        // Its Decision.operations array has no application count restriction.
+        body["parallel_tool_calls"] = json!(false);
+    }
     Ok(body)
 }
 
+pub fn ordinary_decision_grammar(need_proposals: bool) -> Option<String> {
+    decision_grammar::compile(&crate::protocol::ordinary_provider_schema(need_proposals))
+}
+
+fn response_grammar(schema: &Value) -> Option<String> {
+    [false, true].into_iter()
+        .any(|needs| schema == &crate::protocol::ordinary_provider_schema(needs))
+        .then(|| decision_grammar::compile(schema)).flatten()
+}
+
 /// Verify the exact immutable response-only wire contract without credentials or I/O.
-/// The dispatch serializer proves that no tools or external action plan were sent.
+/// The only possible tool is a local response carrier. No provider-executed
+/// capability or external action plan is sent; native adoption owns all effects.
 pub(crate) fn response_only_request_matches(
     audit: &Value,
     model: &str,
@@ -1334,27 +1356,8 @@ pub(crate) fn response_only_request_matches(
     ]
     .into_iter()
     .any(|mode| {
-        let mut profile = mode.wire_profile();
-        if audit["transport_profile"] != profile.id {
-            // Inspect earlier exact bodies without enabling an older dispatch
-            // or changing the authority of any retained historical input.
-            if input_history.is_some() { return false; }
-            let (single, split_user, split_developer) = match mode {
-                AccessMode::ChatgptOAuth => ("traditional_chatgpt_responses_v2", "traditional_chatgpt_responses_v3", "traditional_chatgpt_responses_v4"),
-                AccessMode::SiwcOAuth => ("siwc_documented_public_responses_v2", "siwc_documented_public_responses_v3", "siwc_documented_public_responses_v4"),
-                AccessMode::PlatformApiKey => ("platform_responses_v2", "platform_responses_v3", "platform_responses_v4"),
-            };
-            if audit["transport_profile"] == single && reusable_prefix_bytes.is_none() {
-                profile.id = single;
-            } else if audit["transport_profile"] == split_user {
-                profile.id = split_user;
-            } else if audit["transport_profile"] == split_developer {
-                profile.id = split_developer;
-            } else {
-                return false;
-            }
-            if profile.id != split_developer { profile.reusable_prefix_role = "user"; }
-        }
+        let profile = mode.wire_profile();
+        if audit["transport_profile"] != profile.id { return false; }
         let Ok(body) = response_only_body(
             &profile, model, effort, prompt, reusable_prefix_bytes, images, input_history, schema,
         ) else { return false };
@@ -1428,6 +1431,7 @@ impl ModelProvider for DirectProvider {
                 body,
                 audit,
                 account,
+                decision_carrier: response_grammar(&request.output_schema).is_some(),
             })
         };
         prepare()
@@ -1440,6 +1444,7 @@ struct DirectCall {
     body: Vec<u8>,
     audit: RequestAudit,
     account: Secret,
+    decision_carrier: bool,
 }
 impl PreparedCall for DirectCall {
     fn audit(&self) -> &RequestAudit {
@@ -1475,6 +1480,7 @@ impl DirectCall {
                 body,
                 audit,
                 account,
+                decision_carrier,
             } = *self;
             let mut receipt = AttemptReceipt::new(audit.clone());
             receipt.intake_expires_at_unix = intake_expires_at_unix;
@@ -1490,7 +1496,8 @@ impl DirectCall {
                 .map_err(|failure| attempt_error(failure, receipt.clone()))?;
             let settings = &inner.settings;
             let error_secrets = [bearer.clone(), account.clone()];
-            let mut collector = sse::Collector::new(&settings.model).with_mode(settings.mode);
+            let mut collector = sse::Collector::new(&settings.model).with_mode(settings.mode)
+                .with_decision_carrier(decision_carrier);
             let diagnostics = TransportDiagnostics::default();
             let started = tokio::time::Instant::now();
             let result = {

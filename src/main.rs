@@ -1,5 +1,5 @@
 use ai_personas::{
-    files, launch, protocol,
+    files, launch, protocol, provider,
     runtime::{
         self, Config, DirectProviderSettings, Mode, NeedInput, PersonaImport, PrepareRequest,
         Profile, Runtime, Seed,
@@ -858,7 +858,10 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             "provider_transport":protocol::ordinary_provider_schema(true),
             "provider_transport_without_need_proposals":protocol::ordinary_provider_schema(false),
             "initialization_provider_transport":protocol::initialization_provider_schema(),
-            "provider_text_format":{"type":"json_schema","name":"persona_decision","strict":false},
+            "ordinary_provider_carrier":{"type":"custom","name":"submit_decision",
+                "grammar":provider::ordinary_decision_grammar(true),
+                "grammar_without_need_proposals":provider::ordinary_decision_grammar(false),
+                "unsupported_schema_fallback":"non-strict json_schema"},
             "legacy_provider_transport":runtime::provider_schema(),
             "adopt_response_input":"complete raw Decision JSON",
             "work_capability":{"id":"work.command.v1","binding_revision":runtime::work_binding(),"inputs":runtime::work_schema()}}))
