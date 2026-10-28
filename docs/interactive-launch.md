@@ -31,6 +31,12 @@ qualifications. If no delivered package or complete cited file is available,
 Export explains this and returns to the work menu without creating a directory
 or starting inference. Files written directly by host commands remain in the
 displayed task workspace; a command-output citation does not export those files.
+The persona's communication interface explains how to import an intended host
+deliverable and attach its complete retained file in the same response. The
+launcher exports those explicitly cited text or binary files with their
+qualifications; it does not infer attachments from prose or gather workspace
+files automatically. Attaching a file establishes neither its quality nor work
+completion.
 The normal results view keeps internal receipt data out of the
 file list; no retained content or qualification is shortened or removed.
 **c: continue** requests a fresh session without application call quotas. For a stopped or individually paused participant, first choose
