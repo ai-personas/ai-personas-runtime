@@ -79,6 +79,33 @@ pub(super) fn message_permitted(state: &State, message: &Message, now: i64) -> b
     exposure.sources.extend(message.lineage.iter().cloned());
     exposure_permitted(state, &exposure, &a)
 }
+/// A message becomes visible when its complete Decision adopts, not when its
+/// call starts. Protected Decision receipts survive invocation-history expiry.
+/// Messages from one atomic adoption have no separate delivery order.
+pub(super) fn order_messages(
+    messages: &mut [Message],
+    records: &s::RuntimeInspection<'_, '_>,
+) -> Result<()> {
+    let mut sequences = BTreeMap::new();
+    for message in messages.iter() {
+        if sequences.contains_key(&message.invocation) {
+            continue;
+        }
+        let decision = records.decision(&message.invocation)?;
+        require(
+            decision.invocation_id == message.invocation
+                && decision.receipt.subject == s::EntityId::Invocation(message.invocation.clone())
+                && decision.receipt.status == s::ReceiptStatus::Adopted
+                && decision.receipt.epoch == decision.accepted_epoch,
+            "message adoption order unavailable",
+        )?;
+        sequences.insert(message.invocation.clone(), decision.receipt.sequence);
+    }
+    messages.sort_by(|a, b| {
+        (sequences[&a.invocation], &a.id).cmp(&(sequences[&b.invocation], &b.id))
+    });
+    Ok(())
+}
 fn delivery(
     state: &State,
     work_id: &str,
@@ -124,12 +151,18 @@ pub(super) fn project(app: &mut Runtime, work_id: &str, saved: &Saved) -> Result
         let state = Runtime::decode_inspection_state(&runtime)?;
         let current = decode_saved(&launch)?;
         require(current.operator == saved.operator, "result operator changed")?;
-        let mut output = project_state(&state, work_id, &current, unix_now()?)?;
+        let mut output = project_state(&state, work_id, &current, unix_now()?, records)?;
         feedback::append_view(&mut output, &state, &current.operator, records)?;
         Ok::<_, RuntimeError>(output)
     })?
 }
-pub(super) fn project_state(state: &State, work_id: &str, saved: &Saved, now: i64) -> Result<Output> {
+pub(super) fn project_state(
+    state: &State,
+    work_id: &str,
+    saved: &Saved,
+    now: i64,
+    records: &s::RuntimeInspection<'_, '_>,
+) -> Result<Output> {
     require(saved.works.contains_key(work_id), "unknown launch work")?;
     let mut result = Output {
         work_id: work_id.into(),
@@ -342,5 +375,6 @@ pub(super) fn project_state(state: &State, work_id: &str, saved: &Saved, now: i6
         }
         result.messages.push(message.clone());
     }
+    order_messages(&mut result.messages, records)?;
     Ok(result)
 }

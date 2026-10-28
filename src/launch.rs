@@ -969,7 +969,7 @@ pub fn result_at(root: &Path, operator: Option<&str>, work: &str) -> Result<Outp
     identity(work)?;
     inspection::project(root, |snapshot, records| {
         require(operator.is_none_or(|value| value == snapshot.saved.operator), "saved operator mismatch")?;
-        let mut result = results::project_state(&snapshot.state, work, &snapshot.saved, unix_now()?)?;
+        let mut result = results::project_state(&snapshot.state, work, &snapshot.saved, unix_now()?, records)?;
         feedback::append_view(&mut result, &snapshot.state, &snapshot.saved.operator, records)?;
         Ok(result)
     })

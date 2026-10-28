@@ -1073,7 +1073,7 @@ async fn run_session_bound(
 pub fn result_view(root: &Path, operator: &str, work: &str) -> BoundaryResult<Output> {
     valid_id(work)?;
     project_view(root, operator, |snapshot, records| {
-        let mut result = results::project_state(&snapshot.state, work, &snapshot.saved, unix_now()?)?;
+        let mut result = results::project_state(&snapshot.state, work, &snapshot.saved, unix_now()?, records)?;
         feedback::append_view(&mut result, &snapshot.state, operator, records)?;
         Ok(result)
     })

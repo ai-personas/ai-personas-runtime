@@ -27,11 +27,16 @@ pub fn session_messages(root: &Path, operator: &str, key: &str) -> BoundaryResul
     valid_id(key)?;
     project_view(root, operator, |snapshot, records| {
         let session = project_session(records, operator, key)?;
-        project(&snapshot.state, operator, session)
+        project(&snapshot.state, operator, session, records)
     })
 }
 
-fn project(state: &State, operator: &str, session: SessionView) -> BoundaryResult<SessionMessages> {
+fn project(
+    state: &State,
+    operator: &str,
+    session: SessionView,
+    records: &s::RuntimeInspection<'_, '_>,
+) -> BoundaryResult<SessionMessages> {
     let scope = match &session {
         SessionView::Finished { claim, terminal } => Some(SessionMessageScope {
             work: claim.request.work.clone(),
@@ -44,16 +49,14 @@ fn project(state: &State, operator: &str, session: SessionView) -> BoundaryResul
         truncated: false, inference_performed: false };
     let Some(scope) = &result.message_scope else { return Ok(result); };
     if scope.steps_before == scope.steps_after { return Ok(result); }
-    let calls: BTreeMap<_, _> = (scope.steps_before + 1..=scope.steps_after)
-        .map(|step| (format!("call-{step:08}"), step)).collect();
+    let calls: BTreeSet<_> = (scope.steps_before + 1..=scope.steps_after)
+        .map(|step| format!("call-{step:08}")).collect();
     let now = unix_now()?;
-    let mut candidates: Vec<_> = state.messages.values().filter_map(|message| {
-        let step = calls.get(&message.invocation)?;
-        (message.work == scope.work && message.recipient == operator
-            && results::message_permitted(&state, message, now)).then_some((*step, message))
-    }).collect();
-    // Preserve every matching record in call order; there is no output quota.
-    candidates.sort_by(|(step_a, a), (step_b, b)| (step_a, &a.id).cmp(&(step_b, &b.id)));
-    result.messages = candidates.into_iter().map(|(_, message)| message.clone()).collect();
+    result.messages = state.messages.values().filter(|message| {
+        calls.contains(&message.invocation)
+            && message.work == scope.work && message.recipient == operator
+            && results::message_permitted(state, message, now)
+    }).cloned().collect();
+    results::order_messages(&mut result.messages, records)?;
     Ok(result)
 }

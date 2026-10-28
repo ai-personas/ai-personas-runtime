@@ -7,10 +7,10 @@ use std::io::Write;
 /// A new destination avoids silently replacing the user's existing files.
 pub fn export_result_at(root: &Path, operator: Option<&str>, work: &str, destination: &Path) -> Result<Value> {
     identity(work)?;
-    inspection::project(root, |snapshot, _| {
+    inspection::project(root, |snapshot, records| {
         require(operator.is_none_or(|value| value == snapshot.saved.operator), "saved operator mismatch")?;
         let now = unix_now()?;
-        let output = results::project_state(&snapshot.state, work, &snapshot.saved, now)?;
+        let output = results::project_state(&snapshot.state, work, &snapshot.saved, now, records)?;
         export(&snapshot.state, &output, destination, now)
     })
 }

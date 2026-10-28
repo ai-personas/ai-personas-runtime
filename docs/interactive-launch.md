@@ -470,8 +470,12 @@ authored text. Those references supply no file body. Repeated copies from the
 same attributed decision and disclosure scope appear together with the recorded
 count and distinct subjects; each underlying message remains in the native JSON.
 The session view applies its call-range and current permission checks before
-formatting. It retains every matching record and displays them in call order
-without an output quota. Each message keeps its own
+formatting. Result, session and export views retain every matching record in
+actual local delivery order, using the protected Decision adoption receipt.
+Concurrent calls can finish in a different order from their call IDs; invocation
+history expiry does not remove this ordering evidence. Messages committed in
+one atomic adoption use their IDs as a deterministic tie-break, without implying
+separate delivery times. There is no output quota. Each message keeps its own
 attribution; an earlier successful reply does not become a later call's result.
 
 The native `personas-session session-messages --id SESSION_ID` command provides
