@@ -55,8 +55,10 @@ with its author, producing call and recorded input time. Calls can finish out
 of order; a later displayed account can use earlier information. An unavailable
 input time remains labeled unavailable. These updates preserve the persona's full
 explanation and appear once per changed record during a session. They describe
-the persona's judgment at that time; the work phase and delivered results remain
-separate. Results show these accounts again, including when no reply was sent.
+the persona's judgment at that time; its continuation choice, the work phase and
+delivered results remain separate. Judging work ongoing does not mean that the
+persona chose to continue its own contribution. Results show these accounts again,
+including when no reply was sent.
 An account from an earlier task amendment is labeled with its original mandate.
 Available local deliveries appear as qualified file lists while other personas
 continue, including when no reply announces the delivery. Each exact permitted
@@ -87,6 +89,13 @@ Calls and recovery holds are attributed to their actual work. A persona working
 on a later task does not make an earlier stopped task show pending calls.
 Participant and progress views identify calls on other work separately; those
 leases still affect the persona's availability without changing its earlier choice.
+Progress also identifies a participant's pending tool commands in other work,
+including when the persona has already started a new call here. Each command
+keeps its originating work, invocation and operation in the native inspection.
+The display uses the retained dispatch status while the complete result remains
+unpublished; it does not establish that a process is still running. Commands in
+other work neither resume this participation nor make it ineligible. The work
+list distinguishes pending tool commands here from commands in other work.
 It shows each saved task's complete request text beside its work ID, so tasks can
 be distinguished without opening their results. Optional activities use a short
 label from their recorded activity binding; their complete original text remains
@@ -100,6 +109,10 @@ and request revision, and labels a record from an earlier request revision.
 This is historical metadata, not a fresh quality judgment or an instruction to
 stop further work. The native inspection supplies it without artifact bodies,
 inference or a change to any participant's continuation.
+The record identifies an accepted `CloseGoal` command, its release and originating
+invocation. Personas receive it as `CONTROL.recorded_completion`; an `Open`
+operational phase does not undo that accepted record. Its `historical_only` flag
+limits the claim to the recorded release rather than asserting current support.
 After a session, the launcher also identifies feedback still awaiting a response.
 Feedback queued while a final call was already in progress may need an explicit
 participant resume before the persona receives and addresses it.
@@ -419,7 +432,12 @@ same session.
 While a session runs, the launcher checks its current work status every 15 seconds
 and displays changed activity, with a status reminder each minute. It names active
 persona calls, pending host commands, recorded attempts, and participants needing
-attention, including identities invited after initial setup. Tool status comes
+attention, including identities invited after initial setup. Active calls in this
+work and calls in other work show their age from the retained admission time.
+This includes preparation and waiting; it is not provider execution time or
+evidence of progress. Reopening the launcher does not reset that age. Missing or
+future admission timestamps display an unavailable age rather than zero. Age is
+informational and imposes no timeout. Tool status comes
 from the retained dispatch record; an outstanding command is not proof that its
 process is still alive or that it succeeded. These are current observations, not
 proof of task completion. An unavailable status read
@@ -471,9 +489,19 @@ the original citation remains metadata, and export does not create a release or
 acceptance. Ranges and decoded string citations do not select their whole files.
 The export summary counts delivery packages and cited files separately; their
 source and qualification records do not inflate the displayed content count.
+The launcher points to an offline `index.html` with links to every exported
+content file and its source and qualification records. Cited files show their
+sender and reply position; delivery artifacts retain their package attribution.
+Different exact versions remain separate even when their filenames match.
+Labels and relative URLs are escaped; the index embeds no artifact body and
+does not choose a preferred version or establish task completion.
 Export copies retained bytes rather than reopening
 mutable task paths. It starts no model call and executes no artifact. The native
 `result WORK --export-directory DIRECTORY` command offers the same operation.
+Every export uses a fresh consistent snapshot. Within that snapshot, cited files
+from the same sender to the same recipient share catalogue construction; each
+exact file still receives its own lineage and qualification checks. This reuse
+does not extend across export requests.
 An existing destination is left untouched. If a filesystem write fails, files
 already written in the new destination remain available for inspection.
 

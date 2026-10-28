@@ -23,6 +23,7 @@ fn query_identity(record_kind: p::HistoryRecordKind, mode: &f::SearchMode) -> Re
 pub(crate) struct Material {
     archives: BTreeMap<String, (s::DecisionRecord, s::StoredObject)>,
     pub(super) recent_decision: Option<s::DecisionRecord>,
+    pub(crate) requested_decisions: BTreeMap<String, s::DecisionRecord>,
     pub(crate) continuation: provider_continuation::Material,
 }
 impl Material {
@@ -53,6 +54,11 @@ impl Material {
             return material;
         };
         if persona.character.is_some() {
+            for invocation in requested_work::decision_invocations(state, actor, work) {
+                if let Ok(record) = store.retained_decision(invocation) {
+                    material.requested_decisions.insert(invocation.into(), record);
+                }
+            }
             if let Some((_, _, origin, _)) = super::recent_other_judgment(state, actor, work) {
                 // Read one indexed commit record, not its authored archive or
                 // the retained-history inventory. Store records actual usage.
@@ -143,7 +149,7 @@ impl Material {
 
 /// An immutable identity from an actual commit, not a claim that its body was
 /// inspected or remains readable. The ordinary exact read checks the archive.
-pub(super) fn committed_reference(proof: &s::DecisionRecord) -> Option<p::HistoryRecordReference> {
+pub(in crate::runtime) fn committed_reference(proof: &s::DecisionRecord) -> Option<p::HistoryRecordReference> {
     let archive = archive_id(&proof.invocation_id);
     let mut matches = proof.objects.iter().filter(|reference| reference.id == archive);
     let reference = matches.next()?;

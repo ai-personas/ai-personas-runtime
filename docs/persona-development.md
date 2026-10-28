@@ -13,6 +13,15 @@ belongs in `reason`. The generated Decision schema and initial authorship
 instructions make this distinction explicit. Unknown fields still reject the
 complete response; they are not silently moved or dropped.
 
+The compact response contract presents admission identity, work judgment and
+actions before maintenance and next-context choices. This is presentation order;
+all fields remain required as declared, and JSON member order changes no action
+semantics. An individual sufficiency judgment concerns the actual request or an
+accepted narrower commitment. Its guidance distinguishes essential work still
+possible, genuinely unavailable outside evidence, and any remaining unowned
+follow-through. Declared limitations alone do not establish completion. These
+remain persona judgments, without a host quality score or forced workflow.
+
 Every work judgment's schema also requires unique, nonempty evidence identifiers.
 An empty evidence list remains valid, and there is no item-count or text-size
 ceiling. The parser preserves the authored order and rejects duplicates rather

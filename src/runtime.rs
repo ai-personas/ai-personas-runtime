@@ -84,6 +84,7 @@ mod requester_wait;
 pub use requester_feedback::Disposition as RequesterFeedbackDisposition;
 mod peer_feedback;
 mod collaborators;
+mod requested_work;
 mod provider_continuation;
 mod judgment_citations;
 pub(crate) mod affect;
@@ -119,8 +120,9 @@ fn terminal_evidence_capacity(response_bytes: usize) -> Result<u64> {
 }
 
 /// Historical strict carrier, retained for onboarding and exact old admissions.
-/// New persona admissions use provider::json_object_schema() and return the
-/// complete Decision directly. adopt_response always accepts raw Decisions.
+/// New persona admissions return the complete Decision directly, using the
+/// applicable ordinary or initial-character schema. adopt_response always
+/// accepts raw Decisions.
 pub fn provider_schema() -> Value {
     json!({"type":"object","properties":{"decision_json":{"type":"string"}},
         "required":["decision_json"],"additionalProperties":false})
@@ -148,8 +150,7 @@ pub fn decode_provider_carrier(bytes: &[u8]) -> Result<String> {
 /// Interpret only the response format bound to this exact admission. Direct
 /// JSON keeps the original UTF-8 bytes; it performs no repair or reserialization.
 fn decode_provider_decision(bytes: &[u8], schema: &Value) -> Result<String> {
-    if schema == &provider::json_object_schema() {
-
+    if direct_decision_schema(schema) {
         String::from_utf8(bytes.to_vec()).map_err(|_| invalid("provider decision is not UTF-8"))
     } else {
         require(
@@ -157,6 +158,20 @@ fn decode_provider_decision(bytes: &[u8], schema: &Value) -> Result<String> {
             "unsupported provider response schema",
         )?;
         decode_provider_carrier(bytes)
+    }
+}
+
+fn direct_decision_schema(schema: &Value) -> bool {
+    schema == &provider::json_object_schema()
+        || p::initialization_provider_schema().as_ref() == Some(schema)
+        || [false, true].into_iter().any(|needs| schema == &p::ordinary_provider_schema(needs))
+}
+
+fn persona_output_schema(initial_character: bool, need_proposals: bool) -> Value {
+    if initial_character {
+        p::initialization_provider_schema().unwrap_or_else(provider::json_object_schema)
+    } else {
+        p::ordinary_provider_schema(need_proposals)
     }
 }
 
@@ -1769,6 +1784,11 @@ pub enum WorkAction {
     /// the new judgment reaches the same conclusion.
     /// completion-record-v1: record this release as completed without ending
     /// work or peers; the independently authored continuation still governs.
+    /// After adoption, CONTROL.recorded_completion identifies the accepted
+    /// CloseGoal by release and by.invocation. This record can coexist with an
+    /// Open CONTROL.work_phase. Its historical_only flag scopes the claim to
+    /// that release; it does not mean the command was unaccepted. Current
+    /// support and continuation remain separate.
     CloseGoal {
         release: String,
     },
@@ -2202,6 +2222,10 @@ pub struct ForegroundScan {
     pub at_unix: i64,
     pub selected: Option<(String, String)>,
     pub requires_exclusive: bool,
+    /// Previously selected candidate reconsidered first after owned calls settled.
+    /// This is a scheduling preference, never retained eligibility or authority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deferred_exclusive_candidate: Option<(String, String)>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4234,7 +4258,7 @@ impl Runtime {
             input_history: rendered.input_history,
             images: rendered.images,
             prompt_encoding: rendered.prompt_encoding,
-            output_schema: provider::json_object_schema(),
+            output_schema: persona_output_schema(persona.character.is_none(), rendered.need_interface.is_some()),
             reconsideration_interface: persona.character.is_some()
                 .then(|| RECONSIDERATION_INTERFACE.into()),
             history_records_interface: persona.character.is_some()
@@ -5822,7 +5846,7 @@ impl Runtime {
         };
         let mut metadata = json!({"kind":"provider_complete","synthetic":false,
             "transport_sha256":transport_hash,"inner_sha256":inner_hash,
-            "response_encoding":if prepared.output_schema == provider::json_object_schema() {
+            "response_encoding":if direct_decision_schema(&prepared.output_schema) {
                 "direct_decision_json_v1"
             } else { "decision_json_string_v1" },
             "transport_response_bytes":transport_response_bytes,
@@ -6470,6 +6494,14 @@ fn trace_exposure<const RETAIN: bool>(
     sources: &[f::Reference],
     policies: &[ScopedPolicy],
 ) -> Result<Exposure> {
+    trace_exposure_with_validated::<RETAIN>(state, sources, policies, None)
+}
+fn trace_exposure_with_validated<const RETAIN: bool>(
+    state: &State,
+    sources: &[f::Reference],
+    policies: &[ScopedPolicy],
+    validated: Option<&mut BTreeSet<f::Reference>>,
+) -> Result<Exposure> {
     // The visited set is the complete final source list. Do not repeatedly
     // merge and sort an intermediate list that would be replaced at the end.
     // Validation follows every edge but needs no returned sources or policies.
@@ -6481,6 +6513,11 @@ fn trace_exposure<const RETAIN: bool>(
     let mut seen = BTreeSet::new();
     while let Some(reference) = pending.pop() {
         if !seen.insert(reference.clone()) {
+            continue;
+        }
+        // Validation can reuse a fully checked ancestry within one immutable
+        // snapshot. Collection must still visit every source and policy.
+        if !RETAIN && validated.as_ref().is_some_and(|known| known.contains(&reference)) {
             continue;
         }
 
@@ -6538,6 +6575,10 @@ fn trace_exposure<const RETAIN: bool>(
     }
     if RETAIN {
         result.sources = seen.into_iter().collect();
+    } else if let Some(validated) = validated {
+        // Commit only after the complete traversal succeeds. In particular,
+        // nodes visited before a missing edge or invalid receipt are not valid.
+        validated.extend(seen);
     }
 
     Ok(result)
@@ -6640,13 +6681,20 @@ fn attributed_context(
         );
     Ok(serde_json::to_string(&value)?)
 }
-fn corpus(state: &State, a: &f::Admission) -> Result<f::Corpus> {
+fn corpus(state: &State, _a: &f::Admission) -> Result<f::Corpus> {
     phase_timing::measure("runtime.build_corpus", || {
+        // This cache never crosses a catalogue build or a runtime-state change.
+        let mut validated = BTreeSet::new();
         let records = state
             .sources
             .values()
             .flat_map(|s| s.revisions.iter())
-            .filter(|r| lineage_permitted(state, &[r.record.reference(f::Representation::Utf8)], a))
+            .filter(|r| trace_exposure_with_validated::<false>(
+                state,
+                &[r.record.reference(f::Representation::Utf8)],
+                &[],
+                Some(&mut validated),
+            ).is_ok())
             .map(|r| r.record.clone())
             .collect::<Vec<_>>();
         let mut bindings = state.accepted_bindings.clone();
@@ -7580,6 +7628,13 @@ fn render_mode_with_history(
     if ordinary_interfaces {
         core["affect_interface"] = affect::interface(now)?;
         core["history_retrieval"] = history::retrieval_rules();
+        if let Some(requests) = requested_work::context(
+            state, history_material, actor, work_id, &a, &mut exposure,
+        )? {
+            growth_bytes = growth_bytes.checked_add(serde_json::to_vec(&requests)?.len())
+                .ok_or_else(|| invalid("requested work metadata accounting"))?;
+            core["requested_work"] = requests;
+        }
         if let Some(previous) = history::recent_other_work(state, history_material, actor, work_id, &a, &mut exposure) {
             growth_bytes = growth_bytes.checked_add(serde_json::to_vec(&previous)?.len())
                 .ok_or_else(|| invalid("prior work locator accounting"))?;
@@ -7609,6 +7664,9 @@ fn render_mode_with_history(
                         }
                     }
                 }
+                control_guides.extend(work_guides::arrangement_control_guides(
+                    state, &core["arrangements"], &a, &mut exposure,
+                )?);
                 if !control_guides.is_empty() {
                     discovery["control_guides"] = serde_json::to_value(control_guides)?;
                 }
@@ -7723,7 +7781,9 @@ fn render_mode_with_history(
         .transpose().map_err(|_| invalid("provider continuation input accounting"))?.unwrap_or(0);
     growth_bytes = growth_bytes.checked_add(input_history_bytes)
         .ok_or_else(|| invalid("provider continuation input size overflow"))?;
-    let schema_bytes = serde_json::to_vec(&provider::json_object_schema())?.len();
+    let schema_bytes = serde_json::to_vec(&persona_output_schema(
+        persona.character.is_none(), need_interface.is_some(),
+    ))?.len();
     // Measure only the actual instruction/schema components, not dynamic
     // control fields, counters, invocation identifiers or resource formatting.
     let mut fixed_contract_bytes = [
@@ -10881,7 +10941,8 @@ fn apply_work_actions(
             .insert(wait.id.clone(), wait);
     }
     invalidate_replaced_message_waits(state, &wid.0)?;
-    // An ordinary peer reply can be deposited while this model call runs,
+    // An ordinary peer reply, including a child reply under its sealed scope,
+    // can be deposited while this model call runs,
     // before its chosen wait exists. Match only arrivals after the sealed inbox
     // boundary and only this response's new registrations. Earlier inbox
     // messages, Stop/Pause and unrelated waits acquire no new event. The exact

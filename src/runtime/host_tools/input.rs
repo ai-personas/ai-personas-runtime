@@ -6,16 +6,21 @@ use schemars::JsonSchema;
 #[serde(deny_unknown_fields)]
 /// Commands use the shared, mutable host filesystem, including the configured
 /// task directory. There is no private per-persona copy or filesystem transaction;
-/// another participant can change a file while your model call runs. Inspect
-/// current files before revising them or judging the final package, and choose
-/// useful coordination with peers for shared edits. A prior command result or
-/// captured preview describes the observed bytes, not later contents at that path.
+/// another participant can change a file while your model call runs. A captured
+/// result or preview is usable evidence of the observed state. A new call, elapsed
+/// time or activity on unrelated files does not by itself invalidate that evidence.
+/// Recheck when a relevant change or concrete uncertainty warrants it. One command
+/// can check current preconditions and perform the intended change; a separate
+/// inspection-only call is not required. Choose useful coordination for shared edits.
+/// A capture does not describe later changed bytes at the same path.
 /// A nonzero exit or failed check does not roll back earlier writes or external
-/// effects. Inspect current state before retrying a failed script; a later
-/// verification failure can follow a successful edit or regeneration. Judge
-/// each check against the property it actually inspects.
+/// effects. Establish what actually took effect before retrying; a later verification
+/// failure can follow a successful edit or regeneration. Judge each check against
+/// the property it actually inspects.
 pub(super) struct Inputs {
     /// Bash command or script; tools and packages may be installed directly.
+    /// For an interpreter script, use a command such as python3 - with the script
+    /// in stdin, avoiding an extra layer of shell quoting or a heredoc.
     pub command: String,
     /// Choose the next decision's result context: complete supplies all retained
     /// command and output text; reference supplies execution metadata and exact
@@ -24,7 +29,10 @@ pub(super) struct Inputs {
     /// Host working directory; omission uses the offered default.
     #[serde(default)]
     pub working_directory: Option<String>,
-    /// Literal UTF-8 stdin. Mutually exclusive with stdin_asset.
+    /// Literal UTF-8 stdin, supplied directly to the process. For command
+    /// "python3 -", put the Python source here. Encode the intended text once as
+    /// a JSON string; do not JSON-encode it again inside this string or shell-escape
+    /// it. Mutually exclusive with stdin_asset.
     #[serde(default)]
     pub stdin: Option<String>,
     /// Supply exact supporting-asset bytes as stdin without copying them into this

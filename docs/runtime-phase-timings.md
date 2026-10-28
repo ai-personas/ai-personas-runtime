@@ -317,9 +317,10 @@ policy records in their existing order without repeatedly merging and sorting
 an intermediate source list that would be discarded. Exact lookups, inherited
 sources, qualification edges, warning-specific traversal and missing-lineage
 errors remain part of the walk. Unchanged inherited exposures are borrowed;
-warning markers still obtain their freshly computed projection. No validation
-result survives the call. Corpus, rendering and planning timings include this
-work; they do not isolate its contribution or establish a whole-session gain.
+warning markers still obtain their freshly computed projection. Full expansion
+retains no validation result beyond its call. Corpus, rendering and planning
+timings include this work; they do not isolate its contribution or establish a
+whole-session gain.
 
 Lineage checks that discard the expanded result use the same traversal without
 collecting policy records or a final source vector. This includes per-revision
@@ -329,3 +330,14 @@ lineage, qualification edges and fresh warning ancestry remain required. Full
 expansion retains all provenance in the same order. Rendering validates optional
 metadata once and uses its final full expansion without repeating that successful
 walk against the same immutable state. Later calls still validate their own state.
+
+Within one corpus construction, eligibility checks reuse successful ancestry
+validation for exact references already checked in that immutable state. A
+traversal adds its visited references only after every reachable edge succeeds;
+failure leaves the reusable set unchanged. Cycles retain their existing visited-set
+behavior, and a missing edge or unknown source origin still rejects the affected
+ancestry. Full provenance expansion does not use this shortcut. The set ends with
+the corpus construction; changed state, warnings and bindings receive fresh checks
+in the next construction. File identities, digests, paths, qualifications and
+binding validation remain unchanged. `runtime.build_corpus` includes this work;
+its timing does not establish the effect on an entire session.

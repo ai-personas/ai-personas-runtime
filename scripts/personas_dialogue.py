@@ -1642,7 +1642,7 @@ class Dialogue:
         return displayed
 
     def show_persona_activity(self, result, shown_activity=None):
-        descriptions = {"ongoing": "continuing", "blocked": "reports a blocker",
+        descriptions = {"ongoing": "judges work ongoing", "blocked": "reports a blocker",
                         "individual_sufficient": "judges own contribution sufficient",
                         "shared_sufficient": "judges the shared result sufficient",
                         "closed": "reports work closed"}
@@ -2374,6 +2374,7 @@ class Dialogue:
                             saved.append(f"{cited} cited file{'s' if cited != 1 else ''}")
                         self.ui.say(f"Saved {' and '.join(saved)} with source and qualification records "
                                     f"in {receipt['destination']}.")
+                        self.ui.say(f"Open {receipt['index_path']} to find the files and their reply or delivery attribution.")
             elif choice == "q":
                 self.questions(work["id"])
             elif choice == "f":
@@ -2449,12 +2450,16 @@ class Dialogue:
         if any(p.get("active_invocation") and p["active_invocation"]["state"] in
                ("Prepared", "Dispatched", "Responded") for p in work["participants"]):
             return "has pending calls; inspect their outcomes"
+        if any(p["pending_host_commands"] for p in work["participants"]):
+            return "has pending tool commands; inspect their outcomes"
         if any(p.get("failed_attempt_hold") or p.get("resume_recovery") for p in work["participants"]):
             return "review failed attempts"
         if work["participants"] and all(p["continuation"] == "persona_stop" for p in work["participants"]):
             return "participants stopped; review their results"
         if any(p.get("other_work_attempt") for p in work["participants"]):
             return "participants are occupied by another work"
+        if any(p.get("other_work_host_commands") for p in work["participants"]):
+            return "participants have pending tool commands in other work"
         return "no participant ready to continue"
 
     def codex_auth_defaults(self):
@@ -2599,19 +2604,29 @@ class Dialogue:
             after = snapshot["next_after"]
 
     @staticmethod
-    def attempt_status(attempt):
-        return {"Prepared": "preparing the call", "Dispatched": "waiting for the model",
-                "Responded": "applying the response"}.get(attempt["state"], attempt["status"])
+    def attempt_status(attempt, now=None):
+        status = {"Prepared": "preparing the call", "Dispatched": "waiting for the model",
+                  "Responded": "applying the response"}.get(attempt["state"], attempt["status"])
+        if now is None:
+            now = int(time.time())
+        admitted = attempt.get("admitted_at_unix")
+        if type(admitted) is not int or admitted > now:
+            return f"{status}, call age unavailable"
+        minutes = (now - admitted) // 60
+        age = ("under 1 min" if minutes == 0 else f"{minutes} min" if minutes < 60
+               else f"{minutes // 60}h {minutes % 60:02d}m")
+        return f"{status}, call age {age}"
 
     def work_progress(self, work):
         current, snapshot = self.work_snapshot(work)
+        now = snapshot["inspected_at_unix"]
         participants = [] if current is None else current["participants"]
-        active = [f"{participant['label']} ({attempt['id']}, {self.attempt_status(attempt)})"
+        active = [f"{participant['label']} ({attempt['id']}, {self.attempt_status(attempt, now)})"
                   for participant in participants
                   if (attempt := participant.get("active_invocation"))
                   and attempt["state"] in ("Prepared", "Dispatched", "Responded")]
         elsewhere = [f"{participant['label']} ({attempt['work']}, {attempt['id']}, "
-                     f"{self.attempt_status(attempt)})"
+                     f"{self.attempt_status(attempt, now)})"
                      for participant in participants
                      if (attempt := participant.get("other_work_attempt"))]
         tool_states = {"Admitted": "queued", "Dispatched": "awaiting outcome",
@@ -2621,6 +2636,10 @@ class Dialogue:
                  f"{tool_states.get(command['state'], command['state'])})"
                  for participant in participants
                  for command in participant["pending_host_commands"]]
+        tools_elsewhere = [f"{participant['label']} ({command['work']}, {command['operation']}, "
+                           f"{tool_states.get(command['state'], command['state'])})"
+                           for participant in participants
+                           for command in participant.get("other_work_host_commands", [])]
         held = [participant["label"] for participant in participants
                 if participant.get("failed_attempt_hold")]
         recovery = [participant["label"] for participant in participants
@@ -2633,6 +2652,8 @@ class Dialogue:
             activity.append("Calls in other work: " + "; ".join(elsewhere))
         if tools:
             activity.append("Pending tool commands: " + "; ".join(tools))
+        if tools_elsewhere:
+            activity.append("Tool commands in other work: " + "; ".join(tools_elsewhere))
         scheduled = [f"{participant['label']} ({self.format_time(participant['scheduled_for_unix'])})"
                      for participant in participants if participant.get("scheduled_for_unix") is not None]
         if scheduled:

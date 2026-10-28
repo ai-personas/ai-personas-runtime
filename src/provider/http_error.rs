@@ -107,3 +107,32 @@ impl Capture {
 fn known(value: Option<&str>, labels: &[&'static str]) -> Option<&'static str> {
     value.map(|value| labels.iter().copied().find(|label| *label == value).unwrap_or("unrecognized"))
 }
+
+/// Some routes report an input-field length rejection without the usual
+/// context_length_exceeded code. Recognize the complete structured explanation,
+/// not a guessed request ceiling or a substring in arbitrary provider output.
+/// The caller must still bind the HTTP failure to its exact admitted request.
+pub(crate) fn input_text_length_rejected(diagnostic: &Value) -> bool {
+    if diagnostic["body_complete"] != true || diagnostic["json_observed"] != true
+        || diagnostic["error_type"] != "invalid_request_error"
+        || diagnostic["message_redacted"] != false
+    {
+        return false;
+    }
+    let number = |text: &str| -> Option<u64> {
+        (!text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit()))
+            .then(|| text.parse().ok()).flatten()
+    };
+    let reported_lengths = || -> Option<(u64, u64)> {
+        let message = diagnostic["message"].as_str()?;
+        let rest = message.strip_prefix("Invalid 'input[")?;
+        let (input_index, rest) = rest.split_once("].content[")?;
+        let (content_index, rest) = rest.split_once(
+            "].text': string too long. Expected a string with maximum length ")?;
+        number(input_index)?;
+        number(content_index)?;
+        let (maximum, actual) = rest.split_once(", but got a string with length ")?;
+        Some((number(maximum)?, number(actual.strip_suffix(" instead.")?)?))
+    };
+    reported_lengths().is_some_and(|(maximum, actual)| actual > maximum)
+}

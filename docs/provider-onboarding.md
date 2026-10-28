@@ -120,8 +120,9 @@ recorded without silently substituting another model or effort.
 
 The probe sends an explicitly labeled, isolated host-authored echo specimen in
 the historical strict `decision_json` carrier. Native persona calls return their
-complete Decision directly in JSON-object mode; this echo proves only its own
-shape and reported effort, not every later persona response. It carries no user need, persona,
+complete Decision directly with their applicable ordinary or initialization
+schema; this echo proves only its own shape and reported effort, not every later
+persona response. It carries no user need, persona,
 workspace, asset, tool, or saved history. Whole carrier decoding, native
 `parse_decision`, exact specimen-byte equality, matching reported model/effort,
 known consistent input/output/total token usage, a completed stream and clean EOF

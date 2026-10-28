@@ -360,6 +360,8 @@ fn exact_recorded_completion(
         .collect::<BTreeMap<_, _>>();
     extend_exposure(exposure, &inherited);
     Ok(json!({
+        "record_kind":"accepted_close_goal",
+        "meaning":"The CloseGoal command was accepted in by.invocation for this exact release. An open work phase does not undo this record. The record asserts no current support and does not choose any persona's continuation.",
         "release":id,"by":by,"historical_only":true,"metadata_only":true,
         "mandate_revision":release.candidate.mandate_revision,
         "released_artifacts":released_artifacts,
