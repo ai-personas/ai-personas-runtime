@@ -61,6 +61,7 @@ pub(crate) fn issues(schema: &Value, root: &Value, received: &Value, section: &s
             issues.insert(format!("{path}: expected {expected}"));
             continue;
         }
+        let alternatives = schema;
         let Some(schema) = resolved(schema, root, received) else {
             // An absent or unknown tag cannot select a variant. Describe the
             // declared alternatives without guessing which one was intended.
@@ -88,6 +89,15 @@ pub(crate) fn issues(schema: &Value, root: &Value, received: &Value, section: &s
             if schema["additionalProperties"] == false
                 && values.keys().any(|name| !fields.contains_key(name))
             {
+                // Name a misplaced member only when the schema declares that
+                // exact name at this position in another alternative. This
+                // locates common variant mix-ups without echoing authored keys
+                // or guessing which operation the persona intended.
+                for name in declared_members(alternatives, root) {
+                    if values.contains_key(name) && !fields.contains_key(name) {
+                        issues.insert(format!("{path}.{name} is not allowed for this variant"));
+                    }
+                }
                 issues.insert(format!(
                     "{path} contains unknown members; allowed fields: {}",
                     fields
@@ -127,6 +137,27 @@ pub(crate) fn issues(schema: &Value, root: &Value, received: &Value, section: &s
         }
     }
     issues.into_iter().collect()
+}
+
+fn declared_members<'a>(schema: &'a Value, root: &'a Value) -> BTreeSet<&'a str> {
+    let mut pending = vec![schema];
+    let mut visited = BTreeSet::new();
+    let mut names = BTreeSet::new();
+    while let Some(schema) = pending.pop() {
+        if !visited.insert(schema as *const Value) { continue; }
+        if let Some(reference) = schema["$ref"].as_str() {
+            if let Some(target) = reference.strip_prefix('#').and_then(|p| root.pointer(p)) {
+                pending.push(target);
+            }
+        }
+        for union in ["oneOf", "anyOf", "allOf"] {
+            if let Some(branches) = schema[union].as_array() { pending.extend(branches); }
+        }
+        if let Some(fields) = schema["properties"].as_object() {
+            names.extend(fields.keys().map(String::as_str));
+        }
+    }
+    names
 }
 
 /// Return the complete declared tag set only when every object alternative is

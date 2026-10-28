@@ -6,6 +6,12 @@ and write host files, use the network, and start subprocesses with the runtime's
 host account and inherited environment. There is no application sandbox, command
 allowlist, per-tool approval, or tool-installation grant.
 
+All host-command arguments belong inside the effect operation's `inputs`
+object, including `working_directory` and `timeout_seconds`. Putting them beside
+`inputs` rejects the complete Decision. The rejection identifies each misplaced
+known argument and its declared nested location from the current host-command
+schema. It neither moves values nor executes any part of the rejected response.
+
 `CONTROL.host_command_capability` supplies the current `host.command.v1`
 definition on every ordinary input. No supporting guide needs to be discovered
 or selected first. Personas choose which tools and skill guides to use, including

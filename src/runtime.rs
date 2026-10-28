@@ -47,6 +47,7 @@ mod effect_interfaces;
 mod http_tools;
 mod host_tools;
 pub use host_tools::HostCommandInterface;
+pub(crate) use host_tools::inputs_schema as host_command_inputs_schema;
 mod tool_authorization;
 pub use tool_authorization::{
     ToolGrantKind, ToolGrantUpdateFence, ToolGrantUpdateRequest, ToolGrantUpdateTerms,

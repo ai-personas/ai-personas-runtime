@@ -50,8 +50,12 @@ struct Terminal {
     outcome: h::Outcome,
 }
 
+pub(crate) fn inputs_schema() -> Result<Value> {
+    Ok(serde_json::to_value(schemars::schema_for!(input::Inputs))?)
+}
+
 pub(super) fn interface(working_directory: Option<&Path>) -> Result<HostCommandInterface> {
-    let schema = serde_json::to_value(schemars::schema_for!(input::Inputs))?;
+    let schema = inputs_schema()?;
     let runner_revision = h::revision();
     let directory = match working_directory {
         Some(directory) => directory.to_path_buf(),

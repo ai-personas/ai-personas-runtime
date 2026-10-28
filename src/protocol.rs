@@ -473,9 +473,13 @@ pub enum ReplyDisposition {
         /// Use these for exact citations instead of retyping hashes in prose.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         reference_handles: Vec<String>,
-        /// Exact file_write, file_edit or file_import operation IDs in this response. The
-        /// host attaches their accepted full UTF-8 references without reading
-        /// bodies or retyping source IDs/hashes. Can accompany reference_handles.
+        /// Attach complete files saved by exact file_write, file_edit or file_import
+        /// operation IDs in this response. The launcher can export these files.
+        /// A generated host file needs file_import; citing a command result or
+        /// writing its host path in text does not attach that file. The host derives
+        /// accepted full UTF-8 or bytes_metadata references from the save's format,
+        /// without reading bodies or requiring a receipt-only call. Can accompany
+        /// reference_handles. Account for the save in its maintenance disposition.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         reference_operations: Vec<String>,
     },
@@ -698,8 +702,9 @@ pub enum Operation {
         policy_id: String,
     },
     /// Copy an existing regular host file into a native supporting asset without
-    /// rewriting its contents. This is asset maintenance, never a character
-    /// fragment or a claim that you authored the imported bytes. Reads happen
+    /// rewriting its contents. It has no scope field: imports always belong to
+    /// assets. This is asset maintenance, never a character fragment or a claim
+    /// that you authored the imported bytes. Reads happen
     /// during adoption before host commands run; use a fresh decision for a
     /// file produced by a command. Select proposal-op:<id> under next_assets to
     /// receive the saved revision in a later input, or discover it later.
@@ -866,9 +871,13 @@ pub enum Operation {
         /// No body or image is read, supplied or selected by a citation.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         reference_handles: Vec<String>,
-        /// Exact same-response file_write, file_edit or file_import IDs. Attach their
-        /// accepted full UTF-8 references; no extra receipt-only call is needed.
-        /// These references derive prerequisites without a depends_on field.
+        /// Attach complete files saved by exact same-response file_write, file_edit
+        /// or file_import IDs, making them exportable through the launcher.
+        /// Import a generated host file before attaching it; a command-output
+        /// citation or host path in prose is not the file. The host derives full
+        /// UTF-8 or bytes_metadata references from each save's format. These IDs
+        /// derive prerequisites without depends_on or an extra receipt-only call.
+        /// Account for each save in its matching maintenance disposition.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         reference_operations: Vec<String>,
     },
@@ -968,8 +977,10 @@ pub enum Operation {
         /// Select the unique interface with this ID retained for the current
         /// invocation. The runtime binds its exact revision; do not echo a hash.
         capability_id: String,
-        /// Match the selected capability's inputs_schema. Put depends_on beside
-        /// inputs on this effect operation, never inside the input object.
+        /// All capability arguments belong inside this object, matching the
+        /// selected inputs_schema. For host.command.v1 this includes command,
+        /// result_context, working_directory, stdin, stdin_asset and timeout_seconds.
+        /// Put depends_on beside inputs on the effect, never inside this object.
         inputs: Value,
         /// Follow this capability's supplied dependency contract. For
         /// work.command.v1, name only consumed file_write/file_edit/file_import proposals; use [] for

@@ -152,5 +152,30 @@ pub(super) fn hint(path: &Path, bytes: &[u8]) -> ShapeHint {
     // or response-level fields. Report all definite schema-owned mismatches in
     // the complete rejected value; the local section still locates its error.
     hint.issues = crate::schema_diagnostics::issues(&schema, &schema, &received, "response");
+    // A capability's arguments have their own supplied schema. An argument at
+    // the effect-envelope level is a known nesting mistake, even though it is
+    // not a member of Operation. Use schema-owned names only, never its value
+    // or an arbitrary rejected key. This explains the location without moving
+    // anything or asserting that this capability was admitted for the call.
+    if let Some(operations) = received["operations"].as_array() {
+        if operations.iter().any(|operation| operation["kind"] == "effect"
+            && operation["capability_id"] == crate::host_command::PROFILE)
+        {
+            if let Ok(inputs_schema) = crate::runtime::host_command_inputs_schema() {
+                if let Some(fields) = inputs_schema["properties"].as_object() {
+                    for (index, operation) in operations.iter().enumerate().filter(|(_, operation)|
+                        operation["kind"] == "effect"
+                            && operation["capability_id"] == crate::host_command::PROFILE)
+                    {
+                        for name in fields.keys().filter(|name| operation.get(*name).is_some()) {
+                            hint.issues.push(format!(
+                                "response.operations[{index}].{name} is a host-command argument; its declared location is response.operations[{index}].inputs.{name}"
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
     hint
 }
