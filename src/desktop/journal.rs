@@ -218,66 +218,7 @@ impl Progress {
 
 /// Reject duplicate object keys instead of silently replacing retained IDs.
 pub fn decode(bytes: &[u8]) -> Result<Value> {
-    struct Unique(Value);
-    impl<'de> Deserialize<'de> for Unique {
-        fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
-            struct Visitor;
-            impl<'de> serde::de::Visitor<'de> for Visitor {
-                type Value = Unique;
-                fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                    f.write_str("JSON without duplicate keys")
-                }
-                fn visit_map<A: serde::de::MapAccess<'de>>(
-                    self,
-                    mut a: A,
-                ) -> std::result::Result<Unique, A::Error> {
-                    let mut m = serde_json::Map::new();
-                    while let Some((k, v)) = a.next_entry::<String, Unique>()? {
-                        if m.insert(k, v.0).is_some() {
-                            return Err(serde::de::Error::custom("duplicate key"));
-                        }
-                    }
-                    Ok(Unique(Value::Object(m)))
-                }
-                fn visit_seq<A: serde::de::SeqAccess<'de>>(
-                    self,
-                    mut a: A,
-                ) -> std::result::Result<Unique, A::Error> {
-                    let mut v = Vec::new();
-                    while let Some(x) = a.next_element::<Unique>()? {
-                        v.push(x.0);
-                    }
-                    Ok(Unique(Value::Array(v)))
-                }
-                fn visit_bool<E: serde::de::Error>(
-                    self,
-                    v: bool,
-                ) -> std::result::Result<Unique, E> {
-                    Ok(Unique(v.into()))
-                }
-                fn visit_i64<E: serde::de::Error>(self, v: i64) -> std::result::Result<Unique, E> {
-                    Ok(Unique(v.into()))
-                }
-                fn visit_u64<E: serde::de::Error>(self, v: u64) -> std::result::Result<Unique, E> {
-                    Ok(Unique(v.into()))
-                }
-                fn visit_f64<E: serde::de::Error>(self, v: f64) -> std::result::Result<Unique, E> {
-                    serde_json::Number::from_f64(v)
-                        .map(|n| Unique(n.into()))
-                        .ok_or_else(|| E::custom("nonfinite number"))
-                }
-                fn visit_str<E: serde::de::Error>(self, v: &str) -> std::result::Result<Unique, E> {
-                    Ok(Unique(v.into()))
-                }
-                fn visit_unit<E: serde::de::Error>(self) -> std::result::Result<Unique, E> {
-                    Ok(Unique(Value::Null))
-                }
-            }
-            d.deserialize_any(Visitor)
-        }
-    }
-    serde_json::from_slice::<Unique>(bytes)
-        .map(|v| v.0)
+    ai_personas::files::parse_json_unique(bytes)
         .map_err(|_| "Invalid JSON; saved data was not changed.".into())
 }
 
@@ -596,15 +537,9 @@ pub fn discover(current: &Path) -> Vec<SavedWorkspace> {
                 .custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW)
                 .open(&item.root)
                 .map_err(io)?;
-            let file = Journal::open_at(&directory, "progress.json", libc::O_RDONLY)?;
+            let mut file = Journal::open_at(&directory, "progress.json", libc::O_RDONLY)?;
             let mut raw = vec![];
-            file.take(16 * 1024 * 1024 + 1)
-                .read_to_end(&mut raw)
-                .map_err(io)?;
-            require(
-                raw.len() <= 16 * 1024 * 1024,
-                "The saved progress file is too large to preview.",
-            )?;
+            file.read_to_end(&mut raw).map_err(io)?;
             let p: Progress = serde_json::from_value(decode(&raw)?).map_err(|_| {
                 "The saved progress format is unavailable in this version.".to_owned()
             })?;

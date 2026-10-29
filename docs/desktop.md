@@ -44,6 +44,11 @@ counts and update times. The **Locations** panel filters all workspaces, recent
 work, or unfinished setup. **Workspaces** returns to this browser when no work or
 sign-in is running. **New workspace** starts a separate setup.
 
+Workspace discovery reads the complete saved progress journal without a file-size
+quota. The desktop uses the runtime's JSON parser for journals and helper replies,
+without a separate nesting limit. Invalid JSON and duplicate decoded keys remain
+errors; discovery neither locks nor rewrites saved progress.
+
 Connect the account, choose a model, enter persona names and starting profiles,
 and select a working folder. The model picker preselects the catalogue's default
 model and reasoning effort; individual persona choices are optional. Manual
