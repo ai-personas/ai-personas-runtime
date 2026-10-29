@@ -102,8 +102,6 @@ enum Command {
         #[arg(long)]
         id: String,
     },
-    /// All retained persona messages in one work, with original recipients. No inference.
-    Conversation { work: String },
     /// Current retained result in its requester scope; no cached output replay.
     Result {
         work: String,
@@ -112,6 +110,8 @@ enum Command {
     },
     /// Current permitted shared questions, replies and conclusions; no inference.
     Questions { work: String },
+    /// Retained requester and peer communication, and accepted responsibilities. No inference.
+    Conversation { work: String },
     /// Inspect current and available delegation sources; no inference.
     IntakeSourceSnapshot { work: String },
     /// Select a source without changing scope, participation or continuation.
@@ -308,7 +308,6 @@ async fn main() {
         }
         Command::SessionStatus { id } => emit(session::session_status(&root, &operator, &id)),
         Command::SessionMessages { id } => emit(session::session_messages(&root, &operator, &id)),
-        Command::Conversation { work } => emit(session::work_conversation(&root, &operator, &work)),
         Command::Result { work, export_directory } => {
             if let Some(destination) = export_directory {
                 emit(ai_personas::launch::export_result_at(&root, Some(&operator), &work, &destination)
@@ -316,6 +315,8 @@ async fn main() {
             } else { emit(session::result_view(&root, &operator, &work)) }
         },
         Command::Questions { work } => emit(session::questions_view(&root, &operator, &work)),
+        Command::Conversation { work } => emit(ai_personas::launch::conversation(&root, &operator, &work)
+            .map_err(session::BoundaryError::from)),
         Command::IntakeSourceSnapshot { work } => emit((|| -> session::BoundaryResult<serde_json::Value> {
             Ok(episode_selection::snapshot_at(&root, &operator, &work)?)
         })()),

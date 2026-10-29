@@ -1,4 +1,4 @@
-//! Codex app-server authentication for the explicitly selected session route.
+//! Codex app-server authentication and model discovery for the selected route.
 //! Each acquisition uses a fresh connection and the returned account/expiry.
 //! Frames, notifications and I/O duration have no application quota.
 //! Credentials remain inside the trusted adapter.
@@ -11,7 +11,7 @@ use std::time::Duration;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RpcError {
-    Transport, MalformedFrame, OutOfOrderResponse, RemoteError, InvalidResponse, CleanupFailure,
+    Transport, MalformedFrame, OutOfOrderResponse, RemoteError, InvalidResponse, CleanupFailure, Cancelled,
 }
 impl std::fmt::Display for RpcError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -22,6 +22,7 @@ impl std::fmt::Display for RpcError {
             Self::RemoteError => "Codex auth-only request failed",
             Self::InvalidResponse => "Codex auth-only response is invalid",
             Self::CleanupFailure => "Codex auth-only process cleanup could not be confirmed",
+            Self::Cancelled => "Codex account operation cancelled",
         })
     }
 }
@@ -32,6 +33,8 @@ pub(crate) trait JsonRpcPeer: Send {
     fn write_frame(&mut self, frame: &[u8]) -> Result<(), RpcError>;
     fn read_frame(&mut self) -> Result<Vec<u8>, RpcError>;
     fn close(&mut self) -> Result<(), RpcError>;
+    /// Allow a bounded cancellation acknowledgement before process cleanup.
+    fn begin_cancel_cleanup(&mut self) {}
 }
 
 /// Every acquisition opens a fresh connection.
@@ -47,6 +50,7 @@ pub(crate) struct ProcessJsonRpcPeerFactory {
     args: Vec<std::ffi::OsString>,
     host_home: std::path::PathBuf,
     codex_home: std::path::PathBuf,
+    cancellation: Option<p::Cancellation>,
 }
 #[cfg(unix)]
 impl ProcessJsonRpcPeerFactory {
@@ -58,7 +62,12 @@ impl ProcessJsonRpcPeerFactory {
         host_home: std::path::PathBuf,
         codex_home: std::path::PathBuf,
     ) -> Self {
-        Self { executable, args, host_home, codex_home }
+        Self { executable, args, host_home, codex_home, cancellation: None }
+    }
+
+    pub(crate) fn with_cancellation(mut self, cancellation: p::Cancellation) -> Self {
+        self.cancellation = Some(cancellation);
+        self
     }
 
     fn command(&self) -> std::process::Command {
@@ -84,6 +93,8 @@ pub(crate) struct ProcessJsonRpcPeer {
     stdout_eof: bool,
     stderr_eof: bool,
     closed: bool,
+    cancellation: Option<p::Cancellation>,
+    cleanup_deadline: Option<std::time::Instant>,
 }
 #[cfg(unix)]
 const PROCESS_READ_CHUNK: usize = 4096;
@@ -152,6 +163,12 @@ impl ProcessJsonRpcPeer {
 
     fn poll_io(&mut self, writing: bool) -> Result<(), RpcError> {
         use std::os::fd::AsRawFd;
+        if self.cancellation.as_ref().is_some_and(p::Cancellation::is_cancelled) {
+            return Err(RpcError::Cancelled);
+        }
+        if self.cleanup_deadline.is_some_and(|deadline|std::time::Instant::now() >= deadline) {
+            return Err(RpcError::Transport);
+        }
         let mut fds = [
             libc::pollfd { fd: if writing { self.stdin.as_ref().ok_or(RpcError::Transport)?.as_raw_fd() } else { -1 }, events: libc::POLLOUT | libc::POLLHUP | libc::POLLERR, revents: 0 },
             libc::pollfd { fd: if self.stdout_eof { -1 } else { self.stdout.as_ref().ok_or(RpcError::Transport)?.as_raw_fd() }, events: libc::POLLIN | libc::POLLHUP | libc::POLLERR, revents: 0 },
@@ -217,6 +234,12 @@ impl ProcessJsonRpcPeer {
 
 #[cfg(unix)]
 impl JsonRpcPeer for ProcessJsonRpcPeer {
+    fn begin_cancel_cleanup(&mut self) {
+        self.cancellation = None;
+        // This is only a cancellation-acknowledgement grace period. It never
+        // bounds authentication, model calls, or ordinary runtime execution.
+        self.cleanup_deadline = Some(std::time::Instant::now() + Duration::from_secs(2));
+    }
     fn write_frame(&mut self, frame: &[u8]) -> Result<(), RpcError> {
         self.write_all(frame)
     }
@@ -255,6 +278,8 @@ impl JsonRpcPeerFactory for ProcessJsonRpcPeerFactory {
             child, stdin: Some(stdin), stdout: Some(stdout), stderr: Some(stderr), pgid, stdout_buffer: Vec::new(),
             stdout_eof: false,
             stderr_eof: false, closed: false,
+            cancellation: self.cancellation.clone(),
+            cleanup_deadline: None,
         };
         for fd in [peer.stdin.as_ref().ok_or(RpcError::Transport)?.as_raw_fd(), peer.stdout.as_ref().ok_or(RpcError::Transport)?.as_raw_fd(), peer.stderr.as_ref().ok_or(RpcError::Transport)?.as_raw_fd()] {
             if process_set_nonblocking(fd).is_err() {
@@ -299,8 +324,106 @@ impl std::fmt::Debug for AuthStatusOutput {
 }
 
 pub(crate) struct AuthOnlyJsonRpc<F> { factory: F }
+
+/// Model-picker metadata returned by the selected Codex installation.
+/// It does not prove account entitlement or direct-transport capability.
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct CodexModelChoice {
+    #[serde(rename(deserialize = "model"))]
+    pub slug: String,
+    #[serde(rename(deserialize = "displayName"))]
+    pub display_name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(rename(deserialize = "isDefault"), default)]
+    pub is_default: bool,
+    #[serde(rename(deserialize = "defaultReasoningEffort"))]
+    pub default_effort: String,
+    #[serde(rename(deserialize = "supportedReasoningEfforts"))]
+    pub efforts: Vec<CodexEffortChoice>,
+    #[serde(default, skip_serializing)]
+    hidden: bool,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct CodexEffortChoice {
+    #[serde(rename(deserialize = "reasoningEffort"))]
+    pub label: String,
+    #[serde(default)]
+    pub description: String,
+}
+
 impl<F: JsonRpcPeerFactory> AuthOnlyJsonRpc<F> {
     pub(crate) fn new(factory: F) -> Self { Self { factory } }
+
+    /// Account metadata only. No token request, raw account file, or inference.
+    pub(crate) fn account_read(&self) -> Result<Value, RpcError> {
+        let mut peer = CloseOnDrop { peer: self.factory.open()?, closed: false };
+        let result = (|| {
+            Self::initialize(&mut *peer)?;
+            Self::send(&mut *peer, json!({"id":2,"method":"account/read","params":{"refreshToken":false}}))?;
+            Self::account_projection(Self::response(&mut *peer, 2)?)
+        })();
+        peer.close()?;
+        result
+    }
+
+    fn account_projection(value: Value) -> Result<Value, RpcError> {
+        let account = value.get("account").ok_or(RpcError::InvalidResponse)?;
+        if !account.is_null() && !account.is_object() { return Err(RpcError::InvalidResponse); }
+        Ok(json!({"connected":account["type"] == "chatgpt", "kind":account["type"].as_str(),
+            "email":account["email"].as_str(), "plan":account["planType"].as_str(),
+            "inference_performed":false}))
+    }
+
+    /// The callback receives only the URL/code needed by the sign-in window.
+    /// It must not persist authorization URLs. Codex owns its credential store.
+    pub(crate) fn account_login(&self, device: bool, mut event: impl FnMut(Value)) -> Result<Value, RpcError> {
+        let mut peer = CloseOnDrop { peer: self.factory.open()?, closed: false };
+        let mut login_id = None;
+        let result = (|| {
+            Self::initialize(&mut *peer)?;
+            Self::send(&mut *peer, json!({"id":2,"method":"account/login/start",
+                "params":{"type":if device {"chatgptDeviceCode"} else {"chatgpt"}}}))?;
+            let start = Self::response(&mut *peer, 2)?;
+            let id = start["loginId"].as_str().filter(|s| !s.is_empty()).ok_or(RpcError::InvalidResponse)?;
+            login_id = Some(id.to_owned());
+            let url = start[if device {"verificationUrl"} else {"authUrl"}].as_str().ok_or(RpcError::InvalidResponse)?;
+            let parsed = url::Url::parse(url).map_err(|_| RpcError::InvalidResponse)?;
+            if parsed.scheme() != "https" || parsed.host_str().is_none()
+                || !parsed.username().is_empty() || parsed.password().is_some() {
+                return Err(RpcError::InvalidResponse);
+            }
+            if device && start["userCode"].as_str().is_none_or(str::is_empty) {
+                return Err(RpcError::InvalidResponse);
+            }
+            event(json!({"event":"authorization", "url":url, "user_code":start["userCode"].as_str()}));
+            loop {
+                let raw = peer.read_frame()?;
+                let value = crate::auth::codex_adapter::parse_json(&raw).map_err(|_| RpcError::MalformedFrame)?;
+                if value.get("id").is_some() { return Err(RpcError::OutOfOrderResponse); }
+                if value["method"] == "account/login/completed" && value["params"]["loginId"] == id {
+                    if value["params"]["success"] != true { return Err(RpcError::RemoteError); }
+                    Self::send(&mut *peer, json!({"id":3,"method":"account/read","params":{"refreshToken":false}}))?;
+                    return Self::account_projection(Self::response(&mut *peer, 3)?);
+                }
+                if value["method"].as_str().is_none() { return Err(RpcError::MalformedFrame); }
+            }
+        })();
+        if matches!(result, Err(RpcError::Cancelled)) {
+            if let Some(id) = login_id {
+                // Notify Codex before closing the owned app-server. Even when a
+                // broken transport cannot acknowledge cancellation, cleanup
+                // closes the callback server and reaps its process group.
+                peer.begin_cancel_cleanup();
+                if Self::send(&mut *peer, json!({"id":4,"method":"account/login/cancel","params":{"loginId":id}})).is_ok() {
+                    let _ = Self::response(&mut *peer, 4);
+                }
+            }
+        }
+        peer.close()?;
+        result
+    }
 
     pub(crate) fn request_status(&self) -> Result<AuthStatusOutput, RpcError> {
         let peer = self.factory.open()?;
@@ -310,6 +433,62 @@ impl<F: JsonRpcPeerFactory> AuthOnlyJsonRpc<F> {
         match (result, close_result) {
             (_, Err(cleanup_error)) => Err(cleanup_error),
             (result, Ok(())) => result,
+        }
+    }
+
+    /// Read every model page without requesting a token or starting a thread.
+    pub(crate) fn request_models(&self) -> Result<Vec<CodexModelChoice>, RpcError> {
+        let peer = self.factory.open()?;
+        let mut peer = CloseOnDrop { peer, closed: false };
+        let result = Self::request_models_inner(&mut *peer);
+        let close_result = peer.close();
+        match (result, close_result) {
+            (_, Err(cleanup_error)) => Err(cleanup_error),
+            (result, Ok(())) => result,
+        }
+    }
+
+    fn request_models_inner(peer: &mut F::Peer) -> Result<Vec<CodexModelChoice>, RpcError> {
+        Self::initialize(peer)?;
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Page {
+            data: Vec<CodexModelChoice>,
+            next_cursor: Option<String>,
+        }
+        let valid_label = |value: &str| !value.is_empty()
+            && !value.chars().any(|c| c.is_whitespace() || c.is_control());
+        let mut models = Vec::new();
+        let mut slugs = std::collections::BTreeSet::new();
+        let mut cursors = std::collections::BTreeSet::new();
+        let mut cursor: Option<String> = None;
+        let mut id = 2_u64;
+        loop {
+            Self::send(peer, json!({
+                "id": id, "method": "model/list",
+                "params": {"limit": 50, "includeHidden": false, "cursor": cursor}
+            }))?;
+            let page: Page = serde_json::from_value(Self::response(peer, id)?)
+                .map_err(|_| RpcError::InvalidResponse)?;
+            for model in page.data {
+                if model.hidden { continue; }
+                let mut efforts = std::collections::BTreeSet::new();
+                if !valid_label(&model.slug) || model.display_name.trim().is_empty()
+                    || !slugs.insert(model.slug.clone()) || !valid_label(&model.default_effort)
+                    || !model.efforts.iter().all(|effort| valid_label(&effort.label)
+                        && efforts.insert(effort.label.clone()))
+                    || !efforts.contains(&model.default_effort)
+                {
+                    return Err(RpcError::InvalidResponse);
+                }
+                models.push(model);
+            }
+            let Some(next) = page.next_cursor else { return Ok(models); };
+            if next.is_empty() || !cursors.insert(next.clone()) {
+                return Err(RpcError::InvalidResponse);
+            }
+            cursor = Some(next);
+            id = id.checked_add(1).ok_or(RpcError::InvalidResponse)?;
         }
     }
 
@@ -354,12 +533,12 @@ impl<F: JsonRpcPeerFactory> AuthOnlyJsonRpc<F> {
         }
     }
 
-    fn request_status_inner(peer: &mut F::Peer) -> Result<AuthStatusOutput, RpcError> {
+    fn initialize(peer: &mut F::Peer) -> Result<(), RpcError> {
         Self::send(peer, json!({
             "id":1, "method":"initialize",
             "params":{"clientInfo":{
                 "name":"ai-personas-runtime",
-                "title":"Personas auth-only adapter",
+                "title":"Personas account and model setup",
                 "version":env!("CARGO_PKG_VERSION")
             }, "capabilities":{}}
         }))?;
@@ -382,7 +561,11 @@ impl<F: JsonRpcPeerFactory> AuthOnlyJsonRpc<F> {
             return Err(RpcError::InvalidResponse);
         }
 
-        Self::send(peer, json!({"method":"initialized"}))?;
+        Self::send(peer, json!({"method":"initialized"}))
+    }
+
+    fn request_status_inner(peer: &mut F::Peer) -> Result<AuthStatusOutput, RpcError> {
+        Self::initialize(peer)?;
         Self::send(peer, json!({
             "id":2, "method":"getAuthStatus",
             "params":{"includeToken":true,"refreshToken":false}
@@ -414,6 +597,7 @@ impl<F: JsonRpcPeerFactory> AuthorizedAuthStatusSource for AuthOnlyJsonRpc<F> {
             // The provider Failure type has no cleanup-uncertain variant; the
             // protocol API itself preserves CleanupFailure for direct callers.
             RpcError::CleanupFailure => p::Failure::Network,
+            RpcError::Cancelled => p::Failure::CredentialMissing,
         })?;
         let auth_method = match result.auth_method.as_deref() {
             Some("chatgpt") => Some(CodexAuthMethod::Chatgpt),

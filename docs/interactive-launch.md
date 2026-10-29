@@ -6,8 +6,9 @@ See [execution resources](execution-resources.md) for retained historical settin
 and remaining enforcement paths. Explicit stops and pauses are still honored.
 
 
-Run `./personas` with no arguments from an approved checkout. This opens the local
-Python terminal dialogue; Rust remains responsible for provider evidence,
+Run `./personas` with no arguments to open the [Rust desktop app](desktop.md)
+when installed in a graphical session. Use `./personas --gui` to require it, or
+`./personas --terminal` for the terminal dialogue described below. Rust remains responsible for provider evidence,
 authentication, atomic setup, intake, execution, permissions and accounting.
 Explicit argument-based wrapper commands retain their earlier behavior; see
 [the explicit CLI guide](launcher.md).
@@ -265,21 +266,42 @@ entered task or selected activity before the next prompt. The default location i
 relative path, directory alias or repository directory. The launcher resolves it
 to an absolute location before saving progress. Without an override it checks the
 standard XDG and home locations. Existing progress is reused when exactly one
-candidate validates; ambiguous or invalid saved state is reported without moving
-or resetting it. Launching the dialogue selects journal creation without a second
-confirmation. Native browser sign-in remains a separate account operation.
+location exists; when several locations exist, the terminal lets you choose one.
+Startup problems show the affected folder and offer retry, another folder, or
+quit without moving or resetting saved state. Launching the dialogue selects
+journal creation without a second confirmation. Native browser sign-in remains
+a separate account operation.
 
-An existing empty directory can also be used for a new journal. The launcher
-checks it again while holding the journal lock before writing initial progress.
-A nonempty directory with missing or invalid progress is reported for inspection
-without replacing its contents.
+An existing empty directory, or one containing only empty `interaction.lock`
+and/or `personas-account.json.lock` files, can also be used for a new journal.
+These lock files carry no saved requests. The launcher reuses them and checks
+the directory again while holding the locks before writing initial progress.
+A valid journal copied without its interaction lock gets a new lock automatically.
+Active locks are reported as another running Personas process; they are never
+deleted or bypassed. Lock files with content, aliases, or additional hard links
+are not treated as empty startup remnants.
+
+If `progress.json` is missing while other files remain, or saved progress is
+invalid, the launcher explains the problem and keeps the files. Choose **r** to
+retry after restoring the journal from a backup, **p** to enter another progress
+folder (existing or new), or **q** to quit. Folder paths may contain spaces and
+may be relative or start with `~`. A separate journal starts setup; it does not
+recover missing request identities or replay previous work. Its setup can select
+an existing runtime explicitly. The progress folder and runtime directory are
+different locations.
+
+The chosen progress folder is printed on startup. A folder entered with **p** is
+selected for that launch; use `PERSONAS_LAUNCHER_HOME` to select it on later
+launches. Press **q** at the first setup prompt to leave before selecting helpers
+or contacting a provider.
 
 ### Automatic persistent progress selection
 
 The no-argument launcher checks only the standard XDG state directory and the
-home `.local/state` directory, in that order. If exactly one valid journal exists,
-it reuses that location. If both exist, it blocks rather than guessing; set
-`PERSONAS_LAUNCHER_HOME` to the exact intended existing journal to disambiguate.
+home `.local/state` directory, in that order. If only one location exists,
+it opens that location. If both locations exist, it lists them and asks which to
+open. Directory aliases resolving to the same location count once.
+`PERSONAS_LAUNCHER_HOME` selects a location directly without this menu.
 If neither exists, it selects the first available candidate and creates a
 new journal with private creation defaults. It never silently moves, resets, or substitutes for an invalid
 existing journal. It does not silently choose a temporary directory for durable
@@ -328,10 +350,22 @@ The shell launcher selects the first available Python 3.9+ from supported versio
 
 Choose a fresh runtime or explicitly select an existing private one and its
 operator. Fresh-runtime setup offers **an existing Codex ChatGPT login** or
-**native SIWC browser sign-in**. The Codex choice shows the executable on PATH
-and current home/state directories together; Enter uses these locations without
-three further path prompts. Choose **p** to enter other locations. If the displayed
-locations are unavailable, the launcher asks for the existing installation to use.
+**native SIWC browser sign-in**. The Codex choice checks the executable on PATH,
+then common user-local and Homebrew locations (`~/.local/bin`, `~/.npm-global/bin`,
+`~/.cargo/bin`, `/opt/homebrew/bin`, and `/usr/local/bin`), and shows it with the
+current home/state directories.
+Saved Codex locations take precedence. When these paths are usable, Enter selects
+them without three further path prompts; the helper checks the actual ChatGPT
+login afterward. Finding an executable does not establish that it is signed in.
+If the paths are unavailable, native sign-in is the default and the menu explains
+what is missing. Choose **p** to locate an installation or **q** to leave.
+Manual path entry accepts executable command names on PATH, relative paths, `~`,
+spaces and aliases. Invalid entries are explained and can be corrected at the
+same prompt; **q** returns to the previous menu without saving partial edits.
+If a selected Codex login is unavailable or expired, setup offers an explicit
+retry, another sign-in route, or quit. Existing configured runtimes keep their
+provider/account bindings. The [official Codex login guide](https://learn.chatgpt.com/docs/auth#login-on-headless-devices)
+includes device-code sign-in for remote terminals. **q** leaves setup without a model call.
 The native helper reads authentication status and returns only
 account-bound settings. It starts no persona or model call. Other saved provider modes retain their explicit CLI paths; the menu
 does not convert provider modes or switch billing accounts.
@@ -346,8 +380,26 @@ later work uses its accepted character. One persona can work
 directly with you. Larger groups choose their own contributions and arrangements.
 The chosen size is saved with the setup request and shown again on restart.
 
-Choose a default model and effort, then optionally enter a different model and
-effort for each persona. Setup, session previews and inspection show the recorded
+Setup automatically loads the selected Codex installation's model catalogue using
+its documented [`model/list`](https://learn.chatgpt.com/docs/app-server#models)
+interface. The numbered model menu displays names and descriptions; Enter selects
+Codex's recommended default, or the first listed model when none is marked.
+The next menu offers that model's advertised reasoning options and default.
+No model names or supported effort lists are hardcoded for Codex.
+Discovery reads all catalogue pages without opening a Codex thread or requesting
+an authentication token. Catalogue metadata does not establish model entitlement
+or direct-transport capability; native configuration and inference retain their
+own checks. A discovery failure offers retry, manual entry, or quit.
+
+Native SIWC setup defaults to browsing its account catalogue. If that catalogue
+does not specify reasoning levels, the menu labels its effort options as
+suggestions, with medium as the starting choice. The first model is the default
+when the catalogue supplies no recommendation. Manual model and effort names
+remain accepted, including names absent from a catalogue.
+
+Choose a model and effort for the group, then optionally use the same picker for
+each persona. Those menus default to the group's selected values.
+Setup, session previews and inspection show the recorded
 choices. Every call uses that persona's binding with the same account and direct
 transport. Capability observations from the default model do not become evidence
 for another model. Model choice assigns no work role. An explicit cohort-wide
@@ -563,11 +615,11 @@ does not implement credential import/transfer. Do not copy Codex credentials or
 manually edit host IDs. If the supported callback and protected vault cannot be
 provided, stop without granting sign-in or inference.
 
-Selecting the native route uses its vault. Model setup defaults to entering an
-exact model slug and effort label directly, with no catalogue read or inference.
-Browsing the live catalogue and running a capability check are optional menu
-choices. Catalogue choices accept a listed number or an exact slug, including
-one absent from the list. Effort examples do not restrict selection. Direct
+Selecting the native route uses its vault. Model setup defaults to browsing the
+live catalogue, with numbered choices and a displayed default. Manual model
+entry and an optional capability check remain separate menu choices.
+Catalogue choices accept a listed number or an exact slug, including
+one absent from the list. Effort suggestions do not restrict selection. Direct
 configuration saves null capability digests and an empty evidenced-effort set;
 capability is unverified. Generated settings are saved before cohort setup.
 

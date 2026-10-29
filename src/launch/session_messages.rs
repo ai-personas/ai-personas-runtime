@@ -1,4 +1,4 @@
-//! Requester session messages and an operator view of retained work conversation.
+//! Requester session messages with their exact session attribution.
 //! Session metadata supplies attribution, never disclosure or completion rights.
 use super::*;
 
@@ -18,36 +18,6 @@ pub struct SessionMessages {
     pub message_sender_labels: BTreeMap<String, String>,
     pub truncated: bool,
     pub inference_performed: bool,
-}
-
-#[derive(Debug, Serialize)]
-pub struct WorkConversation {
-    pub work: String,
-    /// Accepted messages retain their original sender, recipient and citations.
-    pub messages: Vec<Message>,
-    pub persona_labels: BTreeMap<String, String>,
-    pub inference_performed: bool,
-}
-
-/// Inspect the work's recorded conversation without depositing or acknowledging
-/// messages. Original recipients are attribution, not a filter on this operator
-/// history view. Requester results and delivery records remain separate.
-pub fn work_conversation(root: &Path, operator: &str, work: &str) -> BoundaryResult<WorkConversation> {
-    valid_id(work)?;
-    project_view(root, operator, |snapshot, records| {
-        check(snapshot.saved.works.contains_key(work), BoundaryError::Unavailable)?;
-        let mut messages: Vec<_> = snapshot.state.messages.values()
-            .filter(|message| message.work == work).cloned().collect();
-        results::order_messages(&mut messages, records)?;
-        let persona_labels = messages.iter()
-            .flat_map(|message| [&message.sender, &message.recipient])
-            .filter_map(|id| snapshot.state.personas.get(id)
-                .map(|persona| (id.clone(), persona.seed.label.clone())))
-            .collect();
-        Ok(WorkConversation {
-            work: work.into(), messages, persona_labels, inference_performed: false,
-        })
-    })
 }
 
 /// Read-only apart from existing navigation accounting. The original exclusive
