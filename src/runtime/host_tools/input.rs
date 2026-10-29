@@ -22,9 +22,11 @@ pub(super) struct Inputs {
     /// For an interpreter script, use a command such as python3 - with the script
     /// in stdin, avoiding an extra layer of shell quoting or a heredoc.
     pub command: String,
-    /// Choose the next decision's result context: complete supplies all retained
-    /// command and output text; reference supplies execution metadata and exact
-    /// readable text references. Both retain the complete observed output.
+    /// Choose the next decision's result context: output supplies captured stdout
+    /// and stderr without repeating command or literal stdin bodies; complete
+    /// also supplies those input bodies; reference supplies only execution metadata
+    /// and exact readable text references. Every choice retains all observed text
+    /// and exposes exact field references for later reads or context selection.
     pub result_context: context::ResultContext,
     /// Host working directory; omission uses the offered default.
     #[serde(default)]

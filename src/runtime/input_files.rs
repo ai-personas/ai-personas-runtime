@@ -221,7 +221,8 @@ impl Candidates {
         self.add(&payload["context_projection"]["retained_result"]["source"])?;
         if matches!(payload["context_projection"]["format"].as_str(),
             Some("host-command-pending-reference-v1" | "host-command-pending-reference-v2"
-                | "host-command-pending-complete-v2" | "host-command-pending-provider-context-recovery-v1"
+                | "host-command-pending-complete-v2" | "host-command-pending-output-v1"
+                | "host-command-pending-provider-context-recovery-v1"
                 | "host-command-historical-provider-context-recovery-v1")) {
             self.add(&payload["inputs"]["command_reference"])?;
             self.add(&payload["inputs"]["stdin_reference"])?;

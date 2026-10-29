@@ -88,7 +88,8 @@ pub(super) fn candidate(prepared: &Prepared, evidence: &s::StoredObject, project
             continue;
         }
         if observation["kind"] != "host_command_result"
-            || projection["format"] != "host-command-pending-complete-v2" { continue; }
+            || !matches!(projection["format"].as_str(),
+                Some("host-command-pending-complete-v2" | "host-command-pending-output-v1")) { continue; }
         let source: p::ExactRef = serde_json::from_value(projection["retained_result"]["source"].clone())?;
         file_reference(&source)?;
         let payload_sha256 = projection["retained_observation_payload_sha256"].as_str()

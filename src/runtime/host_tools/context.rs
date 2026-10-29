@@ -6,6 +6,7 @@ use schemars::JsonSchema;
 #[serde(rename_all = "snake_case")]
 pub(super) enum ResultContext {
     Complete,
+    Output,
     Reference,
 }
 
@@ -94,13 +95,15 @@ fn project_result(
     }
     let recovery = historical_recovery.or(pending_recovery);
     let mut references = vec![reference.clone()];
-    let supplied = recovery.is_none() && matches!(choice, ResultContext::Complete);
+    let supply_inputs = recovery.is_none() && matches!(choice, ResultContext::Complete);
+    let supply_outputs = recovery.is_none()
+        && matches!(choice, ResultContext::Complete | ResultContext::Output);
     let mut fields = vec![reference_text(
         &mut payload["inputs"],
         "command",
         &reference,
         "/inputs/command".into(),
-        supplied,
+        supply_inputs,
     )?];
     if payload["inputs"]["stdin"].is_string() {
         fields.push(reference_text(
@@ -108,32 +111,41 @@ fn project_result(
             "stdin",
             &reference,
             "/inputs/stdin".into(),
-            supplied,
+            supply_inputs,
         )?);
     }
+    let mut supplied_text = if supply_inputs { fields.clone() } else { Vec::new() };
     for stream in ["stdout", "stderr"] {
         let segments = payload["result"][stream]["segments"]
             .as_array_mut()
             .ok_or_else(|| invalid("pending host capture segments missing"))?;
         for (index, segment) in segments.iter_mut().enumerate() {
-            fields.push(reference_text(
+            let reference = reference_text(
                 segment,
                 "text",
                 &reference,
                 format!("/result/{stream}/segments/{index}/text"),
-                supplied,
-            )?);
+                supply_outputs,
+            )?;
+            if supply_outputs {
+                supplied_text.push(reference.clone());
+            }
+            fields.push(reference);
         }
     }
     references.extend(fields.iter().cloned());
     let (format, meaning) = match (choice, recovery.is_some()) {
         (_, true) => (
             "host-command-pending-provider-context-recovery-v1",
-            "The provider rejected an earlier input containing this complete pending result with an explicit context or input-text length error. This fresh ordinary input supplies execution metadata and exact text references instead of command, literal stdin and output bodies. The earlier complete-delivery choice remains recorded but was not fulfilled by a successful model call. All observed text remains retained; no tool is repeated, optional selection changed, quota imposed or body claimed read. Use ordinary reads or next-context selection to choose useful exact ranges or complete fields. Current character, work facts and required qualifications remain supplied. This reference delivery ends when the pending observation is consumed by an accepted ordinary decision.",
+            "The provider rejected an earlier input containing inline pending-result text with an explicit context or input-text length error. This fresh ordinary input supplies execution metadata and exact text references instead of command, literal stdin and output bodies. The earlier result-context choice remains recorded but was not fulfilled by a successful model call. All observed text remains retained; no tool is repeated, optional selection changed, quota imposed or body claimed read. Use ordinary reads or next-context selection to choose useful exact ranges or complete fields. Current character, work facts and required qualifications remain supplied. This reference delivery ends when the pending observation is consumed by an accepted ordinary decision.",
         ),
         (ResultContext::Complete, false) => (
             "host-command-pending-complete-v2",
             "All retained command, literal stdin and captured output text is supplied now. Each text field also has an exact decoded-string reference, byte count, hash and supplied=true. Its input-file handle can select only that field for later context, without copying the whole command record or rewriting the output. Asset stdin remains an exact input receipt. Output segments preserve their observed log offsets, digest and lossy_utf8 flag; older partial captures remain partial. The whole result reference names a separate retained document whose exact body is not supplied merely by this projection. Reading or selecting a result never repeats the command.",
+        ),
+        (ResultContext::Output, false) => (
+            "host-command-pending-output-v1",
+            "The primary chose captured stdout and stderr text with execution metadata, without repeating command or literal stdin bodies. Output segments have exact decoded-string references, byte counts, hashes and supplied=true; command and literal stdin have the same metadata with supplied=false. All captured text remains retained and readable through exact references. Asset stdin remains an exact input receipt. Raw offsets, digests, lossy_utf8 and capture completeness describe the original observation. This choice supplies no omitted command body, selects no later context and repeats no command. The whole result reference names a separate retained document, not a body supplied by this projection.",
         ),
         (ResultContext::Reference, false) => (
                 "host-command-pending-reference-v2",
@@ -166,11 +178,11 @@ fn project_result(
     }
     Ok(Projection {
         references,
-        supplied_text: if supplied { fields } else { Vec::new() },
+        supplied_text,
     })
 }
 
-/// Decorate a pending text field, removing its text only for reference mode.
+/// Decorate a pending text field, omitting its body when it was not selected.
 /// The sealed result and original observation keep the exact original bytes.
 fn reference_text(
     object: &mut Value,
@@ -205,7 +217,7 @@ fn reference_text(
     Ok(reference)
 }
 
-/// Inspect only the current native complete projection. Authored JSON, nested
+/// Inspect only the current native inline projections. Authored JSON, nested
 /// history and reference-only fields are not inline body-supply evidence.
 pub(in crate::runtime) fn supplied_fields<'a>(
     control: &'a Value,
@@ -218,13 +230,17 @@ pub(in crate::runtime) fn supplied_fields<'a>(
         .flatten()
     {
         let payload = &observation["payload"];
+        let complete = payload["context_projection"]["format"]
+            == "host-command-pending-complete-v2";
+        let output_only = payload["context_projection"]["format"]
+            == "host-command-pending-output-v1";
         if observation["kind"] != "host_command_result"
             || observation["actor"] != prepared.request.persona
             || observation["work"] != prepared.request.work
             || !observation["id"]
                 .as_str()
                 .is_some_and(|id| prepared.supplied_observations.iter().any(|i| i == id))
-            || payload["context_projection"]["format"] != "host-command-pending-complete-v2"
+            || (!complete && !output_only)
         {
             continue;
         }
@@ -261,9 +277,11 @@ pub(in crate::runtime) fn supplied_fields<'a>(
             ));
             Ok(())
         };
-        append(&payload["inputs"], "command", "/inputs/command".into())?;
-        if payload["inputs"]["stdin"].is_string() {
-            append(&payload["inputs"], "stdin", "/inputs/stdin".into())?;
+        if complete {
+            append(&payload["inputs"], "command", "/inputs/command".into())?;
+            if payload["inputs"]["stdin"].is_string() {
+                append(&payload["inputs"], "stdin", "/inputs/stdin".into())?;
+            }
         }
         for stream in ["stdout", "stderr"] {
             for (index, segment) in payload["result"][stream]["segments"]

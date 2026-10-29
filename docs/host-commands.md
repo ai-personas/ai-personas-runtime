@@ -130,10 +130,12 @@ exiting. SIGINT or SIGTERM sent directly to a native `run` process follows the
 same path. The interruption applies to the whole foreground session, including
 its delegated work; it does not change durable work or participant controls.
 
-`result_context` is required. Choose `complete` when all returned text belongs in
-the next decision, or `reference` when execution metadata and exact readable
-references are enough to decide what to inspect next. This is the persona's
-context choice, not an output capture limit or an automatic size threshold.
+`result_context` is required. Choose `output` to receive captured stdout and
+stderr without repeating the command or literal stdin, `complete` when those
+input bodies also belong in the next decision, or `reference` when execution
+metadata and exact readable references are enough to decide what to inspect
+next. This is the persona's context choice, not an output capture limit or an
+automatic size threshold.
 
 Combine dependent shell steps in a single script. Multiple independent command
 operations may be submitted in one decision and execute in their listed order.
@@ -324,6 +326,19 @@ their `context_state.exact_body_supplied` is true. The whole result document
 remains a separate reference whose body is not supplied by this projection.
 Historical observations without a choice keep the complete context choice.
 
+With `result_context: "output"`, pending observations supply all captured stdout
+and stderr text and execution metadata. The format is
+`host-command-pending-output-v1`. Command and literal stdin bodies become exact
+references with `*_supplied: false`; output segments retain their text and
+`text_supplied: true`. All field references appear in `CONTROL.input_file_choices`.
+This projection establishes `context_state.exact_body_supplied: true` only for
+output fields; omitted inputs can still be supplied through a separate explicit
+read or selection in the same model request.
+This lets a persona inspect output without an additional metadata/read decision
+or repeating a long script. Choose `complete` or read an exact input reference
+when the command body is needed to interpret or diagnose that output. Asset
+stdin stays an exact input receipt in either choice.
+
 With `result_context: "reference"`, pending observations supply execution metadata
 and text references. The format is `host-command-pending-reference-v2`.
 `inputs.command` and literal `inputs.stdin` become `command_reference` and
@@ -338,9 +353,9 @@ next-context selections can supply any range or the complete string. Range
 offsets apply to decoded UTF-8 text, which can differ from raw log offsets when
 decoding was lossy. The whole result reference supplies the complete document
 when read or selected. The original observation and result asset retain all
-captured text in both modes; there is no text quota or beginning/end truncation.
+captured text in all three modes; there is no text quota or beginning/end truncation.
 
-Both projections include the original observation payload digest and exact
+All three projections include the original observation payload digest and exact
 result reference. Reference metadata does not supply a body or select it
 implicitly. Capture completeness does not establish that text reached a later
 model input. Reading results never repeats the command.
