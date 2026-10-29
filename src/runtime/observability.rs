@@ -172,7 +172,10 @@ pub(super) fn mutation_metadata(
         let source = &state.sources[&reference.source];
         let stored = record(state, reference)?;
         exposure.sources.push(reference.clone());
-        let head = f::Reference::full(&reference.source, &source.head, f::Representation::Utf8);
+        let mut head = f::Reference::full(&reference.source, &source.head, f::Representation::Utf8);
+        // A newer revision can have a different representation from the observed
+        // file. Offer the head's actual text or byte metadata, as discovery does.
+        head.representation = record(state, &head)?.record.discoverable_representation();
         let current_head = if lineage_permitted(state, std::slice::from_ref(&head), a) {
             exposure.sources.push(head.clone());
             Some(wire_reference(&head))

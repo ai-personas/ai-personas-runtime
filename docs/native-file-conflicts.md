@@ -8,6 +8,12 @@ file, choose an unused path. A missing or null `base_revision` means creation;
 it does not request the latest revision of an existing source. Retiring a source
 keeps its immutable evidence.
 
+Discovery can return historical paths and revisions after a move. The supplied
+`file_mutation_metadata.current_head` identifies the current accepted base for
+an encountered source. It uses the same representation as path discovery:
+UTF-8 for valid text, otherwise byte metadata. Current-head metadata neither
+substitutes for an exact historical reference nor supplies the file body.
+
 `file_edit` always requires an accepted base and cannot create a source. Its
 exact matches are resolved only after that base passes the current-head check.
 A stale base never triggers a fuzzy match or an automatic edit of the latest

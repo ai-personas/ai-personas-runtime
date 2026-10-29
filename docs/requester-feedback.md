@@ -68,11 +68,14 @@ the original history and do not become new directions.
 
 An attached revision can become older than its source's head after an edit.
 Supplied feedback also exposes `file_mutation_metadata.current_head` for that
-already identified source. The file-choice table offers that current full UTF-8
-reference alongside the unchanged attachment when they differ. A body read is
-not required to obtain this metadata. Choose the historical revision when its
-content is the subject, or the current head when maintaining the present file.
-This same distinction applies to exact file citations in persona messages.
+already identified source. The file-choice table offers that current full
+reference alongside the unchanged attachment when they differ: UTF-8 when the
+head contains valid text, otherwise `bytes_metadata`. The representation follows
+the current head's bytes, even when an earlier revision had a different format.
+A body read is not required to obtain this metadata. Choose the historical
+revision when its content is the subject, or the current head when maintaining
+the present file. This same distinction applies to exact file citations in
+persona messages.
 
 Attaching a reference supplies metadata without reading its body, selecting it,
 or changing a stopped persona's continuation. The persona chooses whether to
