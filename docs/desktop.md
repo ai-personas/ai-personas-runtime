@@ -72,10 +72,13 @@ for previews. **Feedback** is in the task toolbar,
 amendment and cancellation are in the **Task** menu, and participant resumption
 is in the persona's **Execution** properties.
 
-The top navigation follows persona work: **Workspaces**, **Tasks**, **Personas**,
-**Produced files**, and **Settings**. **Personas** opens the selected participant's
-retained profile and development; the right-hand inspector keeps their model
-and execution state visible.
+The compact workspace strip keeps **Overview**, **Personas**, **Conversation**,
+**Collaboration**, **Files**, **Questions**, **Activity**, and **Sessions** in the
+same location. Task views use the task selected in the outliner; they are disabled
+when no task is selected. The workspace name and task identity remain available
+in the outliner and status bar. **Workspaces**, task creation, and **Settings**
+remain in the application menu. The right-hand inspector keeps task participants'
+model and execution state visible.
 
 ### A connected view of the workspace
 
@@ -84,7 +87,8 @@ who participates in each task, including personas that currently have no task.
 Search by task or persona, open a task from a row, or open a profile from a column.
 The task outliner and properties inspector remain resizable while you explore.
 Below the matrix, **Selected task** shows its brief, current participation,
-persona-authored progress reports, and replies to you. Reports retain their
+recorded result status, delivery count, shared questions, persona-authored
+progress reports, and replies to you. Reports retain their
 self-assessed meaning. Open the full activity record, follow a reply into its
 exact exchange, or move directly to collaboration, questions, and produced files.
 
@@ -93,23 +97,75 @@ On narrow windows the persona inspector moves out of the main reading area;
 On short windows the session strip contracts to its header, with **View history**
 keeping every retained session accessible.
 
-**Conversation → Timeline** includes both replies to you and communication between
+**Conversation → Messages in accepted order** includes both replies to you and communication between
 personas. Arrows name the actual sender and recipient; filters select a person,
 channel, subject, or phrase. Messages follow the accepted decision order, using
 the message ID to order messages accepted in the same decision. No reply chain,
 read receipt, agreement, or wall-clock time is invented from the subject line.
+Sender and recipient links open actual persona profiles. **Read exchange** from
+an overview reply locates and highlights that exact message, including on later
+pages; an unavailable message leaves a persistent notice. Changing task clears
+the previous task's conversation filters. An exported citation can open the
+recorded-file browser filtered by the exact citing message identity.
+
+**Your input records** shows the requester's retained feedback, explicit
+replacements, and persona dispositions, and links to **Questions** for answers
+and their stated basis. Where the disposition's accepted decision has a reply
+to the requester, **Open reply from this decision** locates that exact message.
+All requester replies from that decision remain individually selectable; sharing
+the decision does not invent a message-level reply-to link.
+Feedback is displayed in its supplied pending-first, newest-receipt order.
+Receipt timestamps do not establish an interleaving with persona decisions, so
+these inputs are not inserted into the accepted-message timeline. The current
+task brief is not attributed to the user when its origin is absent from the
+inspection. A handled or declined disposition is a persona account, not verified
+compliance. Input dialogs retain their original task and question when the main
+workspace selection changes; **Cancel** discards the draft without dispatch.
 **Collaboration** shows a selectable connection map and directed communication
 paths with message counts. Select a count to read that exact direction of exchange.
+**Both directions in accepted order** includes the reverse path without changing
+message attribution or order. This lets you read each side of a conversation;
+it does not assign an inferred request/response relationship. The runtime's
+message record has no general reply-to-message field. Explicit question replies
+and requester dispositions retain their own recorded links.
 Compact maps keep the counts in the path list below, leaving the diagram readable.
 Large populations use the full list and can be focused by persona. The view shows
-current accepted responsibilities, proposed and adopted arrangements, and task
-dependencies. A message and an acceptance remain different observations.
+current accepted responsibility terms, proposal authors and their proposed
+changes, current adopted arrangements, accepted history, and task dependencies.
+Retained proposals that have been adopted are labeled accordingly. Missing
+dependency ownership remains an accountability gap. Full provenance remains
+expandable. A message and an acceptance remain different observations.
 
-Profiles show semantic OCEAN and modeled VAD descriptions, participation across
-tasks, and searchable current characteristic fragments. **Include historical
+**Personas** is a persistent workspace with a searchable roster of all inspected
+identities, including personas without task participation. It provides
+**Character**, **Characteristic fragments**, **Fragment relationships**, and
+**Work & supporting records**.
+Task links open conversations, responsibilities, files, and activity with the
+persona selected in the inspector. Profiles show semantic OCEAN and modeled VAD
+descriptions and searchable current characteristic fragments. **Include historical
 revisions** exposes earlier authored fragments with their provenance. Traits are
-not converted into fabricated numeric scores. Supporting knowledge and tools
-remain distinct from characteristic fragments.
+not converted into fabricated numeric scores. File heads, retired sources,
+recorded authors, and exact references from the current character are distinct.
+The references preserve ranges and representation; referencing part of a revision
+does not designate its entire body or prove later supply. An unavailable character
+account is not labeled as never authored. Transient modeled affect remains
+separate from the baseline. Supporting knowledge, tools, skills, data, and factual
+conversation records remain distinct from characteristic fragments. The profile
+links to available task records; it does not claim a complete asset inventory.
+
+**Fragment relationships** shows the recorded path hierarchy and navigable
+qualification edges from `context.entries[].roles[].required_by`. Select a
+reference to read its available body, author, incoming and outgoing qualification
+links. Current character own-voice references remain visible separately. Identity
+includes source, revision, representation, and range: a different range or revision
+is never substituted for an unavailable exact body. Supporting-asset qualifications
+are labeled separately, including in the fragment reading view. These are recorded
+qualification relationships and path organization, not inferred topic similarity,
+an inferred psychological model, or proof of later context supply. Historical
+revisions are optional. Referenced bodies absent from the inspection remain
+explicitly unavailable.
+Hiding history retains the selected exact reference and explains that its body
+is outside the visible filter, instead of selecting a different revision or range.
 
 These views use the current runtime's saved inspection records. The new
 `personas-session --state-root PATH --operator ID conversation WORK` command
@@ -144,9 +200,13 @@ the preview of a newer selection or another workspace.
   available. Source files use language-aware syntax highlighting and selectable text.
 - JSON opens as an expandable parameter tree with original values and units;
   the exact source remains available. Arrays of records, arrays of rows, and
-  objects of column arrays also offer a table and numeric plots.
+  objects of scalar column arrays also offer a table and numeric plots. Nested
+  datasets can be selected by their exact JSON Pointer, including escaped `/`
+  and `~` in field names. Scalar arrays also have a value table. Structural
+  discovery makes no claim about which dataset is a simulation result or whether
+  it is valid. Named columns remain headers even when their names are numeric.
 - CSV/TSV offer a paged table and a plot with selectable horizontal axis and
-  series. Hover for exact values. Missing or nonnumeric values leave gaps;
+  series, alongside the original source and a copy action. Hover for exact values. Missing or nonnumeric values leave gaps;
   points follow file order. Header detection can be overridden. All rows remain
   available through page navigation, and plots use the complete loaded dataset.
 - STL, OBJ, and GLB/glTF render in a solid 3D viewport with orbit, pan, zoom,
@@ -157,18 +217,72 @@ the preview of a newer selection or another workspace.
 - STEP uses a same-name STL, OBJ, or GLB companion when available. The viewer
   explicitly identifies that companion; it does not decode STEP geometry.
 - ZIP packages list their contents. Select an entry to preview it without
-  extraction; **Back to package** returns to the listing.
+  extracting the whole package; **Back to package** returns to the listing.
+
+### Compatible renderers inside the window
+
+**Viewer support** lists built-in viewers, registered compatible renderers, and
+missing executables on this computer. A compatible renderer produces a derived
+image or SVG that the native egui viewport displays with fit, zoom, pan, and
+page/sheet/frame navigation. It does not open a separate application window.
+PCB layer previews default to a dark background for silkscreen and outline
+contrast; document and schematic pages default to light paper. The background
+control remains available. Native drawing pages use a longest raster edge of
+2400 pixels, independent of the drawing's physical dimensions.
+
+| Formats | Compatible renderer | In-UI representation and limits |
+| --- | --- | --- |
+| PDF | `pdfinfo` and `pdftoppm` (Poppler) | Selectable pages, rasterized on demand. No interactive forms or embedded program execution. |
+| DOC/DOCX/ODT/RTF, PPT/PPTX/ODP, XLS/XLSX/ODS | `soffice` or `libreoffice`, plus Poppler | Document pages, slide pages, and spreadsheet print layout. Layout depends on installed fonts. This does not expose every spreadsheet cell, formula, or workbook interaction. |
+| KiCad `.kicad_pcb` | `kicad-cli` 9+ | Front or mirrored back copper/silkscreen/outline, or outline alone, rendered as SVG. Inner copper, 3D component models, DRC, and fabrication validation are not included. |
+| KiCad `.kicad_sch` | `kicad-cli` 9+ | Available exported SVG sheets. Only the selected source is staged, so separate hierarchical sheets, libraries, and linked assets may be unavailable. |
+| MP4/MOV/WebM/AVI/MKV/M4V | `ffprobe` and `ffmpeg` | Eight timestamp samples across the duration, decoded on demand. This is frame inspection, without playback, audio, or every intervening frame. |
+| WAV/MP3/OGG/FLAC/M4A/AAC | `ffmpeg` | Whole-file channel waveforms. No audio playback, transcription, or inferred quality assessment. |
+
+Renderer preparation and decoding run on the existing preview worker. Page images
+are created on demand and cached for the selected document; only the active page
+texture is retained on the GPU. Switching sources releases the document's temporary
+cache after any in-flight work exits. PDF pages are rendered to a longest side of
+2400 pixels, video frames fit within 1600 by 1000, and audio waveforms use 1600 by
+400. These are display resolutions, not source-size limits. Audio waveform creation
+and office conversion may still need to read the whole source before a preview is
+ready. **Cancel loading** terminates an owned compatible-renderer process group;
+replacement selections also cancel it. Incomplete conversions are not published
+as cached pages. Generation checks prevent late results from replacing a newer view.
+
+Converters receive a staged copy of the selected bytes; recorded exports retain
+their digest verification. They run without a shell. LibreOffice gets a private
+profile with macro execution and active content disabled and untrusted document
+links blocked. Media decoding permits local-file and pipe protocols only. These
+settings are not an operating-system sandbox. Renderer failures and diagnostics
+remain inspectable; a program on PATH alone does not establish version or format
+compatibility. No tools are automatically installed. Extend the registry and its
+preparation/page renderer in `native_preview.rs` together when adding a format.
 
 Files, text, tables, archives, and meshes have no application count or byte quota;
 decoding still depends on available memory and graphics resources. Large raster
-images are resized for display. Formats without an embedded decoder, including
-PDF, office documents, audio, video, and specialist simulation/CAD files, use
-**Actions → Open in external application** or **Open with…** to choose an installed
-viewer. This also works for recorded deliveries and archive entries: their exact
+images are resized for display. Universal format support is not provided.
+Gerber/Excellon, other PCB formats, DXF/DWG, IGES, native Blender/FreeCAD files,
+HDF5 and other specialist formats without a registered renderer remain unsupported
+in the window. Missing compatible renderers are identified by name. **Actions →
+Open in external application** or **Open with…** is an optional fallback, not
+embedded rendering. This also works for recorded deliveries and archive entries: their exact
 bytes are materialized in a temporary folder retained while the window is open.
 Opening failures are reported. An external viewer's launch does not establish
 that it successfully rendered the format. No generated program is executed by
 merely selecting it for preview.
+
+The format filter separates **Data & parameters**, **Electronics**, and
+**Audio & video** from documents and code.
+Markdown has explicit rendered/source choices; recorded or packaged Markdown
+does not claim support for adjacent local image resolution. Unsupported formats
+show the missing-renderer or unsupported-format reason and external-viewer actions.
+**Actions → Reload preview** retries the
+selected source. **Cancel loading** dismisses a list or preview request; already
+running decoding may finish, but its late result cannot reopen that request or
+replace a newer selection. **Retry** explicitly requests it again. A failed or
+cancelled list is not reported as an empty successful listing. Repeated external
+open actions are disabled while application selection or launch is pending.
 
 **Pause** stops further work and waits for current calls and commands to record
 their outcomes. **Cancel task** retains results and records cancellation; it

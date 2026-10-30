@@ -14,6 +14,42 @@ fn read_all(reader: &mut impl Read) -> Result<Vec<u8>, String> {
     reader.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
     Ok(bytes)
 }
+
+fn svg(source: &Source, bytes: &[u8], maximum_upscale: f32) -> Result<Body, String> {
+    let mut options = resvg::usvg::Options {
+        font_family: "Inter Variable".into(),
+        ..Default::default()
+    };
+    options.fontdb_mut().load_font_data(include_bytes!("fonts/Inter-Regular.ttf").to_vec());
+    options.fontdb_mut().load_font_data(include_bytes!("fonts/DejaVuSansMono.ttf").to_vec());
+    options.fontdb_mut().set_sans_serif_family("Inter Variable");
+    options.fontdb_mut().set_serif_family("Inter Variable");
+    options.fontdb_mut().set_monospace_family("DejaVu Sans Mono");
+    if let Source::File(path) = source {
+        options.resources_dir = path.parent().map(Path::to_path_buf);
+    }
+    let tree = resvg::usvg::Tree::from_data(bytes, &options).map_err(|error| error.to_string())?;
+    let size = tree.size();
+    let scale = (2400.0 / size.width().max(size.height())).min(maximum_upscale);
+    let width = (size.width() * scale).ceil().max(1.0) as u32;
+    let height = (size.height() * scale).ceil().max(1.0) as u32;
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(width, height).ok_or("SVG preview size is invalid")?;
+    resvg::render(&tree, resvg::tiny_skia::Transform::from_scale(scale, scale), &mut pixmap.as_mut());
+    Ok(Body::Image(
+        egui::ColorImage::from_rgba_premultiplied([width as usize, height as usize], pixmap.data()),
+        format!("SVG preview · {width} × {height} px"),
+    ))
+}
+
+pub(super) fn native_drawing(source: &Source, cancel: &native_preview::Cancellation) -> Result<Decoded, String> {
+    if cancel.is_cancelled() { return Err("Preview request cancelled.".into()); }
+    // Small physical drawing dimensions must not cap the readable page resolution.
+    // Reuse the SVG renderer; the derived page still has a 2400-pixel longest side.
+    let body = svg(source, &source.bytes()?, f32::INFINITY)?;
+    if cancel.is_cancelled() { return Err("Preview request cancelled.".into()); }
+    Ok(Decoded { body, note: String::new() })
+}
+
 impl Source {
     pub(super) fn name(&self) -> String {
         match self {
@@ -137,6 +173,7 @@ pub(super) fn scan(root: &Path, show_hidden: bool) -> Result<Catalog, String> {
                     size: meta.len(),
                     source: Source::File(path),
                     details: None,
+                    citation_message: None,
                 });
             }
         }
@@ -207,17 +244,32 @@ pub(super) fn recorded(source: super::super::helpers::ResultFiles) -> Result<Cat
             path: display, size,
             source: Source::Snapshot { path, sha256, _directory: directory.clone() },
             details: Some(details),
+            citation_message: source["citation_message"]["id"].as_str().map(str::to_owned),
         });
     }
     Ok(Catalog { files, note: note.into() })
 }
 
-pub(super) fn decode(source: &Source) -> Result<Decoded, String> {
+pub(super) fn decode(source: &Source, cancel: &native_preview::Cancellation) -> Result<Decoded, String> {
+    if cancel.is_cancelled() {
+        return Err("Preview request cancelled.".into());
+    }
     let name = source.name();
     let ext = extension(Path::new(&name));
+    if let Some(route) = native_preview::route(&ext) {
+        if let Err(reason) = route.availability() {
+            return Ok(Decoded {
+                body: Body::Unsupported(format!("{} can render this format inside the workspace. {reason}", route.label)),
+                note: String::new(),
+            });
+        }
+        return native_preview::prepare(source, route, cancel).map(|document| Decoded {
+            body: Body::Native(document), note: String::new(),
+        });
+    }
     if matches!(ext.as_str(), "step" | "stp") {
         if let Some(companion) = source.companion() {
-            let mut decoded = decode(&companion)?;
+            let mut decoded = decode(&companion, cancel)?;
             decoded.note = format!(
                 "STEP source · showing companion mesh {}. The STEP geometry itself is not decoded.",
                 companion.name()
@@ -229,40 +281,7 @@ pub(super) fn decode(source: &Source) -> Result<Decoded, String> {
     let bytes = source.bytes()?;
     let mut note = String::new();
     let body = match ext.as_str() {
-        "svg" => {
-            let mut options = resvg::usvg::Options::default();
-            options.font_family = "Inter Variable".into();
-            options
-                .fontdb_mut()
-                .load_font_data(include_bytes!("fonts/Inter-Regular.ttf").to_vec());
-            options
-                .fontdb_mut()
-                .load_font_data(include_bytes!("fonts/DejaVuSansMono.ttf").to_vec());
-            options.fontdb_mut().set_sans_serif_family("Inter Variable");
-            options.fontdb_mut().set_serif_family("Inter Variable");
-            options
-                .fontdb_mut()
-                .set_monospace_family("DejaVu Sans Mono");
-            if let Source::File(p) = source {
-                options.resources_dir = p.parent().map(Path::to_path_buf);
-            }
-            let tree = resvg::usvg::Tree::from_data(&bytes, &options).map_err(|e| e.to_string())?;
-            let size = tree.size();
-            let scale = (2400.0 / size.width().max(size.height())).min(2.0);
-            let w = (size.width() * scale).ceil().max(1.0) as u32;
-            let h = (size.height() * scale).ceil().max(1.0) as u32;
-            let mut pixmap =
-                resvg::tiny_skia::Pixmap::new(w, h).ok_or("SVG preview size is invalid")?;
-            resvg::render(
-                &tree,
-                resvg::tiny_skia::Transform::from_scale(scale, scale),
-                &mut pixmap.as_mut(),
-            );
-            Body::Image(
-                egui::ColorImage::from_rgba_premultiplied([w as usize, h as usize], pixmap.data()),
-                format!("SVG · {} × {}", size.width(), size.height()),
-            )
-        }
+        "svg" => svg(source, &bytes, 2.0)?,
         "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tif" | "tiff" | "ico" => {
             let mut reader = image::ImageReader::new(Cursor::new(&bytes))
                 .with_guessed_format()
@@ -324,14 +343,14 @@ pub(super) fn decode(source: &Source) -> Result<Decoded, String> {
                 .map(|r| r.map(|r| r.iter().map(str::to_owned).collect::<Vec<_>>()))
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|e| e.to_string())?;
-            Body::Table(rows)
+            Body::Table(rows, std::str::from_utf8(&bytes).map_err(|e| e.to_string())?.to_owned())
         }
         "json" => {
             let text = std::str::from_utf8(&bytes).map_err(|e| e.to_string())?;
             match serde_json::from_str::<serde_json::Value>(text) {
                 Ok(value) => {
-                    let rows = data_view::json_rows(&value);
-                    Body::Parameters(value, text.into(), rows)
+                    let datasets = data_view::json_datasets(&value);
+                    Body::Parameters(value, text.into(), datasets)
                 }
                 Err(error) => {
                     note = format!("Invalid JSON: {error}. Showing the original source.");
@@ -339,6 +358,10 @@ pub(super) fn decode(source: &Source) -> Result<Decoded, String> {
                 }
             }
         }
+        "h5" | "hdf5" | "blend" | "brd" | "sch" | "gbr" | "ger" | "gerber"
+        | "drl" | "dxf" | "dwg" | "iges" | "igs" | "fcstd" => Body::Unsupported(format!(
+            "{ext} has no embedded decoder. Choose an installed application to view the original file. Launching it does not verify its contents.",
+        )),
         _ => {
             if bytes.contains(&0) || std::str::from_utf8(&bytes).is_err() {
                 Body::Unsupported(format!(

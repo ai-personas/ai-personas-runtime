@@ -58,6 +58,10 @@ impl App {
                             ] {
                                 if ui.button(label).clicked() {
                                     self.tab = tab;
+                                    if tab == 0 {
+                                        self.conversation_mode = 0;
+                                        self.conversation_inputs = false;
+                                    }
                                     ui.close();
                                 }
                             }
@@ -65,6 +69,10 @@ impl App {
                             ui.checkbox(&mut self.show_session_strip, "Show session history panel");
                         });
                         ui.menu_button("Personas", |ui| {
+                            if ui.button("All personas").clicked() {
+                                self.tab = 6;
+                                ui.close();
+                            }
                             if ui.button("Properties & execution…").clicked() {
                                 self.show_persona_properties = true;
                                 ui.close();
@@ -89,9 +97,7 @@ impl App {
                                     .clicked()
                                 {
                                     let id = s(&person, "persona").to_owned();
-                                    self.inspected_persona = Some(id.clone());
-                                    self.dialog = Some(Dialog::Development);
-                                    self.send(Action::Development(id));
+                                    self.open_profile(id);
                                     ui.close();
                                 }
                             }
@@ -130,38 +136,23 @@ impl App {
                     .inner_margin(egui::Margin::symmetric(9, 3)),
             )
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    if ui
-                        .add_enabled(
-                            can_switch,
-                            egui::Button::new("Workspaces").selected(self.choose_progress),
-                        )
-                        .clicked()
-                    {
-                        self.discover();
-                    }
-                    if self.view.progress.is_some()
-                        && ui
-                            .selectable_label(
-                                !self.choose_progress && self.tab != 5,
-                                if self.view.ready {
-                                    "Workspace"
-                                } else {
-                                    "Setup"
-                                },
-                            )
+                ui.vertical(|ui| {
+                    if self.view.ready && !self.choose_progress {
+                        self.workspace_navigation(ui);
+                    } else {
+                        if ui
+                            .add_enabled(can_switch, egui::Button::new("Workspaces").selected(self.choose_progress))
                             .clicked()
-                    {
-                        self.choose_progress = false;
-                        self.tab = 0;
-                    }
-                    if !self.choose_progress {
-                        if self.view.ready
-                            && ui.selectable_label(self.tab == 5, "Overview").clicked()
                         {
-                            self.tab = 5;
+                            self.discover();
                         }
-                        ui.separator();
+                        if self.view.progress.is_some()
+                            && ui.selectable_label(!self.choose_progress, if self.view.ready { "Workspace" } else { "Setup" }).clicked()
+                        {
+                            self.choose_progress = false;
+                        }
+                    }
+                    if !self.choose_progress && !self.view.ready {
                         let title = self
                             .view
                             .root
@@ -212,6 +203,17 @@ impl App {
                         "Ready"
                     };
                     ui.label(RichText::new(status).size(11.0));
+                    if !self.choose_progress && ui.available_width() > 570.0 {
+                        ui.separator();
+                        let name = self.view.root.file_name().unwrap_or_default().to_string_lossy();
+                        ui.add(egui::Label::new(RichText::new(short(&name, 28)).small().weak()).truncate())
+                            .on_hover_text(self.view.root.display().to_string());
+                        if self.tab != 5 && self.tab != 6 {
+                            if let Some(work) = &self.view.selected {
+                                ui.label(RichText::new(work).small().monospace().weak());
+                            }
+                        }
+                    }
                     if let Some(since) = self.running_since {
                         ui.label(
                             RichText::new(format!(
@@ -312,7 +314,7 @@ impl App {
                         for work in works.iter().filter(|w| {
                             filter.is_empty()
                                 || s(w, "need").to_lowercase().contains(&filter)
-                                || s(w, "id").contains(&filter)
+                                || s(w, "id").to_lowercase().contains(&filter)
                         }) {
                             let id = s(work, "id").to_owned();
                             let title = if work["optional_activity"] == true {
@@ -333,16 +335,17 @@ impl App {
                                 .min_size(egui::vec2(ui.available_width(), 54.0)),
                             );
                             if response.on_hover_text(s(work, "need")).clicked() {
-                                self.inspected_persona = None;
-                                self.conversation_persona = None;
-                                self.conversation_route = None;
-                                self.conversation_page = 0;
-                                self.tab = 0;
-                                self.send(Action::Select(id));
+                                self.open_task(id, 0, None);
                             }
                         }
                         if works.is_empty() {
                             ui.label(RichText::new("No tasks yet").weak());
+                        } else if !works.iter().any(|w| {
+                            filter.is_empty()
+                                || s(w, "need").to_lowercase().contains(&filter)
+                                || s(w, "id").to_lowercase().contains(&filter)
+                        }) {
+                            ui.weak("No tasks match this search.");
                         }
                     });
             });
@@ -480,13 +483,16 @@ impl App {
                             .add_enabled(!self.busy, egui::Button::new("Profile & development"))
                             .clicked()
                         {
-                            self.dialog = Some(Dialog::Development);
-                            self.send(Action::Development(s(persona, "persona").into()));
+                            self.open_profile(s(persona, "persona").into());
                         }
                     });
             });
     }
     pub(super) fn workspace(&mut self, ui: &mut Ui) {
+        if self.tab == 6 {
+            self.personas_workspace(ui);
+            return;
+        }
         if self.tab == 5 {
             egui::Frame::new().inner_margin(12).show(ui, |ui| {
                 self.banner(ui);
@@ -594,7 +600,11 @@ impl App {
                         .on_hover_text("Give feedback for the next eligible decision")
                         .clicked()
                     {
-                        self.dialog = Some(Dialog::Feedback);
+                        self.dialog = Some(Dialog::Feedback {
+                            work: id.clone(),
+                            participants: models_at(&work, "participants").to_vec(),
+                            items: models_at(&self.view.result["requester_feedback"], "items").to_vec(),
+                        });
                         self.text.clear();
                         self.replaced.clear();
                         self.feedback_persona = models_at(&work, "participants")
@@ -610,7 +620,7 @@ impl App {
                             .add_enabled(!self.busy, egui::Button::new("Amend task"))
                             .clicked()
                         {
-                            self.dialog = Some(Dialog::Amend);
+                            self.dialog = Some(Dialog::Amend(id.clone()));
                             self.send(Action::AmendSnapshot(id.clone()));
                             ui.close();
                         }
@@ -640,34 +650,6 @@ impl App {
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(p.canvas).inner_margin(10))
             .show_inside(ui, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    theme::glyph(
-                        ui,
-                        [
-                            Icon::Conversation,
-                            Icon::Files,
-                            Icon::Questions,
-                            Icon::Activity,
-                            Icon::Sessions,
-                            Icon::Workspaces,
-                        ][self.tab.min(5)],
-                        p.muted,
-                    );
-                    for (i, label) in [
-                        "Conversation",
-                        "Produced files",
-                        "Questions",
-                        "Activity",
-                        "Sessions",
-                        "Overview",
-                    ]
-                    .iter()
-                    .enumerate()
-                    {
-                        ui.selectable_value(&mut self.tab, i, *label);
-                    }
-                });
-                ui.separator();
                 if self.tab == 1 {
                     self.files(ui, &id);
                     return;

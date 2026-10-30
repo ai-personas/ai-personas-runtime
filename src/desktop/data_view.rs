@@ -3,6 +3,59 @@ use super::theme;
 use eframe::egui::{self, RichText, Ui};
 use std::collections::BTreeSet;
 
+pub struct Dataset {
+    /// Exact JSON Pointer; an empty pointer denotes the document root.
+    pub pointer: String,
+    pub rows: Vec<Vec<String>>,
+    pub header: Option<bool>,
+}
+
+/// Discover tabular representations by structure, without guessing which data
+/// constitute simulation results or assigning meaning or units to columns.
+pub fn json_datasets(value: &serde_json::Value) -> Vec<Dataset> {
+    let mut datasets = Vec::new();
+    let mut pending = vec![(String::new(), value)];
+    while let Some((pointer, value)) = pending.pop() {
+        if let Some(rows) = json_rows(value) {
+            let header = if value.as_array().is_some_and(|items| {
+                !items.is_empty() && items.iter().all(serde_json::Value::is_array)
+            }) {
+                None
+            } else {
+                Some(true)
+            };
+            datasets.push(Dataset { pointer: pointer.clone(), rows, header });
+            // A column-array object already represents one table. Its scalar
+            // columns are not additional datasets. Likewise, scalar matrix rows
+            // are rows of the selected table, not hundreds of new choices.
+            if value.is_object() || value.as_array().is_some_and(|items| {
+                items.iter().all(|row| row.as_array().is_some_and(|cells| {
+                    cells.iter().all(|cell| !cell.is_array() && !cell.is_object())
+                }))
+            }) {
+                continue;
+            }
+        }
+        match value {
+            serde_json::Value::Object(map) => {
+                for (key, child) in map.iter().rev() {
+                    let key = key.replace('~', "~0").replace('/', "~1");
+                    pending.push((format!("{pointer}/{key}"), child));
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for (index, child) in items.iter().enumerate().rev() {
+                    if child.is_object() || child.is_array() {
+                        pending.push((format!("{pointer}/{index}"), child));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    datasets
+}
+
 /// Project JSON records or column arrays without guessing a domain schema.
 pub fn json_rows(value: &serde_json::Value) -> Option<Vec<Vec<String>>> {
     let cell = |v: &serde_json::Value| {
@@ -36,9 +89,18 @@ pub fn json_rows(value: &serde_json::Value) -> Option<Vec<Vec<String>>> {
                     .collect(),
             );
         }
+        if items.iter().all(|v| !v.is_object() && !v.is_array()) {
+            let mut rows = vec![vec!["Value".to_owned()]];
+            rows.extend(items.iter().map(|v| vec![cell(v)]));
+            return Some(rows);
+        }
     }
     if let Some(map) = value.as_object() {
-        if map.is_empty() || !map.values().all(serde_json::Value::is_array) {
+        if map.is_empty() || !map.values().all(|column| {
+            column.as_array().is_some_and(|items| {
+                items.iter().all(|v| !v.is_object() && !v.is_array())
+            })
+        }) {
             return None;
         }
         let mut rows = vec![map.keys().cloned().collect()];
@@ -110,6 +172,7 @@ pub struct TableView {
     x: Option<usize>,
     y: BTreeSet<usize>,
     initialized: bool,
+    header_hint: Option<bool>,
 }
 impl Default for TableView {
     fn default() -> Self {
@@ -120,6 +183,7 @@ impl Default for TableView {
             x: None,
             y: BTreeSet::new(),
             initialized: false,
+            header_hint: None,
         }
     }
 }
@@ -127,12 +191,16 @@ fn number(cell: &str) -> Option<f64> {
     cell.trim().parse::<f64>().ok().filter(|v| v.is_finite())
 }
 impl TableView {
+    pub fn with_header(header: Option<bool>) -> Self {
+        Self { header_hint: header, ..Self::default() }
+    }
+
     pub fn ui(&mut self, ui: &mut Ui, rows: &[Vec<String>]) {
         let columns = rows.iter().map(Vec::len).max().unwrap_or(0);
         if !self.initialized {
-            self.header = rows
+            self.header = self.header_hint.unwrap_or_else(|| rows
                 .first()
-                .is_some_and(|r| r.iter().any(|v| number(v).is_none()));
+                .is_some_and(|r| r.iter().any(|v| number(v).is_none())));
             let numeric: Vec<_> = (0..columns)
                 .filter(|&c| {
                     rows.iter()
@@ -212,11 +280,14 @@ impl TableView {
                     (label(c), points)
                 })
                 .collect();
-            plot(
-                ui,
-                &series,
-                &self.x.map(label).unwrap_or_else(|| "Row number".into()),
-            );
+            let height = (ui.available_height() - 2.0 * ui.spacing().interact_size.y)
+                .clamp(220.0, 500.0);
+            egui::ScrollArea::vertical()
+                .id_salt("plot-viewport")
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    plot(ui, &series, &self.x.map(label).unwrap_or_else(|| "Row number".into()), height);
+                });
         } else {
             const PAGE: usize = 200;
             let pages = data.len().div_ceil(PAGE).max(1);
@@ -268,7 +339,7 @@ impl TableView {
         }
     }
 }
-fn plot(ui: &mut Ui, series: &[(String, Vec<Option<[f64; 2]>>)], x_label: &str) {
+fn plot(ui: &mut Ui, series: &[(String, Vec<Option<[f64; 2]>>)], x_label: &str, height: f32) {
     let p = theme::palette(ui);
     let colors = [
         theme::BLUE,
@@ -315,7 +386,7 @@ fn plot(ui: &mut Ui, series: &[(String, Vec<Option<[f64; 2]>>)], x_label: &str) 
     let (outer, response) = ui.allocate_exact_size(
         egui::vec2(
             ui.available_width().max(180.0),
-            ui.available_height().clamp(220.0, 500.0),
+            height,
         ),
         egui::Sense::hover(),
     );

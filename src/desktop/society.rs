@@ -5,20 +5,7 @@ use std::collections::BTreeMap;
 impl App {
     pub(super) fn overview(&mut self, ui: &mut Ui) {
         let works = models_at(&self.view.inspection, "works").to_vec();
-        let mut people = BTreeMap::new();
-        if let Some(labels) = self.view.inspection["settings"]["persona_labels"].as_object() {
-            for (id, label) in labels {
-                people.insert(id.clone(), label.as_str().unwrap_or(id).to_owned());
-            }
-        }
-        for work in &works {
-            for person in models_at(work, "participants") {
-                people.insert(
-                    s(person, "persona").to_owned(),
-                    s(person, "label").to_owned(),
-                );
-            }
-        }
+        let people = self.persona_catalog();
         theme::header(
             ui,
             Icon::Workspaces,
@@ -36,6 +23,12 @@ impl App {
                 ),
                 theme::GREEN,
             );
+            for (phase, color) in [("paused", theme::ACCENT), ("ended", theme::palette(ui).muted)] {
+                let count = works.iter().filter(|work| s(work, "phase") == phase).count();
+                if count > 0 {
+                    theme::badge(ui, &format!("{count} {phase}"), color);
+                }
+            }
         });
         ui.add_space(8.0);
         ui.add(
@@ -61,7 +54,7 @@ impl App {
                         ui.strong("Task / current phase");
                         for (id, label) in &people {
                             if ui
-                                .add_sized([person_width, 24.0], egui::Button::new(label))
+                                .add_enabled(!self.busy, egui::Button::new(label).min_size(egui::vec2(person_width, 24.0)))
                                 .on_hover_text(id)
                                 .clicked()
                             {
@@ -83,9 +76,11 @@ impl App {
                             ui.vertical(|ui| {
                                 ui.set_width(task_width);
                                 if ui
-                                    .add_sized(
-                                        [task_width, 48.0],
-                                        egui::Button::new(short(s(work, "need"), 130)).wrap(),
+                                    .add_enabled(
+                                        !self.busy,
+                                        egui::Button::new(short(s(work, "need"), 130))
+                                            .selected(self.view.selected.as_deref() == Some(s(work, "id")))
+                                            .min_size(egui::vec2(task_width, 48.0)).wrap(),
                                     )
                                     .on_hover_text(s(work, "need"))
                                     .clicked()
@@ -113,7 +108,7 @@ impl App {
                                             .to_owned()
                                     };
                                     if ui
-                                        .add_sized([person_width, 26.0], egui::Button::new(label))
+                                        .add_enabled(!self.busy, egui::Button::new(label).min_size(egui::vec2(person_width, 26.0)))
                                         .on_hover_text("Open this task and inspect the participant")
                                         .clicked()
                                     {
@@ -133,15 +128,10 @@ impl App {
         ui.add_space(16.0);
         self.overview_detail(ui);
         if let Some(id) = selected {
-            self.tab = 0;
-            self.conversation_persona = None;
-            self.conversation_route = None;
-            self.conversation_page = 0;
-            self.send(Action::Select(id));
+            self.open_task(id, 0, self.inspected_persona.clone());
         }
         if let Some(id) = profile {
-            self.dialog = Some(Dialog::Development);
-            self.send(Action::Development(id));
+            self.open_profile(id);
         }
     }
 
@@ -176,13 +166,10 @@ impl App {
         ui.horizontal_wrapped(|ui| {
             for (mode, label) in [(0, "Conversation"), (1, "Collaboration")] {
                 if ui.button(label).clicked() {
+                    self.clear_conversation_filters();
                     self.tab = 0;
                     self.conversation_mode = mode;
-                    self.conversation_filter.clear();
-                    self.conversation_persona = None;
-                    self.conversation_route = None;
-                    self.conversation_channel = 0;
-                    self.conversation_page = 0;
+                    self.conversation_inputs = false;
                 }
             }
             for (tab, label) in [(1, "Produced files"), (2, "Questions"), (3, "Activity")] {
@@ -196,6 +183,20 @@ impl App {
             ui.weak("Task details are not available in this inspection.");
             return;
         }
+        theme::header(ui, Icon::Files, "Result records", "OBSERVED STATUS");
+        ui.horizontal_wrapped(|ui| {
+            ui.label(s(&self.view.result, "status").replace('-', " "));
+            let deliveries = models_at(&self.view.result, "local_deliveries").len();
+            if ui.button(format!("{deliveries} recorded deliveries · inspect files")).clicked() {
+                self.tab = 1;
+            }
+            let questions = models_at(&self.view.questions["shared_questions"], "items").len();
+            if ui.button(format!("{questions} shared questions")).clicked() {
+                self.tab = 2;
+            }
+        });
+        ui.weak("Delivery, recorded completion, and persona judgments retain their separate meanings. Current workspace files do not establish authorship or delivery.");
+        ui.add_space(10.0);
         if ui.available_width() >= 850.0 {
             ui.columns(2, |columns| {
                 self.overview_reports(&mut columns[0]);
@@ -230,8 +231,7 @@ impl App {
                                     .add_enabled(!self.busy, egui::Button::new(s(report, "label")))
                                     .clicked()
                                 {
-                                    self.dialog = Some(Dialog::Development);
-                                    self.send(Action::Development(s(report, "persona").to_owned()));
+                                    self.open_profile(s(report, "persona").to_owned());
                                 }
                                 ui.label(match s(&report["judgment"], "kind") {
                                     "ongoing" => "Continuing",
@@ -288,16 +288,11 @@ impl App {
                                 ui.strong(self.persona_label(s(reply, "sender")));
                                 ui.weak(format!("→ {}", self.persona_label(s(reply, "recipient"))));
                                 if ui.small_button("Read exchange").clicked() {
-                                    self.tab = 0;
-                                    self.conversation_mode = 0;
-                                    self.conversation_filter.clear();
-                                    self.conversation_persona = None;
-                                    self.conversation_route = Some((
+                                    self.open_exchange(
                                         s(reply, "sender").to_owned(),
                                         s(reply, "recipient").to_owned(),
-                                    ));
-                                    self.conversation_channel = 0;
-                                    self.conversation_page = 0;
+                                        Some(s(reply, "id").to_owned()),
+                                    );
                                 }
                             });
                             ui.add(
@@ -336,11 +331,28 @@ impl App {
         }
         let snapshot = self.view.conversation.clone();
         let all = models_at(&snapshot, "messages");
-        let participants = models_at(&snapshot, "participants");
+        let people: BTreeMap<_, _> = all.iter()
+            .flat_map(|message| [s(message, "sender"), s(message, "recipient")])
+            .chain(models_at(&snapshot, "participants").iter().map(|p| s(p, "persona")))
+            .filter(|id| !id.is_empty())
+            .map(|id| (id.to_owned(), self.persona_label(id)))
+            .collect();
+        if self.conversation_mode == 0 {
+            ui.horizontal_wrapped(|ui| {
+                ui.selectable_value(&mut self.conversation_inputs, false, "Messages in accepted order");
+                ui.selectable_value(&mut self.conversation_inputs, true, "Your input records");
+            });
+            if self.conversation_inputs {
+                self.requester_inputs(ui, &snapshot);
+                return;
+            }
+        }
+        let previous_filter = (
+            self.conversation_filter.clone(), self.conversation_persona.clone(),
+            self.conversation_channel, self.conversation_route.clone(),
+            self.conversation_both_directions,
+        );
         ui.horizontal_wrapped(|ui| {
-            ui.selectable_value(&mut self.conversation_mode, 0, "Timeline");
-            ui.selectable_value(&mut self.conversation_mode, 1, "Collaboration");
-            ui.separator();
             ui.label(
                 RichText::new(format!("{} messages", all.len()))
                     .small()
@@ -374,34 +386,36 @@ impl App {
                 )
                 .show_ui(ui, |ui| {
                     ui.selectable_value(&mut self.conversation_persona, None, "Everyone");
-                    for p in participants {
-                        ui.selectable_value(
-                            &mut self.conversation_persona,
-                            Some(s(p, "persona").to_owned()),
-                            s(p, "label"),
-                        );
+                    for (id, label) in &people {
+                        ui.selectable_value(&mut self.conversation_persona, Some(id.clone()), label);
                     }
                 });
             if ui.small_button("Clear filters").clicked() {
-                self.conversation_filter.clear();
-                self.conversation_persona = None;
-                self.conversation_route = None;
-                self.conversation_page = 0;
-                self.conversation_channel = 0;
+                self.clear_conversation_filters();
             }
         });
         let query = self.conversation_filter.to_lowercase();
         if let Some((from, to)) = self.conversation_route.clone() {
             ui.horizontal_wrapped(|ui| {
                 ui.label(format!(
-                    "{} → {}",
+                    "{} {} {}",
                     self.persona_label(&from),
+                    if self.conversation_both_directions { "↔" } else { "→" },
                     self.persona_label(&to)
                 ));
+                ui.checkbox(&mut self.conversation_both_directions, "Both directions in accepted order");
                 if ui.small_button("Show all paths").clicked() {
                     self.conversation_route = None;
                 }
             });
+        }
+        if previous_filter != (
+            self.conversation_filter.clone(), self.conversation_persona.clone(),
+            self.conversation_channel, self.conversation_route.clone(),
+            self.conversation_both_directions,
+        ) {
+            self.conversation_page = 0;
+            self.highlight_message = None;
         }
         let operator = self
             .view
@@ -413,13 +427,15 @@ impl App {
             all.iter()
                 .filter(|m| {
                     let channel = match self.conversation_channel {
-                        1 => participants.iter().any(|p| p["persona"] == m["recipient"]),
+                        1 => snapshot["persona_labels"].get(s(m, "sender")).is_some()
+                            && snapshot["persona_labels"].get(s(m, "recipient")).is_some(),
                         2 => s(m, "recipient") == operator,
                         _ => true,
                     };
                     channel
                         && self.conversation_route.as_ref().is_none_or(|(from, to)| {
-                            s(m, "sender") == from && s(m, "recipient") == to
+                            (s(m, "sender") == from && s(m, "recipient") == to)
+                                || (self.conversation_both_directions && s(m, "sender") == to && s(m, "recipient") == from)
                         })
                         && self
                             .conversation_persona
@@ -455,6 +471,15 @@ impl App {
                 });
             }
             const PAGE: usize = 50;
+            if let Some(target) = self.conversation_target.take() {
+                if let Some(index) = messages.iter().position(|message| s(message, "id") == target) {
+                    self.conversation_page = index / PAGE;
+                    self.highlight_message = Some(target);
+                    self.scroll_to_message = true;
+                } else {
+                    self.notice = Some(format!("Message {target} is unavailable in this snapshot. No substitute message was selected."));
+                }
+            }
             let pages = messages.len().div_ceil(PAGE).max(1);
             self.conversation_page = self.conversation_page.min(pages - 1);
             if pages > 1 {
@@ -508,66 +533,113 @@ impl App {
                     if ui.button(self.persona_label(&from)).clicked() {
                         self.conversation_persona = Some(from.clone());
                         self.conversation_route = None;
+                        self.conversation_page = 0;
                     }
                     ui.label("→");
                     if ui.button(self.persona_label(&to)).clicked() {
                         self.conversation_persona = Some(to.clone());
                         self.conversation_route = None;
+                        self.conversation_page = 0;
                     }
                     if ui
                         .small_button(format!(
                             "{count} {}",
                             if count == 1 { "message" } else { "messages" }
                         ))
+                        .on_hover_text("Open all recorded messages in this direction")
                         .clicked()
                     {
-                        self.conversation_mode = 0;
-                        self.conversation_route = Some((from.clone(), to.clone()));
-                        self.conversation_page = 0;
+                        self.open_exchange(from.clone(), to.clone(), None);
                     }
                 });
             }
             ui.add_space(10.0);
-            theme::header(ui, Icon::Task, "Responsibilities", "ACCEPTED CONTRIBUTIONS");
-            for person in participants {
-                ui.push_id(s(person, "persona"), |ui| {
-                    ui.horizontal(|ui| {
-                        ui.strong(s(person, "label"));
-                        theme::badge(
-                            ui,
-                            if person["responsibility_accepted"] == true {
-                                "Accepted responsibility"
-                            } else {
-                                "No current acceptance"
-                            },
-                            if person["responsibility_accepted"] == true {
-                                theme::GREEN
-                            } else {
-                                theme::palette(ui).muted
-                            },
-                        );
-                    });
-                    if !person["acceptance"].is_null() {
-                        ui.collapsing("Scope and acceptance record", |ui| {
-                            json_view(ui, &person["acceptance"])
-                        });
-                    }
-                });
+            self.responsibilities(ui, &snapshot);
+        }
+    }
+
+    fn requester_inputs(&mut self, ui: &mut Ui, snapshot: &Value) {
+        if self.view.result["work_id"].as_str() != self.view.selected.as_deref() {
+            if self.busy { ui.spinner(); ui.label("Loading requester records…"); }
+            else {
+                ui.label("Requester records are unavailable for the selected task.");
+                if ui.button("Retry requester records").clicked() { self.send(Action::Refresh); }
             }
-            for (key, label) in [
-                ("arrangement_proposals", "Proposed arrangements"),
-                ("arrangements", "Accepted arrangements"),
-                ("dependencies", "Dependencies"),
-            ] {
-                let value = &snapshot[key];
-                if value.as_object().is_some_and(|v| !v.is_empty())
-                    || value.as_array().is_some_and(|v| !v.is_empty())
-                {
-                    ui.collapsing(label, |ui| json_view(ui, value));
+            return;
+        }
+        ui.add_space(8.0);
+        ui.weak("Requester inputs retain their receipt records and persona dispositions. Receipt times do not place them between accepted decisions in the message timeline.");
+        if let Some(work) = self.selected().cloned() {
+            ui.collapsing("Current task brief · origin is not inferred", |ui| {
+                theme::message_body(ui, s(&work, "need"));
+                if !work["mandate_revision"].is_null() {
+                    ui.label(format!("Mandate revision {}", work["mandate_revision"]));
                 }
-            }
-            ui.add_space(8.0);
-            ui.weak("A message records communication; acceptance records responsibility. Neither establishes that work is complete.");
+            });
+        }
+        if ui.button("Questions and your answers").clicked() {
+            self.tab = 2;
+        }
+        let feedback = self.view.result["requester_feedback"].clone();
+        let items = models_at(&feedback, "items");
+        theme::header(ui, Icon::Conversation, "Your feedback", &items.len().to_string());
+        ui.weak("Pending directions appear first, then the latest recorded receipts. A persona's disposition is not verification of compliance.");
+        if items.is_empty() {
+            ui.label("No requester feedback is available for this task.");
+        }
+        for item in items {
+            ui.push_id(s(item, "observation"), |ui| {
+                egui::Frame::group(ui.style()).show(ui, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.strong("You");
+                        ui.weak("→");
+                        self.persona_link(ui, s(item, "persona"));
+                        let status = match s(item, "status") {
+                            "pending" => "Awaiting persona disposition",
+                            "handled" => "Handled · persona account",
+                            "declined" => "Declined · persona account",
+                            "superseded" => "Explicitly replaced",
+                            _ => "Disposition unavailable",
+                        };
+                        ui.label(status);
+                    });
+                    theme::message_body(ui, s(item, "feedback_text"));
+                    let account = &item["account"];
+                    if !account.is_null() {
+                        ui.separator();
+                        ui.strong("Persona's account");
+                        theme::message_body(ui, s(account, "reason"));
+                        let operator = self.view.progress.as_ref()
+                            .and_then(|p| p.operator.as_deref()).unwrap_or("");
+                        let replies: Vec<_> = models_at(snapshot, "messages").iter().filter(|message| {
+                            !operator.is_empty() && !s(account, "invocation").is_empty()
+                                && message["invocation"] == account["invocation"]
+                                && message["sender"] == item["persona"]
+                                && s(message, "recipient") == operator
+                        }).collect();
+                        if replies.is_empty() {
+                            ui.weak("No requester reply from this decision is available in the message snapshot.");
+                        } else {
+                            let wording = if replies.len() == 1 { "requester reply shares" } else { "requester replies share" };
+                            ui.weak(format!("{} {wording} this recorded decision. This does not establish a message-level reply-to link.", replies.len()));
+                            for message in replies {
+                                ui.horizontal_wrapped(|ui| {
+                                    if ui.button("Open reply from this decision").on_hover_text(s(message, "id")).clicked() {
+                                        self.open_exchange(
+                                            s(message, "sender").to_owned(),
+                                            s(message, "recipient").to_owned(),
+                                            Some(s(message, "id").to_owned()),
+                                        );
+                                    }
+                                    ui.label(s(message, "subject"));
+                                    ui.label(RichText::new(s(message, "id")).small().weak());
+                                });
+                            }
+                        }
+                    }
+                    ui.collapsing("Receipt, replacement & mandate context", |ui| json_view(ui, item));
+                });
+            });
         }
     }
 
@@ -714,13 +786,12 @@ impl App {
             if response.clicked() {
                 self.conversation_persona = Some(id.clone());
                 self.conversation_route = None;
+                self.conversation_page = 0;
             }
             response.on_hover_text(format!("{label} · focus communication"));
         }
         if let Some(pair) = route {
-            self.conversation_route = Some(pair);
-            self.conversation_page = 0;
-            self.conversation_mode = 0;
+            self.open_exchange(pair.0, pair.1, None);
         }
         ui.weak(if compact {
             "Select a person to focus; read message counts in the list below."

@@ -17,6 +17,14 @@ mod browser;
 mod society;
 #[path = "studio.rs"]
 mod studio;
+#[path = "navigation.rs"]
+mod navigation;
+#[path = "personas.rs"]
+mod personas;
+#[path = "responsibilities.rs"]
+mod responsibilities;
+#[path = "fragment_map.rs"]
+mod fragment_map;
 
 #[derive(Clone)]
 enum Folder {
@@ -31,10 +39,13 @@ enum Folder {
 }
 enum Dialog {
     Task,
-    Feedback,
-    Answer(Value),
-    Amend,
-    Development,
+    Feedback {
+        work: String,
+        participants: Vec<Value>,
+        items: Vec<Value>,
+    },
+    Answer { work: String, question: Value },
+    Amend(String),
     Account,
     OpenWorkspace,
 }
@@ -94,9 +105,16 @@ pub struct App {
     conversation_channel: usize,
     conversation_mode: usize,
     conversation_route: Option<(String, String)>,
+    conversation_both_directions: bool,
     conversation_page: usize,
+    conversation_target: Option<String>,
+    highlight_message: Option<String>,
+    scroll_to_message: bool,
+    conversation_inputs: bool,
     overview_filter: String,
+    persona_filter: String,
     profile_filter: String,
+    profile_tab: usize,
     profile_history: bool,
     profile_persona: Option<String>,
     inspected_persona: Option<String>,
@@ -214,9 +232,16 @@ impl App {
             conversation_channel: 0,
             conversation_mode: 0,
             conversation_route: None,
+            conversation_both_directions: false,
             conversation_page: 0,
+            conversation_target: None,
+            highlight_message: None,
+            scroll_to_message: false,
+            conversation_inputs: false,
             overview_filter: String::new(),
+            persona_filter: String::new(),
             profile_filter: String::new(),
+            profile_tab: 0,
             profile_history: false,
             profile_persona: None,
             inspected_persona: None,
@@ -239,6 +264,11 @@ impl App {
             self.profile_persona = Some(persona.clone());
             self.view.development = Value::Null;
         }
+        if matches!(&a, Action::AmendSnapshot(_)) {
+            self.view.amendment = Value::Null;
+            self.text.clear();
+            self.amend_scope.clear();
+        }
         self.busy = true;
         self.error = None;
         let _ = self.tx.send(Input::Action(a));
@@ -255,8 +285,14 @@ impl App {
         self.conversation_filter.clear();
         self.conversation_persona = None;
         self.conversation_route = None;
+        self.conversation_both_directions = false;
         self.conversation_page = 0;
+        self.conversation_target = None;
+        self.highlight_message = None;
+        self.scroll_to_message = false;
+        self.conversation_inputs = false;
         self.overview_filter.clear();
+        self.persona_filter.clear();
         self.profile_persona = None;
         self.inspected_persona = None;
         self.setup_step = 0;
@@ -966,33 +1002,72 @@ impl App {
             }
         }
     }
-    fn messages(&self, ui: &mut Ui, messages: &[Value]) {
+    fn messages(&mut self, ui: &mut Ui, messages: &[Value]) {
         let colors = theme::palette(ui);
         for m in messages {
-            ui.push_id(s(m,"id"), |ui| {
-                egui::Frame::new().fill(colors.panel).inner_margin(12).corner_radius(3).show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    let label = self.persona_label(s(m,"sender"));
-                    ui.horizontal(|ui| {
-                        let (r, _) = ui.allocate_exact_size(egui::vec2(24.0,24.0), egui::Sense::hover());
-                        ui.painter().rect_filled(r, 4, colors.selection);
-                        ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, label.chars().next().unwrap_or('P'), egui::FontId::proportional(13.0), colors.text);
-                        ui.label(RichText::new(&label).size(14.0).strong());
-                        ui.label(RichText::new("→").weak());
-                        ui.label(RichText::new(self.persona_label(s(m,"recipient"))).strong());
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.small_button("Copy").clicked() { ui.ctx().copy_text(s(m,"text").to_owned()); }
-                            ui.label(RichText::new(s(m,"invocation")).monospace().size(10.5).weak()).on_hover_text(s(m,"id"));
+            let id = s(m, "id");
+            let highlighted = self.highlight_message.as_deref() == Some(id);
+            ui.push_id(id, |ui| {
+                let response = egui::Frame::new()
+                    .fill(colors.panel)
+                    .stroke(egui::Stroke::new(
+                        1.0,
+                        if highlighted { theme::BLUE } else { colors.border },
+                    ))
+                    .inner_margin(10)
+                    .corner_radius(3)
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.horizontal_wrapped(|ui| {
+                            self.persona_link(ui, s(m, "sender"));
+                            ui.weak("→");
+                            self.persona_link(ui, s(m, "recipient"));
+                            if let Some(epoch) = m["accepted_epoch"].as_u64() {
+                                ui.label(RichText::new(format!("Decision epoch {epoch}")).small().weak());
+                            }
+                            if ui.small_button("Copy text").clicked() {
+                                ui.ctx().copy_text(s(m, "text").to_owned());
+                            }
+                        });
+                        if !s(m, "subject").is_empty() {
+                            ui.add(egui::Label::new(RichText::new(s(m, "subject")).strong()).wrap());
+                        }
+                        theme::message_body(ui, s(m, "text"));
+                        ui.horizontal_wrapped(|ui| {
+                            let origin = s(m, "work");
+                            if self.view.selected.as_deref() != Some(origin) {
+                                let known = models_at(&self.view.inspection, "works")
+                                    .iter().any(|work| s(work, "id") == origin);
+                                if ui.add_enabled(!self.busy && known, egui::Button::new(format!("Authoring task: {origin}"))).clicked() {
+                                    self.open_task(origin.to_owned(), 0, None);
+                                }
+                            }
+                            if (!models_at(m, "file_references").is_empty()
+                                || !models_at(m, "history_references").is_empty())
+                                && self.view.selected.as_deref() == Some(origin)
+                                && models_at(&self.view.result, "messages").iter().any(|reply| s(reply, "id") == id)
+                                && ui.small_button("Inspect cited files").clicked()
+                            {
+                                self.file_viewer.focus_citation(id.to_owned());
+                                self.tab = 1;
+                            }
+                        });
+                        ui.collapsing("Message record & citations", |ui| {
+                            json_view(ui, &json!({
+                                "id":m["id"], "sender":m["sender"], "recipient":m["recipient"],
+                                "work":m["work"], "thread_work":m["thread_work"],
+                                "files":m["file_references"], "history":m["history_references"],
+                                "invocation":m["invocation"], "accepted_epoch":m["accepted_epoch"],
+                                "local_deposit_only":m["local_deposit_only"]
+                            }));
                         });
                     });
-                    if !s(m,"subject").is_empty() { ui.label(RichText::new(s(m,"subject")).strong()); }
-                    theme::message_body(ui, s(m,"text"));
-                        ui.collapsing("Message record & citations", |ui| {
-                            json_view(ui, &json!({"id":m["id"],"work":m["work"],"thread_work":m["thread_work"],"files":m["file_references"],"history":m["history_references"],"invocation":m["invocation"],"accepted_epoch":m["accepted_epoch"],"local_deposit_only":m["local_deposit_only"]}));
-                        });
-                });
-                ui.add_space(3.0);
+                if highlighted && self.scroll_to_message {
+                    response.response.scroll_to_me(Some(egui::Align::Center));
+                    self.scroll_to_message = false;
+                }
             });
+            ui.add_space(4.0);
         }
     }
     fn persona_label(&self, id: &str) -> String {
@@ -1007,6 +1082,15 @@ impl App {
         }
         if let Some(label) = self.view.inspection["settings"]["persona_labels"][id].as_str() {
             return label.into();
+        }
+        for labels in [
+            &self.view.conversation["persona_labels"],
+            &self.view.result["message_sender_labels"],
+            &self.view.session_detail["message_sender_labels"],
+        ] {
+            if let Some(label) = labels[id].as_str() {
+                return label.to_owned();
+            }
         }
         models_at(&self.view.inspection, "works")
             .iter()
@@ -1039,7 +1123,20 @@ impl App {
             self.view.files.as_ref(),
         );
     }
-    fn questions(&mut self, ui: &mut Ui, _work: &str) {
+    fn questions(&mut self, ui: &mut Ui, work: &str) {
+        theme::header(ui, Icon::Questions, "Shared questions", "RETAINED RECORDS");
+        if self.view.questions.is_null() {
+            if self.busy {
+                ui.spinner();
+                ui.label("Loading question records…");
+            } else {
+                ui.label("Question records are unavailable in this inspection.");
+                if ui.button("Retry question records").clicked() {
+                    self.send(Action::Refresh);
+                }
+            }
+            return;
+        }
         let items = models_at(&self.view.questions["shared_questions"], "items").to_vec();
         if items.is_empty() {
             ui.label("There are no shared questions for this task.");
@@ -1067,7 +1164,7 @@ impl App {
                     .add_enabled(!self.busy && !self.view.read_only, egui::Button::new("Answer question"))
                     .clicked()
                 {
-                    self.dialog = Some(Dialog::Answer(item.clone()));
+                    self.dialog = Some(Dialog::Answer { work: work.to_owned(), question: item.clone() });
                     self.text.clear();
                     self.basis.clear();
                 }
@@ -1079,7 +1176,20 @@ impl App {
             });
         }
     }
-    fn activity(&self, ui: &mut Ui, work: &Value) {
+    fn activity(&mut self, ui: &mut Ui, work: &Value) {
+        theme::header(ui, Icon::Activity, "Activity", "RETAINED RECORDS");
+        if self.view.result["work_id"].as_str() != Some(s(work, "id")) {
+            if self.busy {
+                ui.spinner();
+                ui.label("Loading activity records…");
+            } else {
+                ui.label("Activity records are unavailable in this inspection.");
+                if ui.button("Retry activity records").clicked() {
+                    self.send(Action::Refresh);
+                }
+            }
+            return;
+        }
         if let Some(steps) = self.view.inspection["settings"]["steps"].as_u64() {
             ui.label(format!("{steps} recorded call attempts in this runtime"));
         }
@@ -1197,7 +1307,7 @@ impl App {
             return;
         }
         ui.separator();
-        let detail = &self.view.session_detail;
+        let detail = self.view.session_detail.clone();
         let status = &detail["session"];
         match s(status, "status") {
             "finished" => {
@@ -1226,7 +1336,7 @@ impl App {
             }
             _ => {}
         }
-        let messages = models_at(detail, "messages");
+        let messages = models_at(&detail, "messages");
         if messages.is_empty() {
             ui.label("No replies are available for this session.");
         }
@@ -1243,32 +1353,35 @@ impl App {
         let mut done = false;
         let title = match &dialog {
             Dialog::Task => "Start a task",
-            Dialog::Feedback => "Give feedback",
-            Dialog::Answer(_) => "Answer question",
-            Dialog::Amend => "Amend task",
-            Dialog::Development => "Profile & development",
+            Dialog::Feedback { .. } => "Give feedback",
+            Dialog::Answer { .. } => "Answer question",
+            Dialog::Amend(_) => "Amend task",
             Dialog::Account => "Account",
             Dialog::OpenWorkspace => "Open workspace",
         };
         egui::Window::new(title).open(&mut open).collapsible(false).default_width(660.0).max_height(660.0).vscroll(true).show(ctx,|ui|{
             self.banner(ui);
-            let work=self.view.selected.clone().unwrap_or_default();
             match &dialog{
                 Dialog::Task=>{field(ui,"What would you like your personas to work on?",&mut self.text,true);ui.label("Starting runs the selected models using your account.");
                     if ui.add_enabled(!self.busy&&!self.text.trim().is_empty(),egui::Button::new("Start task")).clicked(){self.send(Action::NewTask{text:self.text.clone(),optional:false});done=true;}
                 },
-                Dialog::Feedback=>{
-                    let participants=self.selected().map(|w|models_at(w,"participants").to_vec()).unwrap_or_default();
-                    egui::ComboBox::from_label("Persona").selected_text(self.persona_label(&self.feedback_persona)).show_ui(ui,|ui|{for p in participants{ui.selectable_value(&mut self.feedback_persona,s(&p,"persona").into(),s(&p,"label"));}});
+                Dialog::Feedback { work, participants, items }=>{
+                    ui.label(format!("Task: {work}"));
+                    let previous_persona = self.feedback_persona.clone();
+                    egui::ComboBox::from_label("Persona").selected_text(self.persona_label(&self.feedback_persona)).show_ui(ui,|ui|{for p in participants{ui.selectable_value(&mut self.feedback_persona,s(p,"persona").into(),s(p,"label"));}});
+                    if previous_persona != self.feedback_persona { self.replaced.clear(); }
                     field(ui,"Your feedback",&mut self.text,true);
-                    ui.collapsing("Replace earlier feedback",|ui|{ui.label("Select only directions this feedback explicitly replaces.");for item in models_at(&self.view.result["requester_feedback"],"items").iter().filter(|i|i["persona"]==self.feedback_persona){let key=s(item,"observation").to_owned();if key.is_empty(){continue}let mut selected=self.replaced.contains(&key);if ui.checkbox(&mut selected,format!("{}: {}",key,s(item,"text"))).changed(){self.replaced.retain(|k|k!=&key);if selected{self.replaced.push(key);}}}});
-                    if ui.add_enabled(!self.busy&&!self.text.trim().is_empty()&&!self.feedback_persona.is_empty(),egui::Button::new("Save feedback")).clicked(){self.send(Action::Feedback{work,persona:self.feedback_persona.clone(),text:self.text.clone(),supersedes:self.replaced.clone()});done=true;}
+                    ui.collapsing("Replace earlier feedback",|ui|{ui.label("Select only directions this feedback explicitly replaces.");for item in items.iter().filter(|i|i["persona"]==self.feedback_persona){let key=s(item,"observation").to_owned();if key.is_empty(){continue}let mut selected=self.replaced.contains(&key);if ui.checkbox(&mut selected,format!("{}: {}",key,s(item,"feedback_text"))).changed(){self.replaced.retain(|k|k!=&key);if selected{self.replaced.push(key);}}}});
+                    if ui.add_enabled(!self.busy&&!self.text.trim().is_empty()&&!self.feedback_persona.is_empty(),egui::Button::new("Save feedback")).clicked(){self.send(Action::Feedback{work:work.clone(),persona:self.feedback_persona.clone(),text:self.text.clone(),supersedes:self.replaced.clone()});done=true;}
                 },
-                Dialog::Answer(q)=>{ui.label(s(&q["question"],"text"));field(ui,"Your answer",&mut self.text,true);field(ui,"Basis (for example, your preference or observation)",&mut self.basis,true);
-                    if ui.add_enabled(!self.busy&&!self.text.trim().is_empty()&&!self.basis.trim().is_empty(),egui::Button::new("Save answer")).clicked(){self.send(Action::Answer{work,question:q.clone(),text:self.text.clone(),basis:self.basis.clone()});done=true;}
+                Dialog::Answer { work, question:q }=>{ui.label(format!("Task: {work}"));ui.label(s(&q["question"],"text"));field(ui,"Your answer",&mut self.text,true);field(ui,"Basis (for example, your preference or observation)",&mut self.basis,true);
+                    if ui.add_enabled(!self.busy&&!self.text.trim().is_empty()&&!self.basis.trim().is_empty(),egui::Button::new("Save answer")).clicked(){self.send(Action::Answer{work:work.clone(),question:q.clone(),text:self.text.clone(),basis:self.basis.clone()});done=true;}
                 },
-                Dialog::Amend=>{
-                    if self.view.amendment.is_null(){ui.spinner();}else{
+                Dialog::Amend(work)=>{
+                    ui.label(format!("Task: {work}"));
+                    if self.view.amendment["work"].as_str() != Some(work.as_str()) {
+                        if self.busy { ui.spinner(); } else if ui.button("Retry amendment snapshot").clicked() { self.send(Action::AmendSnapshot(work.clone())); }
+                    }else{
                         field(ui,"Revised complete task",&mut self.text,true);
                         ui.label("The original task and earlier results are retained. Participants receive an invitation to consider the amended task.");
                         ui.collapsing("Full scope (advanced)",|ui|{ui.label("Custom outcomes, review terms, and other scope fields remain editable here.");ui.add(egui::TextEdit::multiline(&mut self.amend_scope).code_editor().desired_rows(14).desired_width(f32::INFINITY));});
@@ -1281,13 +1394,17 @@ impl App {
                         }
                     }
                 },
-                Dialog::Development=>self.development(ui),
                 Dialog::Account=>self.account(ui),
                 Dialog::OpenWorkspace=>{
                     ui.label("Choose the progress folder containing your saved workspace.");
                     self.locations(ui);
                     if ui.add_enabled(!self.busy && !self.progress.is_empty(),theme::primary("Open workspace")).clicked(){self.open();done=true;}
                 },
+            }
+            if matches!(&dialog, Dialog::Task | Dialog::Feedback { .. } | Dialog::Answer { .. } | Dialog::Amend(_))
+                && ui.button("Cancel").clicked()
+            {
+                done = true;
             }
         });
         if open && !done {
@@ -1312,162 +1429,7 @@ impl App {
         self.show_preferences = open;
     }
 
-    fn development(&mut self, ui: &mut Ui) {
-        let v = self.view.development.clone();
-        if v.is_null() || v["persona"].as_str() != self.profile_persona.as_deref() {
-            if let Some(persona) = self.profile_persona.clone() {
-                ui.heading(self.persona_label(&persona));
-                if self.error.is_some() && !self.busy {
-                    ui.label("Profile unavailable.");
-                    if ui.button("Retry profile").clicked() {
-                        self.send(Action::Development(persona));
-                    }
-                } else {
-                    ui.horizontal(|ui| {
-                        ui.spinner();
-                        ui.label("Loading profile…");
-                    });
-                }
-            }
-            return;
-        }
-        ui.horizontal(|ui| {
-            let (rect, _) = ui.allocate_exact_size(egui::vec2(44.0, 44.0), egui::Sense::hover());
-            let colors = theme::palette(ui);
-            ui.painter().rect_filled(rect, 5, colors.selection);
-            ui.painter().text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                s(&v, "label").chars().next().unwrap_or('P'),
-                egui::FontId::proportional(23.0),
-                colors.text,
-            );
-            ui.vertical(|ui| {
-                ui.heading(s(&v, "label"));
-                ui.label(RichText::new(s(&v, "persona")).small().weak());
-                theme::badge(ui, s(&v["lifecycle"], "status"), theme::GREEN);
-            });
-        });
-        ui.add_space(8.0);
-        let tasks: Vec<_> = models_at(&self.view.inspection, "works")
-            .iter()
-            .filter(|w| {
-                models_at(w, "participants")
-                    .iter()
-                    .any(|p| p["persona"] == v["persona"])
-            })
-            .collect();
-        ui.collapsing(
-            format!("Participation across {} tasks", tasks.len()),
-            |ui| {
-                for task in &tasks {
-                    ui.label(format!("{} · {}", s(task, "phase"), s(task, "need")));
-                }
-            },
-        );
-        if v["lifecycle"]["quarantined"] == true {
-            ui.label("This identity is quarantined.");
-        }
-        if v["character"].is_null() {
-            ui.label("This persona has not authored its characteristic profile yet. Its first model call develops the supplied starting tendencies.");
-        } else {
-            for (key, label) in [
-                ("ocean", "Stable tendencies"),
-                ("vad", "Baseline mood and energy"),
-            ] {
-                theme::header(
-                    ui,
-                    Icon::People,
-                    label,
-                    if key == "ocean" {
-                        "OCEAN"
-                    } else {
-                        "MODELED VAD"
-                    },
-                );
-                if let Some(traits) = v["character"][key].as_object() {
-                    for (name, value) in traits {
-                        egui::Frame::new()
-                            .fill(theme::palette(ui).field)
-                            .inner_margin(9)
-                            .corner_radius(3)
-                            .show(ui, |ui| {
-                                ui.set_width(ui.available_width());
-                                ui.strong(name.replace('_', " "));
-                                if let Some(text) = value.as_str() {
-                                    theme::message_body(ui, text);
-                                } else {
-                                    super::data_view::parameters(ui, value);
-                                }
-                            });
-                    }
-                }
-                ui.add_space(8.0);
-            }
-        }
-        theme::header(
-            ui,
-            Icon::Files,
-            "Characteristic fragments",
-            "AUTHORED PROMPT PARTS",
-        );
-        ui.weak("These fragments shape the persona's character. Supporting knowledge, tools, and conversation records have a separate purpose.");
-        ui.add(
-            egui::TextEdit::singleline(&mut self.profile_filter)
-                .hint_text("Find a fragment or phrase…")
-                .desired_width(f32::INFINITY),
-        );
-        ui.checkbox(&mut self.profile_history, "Include historical revisions");
-        let query = self.profile_filter.to_lowercase();
-        for revision in models_at(&v, "characteristic_revisions")
-            .iter()
-            .filter(|r| {
-                (self.profile_history || r["current"] == true)
-                    && (query.is_empty()
-                        || s(r, "source").to_lowercase().contains(&query)
-                        || models_at(&r["context"], "entries").iter().any(|e| {
-                            s(e, "text").to_lowercase().contains(&query)
-                                || s(e, "path").to_lowercase().contains(&query)
-                        }))
-            })
-        {
-            egui::CollapsingHeader::new(format!(
-                "{} · {}",
-                models_at(&revision["context"], "entries")
-                    .first()
-                    .map(|e| s(e, "path"))
-                    .filter(|p| !p.is_empty())
-                    .unwrap_or_else(|| s(revision, "source")),
-                if revision["current"] == true {
-                    "current"
-                } else {
-                    "historical"
-                }
-            ))
-            .id_salt((s(revision, "source"), revision["revision"].to_string()))
-            .default_open(revision["current"] == true)
-            .show(ui, |ui| {
-                for entry in models_at(&revision["context"], "entries") {
-                    ui.strong(s(entry, "path"));
-                    theme::message_body(ui, s(entry, "text"));
-                }
-                ui.collapsing("Authorship and full qualifications", |ui| {
-                    json_view(ui, revision);
-                });
-            });
-        }
-        if v["transient_affect"]["context"]["status"] != "none_retained" {
-            ui.collapsing("Current modeled affect", |ui| {
-                json_view(ui, &v["transient_affect"]);
-            });
-        }
-        if v["truncated"] == true {
-            ui.label("This view contains a subset of retained revisions.");
-        }
-        ui.collapsing("Exact development record", |ui| {
-            json_view(ui, &v);
-        });
-    }
+
 }
 impl eframe::App for App {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -1501,7 +1463,9 @@ impl eframe::App for App {
             self.workspace_details(ctx);
         }
         if self.view.ready && !self.choose_progress {
-            if self.tab != 1 || !self.focus_files {
+            if self.tab == 6 {
+                self.persona_roster(ctx);
+            } else if self.tab != 1 || !self.focus_files {
                 self.sidebar(ctx);
                 if self.tab != 5 && ctx.available_rect().width() > 800.0 {
                     self.people(ctx);

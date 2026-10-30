@@ -611,7 +611,6 @@ impl Controller {
                 self.view.result = Value::Null;
                 self.view.conversation = Value::Null;
                 self.view.questions = Value::Null;
-                self.view.development = Value::Null;
                 self.view.files = None;
                 self.view.selected_session = None;
                 self.view.session_detail = Value::Null;
