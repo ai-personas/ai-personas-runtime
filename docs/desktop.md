@@ -219,6 +219,20 @@ the preview of a newer selection or another workspace.
 - ZIP packages list their contents. Select an entry to preview it without
   extracting the whole package; **Back to package** returns to the listing.
 
+### Additional engineering and scientific formats
+
+| Format | Compatible renderer | In-UI representation and limits |
+| --- | --- | --- |
+| DXF | Python 3 + ezdxf | Modelspace rendered to SVG. Paper layouts, external references, proxy entities, and CAD constraints are not represented. |
+| DWG | LibreDWG `dwg2dxf` + Python 3 + ezdxf | Converted modelspace SVG. DWG version and entity coverage depend on LibreDWG; unsupported objects and paper layouts may be lost. |
+| Gerber / Excellon | `gerbv` | Selected layer or drill file rendered to SVG. Single-file preview, not a full stack composition or fabrication validation. Legacy RS-274D is not supported by gerbv. |
+| STEP / IGES | Python 3 + Open CASCADE (OCP) | Actual BREP decoded and tessellated to STL for 3D review. PMI, colors, constraints and assembly semantics are not preserved. |
+| FreeCAD `.FCStd` | Python 3 + Open CASCADE (OCP) | Stored BREP members read directly from the archive without loading the FreeCAD document or executing feature scripts; geometry is tessellated to STL. Up to 256 members are combined; documents that store intermediate feature shapes may show overlapping historical geometry. Parametric history, visible-object selection and GUI state are not rendered. |
+| HDF5 | Python 3 + h5py + NumPy | Groups, dataset names, shapes, dtypes, attributes and bounded numeric values become a parameter tree with tables/plots where applicable. External links are not followed; 20,000 values per dataset, 256 datasets, 2,048 group/dataset nodes and 32 hierarchy levels maximum. |
+| Blender `.blend` | Blender background exporter | Scene geometry exported to GLB with automatic execution disabled. Modifiers may be applied; animation, materials, lighting, render settings and custom properties are not fully represented. |
+
+These are optional compatible renderers; no tools are automatically installed. The Python adapters are bundled read-only parsers and do not execute code embedded in the selected artifact. Blender runs with `--disable-autoexec` and a bundled trusted exporter. DWG conversion is version/entity limited, not universal. Missing dependencies and malformed inputs remain explicit errors. DXF input is capped at 256 MiB; CAD input at 512 MiB; FreeCAD archives are limited to 10,000 entries, 64 MiB per BREP member and 256 MiB total BREP data. The runtime does not redistribute Blender, LibreDWG, gerbv, Python packages, or Open CASCADE binaries; these remain separately installed tools. The OCP bindings are Apache-2.0, while the Open CASCADE core has LGPL-2.1 with the Open CASCADE exception. Any future bundling or linking of those binaries requires a separate license review.
+
 ### Compatible renderers inside the window
 
 **Viewer support** lists built-in viewers, registered compatible renderers, and
@@ -262,9 +276,7 @@ preparation/page renderer in `native_preview.rs` together when adding a format.
 Files, text, tables, archives, and meshes have no application count or byte quota;
 decoding still depends on available memory and graphics resources. Large raster
 images are resized for display. Universal format support is not provided.
-Gerber/Excellon, other PCB formats, DXF/DWG, IGES, native Blender/FreeCAD files,
-HDF5 and other specialist formats without a registered renderer remain unsupported
-in the window. Missing compatible renderers are identified by name. **Actions →
+Other PCB formats, native Blender/FreeCAD project features beyond stored geometry, DWG versions/entities unsupported by LibreDWG, and other specialist formats without a registered renderer remain unsupported in the window. Missing compatible renderers are identified by name. **Actions →
 Open in external application** or **Open with…** is an optional fallback, not
 embedded rendering. This also works for recorded deliveries and archive entries: their exact
 bytes are materialized in a temporary folder retained while the window is open.

@@ -95,6 +95,7 @@ pub struct Viewer {
     source: Option<Source>,
     trail: Vec<Source>,
     decoded: Option<Decoded>,
+    native_document: Option<Arc<native_preview::Document>>,
     texture: Option<egui::TextureHandle>,
     image_zoom: f32,
     image_pan: egui::Vec2,
@@ -134,7 +135,16 @@ impl Viewer {
                         Response::Catalog(id, loader::scan(&root, hidden))
                     }
                     Request::Recorded(id, source) => Response::Catalog(id, loader::recorded(source)),
-                    Request::Load(id, source, cancel) => Response::Preview(id, loader::decode(&source, &cancel)),
+                    Request::Load(id, source, cancel) => {
+                        let ext = extension(Path::new(&source.name()));
+                        let result = if let Some(route) = native_preview::route(&ext) {
+                            native_preview::prepare(&source, route, &cancel).map(|document| {
+                                let note = document.summary.clone();
+                                Decoded { body: Body::Native(document), note }
+                            })
+                        } else { loader::decode(&source, &cancel) };
+                        Response::Preview(id, result)
+                    },
                     Request::NativePage(id, document, page, cancel) => Response::NativePage(id, native_preview::page(&document, page, &cancel)),
                 };
                 if responses.send(response).is_err() {
@@ -168,6 +178,7 @@ impl Viewer {
             source: None,
             trail: Vec::new(),
             decoded: None,
+            native_document: None,
             texture: None,
             image_zoom: 1.0,
             image_pan: egui::Vec2::ZERO,
@@ -225,6 +236,7 @@ impl Viewer {
         self.native_page = 0;
         self.native_info.clear();
         self.decoded = None;
+        self.native_document = None;
         self.texture = None;
         self.error = None;
         self.image_zoom = 1.0;
@@ -248,10 +260,7 @@ impl Viewer {
         }
     }
     fn native_document(&self) -> Option<Arc<native_preview::Document>> {
-        match self.decoded.as_ref().map(|decoded| &decoded.body) {
-            Some(Body::Native(document)) => Some(document.clone()),
-            _ => None,
-        }
+        self.native_document.clone()
     }
     fn load_native_page(&mut self, document: Arc<native_preview::Document>, page: usize) {
         self.cancel.cancel();
@@ -335,12 +344,9 @@ impl Viewer {
                                 self.table = data_view::TableView::with_header(datasets.first().and_then(|d| d.header));
                             }
                             if let Body::Image(image, _) = &decoded.body {
-                                self.texture = Some(ctx.load_texture(
-                                    "artifact-preview",
-                                    image.clone(),
-                                    egui::TextureOptions::LINEAR,
-                                ));
+                                self.texture = Some(ctx.load_texture("artifact-preview", image.clone(), egui::TextureOptions::LINEAR));
                             }
+                            self.native_document = match &decoded.body { Body::Native(document) => Some(document.clone()), _ => None };
                             self.decoded = Some(decoded);
                             if let Some(document) = self.native_document() {
                                 self.white_paper = document.white_background;
@@ -353,11 +359,19 @@ impl Viewer {
                 Response::NativePage(id, result) if id == self.serial => {
                     self.loading = false;
                     match result {
-                        Ok(Decoded { body: Body::Image(image, info), note }) => {
-                            self.texture = Some(ctx.load_texture("native-page", image, egui::TextureOptions::LINEAR));
-                            self.native_info = format!("{note} · {info}");
+                        Ok(page) => {
+                            if let Body::Image(image, info) = &page.body {
+                                self.texture = Some(ctx.load_texture("native-page", image.clone(), egui::TextureOptions::LINEAR));
+                                self.native_info = info.clone();
+                            } else {
+                                self.texture = None;
+                                self.model.reset();
+                                if let Body::Parameters(_, _, datasets) = &page.body {
+                                    self.table = data_view::TableView::with_header(datasets.first().and_then(|d| d.header));
+                                }
+                            }
+                            self.decoded = Some(page);
                         }
-                        Ok(_) => self.error = Some("The renderer returned no image page.".into()),
                         Err(error) => self.error = Some(error),
                     }
                 }
@@ -927,13 +941,13 @@ fn extension(path: &Path) -> String {
 }
 fn category(path: &Path) -> usize {
     match extension(path).as_str() {
-        "png" | "jpg" | "jpeg" | "webp" | "gif" | "svg" | "bmp" | "tiff" | "tif" | "ico" => 1,
-        "stl" | "obj" | "glb" | "gltf" | "step" | "stp" => 2,
-        "csv" | "tsv" | "json" => 4,
+        "png" | "jpg" | "jpeg" | "webp" | "gif" | "svg" | "bmp" | "tiff" | "tif" | "ico" | "dxf" => 1,
+        "stl" | "obj" | "glb" | "gltf" | "step" | "stp" | "iges" | "igs" | "blend" | "fcstd" => 2,
+        "csv" | "tsv" | "json" | "h5" | "hdf5" | "hdf" => 4,
         "zip" => 5,
-        "kicad_pcb" | "kicad_sch" | "brd" | "sch" | "gbr" | "ger" | "gerber" | "drl" => 7,
+        "kicad_pcb" | "kicad_sch" | "brd" | "sch" | "gbr" | "ger" | "gerber" | "gtl" | "gbl" | "gts" | "gbs" | "gto" | "gbo" | "gko" | "gml" | "gm1" | "drl" | "xln" => 7,
         "mp3" | "wav" | "ogg" | "flac" | "m4a" | "aac" | "mp4" | "mov" | "webm" | "avi" | "mkv" | "m4v" => 8,
-        "h5" | "hdf5" | "blend" | "iges" | "igs" | "bin" | "dxf" | "dwg" | "fcstd" => 6,
+        "bin" | "dwg" => 6,
         _ => 3,
     }
 }

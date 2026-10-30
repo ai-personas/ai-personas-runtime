@@ -22,6 +22,7 @@ enum Kind {
     Schematic,
     Video,
     Audio,
+    Dxf, Cad, Hdf5, Blender, Gerber, Dwg,
 }
 
 pub(super) struct Route {
@@ -60,6 +61,12 @@ pub(super) const ROUTES: &[Route] = &[
         kind: Kind::Schematic,
         tools: &["kicad-cli"],
     },
+    Route { label: "DXF drawing · ezdxf", extensions: &["dxf"], kind: Kind::Dxf, tools: &["python3"] },
+    Route { label: "STEP / IGES / FreeCAD · Open CASCADE", extensions: &["step","stp","iges","igs","fcstd"], kind: Kind::Cad, tools: &["python3"] },
+    Route { label: "HDF5 datasets · h5py", extensions: &["h5","hdf5","hdf"], kind: Kind::Hdf5, tools: &["python3"] },
+    Route { label: "Blender scene · background GLB export", extensions: &["blend"], kind: Kind::Blender, tools: &["blender"] },
+    Route { label: "Gerber / Excellon layer · gerbv", extensions: &["gbr","ger","gerber","gtl","gbl","gts","gbs","gto","gbo","gko","gml","gm1","drl","xln"], kind: Kind::Gerber, tools: &["gerbv"] },
+    Route { label: "DWG drawing · LibreDWG + ezdxf", extensions: &["dwg"], kind: Kind::Dwg, tools: &["dwg2dxf","python3"] },
     Route {
         label: "Video frame inspection · FFmpeg",
         extensions: &["mp4", "mov", "webm", "avi", "mkv", "m4v"],
@@ -124,7 +131,9 @@ impl Route {
     }
 }
 
+enum DerivedKind { Svg, Mesh, Json }
 enum Pages {
+    Derived(PathBuf, DerivedKind),
     Pdf(PathBuf),
     Svg(Vec<PathBuf>),
     Board(PathBuf),
@@ -260,6 +269,14 @@ fn run(
     Ok(output)
 }
 
+fn run_python(mode: &str, input: &Path, output: &Path, folder: &Path, cancel: &Cancellation) -> Result<String, String> {
+    let script = folder.join("native_renderers.py");
+    std::fs::write(&script, include_str!("native_renderers.py")).map_err(|e| e.to_string())?;
+    let mut command = args(&["-I"]);
+    command.extend([script.into_os_string(), mode.into(), input.as_os_str().into(), output.as_os_str().into()]);
+    run("python3", &command, folder, cancel)
+}
+
 fn pdf_pages(path: &Path, folder: &Path, cancel: &Cancellation) -> Result<(usize, String), String> {
     let output = run("pdfinfo", &[path.as_os_str().into()], folder, cancel)?;
     let pages = output
@@ -355,6 +372,12 @@ pub(super) fn prepare(
             let labels = (0..8).map(|i| format!("Frame near {:.2} s", duration * i as f64 / 8.0)).collect();
             (Pages::Video(input, duration), labels, format!("Video inspection: eight sampled timestamps across {duration:.2} seconds, rendered on demand. This is not playback and does not show every frame or play audio."))
         }
+        Kind::Dxf => { let out=folder.join("drawing.svg"); diagnostics.push_str(&run_python("dxf",&input,&out,folder,cancel)?); (Pages::Derived(out,DerivedKind::Svg),vec!["Modelspace · SVG".into()],"DXF modelspace only; paper layouts, external references, proxy entities and CAD constraints are not represented.".into()) }
+        Kind::Cad => { let out=folder.join("geometry.stl"); diagnostics.push_str(&run_python("cad",&input,&out,folder,cancel)?); (Pages::Derived(out,DerivedKind::Mesh),vec!["Tessellated geometry".into()],"STEP/IGES or stored FreeCAD BREP decoded by Open CASCADE and tessellated for review; PMI, colors, constraints, parametric history and assembly semantics are not preserved.".into()) }
+        Kind::Hdf5 => { let out=folder.join("datasets.json"); diagnostics.push_str(&run_python("hdf5",&input,&out,folder,cancel)?); (Pages::Derived(out,DerivedKind::Json),vec!["Dataset catalogue".into()],"HDF5 datasets and attributes exposed as bounded parameter/table/plot data; external links are not followed and large datasets are truncated.".into()) }
+        Kind::Blender => { let script=folder.join("blender_export.py"); std::fs::write(&script,include_str!("blender_export.py")).map_err(|e|e.to_string())?; let out=folder.join("scene.glb"); let mut cmd=args(&["--background","--factory-startup","--disable-autoexec","--python-exit-code","1"]); cmd.push(input.as_os_str().into()); cmd.extend(args(&["--python"])); cmd.push(script.as_os_str().into()); cmd.extend(args(&["--","--output"])); cmd.push(out.as_os_str().into()); diagnostics.push_str(&run("blender",&cmd,folder,cancel)?); (Pages::Derived(out,DerivedKind::Mesh),vec!["Scene geometry · GLB".into()],"Blender scene exported with automatic execution disabled; preview is tessellated geometry, not a full render and may omit animation, materials, lighting and render settings.".into()) }
+        Kind::Gerber => { let out=folder.join("gerber.svg"); let mut cmd=args(&["-x","svg","-o"]); cmd.push(out.as_os_str().into()); cmd.push(input.as_os_str().into()); diagnostics.push_str(&run("gerbv",&cmd,folder,cancel)?); (Pages::Derived(out,DerivedKind::Svg),vec!["Selected layer · SVG".into()],"One selected Gerber or Excellon file rendered as a layer; not a complete stack composition or fabrication validation.".into()) }
+        Kind::Dwg => { let dxf=folder.join("converted.dxf"); let mut cmd=args(&["-o"]); cmd.push(dxf.as_os_str().into()); cmd.push(input.as_os_str().into()); diagnostics.push_str(&run("dwg2dxf",&cmd,folder,cancel)?); let out=folder.join("drawing.svg"); diagnostics.push_str(&run_python("dxf",&dxf,&out,folder,cancel)?); (Pages::Derived(out,DerivedKind::Svg),vec!["Converted modelspace · SVG".into()],"DWG converted by LibreDWG then rendered as DXF modelspace; version/entity coverage depends on LibreDWG and may omit proxy objects and paper layouts.".into()) }
         Kind::Audio => (Pages::Audio(input), vec!["Whole-file waveform".into()],
             "Audio waveform rendered by FFmpeg. Amplitude is a visual summary; this view does not play audio, transcribe speech, or assess audio quality.".into()),
     };
@@ -381,6 +404,7 @@ pub(super) fn page(
     let base = folder.join(format!("page-{index}"));
     let pending = folder.join(format!("pending-{index}"));
     let path = match &document.pages {
+        Pages::Derived(path, _) => path.clone(),
         Pages::Svg(paths) => paths[index].clone(),
         Pages::Pdf(input) => {
             let path = base.with_extension("png");
@@ -491,14 +515,17 @@ pub(super) fn page(
         }
     };
     cancelled(cancel)?;
-    let mut decoded = if matches!(&document.pages, Pages::Svg(_) | Pages::Board(_)) {
-        loader::native_drawing(&Source::File(path), cancel)?
-    } else {
-        loader::decode(&Source::File(path), cancel)?
+    let mut decoded = match &document.pages {
+        Pages::Derived(_, DerivedKind::Svg) | Pages::Svg(_) | Pages::Board(_) => loader::native_drawing(&Source::File(path), cancel)?,
+        _ => loader::decode(&Source::File(path), cancel)?,
     };
-    if !matches!(&decoded.body, Body::Image(..)) {
-        return Err("The native renderer did not produce a supported image page.".into());
-    }
-    decoded.note = document.labels[index].clone();
+    let supported = match (&document.pages, &decoded.body) {
+        (Pages::Derived(_, DerivedKind::Mesh), Body::Mesh(_)) => true,
+        (Pages::Derived(_, DerivedKind::Json), Body::Parameters(..)) => true,
+        (_, Body::Image(..)) => true,
+        _ => false,
+    };
+    if !supported { return Err("Compatible renderer returned an unsupported representation.".into()); }
+    decoded.note = format!("{} · {}", document.summary, document.labels[index]);
     Ok(decoded)
 }
