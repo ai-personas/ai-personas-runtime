@@ -64,7 +64,11 @@ pub(super) async fn run<D: Driver>(
         if progress {
             continue;
         }
-        if failure.is_none() && foreground::wait_for_activity(app, &works, Some(owner)).await? {
+        // A prior failure is retained for the final report, not a veto on a
+        // different participant's authored return or an admitted command's
+        // result. The ordinary wait/eligibility path preserves Stop/Pause and
+        // user controls; it neither retries that failure nor creates a route.
+        if foreground::wait_for_activity(app, &works, Some(owner)).await? {
             continue;
         }
         let mut output = result(app, root)?;

@@ -138,28 +138,41 @@ call and changes no participation or Stop/Pause choice. Reopening its exact ID
 returns the original receipt and the current selection; it never reselects an
 older source after a later change.
 
-## Follow your admitted requests
+## Follow admitted requests from the current work
 
-Ordinary inputs include `CONTROL.requested_work` when the current persona has
-admitted requests originating in the current work. Each entry binds the actual
-child and admission receipt to the original proposal invocation and operation.
-It reports the child's recorded phase, mandate revision, participants, current
-acceptance identities and last authored continuation kinds. Latest judgment and
-continuation invocations are lookup cues; their exact retained commit references
-also receive `input_history_choices` handles when available. This reads indexed
-commit metadata, without loading the corresponding decision bodies. The persona
-chooses which records to read.
+Ordinary inputs include `CONTROL.requested_work` for admitted requests
+originating in the exact current parent work. Current parent participants see
+peers' requests as well as their own, including requests whose author has
+stopped or handed off. This uses actual participation, not the original seed
+cohort or a fixed team. A newly invited participant can discover this metadata
+before choosing whether to accept a contribution.
 
-This view includes only the actor's own requests with this exact immediate
-parent, across retained episodes. It is not an inventory of pending proposals,
-other personas' requests or all descendants. Child briefs, judgment reasons,
-continuation conditions, results, artifacts and private context selections are
-not automatically supplied. A continuation kind is only its recorded variant;
-read its decision for the full reason, dependencies or timing. A stopped peer,
-an open work or a recorded completion phase establishes no present quality or
-execution verdict. Unavailable lineage is marked as omitted. The snapshot
-creates no wait, reservation, assignment, resumption or replay, and later child
-progress does not invalidate an independent parent decision.
+Each entry preserves the real `requester`, a `requested_by_current_persona`
+boolean, the child work, admission receipt, and original proposal invocation
+and operation. The projection profile is `current-work-admitted-requests-v2`;
+`viewing_persona` identifies who received the snapshot. Discovery does not
+transfer the requester's responsibility, add the viewer to child work, reroute
+messages or wake anyone. The original author still receives replies under the
+existing recipient rules.
+
+The view reports the child's recorded phase, mandate revision, participants,
+current acceptance identities and last authored continuation kinds. Latest
+judgment and continuation invocations are lookup cues; their exact retained
+commit references also receive `input_history_choices` handles when available.
+This reads indexed commit metadata, without loading decision bodies. A willing
+collaborator can choose those exact reads rather than needing the original
+requester to remain active merely to discover the contribution.
+
+The scope is immediate children of this exact parent across retained episodes,
+not pending proposals, unrelated roots or all descendants. Child briefs,
+judgment reasons, continuation conditions, results, artifacts and private
+context selections are not automatically supplied. A continuation kind is only
+its recorded variant; read its decision for the full reason, dependencies or
+timing. A stopped peer, an open work or a recorded completion phase establishes
+no present quality or execution verdict. Unavailable lineage is marked as
+omitted. The snapshot creates no wait, reservation, assignment, resumption or
+replay, and later child progress does not invalidate an independent parent
+decision.
 
 ## Further requests from child work
 
@@ -241,6 +254,14 @@ round, call or nesting quota. A fresh
 `personas-session run --work CHILD_WORK` can also continue that exact child and
 its descendants using the configured route. Explicit Stop/Pause is not reset,
 and a completed child result alone does not resume its author.
+
+The serial coordinator retains prior per-work failures for the final report,
+but does not use a remembered failure to suppress waiting for another eligible
+participant's authored return or an already admitted host command's result.
+The ordinary eligibility checks still determine whether a new call can occur.
+This does not retry a failed call, reconcile an uncertain effect, override an
+individual Stop/Pause, or ignore user controls. With no eligible return or
+pending activity, it exits and preserves the recorded failure.
 
 An author who wants to continue after an actual reply may register a message
 wait naming the invited existing persona and choose `continuation.kind=wait`
