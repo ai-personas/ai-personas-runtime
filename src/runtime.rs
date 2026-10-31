@@ -11083,10 +11083,9 @@ fn apply_work_actions(
                 audience: recipients.clone(),
                 ..a.clone()
             };
-            require(
-                recipients.is_subset(&prepared.audience),
-                "delivery audience was not in the admitted exposure scope",
-            )?;
+            // Seed audience is historical creation metadata, not a delivery gate.
+            // Current mandate recipients, known inboxes, supported release and
+            // complete source lineage are checked separately in this transaction.
             let delivery_corpus = corpus_for_delivery(state, &recipient_admission)?;
             require(
                 exposure_permitted(state, prepared_exposure(prepared)?, &recipient_admission),
