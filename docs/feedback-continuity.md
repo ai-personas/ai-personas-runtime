@@ -90,3 +90,42 @@ Rust builds and compiled synthetic scenarios remain required integration checks.
 Actual improvement in character-driven collaboration needs separately authorized
 model runs with controlled tasks, model/effort settings and observable outcomes;
 prose self-reports and more calls alone are not evidence of improvement.
+
+## Provider-history preflight
+
+`Material::pending` now checks inexpensive selection metadata before reading a
+retained invocation or reconstructing its provider input/output. It skips a turn
+whose selected persona, work or configured model differs, whose lifetime already
+expired at the stored work-admission serial, or whose exact selected reference is
+recorded as rejected in provider-context recovery. It preserves the authored
+selection and lets the existing projection report expiry, binding mismatch or the
+actual rejection; it does not clear history, infer a new selection or make a call.
+
+Previously these conditions prevented provider supply only after the host loaded
+and reconstructed the turn. This was unnecessary host I/O and reconstruction, not
+proof that invalid history reached the provider or caused repeated persona actions.
+The check is deliberately conservative at the inclusive next-call boundary: response
+planning may still need a currently active turn, so it does not guess a later serial.
+Projection continues to apply the exact rendering serial. Corrupt terminal bodies,
+wire incompatibility and unavailable source lineage still require the normal exact
+load/projection checks. Selecting the current completed turn, character transitions,
+terminal integrity checks and current/preserve/clear semantics are unchanged.
+
+## Persona-authored birth and inference defaults
+
+The current birth proposal contains `label`, `seed` and `reason`, not model or
+effort fields. Creation records both optional inference overrides as absent; the
+ordinary seed constructor resolves those to the saved launch defaults. It does
+not inherit a parent's override. Existing initial-cohort per-persona overrides
+remain independent and continue through per-persona provider selection.
+
+That default does not discard a supplied child inference choice: the proposal
+interface has no such choice. Automatically copying the parent's model, routing by
+traits, or choosing a supposedly stronger model would introduce a new policy, not
+repair this default. Explicit child model selection, general persona-directed
+model switching and arbitrary provider-family routing remain unsupported by this
+birth interface. Different profiles can use the same model, and different models
+do not establish distinct character or competence. The canonical persona design
+separates identity and authored character from the model's capability; these
+mechanisms still require behavioral evidence. No birth/model-routing change is
+made by the provider-history preflight correction.

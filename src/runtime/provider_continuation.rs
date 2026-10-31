@@ -37,9 +37,23 @@ pub(crate) struct Material {
 
 impl Material {
     pub(crate) fn pending(store: &mut s::Store, state: &State, actor: &str, work: &str) -> Self {
-        let selected = state.personas.get(actor).and_then(|p| p.focus.get(work))
-            .and_then(|focus| focus.provider_context.as_ref());
-        selected.map_or_else(Self::default, |selected| Self::load(store, selected, None))
+        let Some(persona) = state.personas.get(actor) else { return Self::default() };
+        let Some(focus) = persona.focus.get(work) else { return Self::default() };
+        let Some(selected) = focus.provider_context.as_ref() else { return Self::default() };
+        // Reject known-inapplicable metadata before reading a retained invocation,
+        // terminal, images or opaque output. Projection still owns the diagnostic
+        // and rechecks the exact admission; the authored selection stays intact.
+        // This serial is a conservative lower bound during response planning:
+        // do not guess the next serial and drop a currently valid next_call turn.
+        if !selected.active(focus.work_admission_serial)
+            || selected.persona != actor || selected.work != work
+            || selected.model != persona.seed.requested_model
+            || focus.provider_context_recoveries.iter().any(|pending|
+                pending.rejected_provider_context.as_ref() == Some(selected))
+        {
+            return Self { selected: Some(selected.clone()), ..Self::default() };
+        }
+        Self::load(store, selected, None)
     }
 
     fn load(store: &mut s::Store, selected: &Selected, current: Option<&Prepared>) -> Self {
