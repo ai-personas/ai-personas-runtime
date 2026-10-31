@@ -229,7 +229,33 @@ pub(super) struct Encoded<'a> {
     pub qualified: Cow<'a, Value>,
     pub encoding: Option<String>,
 }
+// Inspect the resolved current context, not the file's container bytes. A
+// nonempty JSON document or file can select an empty string/whitespace range.
+// Such a projection cannot carry characteristic prose. Supporting assets may
+// legitimately be empty; observation/history reads remain diagnostic, and the
+// decoder must still reproduce earlier inputs without rewriting their evidence.
+// This is a nonblank-body invariant, not a semantic character/quality evaluator.
+fn require_characteristic_text(qualified: &Value) -> Result<()> {
+    for entry in entries(qualified)? {
+        if entry["scope"] != "fragments" {
+            continue;
+        }
+        let text = entry["text"]
+            .as_str()
+            .ok_or_else(|| held("characteristic context text unavailable"))?;
+        require(
+            !text.trim().is_empty(),
+            &format!(
+                "characteristic context is blank at exact reference {}; choose a nonblank UTF-8 or JSON-string projection with an exact range when needed",
+                entry["reference"]
+            ),
+        )?;
+    }
+    Ok(())
+}
+
 pub(super) fn encode<'a>(control: &'a Value, qualified: &'a Value) -> Result<Encoded<'a>> {
+    require_characteristic_text(qualified)?;
     sections_size(control, qualified)?;
     if let Some(compact) = control_text::encode(control)? {
         let encoded = encode_qualified(&compact, qualified)?;
