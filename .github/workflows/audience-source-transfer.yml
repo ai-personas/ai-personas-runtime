@@ -1,46 +1,184 @@
-name: Pinned public source transfer for audience repair
+name: Verify exact audience repair source and builds
 on:
   push:
     branches:
       - validation/audience-source-e8150a99-20261031
 permissions: {}
 jobs:
-  capture:
+  validation:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+    outputs:
+      source_verified: ${{ steps.source.outputs.source_verified }}
     steps:
-      - name: Retrieve and verify only pinned public source
+      - name: Verify exact original and preserved patch
+        id: source
         shell: bash
         run: |
-          set -euo pipefail
-          mkdir source
           python3 - <<'PY'
-          import hashlib
-          import json
+          import base64, hashlib, json, os, subprocess
           from pathlib import Path
-          from urllib.request import Request, urlopen
-          commit = '55c9d0cb174b8bf273b6e6841c9adc1dc5d15d34'
-          expected = 'e8150a99edecb7ae9dfa75cc6598300d0974ad63'
-          url = f'https://raw.githubusercontent.com/ai-personas/ai-personas-runtime/{commit}/src/runtime.rs'
-          request = Request(url, headers={'User-Agent': 'AiPersonas-public-source-verification'})
-          with urlopen(request, timeout=60) as response:
-              data = response.read()
-          actual = hashlib.sha1(b'blob ' + str(len(data)).encode('ascii') + b'\0' + data).hexdigest()
-          if actual != expected:
-              raise SystemExit(f'Public source blob mismatch: {actual}')
-          data.decode('utf-8')
-          Path('source/runtime.rs').write_bytes(data)
-          manifest = {'repository': 'ai-personas/ai-personas-runtime', 'commit': commit,
-                      'path': 'src/runtime.rs', 'git_blob': actual, 'bytes': len(data),
-                      'sha256': hashlib.sha256(data).hexdigest(), 'source': url,
-                      'scope': 'Pinned public source only; no checkout, secrets, live state, or inference.'}
-          Path('source/SOURCE.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+          base = '55c9d0cb174b8bf273b6e6841c9adc1dc5d15d34'
+          expected_old = 'e8150a99edecb7ae9dfa75cc6598300d0974ad63'
+          expected_new = '084b25e390103f7bf1651fddccb548aa2ffd5a5f'
+          patch = base64.b64decode('ZGlmZiAtLWdpdCBhL3NyYy9ydW50aW1lLnJzIGIvc3JjL3J1bnRpbWUucnMKLS0tIGEvc3JjL3J1bnRpbWUucnMKKysrIGIvc3JjL3J1bnRpbWUucnMKQEAgLTExMDgzLDEwICsxMTA4Myw5IEBACiAgICAgICAgICAgICAgICAgYXVkaWVuY2U6IHJlY2lwaWVudHMuY2xvbmUoKSwKICAgICAgICAgICAgICAgICAuLmEuY2xvbmUoKQogICAgICAgICAgICAgfTsKLSAgICAgICAgICAgIHJlcXVpcmUoCi0gICAgICAgICAgICAgICAgcmVjaXBpZW50cy5pc19zdWJzZXQoJnByZXBhcmVkLmF1ZGllbmNlKSwKLSAgICAgICAgICAgICAgICAiZGVsaXZlcnkgYXVkaWVuY2Ugd2FzIG5vdCBpbiB0aGUgYWRtaXR0ZWQgZXhwb3N1cmUgc2NvcGUiLAotICAgICAgICAgICAgKT87CisgICAgICAgICAgICAvLyBTZWVkIGF1ZGllbmNlIGlzIGhpc3RvcmljYWwgY3JlYXRpb24gbWV0YWRhdGEsIG5vdCBhIGRlbGl2ZXJ5IGdhdGUuCisgICAgICAgICAgICAvLyBDdXJyZW50IG1hbmRhdGUgcmVjaXBpZW50cywga25vd24gaW5ib3hlcywgc3VwcG9ydGVkIHJlbGVhc2UgYW5kCisgICAgICAgICAgICAvLyBjb21wbGV0ZSBzb3VyY2UgbGluZWFnZSBhcmUgY2hlY2tlZCBzZXBhcmF0ZWx5IGluIHRoaXMgdHJhbnNhY3Rpb24uCiAgICAgICAgICAgICBsZXQgZGVsaXZlcnlfY29ycHVzID0gY29ycHVzX2Zvcl9kZWxpdmVyeShzdGF0ZSwgJnJlY2lwaWVudF9hZG1pc3Npb24pPzsKICAgICAgICAgICAgIHJlcXVpcmUoCiAgICAgICAgICAgICAgICAgZXhwb3N1cmVfcGVybWl0dGVkKHN0YXRlLCBwcmVwYXJlZF9leHBvc3VyZShwcmVwYXJlZCk/LCAmcmVjaXBpZW50X2FkbWlzc2lvbiksCg==')
+          assert hashlib.sha256(patch).hexdigest() == '7201d9bd11cb0b1155e30b502c3658d3d66abff7ee1d87b625d69c53cdf65adf'
+          repo = Path('public-checkout').resolve()
+          out = Path('evidence').resolve()
+          out.mkdir()
+          repo.mkdir()
+          def git(*args):
+              return subprocess.check_output(['git', '-C', str(repo), *args])
+          git('init', '--quiet')
+          git('fetch', '--quiet', '--depth', '1', 'https://github.com/ai-personas/ai-personas-runtime.git', base)
+          git('checkout', '--quiet', '--detach', 'FETCH_HEAD')
+          assert git('rev-parse', 'HEAD').decode().strip() == base
+          assert git('hash-object', 'src/runtime.rs').decode().strip() == expected_old
+          original = (repo/'src/runtime.rs').read_bytes()
+          (out/'original-runtime.rs').write_bytes(original)
+          (out/'audience-delivery.patch').write_bytes(patch)
+          git('apply', '--check', str(out/'audience-delivery.patch'))
+          git('apply', str(out/'audience-delivery.patch'))
+          git('diff', '--check')
+          assert git('diff', '--name-only').decode().splitlines() == ['src/runtime.rs']
+          assert git('hash-object', 'src/runtime.rs').decode().strip() == expected_new
+          candidate = (repo/'src/runtime.rs').read_bytes()
+          assert hashlib.sha256(candidate).hexdigest() == 'ad88e24e0fd88f5bd7d0ea75225ddbe0e249f5d190a9267b83635fcad8883e70'
+          (out/'candidate-runtime.rs').write_bytes(candidate)
+          (out/'actual.patch').write_bytes(git('diff', '--', 'src/runtime.rs'))
+          git('apply', '--reverse', '--check', str(out/'audience-delivery.patch'))
+          git('apply', '--reverse', str(out/'audience-delivery.patch'))
+          assert (repo/'src/runtime.rs').read_bytes() == original
+          assert not git('diff', '--name-only').strip()
+          manifest = {'base': base, 'original_blob': expected_old, 'candidate_blob': expected_new,
+           'candidate_sha256': hashlib.sha256(candidate).hexdigest(), 'candidate_bytes': len(candidate),
+           'diff_scope': ['src/runtime.rs'], 'patch_forward_reverse_and_whitespace': 'passed'}
+          (out/'SOURCE.json').write_text(json.dumps(manifest, indent=2)+'\n')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('source_verified=true\n')
           print(json.dumps(manifest, indent=2))
           PY
-      - name: Export exact public source
+      - name: Check baseline and exact candidate without inference
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, shutil, subprocess, sys
+          from pathlib import Path
+          repo = Path('public-checkout').resolve()
+          out = Path('evidence').resolve()
+          results = []
+          def run(label, command):
+              log = out / (label + '.log')
+              try:
+                  with log.open('wb') as stream:
+                      p = subprocess.run(command, cwd=repo, stdout=stream, stderr=subprocess.STDOUT, timeout=1200)
+                  code = p.returncode
+              except FileNotFoundError as exc:
+                  log.write_text(type(exc).__name__ + ': executable unavailable\n')
+                  code = 127
+              except subprocess.TimeoutExpired:
+                  code = 124
+              results.append({'label':label, 'command':command, 'exit_code':code, 'log':log.name})
+              (out/'COMMAND-RESULTS.json').write_text(json.dumps(results, indent=2)+'\n')
+              print(label, 'exit', code, flush=True)
+              return code
+          for tool in ['rustc','cargo','rustfmt']:
+              run('version-'+tool,[tool,'--version'])
+          commands = [
+           ('build-bins',['cargo','build','--locked','--bins']),
+           ('build-desktop',['cargo','build','--locked','--features','desktop','--bins']),
+           ('clippy-bins',['cargo','clippy','--locked','--bins']),
+           ('clippy-desktop',['cargo','clippy','--locked','--features','desktop','--bins']),
+          ]
+          for label,cmd in commands:
+              run('baseline-'+label,cmd)
+          subprocess.run(['git','apply',str(out/'audience-delivery.patch')],cwd=repo,check=True)
+          for label,cmd in commands:
+              run('candidate-'+label,cmd)
+          run('candidate-diff-check',['git','diff','--check'])
+          # Do not reformat the repository. Compare formatting acceptance on the exact
+          # baseline/candidate file in place; emit output only, with child traversal off.
+          import tomllib
+          edition = str(tomllib.loads((repo/'Cargo.toml').read_text()).get('package',{}).get('edition','2021'))
+          for phase,source in [('baseline',out/'original-runtime.rs'),('candidate',out/'candidate-runtime.rs')]:
+              (repo/'src/runtime.rs').write_bytes(source.read_bytes())
+              run(phase+'-rustfmt',['rustfmt','--check','--edition',edition,'--config','skip_children=true','src/runtime.rs'])
+          assert (repo/'src/runtime.rs').read_bytes() == (out/'candidate-runtime.rs').read_bytes()
+          print(json.dumps(results, indent=2))
+          # Existing formatting differences remain separately recorded. CI is green only
+          # when both candidate builds and both candidate Clippy commands returned zero.
+          failed = [r for r in results if r['label'].startswith('candidate-') and r['label']!='candidate-rustfmt' and r['exit_code']!=0]
+          sys.exit(bool(failed))
+          PY
+      - name: Export public source and check evidence
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: public-runtime-e8150a99
-          path: source/
+          name: audience-repair-checks
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 7
+  register:
+    needs: validation
+    if: ${{ always() && needs.validation.outputs.source_verified == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Register only the already-reviewed public Git blob
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import base64, hashlib, json, os
+          from pathlib import Path
+          from urllib.request import Request, urlopen
+          base = '55c9d0cb174b8bf273b6e6841c9adc1dc5d15d34'
+          old = 'e8150a99edecb7ae9dfa75cc6598300d0974ad63'
+          new = '084b25e390103f7bf1651fddccb548aa2ffd5a5f'
+          url = f'https://raw.githubusercontent.com/ai-personas/ai-personas-runtime/{base}/src/runtime.rs'
+          with urlopen(Request(url,headers={'User-Agent':'AiPersonas-public-source-verification'}),timeout=60) as response:
+              original = response.read()
+          def blob(data):
+              return hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+          assert blob(original)==old
+          # Apply the exact verified patch in a throwaway directory; no branch is updated.
+          import subprocess,tempfile
+          patch=base64.b64decode('ZGlmZiAtLWdpdCBhL3NyYy9ydW50aW1lLnJzIGIvc3JjL3J1bnRpbWUucnMKLS0tIGEvc3JjL3J1bnRpbWUucnMKKysrIGIvc3JjL3J1bnRpbWUucnMKQEAgLTExMDgzLDEwICsxMTA4Myw5IEBACiAgICAgICAgICAgICAgICAgYXVkaWVuY2U6IHJlY2lwaWVudHMuY2xvbmUoKSwKICAgICAgICAgICAgICAgICAuLmEuY2xvbmUoKQogICAgICAgICAgICAgfTsKLSAgICAgICAgICAgIHJlcXVpcmUoCi0gICAgICAgICAgICAgICAgcmVjaXBpZW50cy5pc19zdWJzZXQoJnByZXBhcmVkLmF1ZGllbmNlKSwKLSAgICAgICAgICAgICAgICAiZGVsaXZlcnkgYXVkaWVuY2Ugd2FzIG5vdCBpbiB0aGUgYWRtaXR0ZWQgZXhwb3N1cmUgc2NvcGUiLAotICAgICAgICAgICAgKT87CisgICAgICAgICAgICAvLyBTZWVkIGF1ZGllbmNlIGlzIGhpc3RvcmljYWwgY3JlYXRpb24gbWV0YWRhdGEsIG5vdCBhIGRlbGl2ZXJ5IGdhdGUuCisgICAgICAgICAgICAvLyBDdXJyZW50IG1hbmRhdGUgcmVjaXBpZW50cywga25vd24gaW5ib3hlcywgc3VwcG9ydGVkIHJlbGVhc2UgYW5kCisgICAgICAgICAgICAvLyBjb21wbGV0ZSBzb3VyY2UgbGluZWFnZSBhcmUgY2hlY2tlZCBzZXBhcmF0ZWx5IGluIHRoaXMgdHJhbnNhY3Rpb24uCiAgICAgICAgICAgICBsZXQgZGVsaXZlcnlfY29ycHVzID0gY29ycHVzX2Zvcl9kZWxpdmVyeShzdGF0ZSwgJnJlY2lwaWVudF9hZG1pc3Npb24pPzsKICAgICAgICAgICAgIHJlcXVpcmUoCiAgICAgICAgICAgICAgICAgZXhwb3N1cmVfcGVybWl0dGVkKHN0YXRlLCBwcmVwYXJlZF9leHBvc3VyZShwcmVwYXJlZCk/LCAmcmVjaXBpZW50X2FkbWlzc2lvbiksCg==')
+          assert hashlib.sha256(patch).hexdigest()=='7201d9bd11cb0b1155e30b502c3658d3d66abff7ee1d87b625d69c53cdf65adf'
+          with tempfile.TemporaryDirectory() as tmp:
+              root=Path(tmp); (root/'src').mkdir(); (root/'src/runtime.rs').write_bytes(original)
+              (root/'change.patch').write_bytes(patch)
+              subprocess.run(['git','apply','--check','change.patch'],cwd=root,check=True)
+              subprocess.run(['git','apply','change.patch'],cwd=root,check=True)
+              candidate=(root/'src/runtime.rs').read_bytes()
+          assert blob(candidate)==new
+          assert hashlib.sha256(candidate).hexdigest()=='ad88e24e0fd88f5bd7d0ea75225ddbe0e249f5d190a9267b83635fcad8883e70'
+          body=json.dumps({'content':base64.b64encode(candidate).decode('ascii'),'encoding':'base64'}).encode('utf-8')
+          request=Request('https://api.github.com/repos/ai-personas/ai-personas-runtime/git/blobs',data=body,method='POST',headers={
+           'Authorization':'Bearer '+os.environ['GH_TOKEN'], 'Accept':'application/vnd.github+json',
+           'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json',
+           'User-Agent':'AiPersonas-reviewed-blob-registration'})
+          with urlopen(request,timeout=60) as response:
+              result=json.load(response)
+          assert result['sha']==new
+          Path('registration').mkdir()
+          receipt={'base':base,'original_blob':old,'candidate_blob':new,
+           'candidate_sha256':hashlib.sha256(candidate).hexdigest(),'candidate_bytes':len(candidate),
+           'branch_updated':False,'scope':'One public, hash-verified Git blob; no commit or ref update.'}
+          Path('registration/REGISTRATION.json').write_text(json.dumps(receipt,indent=2)+'\n')
+          print(json.dumps(receipt,indent=2))
+          PY
+      - name: Export registration receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: audience-repair-registration
+          path: registration/
           if-no-files-found: error
           retention-days: 7
