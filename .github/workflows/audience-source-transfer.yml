@@ -1,0 +1,46 @@
+name: Pinned public source transfer for audience repair
+on:
+  push:
+    branches:
+      - validation/audience-source-e8150a99-20261031
+permissions: {}
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Retrieve and verify only pinned public source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir source
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          from urllib.request import Request, urlopen
+          commit = '55c9d0cb174b8bf273b6e6841c9adc1dc5d15d34'
+          expected = 'e8150a99edecb7ae9dfa75cc6598300d0974ad63'
+          url = f'https://raw.githubusercontent.com/ai-personas/ai-personas-runtime/{commit}/src/runtime.rs'
+          request = Request(url, headers={'User-Agent': 'AiPersonas-public-source-verification'})
+          with urlopen(request, timeout=60) as response:
+              data = response.read()
+          actual = hashlib.sha1(b'blob ' + str(len(data)).encode('ascii') + b'\0' + data).hexdigest()
+          if actual != expected:
+              raise SystemExit(f'Public source blob mismatch: {actual}')
+          data.decode('utf-8')
+          Path('source/runtime.rs').write_bytes(data)
+          manifest = {'repository': 'ai-personas/ai-personas-runtime', 'commit': commit,
+                      'path': 'src/runtime.rs', 'git_blob': actual, 'bytes': len(data),
+                      'sha256': hashlib.sha256(data).hexdigest(), 'source': url,
+                      'scope': 'Pinned public source only; no checkout, secrets, live state, or inference.'}
+          Path('source/SOURCE.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps(manifest, indent=2))
+          PY
+      - name: Export exact public source
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: public-runtime-e8150a99
+          path: source/
+          if-no-files-found: error
+          retention-days: 7
