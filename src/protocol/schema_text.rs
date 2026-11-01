@@ -14,10 +14,31 @@ const INTRO: &str = "Compact wire types (compact-decision-types-v1), generated f
 /// Fall back to the complete generated JSON for any unsupported construct, or
 /// when the readable form would be larger. No definition is selected or hidden.
 pub(super) fn render(schema: &Value) -> String {
-    let original = serde_json::to_string(schema).expect("generated JSON schema");
-    compact(schema)
+    let schema = runtime_annotations(schema);
+    let original = serde_json::to_string(schema.as_ref()).expect("generated JSON schema");
+    compact(schema.as_ref())
         .filter(|text| text.len() < original.len())
         .unwrap_or(original)
+}
+
+/// Affect expiry has an admission-bound interface version. Refer to that
+/// offered contract rather than applying the legacy after-adoption description
+/// to new supplied-context-clock calls. This changes one description only, in
+/// both presentations; structural validation and provider schema are unchanged.
+fn runtime_annotations(schema: &Value) -> std::borrow::Cow<'_, Value> {
+    let Some(index) = schema.pointer("/$defs/AffectChange/oneOf")
+        .and_then(Value::as_array)
+        .and_then(|variants| variants.iter().position(|variant|
+            variant["properties"]["kind"]["const"] == "set"
+                && variant.pointer("/properties/expires_at_unix")
+                    .is_some_and(Value::is_object)))
+    else {
+        return std::borrow::Cow::Borrowed(schema);
+    };
+    let mut presented = schema.clone();
+    presented["$defs"]["AffectChange"]["oneOf"][index]["properties"]["expires_at_unix"]["description"] =
+        Value::String("Absolute UTC Unix seconds chosen by the persona. The exact offered CONTROL.affect_interface defines the expiry clock and adoption rule; follow that versioned contract. No application maximum lifetime is enforced. Expiry creates no wake.".into());
+    std::borrow::Cow::Owned(presented)
 }
 
 fn identifier(value: &str) -> bool {

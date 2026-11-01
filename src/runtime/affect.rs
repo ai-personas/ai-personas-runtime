@@ -14,6 +14,17 @@ struct Record {
 }
 
 pub(super) fn interface(now: i64) -> Result<Value> {
+    let mut offered = legacy_interface(now)?;
+    offered["profile"] = json!("persona-transient-affect-v2");
+    offered["expiry_basis"] = json!("supplied_context_time");
+    offered["rule"] = json!("Optional affect_update replaces or clears your own current modeled state. Set exactly valence, activation (arousal), and control (perceived control), a stated interpretation, actual supplied observation IDs or [], and an explicit expiry after CONTROL.affect_interface.context_at_unix. If that time passes during inference or adoption, the unchanged update is recorded as already expired and supplies no current affect body; elapsed transport time alone does not reject the response. There is no application maximum lifetime; choose the expiry you intend. Use ordinary words; this is neither felt emotion nor a measurement. Current text is the exact receipt named by transient_affect.observation_id in actual_observations. Expired, unavailable or character-changed state supplies no current affect body. This does not revise stable character or baseline VAD, grant authority, choose a role, or schedule a wake. Prior accepted receipts remain historical evidence. Fragment and asset maintenance are separate.");
+    Ok(offered)
+}
+
+// Match the exact contract of an already admitted v1 request. New admissions
+// offer v2, but a retained v1 call keeps its after-adoption expiry condition.
+// The record hash namespace and existing receipts are unchanged.
+fn legacy_interface(now: i64) -> Result<Value> {
     Ok(json!({
         "profile":PROFILE,
         "context_at_unix":now,
@@ -143,8 +154,9 @@ fn apply_change(
         "transient affect requires a continuing ordinary persona",
     )?;
     let control = request_context::decode(prepared)?.control;
+    let context_clock = control["affect_interface"] == interface(prepared.at_unix)?;
     require(
-        control["affect_interface"] == interface(prepared.at_unix)?,
+        context_clock || control["affect_interface"] == legacy_interface(prepared.at_unix)?,
         "transient affect interface was not supplied",
     )?;
     let actor = &prepared.request.persona;
@@ -162,9 +174,17 @@ fn apply_change(
         ..
     } = change
     {
+        // Validate against the clock actually offered to this decision. Keep
+        // the authored absolute expiry; project() already omits expired bodies.
+        // This changes neither continuation nor the time of the actual receipt.
+        let expiry_floor = if context_clock { prepared.at_unix } else { now };
         require(
-            *expires_at_unix > now,
-            "affect expiry must be future at adoption",
+            *expires_at_unix > expiry_floor,
+            if context_clock {
+                "affect expiry must follow the supplied context time"
+            } else {
+                "affect expiry must be future at adoption"
+            },
         )?;
         let a = admission(&state.personas[actor], now);
         for id in observations {

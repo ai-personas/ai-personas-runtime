@@ -33,8 +33,27 @@ operation of this shape, using the real observation ID and a chosen future expir
 }
 ```
 
-The timestamp above is illustrative. The actual expiry must be later than
-adoption. `CONTROL.affect_interface.maximum_expires_at_unix` is `null`,
+The timestamp above is illustrative. In `persona-transient-affect-v2`, the
+expiry must be later than the exact `CONTROL.affect_interface.context_at_unix`
+supplied to the decision. It need not still be in the future when inference and
+adoption finish. If the authored time has already passed, the update is retained
+with its actual adoption time and original expiry, but projects as `expired` with
+no current affect body. Transport latency alone does not invalidate other work
+in that response. The host neither moves the expiry forward nor revives an older
+state. An expiry at or before the supplied context time remains invalid.
+
+Already admitted `persona-transient-affect-v1` calls keep their original
+future-at-adoption rule, checked against their exact retained interface. This
+change does not rewrite old prompts, receipts, or validation outcomes. Record
+hashes retain the existing namespace; the admitted interface identifies which
+clock rule applied. The prompt schema presentation names the exact offered
+`CONTROL.affect_interface` as the expiry contract, in both compact and JSON
+fallback forms, instead of repeating the legacy after-adoption description.
+Only that description changes; generic wire validation and the provider decoding
+schema are unchanged. Both versions retain the existing character, observation,
+attribution, whole-response adoption and source-lineage checks.
+
+`CONTROL.affect_interface.maximum_expires_at_unix` is `null`,
 `lifetime_quota_enforced` is `false`, and the application imposes no maximum lifetime. `observations: []` explicitly
 records an interpretation without an observation basis. New read results and
 commands proposed in the same response are not yet supplied observations.
