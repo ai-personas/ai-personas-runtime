@@ -20,6 +20,7 @@ use std::{
     thread,
     time::Duration,
 };
+mod snapshots;
 
 pub type Cancel = Arc<AtomicBool>;
 pub fn cancel() -> Cancel {
@@ -29,6 +30,7 @@ pub fn cancel() -> Cancel {
 pub struct Helpers {
     copies: Arc<tempfile::TempDir>,
     pub installation: BTreeMap<String, Binary>,
+    snapshots: Arc<std::sync::Mutex<Option<snapshots::Reader>>>,
 }
 #[derive(Clone)]
 pub struct ResultFiles {
@@ -52,7 +54,9 @@ impl Helpers {
         let checked = |candidate: Result<Self>| -> Result<Self> {
             let helpers = candidate?;
             if let Some(args) = inspection {
-                helpers.call("personas-session", args)?;
+                helpers.snapshot(args, &serde_json::json!({
+                    "work":null,"session":null,"conversation":false,
+                }), &cancel())?;
             }
             Ok(helpers)
         };
@@ -161,6 +165,7 @@ impl Helpers {
         Ok(Self {
             copies: Arc::new(copies),
             installation: mapping,
+            snapshots: Arc::default(),
         })
     }
     pub fn call(&self, name: &str, args: &[String]) -> Result<Value> {

@@ -424,7 +424,7 @@ impl Controller {
         let inspection = existing.map(|r| -> Result<Vec<String>> {
             Ok(vec!["--state-root".into(), r.path.clone(), "--operator".into(),
                 j.data.operator.clone().ok_or("The workspace has no saved operator.")?,
-                "inspect".into(), "--limit".into(), "1".into()])
+                "desktop-snapshot-server".into()])
         }).transpose()?;
         let existing = existing.is_some();
         let h = Helpers::discover(helpers.as_deref(), j.data.installation.as_ref(), inspection.as_deref())?;
@@ -621,14 +621,12 @@ impl Controller {
         if self.j.data.runtime.as_ref().is_some_and(|r| r.owned) && !self.j.data.setup_authorized {
             return Ok(());
         }
-        let mut args = vec!["desktop-snapshot".into()];
-        if let Some(work) = &self.view.selected { args.extend(["--work".into(), work.clone()]); }
-        if let Some(session) = &self.j.data.session { args.extend(["--session".into(), session.id.clone()]); }
         let conversation = self.view.selected.as_deref().is_some_and(|work|
             self.conversation_requested.as_deref() == Some(work)
                 || self.view.conversation["work"].as_str() == Some(work));
-        if conversation { args.push("--conversation".into()); }
-        let args = self.session_args(args)?;
+        let request = json!({"work":self.view.selected,
+            "session":self.j.data.session.as_ref().map(|session| &session.id),"conversation":conversation});
+        let args = self.session_args(vec!["desktop-snapshot-server".into()])?;
         let job = journal::id("snapshot")?;
         let token = helpers::cancel();
         self.snapshot_job = Some((job.clone(), token.clone()));
@@ -637,8 +635,7 @@ impl Controller {
         let helpers = self.h.clone();
         let tx = self.internal.clone();
         thread::spawn(move || {
-            let result = helpers.call_events("personas-session", &args,
-                Some((token, libc::SIGTERM)), |_| {});
+            let result = helpers.snapshot(&args, &request, &token);
             let _ = tx.send(Input::SnapshotDone { job, generation, result });
         });
         Ok(())
@@ -779,11 +776,8 @@ impl Controller {
                 self.view.files = None;
                 self.view.selected_session = None;
                 self.view.session_detail = Value::Null;
-                // A read for the previous task has no useful result now.
-                // Interrupt only that read; the session worker is independent.
-                if let Some((_, cancel)) = &self.snapshot_job {
-                    cancel.store(true, Ordering::Release);
-                }
+                // Discard an obsolete reply by generation, while preserving
+                // the reader's decoded history for the pending selection.
                 self.refresh()?;
             }
             Action::Conversation(work) => {
@@ -1510,6 +1504,7 @@ impl Drop for Controller {
         if let Some((_, token)) = &self.snapshot_job {
             token.store(true, Ordering::Release);
         }
+        self.h.close_snapshot_reader();
         if let Some((_, token)) = &self.metadata {
             token.store(true, Ordering::Release);
         }

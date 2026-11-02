@@ -38,9 +38,18 @@ before a later UI action cannot replace the newer view. All panels and the saved
 session binding are checked together before publication. This does not skip the
 runtime's fresh checks when a control is actually executed.
 
-Selecting another task cancels the obsolete read and loads its conversation in
-the same snapshot as its other panels. Initial workspace and conversation reads
+Selecting another task supersedes the obsolete reply and loads its conversation
+in the same snapshot as its other panels. Initial workspace and conversation reads
 show loading text without continuously animating the entire window.
+
+The pinned workspace reader keeps one decoded history between requests. Every
+request opens a fresh transaction and compares its exact state epoch; a changed
+epoch replaces the cached state. Operator checks, auxiliary records and the
+current clock are still evaluated for each view. Successful lineage checks can
+share already validated ancestors within that immutable projection; failures
+are not memoized. Task selection can reuse unchanged decoded history without
+reopening it. Closing or replacing the workspace terminates its read helper.
+The cache retains memory for that decoded history while the workspace is open.
 
 Desktop message projections retain complete displayed text, attribution, order
 and exact file/history citations. They omit internal provenance graphs that the

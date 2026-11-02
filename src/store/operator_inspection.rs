@@ -76,6 +76,20 @@ impl TrustedHost<'_> {
             &RuntimeInspection<'_, '_>,
         ) -> std::result::Result<T, E>,
     {
+        self.runtime_projection_since(None, |heads, records| {
+            let (runtime, launch) = heads.expect("an uncached projection loads both heads");
+            project(runtime, launch, records)
+        })
+    }
+
+    /// Reuse decoded heads only at the exact epoch of this fresh transaction.
+    /// The projection still reads current auxiliary records and checks authority.
+    pub(crate) fn runtime_projection_since<T: Serialize, E>(
+        &mut self,
+        cached_epoch: Option<u64>,
+        project: impl FnOnce(Option<(StoredObject, StoredObject)>, &RuntimeInspection<'_, '_>)
+            -> std::result::Result<T, E>,
+    ) -> Result<std::result::Result<T, E>> {
         // Inspection can decode substantial retained history. BEGIN IMMEDIATE
         // here used to block model admission, adoption and tool settlement for
         // that entire read, repeatedly when a desktop was open. WAL readers can
@@ -83,9 +97,11 @@ impl TrustedHost<'_> {
         let (view, bytes) = {
             let tx = self.store.connection.transaction_with_behavior(TransactionBehavior::Deferred)?;
             let work = Work::load(&tx, &self.store.limits)?;
-            let runtime = work.required("object", RUNTIME_CONTROL_STATE_ID)?;
-            let launch = work.required("object", "runtime-launch-v1")?;
-            let view = project(runtime, launch, &RuntimeInspection { work: &work });
+            let heads = if cached_epoch == Some(work.meta.epoch) { None } else {
+                Some((work.required("object", RUNTIME_CONTROL_STATE_ID)?,
+                    work.required("object", "runtime-launch-v1")?))
+            };
+            let view = project(heads, &RuntimeInspection { work: &work });
             let bytes = view.as_ref().ok().map(serialized_size).transpose()?;
             drop(work);
             tx.commit()?;

@@ -46,6 +46,8 @@ enum Command {
         #[arg(long)]
         conversation: bool,
     },
+    /// Read-only JSON-line requests; reuses decoding at an unchanged store epoch.
+    DesktopSnapshotServer,
     /// Record a need once, without inference, under existing configured authority.
     Intake {
         #[arg(long)]
@@ -155,6 +157,33 @@ enum Command {
     /// Lift an inspected work-wide pause once; preserve individual stops and start no inference.
     ResumeWork { file: PathBuf },
 }
+fn snapshot_server(root: &std::path::Path, operator: &str) -> bool {
+    use std::io::{BufRead, Write};
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request { work: Option<String>, session: Option<String>, conversation: bool }
+    let mut reader = match session::DesktopReader::open(root) {
+        Ok(reader) => reader,
+        Err(error) => return emit::<()>(Err(error)),
+    };
+    let mut stdout = std::io::stdout().lock();
+    for line in std::io::stdin().lock().split(b'\n') {
+        let result = (|| -> session::BoundaryResult<serde_json::Value> {
+            let line = line.map_err(|_| session::BoundaryError::InvalidRequest)?;
+            let request: Request = serde_json::from_slice(&line)
+                .map_err(|_| session::BoundaryError::InvalidRequest)?;
+            reader.snapshot(operator, request.work.as_deref(), request.session.as_deref(), request.conversation)
+        })();
+        let output = match result {
+            Ok(value) => serde_json::json!({"version":1,"ok":true,"result":value,"automatic_retry":false}),
+            Err(code) => serde_json::json!({"version":1,"ok":false,"code":code,"automatic_retry":false}),
+        };
+        if serde_json::to_writer(&mut stdout, &output).is_err()
+            || writeln!(&mut stdout).is_err() || stdout.flush().is_err() { return false; }
+    }
+    true
+}
+
 fn emit<T: Serialize>(result: session::BoundaryResult<T>) -> bool {
     match result {
         Ok(value) => {
@@ -318,6 +347,7 @@ async fn main() {
         Command::SessionStatus { id } => emit(session::session_status(&root, &operator, &id)),
         Command::DesktopSnapshot { work, session: id, conversation } => emit(
             session::desktop_snapshot(&root, &operator, work.as_deref(), id.as_deref(), conversation)),
+        Command::DesktopSnapshotServer => snapshot_server(&root, &operator),
         Command::SessionMessages { id } => emit(session::session_messages(&root, &operator, &id)),
         Command::Result { work, export_directory } => {
             if let Some(destination) = export_directory {

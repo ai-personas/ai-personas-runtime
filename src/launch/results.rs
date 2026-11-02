@@ -75,12 +75,15 @@ pub(super) fn message_permitted(state: &State, message: &Message, now: i64) -> b
     } else if !state.config.local_recipients.contains(&message.recipient) {
         return false;
     }
-    let Ok(mut exposure) = work_exposure(state, &message.work) else {
+    let Ok(exposure) = work_exposure(state, &message.work) else {
         return false;
     };
-    extend_exposure(&mut exposure, inherited);
-    exposure.sources.extend(message.lineage.iter().cloned());
-    exposure_permitted(state, &exposure, &a)
+    // This check validates complete lineage. Policies retain attribution and
+    // impose no access gate under UR-052; merging their large lists for every
+    // displayed message adds no validation and can become quadratic.
+    let sources: Vec<_> = exposure.sources.iter().chain(&inherited.sources)
+        .chain(&message.lineage).cloned().collect();
+    lineage_permitted(state, &sources, &a)
 }
 
 pub(super) fn message_sender_labels(state: &State, messages: &[Message]) -> BTreeMap<String, String> {

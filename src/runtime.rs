@@ -43,6 +43,7 @@ mod retained_records;
 pub use retained_records::RetainedRecords;
 mod exposure;
 pub use exposure::{Exposure, ExposureManifest};
+pub(crate) use exposure::with_read_validation;
 use crate::phase_timing;
 mod tools;
 mod effect_interfaces;
@@ -6540,7 +6541,7 @@ fn expanded_exposure(state: &State, input: &Exposure) -> Result<Exposure> {
     trace_exposure::<true>(state, &input.sources, &input.policies)
 }
 fn check_exposure(state: &State, input: &Exposure) -> Result<()> {
-    trace_exposure::<false>(state, &input.sources, &[]).map(|_| ())
+    exposure::check_lineage(state, &input.sources)
 }
 fn trace_exposure<const RETAIN: bool>(
     state: &State,
@@ -6653,7 +6654,7 @@ fn exposure_permitted(state: &State, exposure: &Exposure, _a: &f::Admission) -> 
     check_exposure(state, exposure).is_ok()
 }
 fn lineage_permitted(state: &State, roots: &[f::Reference], _a: &f::Admission) -> bool {
-    trace_exposure::<false>(state, roots, &[]).is_ok()
+    exposure::check_lineage(state, roots).is_ok()
 }
 
 fn revision_importer<'a>(source: &'a Source, stored: &'a ManagedRevision) -> Option<&'a str> {

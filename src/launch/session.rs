@@ -1101,16 +1101,45 @@ pub fn desktop_snapshot(
     if let Some(work) = work { valid_id(work)?; }
     if let Some(session) = session { valid_id(session)?; }
     project_view(root, operator, |snapshot, records| {
-        let inspection = inspect_snapshot(records, snapshot, operator, None,
-            snapshot.saved.works.len().max(1))?;
+        desktop_snapshot_view(snapshot, records, operator, work, session, include_conversation)
+    })
+}
+
+/// Read-only request stream state. Every request rechecks the current epoch,
+/// operator, records and wall clock; only unchanged head decoding is reused.
+pub struct DesktopReader(inspection::Reader);
+
+impl DesktopReader {
+    pub fn open(root: &Path) -> BoundaryResult<Self> {
+        Ok(Self(inspection::Reader::new(root)?))
+    }
+    pub fn snapshot(&mut self, operator: &str, work: Option<&str>, session: Option<&str>,
+        include_conversation: bool) -> BoundaryResult<Value> {
+        valid_id(operator)?;
+        if let Some(work) = work { valid_id(work)?; }
+        if let Some(session) = session { valid_id(session)?; }
+        self.0.project(|snapshot, records| {
+            authorize_snapshot(&snapshot.state, &snapshot.saved, operator)?;
+            desktop_snapshot_view(snapshot, records, operator, work, session, include_conversation)
+        })
+    }
+}
+
+fn desktop_snapshot_view(snapshot: &inspection::Snapshot, records: &s::RuntimeInspection<'_, '_>,
+    operator: &str, work: Option<&str>, session: Option<&str>, include_conversation: bool,
+) -> BoundaryResult<Value> {
+        let inspection = crate::phase_timing::measure("desktop.inspection", ||
+            inspect_snapshot(records, snapshot, operator, None, snapshot.saved.works.len().max(1)))?;
         let selected = work.or_else(|| snapshot.saved.works.keys().next().map(String::as_str));
         let mut result = Value::Null;
         let mut questions = Value::Null;
         let mut conversation = Value::Null;
         if let Some(work) = selected {
             let now = unix_now()?;
-            let mut output = results::project_state(&snapshot.state, work, &snapshot.saved, now, records)?;
-            feedback::append_view(&mut output, &snapshot.state, operator, records)?;
+            let mut output = crate::phase_timing::measure("desktop.results", ||
+                results::project_state(&snapshot.state, work, &snapshot.saved, now, records))?;
+            crate::phase_timing::measure("desktop.feedback", ||
+                feedback::append_view(&mut output, &snapshot.state, operator, records))?;
             let messages: Vec<_> = std::mem::take(&mut output.messages).iter()
                 .map(super::conversation::display_message).collect();
             result = serde_json::to_value(output)?;
@@ -1119,7 +1148,8 @@ pub fn desktop_snapshot(
             questions = question_commands::project(&snapshot.state, &snapshot.saved, operator, work, now)?;
             question_commands::append_deliveries(records, operator, work, &mut questions)?;
             if include_conversation {
-                conversation = super::conversation::project_display(snapshot, records, operator, work)?;
+                conversation = crate::phase_timing::measure("desktop.conversation", ||
+                    super::conversation::project_display(snapshot, records, operator, work))?;
             }
         }
         let session_status = session.map(|id| project_session(records, operator, id))
@@ -1127,7 +1157,6 @@ pub fn desktop_snapshot(
         Ok(json!({"inspection":inspection,"selected":selected,"result":result,
             "questions":questions,"conversation":conversation,"session_status":session_status,
             "snapshot_atomic":true,"inference_performed":false}))
-    })
 }
 
 pub fn development_view(
