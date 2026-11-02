@@ -9095,22 +9095,24 @@ fn plan_response(
         store, &state, prepared, &decision.next_assets, previous_focus.provider_context.as_ref(),
         character_changed, &mut history_material.continuation,
     )?;
-    check_replacement(
-        &state,
-        prepared,
-        &decision.next_fragments,
-        &fragments,
-        f::Scope::Fragments,
-        now,
-    )?;
-    check_replacement(
-        &state,
-        prepared,
-        &decision.next_assets,
-        &assets,
-        f::Scope::Assets,
-        now,
-    )?;
+    with_read_validation(&state, || -> Result<()> {
+        check_replacement(
+            &state,
+            prepared,
+            &decision.next_fragments,
+            &fragments,
+            f::Scope::Fragments,
+            now,
+        )?;
+        check_replacement(
+            &state,
+            prepared,
+            &decision.next_assets,
+            &assets,
+            f::Scope::Assets,
+            now,
+        )
+    })?;
     if !character_changed {
         // Stage provenance before consuming supplied observations, including on
         // no-op adoption. Later failure rolls this back with the candidate state.
@@ -9188,37 +9190,42 @@ fn plan_response(
             &mut state, &original, prepared, decision, &actions, &proposals, now,
         )?;
         questions::deliver_changes(&mut state, &original, prepared, now)?;
-        validate_messages(&state, prepared, decision, now)?;
-        // A failed render can itself depend on a newly selected private source.
-        // Successful rendering yields its exact bounded exposure; otherwise the
-        // failed diagnostic remains conservatively unavailable to inference.
-        planning_exposure.unknown();
-        // Verify resulting mandatory/selected state before performing requested navigation.
-        let navigation_context_base = render_mode_with_history(
-            &state,
-            &history_material,
-            actor,
-            work_id,
-            &prepared.request.id,
-            accepted_epoch,
-            now,
-            false,
-            None,
-            Some(prepared.navigation),
-            prepared.launch_step_allowance.as_ref(),
-            prepared.provider_preparation.as_ref().and_then(|audit| audit["transport_profile"].as_str()),
-        )?;
-        *planning_exposure = admitted_exposure;
-        planning_exposure.include(&navigation_context_base.exposure);
-        // A completely rendered but oversized candidate has known disclosure
-        // restrictions. Retain them before refusing its size; never replay the
-        // proposal later merely to reconstruct that diagnostic.
-        require_render_fit(&navigation_context_base, state.config.context_bytes)?;
-        let a = admission(&state.personas[actor], now);
-        let before_corpus = planning_exposure.clone();
-        planning_exposure.unknown();
-        let corpus = corpus(&state, &a)?;
-        *planning_exposure = before_corpus;
+        // These checks share one immutable candidate. End the validation scope
+        // before navigation can append observations or change source metadata.
+        let (a, navigation_context_base, corpus) = with_read_validation(&state, || -> Result<_> {
+            validate_messages(&state, prepared, decision, now)?;
+            // A failed render can itself depend on a newly selected private source.
+            // Successful rendering yields its exact bounded exposure; otherwise the
+            // failed diagnostic remains conservatively unavailable to inference.
+            planning_exposure.unknown();
+            // Verify resulting mandatory/selected state before performing requested navigation.
+            let navigation_context_base = render_mode_with_history(
+                &state,
+                &history_material,
+                actor,
+                work_id,
+                &prepared.request.id,
+                accepted_epoch,
+                now,
+                false,
+                None,
+                Some(prepared.navigation),
+                prepared.launch_step_allowance.as_ref(),
+                prepared.provider_preparation.as_ref().and_then(|audit| audit["transport_profile"].as_str()),
+            )?;
+            *planning_exposure = admitted_exposure;
+            planning_exposure.include(&navigation_context_base.exposure);
+            // A completely rendered but oversized candidate has known disclosure
+            // restrictions. Retain them before refusing its size; never replay the
+            // proposal later merely to reconstruct that diagnostic.
+            require_render_fit(&navigation_context_base, state.config.context_bytes)?;
+            let a = admission(&state.personas[actor], now);
+            let before_corpus = planning_exposure.clone();
+            planning_exposure.unknown();
+            let corpus = corpus(&state, &a)?;
+            *planning_exposure = before_corpus;
+            Ok((a, navigation_context_base, corpus))
+        })?;
         let mut navigation = f::NavigationBudget::new(prepared.navigation);
         let mut navigation_sources = BTreeSet::new();
         let mut navigation_exposure = Exposure::default();
@@ -9644,32 +9651,37 @@ fn plan_response(
         let accounting = state.observations.get_mut(&accounting_id).unwrap();
         extend_exposure(accounting.exposure.as_mut().unwrap(), &navigation_exposure);
     }
-    let before_final_render = planning_exposure.clone();
-    planning_exposure.unknown();
-    image_input::selection::validate_replacement(&state, prepared, &decision.next_assets, now)?;
-    let fitted = render_mode_with_history(
-        &state,
-        &history_material,
-        actor,
-        work_id,
-        &prepared.request.id,
-        accepted_epoch,
-        now,
-        false,
-        None,
-        None,
-        prepared.launch_step_allowance.as_ref(),
-        prepared.provider_preparation.as_ref().and_then(|audit| audit["transport_profile"].as_str()),
-    )?;
-    *planning_exposure = before_final_render;
-    planning_exposure.include(&fitted.exposure);
-    require_render_fit(&fitted, state.config.context_bytes)?;
-    // Aggregate-replacement checks may consult more than the successful final
-    // rendering. Preserve their existing conservative failure boundary.
-    let before_aggregate_check = planning_exposure.clone();
-    planning_exposure.unknown();
-    check_aggregate_replacement(&state, prepared, decision, &previous_focus, &fitted, now)?;
-    *planning_exposure = before_aggregate_check;
+    // The final render and aggregate selection checks see exactly the same
+    // state. Drop their catalogue and ancestry cache before updating the focus.
+    let fitted = with_read_validation(&state, || -> Result<_> {
+        let before_final_render = planning_exposure.clone();
+        planning_exposure.unknown();
+        image_input::selection::validate_replacement(&state, prepared, &decision.next_assets, now)?;
+        let fitted = render_mode_with_history(
+            &state,
+            &history_material,
+            actor,
+            work_id,
+            &prepared.request.id,
+            accepted_epoch,
+            now,
+            false,
+            None,
+            None,
+            prepared.launch_step_allowance.as_ref(),
+            prepared.provider_preparation.as_ref().and_then(|audit| audit["transport_profile"].as_str()),
+        )?;
+        *planning_exposure = before_final_render;
+        planning_exposure.include(&fitted.exposure);
+        require_render_fit(&fitted, state.config.context_bytes)?;
+        // Aggregate-replacement checks may consult more than the successful final
+        // rendering. Preserve their existing conservative failure boundary.
+        let before_aggregate_check = planning_exposure.clone();
+        planning_exposure.unknown();
+        check_aggregate_replacement(&state, prepared, decision, &previous_focus, &fitted, now)?;
+        *planning_exposure = before_aggregate_check;
+        Ok(fitted)
+    })?;
     let persona = state.personas.get_mut(actor).unwrap();
     let focus = persona.focus.get_mut(work_id).unwrap();
     focus.selection_fit = Some(fit_checkpoint(&fitted));

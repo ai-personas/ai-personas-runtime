@@ -329,9 +329,10 @@ selected-file metadata and final context assembly reuse that render's validated
 corpus. The complete selected assembly already used for metadata also supplies
 the final selected context, with the same mandatory roots, optional selections,
 order and qualifications. The separate mandatory-only assembly still measures
-mandatory context. Reuse ends with the render; a later render constructs and
-validates its own corpus against its actual state. It does not reuse a result
-across changed state, suppress a selected body or create a persistent cache.
+mandatory context. Reuse remains within one immutable validation phase; a render
+after candidate mutations constructs and validates its own corpus against its
+actual state. It does not reuse a result across changed state, suppress a selected
+body or create a persistent cache.
 
 The immutable render scope also shares its catalogue with helper projections
 that independently request one, and memoizes successful ancestry checks for exact
@@ -340,12 +341,21 @@ admission, selection and navigation accounting. Nested projections of the same
 state can share the scope; a different state receives a separate scope and then
 restores the caller's cache. The scope ends on return or error, before candidate
 state can be changed. Response planning therefore starts fresh scopes for its
-separate renders rather than carrying validation across staged mutations.
+separate validation phases rather than carrying validation across staged mutations.
 Only complete successful ancestry checks enter the memo; full provenance
 expansion continues to collect every source and policy. Operator projections use
 the same immutable scope. Cache hits omit a `runtime.build_corpus` event because
 no new corpus was constructed; unchanged output alone does not establish a
 whole-session speedup.
+
+Response planning groups adjacent read-only checks against the same candidate
+state: fragment and asset replacement validation; message validation, the
+pre-navigation render and its catalogue; and final image, context and aggregate
+selection validation. Each group shares one catalogue and successful ancestry
+checks. Its scope ends before the next candidate mutation. Navigation retains
+its own admission and accounting, and later validation starts from the changed
+state. Error order, disclosure tracking and complete response validation remain
+unchanged; no cached result crosses a state change or adoption transaction.
 
 Preparing one host command also borrows one immutable candidate state. Its
 context-source receipts, native stdin materialization and lineage checks share
