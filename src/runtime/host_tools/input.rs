@@ -248,6 +248,11 @@ fn current_asset(
 }
 
 pub(super) fn require_current(state: &State, job: &Job, now: i64) -> Result<()> {
+    // Each check borrows one current state; no validation survives its return.
+    with_read_validation(state, || require_current_inputs(state, job, now))
+}
+
+fn require_current_inputs(state: &State, job: &Job, now: i64) -> Result<()> {
     let a = admission(&state.personas[&job.actor], now);
     for receipt in &job.context_sources {
         let (bytes, binding) = current_asset(state, &receipt.reference, &a, true)?;

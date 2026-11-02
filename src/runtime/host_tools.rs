@@ -144,6 +144,77 @@ pub(super) fn validate(
     validate_inputs(prepared, decision, operation)
 }
 
+// The entire job is prepared from one immutable candidate state. The caller
+// ends read reuse before inserting the job marker or preparing another command.
+fn prepare_job(
+    state: &State,
+    prepared: &Prepared,
+    decision: &p::Decision,
+    operation: &p::Operation,
+    proposals: &BTreeMap<String, String>,
+    now: i64,
+) -> Result<(String, tools::JobMarker, Job)> {
+    let offered = current_interface(prepared, operation)?.clone();
+    let authored = checked_inputs(prepared, decision, operation)?;
+    let p::Operation::Effect { id, .. } = operation else {
+        unreachable!()
+    };
+    let result_context = Some(authored.result_context);
+    let context_sources = authored.context_receipts(state, prepared, proposals, now)?;
+    let (input, stdin_asset) = authored.materialize(state, prepared, proposals, now)?;
+    let requested = input
+        .working_directory
+        .as_deref()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(&offered.default_working_directory));
+    let directory = if requested.is_absolute() {
+        requested
+    } else {
+        PathBuf::from(&offered.default_working_directory).join(requested)
+    };
+    let mut input_sources = stdin_asset.iter().chain(&context_sources)
+        .map(|receipt| file_reference(&receipt.reference)).collect::<Result<Vec<_>>>()?;
+    input_sources.sort();
+    input_sources.dedup();
+    let mut exposure = prepared_exposure(prepared)?.clone();
+    exposure.sources.extend(input_sources.iter().cloned());
+    let exposure = expanded_exposure(state, &exposure)?;
+    require(exposure_permitted(state, &exposure,
+        &admission(&state.personas[&prepared.request.persona], now)),
+        "host command input lineage unavailable")?;
+    let intent_id = composite_id("host-command", &[&prepared.request.id, id]);
+    let marker = tools::JobMarker {
+        actor: prepared.request.persona.clone(),
+        work: prepared.request.work.clone(),
+        invocation: prepared.request.id.clone(),
+        operation: id.clone(),
+        host_working_directory: Some(directory.clone()),
+        state: s::IntentState::Admitted,
+        observation: None,
+        result_source: None,
+        exposure: exposure.clone(),
+    };
+    let job = Job {
+        interface: offered,
+        actor: marker.actor.clone(),
+        work: marker.work.clone(),
+        invocation: marker.invocation.clone(),
+        operation: id.clone(),
+        input,
+        result_context,
+        stdin_asset,
+        context_sources,
+        directory,
+        exposure,
+        // Preserve the complete call exposure above as provenance. Raw
+        // execution results inherit operative inputs and authored context
+        // dependencies, not every unrelated file the persona had read.
+        qualification_sources: input_sources,
+        dispatch_scope: None,
+    };
+    Ok((intent_id, marker, job))
+}
+
 pub(super) fn stage(
     state: &mut State,
     prepared: &Prepared,
@@ -158,64 +229,8 @@ pub(super) fn stage(
         .iter()
         .filter(|o| allowed.contains(o.id()) && is_host_command(o))
     {
-        let offered = current_interface(prepared, operation)?.clone();
-        let authored = checked_inputs(prepared, decision, operation)?;
-        let p::Operation::Effect { id, .. } = operation else {
-            unreachable!()
-        };
-        let result_context = Some(authored.result_context);
-        let context_sources = authored.context_receipts(state, prepared, proposals, now)?;
-        let (input, stdin_asset) = authored.materialize(state, prepared, proposals, now)?;
-        let requested = input
-            .working_directory
-            .as_deref()
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(&offered.default_working_directory));
-        let directory = if requested.is_absolute() {
-            requested
-        } else {
-            PathBuf::from(&offered.default_working_directory).join(requested)
-        };
-        let mut input_sources = stdin_asset.iter().chain(&context_sources)
-            .map(|receipt| file_reference(&receipt.reference)).collect::<Result<Vec<_>>>()?;
-        input_sources.sort();
-        input_sources.dedup();
-        let mut exposure = prepared_exposure(prepared)?.clone();
-        exposure.sources.extend(input_sources.iter().cloned());
-        let exposure = expanded_exposure(state, &exposure)?;
-        require(exposure_permitted(state, &exposure,
-            &admission(&state.personas[&prepared.request.persona], now)),
-            "host command input lineage unavailable")?;
-        let intent_id = composite_id("host-command", &[&prepared.request.id, id]);
-        let marker = tools::JobMarker {
-            actor: prepared.request.persona.clone(),
-            work: prepared.request.work.clone(),
-            invocation: prepared.request.id.clone(),
-            operation: id.clone(),
-            host_working_directory: Some(directory.clone()),
-            state: s::IntentState::Admitted,
-            observation: None,
-            result_source: None,
-            exposure: exposure.clone(),
-        };
-        let job = Job {
-            interface: offered,
-            actor: marker.actor.clone(),
-            work: marker.work.clone(),
-            invocation: marker.invocation.clone(),
-            operation: id.clone(),
-            input,
-            result_context,
-            stdin_asset,
-            context_sources,
-            directory,
-            exposure,
-            // Preserve the complete call exposure above as provenance. Raw
-            // execution results inherit operative inputs and authored context
-            // dependencies, not every unrelated file the persona had read.
-            qualification_sources: input_sources,
-            dispatch_scope: None,
-        };
+        let (intent_id, marker, job) = with_read_validation(state, ||
+            prepare_job(state, prepared, decision, operation, proposals, now))?;
         require(
             state
                 .host_command_jobs

@@ -347,6 +347,20 @@ the same immutable scope. Cache hits omit a `runtime.build_corpus` event because
 no new corpus was constructed; unchanged output alone does not establish a
 whole-session speedup.
 
+Preparing one host command also borrows one immutable candidate state. Its
+context-source receipts, native stdin materialization and lineage checks share
+that scope's catalogue and successful ancestry checks. The scope ends before
+inserting the command's job marker; each later command starts from its actual
+state. Commands, exact input bytes, qualification bindings and full provenance
+still receive their existing validation and serialization.
+
+Predispatch input validation uses a separate immutable scope for that current
+check. Every context-source and stdin receipt still verifies its representation,
+bytes, digest, bindings and lineage. No catalogue or validation crosses the
+return into dispatch, another check, or a state mutation. Missing or changed
+inputs retain their failure behavior. These scopes reduce repeated local reads;
+they do not cache command authority, execute a command, or establish a result.
+
 Pending observation projection retains the complete provenance expansion already
 checked for that observation in the current immutable state. If host-result
 projection introduces no new exact source references, it returns that checked
