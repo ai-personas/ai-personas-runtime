@@ -788,10 +788,12 @@ pub enum Operation {
         base_revision: Option<String>,
         /// Host path; relative paths use the offered host working directory.
         host_path: String,
-        /// utf8 (default) retains text and rejects invalid encoding. bytes retains
-        /// any file unchanged, including archives, CAD and images; saved-file
+        /// Choose explicitly: utf8 retains text and rejects invalid encoding.
+        /// bytes retains any file unchanged, including PDFs, archives, CAD and images; saved-file
         /// selections/citations use bytes_metadata and supply no file body.
-        #[serde(default, skip_serializing_if = "FileImportFormat::is_utf8")]
+        // Keep the historical text default when decoding retained decisions;
+        // the live parser and generated contract require an explicit choice.
+        #[serde(default)]
         format: FileImportFormat,
         /// Optional expected SHA-256 of the raw file bytes. A mismatch rejects
         /// this save; omission retains the actual bytes read at adoption.
@@ -1096,10 +1098,6 @@ pub enum FileImportFormat {
     Bytes,
 }
 
-impl FileImportFormat {
-    fn is_utf8(&self) -> bool { *self == Self::Utf8 }
-}
-
 pub(crate) enum FileContent<'a> {
     Authored(&'a str),
     Edits(&'a [TextEdit]),
@@ -1319,6 +1317,18 @@ fn parse_decision_document(bytes: &[u8], recorded: bool) -> Result<Decision, Pro
             "removed interface; retain supporting notes with file operations and select them through next_assets",
         ));
     }
+    if !recorded {
+        for (index, operation) in decision.operations.iter().enumerate() {
+            if matches!(operation, Operation::FileImport { .. })
+                && received["operations"][index].get("format").is_none()
+            {
+                return Err(invalid(
+                    &format!("operations[{index}].format"),
+                    "choose utf8 or bytes explicitly; binary files require bytes",
+                ));
+            }
+        }
+    }
     if recorded {
         validate_decision_core(&decision)?;
     } else {
@@ -1367,8 +1377,8 @@ pub(crate) fn same_container_shapes(received: &Value, typed: &Value) -> bool {
             match typed.get(key) {
                 Some(field) => same_container_shapes(value, field),
                 // The typed decoder already rejects unknown fields. Optional
-                // scalar defaults (for example file_import format=utf8), empty
-                // lists and nulls can be omitted from serialization. Scalars
+                // scalar defaults, empty lists and nulls can be omitted from
+                // serialization. Scalars
                 // cannot hide positional records; nonempty arrays and objects
                 // still require their typed containers for comparison.
                 None => {
@@ -1406,6 +1416,18 @@ pub fn decision_schema() -> Value {
     schema["properties"]["version"]["const"] = Value::from(PROTOCOL_VERSION);
     schema["$defs"]["ExactRef"]["properties"]["lifetime"]["enum"] =
         serde_json::json!(["work", "next_call", null]);
+    // Retained decisions can omit the old text default. New responses must
+    // choose their import representation before any host file is read.
+    for operation in schema["$defs"]["Operation"]["oneOf"]
+        .as_array_mut().expect("generated Operation tagged union")
+    {
+        if operation["properties"]["kind"]["const"] == "file_import" {
+            operation["required"].as_array_mut().expect("file import required fields")
+                .push(Value::String("format".into()));
+            operation["properties"]["format"].as_object_mut().expect("file import format schema")
+                .remove("default");
+        }
+    }
     schema
 }
 
