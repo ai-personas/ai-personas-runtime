@@ -152,7 +152,7 @@ fn archive_cell(
             charge(inspected_bytes, physical_bytes)?;
             return Ok(Some(None));
         };
-        let decoded = match revision_storage::decode(namespace, body, capacity) {
+        let decoded = match revision_storage::decode(db, namespace, body, capacity) {
             Ok(decoded) => decoded,
             Err(error) => {
                 charge(inspected_bytes, physical_bytes)?;

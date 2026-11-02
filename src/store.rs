@@ -739,6 +739,7 @@ struct Cell {
 
 impl Cell {
     fn from_storage(
+        db: &Connection,
         namespace: &str,
         data: Option<Vec<u8>>,
         capacity: i64,
@@ -753,7 +754,7 @@ impl Cell {
         if data.len() as u64 > capacity {
             return Err(StoreError::Corrupt("cell capacity".into()));
         }
-        let data = revision_storage::decode(namespace, data, capacity)?;
+        let data = revision_storage::decode(db, namespace, data, capacity)?;
         if data.len() as u64 > capacity {
             return Err(StoreError::Corrupt("decoded cell capacity".into()));
         }
@@ -2108,6 +2109,7 @@ impl Store {
                  BEFORE DELETE ON store_cells
                  BEGIN SELECT RAISE(ABORT,'permanent identity'); END;",
             )?;
+            revision_storage::initialize(&tx)?;
             let existing: Option<Vec<u8>> = tx.query_row(
                 "SELECT data FROM store_meta WHERE singleton=1",
                 [], |row| row.get(0),
@@ -3498,7 +3500,7 @@ impl<'a> Work<'a> {
             )
             .optional()?;
         row.map(|(data, capacity, lane, slots)| {
-            Cell::from_storage(namespace, data, capacity, lane, slots)
+            Cell::from_storage(self.db, namespace, data, capacity, lane, slots)
         })
         .transpose()
     }
@@ -3522,7 +3524,7 @@ impl<'a> Work<'a> {
             let cell = match self.pending.get(&(namespace.into(), id.clone())) {
                 Some(cell) => cell.clone(),
                 None => Cell::from_storage(
-                    namespace, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?,
+                    db, namespace, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?,
                 )?,
             };
             let record = decode_json(&cell.data)?;
@@ -3749,7 +3751,7 @@ impl<'a> Work<'a> {
         for ((namespace, key), cell) in &self.pending {
             // Compression changes physical storage only. Pending cells, logical
             // allocation, fingerprints and returned-byte charges stay canonical.
-            let stored = revision_storage::encode(namespace, &cell.data)?;
+            let stored = revision_storage::encode(self.db, namespace, &cell.data)?;
             self.db.execute(
                 "INSERT INTO store_cells(ns,k,data,capacity,lane,slots) VALUES(?1,?2,?3,?4,?5,?6)
                  ON CONFLICT(ns,k) DO UPDATE SET data=excluded.data,capacity=excluded.capacity,

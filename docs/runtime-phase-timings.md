@@ -274,8 +274,8 @@ latency effects still require measurement.
 
 Applying a Store object change encodes its complete canonical JSON once, borrowing
 the body through the same serializer used by standalone object fingerprinting.
-The immutable revision and current head retain separate copies of those bytes;
-the returned exact reference hashes that encoding directly. The revision
+The immutable revision and current head retain separate logical records of those
+bytes; the returned exact reference hashes that encoding directly. The revision
 conflict check still precedes encoding, and the head write still checks its
 namespace, existence and allocation metadata. Each logical record retains its
 own accounting and physical storage treatment within the same atomic commit.
@@ -285,6 +285,16 @@ byte-buffer copy, cell accounting, physical encoding and database commit. Their
 successful completion does not prove a commit. General record encoding and
 other state processing remain separate; eliminating these repeated JSON-tree
 copies and serializations alone establishes no whole-session performance gain.
+
+Physical revision encoding reuses unchanged content-defined chunks across large
+immutable snapshots. Each manifest reconstructs its complete canonical revision
+directly from independently verified chunks. New chunks and their manifests
+share the cell transaction, including rollback on a later write failure. The
+current head is still written as complete JSON. This changes future archive
+growth, not existing history, canonical accounting, current-head serialization
+or persona context. Encoding, chunk verification, SQLite lookups and writes remain
+part of the enclosing commit timing; compare their actual costs and database
+growth before attributing a whole-session speedup to storage reuse.
 
 Atomic admission, invocation-specification and decision fingerprints also stream
 complete canonical JSON directly into SHA-256. Their serializers borrow request

@@ -431,6 +431,27 @@ record collection, and current-state rendering still performs its normal checks.
 This storage optimization does not select context, summarize history, revise an
 artifact, reset usage, or establish useful autonomous work.
 
+Large immutable Store revisions retain a complete ordered manifest of shared
+physical chunks. Content-based boundaries let adjacent snapshots reuse unchanged
+bytes, and each chunk is independently compressed only when that saves space.
+A manifest identifies the full canonical revision by byte length and SHA-256;
+each descriptor separately binds a chunk's bytes and length. Reading a revision
+checks every chunk and the fully reconstructed bytes before decoding the object.
+It never follows a chain of earlier revisions. Small revisions keep independent
+compression, and current heads and control records remain ordinary JSON.
+
+Chunks, revision manifests, heads and accounting commit in the same SQLite
+transaction. Stored chunks cannot be updated or deleted; a missing, damaged or
+conflicting chunk fails the read or write. A failed transaction retains none of
+its new chunks. Logical retained-byte and navigation accounting still measure
+complete canonical records, while physical footprint inspection includes the
+shared chunk table and its SQLite pages. Chunk sizes and encoding thresholds
+choose a storage representation; they impose no work or history limit.
+Existing plain and independently compressed revisions remain their original
+immutable bytes. They are not rewritten or reclaimed. The first chunked snapshot
+can cost more than an independently compressed snapshot; savings depend on reuse
+across subsequent revisions and require measurement.
+
 The selected Codex authentication route has no application startup, I/O or
 acquisition timer; JSON-RPC frame, notification and stderr quotas are removed.
 Credential parsing has no token, decoded-payload or account-ID byte limit. The
