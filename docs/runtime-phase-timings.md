@@ -45,6 +45,7 @@ does not replace the operation's result.
 | `runtime.decode_current_state` | Decode and validate a new or changed ordinary state record |
 | `runtime.reuse_decoded_state` | Reuse decoded state after a fresh read verifies identical complete bytes |
 | `runtime.clone_loaded_state` | Share the immutable head and clone the caller's working state |
+| `desktop.decode_current_state` | Decode a fresh inspection head, reusing byte-verified retained records from the reader's previous snapshot |
 | `state.validate_exposure_pool` | Validate pooled manifests and index their exact typed-field uses |
 | `state.deserialize_borrowed` | Decode typed state from the borrowed stored body and validated references |
 | `runtime.validate_intake_state` | Validate retained intake episodes and bindings |

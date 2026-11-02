@@ -2843,6 +2843,23 @@ struct DecodedState {
     state: State,
 }
 
+/// Reuse only complete, byte-verified retained records between operator reads.
+/// Each new head still decodes its changing fields and validates current state.
+#[derive(Default)]
+pub(crate) struct InspectionStateDecoder {
+    records: state_storage::RecordCache,
+}
+
+impl InspectionStateDecoder {
+    pub(crate) fn decode(&mut self, object: &s::StoredObject) -> Result<State> {
+        let state = state_storage::decode_cached(&object.body, &mut self.records)?;
+        need_proposals::validate_state(&state)?;
+        state.config.validate()?;
+        require(state.format == 1, "unsupported runtime state version")?;
+        Ok(state)
+    }
+}
+
 /// Explicit trusted-host closeout access. This handle exposes no preparation,
 /// resume, adoption, or general state-inspection API. Authority comes from the
 /// host selecting this interface, never from serialized state or model output.
@@ -2965,11 +2982,7 @@ impl Runtime {
         Ok(s::Store::open_runtime(&root.join("state.sqlite3"), storage_limits(), false)?)
     }
     pub(crate) fn decode_inspection_state(object: &s::StoredObject) -> Result<State> {
-        let state = state_storage::decode(&object.body)?;
-        need_proposals::validate_state(&state)?;
-        state.config.validate()?;
-        require(state.format == 1, "unsupported runtime state version")?;
-        Ok(state)
+        InspectionStateDecoder::default().decode(object)
     }
     /// Private launcher connection path. Existing protected state only; unlike
     /// ordinary open, neither this open nor its validation recovers an owner.

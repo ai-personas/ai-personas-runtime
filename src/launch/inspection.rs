@@ -39,11 +39,13 @@ pub(super) struct Snapshot {
 pub(super) struct Reader {
     root: std::path::PathBuf,
     snapshot: Option<Snapshot>,
+    decoder: crate::runtime::InspectionStateDecoder,
 }
 
 impl Reader {
     pub(super) fn new(root: &Path) -> Result<Self> {
-        Ok(Self { root: root.canonicalize()?, snapshot: None })
+        Ok(Self { root: root.canonicalize()?, snapshot: None,
+            decoder: crate::runtime::InspectionStateDecoder::default() })
     }
 
     pub(super) fn project<T: Serialize, E: From<RuntimeError> + From<s::StoreError>>(
@@ -54,7 +56,12 @@ impl Reader {
         let epoch = self.snapshot.as_ref().map(|snapshot| snapshot.epoch);
         store.trusted_host().runtime_projection_since(epoch, |heads, records| {
             if let Some((runtime, launch)) = heads {
-                let state = Runtime::decode_inspection_state(&runtime)?;
+                // Release changing fields before decoding a new head. The
+                // decoder retains shared records only after verifying their
+                // complete encoding against this transaction's current bytes.
+                self.snapshot = None;
+                let state = crate::phase_timing::measure("desktop.decode_current_state", ||
+                    self.decoder.decode(&runtime))?;
                 let saved = decode_saved(&launch)?;
                 self.snapshot = Some(Snapshot { runtime: std::sync::Arc::new(runtime),
                     state, launch, saved, epoch: records.epoch() });

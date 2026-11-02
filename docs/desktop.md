@@ -52,7 +52,12 @@ current clock are still evaluated for each view. Successful lineage checks can
 share already validated ancestors within that immutable projection; failures
 are not memoized. Task selection can reuse unchanged decoded history without
 reopening it. Closing or replacing the workspace terminates its read helper.
-The cache retains memory for that decoded history while the workspace is open.
+When the epoch changes, the reader decodes the fresh heads and reuses retained
+sources, observations and messages only when their complete encoded contents
+match the previously verified records. Changed records decode again; removed
+records leave the cache. Current configuration, lifecycle, permissions and
+projection checks still run. The cache retains memory for the latest decoded
+history while the workspace is open; the first read still loads that history.
 
 Desktop message projections retain complete displayed text, attribution, order
 and exact file/history citations. They omit internal provenance graphs that the

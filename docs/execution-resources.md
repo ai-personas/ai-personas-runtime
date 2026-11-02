@@ -416,8 +416,9 @@ Inline typed records remain readable, including the public record-map form and
 existing snapshots. Older immutable revisions are not rewritten.
 
 Snapshots share these records until mutable access copies the affected record
-and invalidates its saved encoding. A running Runtime can reuse a verified decode
-only when the next freshly read head contains exactly the same ordered encoded
+and invalidates its saved encoding. A running Runtime or persistent desktop
+reader can reuse a verified decode only when the next freshly read head contains
+exactly the same ordered encoded
 bytes and header. Chunk indexes can change between snapshots; matching an index,
 record ID or digest alone is insufficient. Changed records
 are decoded again; missing, malformed or mismatched records fail the read.
