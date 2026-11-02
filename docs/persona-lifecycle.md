@@ -15,10 +15,27 @@ ai-personas --state-root /private/state --operator requester \
 
 The snapshot contains exact `expected_runtime` and `expected_launch` references,
 `expected_lifecycle_revision`, status, independent quarantine, and retirement
-blockers. Work-specific blocker details are filtered by current source and
-communication permissions. The launcher shows identity status in development
-and work participant views. History remains inspectable under its original
-permissions while an identity is paused, quarantined or retired.
+blockers. The saved operator, current local-recipient configuration and
+creating-operator binding are checked before this inspection. Work-specific blocker details still
+require available exact work/source lineage. Historical seed audiences and
+communication grants do not hide those details from that operator. A missing or
+inconsistent lineage remains explicitly unavailable, not an empty obligation.
+The launcher shows identity status in development and work participant views.
+Pausing, quarantining or retiring an identity does not erase its history.
+
+## Resource accounting and control records
+
+Current execution uses [observational resource accounting](navigation-accounting.md),
+not prepaid application quotas. Ordinary and Closeout are recorded accounting
+lanes; consumed, reserved and uncertain amounts are retained without a configured
+ceiling or an ordinary-work freeze. Updating historical totals is not required
+to fund a lifecycle operation. Actual database, filesystem and representational
+failures remain possible.
+
+Control plans and immutable slots remain required state: they bind the subject,
+current snapshot and retry outcome, and prevent reuse of an already committed
+control. Provisioning these records is not a safety approval, provider allowance,
+physical storage reservation or permission to resume a persona.
 
 ## Provision protected controls
 
@@ -50,13 +67,12 @@ ai-personas --state-root /private/state --operator requester \
   change-persona-lifecycle controls.json --apply
 ```
 
-Provisioning reserves one pause slot and one quarantine slot in the existing
-protected storage account, including snapshot and rewrite headroom. It requires
-ordinary capacity, terminal invocations, execution ownership and exact current
-state. It creates no funds. A legacy root without a prepaid runtime control plan
-first needs the existing `provision-closeout` command while ordinary capacity
-remains. Preview checks the same allocation and transaction guards but reserves
-nothing. Reads remain metered.
+Provisioning records pause and quarantine slots in the Closeout accounting
+lane, including their allocation estimates. It requires terminal invocations,
+execution ownership and exact current state, but no remaining application
+quota. A legacy root without a runtime control plan first needs the existing
+`provision-closeout` command to create that plan. Preview checks the same state
+and transaction guards but commits no control records. Reads remain metered.
 
 ## Pause and quarantine
 
@@ -67,9 +83,9 @@ ai-personas --state-root /private/state --operator requester \
   quarantine-persona persona-0001 "Keep execution disabled pending operator review."
 ```
 
-These narrow controls use prepaid closeout storage and metered protected reads,
-including during an ordinary-work freeze. They fence the persona's current
-decision authority and clear scheduling permits. They preserve actual invocation
+These narrow controls use provisioned control records and metered Closeout reads.
+Historical usage overruns do not freeze them or ordinary work. They fence the
+persona's current decision authority and clear scheduling permits. They preserve actual invocation
 pointers, effects, usage holds, work obligations, authored continuations and
 character history. An already dispatched operation still needs its actual
 terminal observation and accounting; pause does not undo it or make it safe to
@@ -77,8 +93,8 @@ repeat. New preparation, dispatch, response adoption, targeted resume, delegated
 intake and tool dispatch enforce current identity eligibility.
 
 An identical retry recognizes a still-current pause or quarantine and records no
-new transition. A new control after reactivation or quarantine release consumes a newly
-prepaid slot; spent records remain immutable.
+new transition. A new control after reactivation or quarantine release uses a
+new immutable slot; committed records are not reused or refunded.
 
 ## Reactivation, quarantine release and retirement
 
@@ -93,9 +109,10 @@ an actual authorization reference and one of these actions:
 - `retire` requires every accepted commitment to have transferred with actual
   recipient acceptance, been explicitly canceled, or have a currently supported
   completion. A finished optional episode has no remaining outcome duty.
-  Consequential feedback and retained maintenance need explicit dispositions;
-  jobs need terminal observations and result records. Failed-attempt holds block
-  retirement. An unfinished work ending alone does not discharge a commitment.
+  Unresolved retained maintenance and unsettled jobs remain blockers; terminal
+  job state alone is insufficient without its observation and result record.
+  Pending feedback bookkeeping alone is not a retirement prerequisite.
+  Failed-attempt holds block retirement. An unfinished work ending alone does not discharge a commitment.
 
 This local profile does not permit retirement with unresolved ownership blocks.
 Retirement revokes the persona's retained WebAssembly and HTTPS work grants while
@@ -103,9 +120,9 @@ preserving grant usage and receipts. Reactivation does not restore those grants.
 All other identity, seed, character, source, work, spending and uncertainty records
 remain attributable. The retired historical owner cannot execute its old work.
 
-Widening controls require current authorization and ordinary capacity; they
-prepay any newly available protected control before committing. The state change
-and immutable receipt commit together under exact runtime and launch fences.
+Widening controls require current operator authorization and provision any
+newly needed control record before committing. This changes no usage ceiling.
+The state change and immutable receipt commit together under exact runtime and launch fences.
 Retries return the original receipt without renewing permission. Reinspect
 current eligibility before separately authorizing a targeted resume and a model
 session. These controls establish no second-host activation or federation rights.

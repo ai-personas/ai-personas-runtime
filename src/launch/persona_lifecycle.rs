@@ -128,12 +128,13 @@ pub fn snapshot_at(root: &Path, operator: &str, actor: &str, now: i64) -> Result
     let blockers = lifecycle::retirement_blockers(&state, actor)?;
     let mut audience = admission(persona, now);
     audience.audience = BTreeSet::from([operator.into()]);
+    // The saved creating operator was authorized above. Historical seed
+    // sharing declarations do not hide its retained obligations; exact current
+    // work/source lineage must still be available before naming a blocker.
     let dispositions: Vec<_> = blockers.iter().map(|(work, reason)| {
-        if persona.seed.audience.contains(operator)
-            && persona.seed.grants.communicate_with.contains(operator)
-            && work_exposure(&state, work).is_ok_and(|e| exposure_permitted(&state, &e, &audience))
+        if work_exposure(&state, work).is_ok_and(|e| exposure_permitted(&state, &e, &audience))
         { json!({"work":work,"reason":reason}) }
-        else { json!({"work":null,"reason":"obligation disposition unavailable under current permissions"}) }
+        else { json!({"work":null,"reason":"obligation source lineage unavailable"}) }
     }).collect();
     Ok(json!({"operator":operator,"persona":actor,
         "expected_runtime":runtime.exact_ref()?,"expected_launch":launch.exact_ref()?,
