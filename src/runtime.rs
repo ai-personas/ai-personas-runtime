@@ -6499,11 +6499,10 @@ fn extend_exposure(target: &mut Exposure, source: &Exposure) {
     extend_policies(&mut target.policies, &source.policies);
 }
 fn extend_policies(target: &mut Vec<ScopedPolicy>, source: &[ScopedPolicy]) {
-    for policy in source {
-        if !target.contains(policy) {
-            target.push(policy.clone());
-        }
-    }
+    if source.is_empty() { return; }
+    let mut policies = exposure::PolicyCollector::new(std::mem::take(target));
+    policies.extend(source);
+    *target = policies.into_vec();
 }
 fn prepared_exposure(prepared: &Prepared) -> Result<&Exposure> {
     prepared
@@ -6572,8 +6571,7 @@ fn trace_exposure_with_validated<'a, const RETAIN: bool>(
     // The visited set is the complete final source list. Do not repeatedly
     // merge and sort an intermediate list that would be replaced at the end.
     // Validation follows every edge but needs no returned sources or policies.
-    let mut result = Exposure::new(
-        Vec::new(),
+    let mut policies = exposure::PolicyCollector::new(
         if RETAIN { policies.to_vec() } else { Vec::new() },
     );
     // The same ancestor can occur on many edges. Borrow references throughout
@@ -6598,7 +6596,7 @@ fn trace_exposure_with_validated<'a, const RETAIN: bool>(
         if let Some(inherited) = &stored.exposure {
             let inherited = warnings::inherited_exposure::<RETAIN>(state, &reference, inherited)?;
             if RETAIN {
-                extend_policies(&mut result.policies, &inherited.policies);
+                policies.extend(&inherited.policies);
             }
             match inherited {
                 std::borrow::Cow::Borrowed(inherited) => pending.extend(inherited.sources.iter()
@@ -6619,9 +6617,7 @@ fn trace_exposure_with_validated<'a, const RETAIN: bool>(
                 &reference.revision,
                 &stored.record.policy,
             );
-            if !result.policies.contains(&restriction) {
-                result.policies.push(restriction);
-            }
+            policies.insert(&restriction);
         }
         pending.extend(stored.lineage.iter().map(std::borrow::Cow::Borrowed));
         pending.extend(stored.record.qualifications.iter().map(std::borrow::Cow::Borrowed));
@@ -6637,9 +6633,7 @@ fn trace_exposure_with_validated<'a, const RETAIN: bool>(
                     &binding.revision,
                     &binding.policy,
                 );
-                if !result.policies.contains(&restriction) {
-                    result.policies.push(restriction);
-                }
+                policies.insert(&restriction);
             }
             match &binding.disposition {
                 f::BindingDisposition::Qualify { required }
@@ -6652,8 +6646,10 @@ fn trace_exposure_with_validated<'a, const RETAIN: bool>(
         }
 
     }
+    let mut result = Exposure::default();
     if RETAIN {
         result.sources = seen.into_iter().map(std::borrow::Cow::into_owned).collect();
+        result.policies = policies.into_vec();
     } else if let Some(validated) = validated {
         // Commit only after the complete traversal succeeds. In particular,
         // nodes visited before a missing edge or invalid receipt are not valid.

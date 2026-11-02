@@ -389,6 +389,15 @@ retains no validation result beyond its call. Corpus, rendering and planning
 timings include this work; they do not isolate its contribution or establish a
 whole-session gain.
 
+Policy merging uses a temporary membership index keyed by source and revision
+to avoid scanning the complete accumulated policy list for every inherited
+record. Records sharing those keys still receive complete equality checks;
+different policy contents remain distinct. Existing entries, including any
+duplicates, and first-seen appended order are preserved. The index is discarded
+after each merge or ancestry walk and is never serialized or used to skip a
+source, warning or binding check. This reduces bookkeeping within provenance
+collection; it does not change supplied context or establish task completion.
+
 Lineage checks that discard the expanded result use the same traversal without
 collecting policy records or a final source vector. This includes per-revision
 corpus eligibility, predispatch exposure checks and output attribution checks.

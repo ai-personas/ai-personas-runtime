@@ -6,6 +6,45 @@ use serde::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
+/// Preserve first-seen order while narrowing duplicate checks to records with
+/// the same source and revision. Those keys do not establish policy equality:
+/// every candidate still compares the complete record. Existing duplicates are
+/// retained, matching append-only merging into an already populated manifest.
+pub(super) struct PolicyCollector {
+    policies: Vec<ScopedPolicy>,
+    positions: std::collections::HashMap<String,
+        std::collections::HashMap<String, Vec<usize>>>,
+}
+
+impl PolicyCollector {
+    pub(super) fn new(policies: Vec<ScopedPolicy>) -> Self {
+        let mut collector = Self { policies, positions: Default::default() };
+        for (position, policy) in collector.policies.iter().enumerate() {
+            collector.positions.entry(policy.source.clone()).or_default()
+                .entry(policy.revision.clone()).or_default().push(position);
+        }
+        collector
+    }
+
+    pub(super) fn insert(&mut self, policy: &ScopedPolicy) {
+        if self.positions.get(&policy.source)
+            .and_then(|revisions| revisions.get(&policy.revision))
+            .is_some_and(|positions| positions.iter()
+                .any(|&position| self.policies[position] == *policy)) {
+            return;
+        }
+        self.positions.entry(policy.source.clone()).or_default()
+            .entry(policy.revision.clone()).or_default().push(self.policies.len());
+        self.policies.push(policy.clone());
+    }
+
+    pub(super) fn extend(&mut self, policies: &[ScopedPolicy]) {
+        for policy in policies { self.insert(policy); }
+    }
+
+    pub(super) fn into_vec(self) -> Vec<ScopedPolicy> { self.policies }
+}
+
 struct ReadValidation {
     state: usize,
     checked: std::collections::BTreeSet<f::Reference>,
