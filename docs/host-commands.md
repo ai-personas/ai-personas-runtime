@@ -11,6 +11,12 @@ object, including `working_directory` and `timeout_seconds`. Putting them beside
 `inputs` rejects the complete Decision. The rejection identifies each misplaced
 known argument and its declared nested location from the current host-command
 schema. It neither moves values nor executes any part of the rejected response.
+Duplicate-key diagnostics also locate recognized argument names and nested
+reference fields from that schema, for example `inputs.result_context` or
+`inputs.context_sources`. Unknown keys and authored values remain absent from
+the diagnostic. This identifies a structural location; it does not choose a
+capability or a value from the rejected response, and the whole response still
+fails validation.
 
 `CONTROL.host_command_capability` supplies the current `host.command.v1`
 definition on every ordinary input. No supporting guide needs to be discovered
