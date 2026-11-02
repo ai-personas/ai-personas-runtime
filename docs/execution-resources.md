@@ -425,6 +425,14 @@ are decoded again; missing, malformed or mismatched records fail the read.
 The cache retains only records in its latest successfully decoded state, and
 provides neither mutation authority nor an alternative current-head lookup.
 
+Invocation ownership guards similarly reuse decoded lifecycle metadata only
+after a fresh read fingerprints the complete current record bytes. Each Store
+connection keeps the verified SHA-256, state and canonical returned-byte count,
+without retaining the request body. Changed records receive full typed decoding
+again. Current cell integrity, ownership and navigation accounting remain checked
+on every pass; caching does not authorize a previously owned invocation or reuse
+a rolled-back state without matching the next transaction's actual bytes.
+
 Every remaining typed provenance manifest uses the shared reference tables,
 including manifests that appear only once: different manifests can contain the
 same large sets of source references. A cold process still loads the retained

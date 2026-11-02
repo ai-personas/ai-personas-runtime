@@ -56,7 +56,7 @@ impl Store {
     {
         Self::validate_head_compaction_request(request)?;
         let tx = self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let mut work = Work::load(&tx, &self.limits)?;
+        let mut work = Work::load(&tx, &self.limits, &self.invocation_checks)?;
         let runtime: StoredObject = work.required("object", RUNTIME_CONTROL_STATE_ID)?;
         let launch: StoredObject = work.required("object", "runtime-launch-v1")?;
         authorize(&runtime, &launch)?;

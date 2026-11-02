@@ -239,7 +239,7 @@ impl Store {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let mut work = Work::load(&tx, &self.limits)?;
+        let mut work = Work::load(&tx, &self.limits, &self.invocation_checks)?;
         work.admission()?;
         work.epoch(request.expected_epoch)?;
         if work.meta.limits != request.expected_limits {

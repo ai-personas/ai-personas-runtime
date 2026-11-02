@@ -32,6 +32,7 @@ does not replace the operation's result.
 | `store.commit_preparation` | Complete atomic invocation-admission transaction, including validation, writes and SQLite commit |
 | `store.fingerprint_atomic_admission` | Stream the complete canonical admission arguments into their digest |
 | `store.fingerprint_invocation` | Stream the complete canonical invocation specification into its digest |
+| `store.check_invocation_ownership` | Read and fingerprint current invocation cells, reuse matching validated metadata, and check the caller's current ownership set |
 | `store.commit_decision` | Complete decision-adoption transaction, including validation, writes, accounting and SQLite commit |
 | `store.fingerprint_decision` | Stream all canonical decision changes, intents and identity fields into their digest |
 | `store.validate_capacity_chain` | Read and validate the exact historical settings receipt chain |
@@ -77,6 +78,16 @@ either acquisition or contention, so only subsequent scan events establish that
 recovery ran. Scan events do not themselves establish that a record needed or
 received a transition. They retain the existing recovery behavior and accounting.
 The Store and runtime share one process-local timing switch and sequence.
+
+Invocation ownership checks stream current cells in key order and fingerprint
+their complete bytes. A Store connection remembers only the verified digest,
+lifecycle state and canonical returned-byte count from each successful decode;
+it does not retain request bodies. Matching bytes can reuse that metadata on a
+later pass. Changed bytes receive full typed decoding again, and cell metadata,
+the current ownership set and the original navigation charge are checked every
+time. A rolled-back transaction can leave verified decoding in memory, but the
+next transaction must match its own current bytes before reuse. The first pass
+still decodes all invocation records, and every pass still reads their bytes.
 
 Recovery streams each existing namespace in key order through one SQLite cursor,
 instead of listing its keys and issuing a separate point read for every record.

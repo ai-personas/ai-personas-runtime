@@ -96,7 +96,7 @@ impl TrustedHost<'_> {
         // instead retain one coherent snapshot while the foreground progresses.
         let (view, bytes) = {
             let tx = self.store.connection.transaction_with_behavior(TransactionBehavior::Deferred)?;
-            let work = Work::load(&tx, &self.store.limits)?;
+            let work = Work::load(&tx, &self.store.limits, &self.store.invocation_checks)?;
             let heads = if cached_epoch == Some(work.meta.epoch) { None } else {
                 Some((work.required("object", RUNTIME_CONTROL_STATE_ID)?,
                     work.required("object", "runtime-launch-v1")?))

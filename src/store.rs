@@ -25,6 +25,7 @@ use thiserror::Error;
 mod archive_history;
 mod capacity;
 mod head_compaction;
+mod invocation_guard;
 mod object_encoding;
 mod observed_object;
 mod operator_inspection;
@@ -1983,6 +1984,7 @@ pub struct Store {
     connection: Connection,
     path: PathBuf,
     limits: Limits,
+    invocation_checks: RefCell<invocation_guard::Cache>,
 }
 
 /// A transport's host control observation. This connection cannot write, recover
@@ -2148,6 +2150,7 @@ impl Store {
             connection,
             path,
             limits,
+            invocation_checks: RefCell::default(),
         })
     }
 
@@ -2183,7 +2186,7 @@ impl Store {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let mut work = Work::load(&tx, &self.limits)?;
+        let mut work = Work::load(&tx, &self.limits, &self.invocation_checks)?;
         let result = operation(&mut work)?;
         work.flush()?;
         drop(work);
@@ -2361,7 +2364,7 @@ impl Store {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let mut work = Work::load(&tx, &self.limits)?;
+        let mut work = Work::load(&tx, &self.limits, &self.invocation_checks)?;
         let result = work.intake_delegation_batch(&changes, minimum_available)?;
         drop(work);
         tx.rollback()?;
@@ -2387,7 +2390,7 @@ impl Store {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let mut work = Work::load(&tx, &self.limits)?;
+        let mut work = Work::load(&tx, &self.limits, &self.invocation_checks)?;
         let result = work.need_admission_batch(&changes, minimum_available, guard)?;
         drop(work);
         tx.rollback()?;
@@ -3321,6 +3324,7 @@ impl Store {
 struct Work<'a> {
     db: &'a Connection,
     limits: &'a Limits,
+    invocation_checks: &'a RefCell<invocation_guard::Cache>,
     meta: Meta,
     original_meta: Vec<u8>,
     // Reconstructed from durable cell lanes, including databases written before
@@ -3406,7 +3410,11 @@ impl<'a> Work<'a> {
         Ok(receipt)
     }
 
-    fn load(db: &'a Connection, limits: &'a Limits) -> Result<Self> {
+    fn load(
+        db: &'a Connection,
+        limits: &'a Limits,
+        invocation_checks: &'a RefCell<invocation_guard::Cache>,
+    ) -> Result<Self> {
         let meta = load_meta(db)?;
         if &meta.limits != limits {
             return Err(StoreError::LimitsMismatch);
@@ -3432,6 +3440,7 @@ impl<'a> Work<'a> {
         Ok(Self {
             db,
             limits,
+            invocation_checks,
             meta,
             original_meta,
             ordinary_identities,
@@ -3846,27 +3855,6 @@ impl<'a> Work<'a> {
 
     fn require_quiescent_invocations(&mut self) -> Result<()> {
         self.require_owned_invocations(&BTreeSet::new())
-    }
-
-    fn require_owned_invocations(&mut self, owned: &BTreeSet<String>) -> Result<()> {
-        for id in self.keys("invocation")? {
-            let record: InvocationRecord = self.required("invocation", &id)?;
-            self.returned(&record, self.limits.max_read_bytes, BudgetClass::Ordinary)?;
-            if record.id != id {
-                return Err(StoreError::Corrupt("invocation identity mismatch".into()));
-            }
-            let pending = owned.contains(&id)
-                && matches!(record.state, InvocationState::Dispatched | InvocationState::Responded);
-            if !pending && !matches!(
-                record.state,
-                InvocationState::Adopted | InvocationState::Failed | InvocationState::Uncertain
-            ) {
-                return Err(StoreError::InvalidState(
-                    "active transport or unfinished adoption requires its owner".into(),
-                ));
-            }
-        }
-        Ok(())
     }
 
     fn keys(&self, namespace: &str) -> Result<Vec<String>> {
