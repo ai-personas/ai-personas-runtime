@@ -57,14 +57,22 @@ snapshots through that reader. Start checks the preceding session's outcome and
 the task's current eligibility in one transaction, instead of decoding history
 in separate helper processes. The read still checks current authority and state;
 the control or session worker separately validates the exact supplied references
-before applying a change. A control read can wait for the reader's current
-snapshot, and opening the mutation or execution worker remains a separate cost.
+before applying a change. Control reads project only task inspection and session
+status, so an unrelated result-panel failure cannot prevent a control's own
+checks. A control read can wait for the reader's current snapshot, and opening
+the mutation or execution worker remains a separate cost.
 When the epoch changes, the reader decodes the fresh heads and reuses retained
 sources, observations and messages only when their complete encoded contents
 match the previously verified records. Changed records decode again; removed
 records leave the cache. Current configuration, lifecycle, permissions and
 projection checks still run. The cache retains memory for the latest decoded
 history while the workspace is open; the first read still loads that history.
+
+The internal `desktop-snapshot-server` accepts JSON lines tagged with
+`kind: "snapshot"` (optional `work` and `session`, plus `conversation`) or
+`kind: "control"` (optional `session`). Both requests only inspect state;
+the control view executes no task action. Unknown tags or fields are rejected.
+Use the desktop and pinned helpers from the same installation.
 
 Desktop message projections retain complete displayed text, attribution, order
 and exact file/history citations. They omit internal provenance graphs that the

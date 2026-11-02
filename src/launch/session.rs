@@ -1113,23 +1113,47 @@ impl DesktopReader {
     pub fn open(root: &Path) -> BoundaryResult<Self> {
         Ok(Self(inspection::Reader::new(root)?))
     }
-    pub fn snapshot(&mut self, operator: &str, work: Option<&str>, session: Option<&str>,
-        include_conversation: bool) -> BoundaryResult<Value> {
+    fn project<T: Serialize>(&mut self, operator: &str,
+        project: impl FnOnce(&inspection::Snapshot, &s::RuntimeInspection<'_, '_>) -> BoundaryResult<T>,
+    ) -> BoundaryResult<T> {
         valid_id(operator)?;
-        if let Some(work) = work { valid_id(work)?; }
-        if let Some(session) = session { valid_id(session)?; }
         self.0.project(|snapshot, records| {
             authorize_snapshot(&snapshot.state, &snapshot.saved, operator)?;
+            project(snapshot, records)
+        })
+    }
+    pub fn snapshot(&mut self, operator: &str, work: Option<&str>, session: Option<&str>,
+        include_conversation: bool) -> BoundaryResult<Value> {
+        if let Some(work) = work { valid_id(work)?; }
+        if let Some(session) = session { valid_id(session)?; }
+        self.project(operator, |snapshot, records| {
             desktop_snapshot_view(snapshot, records, operator, work, session, include_conversation)
         })
     }
+    /// Fresh control inputs without projecting unrelated result panels.
+    pub fn control(&mut self, operator: &str, session: Option<&str>) -> BoundaryResult<Value> {
+        if let Some(session) = session { valid_id(session)?; }
+        self.project(operator, |snapshot, records| {
+            desktop_control_view(snapshot, records, operator, session)
+        })
+    }
+}
+
+fn desktop_control_view(snapshot: &inspection::Snapshot, records: &s::RuntimeInspection<'_, '_>,
+    operator: &str, session: Option<&str>,
+) -> BoundaryResult<Value> {
+    let inspection = crate::phase_timing::measure("desktop.inspection", ||
+        inspect_snapshot(records, snapshot, operator, None, snapshot.saved.works.len().max(1)))?;
+    let session_status = session.map(|id| project_session(records, operator, id))
+        .transpose()?.map(serde_json::to_value).transpose()?.unwrap_or(Value::Null);
+    Ok(json!({"inspection":inspection,"session_status":session_status,
+        "snapshot_atomic":true,"inference_performed":false}))
 }
 
 fn desktop_snapshot_view(snapshot: &inspection::Snapshot, records: &s::RuntimeInspection<'_, '_>,
     operator: &str, work: Option<&str>, session: Option<&str>, include_conversation: bool,
 ) -> BoundaryResult<Value> {
-        let inspection = crate::phase_timing::measure("desktop.inspection", ||
-            inspect_snapshot(records, snapshot, operator, None, snapshot.saved.works.len().max(1)))?;
+        let mut view = desktop_control_view(snapshot, records, operator, session)?;
         let selected = work.or_else(|| snapshot.saved.works.keys().next().map(String::as_str));
         let mut result = Value::Null;
         let mut questions = Value::Null;
@@ -1152,11 +1176,11 @@ fn desktop_snapshot_view(snapshot: &inspection::Snapshot, records: &s::RuntimeIn
                     super::conversation::project_display(snapshot, records, operator, work))?;
             }
         }
-        let session_status = session.map(|id| project_session(records, operator, id))
-            .transpose()?.map(serde_json::to_value).transpose()?.unwrap_or(Value::Null);
-        Ok(json!({"inspection":inspection,"selected":selected,"result":result,
-            "questions":questions,"conversation":conversation,"session_status":session_status,
-            "snapshot_atomic":true,"inference_performed":false}))
+        view["selected"] = selected.into();
+        view["result"] = result;
+        view["questions"] = questions;
+        view["conversation"] = conversation;
+        Ok(view)
 }
 
 pub fn development_view(

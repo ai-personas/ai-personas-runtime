@@ -160,8 +160,11 @@ enum Command {
 fn snapshot_server(root: &std::path::Path, operator: &str) -> bool {
     use std::io::{BufRead, Write};
     #[derive(serde::Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct Request { work: Option<String>, session: Option<String>, conversation: bool }
+    #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+    enum Request {
+        Snapshot { work: Option<String>, session: Option<String>, conversation: bool },
+        Control { session: Option<String> },
+    }
     let mut reader = match session::DesktopReader::open(root) {
         Ok(reader) => reader,
         Err(error) => return emit::<()>(Err(error)),
@@ -172,7 +175,11 @@ fn snapshot_server(root: &std::path::Path, operator: &str) -> bool {
             let line = line.map_err(|_| session::BoundaryError::InvalidRequest)?;
             let request: Request = serde_json::from_slice(&line)
                 .map_err(|_| session::BoundaryError::InvalidRequest)?;
-            reader.snapshot(operator, request.work.as_deref(), request.session.as_deref(), request.conversation)
+            match request {
+                Request::Snapshot { work, session, conversation } =>
+                    reader.snapshot(operator, work.as_deref(), session.as_deref(), conversation),
+                Request::Control { session } => reader.control(operator, session.as_deref()),
+            }
         })();
         let output = match result {
             Ok(value) => serde_json::json!({"version":1,"ok":true,"result":value,"automatic_retry":false}),

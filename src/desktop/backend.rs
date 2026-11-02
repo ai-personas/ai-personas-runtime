@@ -624,7 +624,7 @@ impl Controller {
         let conversation = self.view.selected.as_deref().is_some_and(|work|
             self.conversation_requested.as_deref() == Some(work)
                 || self.view.conversation["work"].as_str() == Some(work));
-        let request = json!({"work":self.view.selected,
+        let request = json!({"kind":"snapshot","work":self.view.selected,
             "session":self.j.data.session.as_ref().map(|session| &session.id),"conversation":conversation});
         let args = self.session_args(vec!["desktop-snapshot-server".into()])?;
         let job = journal::id("snapshot")?;
@@ -692,8 +692,7 @@ impl Controller {
         // session status and task references come from the same transaction.
         let snapshot = self.h.snapshot(
             &self.session_args(vec!["desktop-snapshot-server".into()])?,
-            &json!({"work":work,"session":self.j.data.session.as_ref().map(|s| &s.id),
-                "conversation":false}),
+            &json!({"kind":"control","session":self.j.data.session.as_ref().map(|s| &s.id)}),
             &helpers::cancel(),
         )?;
         journal::require(snapshot["snapshot_atomic"] == true,

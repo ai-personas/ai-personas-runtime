@@ -55,7 +55,7 @@ impl Helpers {
             let helpers = candidate?;
             if let Some(args) = inspection {
                 helpers.snapshot(args, &serde_json::json!({
-                    "work":null,"session":null,"conversation":false,
+                    "kind":"snapshot","work":null,"session":null,"conversation":false,
                 }), &cancel())?;
             }
             Ok(helpers)
