@@ -137,7 +137,7 @@ impl Store {
                 .ok_or(StoreError::Overflow("head reclamation"))?;
             compacted += 1;
             // Keep the exact original data, class and event-slot count.
-            work.pending.insert(("object".into(), key.clone()), head);
+            work.stage_cell("object", key, head);
         }
         if prior_schema == SCHEMA_VERSION && reclaimed == 0 {
             return Err(StoreError::Invalid("no unused ordinary head capacity".into()));

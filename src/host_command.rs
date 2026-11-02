@@ -219,10 +219,15 @@ pub fn execute(
 ) -> Outcome {
     use std::os::unix::ffi::OsStrExt;
     let started = Instant::now();
-    let mut environment: Vec<_> = std::env::vars_os().collect();
+    // Desktop inference credentials belong to the transport, not command input.
+    // Preserve all other inherited variables and audit exactly what is supplied.
+    let mut environment: Vec<_> = std::env::vars_os().filter(|(name, _)| {
+        !["OPENAI", "OPENROUTER", "ANTHROPIC", "OPENCODE"].iter().any(|provider|
+            name == format!("PERSONAS_{provider}_API_KEY").as_str() || name == format!("PERSONAS_{provider}_BINDING").as_str())
+    }).collect();
     environment.sort();
     let mut environment_bytes = Vec::new();
-    for (key, value) in environment {
+    for (key, value) in &environment {
         for part in [key, value] {
             let bytes = part.as_os_str().as_bytes();
             environment_bytes.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
@@ -273,6 +278,8 @@ pub fn execute(
             return Ok(());
         }
         let child = Command::new(SHELL)
+            .env_clear()
+            .envs(environment.iter().cloned())
             .arg("-c")
             .arg(&input.command)
             .current_dir(directory)

@@ -39,7 +39,7 @@ pub use native::{native_continue_delegation, native_run, NativeInput};
 #[path = "launch/migration.rs"]
 mod migration;
 pub use migration::{
-    migrate_provider, migration_snapshot, preview_provider_migration, MigrationSnapshot,
+    migrate_provider, migration_snapshot, preview_provider_migration, retire_stopped_invocations, MigrationSnapshot,
     PersonaBinding, ProviderMigrationOutcome, ProviderMigrationReceipt, ProviderMigrationRequest,
 };
 #[path = "launch/admission_extension.rs"]
@@ -121,6 +121,9 @@ pub struct PersonaSeed {
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
+    /// Explicit API-key provider override, containing references and no secrets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<DirectProviderSettings>,
 }
 /// Current creation choices. Historical quota and permission declarations are
 /// retained in saved records, not requested again as fresh setup inputs.
@@ -274,6 +277,7 @@ fn seed_for(saved: &Saved, provider: &ResearchSettings, id: &str) -> Seed {
     // Fresh setup supplies every profile. Preserve the actual generic material
     // of earlier saved cohorts when reopening; do not invent or reseed character.
     let supplied = saved.setup.persona_seeds.get(id);
+    let provider = supplied.and_then(|seed| seed.provider.as_ref()).unwrap_or(provider);
     Seed {
         id: id.into(),
         label: supplied.map_or_else(|| id.into(), |seed| seed.label.clone()),
@@ -288,7 +292,8 @@ fn seed_for(saved: &Saved, provider: &ResearchSettings, id: &str) -> Seed {
         requested_model: supplied.and_then(|seed| seed.model.clone()).unwrap_or_else(|| provider.model.clone()),
         requested_effort: supplied.and_then(|seed| seed.effort.clone()).unwrap_or_else(|| provider.effort.clone()),
         model_confirmed: true,
-        destination: saved.setup.destination.clone(),
+        destination: supplied.and_then(|seed| seed.provider.as_ref()).map_or_else(
+            || saved.setup.destination.clone(), |provider| provider.mode.destination().into()),
         audience: audience.clone(),
         grants: Grants {
             fragments: true,
@@ -308,6 +313,13 @@ fn provider_for_persona(
     persona: &str,
 ) -> Result<provider::DirectProvider> {
     let seed = saved.setup.persona_seeds.get(persona);
+    if let Some(settings) = seed.and_then(|value| value.provider.as_ref()) {
+        require(settings.mode.is_api_key(), "persona provider override requires an explicit API-key route")?;
+        return Ok(settings.connect()?.with_selection(
+            seed.and_then(|value| value.model.as_deref()),
+            seed.and_then(|value| value.effort.as_deref()),
+        )?);
+    }
     Ok(provider.with_selection(
         seed.and_then(|value| value.model.as_deref()),
         seed.and_then(|value| value.effort.as_deref()),
@@ -413,8 +425,9 @@ pub fn setup(
     settings: Setup,
     seeds: BTreeMap<String, PersonaSeed>,
 ) -> Result<Runtime> {
-    let (config, mut saved) = setup_parts(operator, settings)?;
+    let (mut config, mut saved) = setup_parts(operator, settings)?;
     install_persona_seeds(&mut saved, seeds)?;
+    authorize_persona_providers(&mut config, &saved);
     let root = private_tree(root)?;
     let mut app = Runtime::create(&root, config, operator)?;
     save(&mut app, None, &saved)?;
@@ -432,9 +445,20 @@ fn install_persona_seeds(saved: &mut Saved, seeds: BTreeMap<String, PersonaSeed>
     saved.setup.persona_seeds = seeds;
     let provider = saved.execution_provider()?;
     for id in &ids {
+        if let Some(settings) = saved.setup.persona_seeds.get(id).and_then(|seed| seed.provider.as_ref()) {
+            require(provider.mode.is_api_key() && settings.mode.is_api_key(), "mixed providers require API-key setup")?;
+            settings.validate()?;
+        }
         validate_seed(&seed_for(saved, &provider, id))?;
     }
     Ok(())
+}
+fn authorize_persona_providers(config: &mut Config, saved: &Saved) {
+    for policy in &mut config.policies.active_policies {
+        for seed in saved.setup.persona_seeds.values() {
+            if let Some(settings) = &seed.provider { policy.processing_destinations.insert(settings.mode.destination().into()); }
+        }
+    }
 }
 pub fn open(root: &Path, operator: Option<&str>) -> Result<Runtime> {
     let mut app = Runtime::open(root)?;
@@ -823,6 +847,14 @@ async fn run_with_owned_commands<D: Driver>(
         need_proposals::select_source(app, &mut state, work, &selection, unix_now()?)?;
         app.save(&head, &state)?;
     }
+    // A prior coordinator can stop between adoption, dispatch and publication.
+    // Publish retained results and cancel invalidated admissions before any
+    // route selects participants. Otherwise an unpublished marker can hold its
+    // actor indefinitely after execution finished or authority was withdrawn.
+    let state = app.snapshot()?;
+    let works = delegated::subtree(&state, work)?;
+    app.publish_retained_host_command_results(&state, &works, unix_now()?)?;
+    drop(state);
     let mut scope = app.background_host_commands(owner)?;
     let state = scope.snapshot()?;
     let independent = driver.concurrent()
@@ -844,6 +876,13 @@ async fn run_with_owned_commands<D: Driver>(
         scope.wait_for_host_command().await?;
     }
     deliver_inputs(&mut scope, owner, unix_now()?)?;
+    // A control change can win the atomic dispatch check after adoption. Drain
+    // workers first, then settle invalidated admissions even when the route
+    // returned an error. This publishes cancellation, never a new execution.
+    let state = scope.snapshot()?;
+    let works = delegated::subtree(&state, work)?;
+    scope.publish_retained_host_command_results(&state, &works, unix_now()?)?;
+    drop(state);
     let output = outcome?;
     let mut final_view = result(&mut scope, work)?;
     final_view.stop = output.stop;

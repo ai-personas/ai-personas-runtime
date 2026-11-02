@@ -1,6 +1,6 @@
 # Direct account activation and provider migration
 
-The separate `personas-auth` executable manages a Personas registration for the documented Sign in with ChatGPT (SIWC) direct route. Persona scheduling, prompts, tools, memory, decisions and adoption remain in `ai-personas`. A successful sign-in establishes a validated grant; it does not establish model capability or start persona work.
+The separate `personas-auth` executable manages a Personas registration for the documented Sign in with ChatGPT (SIWC) direct route. Persona scheduling, prompts, fragments and supporting assets, tools, decisions and adoption remain in `ai-personas`. A successful sign-in establishes a validated grant; it does not establish model capability or start persona work.
 
 ## Commands
 

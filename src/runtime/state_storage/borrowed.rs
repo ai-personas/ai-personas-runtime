@@ -41,15 +41,18 @@ pub(super) fn location(value: &Value) -> usize {
     value as *const Value as usize
 }
 
-pub(super) fn deserialize<'de>(
-    root: &'de Value,
-    replacements: HashMap<usize, &'de Value>,
-) -> serde_json::Result<super::State> {
-    let context = Context { root, replacements };
-    super::ExpandedState::deserialize(View {
-        value: root,
-        context: &context,
-    })
+pub(super) struct Decoder<'de>(Context<'de>);
+
+impl<'de> Decoder<'de> {
+    pub(super) fn new(root: &'de Value, replacements: HashMap<usize, &'de Value>) -> Self {
+        Self(Context { root, replacements })
+    }
+    pub(super) fn state(&self) -> serde_json::Result<super::State> {
+        super::ExpandedState::deserialize(View { value: self.0.root, context: &self.0 })
+    }
+    pub(super) fn record<T: serde::Deserialize<'de>>(&self, value: &'de Value) -> serde_json::Result<T> {
+        T::deserialize(View { value, context: &self.0 })
+    }
 }
 
 macro_rules! scalar {
@@ -264,8 +267,8 @@ impl<'a, 'de, A: MapAccess<'de>> MapAccess<'de> for Fields<'a, 'de, A> {
     ) -> Result<Option<S::Value>, A::Error> {
         loop {
             match self.fields.next() {
-                Some((key, _)) if self.omit_pool && key == super::POOL => {
-                    self.omit_pool = false;
+                Some((key, _)) if self.omit_pool
+                    && (key == super::POOL || key == super::retained_records::POOL) => {
                     if self
                         .native
                         .next_entry::<de::IgnoredAny, de::IgnoredAny>()?
@@ -306,9 +309,9 @@ impl<'a, 'de, A: MapAccess<'de>> MapAccess<'de> for Fields<'a, 'de, A> {
     }
 
     fn size_hint(&self) -> Option<usize> {
-        self.native
-            .size_hint()
-            .map(|size| size.saturating_sub(usize::from(self.omit_pool)))
+        // Either storage pool can remain among the native entries. Omitting a
+        // hint avoids claiming an exact size before those fields are skipped.
+        None
     }
 }
 

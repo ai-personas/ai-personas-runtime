@@ -47,6 +47,38 @@ waiting for unrelated model calls to finish. Each persona still has at most one
 current primary invocation, and the saved circular cursors preserve consideration
 order. A completed peer's next call uses its actual continuation and fresh state.
 
+The saved `foreground_work_after` cursor also rotates each persona's eligible
+works. Rotating work and participants alone can repeatedly miss a busy actor in
+its parent work, then assign it another child turn as soon as its call finishes.
+The additional rotation gives that actor's other eligible work an opportunity
+when the actor becomes free. It considers only the current subtree, actual
+membership, open work, authored continuation, pending tools and existing
+handover/exclusivity boundaries. Stopped, paused, not-yet-due and temporarily
+blocked routes do not hold another eligible route. A deferred exclusive candidate
+keeps its already selected preference, subject to fresh eligibility checks.
+The scan records its `persona_work_preferences`; consideration never accepts
+responsibility, resumes a persona or ranks task contents. Persistence and a
+continuing foreground owner with settling calls and a stable finite eligible
+work set are required for this circular fairness claim. A later restart retains
+the selected work identities, not old eligibility. This guarantees neither useful
+reasoning nor completion of the work.
+
+Between admissions the coordinator checks for completed transports and publishes
+finished host commands. It adopts an available response before starting another
+potentially expensive context preparation. A completion arriving during a
+preparation still waits for that atomic operation to finish, but does not wait
+for all remaining peers to be admitted. This preserves the circular consideration
+order and the existing work and character handover boundaries.
+
+An ordinary independent response retains its actor's exact acceptance, task,
+membership, dependencies, controls and supplied source lineage. A peer's voluntary
+arrangement alone does not invalidate its reads, tool work, supporting-file saves
+or informal communication. Shared work commands, character changes and mixed
+responses retain the complete work-record comparison. Changed own commitments,
+mandates, pauses and relevant source state still reject stale actions. The
+accepted response applies to current state without replacing the peer's new
+arrangement. Previously admitted responses retain their original dependency scope.
+
 The same candidate snapshot identifies the earliest eligible authored return or
 wait deadline. Its clock wake competes with pending model and tool results, so a
 slow unrelated transport cannot by itself postpone reconsideration. The next
@@ -367,7 +399,19 @@ opportunity after its exact
 failed lease is retired. Missing diagnostic lineage remains explicitly unknown
 in the failure observation; it does not hide that observation or strand the
 continuation. The original failed invocation and terminal stay unchanged.
-Stop, Pause and consumed explicit one-shot permits do not gain a new continuation
+An explicit resume also remains pending until an ordinary decision is accepted.
+A completed rejected response receives its actual diagnostic on a fresh admission;
+it does not consume the requester's opportunity to obtain a reconsidered judgment.
+The active invocation still prevents overlapping calls. An accepted Stop consumes
+that opportunity, and current work controls still apply. Earlier consumed permits
+are not reconstructed from historical events.
+A participant whose current permission and ordinary continuation are both absent
+can be explicitly resumed through the desktop or session interface, regardless of
+its historical continuation's kind. An amendment followed by a work pause can
+leave a prior Immediate or Wait decision in precisely this dormant state. The
+old decision remains historical; offering targeted resume neither restores it
+automatically nor accepts the amended responsibility.
+Stop, Pause and completed explicit reconsiderations do not gain a new continuation
 from this process. Bound response-only provider failures follow their existing
 recovery classification and keep unknown remote outcomes or usage explicit.
 
@@ -390,7 +434,7 @@ The launcher's read-only `continuation_recovery_candidate` identifies a bound
 failed lease with one of these retained routes. **Continue** can start the
 foreground coordinator for that candidate even when no other persona is ready.
 The coordinator rechecks and retires the lease before considering a fresh call;
-the menu does not resume Stop, Pause or a consumed explicit permit.
+the menu does not resume Stop, Pause or a completed explicit reconsideration.
 
 `one-shot-reconsideration-v2` treats the authored return as one pending
 consideration, rather than one provider attempt. Its active invocation prevents

@@ -694,6 +694,7 @@ fn retain_result(state: &mut State, id: &str, job: &Job, payload: &Value) -> Res
         policy,
         qualifications: required,
         retired: false,
+        save_context: None,
     }
     .seal()?;
     let reference = wire_reference(&file.reference(f::Representation::Utf8));

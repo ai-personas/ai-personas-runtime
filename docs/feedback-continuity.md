@@ -67,6 +67,14 @@ for selected timestamp groups, not every historical result. It supplies no full
 history or resource catalogue. Timestamp ties may contain several records; there
 is no arbitrary top-N cutoff. Large-history performance remains to be measured.
 
+Building the input-file choice table reuses successful ancestry validation within
+that one immutable state snapshot. References often share extensive ancestry;
+each choice still retains its exact identity, body-supply status and provenance.
+A failed traversal adds nothing to the validation cache. A later table rebuild
+checks its current state again, and provenance collection still follows every
+edge. This avoids repeated validation without selecting additional files,
+dropping qualifications or establishing useful reuse of their contents.
+
 ## Boundaries that do not change
 
 This projection changes no scheduling, invocation lease, response adoption,

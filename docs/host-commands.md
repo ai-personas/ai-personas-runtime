@@ -130,12 +130,14 @@ exiting. SIGINT or SIGTERM sent directly to a native `run` process follows the
 same path. The interruption applies to the whole foreground session, including
 its delegated work; it does not change durable work or participant controls.
 
-`result_context` is required. Choose `output` to receive captured stdout and
-stderr without repeating the command or literal stdin, `complete` when those
-input bodies also belong in the next decision, or `reference` when execution
-metadata and exact readable references are enough to decide what to inspect
-next. This is the persona's context choice, not an output capture limit or an
-automatic size threshold.
+`result_context` is required. The preceding response and the script just authored
+are not automatically conversation history in the next decision. Choose `complete`
+when interpreting or repairing the result needs the exact code, arguments or paths.
+Choose `output` when stdout/stderr are self-contained or the needed input is
+otherwise selected: it omits the command and literal stdin bodies. `reference`
+supplies execution metadata and exact readable references. Omitted inputs remain
+readable without reexecuting the command. This is the persona's context choice,
+not an output capture limit or an automatic size threshold.
 
 Combine dependent shell steps in a single script. Multiple independent command
 operations may be submitted in one decision and execute in their listed order.
@@ -247,6 +249,29 @@ Source qualifications remain attached to the result. Passing an asset to the
 runner does not select it for model context or claim that its body was supplied
 to the model; code and bulk data can stay outside the prompt.
 
+### Qualifications and call provenance
+
+An execution receipt retains the complete requesting call's provenance, but
+mere presence in that call does not make every file an input to the command.
+New commands inherit required qualifications from `stdin_asset` and the
+persona's `context_sources`. The latter names native supporting sources used
+to derive literal code, parameters or interpretation, using the same `reference`
+or `input_file` shapes as `stdin_asset`. Omission means no additional declared
+sources. It does not remove the automatic stdin dependency.
+
+Each declared source binds its exact revision, representation, range, bytes and
+current bindings before dispatch. A proposed source needs its native save in
+`depends_on`; unknown sources or changed bindings prevent dispatch. These
+references do not select model context. The result records them under
+`inputs.context_sources` and carries their current qualifications, including
+later accepted warnings. Unrelated call context remains retained as provenance
+without recursively accompanying every new raw result. Earlier accepted intents
+and observations keep their recorded qualification sources.
+
+This distinction does not establish correctness or excuse an unsupported
+derived claim. Personas remain responsible for identifying relevant dependencies
+and preserving necessary caveats in authored results and judgments.
+
 ## Execution and observations
 
 The normal complete-decision adoption records the exact command before dispatch.
@@ -272,6 +297,21 @@ published, subject to its accepted continuation. Results are published between
 adoptions, with each pending decision checked against its relevant current state.
 Independent accepted personas can also have [primary calls in flight together](concurrent-decisions.md).
 The standalone one-step API and explicit tool recovery remain synchronous.
+
+At foreground session startup and after draining workers on exit, the owner publishes retained command
+results in the selected work subtree when a previous coordinator recorded their
+terminal evidence but stopped before publishing the observation. It verifies
+the original intent and terminal bindings and uses the existing settlement
+path. It never runs the command again, infers a missing outcome, resumes a
+stopped participant, or dispatches an admitted command through this publication
+step. A recorded cancellation can likewise be published as never dispatched.
+An admitted command whose runner, input or accepted authority changed is
+canceled before dispatch and its cancellation is published. This includes a
+pause that wins the atomic dispatch check after decision adoption; a later
+resume does not revive that old command. Still-valid admitted commands remain
+staged for explicit recovery. Already published results are unchanged.
+Dispatched commands without terminal evidence remain unresolved and require
+the existing recovery path.
 
 If only running commands remain, the launcher waits for an actual completion
 without spending another model admission or repeatedly scheduling personas. Each

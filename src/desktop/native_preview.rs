@@ -251,17 +251,9 @@ fn run(
         std::thread::sleep(Duration::from_millis(40));
     };
     log.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
-    // Bound diagnostic display, not document/page/geometry admission.
     let mut bytes = Vec::new();
-    log.take(65_537)
-        .read_to_end(&mut bytes)
-        .map_err(|e| e.to_string())?;
-    let truncated = bytes.len() > 65_536;
-    bytes.truncate(65_536);
-    let mut output = String::from_utf8_lossy(&bytes).into_owned();
-    if truncated {
-        output.push_str("\n[Further renderer diagnostics omitted]");
-    }
+    log.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+    let output = String::from_utf8_lossy(&bytes).into_owned();
     if !status.success() {
         return Err(format!("{name} failed ({status}).\n{output}"));
     }
@@ -272,7 +264,10 @@ fn run(
 fn run_python(mode: &str, input: &Path, output: &Path, folder: &Path, cancel: &Cancellation) -> Result<String, String> {
     let script = folder.join("native_renderers.py");
     std::fs::write(&script, include_str!("native_renderers.py")).map_err(|e| e.to_string())?;
-    let mut command = args(&["-I"]);
+    // Use the trusted staged script directory, ignoring ambient PYTHONPATH.
+    // Keep normal installed user packages available (h5py, OCP, ezdxf).
+    // Selected artifacts live in a separate input directory, not on sys.path.
+    let mut command = args(&["-E"]);
     command.extend([script.into_os_string(), mode.into(), input.as_os_str().into(), output.as_os_str().into()]);
     run("python3", &command, folder, cancel)
 }
@@ -374,7 +369,7 @@ pub(super) fn prepare(
         }
         Kind::Dxf => { let out=folder.join("drawing.svg"); diagnostics.push_str(&run_python("dxf",&input,&out,folder,cancel)?); (Pages::Derived(out,DerivedKind::Svg),vec!["Modelspace · SVG".into()],"DXF modelspace only; paper layouts, external references, proxy entities and CAD constraints are not represented.".into()) }
         Kind::Cad => { let out=folder.join("geometry.stl"); diagnostics.push_str(&run_python("cad",&input,&out,folder,cancel)?); (Pages::Derived(out,DerivedKind::Mesh),vec!["Tessellated geometry".into()],"STEP/IGES or stored FreeCAD BREP decoded by Open CASCADE and tessellated for review; PMI, colors, constraints, parametric history and assembly semantics are not preserved.".into()) }
-        Kind::Hdf5 => { let out=folder.join("datasets.json"); diagnostics.push_str(&run_python("hdf5",&input,&out,folder,cancel)?); (Pages::Derived(out,DerivedKind::Json),vec!["Dataset catalogue".into()],"HDF5 datasets and attributes exposed as bounded parameter/table/plot data; external links are not followed and large datasets are truncated.".into()) }
+        Kind::Hdf5 => { let out=folder.join("datasets.json"); diagnostics.push_str(&run_python("hdf5",&input,&out,folder,cancel)?); (Pages::Derived(out,DerivedKind::Json),vec!["Dataset catalogue".into()],"HDF5 datasets and attributes retain all readable supported values. Links, unsupported values and read errors remain explicit.".into()) }
         Kind::Blender => { let script=folder.join("blender_export.py"); std::fs::write(&script,include_str!("blender_export.py")).map_err(|e|e.to_string())?; let out=folder.join("scene.glb"); let mut cmd=args(&["--background","--factory-startup","--disable-autoexec","--python-exit-code","1"]); cmd.push(input.as_os_str().into()); cmd.extend(args(&["--python"])); cmd.push(script.as_os_str().into()); cmd.extend(args(&["--","--output"])); cmd.push(out.as_os_str().into()); diagnostics.push_str(&run("blender",&cmd,folder,cancel)?); (Pages::Derived(out,DerivedKind::Mesh),vec!["Scene geometry · GLB".into()],"Blender scene exported with automatic execution disabled; preview is tessellated geometry, not a full render and may omit animation, materials, lighting and render settings.".into()) }
         Kind::Gerber => { let out=folder.join("gerber.svg"); let mut cmd=args(&["-x","svg","-o"]); cmd.push(out.as_os_str().into()); cmd.push(input.as_os_str().into()); diagnostics.push_str(&run("gerbv",&cmd,folder,cancel)?); (Pages::Derived(out,DerivedKind::Svg),vec!["Selected layer · SVG".into()],"One selected Gerber or Excellon file rendered as a layer; not a complete stack composition or fabrication validation.".into()) }
         Kind::Dwg => { let dxf=folder.join("converted.dxf"); let mut cmd=args(&["-o"]); cmd.push(dxf.as_os_str().into()); cmd.push(input.as_os_str().into()); diagnostics.push_str(&run("dwg2dxf",&cmd,folder,cancel)?); let out=folder.join("drawing.svg"); diagnostics.push_str(&run_python("dxf",&dxf,&out,folder,cancel)?); (Pages::Derived(out,DerivedKind::Svg),vec!["Converted modelspace · SVG".into()],"DWG converted by LibreDWG then rendered as DXF modelspace; version/entity coverage depends on LibreDWG and may omit proxy objects and paper layouts.".into()) }

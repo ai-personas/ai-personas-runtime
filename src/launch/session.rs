@@ -1089,6 +1089,47 @@ pub fn questions_view(root: &Path, operator: &str, work: &str) -> BoundaryResult
     })
 }
 
+/// One coherent desktop refresh. Decode retained state once instead of opening
+/// a separate helper and snapshot for every visible panel.
+pub fn desktop_snapshot(
+    root: &Path,
+    operator: &str,
+    work: Option<&str>,
+    session: Option<&str>,
+    include_conversation: bool,
+) -> BoundaryResult<Value> {
+    if let Some(work) = work { valid_id(work)?; }
+    if let Some(session) = session { valid_id(session)?; }
+    project_view(root, operator, |snapshot, records| {
+        let inspection = inspect_snapshot(records, snapshot, operator, None,
+            snapshot.saved.works.len().max(1))?;
+        let selected = work.or_else(|| snapshot.saved.works.keys().next().map(String::as_str));
+        let mut result = Value::Null;
+        let mut questions = Value::Null;
+        let mut conversation = Value::Null;
+        if let Some(work) = selected {
+            let now = unix_now()?;
+            let mut output = results::project_state(&snapshot.state, work, &snapshot.saved, now, records)?;
+            feedback::append_view(&mut output, &snapshot.state, operator, records)?;
+            let messages: Vec<_> = std::mem::take(&mut output.messages).iter()
+                .map(super::conversation::display_message).collect();
+            result = serde_json::to_value(output)?;
+            result["messages"] = messages.into();
+            result["message_projection"] = json!("desktop_text_and_citations");
+            questions = question_commands::project(&snapshot.state, &snapshot.saved, operator, work, now)?;
+            question_commands::append_deliveries(records, operator, work, &mut questions)?;
+            if include_conversation {
+                conversation = super::conversation::project_display(snapshot, records, operator, work)?;
+            }
+        }
+        let session_status = session.map(|id| project_session(records, operator, id))
+            .transpose()?.map(serde_json::to_value).transpose()?.unwrap_or(Value::Null);
+        Ok(json!({"inspection":inspection,"selected":selected,"result":result,
+            "questions":questions,"conversation":conversation,"session_status":session_status,
+            "snapshot_atomic":true,"inference_performed":false}))
+    })
+}
+
 pub fn development_view(
     root: &Path,
     operator: &str,
@@ -1155,6 +1196,9 @@ pub struct SettingsView {
     pub persona_labels: BTreeMap<String, String>,
     pub mode: Option<provider::AccessMode>,
     pub account_sha256: Option<String>,
+    /// Current API-key routes for the trusted launcher. Environment references
+    /// and account fingerprints only; no credential is resolved or exposed.
+    pub api_key_settings: Vec<provider::DirectSettings>,
     pub credential_status: CredentialStatus,
     pub saved_expires_at_unix: Option<u64>,
     pub credential_resolved: bool,
@@ -1375,6 +1419,9 @@ pub struct ParticipantView {
 #[derive(Clone, Debug, Serialize)]
 pub struct WorkView {
     pub id: String,
+    /// Exact admitted request lineage, not an inferred relationship from titles.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_work: Option<String>,
     pub version: w::Version,
     pub phase: WorkPhase,
     /// Actual optional-opportunity binding, independent of the request wording.
@@ -1449,11 +1496,15 @@ fn settings_view(state: &State, saved: &Saved, now: u64) -> SettingsView {
         model: provider.as_ref().map(|p| p.model.clone()),
         effort: provider.as_ref().map(|p| p.effort.clone()),
         persona_models: state.personas.iter().map(|(id, persona)| {
-            (id.clone(), json!({"model": persona.seed.requested_model, "effort": persona.seed.requested_effort}))
+            (id.clone(), json!({"model": persona.seed.requested_model, "effort": persona.seed.requested_effort,"provider":persona.seed.destination}))
         }).collect(),
         persona_labels: state.personas.iter().map(|(id, persona)| (id.clone(), persona.seed.label.clone())).collect(),
         mode: provider.as_ref().map(|p| p.mode),
         account_sha256: provider.as_ref().map(|p| p.evidence.account_sha256.clone()),
+        api_key_settings: provider.iter()
+            .chain(saved.setup.persona_seeds.values().filter_map(|seed| seed.provider.as_ref()))
+            .filter(|settings| matches!(&settings.credentials, provider::CredentialReference::ApiKey { .. }))
+            .cloned().collect(),
         credential_status,
         saved_expires_at_unix: expiry,
         credential_resolved: false,
@@ -1509,6 +1560,11 @@ fn inspect_snapshot(
     let now = unix_now()?;
     let time = u64::try_from(now).map_err(|_| BoundaryError::InvalidState)?;
     let settings = settings_view(&state, &saved, time);
+    let parents: BTreeMap<_, _> = state.intake_episodes.values().flat_map(|episode|
+        episode.children().filter_map(|child| {
+            let parent = child.parent_work(episode);
+            saved.works.contains_key(parent).then(|| (child.binding.work.clone(), parent.to_owned()))
+        })).collect();
     let frozen = records.frozen();
     let active = !active_invocations(&state).is_empty();
     let leases_quiescent = crate::runtime::check_invocation_leases(
@@ -1672,6 +1728,7 @@ fn inspect_snapshot(
         )?;
         works.push(WorkView {
             id: id.clone(),
+            parent_work: parents.get(id).cloned(),
             version: work.version,
             phase,
             optional_activity: optional_activity::bound(state, id),

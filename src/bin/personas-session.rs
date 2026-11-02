@@ -37,6 +37,15 @@ enum Command {
         #[arg(long, default_value_t = 8)]
         limit: usize,
     },
+    /// Coherent desktop panels from a single read snapshot; no inference.
+    DesktopSnapshot {
+        #[arg(long)]
+        work: Option<String>,
+        #[arg(long)]
+        session: Option<String>,
+        #[arg(long)]
+        conversation: bool,
+    },
     /// Record a need once, without inference, under existing configured authority.
     Intake {
         #[arg(long)]
@@ -307,6 +316,8 @@ async fn main() {
             }
         }
         Command::SessionStatus { id } => emit(session::session_status(&root, &operator, &id)),
+        Command::DesktopSnapshot { work, session: id, conversation } => emit(
+            session::desktop_snapshot(&root, &operator, work.as_deref(), id.as_deref(), conversation)),
         Command::SessionMessages { id } => emit(session::session_messages(&root, &operator, &id)),
         Command::Result { work, export_directory } => {
             if let Some(destination) = export_directory {

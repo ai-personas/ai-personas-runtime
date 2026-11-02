@@ -529,6 +529,7 @@ impl Runtime {
             policy: basis.specification.policy.clone(),
             qualifications: basis.specification.qualifications.clone(),
             retired: false,
+            save_context: None,
         }
         .seal()?;
         let receipt = LocalEvidenceReceipt {

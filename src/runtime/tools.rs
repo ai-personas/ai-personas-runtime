@@ -64,6 +64,8 @@ struct Inputs {
 /// results. This preserves legacy exact-head dependencies and keeps later
 /// commands independent of results the persona has not observed. Terminal
 /// evidence is already durable during Execute; publication belongs to Settle.
+/// Host settlement also cancels invalidated, undispatched commands without
+/// executing still-valid admissions.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum ExecutionPhase {
     Execute,
@@ -766,6 +768,7 @@ fn retain_result(state: &mut State, id: &str, job: &Job, payload: &Value) -> Res
         scope: f::Scope::Assets, bytes: serde_json::to_vec(&body)?,
         author: "runtime-computation".into(), policy,
         qualifications: required, retired: false,
+        save_context: None,
     }.seal()?;
     let reference = wire_reference(&file.reference(f::Representation::Utf8));
     let terminal_evidence = serde_json::from_value(payload["terminal_evidence"].clone())?;

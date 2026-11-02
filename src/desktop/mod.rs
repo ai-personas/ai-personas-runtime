@@ -2,10 +2,12 @@ mod artifacts;
 mod document;
 mod data_view;
 mod backend;
+mod providers;
 mod helpers;
 mod journal;
 mod mesh;
 mod theme;
+mod timings;
 mod ui;
 
 use clap::Parser;

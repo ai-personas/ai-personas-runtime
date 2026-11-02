@@ -34,8 +34,9 @@ pub struct Outcome {
 
 fn prepared(request: &Request) -> Result<(Config, Saved)> {
     identity(&request.id)?;
-    let (config, mut saved) = setup_parts(&request.operator, request.setup.clone())?;
+    let (mut config, mut saved) = setup_parts(&request.operator, request.setup.clone())?;
     install_persona_seeds(&mut saved, request.persona_seeds.clone())?;
+    authorize_persona_providers(&mut config, &saved);
     config.validate()?;
     Ok((config, saved))
 }
@@ -52,7 +53,7 @@ pub fn preview(request: &Request) -> Result<Value> {
         "created_personas": people(saved.setup.cohort),
         "persona_models":people(saved.setup.cohort).into_iter().map(|id| {
             let seed = seed_for(&saved, &provider, &id);
-            (id, json!({"model":seed.requested_model,"effort":seed.requested_effort}))
+            (id, json!({"model":seed.requested_model,"effort":seed.requested_effort,"provider":seed.destination}))
         }).collect::<BTreeMap<_, _>>(),
         "initial_audience_personas": people(saved.setup.cohort),
         "remaining_persona_slots": null,"population_quota_enforced":false,

@@ -6,14 +6,7 @@ use serde_json::Map;
 
 #[derive(Default)]
 struct Packing {
-    candidates: BTreeMap<String, Candidate>,
-}
-
-struct Candidate {
-    value: Value,
-    copies: usize,
-    remaining: usize,
-    pooled: bool,
+    candidates: BTreeMap<String, Value>,
 }
 
 impl Packing {
@@ -22,20 +15,12 @@ impl Packing {
         let full = std::mem::replace(exposure, json!({REFERENCE: &key}));
         match self.candidates.entry(key) {
             std::collections::btree_map::Entry::Vacant(entry) => {
-                entry.insert(Candidate {
-                    value: full,
-                    copies: 1,
-                    remaining: 1,
-                    pooled: false,
-                });
+                entry.insert(full);
             }
-            std::collections::btree_map::Entry::Occupied(mut entry) => {
-                let candidate = entry.get_mut();
-                if candidate.value != full {
+            std::collections::btree_map::Entry::Occupied(entry) => {
+                if entry.get() != &full {
                     return Err(invalid_storage("retained exposure identity conflict"));
                 }
-                candidate.copies += 1;
-                candidate.remaining += 1;
             }
         }
         Ok(())
@@ -66,49 +51,13 @@ impl Packing {
         Ok(Value::Object(packed))
     }
 
-    fn finish(mut self, mut value: Value) -> serde_json::Result<Value> {
-        for candidate in self.candidates.values_mut() {
-            let bytes = serde_json::to_vec(&candidate.value)?.len();
-            let copies = candidate.copies;
-            // Preserve the existing storage decision and exact pool identity.
-            candidate.pooled = copies > 1
-                && bytes.saturating_mul(copies - 1) > 128 * (copies + 1);
-        }
-        manifests::edit(&mut value, POOL_VERSION, |exposure| {
-            let key = exposure
-                .get(REFERENCE)
-                .and_then(Value::as_str)
-                .filter(|_| exposure.as_object().is_some_and(|fields| fields.len() == 1))
-                .ok_or_else(|| invalid_storage("unpacked retained exposure"))?;
-            let candidate = self.candidates.get_mut(key)
-                .ok_or_else(|| invalid_storage("retained exposure absent"))?;
-            candidate.remaining = candidate.remaining.checked_sub(1)
-                .ok_or_else(|| invalid_storage("retained exposure count mismatch"))?;
-            if !candidate.pooled {
-                *exposure = if candidate.remaining == 0 {
-                    std::mem::take(&mut candidate.value)
-                } else {
-                    candidate.value.clone()
-                };
-            }
-            Ok(())
-        })?;
-        let mut entries = Map::new();
-        for (key, candidate) in self.candidates {
-            if candidate.remaining != 0 {
-                return Err(invalid_storage("retained exposure count mismatch"));
-            }
-            if candidate.pooled {
-                entries.insert(key, candidate.value);
-            }
-        }
+    fn finish(self, mut value: Value) -> serde_json::Result<Value> {
+        // Different manifests also share most of their source references.
+        // Pooling only duplicate complete manifests misses that sharing and
+        // makes a unique job manifest expand its entire provenance again.
+        let entries = self.candidates.into_iter().collect::<Map<_, _>>();
         if !entries.is_empty() {
-            // Move the completed pool into place without serializing its large
-            // values through a second owned Value tree.
-            let mut pool = Map::new();
-            pool.insert("version".into(), POOL_VERSION.into());
-            pool.insert("entries".into(), Value::Object(entries));
-            value[POOL] = Value::Object(pool);
+            value[POOL] = atoms::pack(entries, &mut value)?;
         }
         Ok(value)
     }
@@ -126,6 +75,7 @@ pub(super) fn to_value(state: &State) -> serde_json::Result<Value> {
         persona_creations, operator_events,
     } = state;
     let mut packing = Packing::default();
+    let mut retained = retained_records::Encoder::default();
     let value = phase_timing::measure("state.serialize_records", || {
         let mut fields = Map::new();
         macro_rules! field {
@@ -143,15 +93,15 @@ pub(super) fn to_value(state: &State) -> serde_json::Result<Value> {
         field!(format);
         field!(config);
         records!(personas);
-        records!(sources);
+        fields.insert("sources".into(), retained.records(sources, "source")?);
         if work_guides.is_some() { field!(work_guides); }
         field!(accepted_bindings);
         records!(semantic_warnings);
         field!(board);
         records!(work_meta);
-        records!(observations);
+        fields.insert("observations".into(), retained.records(observations, "observation")?);
         if !image_captures.is_empty() { records!(image_captures); }
-        records!(messages);
+        fields.insert("messages".into(), retained.records(messages, "message")?);
         field!(local_deliveries);
         field!(interpretations);
         field!(local_evidence);
@@ -165,6 +115,7 @@ pub(super) fn to_value(state: &State) -> serde_json::Result<Value> {
         if !optional_activities.is_empty() { records!(optional_activities); }
         if !persona_creations.is_empty() { records!(persona_creations); }
         field!(operator_events);
+        fields.insert(retained_records::POOL.into(), retained.finish());
         Ok(Value::Object(fields))
     })?;
     phase_timing::measure("state.pack_exposures", || packing.finish(value))

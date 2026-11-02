@@ -39,6 +39,8 @@ pub mod launch;
 pub use launch::step_accounting::LaunchStepAllowance;
 mod stakeholder;
 mod state_storage;
+mod retained_records;
+pub use retained_records::RetainedRecords;
 mod exposure;
 pub use exposure::{Exposure, ExposureManifest};
 use crate::phase_timing;
@@ -86,6 +88,8 @@ pub use requester_feedback::Disposition as RequesterFeedbackDisposition;
 mod peer_feedback;
 mod collaborators;
 mod requested_work;
+mod work_ancestry;
+mod character_development;
 mod provider_continuation;
 mod judgment_citations;
 pub(crate) mod affect;
@@ -570,6 +574,12 @@ pub struct Focus {
     pub(crate) peer_feedback: Vec<peer_feedback::Receipt>,
     pub protected_maintenance: Vec<Value>,
     pub last_judgment: Option<p::WorkDisposition>,
+    // Consume obsolete stored fields without keeping their content in State.
+    // Immutable earlier snapshots and adopted decisions remain the evidence.
+    #[serde(default, rename = "working_state", skip_serializing)]
+    _retired_working_state: Option<serde::de::IgnoredAny>,
+    #[serde(default, rename = "work_activity", skip_serializing)]
+    _retired_work_activity: Option<serde::de::IgnoredAny>,
     /// Recorded with the accepted judgment, under its existing exposure. Older
     /// judgments retain unknown origin; current scope cannot supply their basis.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -612,6 +622,8 @@ pub struct Persona {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) lifecycle: Option<lifecycle::Record>,
     pub character: Option<Character>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) character_development: Option<character_development::Record>,
     /// Latest primary-authored contextual state receipt. Older receipts remain
     /// immutable observations; absence establishes no measured affect state.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -932,7 +944,7 @@ pub struct State {
     pub format: u32,
     pub config: Config,
     pub personas: BTreeMap<String, Persona>,
-    pub sources: BTreeMap<String, Source>,
+    pub sources: RetainedRecords<Source>,
     pub(crate) work_guides: Option<work_guides::Catalog>,
     pub accepted_bindings: Vec<f::AcceptedBinding>,
     /// Immutable warning authorship and append-only resolution history. The
@@ -940,11 +952,11 @@ pub struct State {
     pub semantic_warnings: BTreeMap<String, warnings::SemanticWarning>,
     pub board: w::WorkBoard,
     pub work_meta: BTreeMap<String, WorkMeta>,
-    pub observations: BTreeMap<String, Observation>,
+    pub observations: RetainedRecords<Observation>,
     /// Immutable bytes captured by the corresponding native image observation.
     /// Permission and provenance remain on that observation, not on a host path.
     pub(crate) image_captures: BTreeMap<String, std::sync::Arc<image_input::Capture>>,
-    pub messages: BTreeMap<String, Message>,
+    pub messages: RetainedRecords<Message>,
     pub local_deliveries: BTreeMap<String, Value>,
     pub interpretations: BTreeMap<String, Value>,
     /// Absent legacy bridge state grants no registration or ingestion authority.
@@ -1375,7 +1387,7 @@ pub struct Prepared {
     pub owner_epoch: u64,
     pub work_version: w::Version,
     pub character_revision: Option<String>,
-    /// Host-sealed explicit resume consumed by this admission. An accepted
+    /// Host-sealed explicit resume awaiting an accepted ordinary decision. An
     /// ordinary character change carries it to the required fresh decision;
     /// absence cannot reconstruct permission from a historical resume event.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -2213,6 +2225,10 @@ pub struct SchedulerState {
     /// Foreground turns in one work must not reset another work's rotation.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub foreground_after: BTreeMap<String, String>,
+    /// Rotate a persona's eligible work independently of other participants'
+    /// completion timing. A busy actor must not always return to the same work.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub foreground_work_after: BTreeMap<String, String>,
     pub considered: u64,
     /// Last consideration operation; earlier receipts remain in Store journals.
     pub last: Vec<SchedulerConsideration>,
@@ -2248,6 +2264,10 @@ pub struct ForegroundScan {
     /// ordinary work that could change the handover's authority dependencies.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub pending_character_handovers: BTreeMap<String, String>,
+    /// Fresh mechanical work preferences for actors considered in this scan.
+    /// These are neither accepted continuations nor task priorities.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub persona_work_preferences: BTreeMap<String, String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2811,6 +2831,7 @@ pub struct Runtime {
     synthetic_owner: Option<(String, s::ExecutionOwner)>,
     host_command_background: Option<host_tools::Background>,
     decoded_state: Option<DecodedState>,
+    retained_records: state_storage::RecordCache,
 }
 
 /// One successfully decoded current record. Reuse requires a fresh Store read
@@ -2881,15 +2902,15 @@ fn initial_state(config: Config, operator: &str) -> State {
         format: 1,
         config,
         personas: BTreeMap::new(),
-        sources: BTreeMap::new(),
+        sources: RetainedRecords::new(),
         work_guides: None,
         accepted_bindings: Vec::new(),
         semantic_warnings: BTreeMap::new(),
         board: w::WorkBoard::default(),
         work_meta: BTreeMap::new(),
-        observations: BTreeMap::new(),
+        observations: RetainedRecords::new(),
         image_captures: BTreeMap::new(),
-        messages: BTreeMap::new(),
+        messages: RetainedRecords::new(),
         local_deliveries: BTreeMap::new(),
         interpretations: BTreeMap::new(),
         local_evidence: LocalEvidenceBridge::default(),
@@ -2930,6 +2951,7 @@ impl Runtime {
             synthetic_owner: None,
             host_command_background: None,
             decoded_state: None,
+            retained_records: state_storage::RecordCache::default(),
         })
     }
     pub fn open(root: &Path) -> Result<Self> {
@@ -2972,6 +2994,7 @@ impl Runtime {
             synthetic_owner: None,
             host_command_background: None,
             decoded_state: None,
+            retained_records: state_storage::RecordCache::default(),
         };
         let epoch = app.store.epoch()?;
         let (head, state) = app.load()?;
@@ -3000,6 +3023,7 @@ impl Runtime {
             synthetic_owner: None,
             host_command_background: None,
             decoded_state: None,
+            retained_records: state_storage::RecordCache::default(),
         };
         let (_, state) = runtime.load_in_class(class)?;
         state.config.validate()?;
@@ -3025,8 +3049,9 @@ impl Runtime {
     fn load(&mut self) -> Result<(std::sync::Arc<s::StoredObject>, State)> {
         self.load_in_class(s::BudgetClass::Ordinary)
     }
-    // Decode reuse serves a burst of host work. Sessions release this potentially
-    // large tree before waiting for providers, commands or an authored return time.
+    // Release the changing control snapshot while idle. The immutable record
+    // cache keeps one shared decoded copy, so the next changed head need decode
+    // only changed records. Reuse still checks each complete encoded record.
     fn release_decoded_state(&mut self) {
         self.decoded_state = None;
     }
@@ -3039,7 +3064,7 @@ impl Runtime {
                 });
             }
             let object = self.read_state_in_class(class)?;
-            let state = Self::decode_loaded_state(&object)?;
+            let state = self.decode_loaded_state(&object)?;
             Ok((std::sync::Arc::new(object), state))
         })
     }
@@ -3067,7 +3092,7 @@ impl Runtime {
                 // failed decode must not leave an older snapshot available.
                 self.decoded_state = None;
                 let state = phase_timing::measure("runtime.decode_current_state", || {
-                    Self::decode_loaded_state(&object)
+                    self.decode_loaded_state(&object)
                 })?;
                 self.decoded_state = Some(DecodedState {
                     read: identity, object: std::sync::Arc::new(object), state,
@@ -3083,8 +3108,8 @@ impl Runtime {
         })?
         .ok_or_else(|| held("state missing"))
     }
-    fn decode_loaded_state(object: &s::StoredObject) -> Result<State> {
-        let state = state_storage::decode(&object.body)?;
+    fn decode_loaded_state(&mut self, object: &s::StoredObject) -> Result<State> {
+        let state = state_storage::decode_cached(&object.body, &mut self.retained_records)?;
         phase_timing::measure("runtime.validate_intake_state", || {
             need_proposals::validate_state(&state)
         })?;
@@ -4007,7 +4032,7 @@ impl Runtime {
         hook: impl FnOnce(&Prepared) -> Result<Option<Value>>,
         scheduler: Option<SchedulerAdmission>,
     ) -> Result<Prepared> {
-        self.prepare_with_scheduler_and_intake(request, now, hook, scheduler, None, &BTreeSet::new())
+        self.prepare_with_scheduler_and_intake(request, now, hook, scheduler, None, &BTreeSet::new(), None)
     }
     fn prepare_with_scheduler_and_intake(
         &mut self,
@@ -4017,6 +4042,7 @@ impl Runtime {
         scheduler: Option<SchedulerAdmission>,
         intake_selection: Option<p::need::GrantReference>,
         owned: &BTreeSet<String>,
+        transport_profile: Option<&str>,
     ) -> Result<Prepared> {
         require(
             request.mode == Mode::Ordinary,
@@ -4170,13 +4196,14 @@ impl Runtime {
         persona.active_invocation = Some(request.id.clone());
         let focus = persona.focus.get_mut(&request.work).unwrap();
         let explicit_resume_at_admission = focus.permit && focus.explicit_resume_permit;
-        // An invitation remains pending until its first complete decision is
+        // An invitation or explicit reconsideration remains pending until a decision is
         // accepted. The active invocation still owns the only admission slot;
         // a definite local rejection may retire it without losing that route.
-        // Explicit resumption retains its separate consumption semantics.
-        focus.permit = focus.permit && !focus.explicit_resume_permit
-            && focus.continuation.is_none() && focus.authored_continuation.is_none();
-        focus.explicit_resume_permit = false;
+        // A failed attempt must not restore an older authored Stop while the
+        // requester is still waiting for the resumed persona's actual judgment.
+        focus.permit = explicit_resume_at_admission || (focus.permit
+            && focus.continuation.is_none() && focus.authored_continuation.is_none());
+        focus.explicit_resume_permit = explicit_resume_at_admission;
         // A timed reconsideration remains pending until an ordinary decision
         // adopts its replacement continuation. The active invocation owns the
         // only slot while inference is unresolved. A bound rejected response
@@ -4210,6 +4237,7 @@ impl Runtime {
             true,
             Some(navigation),
             launch_step_allowance.as_ref(),
+            transport_profile,
         ));
         let rendered = match rendering {
             Ok(rendered) => rendered,
@@ -4869,6 +4897,7 @@ impl Runtime {
                 Some(prepared.navigation),
                 Some(prepared.navigation),
                 prepared.launch_step_allowance.as_ref(),
+                prepared.provider_preparation.as_ref().and_then(|audit| audit["transport_profile"].as_str()),
             )?;
             require(
                 s::sha256_bytes(prepared.prompt.as_bytes()) == prepared.prompt_sha256
@@ -5066,6 +5095,7 @@ impl Runtime {
             synthetic_owner: None,
             host_command_background: None,
             decoded_state: None,
+            retained_records: state_storage::RecordCache::default(),
         };
         app.terminal_evidence(id)
     }
@@ -5701,6 +5731,7 @@ impl Runtime {
                 let audit = native.audit();
                 require(
                     audit.invocation_id == prepared.request.id
+                        && provider.transport_profile().is_none_or(|profile| audit.transport_profile == profile)
                         && audit.prompt_sha256 == prepared.prompt_sha256
                         && audit.prompt_bytes == prepared.prompt.len() as u64
                         && audit.reusable_prefix_bytes == prepared.reusable_prefix_bytes
@@ -5722,6 +5753,7 @@ impl Runtime {
             None,
             intake_selection,
             owned,
+            provider.transport_profile(),
         )?;
         let native = native_preparation
             .ok_or_else(|| held("provider preparation absent"))?;
@@ -6358,6 +6390,7 @@ fn insert_seed(state: &mut State, operator: &str, seed: Seed) -> Result<()> {
             birth: None,
             lifecycle: None,
             character: None,
+            character_development: None,
             transient_affect: None,
             owner_epoch: 0,
             admission_serial: 0,
@@ -6516,9 +6549,9 @@ fn trace_exposure<const RETAIN: bool>(
 ) -> Result<Exposure> {
     trace_exposure_with_validated::<RETAIN>(state, sources, policies, None)
 }
-fn trace_exposure_with_validated<const RETAIN: bool>(
-    state: &State,
-    sources: &[f::Reference],
+fn trace_exposure_with_validated<'a, const RETAIN: bool>(
+    state: &'a State,
+    sources: &'a [f::Reference],
     policies: &[ScopedPolicy],
     validated: Option<&mut BTreeSet<f::Reference>>,
 ) -> Result<Exposure> {
@@ -6529,7 +6562,13 @@ fn trace_exposure_with_validated<const RETAIN: bool>(
         Vec::new(),
         if RETAIN { policies.to_vec() } else { Vec::new() },
     );
-    let mut pending = sources.to_vec();
+    // The same ancestor can occur on many edges. Borrow references throughout
+    // this immutable walk instead of cloning their strings on every edge.
+    // Only the final unique manifest/cache needs owned references. A projected
+    // warning may own its exposure, so keep that case owned without assuming
+    // its source list is empty.
+    let mut pending: Vec<std::borrow::Cow<'a, f::Reference>> = sources.iter()
+        .map(std::borrow::Cow::Borrowed).collect();
     let mut seen = BTreeSet::new();
     while let Some(reference) = pending.pop() {
         if !seen.insert(reference.clone()) {
@@ -6537,7 +6576,7 @@ fn trace_exposure_with_validated<const RETAIN: bool>(
         }
         // Validation can reuse a fully checked ancestry within one immutable
         // snapshot. Collection must still visit every source and policy.
-        if !RETAIN && validated.as_ref().is_some_and(|known| known.contains(&reference)) {
+        if !RETAIN && validated.as_ref().is_some_and(|known| known.contains(reference.as_ref())) {
             continue;
         }
 
@@ -6547,7 +6586,12 @@ fn trace_exposure_with_validated<const RETAIN: bool>(
             if RETAIN {
                 extend_policies(&mut result.policies, &inherited.policies);
             }
-            pending.extend(inherited.sources.iter().cloned());
+            match inherited {
+                std::borrow::Cow::Borrowed(inherited) => pending.extend(inherited.sources.iter()
+                    .map(std::borrow::Cow::Borrowed)),
+                std::borrow::Cow::Owned(inherited) => pending.extend(inherited.sources.iter().cloned()
+                    .map(std::borrow::Cow::Owned)),
+            }
         } else {
             require(
                 revision_importer(&state.sources[&reference.source], stored).is_some(),
@@ -6565,8 +6609,8 @@ fn trace_exposure_with_validated<const RETAIN: bool>(
                 result.policies.push(restriction);
             }
         }
-        pending.extend(stored.lineage.iter().cloned());
-        pending.extend(stored.record.qualifications.iter().cloned());
+        pending.extend(stored.lineage.iter().map(std::borrow::Cow::Borrowed));
+        pending.extend(stored.record.qualifications.iter().map(std::borrow::Cow::Borrowed));
         for binding in state
             .accepted_bindings
             .iter()
@@ -6584,8 +6628,9 @@ fn trace_exposure_with_validated<const RETAIN: bool>(
                 }
             }
             match &binding.disposition {
-                f::BindingDisposition::Qualify { required } => {
-                    pending.extend(required.iter().cloned())
+                f::BindingDisposition::Qualify { required }
+                | f::BindingDisposition::Cite { references: required } => {
+                    pending.extend(required.iter().map(std::borrow::Cow::Borrowed))
                 }
                 #[allow(unreachable_patterns)]
                 _ => (),
@@ -6594,11 +6639,11 @@ fn trace_exposure_with_validated<const RETAIN: bool>(
 
     }
     if RETAIN {
-        result.sources = seen.into_iter().collect();
+        result.sources = seen.into_iter().map(std::borrow::Cow::into_owned).collect();
     } else if let Some(validated) = validated {
         // Commit only after the complete traversal succeeds. In particular,
         // nodes visited before a missing edge or invalid receipt are not valid.
-        validated.extend(seen);
+        validated.extend(seen.into_iter().map(std::borrow::Cow::into_owned));
     }
 
     Ok(result)
@@ -7046,6 +7091,7 @@ fn render_with_history(
     admitted: bool,
     navigation: Option<f::NavigationLimits>,
     launch_step_allowance: Option<&LaunchStepAllowance>,
+    transport_profile: Option<&str>,
 ) -> Result<Rendered> {
     let rendered = render_mode_with_history(
         state,
@@ -7059,6 +7105,7 @@ fn render_with_history(
         None,
         navigation,
         launch_step_allowance,
+        transport_profile,
     )?;
     require_render_fit(&rendered, state.config.context_bytes)?;
     Ok(rendered)
@@ -7080,6 +7127,7 @@ fn render_mode_with_history(
     repair_navigation: Option<f::NavigationLimits>,
     navigation: Option<f::NavigationLimits>,
     launch_step_allowance: Option<&LaunchStepAllowance>,
+    transport_profile: Option<&str>,
 ) -> Result<Rendered> {
     // Repair omits ordinary tool and discovery interfaces from its actual input.
     // Those omissions must not make an overflowing ordinary request appear to
@@ -7090,7 +7138,7 @@ fn render_mode_with_history(
     let ordinary_measurement = if repair_navigation.is_some() {
         let ordinary = render_mode_with_history(
             state, history_material, actor, work_id, invocation, epoch, now,
-            admitted, None, navigation, launch_step_allowance,
+            admitted, None, navigation, launch_step_allowance, transport_profile,
         )?;
         Some((ordinary.ordinary_total, ordinary.mandatory_bytes,
             ordinary.growth_bytes, ordinary.fixed_contract_bytes))
@@ -7434,6 +7482,13 @@ fn render_mode_with_history(
         &mut dependencies,
         &mut events,
     )?;
+    let mut ancestry_exposure = Exposure::default();
+    let requested_result_context = if persona.character.is_some() && repair_navigation.is_none() {
+        work_ancestry::context(state, work_id, &a, &mut ancestry_exposure)?
+    } else { None };
+    sources.extend(ancestry_exposure.sources.iter().cloned());
+    extend_exposure(&mut exposure, &ancestry_exposure);
+    sources.extend(character_development::warning_sources(state, actor, &a));
     let (semantic_warnings, warning_sources) =
         warnings::context(state, &a, work_id, serial, &sources)?;
     sources.extend(warning_sources);
@@ -7646,6 +7701,15 @@ fn render_mode_with_history(
         core["launch_step_allowance"] = allowance.control()?;
     }
     if ordinary_interfaces {
+        if let Some(ancestry) = requested_result_context {
+            growth_bytes = growth_bytes.checked_add(serde_json::to_vec(&ancestry)?.len())
+                .ok_or_else(|| invalid("requested-result ancestry accounting"))?;
+            core["requested_result_context"] = ancestry;
+        }
+        let development = character_development::context(state, actor, &a, &mut exposure);
+        growth_bytes = growth_bytes.checked_add(serde_json::to_vec(&development)?.len())
+            .ok_or_else(|| invalid("character maintenance context accounting"))?;
+        core["character_development"] = development;
         core["affect_interface"] = affect::interface(now)?;
         core["history_retrieval"] = history::retrieval_rules();
         if let Some(requests) = requested_work::context(
@@ -7788,14 +7852,19 @@ fn render_mode_with_history(
         core["message_references"] = message_references::interface();
     }
     let input_history = if ordinary_interfaces {
-        let (context, history) = history_material.continuation.project(
+        let projected = history_material.continuation.project(
             state, focus, actor, work_id, &persona.seed.requested_model, serial, &a, &mut exposure,
+            transport_profile,
+            &observation_corpus,
         )?;
+        sources.extend(projected.supplied.iter().cloned());
+        supplied_bodies.extend(projected.supplied);
+        if !projected.roots.is_empty() { observation_roots.push(projected.roots); }
         growth_bytes = growth_bytes.checked_add(
-            serde_json::to_vec(&context)?.len().saturating_sub(provider_continuation::rule_bytes()),
+            serde_json::to_vec(&projected.control)?.len().saturating_sub(provider_continuation::rule_bytes()),
         ).ok_or_else(|| invalid("provider continuation metadata accounting"))?;
-        core["provider_continuation"] = context;
-        history
+        core["provider_continuation"] = projected.control;
+        projected.history
     } else { None };
     let input_history_bytes = input_history.as_ref().map(provider::InputHistory::input_bytes)
         .transpose().map_err(|_| invalid("provider continuation input accounting"))?.unwrap_or(0);
@@ -7973,7 +8042,7 @@ fn render_mode_with_history(
         });
         core["host_command_rules"] = json!({"operation":"effect", "access":"full_host_by_default",
             "paths":"Native file paths such as tools/results/... identify runtime assets, not files under the host working directory. Use inputs.stdin_asset with {kind:input_file,handle:CURRENT_HANDLE} or {kind:reference,reference:EXACT_FULL_ASSET_REF} to pass exact retained bytes directly to command stdin. A bytes_metadata reference supplies the complete original bytes to the command, while utf8 and json_string references supply their exact text projection and range. For example cat > a host path exports them, and python3 - runs a script. Do not also supply literal stdin. A same-response proposal needs its exact save ID in depends_on. This consumes the asset without claiming its body was supplied to the model. Ordinary read or next-context selection can supply the body when useful. Read the retained result body to recover an earlier command's actual host output path. stdout.log_path, stderr.log_path and paths written by commands are filesystem paths. Use the requested exact host output path for a revision instead of treating an asset path as a host path or searching for similar filenames.",
-            "usage":"Use the supplied capability_id with inputs.command and required inputs.result_context: complete, output or reference. The runtime binds the exact interface retained for this invocation; do not include binding_revision. Choose output when captured stdout and stderr are useful in the next decision without repeating the command or literal stdin; choose complete when those input bodies are also useful; choose reference when you will read or select useful text afterward. Run shell commands, install tools and packages, use the filesystem, network, and installed software directly. No tool grant, selected guide, approval, command allowlist, or sandbox is required. Commands inherit the host account and environment. working_directory overrides the displayed default. stdin supplies text input. timeout_seconds is optional; omission means no timeout. Combine dependent shell steps in one script. Results arrive as host_command_result in a fresh decision with actual exit status and stdout/stderr capture objects. Every result_context choice retains complete observed command, literal stdin and captured output text. complete supplies all that text. output supplies captured stdout and stderr, with execution metadata and exact readable references for omitted command and literal stdin bodies. reference supplies execution metadata and exact readable references instead of all those text bodies. Projected field references include UTF-8 byte counts, hashes and whether their text was supplied. Required qualifications remain supplied in every mode. Ordinary reads or next-context selections can supply any range or all text without a quota; a reference alone does not supply its body. capture_complete describes retained observation, not model-context delivery. Historical captures may have gaps, which are omitted output rather than text to concatenate. Full stdout.log_path and stderr.log_path are host files you can read with another command. These paths are live filesystem files, not immutable native asset references. A new command is a new execution; completed or uncertain commands are never automatically repeated. Historical grant declarations do not restrict current tool access. Host commands consume no additional model attempt."});
+            "usage":"Use the supplied capability_id with inputs.command and required inputs.result_context: complete, output or reference. The runtime binds the exact interface retained for this invocation; do not include binding_revision. Your current response and its script are not automatically in the next prompt. Choose complete when the next decision needs the exact code, arguments or paths to interpret, debug or continue this action. Choose output only when stdout/stderr are self-contained or the necessary inputs are otherwise selected; output omits your command and literal script. Choose reference when you intend to read or select useful text afterward. Run shell commands, install tools and packages, use the filesystem, network, and installed software directly. No tool grant, selected guide, approval, command allowlist, or sandbox is required. Commands inherit the host account and environment. working_directory overrides the displayed default. stdin supplies text input. timeout_seconds is optional; omission means no timeout. Combine dependent shell steps in one script. Results arrive as host_command_result in a fresh decision with actual exit status and stdout/stderr capture objects. Every result_context choice retains complete observed command, literal stdin and captured output text. complete supplies all that text. output supplies captured stdout and stderr, with execution metadata and exact readable references for omitted command and literal stdin bodies. reference supplies execution metadata and exact readable references instead of all those text bodies. Projected field references include UTF-8 byte counts, hashes and whether their text was supplied. Required qualifications remain supplied in every mode. Ordinary reads or next-context selections can supply any range or all text without a quota; a reference alone does not supply its body. capture_complete describes retained observation, not model-context delivery. Historical captures may have gaps, which are omitted output rather than text to concatenate. Full stdout.log_path and stderr.log_path are host files you can read with another command. These paths are live filesystem files, not immutable native asset references. A new command is a new execution; completed or uncertain commands are never automatically repeated. Historical grant declarations do not restrict current tool access. Host commands consume no additional model attempt."});
         core["host_command_rules"]["context_lifetime"] = json!("A pending host result is consumed after the decision receiving it is accepted. Already supplied means present in this request only: later calls do not receive its full conversation, reasoning or outputs automatically. To use an output field alongside a later result or image, select its current input-file handle in next_assets now, keep an existing selection, or save and select a useful supporting note. Clear and preserve of an empty set carry none of that output forward. Choose useful scope and lifetime yourself; no additional file or characteristic edit is required. A later read retrieves retained bytes without reexecuting the command.");
         let (candidate, encoding, total) = render_prompt(&core, &ordinary_context, false)?;
         let extra = total.checked_sub(ordinary_total).ok_or_else(|| invalid("host command interface accounting"))?;
@@ -8348,6 +8417,15 @@ fn apply_writes(
             policy,
             qualifications: Vec::new(),
             retired: false,
+            // Bind attachment changes and the actual save's provenance even
+            // when the file bytes, path, author and policy remain identical.
+            // Proposal identity also binds response-local references before
+            // their immutable targets are resolved in the second pass.
+            save_context: Some(digest(&(
+                "native-file-save-context-v1", &prepared.request.id,
+                &prepared.prompt_sha256, &prepared.decision_scope,
+                p::proposed_file_revision(operation).unwrap(),
+            ))?),
         }
         .seal()?;
         let revision = record.revision.clone();
@@ -8399,6 +8477,8 @@ fn apply_writes(
             source,
             qualifications,
             qualification_handles,
+            citations,
+            citation_handles,
             ..
         } = operation.file_save().unwrap();
         let revision = bindings[&format!("{}{}", p::PROPOSED_OPERATION_PREFIX, id)].clone();
@@ -8409,8 +8489,13 @@ fn apply_writes(
         references.extend(input_files::resolve_output(prepared, qualification_handles)?);
         p::validate_attached_references(&references)?;
         let required = references.iter().map(file_reference).collect::<Result<Vec<_>>>()?;
+        let mut cited = citations.iter().map(|r| resolve(r, &bindings)).collect::<Result<Vec<_>>>()?;
+        cited.extend(input_files::resolve_output(prepared, citation_handles)?);
+        p::validate_attached_references(&cited)?;
+        let cited = cited.iter().map(file_reference).collect::<Result<Vec<_>>>()?;
         let mut lineage = prepared.sources.clone();
         lineage.extend(required.iter().cloned());
+        lineage.extend(cited.iter().cloned());
         let base = match operation {
             p::Operation::FileEdit { source, base_revision, .. } =>
                 Some(f::Reference::full(source, base_revision, f::Representation::Utf8)),
@@ -8421,6 +8506,7 @@ fn apply_writes(
         lineage.dedup();
         let mut exposure = prepared_exposure(prepared)?.clone();
         exposure.sources.extend(required.iter().cloned());
+        exposure.sources.extend(cited.iter().cloned());
         exposure.sources.extend(base);
         exposure.sources.sort();
         exposure.sources.dedup();
@@ -8441,22 +8527,27 @@ fn apply_writes(
                 "immutable file identity has different lineage",
             )?;
         }
-        if !required.is_empty() {
+        let policy = stored.record.policy.clone();
+        for (kind, disposition) in [
+            ("qualification", (!required.is_empty()).then_some(f::BindingDisposition::Qualify { required })),
+            ("citation", (!cited.is_empty()).then_some(f::BindingDisposition::Cite { references: cited })),
+        ] {
+            let Some(disposition) = disposition else { continue };
             let binding = f::AcceptedBinding {
                 id: format!(
-                    "qualification:{}",
+                    "{kind}:{}",
                     digest(&(prepared.request.id.as_str(), id))?
                 ),
                 revision: String::new(),
                 source: source.clone(),
-                file_revision: revision,
-                policy: stored.record.policy.clone(),
-                disposition: f::BindingDisposition::Qualify { required },
+                file_revision: revision.clone(),
+                policy: policy.clone(),
+                disposition,
             }
             .seal()?;
             require(
                 !state.accepted_bindings.iter().any(|b| b.id == binding.id),
-                "qualification binding identity conflict",
+                "file binding identity conflict",
             )?;
             state.accepted_bindings.push(binding);
         }
@@ -8966,7 +9057,7 @@ fn plan_response(
         &state, prepared, &decision.next_assets, &previous_focus.images, character_changed,
     )?;
     let provider_context = provider_continuation::select(
-        store, prepared, &decision.next_assets, previous_focus.provider_context.as_ref(),
+        store, &state, prepared, &decision.next_assets, previous_focus.provider_context.as_ref(),
         character_changed, &mut history_material.continuation,
     )?;
     check_replacement(
@@ -9028,6 +9119,7 @@ fn plan_response(
                 exposure: prepared_exposure(prepared)?.clone(),
             });
             focus.permit = matches!(decision.continuation, p::Continuation::Immediate { .. });
+            focus.explicit_resume_permit = false;
             focus.ordinary_continuation = matches!(
                 decision.continuation,
                 p::Continuation::Immediate { .. }
@@ -9036,8 +9128,8 @@ fn plan_response(
             );
         } else {
             // Complete this actual ordinary character transition with one fresh
-            // decision under the accepted character. Preparation consumes this
-            // permit; it does not rearm an elapsed timer or accept the fenced
+            // decision under the accepted character. Explicit reconsideration
+            // remains pending until that decision; it does not rearm an elapsed timer or accept the fenced
             // response's continuation. A further accepted character change needs
             // its own fresh decision. Initialization keeps its separate handover,
             // and every subsequent admission still checks current work controls.
@@ -9051,6 +9143,7 @@ fn plan_response(
                 prepared.character_revision.is_some() && previous_focus.ordinary_continuation;
         }
     }
+    character_development::adopt(&mut state, prepared, decision, &allowed, &proposals, character_changed, now)?;
     if !character_changed {
         affect::apply(&mut state, prepared, decision, now)?;
         maintenance::apply(&mut state, prepared, decision, &actions, now)?;
@@ -9078,6 +9171,7 @@ fn plan_response(
             None,
             Some(prepared.navigation),
             prepared.launch_step_allowance.as_ref(),
+            prepared.provider_preparation.as_ref().and_then(|audit| audit["transport_profile"].as_str()),
         )?;
         *planning_exposure = admitted_exposure;
         planning_exposure.include(&navigation_context_base.exposure);
@@ -9530,6 +9624,7 @@ fn plan_response(
         None,
         None,
         prepared.launch_step_allowance.as_ref(),
+        prepared.provider_preparation.as_ref().and_then(|audit| audit["transport_profile"].as_str()),
     )?;
     *planning_exposure = before_final_render;
     planning_exposure.include(&fitted.exposure);
@@ -9708,6 +9803,7 @@ fn plan_selection_repair(
                     Some(prepared.navigation),
                     Some(prepared.navigation),
                     prepared.launch_step_allowance.as_ref(),
+                    prepared.provider_preparation.as_ref().and_then(|audit| audit["transport_profile"].as_str()),
                 )
                 .is_ok();
                 if !fits {
@@ -9772,6 +9868,7 @@ fn plan_selection_repair(
         Some(prepared.navigation),
         Some(prepared.navigation),
         prepared.launch_step_allowance.as_ref(),
+        prepared.provider_preparation.as_ref().and_then(|audit| audit["transport_profile"].as_str()),
     )?;
     let reason = match render_with_history(
         &state,
@@ -9784,6 +9881,7 @@ fn plan_selection_repair(
         false,
         None,
         prepared.launch_step_allowance.as_ref(),
+        prepared.provider_preparation.as_ref().and_then(|audit| audit["transport_profile"].as_str()),
     ) {
         Ok(fitted) => {
             let focus = state
@@ -11248,7 +11346,7 @@ pub fn readiness() -> Value {
         "protected_closeout":"per-work control snapshots retain explicit pause and ending; application quotas do not freeze admission and physical storage failures remain possible",
         "qualification_bindings":"immutable file identities sealed before coherent exact-version bindings; persisted atomically",
         "synthetic":"explicit fixture transport only; no provider/model evidence",
-        "direct_provider":"exact route/account/model/effort/schema; one HTTPS Responses request without application transport quotas; runtime executes admitted tools locally; no provider-hosted tool calls, automatic transport retry or model fallback",
+        "direct_provider":"exact route/account/model/effort/schema; one HTTPS inference request without application transport quotas; runtime executes admitted native tools locally; ordinary OpenAI Platform calls also offer optional read-only provider web research with retained action and usage reports; no automatic transport retry or model fallback",
         "limits":["hard remote model context bounds unsupported","strict live guarantees are not established",
             "exact model availability requires verified operator configuration; no implicit model substitution","logical retention only; no physical hard bound",
             "tokens, billing, hidden provider inputs, remote retention and remote stop remain unverified",

@@ -3,12 +3,13 @@
 use super::*;
 use std::collections::HashMap;
 
+mod atoms;
 mod borrowed;
 mod manifests;
 mod packing;
 
-// This adapter applies only to a runtime ManagedRevision. FileRevision's public
-// wire format, content, and computed_revision tuple are deliberately unchanged.
+// This adapter applies only to a runtime ManagedRevision. Storage encoding must
+// preserve every declared FileRevision field and its computed identity.
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "f::FileRevision", deny_unknown_fields)]
 pub(super) struct StoredFileRevision {
@@ -22,6 +23,8 @@ pub(super) struct StoredFileRevision {
     policy: f::Policy,
     qualifications: Vec<f::Reference>,
     retired: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    save_context: Option<String>,
 }
 
 pub(super) mod shared_file_revision {
@@ -85,7 +88,7 @@ mod retained_bytes {
 const POOL: &str = "retained_exposures";
 const REFERENCE: &str = "retained_exposure";
 const DOMAIN: &str = "runtime-retained-exposure-v1";
-const POOL_VERSION: u32 = 2;
+const POOL_VERSION: u32 = 3;
 
 #[derive(Deserialize)]
 #[serde(remote = "State", deny_unknown_fields)]
@@ -93,7 +96,8 @@ struct ExpandedState {
     format: u32,
     config: Config,
     personas: BTreeMap<String, Persona>,
-    sources: BTreeMap<String, Source>,
+    #[serde(deserialize_with = "defer_records")]
+    sources: RetainedRecords<Source>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     work_guides: Option<work_guides::Catalog>,
     #[serde(default)]
@@ -102,10 +106,12 @@ struct ExpandedState {
     semantic_warnings: BTreeMap<String, warnings::SemanticWarning>,
     board: w::WorkBoard,
     work_meta: BTreeMap<String, WorkMeta>,
-    observations: BTreeMap<String, Observation>,
+    #[serde(deserialize_with = "defer_records")]
+    observations: RetainedRecords<Observation>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     image_captures: BTreeMap<String, std::sync::Arc<image_input::Capture>>,
-    messages: BTreeMap<String, Message>,
+    #[serde(deserialize_with = "defer_records")]
+    messages: RetainedRecords<Message>,
     local_deliveries: BTreeMap<String, Value>,
     interpretations: BTreeMap<String, Value>,
     #[serde(default)]
@@ -135,6 +141,21 @@ fn invalid_storage(message: &str) -> serde_json::Error {
     <serde_json::Error as serde::de::Error>::custom(message)
 }
 
+fn defer_records<'de, D: serde::Deserializer<'de>, T>(deserializer: D)
+    -> std::result::Result<RetainedRecords<T>, D::Error>
+{
+    serde::de::IgnoredAny::deserialize(deserializer)?;
+    Ok(RetainedRecords::default())
+}
+
+#[derive(Default)]
+pub(super) struct RecordCache {
+    sources: RetainedRecords<Source>,
+    observations: RetainedRecords<Observation>,
+    messages: RetainedRecords<Message>,
+    chunks: Vec<std::sync::Arc<retained_records::Chunk>>,
+}
+
 fn identity(value: &Value) -> serde_json::Result<String> {
     Ok(s::sha256_bytes(&serde_json::to_vec(&(DOMAIN, value))?))
 }
@@ -150,42 +171,61 @@ fn exposure_references(value: &Value) -> serde_json::Result<Option<HashMap<usize
     let Some(pool) = value.get(POOL) else {
         return Ok(None);
     };
-    let header = PoolHeader::deserialize(pool)?;
-    let _ = header.entries;
-    // Header deserialization already checks both named and positional struct
-    // forms. Borrow the entries from the form it actually accepted.
-    let entries = match pool {
-        Value::Array(fields) => fields.get(1),
-        _ => pool.get("entries"),
-    }
-    .and_then(Value::as_object)
-    .ok_or_else(|| invalid_storage("retained exposure entries unavailable"))?;
-    if !matches!(header.version, 1 | POOL_VERSION) || entries.is_empty() {
-        return Err(invalid_storage("unsupported retained exposure pool"));
-    }
-    for (key, exposure) in entries {
-        // Keep complete digest and typed-shape checks before resolving any use.
-        if &identity(exposure)? != key {
-            return Err(invalid_storage("retained exposure digest mismatch"));
+    let version = pool
+        .get("version")
+        .or_else(|| pool.as_array().and_then(|fields| fields.first()))
+        .and_then(Value::as_u64)
+        .ok_or_else(|| invalid_storage("retained exposure version unavailable"))?;
+    let mut references = HashMap::new();
+    let entries = if version == u64::from(POOL_VERSION) {
+        atoms::references(pool, &mut references)?
+    } else {
+        // Immutable earlier snapshots retain their original complete manifests.
+        let header = PoolHeader::deserialize(pool)?;
+        let _ = header.entries;
+        // Header deserialization already checks both named and positional struct
+        // forms. Borrow the entries from the form it actually accepted.
+        let entries = match pool {
+            Value::Array(fields) => fields.get(1),
+            _ => pool.get("entries"),
         }
-        Exposure::deserialize(exposure)?;
+        .and_then(Value::as_object)
+        .ok_or_else(|| invalid_storage("retained exposure entries unavailable"))?;
+        if !matches!(header.version, 1 | 2) || entries.is_empty() {
+            return Err(invalid_storage("unsupported retained exposure pool"));
+        }
+        for (key, exposure) in entries {
+            // Keep complete digest and typed-shape checks before resolving any use.
+            if &identity(exposure)? != key {
+                return Err(invalid_storage("retained exposure digest mismatch"));
+            }
+            Exposure::deserialize(exposure)?;
+        }
+        entries
+    };
+    if entries.is_empty() {
+        return Err(invalid_storage("empty retained exposure pool"));
     }
     let mut used = BTreeSet::new();
-    let mut references = HashMap::new();
-    manifests::visit(value, header.version, |exposure| {
-        if let Some(reference) = exposure.get(REFERENCE) {
-            let key = reference
-                .as_str()
-                .filter(|_| exposure.as_object().is_some_and(|o| o.len() == 1))
-                .ok_or_else(|| invalid_storage("invalid retained exposure reference"))?;
-            let retained = entries
-                .get(key)
-                .ok_or_else(|| invalid_storage("retained exposure absent"))?;
-            used.insert(key.to_owned());
-            references.insert(borrowed::location(exposure), retained);
-        }
-        Ok(())
-    })?;
+    manifests::visit(
+        value,
+        u32::try_from(version)
+            .map_err(|_| invalid_storage("unsupported retained exposure version"))?,
+        |exposure| {
+            if let Some(reference) = exposure.get(REFERENCE) {
+                let key = reference
+                    .as_str()
+                    .filter(|_| exposure.as_object().is_some_and(|o| o.len() == 1))
+                    .ok_or_else(|| invalid_storage("invalid retained exposure reference"))?;
+                let retained = entries
+                    .get(key)
+                    .ok_or_else(|| invalid_storage("retained exposure absent"))?;
+                used.insert(key.to_owned());
+                references.insert(borrowed::location(exposure), retained);
+            }
+            Ok(())
+        },
+    )?;
     if used.len() != entries.len() {
         return Err(invalid_storage("unreferenced retained exposure"));
     }
@@ -212,12 +252,29 @@ impl Serialize for State {
 /// Decode the borrowed stored body without cloning it or expanding a second
 /// JSON tree. Only the explicit typed Exposure locations can resolve pool entries.
 pub(super) fn decode(value: &Value) -> serde_json::Result<State> {
+    decode_cached(value, &mut RecordCache::default())
+}
+
+pub(super) fn decode_cached(value: &Value, cache: &mut RecordCache) -> serde_json::Result<State> {
     let references = phase_timing::measure("state.validate_exposure_pool", || {
         exposure_references(value)
     })?;
-    phase_timing::measure("state.deserialize_borrowed", || match references {
-        Some(references) => borrowed::deserialize(value, references),
-        None => ExpandedState::deserialize(value),
+    phase_timing::measure("state.deserialize_borrowed", || {
+        let decoder = borrowed::Decoder::new(value, references.unwrap_or_default());
+        let mut pool = retained_records::Decoder::new(value.get(retained_records::POOL), &cache.chunks)?;
+        let mut state = decoder.state()?;
+        state.sources = RetainedRecords::load(&value["sources"], "source", &cache.sources, &mut pool,
+            |record| decoder.record(record))?;
+        state.observations = RetainedRecords::load(&value["observations"], "observation", &cache.observations, &mut pool,
+            |record| decoder.record(record))?;
+        state.messages = RetainedRecords::load(&value["messages"], "message", &cache.messages, &mut pool,
+            |record| decoder.record(record))?;
+        let chunks = pool.finish()?;
+        // Publish the cache only after all records decode. Removed entries do
+        // not survive as an alternative current-state lookup.
+        *cache = RecordCache { sources: state.sources.clone(),
+            observations: state.observations.clone(), messages: state.messages.clone(), chunks };
+        Ok(state)
     })
 }
 

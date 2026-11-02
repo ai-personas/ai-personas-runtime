@@ -135,16 +135,7 @@ impl Viewer {
                         Response::Catalog(id, loader::scan(&root, hidden))
                     }
                     Request::Recorded(id, source) => Response::Catalog(id, loader::recorded(source)),
-                    Request::Load(id, source, cancel) => {
-                        let ext = extension(Path::new(&source.name()));
-                        let result = if let Some(route) = native_preview::route(&ext) {
-                            native_preview::prepare(&source, route, &cancel).map(|document| {
-                                let note = document.summary.clone();
-                                Decoded { body: Body::Native(document), note }
-                            })
-                        } else { loader::decode(&source, &cancel) };
-                        Response::Preview(id, result)
-                    },
+                    Request::Load(id, source, cancel) => Response::Preview(id, loader::decode(&source, &cancel)),
                     Request::NativePage(id, document, page, cancel) => Response::NativePage(id, native_preview::page(&document, page, &cancel)),
                 };
                 if responses.send(response).is_err() {

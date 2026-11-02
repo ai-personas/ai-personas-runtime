@@ -175,6 +175,23 @@ impl App {
                 }
             });
             ui.weak("These descriptions express character and modeled state. They are not measured personality scores or evidence of capability.");
+            let development = &v["character_development"];
+            if development["status"] == "recorded" {
+                ui.add_space(8.0);
+                ui.label(format!(
+                    "Since tracking began: {} decisions · {} decisions changed fragments · {} character updates",
+                    development["ordinary_decisions"], development["accepted_fragment_revision_decisions"],
+                    development["accepted_character_changes"]
+                ));
+                ui.label(format!("{} consecutive decisions chose no fragment change.",
+                    development["consecutive_no_change_choices"]));
+                let choice = &development["last_choice"];
+                ui.collapsing("Latest maintenance choice", |ui| {
+                    ui.label(format!("{} · {}", s(choice, "invocation"), s(choice, "work")));
+                    theme::message_body(ui, s(&choice["authored_maintenance"], "reason"));
+                });
+                ui.weak("Initial authorship is excluded. Revisions alone do not prove improvement, and unchanged character can be appropriate.");
+            }
             for (key, title, vocabulary) in [
                 ("ocean", "Stable tendencies", "OCEAN"),
                 ("vad", "Baseline affect", "MODELED VAD"),
@@ -223,6 +240,7 @@ impl App {
             "SAVED SETTINGS",
         );
         theme::property(ui, "Model", s(selection, "model"));
+        theme::property(ui, "Provider", s(selection, "provider"));
         theme::property(ui, "Reasoning", s(selection, "effort"));
         if !v["creation_origin"].is_null() {
             ui.collapsing("Creation origin", |ui| json_view(ui, &v["creation_origin"]));

@@ -53,6 +53,10 @@ pub struct Snapshot {
     /// actual control change. Already sealed actions retain their exact scope.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     independent_peer_recovery: bool,
+    /// Independent work binds this actor's accepted commitments, not unrelated
+    /// peers' voluntary arrangements. Earlier admissions retain their own scope.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    independent_peer_arrangements: bool,
 }
 
 pub(super) fn seal(state: &State, prepared: &Prepared) -> Result<Option<Snapshot>> {
@@ -67,7 +71,8 @@ pub(super) fn seal(state: &State, prepared: &Prepared) -> Result<Option<Snapshot
         prepared.request.mode == Mode::Ordinary,
         prepared.request.mode == Mode::Ordinary,
         prepared.request.mode == Mode::Ordinary,
-        prepared.request.mode == Mode::Ordinary, false)?))
+        prepared.request.mode == Mode::Ordinary, false,
+        prepared.request.mode == Mode::Ordinary)?))
 }
 
 /// Only new admissions declare task-local focus dependencies. An older pending
@@ -91,6 +96,7 @@ fn snapshot(
     independent_assets: bool,
     independent_assessments: bool,
     independent_peer_recovery: bool,
+    independent_peer_arrangements: bool,
 ) -> Result<Snapshot> {
     let actor = &prepared.request.persona;
     let work_id = &prepared.request.work;
@@ -198,6 +204,23 @@ fn snapshot(
         if independent_messages {
             exclude_peer_message_waits(&mut work, &mut metadata, actor);
         }
+        if independent_peer_arrangements {
+            // An unrelated participant volunteering for an outcome does not
+            // revoke this actor's tools or unchanged commitment. These hashes
+            // are used only for responses without shared-work commands. Keep
+            // the actor's exact acceptance, membership, mandate, dependencies,
+            // controls and supplied lineage; apply its response to current state.
+            work.arrangement_proposals.clear();
+            work.arrangements.clear();
+            work.current_arrangement = None;
+            work.acceptances.retain(|_, acceptance| acceptance.by.persona.0 == *actor);
+            for (peer, participant) in &mut work.participants {
+                if peer.0 != *actor {
+                    participant.acceptance = None;
+                }
+            }
+            metadata.arrangement_origins = Default::default();
+        }
         Some(IndependentWork {
             work_sha256: digest(&work)?,
             metadata_sha256: digest(&metadata)?,
@@ -239,6 +262,7 @@ fn snapshot(
         independent_assets,
         independent_assessments,
         independent_peer_recovery,
+        independent_peer_arrangements,
     })
 }
 
@@ -249,6 +273,7 @@ fn peer_lease_retirement(event: &Value, actor: &str) -> bool {
     event["persona"].as_str().is_some_and(|peer| peer != actor)
         && matches!(event["kind"].as_str(), Some(
             "runtime_stopped_prelaunch_lease_retired" | "runtime_stopped_response_lease_retired"
+            | "runtime_stopped_completed_rejection_lease_retired"
             | "terminal_provider_failure_lease_retired" | "response_only_transport_failure_lease_retired"
             | "response_only_http_failure_lease_retired" | "response_only_service_error_lease_retired"
             | "provider_context_rejection_lease_retired" | "completed_rejection_lease_retired"
@@ -437,7 +462,8 @@ pub(super) fn seal_intents(
                 prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_assessments)),
         prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_messages),
         prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_assets),
-        prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_assessments), true)?;
+        prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_assessments), true,
+        prepared.decision_scope.as_ref().is_some_and(|scope| scope.independent_peer_arrangements))?;
     for intent in intents {
         let operation = intent.body["operation"]
             .as_str()
@@ -496,7 +522,8 @@ pub(super) fn require_intent_current(
         admitted.defer_incoming_peer_messages, admitted.defer_incoming_child_messages,
         admitted.independent_work.is_some(),
         admitted.independent_messages, admitted.independent_assets,
-        admitted.independent_assessments, admitted.independent_peer_recovery)?;
+        admitted.independent_assessments, admitted.independent_peer_recovery,
+        admitted.independent_peer_arrangements)?;
     for source in admitted.saved_sources.keys() {
         current
             .saved_sources
@@ -590,7 +617,8 @@ pub(super) fn require_current(
         admitted.defer_incoming_peer_messages, admitted.defer_incoming_child_messages,
         admitted.independent_work.is_some(),
         admitted.independent_messages, admitted.independent_assets,
-        admitted.independent_assessments, admitted.independent_peer_recovery)?;
+        admitted.independent_assessments, admitted.independent_peer_recovery,
+        admitted.independent_peer_arrangements)?;
     require_match(
         admitted, &current, decision.is_some_and(|decision|
             independent_operations(decision, admitted.independent_messages, admitted.independent_assets,

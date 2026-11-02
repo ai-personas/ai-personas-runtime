@@ -380,6 +380,7 @@ fn create_owned(
             provenance,
             model: None,
             effort: None,
+            provider: None,
         },
     );
     let provider = saved.execution_provider()?;

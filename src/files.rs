@@ -220,15 +220,22 @@ pub struct FileRevision {
     pub policy: Policy,
     pub qualifications: Vec<Reference>,
     pub retired: bool,
+    /// Exact native save proposal and admitted-input commitment, when present.
+    /// The bytes alone do not identify separately accepted citation/qualification
+    /// attachments or the provenance of a later save of unchanged bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub save_context: Option<String>,
 }
 
 impl FileRevision {
     /// SHA-256 of compact serde_json serialization of this ordered tuple:
     /// (profile, source, path, scope, bytes, author, policy, qualifications, retired).
     /// Sets have BTreeSet order; qualification order is preserved. The only omitted
-    /// record field is revision itself. All metadata therefore changes identity.
+    /// record field is revision itself. A native save additionally binds this
+    /// content identity to save_context; context-free imported records retain
+    /// their content identity. Neither hash by itself proves native acceptance.
     pub fn computed_revision(&self) -> Result<String, FilesError> {
-        hash_json(&(
+        let content = hash_json(&(
             FILE_HASH_PROFILE,
             &self.source,
             &self.path,
@@ -238,7 +245,11 @@ impl FileRevision {
             &self.policy,
             &self.qualifications,
             self.retired,
-        ))
+        ))?;
+        match &self.save_context {
+            Some(context) => hash_json(&("persona-file-save-sha256-v1", content, context)),
+            None => Ok(content),
+        }
     }
 
     /// Convenience for producing a candidate record. Sealing is not acceptance,
@@ -408,6 +419,9 @@ pub struct AcceptedBinding {
 pub enum BindingDisposition {
     /// Applies to every representation/range of the exact subject revision.
     Qualify { required: Vec<Reference> },
+    /// Supporting-source citations, not mandatory context dependencies. Exact
+    /// references remain visible and readable without loading their bodies.
+    Cite { references: Vec<Reference> },
     /// Authored retirement annotation; exact retained bytes remain available.
     Retired { reason: String },
     /// Authored applicability judgment; retained as context, not an access gate.
@@ -520,6 +534,7 @@ impl Corpus {
             if !valid_identifier(&record.source)
                 || !valid_identifier(&record.author)
                 || !valid_digest(&record.revision)
+                || record.save_context.as_ref().is_some_and(|context| !valid_digest(context))
                 || !record.policy.valid()
             {
                 return Err(FilesError::InvalidRecord {
@@ -677,13 +692,14 @@ impl Corpus {
                 });
             }
             match &binding.disposition {
-                BindingDisposition::Qualify { required } => {
+                BindingDisposition::Qualify { required }
+                | BindingDisposition::Cite { references: required } => {
                     if required.is_empty()
                         || !required.iter().all(Reference::structurally_valid)
                     {
                         return Err(FilesError::InvalidRecord {
                             index,
-                            reason: "invalid required accompaniment",
+                            reason: "invalid binding references",
                         });
                     }
                 }

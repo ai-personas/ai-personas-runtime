@@ -14,7 +14,7 @@ impl App {
             .show(ctx, |ui| {
                 egui::MenuBar::new().ui(ui, |ui| {
                     theme::glyph(ui, Icon::People, theme::ACCENT);
-                    ui.label(RichText::new("PERSONAS").size(12.0).strong());
+                    ui.label(RichText::new("PERSONAS").size(theme::BODY_TEXT).strong());
                     ui.add_space(10.0);
                     ui.menu_button("Workspaces", |ui| {
                         if ui
@@ -103,7 +103,7 @@ impl App {
                             }
                         });
                         if ui
-                            .selectable_label(self.tab == 1, "Produced files")
+                            .selectable_label(self.tab == 1, "Files")
                             .clicked()
                         {
                             self.tab = 1;
@@ -202,7 +202,7 @@ impl App {
                     } else {
                         "Ready"
                     };
-                    ui.label(RichText::new(status).size(11.0));
+                    ui.label(RichText::new(status).size(theme::SMALL_TEXT));
                     if !self.choose_progress && ui.available_width() > 570.0 {
                         ui.separator();
                         let name = self.view.root.file_name().unwrap_or_default().to_string_lossy();
@@ -222,13 +222,13 @@ impl App {
                                 since.elapsed().as_secs() % 60
                             ))
                             .monospace()
-                            .size(11.0),
+                            .size(theme::SMALL_TEXT),
                         );
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(
                             RichText::new(format!("Personas {}", env!("CARGO_PKG_VERSION")))
-                                .size(10.5)
+                                .size(theme::SMALL_TEXT)
                                 .color(p.muted),
                         );
                         if ui.available_width() > 260.0 {
@@ -239,7 +239,7 @@ impl App {
                                 } else {
                                     "Drag panel borders to resize"
                                 })
-                                .size(10.5)
+                                .size(theme::SMALL_TEXT)
                                 .color(p.muted),
                             );
                         }
@@ -339,7 +339,9 @@ impl App {
                             }
                         }
                         if works.is_empty() {
-                            ui.label(RichText::new("No tasks yet").weak());
+                            ui.label(RichText::new(if self.view.inspection.is_null() {
+                                "Loading workspace…"
+                            } else { "No tasks yet" }).weak());
                         } else if !works.iter().any(|w| {
                             filter.is_empty()
                                 || s(w, "need").to_lowercase().contains(&filter)
@@ -391,7 +393,9 @@ impl App {
             .show(ui, |ui| {
                 for p in participants {
                     let selected = p["persona"].as_str() == self.inspected_persona.as_deref();
-                    let color = if !p["active_invocation"].is_null() {
+                    let color = if call_in_progress(p) || attempt_in_progress(&p["other_work_attempt"])
+                        || !models_at(p, "pending_host_commands").is_empty()
+                        || !models_at(p, "other_work_host_commands").is_empty() {
                         theme::GREEN
                     } else {
                         theme::palette(ui).muted
@@ -425,9 +429,9 @@ impl App {
             .id_salt("persona-properties")
             .show(ui, |ui| {
                 ui.add_space(6.0);
-                ui.label(RichText::new(s(persona, "label")).size(15.0).strong());
+                ui.label(RichText::new(s(persona, "label")).size(18.0).strong());
                 ui.label(RichText::new(s(persona, "persona")).small().weak());
-                let continuation = theme::continuation_label(s(persona, "continuation"));
+                let continuation = participant_status(persona);
                 theme::badge(
                     ui,
                     &continuation.to_uppercase(),
@@ -443,12 +447,22 @@ impl App {
                         let selection = &self.view.inspection["settings"]["persona_models"]
                             [s(persona, "persona")];
                         theme::property(ui, "Model", s(selection, "model"));
+                        theme::property(ui, "Provider", s(selection, "provider"));
                         theme::property(ui, "Reasoning", s(selection, "effort"));
                     });
                 egui::CollapsingHeader::new("Execution")
                     .default_open(true)
                     .show(ui, |ui| {
                         theme::property(ui, "State", &continuation);
+                        theme::property(ui, "Last decision", theme::continuation_label(s(persona, "continuation")));
+                        let other = &persona["other_work_attempt"];
+                        if !other.is_null() {
+                            theme::property(ui, "Other task", s(other, "work"));
+                            theme::property(ui, "Other call", s(other, "state"));
+                            if ui.add_enabled(!self.busy, egui::Button::new("Open other task")).clicked() {
+                                self.open_task(s(other, "work").into(), 0, Some(s(persona, "persona").into()));
+                            }
+                        }
                         if !persona["active_invocation"].is_null() {
                             theme::property(ui, "Call", s(&persona["active_invocation"], "state"));
                         }
@@ -456,6 +470,10 @@ impl App {
                             ui.colored_label(theme::ACCENT, format!("Needs attention: {held}"));
                         }
                         for command in models_at(persona, "pending_host_commands") {
+                            theme::property(ui, s(command, "operation"), s(command, "state"));
+                        }
+                        for command in models_at(persona, "other_work_host_commands") {
+                            theme::property(ui, "Tool task", s(command, "work"));
                             theme::property(ui, s(command, "operation"), s(command, "state"));
                         }
                         if persona["resume_candidate"] == true
@@ -489,6 +507,14 @@ impl App {
             });
     }
     pub(super) fn workspace(&mut self, ui: &mut Ui) {
+        if self.view.inspection.is_null() {
+            egui::Frame::new().inner_margin(12).show(ui, |ui| {
+                self.banner(ui);
+                ui.heading("Loading workspace…");
+                ui.label("Reading saved tasks and progress.");
+            });
+            return;
+        }
         if self.tab == 6 {
             self.personas_workspace(ui);
             return;
@@ -533,7 +559,7 @@ impl App {
                         } else {
                             "Task workspace"
                         })
-                        .size(13.0)
+                        .size(theme::BODY_TEXT)
                         .strong(),
                     );
                     theme::badge(
@@ -562,8 +588,9 @@ impl App {
                         if ui
                             .add_enabled(
                                 !self.busy && self.view.running.is_none(),
-                                theme::primary("Resume work"),
+                                theme::primary("Unpause task"),
                             )
+                            .on_hover_text("Lift the pause, then choose Start / Continue to run eligible personas.")
                             .clicked()
                         {
                             self.send(Action::Control {
@@ -696,7 +723,7 @@ impl App {
                 let wide = ui.available_width() > 370.0;
                 ui.horizontal(|ui| {
                     theme::glyph(ui, Icon::Sessions, p.muted);
-                    ui.label(RichText::new("Session history").size(12.0).strong());
+                    ui.label(RichText::new("Session history").size(theme::BODY_TEXT).strong());
                     if wide {
                         ui.label(
                             RichText::new(format!("{} retained", sessions.len()))

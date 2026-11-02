@@ -51,7 +51,7 @@ impl App {
                     .striped(true)
                     .spacing([12.0, 10.0])
                     .show(ui, |ui| {
-                        ui.strong("Task / current phase");
+                        ui.add_sized([task_width, 28.0], egui::Label::new(RichText::new("Task / current phase").strong()));
                         for (id, label) in &people {
                             if ui
                                 .add_enabled(!self.busy, egui::Button::new(label).min_size(egui::vec2(person_width, 24.0)))
@@ -101,12 +101,7 @@ impl App {
                                 if let Some(person) =
                                     participants.iter().find(|p| s(p, "persona") == id)
                                 {
-                                    let label = if !person["active_invocation"].is_null() {
-                                        "Working".into()
-                                    } else {
-                                        theme::continuation_label(s(person, "continuation"))
-                                            .to_owned()
-                                    };
+                                    let label = participant_status(person);
                                     if ui
                                         .add_enabled(!self.busy, egui::Button::new(label).min_size(egui::vec2(person_width, 26.0)))
                                         .on_hover_text("Open this task and inspect the participant")
@@ -124,7 +119,7 @@ impl App {
                     });
             });
         ui.add_space(10.0);
-        ui.weak("Participation and execution state are shown as recorded. Open tasks and stopped personas can coexist with delivered results.");
+        ui.weak("Participation is per task. A persona can finish a contribution here and continue on related work. See the current activity and result records below.");
         ui.add_space(16.0);
         self.overview_detail(ui);
         if let Some(id) = selected {
@@ -156,7 +151,7 @@ impl App {
             let participants = models_at(&work, "participants");
             let working = participants
                 .iter()
-                .filter(|p| !p["active_invocation"].is_null())
+                .filter(|p| call_in_progress(p))
                 .count();
             ui.weak(format!(
                 "{} participants · {working} calls in progress",
@@ -172,13 +167,36 @@ impl App {
                     self.conversation_inputs = false;
                 }
             }
-            for (tab, label) in [(1, "Produced files"), (2, "Questions"), (3, "Activity")] {
+            for (tab, label) in [(1, "Files"), (2, "Questions"), (3, "Activity")] {
                 if ui.button(label).clicked() {
                     self.tab = tab;
                 }
             }
         });
         ui.add_space(10.0);
+        let related: Vec<_> = models_at(&self.view.inspection, "works").iter()
+            .filter(|child| child["parent_work"] == work["id"]).cloned().collect();
+        if let Some(parent) = work["parent_work"].as_str() {
+            if ui.add_enabled(!self.busy, egui::Button::new(format!("Open parent task · {parent}"))).clicked() {
+                self.open_task(parent.into(), 5, None);
+            }
+        }
+        if !related.is_empty() {
+            theme::header(ui, Icon::Task, "Related work requested by personas", &related.len().to_string());
+            for child in related {
+                ui.horizontal_wrapped(|ui| {
+                    if ui.add_enabled(!self.busy, egui::Button::new(short(s(&child, "need"), 110)).wrap())
+                        .on_hover_text(s(&child, "need")).clicked() {
+                        self.open_task(s(&child, "id").into(), 5, None);
+                    }
+                    ui.weak(s(&child, "phase"));
+                    for person in models_at(&child, "participants") {
+                        ui.label(format!("{}: {}", s(person, "label"), participant_status(person)));
+                    }
+                });
+            }
+            ui.add_space(10.0);
+        }
         if self.view.result["work_id"].as_str() != Some(s(&work, "id")) {
             ui.weak("Task details are not available in this inspection.");
             return;
@@ -263,7 +281,8 @@ impl App {
     }
 
     fn overview_replies(&mut self, ui: &mut Ui) {
-        let replies = models_at(&self.view.result, "messages").to_vec();
+        let result = self.view.result.clone();
+        let replies = models_at(&result, "messages");
         theme::header(
             ui,
             Icon::Conversation,
@@ -277,7 +296,7 @@ impl App {
                 if replies.is_empty() {
                     ui.weak("No replies to you are recorded for this task.");
                 }
-                for reply in &replies {
+                for reply in replies {
                     egui::Frame::new()
                         .fill(theme::palette(ui).panel)
                         .inner_margin(10)
@@ -318,11 +337,11 @@ impl App {
     pub(super) fn conversation(&mut self, ui: &mut Ui) {
         let work = self.view.selected.clone().unwrap_or_default();
         if self.view.conversation["work"].as_str() != Some(&work) {
-            if !self.busy && self.error.is_none() {
+            if !self.busy && !self.view.refreshing && self.error.is_none() {
                 self.send(Action::Conversation(work));
             }
-            if self.busy {
-                ui.spinner();
+            if self.busy || self.view.refreshing {
+                ui.weak("Loading conversation…");
             }
             if self.error.is_some() && ui.button("Retry conversation").clicked() {
                 self.error = None;
@@ -454,7 +473,6 @@ impl App {
                                 .to_lowercase()
                                 .contains(&query))
                 })
-                .cloned()
                 .collect();
         ui.separator();
         if self.conversation_mode == 0 {
@@ -507,7 +525,7 @@ impl App {
             }
             let begin = (self.conversation_page * PAGE).min(messages.len());
             let end = (begin + PAGE).min(messages.len());
-            self.messages(ui, &messages[begin..end]);
+            self.messages(ui, messages[begin..end].iter().copied());
         } else {
             theme::header(
                 ui,
@@ -658,9 +676,9 @@ impl App {
         let width = ui.available_width().max(220.0);
         let compact = width < 600.0;
         let node_size = if compact {
-            egui::vec2(90.0, 32.0)
+            egui::vec2(116.0, 36.0)
         } else {
-            egui::vec2(112.0, 36.0)
+            egui::vec2(140.0, 40.0)
         };
         let height = if ui.ctx().content_rect().height() < 700.0 {
             220.0
@@ -710,7 +728,7 @@ impl App {
             let middle = (start + end.to_vec2()) * 0.25 + control.to_vec2() * 0.5;
             let hit = (!compact).then(|| {
                 ui.interact(
-                    egui::Rect::from_center_size(middle, egui::vec2(24.0, 18.0)),
+                    egui::Rect::from_center_size(middle, egui::vec2(32.0, 24.0)),
                     ui.id().with(("connection", from, to)),
                     egui::Sense::click(),
                 )
@@ -740,7 +758,7 @@ impl App {
                     middle,
                     egui::Align2::CENTER_CENTER,
                     count,
-                    egui::FontId::monospace(10.0),
+                    egui::FontId::monospace(theme::MONO_TEXT),
                     colors.text,
                 );
                 if hit.clicked() {
@@ -780,7 +798,7 @@ impl App {
                 node.center(),
                 egui::Align2::CENTER_CENTER,
                 short(&label, if compact { 12 } else { 15 }),
-                egui::FontId::proportional(12.0),
+                egui::FontId::proportional(theme::BODY_TEXT),
                 colors.text,
             );
             if response.clicked() {

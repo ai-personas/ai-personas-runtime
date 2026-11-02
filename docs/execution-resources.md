@@ -94,6 +94,14 @@ actual accounting class in the same transaction. Exact identities, immutable
 revisions, complete-response validation and execution ownership still preserve
 record consistency.
 
+Within one SQLite transaction, admission, dependency and runtime-control checks
+can share the same fully decoded current object. Staging an object replacement
+invalidates that entry, including an earlier missing-object lookup. The cache
+ends with the transaction; it cannot carry an old head into a later transaction
+or survive a rollback. Complete canonical persistence, exact fingerprints,
+revision checks and accounting remain unchanged. This avoids repeated decoding
+of large state without reducing the evidence checked or the context supplied.
+
 Invocation, intent and reservation histories append every valid lifecycle
 receipt without a fixed event-count cap. Their initial slot counts remain
 accounting estimates. Store reads complete controlling metadata without a fixed
@@ -384,6 +392,45 @@ The capacity view reports null maxima and quota enforcement off. These legacy
 allocation operations are not prerequisites for ordinary execution, and they
 preserve existing consumption and immutable data.
 
+Runtime state shares identical source references and scoped policies within its
+retained provenance manifests. Version 3 stores each distinct typed entry once
+and uses indexes inside those manifests. Decoding validates the tables, manifest
+digests and every index before resolving them. Source identities, reference order,
+policy contents and native file bytes are unchanged. Authored JSON is never
+interpreted as a storage index. Earlier immutable snapshots retain their recorded
+encoding. This reduces repeated storage and processing; it removes no history,
+selects no persona context and establishes no improvement in work quality.
+
+Sources, observations and messages use independently encoded retained records
+inside the runtime head. Each encoding identifies the complete typed JSON by
+kind, original byte length and SHA-256, with ordered indexes into shared byte
+chunks. Content-based boundaries allow identical historical material in different
+records to share bytes. The chunks use base64; immutable revision compression
+can still exploit repetition across their contents. Block sizes control this
+encoding only and impose no record, file, history or work limit. Decoding checks
+every index, actual reconstructed length, digest and typed content. A declared
+length is never used as an allocation request. Duplicate, missing, malformed or
+unused chunks fail the read. These encodings are storage details; native reads
+and persona contexts still receive the original contents.
+Inline typed records remain readable, including the public record-map form and
+existing snapshots. Older immutable revisions are not rewritten.
+
+Snapshots share these records until mutable access copies the affected record
+and invalidates its saved encoding. A running Runtime can reuse a verified decode
+only when the next freshly read head contains exactly the same ordered encoded
+bytes and header. Chunk indexes can change between snapshots; matching an index,
+record ID or digest alone is insufficient. Changed records
+are decoded again; missing, malformed or mismatched records fail the read.
+The cache retains only records in its latest successfully decoded state, and
+provides neither mutation authority nor an alternative current-head lookup.
+
+Every remaining typed provenance manifest uses the shared reference tables,
+including manifests that appear only once: different manifests can contain the
+same large sets of source references. A cold process still loads the retained
+record collection, and current-state rendering still performs its normal checks.
+This storage optimization does not select context, summarize history, revise an
+artifact, reset usage, or establish useful autonomous work.
+
 The selected Codex authentication route has no application startup, I/O or
 acquisition timer; JSON-RPC frame, notification and stderr quotas are removed.
 Credential parsing has no token, decoded-payload or account-ID byte limit. The
@@ -552,7 +599,8 @@ its work scan. Participant checks and the chosen call's exclusivity requirement
 reuse that snapshot. The accumulated cursor update binds its exact runtime head;
 an intervening state change rejects the update, and provider preparation still
 validates current state independently. Retained history is neither omitted nor
-truncated to reduce processing. No snapshot cache survives the pass.
+truncated to reduce processing. This scan snapshot does not survive the pass;
+the Runtime's retained-record cache still validates against each newly read head.
 `last_foreground_scan` retains the exact basis and chosen candidate, while the
 scheduler's `last` entries cover the complete committed pass. Selection itself
 does not establish admission, model execution or responsibility acceptance.

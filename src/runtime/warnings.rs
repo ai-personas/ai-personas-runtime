@@ -167,7 +167,8 @@ fn trace_confidentiality<const RETAIN: bool>(state: &State, input: &Exposure) ->
                     result.policies.push(restriction);
                 }
             }
-            if let f::BindingDisposition::Qualify { required } = &binding.disposition {
+            if let f::BindingDisposition::Qualify { required }
+                | f::BindingDisposition::Cite { references: required } = &binding.disposition {
                 pending.extend(required.iter().cloned());
             }
         }
@@ -432,6 +433,7 @@ fn create_marker(
         policy: policy.clone(),
         qualifications: Vec::new(),
         retired: false,
+        save_context: None,
     }.seal()?;
     let reference = record.reference(f::Representation::Utf8);
     state.sources.insert(

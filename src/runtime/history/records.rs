@@ -4,7 +4,7 @@
 use super::*;
 
 pub(crate) const INTERFACE: &str = "retained-record-history-v2";
-const DECISION_PROJECTION: &str = "authored-decision-qualifications-v2";
+const DECISION_PROJECTION: &str = "authored-decision-input-qualifications-v3";
 
 fn query_identity(record_kind: p::HistoryRecordKind, mode: &f::SearchMode) -> Result<String> {
     // v2 includes other personas' retained records. Earlier cursor membership
@@ -21,22 +21,52 @@ fn query_identity(record_kind: p::HistoryRecordKind, mode: &f::SearchMode) -> Re
 
 #[derive(Default)]
 pub(crate) struct Material {
-    archives: BTreeMap<String, (s::DecisionRecord, s::StoredObject)>,
+    archives: BTreeMap<String, Archive>,
     pub(super) recent_decision: Option<s::DecisionRecord>,
     pub(crate) requested_decisions: BTreeMap<String, s::DecisionRecord>,
     pub(crate) continuation: provider_continuation::Material,
 }
+
+#[derive(Clone, Serialize)]
+struct Archive {
+    proof: s::DecisionRecord,
+    object: s::StoredObject,
+    input_sources: Option<Vec<f::Reference>>,
+}
+
+fn input_unavailable(material: &Material, reference: &p::HistoryRecordReference) -> bool {
+    matches!(reference, p::HistoryRecordReference::AdoptedDecision { invocation_id, .. }
+        if material.archives.get(invocation_id).is_some_and(|archive| archive.input_sources.is_none()))
+}
+
+const INPUT_UNAVAILABLE: &str = "The original admitted input could not be verified, so the required qualifications for this historical Decision cannot be established. Its authored archive is retained, but the complete body is unavailable in this projection.";
+
 impl Material {
-    fn insert(&mut self, entries: Vec<(s::DecisionRecord, s::StoredObject)>) -> bool {
+    fn insert(&mut self, entries: Vec<Archive>) -> bool {
         let mut next = self.archives.clone();
-        for (proof, object) in entries {
-            next.insert(proof.invocation_id.clone(), (proof, object));
+        for entry in entries {
+            next.insert(entry.proof.invocation_id.clone(), entry);
         }
         if bounded(&next, INPUT_LIMIT).is_none() {
             return false;
         }
         self.archives = next;
         true
+    }
+
+    fn load_archives(
+        store: &mut s::Store,
+        state: &State,
+        entries: Vec<(s::DecisionRecord, s::StoredObject)>,
+        include_inputs: bool,
+    ) -> Self {
+        let archives = entries.into_iter().map(|(proof, object)| {
+            let input_sources = include_inputs.then(|| super::decision_inputs::load(
+                state, &proof, &object, |id| Ok(store.trusted_host().invocation(id)?),
+            ).ok()).flatten();
+            (proof.invocation_id.clone(), Archive { proof, object, input_sources })
+        }).collect();
+        Self { archives, ..Self::default() }
     }
 
     pub(crate) fn pending(
@@ -114,13 +144,7 @@ impl Material {
             .into_iter()
             .collect::<Vec<_>>();
         if let Ok(Some(entries)) = store.history_archives(Some(&ids)) {
-            let batch = Self {
-                archives: entries
-                    .into_iter()
-                    .map(|(proof, object)| (proof.invocation_id.clone(), (proof, object)))
-                    .collect(),
-                ..Self::default()
-            };
+            let batch = Self::load_archives(store, state, entries, true);
             let permitted = references
                 .iter()
                 .filter_map(|reference| {
@@ -265,7 +289,8 @@ fn decision_record(
     permissions: &Permissions<'_>,
     full: bool,
 ) -> Option<Record> {
-    let (proof, object) = material.archives.get(id)?;
+    let retained = material.archives.get(id)?;
+    let (proof, object) = (&retained.proof, &retained.object);
     let reference = object.exact_ref().ok()?;
     if proof.invocation_id != id
         || object.id != archive_id(id)
@@ -296,8 +321,8 @@ fn decision_record(
     if s::sha256_bytes(authored.as_bytes()) != archive.response_hash {
         return None;
     }
-    let parsed = p::parse_decision(authored.as_bytes()).ok()?;
-    if serde_json::to_value(parsed).ok()? != serde_json::to_value(&archive.response).ok()? {
+    let parsed = p::parse_recorded_decision(authored.as_bytes()).ok()?;
+    if !p::matches_recorded_decision(&parsed, &archive.response) {
         return None;
     }
     let typed = p::HistoryRecordReference::AdoptedDecision {
@@ -311,16 +336,16 @@ fn decision_record(
         "record_type":"adopted_authored_decision", "operation_dispositions":"unavailable_original_disclosure_provenance"});
     // Prepared exposure covers authored content, not arbitrary later host/provider
     // diagnostics. Do not promote authored intentions to executed operations.
-    // Original source ancestry continues to govern permissions above. It does
-    // not request every ancestor's body. Only its explicit required caveats
-    // accompany the exact authored Decision, with transitive closure and
-    // current bindings still enforced by assemble. No archive is rewritten.
+    // Original source ancestry continues to govern integrity above. Caveats
+    // accompany actual admitted input sources, not every provenance ancestor.
+    // The complete original request is retained privately, not copied here.
+    // Current bindings and transitive caveats still apply. No archive changes.
     // A metadata-only descriptor keeps the original references for reservation;
     // resolve qualification metadata only after reserve_projection succeeds.
     let roots = if full {
-        corpus.required_qualifications(&archive.exposure.as_ref()?.sources)?
+        corpus.required_qualifications(retained.input_sources.as_ref()?)?
     } else {
-        archive.exposure.as_ref()?.sources.clone()
+        retained.input_sources.clone().unwrap_or_default()
     };
     let body = if full {
         let accompaniment = if roots.is_empty() {
@@ -413,7 +438,11 @@ pub(crate) fn export_projection(
     let mut material = Material::default();
     if let p::HistoryRecordReference::AdoptedDecision { invocation_id, archive_id, .. } = reference {
         if let Some(object) = records.object(archive_id)? {
-            material.archives.insert(invocation_id.clone(), (records.decision(invocation_id)?, object));
+            let proof = records.decision(invocation_id)?;
+            let input_sources = super::decision_inputs::load(state, &proof, &object,
+                |id| records.invocation(id)?.ok_or_else(|| held("historical Decision input unavailable")),
+            ).ok();
+            material.archives.insert(invocation_id.clone(), Archive { proof, object, input_sources });
         }
     }
     let permissions = Permissions::new(state, a)?;
@@ -428,6 +457,7 @@ pub(crate) fn export_projection(
         None => json!({
             "profile":INTERFACE,"status":"unavailable","body_supplied":false,
             "reference":reference,"historical_record":null,
+            "input_unavailable_reason":input_unavailable(&material, reference).then_some(INPUT_UNAVAILABLE),
             "historical_only":true,"operative_evidence_or_event":false,
         }),
     })
@@ -567,6 +597,9 @@ pub(crate) fn supply(
         wrapper["payload"]["status"] = json!("unavailable");
         wrapper["payload"]["body_supplied"] = json!(false);
         wrapper["payload"]["record"] = Value::Null;
+        if input_unavailable(material, &reference) {
+            wrapper["payload"]["input_unavailable_reason"] = json!(INPUT_UNAVAILABLE);
+        }
         return Ok((wrapper, exposure, Vec::new(), Vec::new()));
     };
     let recovery = state.personas.get(&receipt.actor)
@@ -1037,15 +1070,9 @@ pub(crate) fn apply(
             } else if let Some(ids) = archive_ids {
                 match store.history_archives(ids.as_deref()) {
                     Ok(Some(entries)) => {
-                        archive_batch = Some(Material {
-                            archives: entries
-                                .into_iter()
-                                .map(|(proof, object)| {
-                                    (proof.invocation_id.clone(), (proof, object))
-                                })
-                                .collect(),
-                            ..Material::default()
-                        });
+                        let include_inputs = !matches!(operation,
+                            p::Operation::HistoryRecordsQuery { mode: f::SearchMode::Listing, .. });
+                        archive_batch = Some(Material::load_archives(store, state, entries, include_inputs));
                         true
                     }
                     _ => false,
@@ -1148,6 +1175,13 @@ pub(crate) fn apply(
                 } else {
                     "stale_cursor"
                 });
+            }
+            if let p::Operation::HistoryRecordRead { reference, .. } = operation {
+                if output.payload["status"] == "unavailable"
+                    && input_unavailable(archive_batch.as_ref().unwrap_or(material), reference)
+                {
+                    output.payload["input_unavailable_reason"] = json!(INPUT_UNAVAILABLE);
+                }
             }
         }
     }

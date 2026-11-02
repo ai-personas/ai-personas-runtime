@@ -3,24 +3,41 @@
 Direct inference has no application duration, prompt/schema/request-byte,
 response-byte, stream-byte, event-size, event-count or output-item quota.
 Explicit cancellation and actual provider/network outcomes remain effective.
-Current provider input contains no limit declarations. Previously saved `limits`
-values remain historical records. See the
+Current settings contain no application `limits` declaration. Anthropic requires
+an explicit provider output-token maximum, supplied in its settings rather than
+invented by the runtime. Previously saved `limits` values remain historical records. See the
 [implemented unrestricted paths](execution-resources.md#implemented-unrestricted-paths)
 for the scope of related runtime behavior.
 
-Personas sends one HTTPS Responses request per admitted step. Its runtime owns prompt assembly, tools, memory, decisions, collaboration, assessment, adoption, resource accounting and durable recovery. Codex CLI and app-server do not perform persona inference or orchestrate work. The optional Codex OAuth route uses app-server only for credential handoff; native OAuth and API-key routes do not require it. Engineering tools are separate.
+Personas sends one HTTPS inference request per admitted step, using Responses or native Anthropic Messages. Its runtime owns prompt assembly, fragments and supporting assets, tools, decisions, collaboration, assessment, adoption, resource accounting and durable recovery. Codex CLI and app-server do not perform persona inference or orchestrate work. The optional Codex OAuth route uses app-server only for credential handoff; native OAuth and API-key routes do not require it. Engineering tools are separate.
 
 Persona inputs contain the actual admitted capabilities, current work,
 observational resource accounting and received results. The operator's `readiness` diagnostic is separate;
 its descriptions of other transports and lower-level interfaces are not sent
-as persona instructions. The absence of provider-hosted tools does not remove
-the runtime's default host command access.
+as persona instructions. Ordinary OpenAI Platform calls offer optional
+provider-hosted web research alongside the runtime's default host command access.
+Other routes retain their native tool interfaces; no search capability is inferred
+from wire compatibility alone.
+
+The model chooses whether to use OpenAI's `web_search` tool. Search, page-open,
+and find actions are read-only research, not native work mutations or accepted
+Decision operations. Their public action reports and explicitly reported billable
+request count are retained in `attempt.web_search`, including completed search
+items observed before a later stream failure. Missing usage stays unknown; item
+counts are not billable request counts. The complete provider output remains
+private and can be selected through the existing continuation interface. Research
+results remain untrusted evidence; search success does not verify a design.
+Initialization and connection checks do not offer this tool. See the official
+[web-search guide](https://developers.openai.com/api/docs/guides/tools-web-search)
+and [streaming events](https://developers.openai.com/api/reference/resources/responses/streaming-events).
 
 Explicit [image reads](image-input.md) add ordered `input_image` content parts
 after the text prompt. Exact image parts are retained in `Prepared.images` and
 separately audited; the full request hash covers both text and images. The
 authentication transport profile remains the selected route's profile, while
-the image-part audit declares `responses-input-image-v1`. Image input adds no
+the normalized image-part audit declares `responses-input-image-v1`. Anthropic
+converts the same image bytes to native base64 image blocks; the full wire-body
+hash binds that representation. Image input adds no
 provider tool or model fallback. Provider support is established only by the
 actual response, not by a successful host-file capture.
 
@@ -36,7 +53,10 @@ release or evidence checks.
 | --- | --- | --- | --- |
 | `chatgpt_oauth` | `traditional_chatgpt_responses_v6` | `https://chatgpt.com/backend-api/codex/responses` | Traditional ChatGPT OAuth, with the authorized account header |
 | `siwc_oauth` | `siwc_documented_public_responses_v6` | `https://api.openai.com/v1/responses` | SIWC token-sharing OAuth |
-| `platform_api_key` | `platform_responses_v6` | `https://api.openai.com/v1/responses` | Explicit OpenAI Platform API-key access and billing |
+| `platform_api_key` | `platform_responses_v9` | `https://api.openai.com/v1/responses` | Explicit OpenAI Platform API-key access and billing; optional web research on ordinary calls |
+| `open_router_api_key` | `openrouter_responses_v1` | `https://openrouter.ai/api/v1/responses` | Explicit OpenRouter API key |
+| `anthropic_api_key` | `anthropic_messages_v1` | `https://api.anthropic.com/v1/messages` | Explicit Anthropic API key; native Messages |
+| `open_code_api_key` | `opencode_responses_v1` | `https://opencode.ai/inference/openai/v1/responses` | Explicit OpenCode Console API key |
 
 These modes never substitute for one another. A missing credential, unsupported model/effort, or unsuccessful OAuth request cannot activate API-key billing. The SIWC profile follows the documented public Responses contract; it does not send OpenClaw's preview test header or claim access from that header's existence.
 
@@ -116,6 +136,17 @@ A native foreground SIGINT or SIGTERM observation qualifies under the same
 exact response-only checks. The interrupted session admits no further calls;
 a later explicitly started session may retire the ended lease while preserving
 the existing route and the unresolved remote outcome.
+
+A transport may complete before the stop monitor sees a pause, then have its
+response rejected during adoption because that pause changed the runtime. The
+runtime can retire this ended local lease using the complete bound response,
+recorded rejection and actual stop state/event. It records
+`runtime_stopped_completed_rejection_lease_retired`, with no claim that the
+transport was canceled. Paused controls and authored continuations remain
+unchanged. `retire-stopped-invocations` provides the same exact cleanup for a
+retained stopped call; Desktop uses it before taking provider-change heads.
+Migration preview itself remains nonmutating. Incomplete or unbound terminal
+evidence and adopted action history never qualify through this path.
 
 A locally ended HTTP 200 stream can also retain that route after a network,
 protocol or content-type failure, or an incomplete message item. The runtime
@@ -224,6 +255,42 @@ Use setup and `step --profile direct`. Saved `allow_direct_provider`, cohort-sha
 
 ## Migration and recovery
 
+The recovery implementation's historical `response_only_*` names now include
+the exact OpenAI Platform v9 request offering read-only web research. Retirement
+still requires an ended local attempt, matching wire evidence, and absence of
+received/adopted native actions. It never repeats the old request or its searches,
+and it does not erase observed research or unknown remote usage. Provider shell,
+MCP actions and other remote mutation tools are outside this contract. Earlier
+wire profiles remain evidence of their original build; changing to v9 uses an
+explicit provider migration with all active invocations settled.
+
+An explicit `migrate-provider` request may set `preserve_persona_models: true`
+to change credentials or access mode while keeping each persona's current model
+and reasoning effort. This supports an operator-authorized switch from an
+exhausted API-key route to an existing ChatGPT sign-in. The change removes old
+per-persona provider overrides so subsequent calls use the selected route. It
+does not replay a failed request, reset usage, or resume paused work. The receipt
+records the previous and resulting bindings; provider entitlement remains a
+provider outcome, not an inference from successful sign-in.
+
+With `preserve_persona_models: true`, an explicit `persona_effort_override`
+sets reasoning effort for every cohort persona while retaining each model ID.
+Omitting it retains each existing effort. The request, preview and receipt bind
+the override and exact before/after persona settings; retries cannot substitute
+a different effort. Desktop Settings exposes this as “Reasoning effort for
+retained models,” including when applying Codex sign-in. This configures future
+calls; it does not establish improved work quality or provider support.
+
+Provider migration also carries the launch fingerprint of current intake
+episodes, retaining their source grant, admitted children, consumption and work
+status. Otherwise a credential change would invalidate their own continuation
+authority. Episodes already stale for another reason remain stale. To repair a
+completed provider migration that omitted this carry, an explicit request may
+name its receipt in `repair_episode_bindings_from`. Both current heads must still
+be that receipt's exact targets, and each repaired episode must be unchanged
+from its prior runtime and bound to its prior launch. Intervening work or changed
+episode authority prevents this recovery; no historical records are rewritten.
+
 New launch metadata uses format 2. Format-1 historical launch records and their opaque provider settings remain readable through `open`/`result`; those reads do not resolve credentials. Legacy CLI configuration and legacy execution profiles fail closed. Explicit provider/model migration is not implemented by silently changing settings: it preserves Store history, character and asset identities, recorded usage and historical allocations, stopped work, responsibilities and unresolved attempts. Existing exact persona model/effort bindings still apply. No automatic conversion, usage reset or historical receipt rewrite occurs. Missing historical terminal bodies stay missing.
 
 Native admission retains execution ownership, exact prompt/response-contract binding, accounting reservations and durable dispatch before transmission. Transport completion precedes whole-Decision acceptance. An invalid complete Decision is held with its complete exact terminal body. Possible submission followed by cancellation or transport failure remains uncertain; neither replay nor remote cancellation is inferred. Historical source-policy lifetimes do not impose an application egress gate. Actual credential expiry and provider outcomes remain distinct.
@@ -295,23 +362,69 @@ model-call receipt adds no unused provider-state catalogue to persona context.
 
 [OpenAI's reasoning guide](https://developers.openai.com/api/docs/guides/reasoning)
 describes retaining complete response output for stateless reasoning continuity.
-The runtime offers `CONTROL.provider_continuation` on ordinary decisions.
-A persona can select this invocation's complete actual input and completed
-output through a `next_assets` replacement:
+The runtime offers `CONTROL.provider_continuation` on ordinary decisions. Its
+`available_scopes` describes the current transport's continuation choices.
+For Responses transports, a persona can retain this invocation's complete output
+without repeating its original prompt, images or earlier separate history:
 
 ```json
-{"kind":"replace","references":[],"provider_context":{"kind":"current","lifetime":"work"},"reason":"Keep the current working context for the next decision."}
+{"kind":"replace","references":[],"provider_context":{"kind":"current_output","lifetime":"work"},"reason":"Keep my completed output; select the needed task context separately."}
 ```
 
-The selection includes earlier provider history only when it was actually
-supplied to this invocation. It preserves all output items and assistant phases,
-earlier text and image inputs, and their original ordering. The selected turn is
+`current_output` preserves every completed item in order, including opaque
+reasoning, assistant phases and the complete Decision, plus the carrier
+acknowledgment when needed. It does not summarize the output or select task facts
+on behalf of the persona. Fresh character, current work, selected resources,
+observations and required qualifications still come from native context. The
+persona must select any needed facts or input images separately. The original
+input and complete provenance remain in the audit. Metadata explicitly lists
+`input_omitted_turns`; neither a retained input nor its images are claimed supplied.
+Native Anthropic Messages does not offer this scope; its full-turn choices remain
+available without a fabricated user message. An unknown transport offers no
+output-only choice.
+
+Omitting the original input does not discard qualifications on its conclusions.
+The runtime derives required accompaniment from that turn's actual supplied
+native inputs, including supplied result metadata and nested authored decisions,
+and resolves current qualifications through the existing corpus. It supplies
+these bodies separately as `current_required_qualifications`, with ordinary
+file handles and exact accounting. Full source ancestry remains provenance;
+lookup-only ancestors do not become supplied input. Missing input evidence or
+unavailable required qualifications makes the selected output unavailable.
+Consequently, a small replay payload can still require a large native input.
+
+To keep the invocation's own complete actual input and output, choose:
+
+```json
+{"kind":"replace","references":[],"provider_context":{"kind":"current_turn","lifetime":"work"},"reason":"Keep this complete working turn for the next decision."}
+```
+
+`current_turn` retains the current prompt and images, every completed output item,
+and the carrier acknowledgment when needed. It does not copy the separate earlier
+provider-history input. Repeatedly choosing it moves the selection forward while
+retaining one complete turn. Historical text already inside the current prompt
+remains included; this is neither summarization nor a byte limit.
+
+Choose `current` instead to retain this turn together with the earlier provider
+history actually supplied to it. Earlier output-only choices keep their omitted
+inputs omitted. All choices preserve complete output items,
+assistant phases and the selected inputs in their original order. The chosen scope is
+bound with the selection; older retained selections keep their original full-history
+meaning. No source provenance is removed when earlier provider input is excluded.
+Useful procedures and longer-lived conclusions can be retained separately in
+persona-authored supporting files chosen through `next_assets`. The selected turn is
 bound to its exact terminal, persona, work, model and transport profile. Private
 `Prepared.input_history` retains the resulting provider input; normal context,
 receipts and development views expose its reference, digest, counts and complete
 serialized byte size. Serialized bytes are not an estimate of rendered tokens.
 The exact wire hash covers the complete input, and provider usage stays attributed
 to the provider's report. No previous-response ID or server-side storage is used.
+
+Recorded requests are checked against their own exact schema and complete wire
+hash. A later change to the current schema does not turn a previously recorded
+grammar request into a different JSON-schema request. Selecting another provider
+route makes incompatible history explicitly unavailable in the fresh context;
+the authored selection and original record remain intact.
 
 `lifetime` defaults to `work`; `next_call` expires after the next admission of the
 same persona on this work. Intervening calls on other work do not consume it.
@@ -351,7 +464,7 @@ for freshness, accounting, compatibility and the paths that remain sequential.
 
 ## Wire and stream validation
 
-New persona admissions request the complete Decision directly. Ordinary work uses
+New persona admissions request the complete Decision directly. OAuth ordinary work uses
 one Responses custom tool, `submit_decision`, with a Lark grammar generated from
 the applicable native schema. The tool's raw input is the complete Decision JSON;
 it is a response carrier with no executable implementation at the provider.
@@ -372,6 +485,14 @@ reference and cross-field constraints still require native validation. This uses
 the documented [custom-tool grammar interface](https://developers.openai.com/api/docs/guides/function-calling#context-free-grammars).
 Actual provider acceptance establishes support for that request, not every model,
 account or future schema.
+
+API-key Responses routes instead supply the complete ordinary native schema as
+non-strict `json_schema`. This preserves optional fields and arbitrary capability
+inputs while avoiding the public OpenAI grammar compiler's observed
+`regex construction fuel exhausted` rejection. Initialization retains its strict
+schema. Native validation still checks every complete decision before adoption;
+there is no retry or format fallback after a provider rejection. Anthropic uses
+a native response-only tool with that same complete input schema.
 
 The ordinary transport schema comes from the same applicable native contract as
 the prompt. If a future schema contains a construct the grammar compiler cannot
@@ -517,21 +638,41 @@ variant-specific fields as required. The original response remains rejected.
 The exact native prompt uses the sealed developer-prefix and user-input layout
 described above. A request without a reusable-prefix boundary uses one user
 input-text message. A fixed JSON-output instruction and the exact requested
-reasoning effort are bound to the request. Only the response-carrier tool is
-offered; no provider-executed tools, previous-response identifier, implicit
-conversation, hidden agent history or remote output-token cap are added. The
+reasoning effort are bound to the request. The OpenAI Platform ordinary profile
+also offers read-only web search. No previous-response identifier, implicit
+conversation, hidden agent history or remote output-token cap is added. The
 immutable wire profile fixes method, endpoint, non-secret header policy, message
 roles and instructions. Traditional routing uses truthful application identity
 and its explicit beta header; mode-specific headers cannot leak into the public
 routes.
 
+The Responses stream accepts documented output-text citation annotations,
+including annotations emitted after `output_text.done`. Their item, content and
+annotation indices are reconciled with the completed content, item and response
+snapshots. Conflicting or missing final citations reject the response instead of
+silently replacing source metadata. Exact completed annotations remain in the
+retained provider items; they are not native file references, executable actions
+or verification of the cited material. Their character offsets are not converted
+to native-file UTF-8 ranges. No partial text becomes a Decision through an
+annotation event.
+
+Web-search action metadata is optional, including on completed items. Either
+the item event or the final response can supply it; an omitted field does not
+contradict a supplied action, while differing supplied actions or statuses are
+rejected. Receipts retain the observed action and the actual search status.
+A failed or incomplete search can accompany a complete model answer; it is not
+treated as a successful source read. An incomplete model response still cannot
+be adopted. Invalid search items report the offending schema field without
+copying rejected provider values into ordinary diagnostics. These shapes follow
+the [Responses item reference](https://developers.openai.com/api/reference/resources/responses/methods/retrieve).
+
 The saved `output_schema` is the generated native ordinary schema or the
 generated strict initialization schema. Its audit digest identifies that response
 contract; the serialized provider request binds the actual format.
 `ai-personas schema` exposes both ordinary variants, their generated grammars and
-the initialization schema. The v6 request audit binds the grammar, carrier-only
-tool list and complete body. Response-only recovery verifies that exact body;
-it cannot authorize recovery of a request offering provider-executed tools.
+the initialization schema. The request audit binds the selected schema or grammar,
+tool list and complete body. Recovery verifies that exact body; it cannot
+authorize recovery of a request offering remote write or execution tools.
 Earlier direct JSON-object admissions retain `{"type":"object"}`; older
 admissions and the isolated onboarding echo retain the strict
 `{"decision_json":"..."}` carrier. Response decoding follows the exact admitted

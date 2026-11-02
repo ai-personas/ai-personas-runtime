@@ -14,9 +14,11 @@ use rusqlite::{params, Connection, OpenFlags, OptionalExtension, TransactionBeha
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 
@@ -2764,7 +2766,7 @@ impl Store {
                 work.required("invocation", &decision.invocation_id)?;
             live_invocation(&invocation)?;
             if let Some(reference) = &scoped_state {
-                let state: StoredObject = work.required("object", RUNTIME_CONTROL_STATE_ID)?;
+                let state = work.required_object(RUNTIME_CONTROL_STATE_ID)?;
                 if runtime_navigation.is_none() || !scoped_runtime_invocation(&invocation)
                     || invocation.prepared_epoch > decision.expected_epoch
                     || state.exact_ref()? != *reference
@@ -3325,6 +3327,10 @@ struct Work<'a> {
     ordinary_identities: u64,
     ordinary_history_slots: u64,
     pending: BTreeMap<(String, String), Cell>,
+    // Only this transaction's current object heads. Immutable shared values
+    // avoid decoding the same large head for admission, dependency and control
+    // checks. Staging a replacement invalidates its entry, including misses.
+    objects: RefCell<BTreeMap<String, Option<Arc<StoredObject>>>>,
 }
 
 impl<'a> Work<'a> {
@@ -3429,6 +3435,7 @@ impl<'a> Work<'a> {
             ordinary_identities,
             ordinary_history_slots,
             pending: BTreeMap::new(),
+            objects: RefCell::new(BTreeMap::new()),
         })
     }
 
@@ -3535,6 +3542,28 @@ impl<'a> Work<'a> {
             .ok_or_else(|| StoreError::Missing(key.into()))
     }
 
+    fn object(&self, key: &str) -> Result<Option<Arc<StoredObject>>> {
+        if let Some(object) = self.objects.borrow().get(key) {
+            return Ok(object.clone());
+        }
+        let object = phase_timing::measure("store.decode_transaction_object", || {
+            self.get::<StoredObject>("object", key)
+        })?.map(Arc::new);
+        self.objects.borrow_mut().insert(key.into(), object.clone());
+        Ok(object)
+    }
+
+    fn required_object(&self, key: &str) -> Result<Arc<StoredObject>> {
+        self.object(key)?.ok_or_else(|| StoreError::Missing(key.into()))
+    }
+
+    fn stage_cell(&mut self, namespace: &str, key: &str, cell: Cell) {
+        if namespace == "object" {
+            self.objects.get_mut().remove(key);
+        }
+        self.pending.insert((namespace.into(), key.into()), cell);
+    }
+
     fn insert<T: Serialize>(
         &mut self,
         namespace: &str,
@@ -3608,7 +3637,7 @@ impl<'a> Work<'a> {
         self.meta.history_slots = history_slots;
         self.ordinary_identities = ordinary_identities;
         self.ordinary_history_slots = ordinary_history_slots;
-        self.pending.insert((namespace.into(), key.into()), cell);
+        self.stage_cell(namespace, key, cell);
         Ok(())
     }
 
@@ -3669,7 +3698,7 @@ impl<'a> Work<'a> {
             self.meta.check_dimension(Resource::RetainedBytes, cell.class)?;
         }
         cell.data = data;
-        self.pending.insert((ns.into(), key.into()), cell);
+        self.stage_cell(ns, key, cell);
         Ok(())
     }
 
@@ -3710,7 +3739,7 @@ impl<'a> Work<'a> {
                 .checked_sub(old.slots)
                 .ok_or_else(|| StoreError::Corrupt("ordinary history refund underflow".into()))?;
         }
-        self.pending.insert(("invocation".into(), key.into()), cell);
+        self.stage_cell("invocation", key, cell);
         Ok(refund)
     }
 
@@ -3903,7 +3932,7 @@ impl<'a> Work<'a> {
             {
                 return Err(StoreError::Conflict(object.id.clone()));
             }
-            let current: Option<StoredObject> = self.get("object", &object.id)?;
+            let current = self.object(&object.id)?;
             // Grants and session claims/receipts are permanent idempotency
             // evidence. Their current heads must remain create-only too.
             if current.as_ref().is_some_and(|current| {
@@ -3950,7 +3979,7 @@ impl<'a> Work<'a> {
             let actual = if let Some(object) = candidates.get(&reference.id) {
                 object.exact_ref()?
             } else {
-                self.required::<StoredObject>("object", &reference.id)?.exact_ref()?
+                self.required_object(&reference.id)?.exact_ref()?
             };
             if actual != *reference {
                 return Err(StoreError::RevisionConflict(reference.id.clone()));
@@ -4262,8 +4291,8 @@ impl<'a> Work<'a> {
             }
             return Ok(());
         };
-        let previous: Option<StoredObject> = self.get("object", RUNTIME_CONTROL_STATE_ID)?;
-        let previous_requirements = previous.as_ref()
+        let previous = self.object(RUNTIME_CONTROL_STATE_ID)?;
+        let previous_requirements = previous.as_deref()
             .map(crate::runtime::runtime_control_requirements).transpose()?.unwrap_or_default();
         for requirement in crate::runtime::runtime_control_requirements(object)? {
             let previous = previous_requirements.iter().find(|old| old.work == requirement.work);

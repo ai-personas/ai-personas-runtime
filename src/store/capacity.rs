@@ -349,7 +349,7 @@ impl Store {
             added = added
                 .checked_add(increase)
                 .ok_or(StoreError::Overflow("capacity allocation"))?;
-            work.pending.insert(("runtime_control".into(), key), cell);
+            work.stage_cell("runtime_control", &key, cell);
         }
         work.meta.closeout.consumed.retained_bytes = work
             .meta
