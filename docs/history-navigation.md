@@ -63,9 +63,12 @@ The persona can read it directly with `history_record_read` or
 The read checks actual body availability and immutable identity; a commit
 reference alone does not establish either body supply or current readability.
 
-The locator's `native_asset_saves` also identifies supporting files saved by that
-same invocation. Each entry binds an accepted file write, edit or import to its
-exact native revision, path and save receipt. The file joins
+The locator's `native_asset_saves` independently identifies the actor's newest
+recorded supporting-file save timestamp group within that same earlier work.
+A later judgment, reflection, message or Stop without a save does not erase these
+lookup cues. Each entry retains its actual producing invocation, which need not
+be the judgment invocation named by the locator. It binds an accepted file write,
+edit or import to its exact native revision, path and save receipt. The file joins
 `input_file_choices`, and the receipt joins `input_history_choices`, allowing a
 returning persona to choose a useful saved file without first reading its entire
 earlier decision. These cues use the same provenance checks as current-work peer
@@ -75,6 +78,18 @@ advance the saved reference. Binary imports retain their byte-metadata
 representation. Native paths do not imply host workspace copies, and a save
 establishes neither delivery nor quality. Missing provenance is an explicit
 omission; an empty list does not establish that no older files exist.
+
+Recency here uses the greatest recorded save timestamp for this actor and work,
+retaining all ties rather than inventing an order from record identifiers. It is
+neither accepted decision order nor semantic relevance. Clock regression can
+make a cue lag. An unavailable selected save is omitted; an older readable save
+is not silently relabeled newest. Exact history and file discovery still serve
+other records. The selected earlier work is unchanged: this is not a search of
+all tasks for the best lesson, a transfer of another focus's optional selections,
+or automatic loading of characteristic fragments, asset bodies or a catalogue.
+The shared selector uses the existing current-work peer save identity and
+source-lineage checks. It changes metadata discovery, not persistence, adoption,
+completion, continuation, or whether the model actually benefits from a resource.
 
 The literal query remains available when useful, including when commit metadata
 is unavailable. It may also match decisions citing the invocation, so the persona

@@ -55,40 +55,11 @@ fn native_asset_save(
     Some(value)
 }
 
-/// Exact supporting-file saves from one accepted invocation. The same receipt
-/// checks apply to a peer's latest work and the actor's recent other work.
-pub(super) fn native_asset_saves(
-    state: &State,
-    actor: &str,
-    work: &str,
-    invocation: &str,
-    a: &f::Admission,
-    exposure: &mut Exposure,
-) -> (Vec<Value>, bool) {
-    let mut saves = Vec::new();
-    let mut omitted = false;
-    for (id, observation) in state.observations.iter().filter(|(_, observation)| {
-        observation.work == work && observation.actor == actor
-            && observation.invocation.as_deref() == Some(invocation)
-            && observation.kind == "accepted_file_write"
-            && observation.payload["scope"] == "assets"
-    }) {
-        // Bind the atomic save receipt to the immutable revision's origin,
-        // never a planned write or an inferred host workspace path.
-        match (observation.id == *id).then(||
-            native_asset_save(state, observation, a, exposure)).flatten()
-        {
-            Some(saved) => saves.push(saved),
-            None => omitted = true,
-        }
-    }
-    (saves, omitted)
-}
-
 // A later judgment or message is not a new file save. Select the newest
 // recorded save time independently; keep every tie rather than inventing an
-// accepted order from identifiers. Only this small receipt group is projected.
-fn recent_native_asset_saves(
+// accepted order from identifiers. Shared by current-work peer discovery and
+// the acting persona's recent-other-work cue; neither path selects file bodies.
+pub(super) fn recent_native_asset_saves(
     state: &State,
     actor: &str,
     work: &str,
