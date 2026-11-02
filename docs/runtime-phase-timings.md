@@ -48,7 +48,7 @@ does not replace the operation's result.
 | `state.validate_exposure_pool` | Validate pooled manifests and index their exact typed-field uses |
 | `state.deserialize_borrowed` | Decode typed state from the borrowed stored body and validated references |
 | `runtime.validate_intake_state` | Validate retained intake episodes and bindings |
-| `runtime.build_corpus` | Construct and validate a complete corpus view from one current state and admission |
+| `runtime.build_corpus` | Construct and validate a complete corpus view from one current state |
 | `runtime.render_preparation` | Assemble the prospective request from current state and pending history material |
 | `runtime.plan_response` | Stage response operations and context against current state, before later staging and adoption commit |
 | `state.serialize_records` | Serialize state fields, packing inventoried exposures in each record before assembling the complete body |
@@ -310,6 +310,20 @@ order and qualifications. The separate mandatory-only assembly still measures
 mandatory context. Reuse ends with the render; a later render constructs and
 validates its own corpus against its actual state. It does not reuse a result
 across changed state, suppress a selected body or create a persistent cache.
+
+The immutable render scope also shares its catalogue with helper projections
+that independently request one, and memoizes successful ancestry checks for exact
+references throughout that render. Each read or assembly still uses its own
+admission, selection and navigation accounting. Nested projections of the same
+state can share the scope; a different state receives a separate scope and then
+restores the caller's cache. The scope ends on return or error, before candidate
+state can be changed. Response planning therefore starts fresh scopes for its
+separate renders rather than carrying validation across staged mutations.
+Only complete successful ancestry checks enter the memo; full provenance
+expansion continues to collect every source and policy. Operator projections use
+the same immutable scope. Cache hits omit a `runtime.build_corpus` event because
+no new corpus was constructed; unchanged output alone does not establish a
+whole-session speedup.
 
 Lineage expansion collects its final source list from the completed traversal's
 visited set. Ordinary expansion and the warning ancestry projection accumulate

@@ -576,7 +576,7 @@ impl Runtime {
         validate_inventory(&state)?;
         let a = admission(&state.personas[&request.actor], now);
         f::assemble(
-            &corpus(&state, &a)?,
+            corpus(&state, &a)?.as_ref(),
             &[file_reference(&receipt.file)?],
             &[],
             &[],

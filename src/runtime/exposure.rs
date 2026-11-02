@@ -9,24 +9,53 @@ use std::sync::Arc;
 struct ReadValidation {
     state: usize,
     checked: std::collections::BTreeSet<f::Reference>,
+    corpus: Option<Arc<f::Corpus>>,
 }
 thread_local! {
     static READ_VALIDATION: std::cell::RefCell<Option<ReadValidation>> = const { std::cell::RefCell::new(None) };
 }
 
-/// Memoize successful ancestry checks only during one immutable projection.
+/// Memoize successful ancestry checks and the file catalogue only during one
+/// immutable projection. Model-input rendering is also an immutable projection;
+/// candidate mutations before or after it cannot share this cache.
 /// The address identifies the borrowed State; it is never dereferenced or kept
 /// after the scope. Nested projections restore the enclosing scope on return.
 pub(crate) fn with_read_validation<T>(state: &super::State, read: impl FnOnce() -> T) -> T {
+    if READ_VALIDATION.with(|slot| slot.borrow().as_ref().is_some_and(|cache|
+        cache.state == state as *const super::State as usize)) {
+        return read();
+    }
     struct Restore(Option<ReadValidation>);
     impl Drop for Restore {
         fn drop(&mut self) { READ_VALIDATION.with(|slot| *slot.borrow_mut() = self.0.take()); }
     }
     let previous = READ_VALIDATION.with(|slot| slot.replace(Some(ReadValidation {
-        state: state as *const super::State as usize, checked: Default::default(),
+        state: state as *const super::State as usize, checked: Default::default(), corpus: None,
     })));
     let _restore = Restore(previous);
     read()
+}
+
+/// The catalogue contains immutable records and current state metadata. Each
+/// operation still supplies its own admission, selection and navigation ledger.
+/// Build outside the RefCell borrow because construction checks source lineage.
+pub(super) fn cached_corpus(
+    state: &super::State,
+    build: impl FnOnce() -> super::Result<f::Corpus>,
+) -> super::Result<Arc<f::Corpus>> {
+    if let Some(corpus) = READ_VALIDATION.with(|slot| slot.borrow().as_ref()
+        .filter(|cache| cache.state == state as *const super::State as usize)
+        .and_then(|cache| cache.corpus.clone())) {
+        return Ok(corpus);
+    }
+    let corpus = Arc::new(build()?);
+    READ_VALIDATION.with(|slot| {
+        if let Some(cache) = slot.borrow_mut().as_mut()
+            .filter(|cache| cache.state == state as *const super::State as usize) {
+            cache.corpus = Some(corpus.clone());
+        }
+    });
+    Ok(corpus)
 }
 
 pub(super) fn check_lineage(state: &super::State, sources: &[f::Reference]) -> super::Result<()> {

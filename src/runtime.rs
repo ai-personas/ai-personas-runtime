@@ -3747,7 +3747,7 @@ impl Runtime {
             )?;
             let a = admission(&state.personas[participant], now);
             f::assemble(
-                &corpus(&state, &a)?,
+                corpus(&state, &a)?.as_ref(),
                 std::slice::from_ref(&source),
                 &[],
                 &[],
@@ -6747,8 +6747,8 @@ fn attributed_context(
         );
     Ok(serde_json::to_string(&value)?)
 }
-fn corpus(state: &State, _a: &f::Admission) -> Result<f::Corpus> {
-    phase_timing::measure("runtime.build_corpus", || {
+fn corpus(state: &State, _a: &f::Admission) -> Result<std::sync::Arc<f::Corpus>> {
+    exposure::cached_corpus(state, || phase_timing::measure("runtime.build_corpus", || {
         // This cache never crosses a catalogue build or a runtime-state change.
         let mut validated = BTreeSet::new();
         let records = state
@@ -6773,7 +6773,7 @@ fn corpus(state: &State, _a: &f::Admission) -> Result<f::Corpus> {
         .with_bindings(bindings)?
         .with_retired_sources(state.sources.iter().filter(|(_, source)| source.retired)
             .map(|(id, _)| id.clone()).collect()))
-    })
+    }))
 }
 fn validate_inventory(state: &State) -> Result<()> {
     f::Corpus::from_shared_revisions(
@@ -7117,6 +7117,27 @@ fn require_render_fit(_rendered: &Rendered, _historical_limit_bytes: usize) -> R
 }
 #[allow(clippy::too_many_arguments)] // Explicit rendering inputs; no ambient mutable context.
 fn render_mode_with_history(
+    state: &State,
+    history_material: &history::records::Material,
+    actor: &str,
+    work_id: &str,
+    invocation: &str,
+    epoch: u64,
+    now: i64,
+    admitted: bool,
+    repair_navigation: Option<f::NavigationLimits>,
+    navigation: Option<f::NavigationLimits>,
+    launch_step_allowance: Option<&LaunchStepAllowance>,
+    transport_profile: Option<&str>,
+) -> Result<Rendered> {
+    with_read_validation(state, || render_snapshot(
+        state, history_material, actor, work_id, invocation, epoch, now, admitted,
+        repair_navigation, navigation, launch_step_allowance, transport_profile,
+    ))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_snapshot(
     state: &State,
     history_material: &history::records::Material,
     actor: &str,
@@ -8767,7 +8788,7 @@ fn check_aggregate_replacement(
     let persona = &state.personas[&prepared.request.persona];
     let a = admission(persona, now);
     let prior = f::assemble(
-        &corpus(state, &a)?,
+        corpus(state, &a)?.as_ref(),
         &rendered.roots.mandatory,
         &old_fragments,
         &old_assets,
@@ -11318,7 +11339,7 @@ fn apply_work_actions(
     }
     Ok(())
 }
-fn corpus_for_delivery(state: &State, a: &f::Admission) -> Result<f::Corpus> {
+fn corpus_for_delivery(state: &State, a: &f::Admission) -> Result<std::sync::Arc<f::Corpus>> {
     corpus(state, a)
 }
 

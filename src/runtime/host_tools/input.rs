@@ -210,7 +210,7 @@ fn current_asset(
     // whole JSON document or current source head. The runner consumes this text
     // directly, without a corpus or prompt quota or another escaping layer.
     let assembled = f::assemble(
-        &corpus(state, a)?,
+        corpus(state, a)?.as_ref(),
         std::slice::from_ref(&reference),
         &[],
         &[],

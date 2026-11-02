@@ -150,7 +150,7 @@ pub(super) fn full_asset<'a>(
     )?;
     // Qualification closure must be complete and current, including source policy.
     f::assemble(
-        &corpus(state, a)?,
+        corpus(state, a)?.as_ref(),
         &[reference],
         &[],
         &[],

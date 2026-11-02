@@ -723,7 +723,7 @@ pub(super) fn inspect(
             None
         } else {
             let bundle = f::assemble(
-                &corpus(state, audience)?,
+                corpus(state, audience)?.as_ref(),
                 &roots,
                 &[],
                 &[],
