@@ -347,6 +347,13 @@ the same immutable scope. Cache hits omit a `runtime.build_corpus` event because
 no new corpus was constructed; unchanged output alone does not establish a
 whole-session speedup.
 
+Pending observation projection retains the complete provenance expansion already
+checked for that observation in the current immutable state. If host-result
+projection introduces no new exact source references, it returns that checked
+manifest directly. Added references still require expansion of the combined
+sources. Payloads, required qualifications, policies and exact source lists stay
+complete; no manifest is reused across states or later calls.
+
 Lineage expansion collects its final source list from the completed traversal's
 visited set. Ordinary expansion and the warning ancestry projection accumulate
 policy records in their existing order without repeatedly merging and sorting
