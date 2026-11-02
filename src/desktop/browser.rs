@@ -280,7 +280,6 @@ impl App {
         );
         if self.busy {
             ui.horizontal(|ui| {
-                ui.spinner();
                 ui.label("Finding workspaces…");
             });
         }

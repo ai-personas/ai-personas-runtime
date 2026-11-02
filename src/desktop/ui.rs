@@ -346,12 +346,13 @@ impl App {
             self.preferences.zoom,
         );
     }
-    fn picker(&mut self, kind: Folder, file: bool) {
+    fn picker(&mut self, ctx: &egui::Context, kind: Folder, file: bool) {
         if self.picker_busy {
             return;
         }
         self.picker_busy = true;
         let tx = self.picker_tx.clone();
+        let ctx = ctx.clone();
         let start = PathBuf::from(&self.workspace);
         std::thread::spawn(move || {
             let dialog = rfd::FileDialog::new().set_directory(start);
@@ -361,6 +362,7 @@ impl App {
                 dialog.pick_folder()
             };
             let _ = tx.send((kind, result));
+            ctx.request_repaint();
         });
     }
     fn events(&mut self, ctx: &egui::Context) {
@@ -584,7 +586,7 @@ impl App {
     fn locations(&mut self, ui: &mut Ui) {
         field(ui, "Saved progress folder", &mut self.progress, false);
         if ui.button("Choose progress folder…").clicked() {
-            self.picker(Folder::Progress, false);
+            self.picker(ui.ctx(), Folder::Progress, false);
         }
         ui.collapsing("Runtime installation", |ui| {
             field(
@@ -594,7 +596,7 @@ impl App {
                 false,
             );
             if ui.button("Choose helpers…").clicked() {
-                self.picker(Folder::Helpers, false);
+                self.picker(ui.ctx(), Folder::Helpers, false);
             }
         });
     }
@@ -674,11 +676,11 @@ impl App {
             ui.collapsing("Advanced Codex locations", |ui| {
                 field(ui, "Codex executable", &mut self.codex.executable, false);
                 if ui.button("Locate Codex…").clicked() {
-                    self.picker(Folder::Codex, true);
+                    self.picker(ui.ctx(), Folder::Codex, true);
                 }
                 field(ui, "Home directory", &mut self.codex.host_home, false);
                 if ui.button("Choose home…").clicked() {
-                    self.picker(Folder::HostHome, false);
+                    self.picker(ui.ctx(), Folder::HostHome, false);
                 }
                 field(
                     ui,
@@ -687,7 +689,7 @@ impl App {
                     false,
                 );
                 if ui.button("Choose Codex state…").clicked() {
-                    self.picker(Folder::CodexHome, false);
+                    self.picker(ui.ctx(), Folder::CodexHome, false);
                 }
             });
         } else {
@@ -738,7 +740,6 @@ impl App {
         });
         if self.view.login {
             ui.horizontal(|ui| {
-                ui.spinner();
                 ui.label("Waiting for sign-in…");
                 if ui.button("Cancel sign-in").clicked() {
                     self.send(Action::CancelLogin);
@@ -918,7 +919,7 @@ impl App {
                 ui.heading("A place for your work");
                 field(ui, "Working folder", &mut self.workspace, false);
                 if ui.button("Choose working folder…").clicked() {
-                    self.picker(Folder::Workspace, false);
+                    self.picker(ui.ctx(), Folder::Workspace, false);
                 }
                 ui.label("Personas can create files, run host commands, and install tools using this computer's account and environment.");
                 ui.collapsing("Advanced", |ui| {
@@ -956,7 +957,7 @@ impl App {
                 false,
             );
             if ui.button("Browse runtime…").clicked() {
-                self.picker(Folder::Runtime, false);
+                self.picker(ui.ctx(), Folder::Runtime, false);
             }
             field(ui, "Its operator name", &mut self.operator, false);
             if ui
@@ -1183,7 +1184,7 @@ impl App {
     fn files(&mut self, ui: &mut Ui, work: &str) {
         ui.horizontal_wrapped(|ui| {
             if ui.add_enabled(!self.busy && !self.picker_busy, egui::Button::new("Export recorded files…")).on_hover_text("Export exact delivered files and eligible message citations with their source records").clicked() {
-                self.picker(Folder::Export(work.into()), false);
+                self.picker(ui.ctx(), Folder::Export(work.into()), false);
             }
             if ui.button(if self.focus_files { "Restore panels" } else { "Expand viewer" }).clicked() {
                 self.focus_files = !self.focus_files;
@@ -1208,7 +1209,6 @@ impl App {
         theme::header(ui, Icon::Questions, "Shared questions", "RETAINED RECORDS");
         if self.view.questions.is_null() {
             if self.busy {
-                ui.spinner();
                 ui.label("Loading question records…");
             } else {
                 ui.label("Question records are unavailable in this inspection.");
@@ -1261,7 +1261,6 @@ impl App {
         theme::header(ui, Icon::Activity, "Activity", "RETAINED RECORDS");
         if self.view.result["work_id"].as_str() != Some(s(work, "id")) {
             if self.busy {
-                ui.spinner();
                 ui.label("Loading activity records…");
             } else {
                 ui.label("Activity records are unavailable in this inspection.");
@@ -1460,7 +1459,7 @@ impl App {
                 Dialog::Amend(work)=>{
                     ui.label(format!("Task: {work}"));
                     if self.view.amendment["work"].as_str() != Some(work.as_str()) {
-                        if self.busy { ui.spinner(); } else if ui.button("Retry amendment snapshot").clicked() { self.send(Action::AmendSnapshot(work.clone())); }
+                        if self.busy { ui.label("Loading task details…"); } else if ui.button("Retry amendment snapshot").clicked() { self.send(Action::AmendSnapshot(work.clone())); }
                     }else{
                         field(ui,"Revised complete task",&mut self.text,true);
                         ui.label("The original task and earlier results are retained. Participants receive an invitation to consider the amended task.");
@@ -1567,7 +1566,7 @@ impl App {
             if ui.add_enabled(editable && configured && !self.view.loading_models, egui::Button::new("Check connection / load models")).clicked() { self.send(Action::CheckProvider(editor)); }
             if ui.add_enabled(editable && configured, egui::Button::new("Remove saved key")).clicked() { self.send(Action::RemoveProvider(editor)); }
         });
-        if self.view.loading_models { ui.horizontal(|ui| { ui.spinner(); ui.label("Loading models…"); }); }
+        if self.view.loading_models { ui.label("Loading models…"); }
         if let Some(status) = self.view.provider_status.get(&editor) { ui.label(status); }
         if self.view.ready {
             ui.separator();
@@ -1683,7 +1682,6 @@ impl eframe::App for App {
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                 .show(ctx, |ui| {
                     ui.horizontal(|ui| {
-                        ui.spinner();
                         ui.label(
                             "Pausing work and waiting for its recorded outcome before closing.",
                         );
@@ -1698,20 +1696,8 @@ impl eframe::App for App {
                     }
                 });
         }
-        if self.busy
-            || self.view.loading_models
-            || self.view.login
-            || self.picker_busy
-            || self.closing
-        {
-            ctx.request_repaint_after(Duration::from_millis(100));
-        } else if self.view.running.is_some() {
-            // Result events and input already request an immediate frame. A
-            // running session alone needs only the elapsed-time heartbeat;
-            // repainting the whole desktop at 10 Hz competes with actual work
-            // on software-rendered displays even when no record has changed.
-            ctx.request_repaint_after(Duration::from_secs(1));
-        }
+        // Backend, picker and preview completions request their own frames.
+        // Waiting for them alone does not change the visible window.
     }
 }
 fn field(ui: &mut Ui, label: &str, text: &mut String, multi: bool) {

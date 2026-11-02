@@ -512,10 +512,6 @@ impl Viewer {
                     .fill(theme::palette(ui).canvas),
             )
             .show_inside(ui, |ui| self.preview(ui));
-        if self.loading {
-            ui.ctx()
-                .request_repaint_after(std::time::Duration::from_millis(100));
-        }
     }
     fn preview(&mut self, ui: &mut egui::Ui) {
         let mut back = false;
@@ -620,7 +616,6 @@ impl Viewer {
         }
         if self.loading {
             ui.horizontal_wrapped(|ui| {
-                ui.spinner();
                 ui.label(if self.source.is_some() {
                     "Preparing preview…"
                 } else if self.recorded {

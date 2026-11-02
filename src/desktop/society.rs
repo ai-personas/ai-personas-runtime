@@ -578,7 +578,7 @@ impl App {
 
     fn requester_inputs(&mut self, ui: &mut Ui, snapshot: &Value) {
         if self.view.result["work_id"].as_str() != self.view.selected.as_deref() {
-            if self.busy { ui.spinner(); ui.label("Loading requester records…"); }
+            if self.busy { ui.label("Loading requester records…"); }
             else {
                 ui.label("Requester records are unavailable for the selected task.");
                 if ui.button("Retry requester records").clicked() { self.send(Action::Refresh); }

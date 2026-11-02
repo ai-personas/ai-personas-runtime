@@ -41,6 +41,9 @@ runtime's fresh checks when a control is actually executed.
 Selecting another task supersedes the obsolete reply and loads its conversation
 in the same snapshot as its other panels. Initial workspace and conversation reads
 show loading text without continuously animating the entire window.
+Other pending operations also show static status text and wake the window when
+their worker responds. The running-session clock displays elapsed minutes and
+redraws at the next minute boundary; recorded progress still appears immediately.
 
 The pinned workspace reader keeps one decoded history between requests. Every
 request opens a fresh transaction and compares its exact state epoch; a changed

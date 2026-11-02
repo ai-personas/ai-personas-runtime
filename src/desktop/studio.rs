@@ -215,15 +215,18 @@ impl App {
                         }
                     }
                     if let Some(since) = self.running_since {
+                        let elapsed = since.elapsed().as_secs();
+                        let minutes = elapsed / 60;
                         ui.label(
-                            RichText::new(format!(
-                                "{}:{:02}",
-                                since.elapsed().as_secs() / 60,
-                                since.elapsed().as_secs() % 60
-                            ))
+                            RichText::new(if minutes == 0 { "under 1 min".into() }
+                                else { format!("{minutes} min") })
                             .monospace()
                             .size(theme::SMALL_TEXT),
                         );
+                        // Live records wake the window immediately. Only the
+                        // displayed minute needs a scheduled redraw; a seconds
+                        // counter can saturate a software-rendered display.
+                        ctx.request_repaint_after(Duration::from_secs(60 - elapsed % 60));
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(

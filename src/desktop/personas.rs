@@ -95,7 +95,6 @@ impl App {
                     ui.heading(self.persona_label(&persona));
                     if self.busy {
                         ui.horizontal(|ui| {
-                            ui.spinner();
                             ui.label("Loading retained profile…");
                         });
                     } else {
