@@ -52,6 +52,13 @@ current clock are still evaluated for each view. Successful lineage checks can
 share already validated ancestors within that immutable projection; failures
 are not memoized. Task selection can reuse unchanged decoded history without
 reopening it. Closing or replacing the workspace terminates its read helper.
+Starting work, unpausing a task and resuming a participant also request fresh
+snapshots through that reader. Start checks the preceding session's outcome and
+the task's current eligibility in one transaction, instead of decoding history
+in separate helper processes. The read still checks current authority and state;
+the control or session worker separately validates the exact supplied references
+before applying a change. A control read can wait for the reader's current
+snapshot, and opening the mutation or execution worker remains a separate cost.
 When the epoch changes, the reader decodes the fresh heads and reuses retained
 sources, observations and messages only when their complete encoded contents
 match the previously verified records. Changed records decode again; removed

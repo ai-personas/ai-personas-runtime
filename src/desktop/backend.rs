@@ -687,24 +687,21 @@ impl Controller {
         Ok(changed)
     }
     fn current(&self, work: &str) -> Result<(Value, Value)> {
-        let mut after = None;
-        loop {
-            let mut args = vec!["inspect".into(), "--limit".into(), "50".into()];
-            if let Some(c) = after {
-                args.extend(["--after".into(), c]);
-            }
-            let page = self.session(args)?;
-            if let Some(item) = page["works"]
-                .as_array()
-                .and_then(|v| v.iter().find(|w| w["id"] == work))
-            {
-                return Ok((item.clone(), page));
-            }
-            after = page["next_after"].as_str().map(str::to_owned);
-            if after.is_none() {
-                return Err("This task is unavailable in the selected workspace.".into());
-            }
-        }
+        // Ask the persistent reader for fresh state, rather than starting
+        // another full history decode for a control or run preflight. The
+        // session status and task references come from the same transaction.
+        let snapshot = self.h.snapshot(
+            &self.session_args(vec!["desktop-snapshot-server".into()])?,
+            &json!({"work":work,"session":self.j.data.session.as_ref().map(|s| &s.id),
+                "conversation":false}),
+            &helpers::cancel(),
+        )?;
+        journal::require(snapshot["snapshot_atomic"] == true,
+            "The desktop snapshot is invalid.")?;
+        let current = snapshot["inspection"]["works"].as_array()
+            .and_then(|works| works.iter().find(|item| item["id"] == work))
+            .ok_or("This task is unavailable in the selected workspace.")?.clone();
+        Ok((current, snapshot))
     }
     fn handle(&mut self, action: Action) -> Result<()> {
         // A snapshot started before an action must not overwrite its newer view
@@ -990,7 +987,8 @@ impl Controller {
                 self.refresh()?;
             }
             Action::ResumePersona { work, persona } => {
-                let (current, page) = self.current(&work)?;
+                let (current, snapshot) = self.current(&work)?;
+                let page = &snapshot["inspection"];
                 journal::require(
                     current["participants"].as_array().is_some_and(|v| {
                         v.iter()
@@ -1250,12 +1248,12 @@ impl Controller {
             self.run.is_none() && self.login.is_none(),
             "Another operation is active.",
         )?;
-        if let Some(s) = &self.j.data.session {
-            let status =
-                self.session(vec!["session-status".into(), "--id".into(), s.id.clone()])?;
+        let (current, snapshot) = self.current(&work)?;
+        let page = &snapshot["inspection"];
+        if self.j.data.session.is_some() {
+            let status = &snapshot["session_status"];
             journal::require(status["status"]=="finished","The previous session has no recorded outcome. Inspect it and retain it in history before explicitly starting a new session.")?;
         }
-        let (current, page) = self.current(&work)?;
         journal::require(
             current["phase"] == "open",
             "This task is paused or ended. Use Unpause task for a pause, then Start / Continue.",
@@ -1423,7 +1421,8 @@ impl Controller {
         let mut request =
             json!({"id":journal::id("control")?,"operator":self.j.data.operator,"work":work});
         let kind = if action == "resume" {
-            let (current, page) = self.current(work)?;
+            let (current, snapshot) = self.current(work)?;
+            let page = &snapshot["inspection"];
             journal::require(current["phase"] == "paused", "The task is not paused.")?;
             request["expected_runtime"] = page["runtime"].clone();
             request["expected_launch"] = page["launch"].clone();
