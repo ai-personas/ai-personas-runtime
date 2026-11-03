@@ -1496,6 +1496,15 @@ impl Controller {
             self.events.send(Event::Notice(
                 "The task changed before unpausing. Refresh and choose Unpause task again.".into(),
             ));
+        } else if receipt["control_recorded"] == true {
+            let notice = if item["kind"] == "resume-work" {
+                "Task unpaused. Choose Start / Continue to begin eligible work."
+            } else if item["request"]["action"] == "pause" {
+                "Task paused."
+            } else {
+                "Task canceled."
+            };
+            self.events.send(Event::Notice(notice.into()));
         }
         Ok(())
     }
