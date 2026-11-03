@@ -85,7 +85,7 @@ pub struct ReferenceValue {
 
 /// Complete exact reference with shared immutable storage. Serialized fields,
 /// ordering and equality retain their value semantics; an edit copies its value.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
 pub struct Reference(Arc<ReferenceValue>);
 

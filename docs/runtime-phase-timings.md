@@ -399,7 +399,11 @@ sources. Payloads, required qualifications, policies and exact source lists stay
 complete; no manifest is reused across states or later calls.
 
 Lineage expansion collects its final source list from the completed traversal's
-visited set. Ordinary expansion and the warning ancestry projection accumulate
+visited set. The ordinary walker checks duplicate visits using full-reference
+hash membership, then sorts its complete source result once. Equality includes
+the source, revision, representation and byte range; hash collisions still
+compare every field. The traversal stack and first-seen policy order are
+unchanged. Ordinary expansion and the warning ancestry projection accumulate
 policy records in their existing order without repeatedly merging and sorting
 an intermediate source list that would be discarded. Exact lookups, inherited
 sources, qualification edges, warning-specific traversal and missing-lineage

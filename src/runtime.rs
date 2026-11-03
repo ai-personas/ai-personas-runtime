@@ -6629,7 +6629,9 @@ fn trace_exposure_with_validated<'a, const RETAIN: bool>(
     // its source list is empty.
     let mut pending: Vec<std::borrow::Cow<'a, f::Reference>> = sources.iter()
         .map(std::borrow::Cow::Borrowed).collect();
-    let mut seen = BTreeSet::new();
+    // Membership compares the complete reference. Traversal still follows the
+    // same stack order; sort only the final source list, not every visited edge.
+    let mut seen = std::collections::HashSet::new();
     while let Some(reference) = pending.pop() {
         if !seen.insert(reference.clone()) {
             continue;
@@ -6697,6 +6699,7 @@ fn trace_exposure_with_validated<'a, const RETAIN: bool>(
     let mut result = Exposure::default();
     if RETAIN {
         result.sources = seen.into_iter().map(std::borrow::Cow::into_owned).collect();
+        result.sources.sort();
         result.policies = policies.into_vec();
     } else if let Some(validated) = validated {
         // Commit only after the complete traversal succeeds. In particular,
