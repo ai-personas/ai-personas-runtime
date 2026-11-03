@@ -33,6 +33,7 @@ does not replace the operation's result.
 | `store.fingerprint_atomic_admission` | Stream the complete canonical admission arguments into their digest |
 | `store.fingerprint_invocation` | Stream the complete canonical invocation specification into its digest |
 | `store.check_invocation_ownership` | Read and fingerprint current invocation cells, reuse matching validated metadata, and check the caller's current ownership set |
+| `store.find_runtime_control` | Find retained control keys for one request ID, before complete matching-record validation |
 | `store.commit_decision` | Complete decision-adoption transaction, including validation, writes, accounting and SQLite commit |
 | `store.fingerprint_decision` | Stream all canonical decision changes, intents and identity fields into their digest |
 | `store.validate_capacity_chain` | Read and validate the exact historical settings receipt chain |
@@ -159,6 +160,15 @@ The index uses additional SQLite pages and has an initial construction cost. It
 does not add logical Store records or change object bytes, canonical navigation
 charges or accounting checks. Query plans and actual command timings can show
 the indexed path's use; the index alone does not establish a whole-session speedup.
+
+Control-request lookups also use a partial SQLite index on the retained request
+ID in `runtime_control` cells. This avoids parsing every saved control snapshot
+for each lookup. The query still detects duplicate matches, and every selected
+slot receives its complete existing cell and record checks. SQLite maintains
+the index with each control write and rollback. Initial creation reads the
+existing control records and adds index pages; it changes no logical record,
+reference or accounting value. Other namespaces, including opaque compressed
+revision cells, are outside this index.
 
 Computing a stored object's exact reference streams canonical JSON into SHA-256
 through a small buffer. It borrows the complete body instead of cloning another

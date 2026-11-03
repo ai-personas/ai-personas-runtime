@@ -2098,6 +2098,9 @@ impl Store {
                  ) WITHOUT ROWID;
                  CREATE INDEX IF NOT EXISTS store_cells_lane_slots
                  ON store_cells(lane,slots);
+                 CREATE INDEX IF NOT EXISTS store_runtime_control_request_id
+                 ON store_cells(json_extract(data,'$.commit.request.id'))
+                 WHERE ns='runtime_control';
                  CREATE TRIGGER IF NOT EXISTS immutable_store_cells
                  BEFORE UPDATE ON store_cells
                  WHEN OLD.ns IN ('revision','decision','runtime_control_plan')
@@ -4393,13 +4396,16 @@ impl<'a> Work<'a> {
     }
 
     fn runtime_control_record(&self, id: &str) -> Result<Option<RuntimeControlRecord>> {
-        let mut statement = self.db.prepare(
-            "SELECT k FROM store_cells WHERE ns='runtime_control'
-             AND json_extract(data,'$.commit.request.id')=?1 LIMIT 2",
-        )?;
-        let keys = statement
-            .query_map([id], |row| row.get::<_, String>(0))?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let keys = phase_timing::measure("store.find_runtime_control", || {
+            let mut statement = self.db.prepare(
+                "SELECT k FROM store_cells WHERE ns='runtime_control'
+                 AND json_extract(data,'$.commit.request.id')=?1 LIMIT 2",
+            )?;
+            let keys = statement
+                .query_map([id], |row| row.get::<_, String>(0))?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            Ok::<_, StoreError>(keys)
+        })?;
         if keys.len() > 1 {
             return Err(StoreError::Corrupt(
                 "duplicate runtime control identity".into(),
