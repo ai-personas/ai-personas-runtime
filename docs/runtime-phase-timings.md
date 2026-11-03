@@ -442,6 +442,18 @@ in the next construction. File identities, digests, paths, qualifications and
 binding validation remain unchanged. `runtime.build_corpus` includes this work;
 its timing does not establish the effect on an entire session.
 
+Corpus construction reuses successful serialized-byte counts and computed
+revision hashes for the same immutable file-record allocation. A weak reference
+must upgrade to that exact allocation before reuse; a pointer value alone is
+insufficient. Editing through copy-on-write gives the changed record a different
+allocation or dissociates its old weak references. Failed measurements are not
+cached. The cache keeps only small measurement values and weak references, and
+periodically removes dead entries without retaining file bodies or limiting live
+records. Current policy consistency, identifiers, paths, qualifications, duplicate
+records, stored-digest comparisons, bindings, lineage and logical accounting
+still receive their existing checks. These measurements are facts about complete
+immutable values, not remembered permission or corpus eligibility.
+
 Decoded exact file references and scoped policy records share immutable storage
 when their complete values are equal. Hashes locate candidates; full equality
 decides whether they can share. Every occurrence remains present in its original

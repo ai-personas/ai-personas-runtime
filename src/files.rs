@@ -28,6 +28,8 @@ use std::io::{self, Write};
 use std::sync::Arc;
 use thiserror::Error;
 
+mod record_facts;
+
 pub const FILE_HASH_PROFILE: &str = "persona-file-record-sha256-v1";
 pub const JSON_PROFILE: &str = "utf8-unique-decoded-keys-scalar-strings-v1";
 pub const CONTEXT_PROFILE: &str = "qualified-exact-context-json-v1";
@@ -554,7 +556,7 @@ impl Corpus {
         let mut total_payload = 0usize;
         let mut total_encoded = policy.encoded_bytes;
         for (index, record) in revisions.into_iter().enumerate() {
-            let encoded_bytes = serialized_len(&record, limits.max_record_bytes)
+            let encoded_bytes = record_facts::encoded_bytes(&record)
                 .map_err(|_| FilesError::CorpusLimit("record bytes"))?;
             let key = (record.source.clone(), record.revision.clone());
             if let Some(existing) = records.get(&key) {
@@ -593,7 +595,7 @@ impl Corpus {
             total_payload = checked_add(total_payload, record.bytes.len())?;
             total_encoded = checked_add(total_encoded, encoded_bytes)?;
             register_policy(&mut known_policies, &record.policy)?;
-            if record.computed_revision()? != record.revision {
+            if record_facts::computed_revision(&record)? != record.revision {
                 return Err(FilesError::DigestMismatch { index });
             }
             records.insert(
