@@ -905,7 +905,7 @@ async fn run_with_options<D: Driver>(
         }
         app.publish_completed_host_commands(unix_now()?)?;
         let calls = rejected_continuation::active_invocations_for_work(&app.snapshot()?, work)?;
-        app.retire_ready_rejected_continuations(work, calls, unix_now()?)?;
+        app.retire_ready_rejected_continuations(work, calls, unix_now()?, owner)?;
         deliver_inputs(app, owner, unix_now()?)?;
         persona_birth::create_pending_for_work_owned(app, work, driver, owner)?;
         let mut view = result(app, work)?;

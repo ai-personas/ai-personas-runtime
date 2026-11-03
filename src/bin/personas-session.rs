@@ -156,6 +156,9 @@ enum Command {
     StopWork { file: PathBuf },
     /// Lift an inspected work-wide pause once; preserve individual stops and start no inference.
     ResumeWork { file: PathBuf },
+    /// Record orphan uncertainty, release proven response-only local leases,
+    /// and publish already-retained command results. No dispatch or resumption.
+    RecoverWork { work: String },
 }
 fn snapshot_server(root: &std::path::Path, operator: &str) -> bool {
     use std::io::{BufRead, Write};
@@ -420,6 +423,7 @@ async fn main() {
             let input = ai_personas::runtime::read_json_file(&file, usize::MAX)?;
             session::resume_work(&root, &operator, &input)
         })()),
+        Command::RecoverWork { work } => emit(session::recover_work(&root, &operator, &work)),
     };
     if !ok {
         std::process::exit(1);

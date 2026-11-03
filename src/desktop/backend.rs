@@ -137,6 +137,7 @@ pub enum Action {
     },
     ConfirmPendingNeed(String),
     Run(String),
+    RecoverWork(String),
     Control {
         work: String,
         action: String,
@@ -981,6 +982,19 @@ impl Controller {
                 ));
             }
             Action::Run(work) => self.run_work(work)?,
+            Action::RecoverWork(work) => {
+                journal::require(self.run.is_none(), "Wait for the running session to finish before recovery.")?;
+                let receipt = self.session(vec!["recover-work".into(), work])?;
+                journal::require(receipt["inference_performed"] == false
+                    && receipt["replay_authorized"] == false && receipt["work_resumed"] == false,
+                    "The recovery receipt is incomplete. Inspect the retained task state.")?;
+                self.refresh()?;
+                self.events.send(Event::Notice(format!(
+                    "Recovered local status: {} abandoned calls released, {} calls still held. Existing stops and pauses remain; remote outcomes and missing usage remain unresolved.",
+                    receipt["released_local_calls"].as_array().map_or(0, Vec::len),
+                    receipt["still_held_calls"].as_array().map_or(0, Vec::len),
+                )));
+            }
             Action::Control { work, action } => {
                 self.control(&work, &action)?;
                 self.refresh()?;

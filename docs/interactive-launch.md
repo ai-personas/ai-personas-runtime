@@ -66,6 +66,18 @@ Their next decision receives the retained failure. Unknown remote usage remains
 recorded; unresolved external actions and other held outcomes still require
 their actual reconciliation.
 
+After an execution worker disappears, the desktop Task menu offers **Recover
+interrupted work**. The operator action acquires the runtime's execution owner
+and records abandoned dispatches as uncertain. It can release a matching local
+model-call lease only after verifying the exact response-only request, missing
+terminal, and absence of any retained decision or adopted action. It can also
+publish a command result already retained by the runtime; it dispatches no command
+or model call. The earlier session and uncertain attempts remain in history.
+Remote outcomes and unmeasured charges stay unknown. Current work pauses and
+individual Stop/Pause choices remain effective; use Unpause or a separate
+participant resume only when those controls actually require it, then Start /
+Continue for fresh eligible work. An active owner blocks recovery.
+
 **m: amend task** saves a complete replacement request for a standard task,
 preserves the original request, and requests eligible resumption under a new
 mandate. Recorded resource usage remains attributable. Custom outcomes and review terms

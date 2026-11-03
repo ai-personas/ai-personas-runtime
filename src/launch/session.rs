@@ -1,6 +1,7 @@
 //! Operator-only protocol for an interactive launcher. No onboarding or resource grants.
 //!
-//! All openings are nonrecovering. Inspection is metered and exposes complete metadata
+//! Openings are nonrecovering; explicit interrupted-work recovery takes the owner.
+//! Inspection is metered and exposes complete metadata
 //! only except for the operator's own exact original need. Session claims are
 //! create-only before any driver activity. A missing terminal means unknown, not
 //! permission to retry. New claims prepay bounded receipt storage and one final
@@ -13,6 +14,9 @@ pub use participant_resume::{resume_participant, ParticipantRecovery, Participan
 #[path = "session_work_control.rs"]
 mod work_control;
 pub use work_control::{stop_work, resume_work, StopAction, WorkStopRequest, WorkResumeRequest};
+#[path = "session_recovery.rs"]
+mod recovery;
+pub use recovery::recover_work;
 #[path = "session_messages.rs"]
 mod messages;
 pub use messages::{session_messages, SessionMessages};

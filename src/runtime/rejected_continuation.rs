@@ -412,7 +412,7 @@ impl Runtime {
     /// Snapshot candidates only select work to inspect; each retirement still
     /// validates the current invocation and runtime state before changing it.
     pub(super) fn retire_ready_rejected_continuations(
-        &mut self, work: &str, calls: BTreeSet<String>, now: i64,
+        &mut self, work: &str, calls: BTreeSet<String>, now: i64, owner: &s::ExecutionOwner,
     ) -> Result<()> {
         for id in calls {
             let invocation = match self.store.trusted_host().invocation(&id) {
@@ -424,6 +424,10 @@ impl Runtime {
                 && decode_prepared(&invocation)?.request.work == work
             {
                 self.retire_rejected_continuation(&id, now)?;
+            } else if invocation.state == s::InvocationState::Uncertain
+                && decode_prepared(&invocation)?.request.work == work
+            {
+                self.retire_orphaned_continuation(&id, now, owner, None)?;
             }
         }
         Ok(())

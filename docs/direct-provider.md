@@ -117,6 +117,17 @@ reported counters from a complete response that failed local adoption. They do
 not add a blanket unknown-usage label beside available counters. Missing fields
 and unreported charges remain unknown; no counter is inferred from recovery.
 
+An abandoned local worker can leave no terminal receipt at all. Under a newly
+acquired execution owner, recovery may release that local lease after verifying
+the complete admitted response-only request and the retained uncertainty record.
+The commit rechecks the same invocation, empty terminal slot, unchanged accounting,
+and absence of a retained decision, adoption archive or action intent. Its fresh
+observation describes the missing response and unknown remote outcome; it is not
+a fabricated transport terminal or reconciliation. The original invocation stays
+Uncertain. Current continuation choices and controls remain unchanged, so only an
+existing eligible route can receive a fresh admission. This also runs at a settled
+foreground boundary after restart. Unknown effectful requests retain their holds.
+
 This local retirement need not wait for unrelated provider calls to finish when
 the foreground coordinator retains their exact futures. The same Store
 transaction verifies their ownership and the failed call's terminal and action
@@ -303,7 +314,8 @@ Later planning or adoption can still fail because of invalid output, changed
 state or an actual host failure. The retained transport and adoption disposition
 remain separate, with the original response bytes and attribution preserved.
 A `Responded` transport is not substantive adoption or permission to replay. Earlier missing
-responses remain missing and uncertain attempts still require reconciliation.
+responses remain missing. Releasing a proven response-only local lease does not
+reconcile that attempt's remote outcome or unknown usage.
 
 An adopted response now queues a `model_call_receipt` observation for the same
 persona and work. It identifies the completed invocation and exact terminal

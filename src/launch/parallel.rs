@@ -135,7 +135,7 @@ async fn run_with_subtree<D: Driver>(
                             if !calls.is_empty() {
                                 drop(state);
                                 phase_timing::measure("launch.maintenance_rejections", ||
-                                    app.retire_ready_rejected_continuations(work, calls, unix_now()?))?;
+                                    app.retire_ready_rejected_continuations(work, calls, unix_now()?, owner))?;
                                 state = maintenance_state(app)?;
                             }
                             if persona_birth::has_pending_for_work(&state, work) {

@@ -646,6 +646,12 @@ impl App {
                         egui::Button::new("Task").wrap_mode(egui::TextWrapMode::Extend),
                     )
                     .ui(ui, |ui| {
+                        if ui.add_enabled(!self.busy && self.view.running.is_none(),
+                            egui::Button::new("Recover interrupted work")).clicked()
+                        {
+                            self.send(Action::RecoverWork(id.clone()));
+                            ui.close();
+                        }
                         if ui
                             .add_enabled(!self.busy, egui::Button::new("Amend task"))
                             .clicked()

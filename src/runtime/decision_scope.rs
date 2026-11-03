@@ -277,6 +277,7 @@ fn peer_lease_retirement(event: &Value, actor: &str) -> bool {
             | "terminal_provider_failure_lease_retired" | "response_only_transport_failure_lease_retired"
             | "response_only_http_failure_lease_retired" | "response_only_service_error_lease_retired"
             | "provider_context_rejection_lease_retired" | "completed_rejection_lease_retired"
+            | "orphaned_response_lease_retired"
         ))
         && event["continuation_changed"] == false
         && event["new_permission_granted"] == false

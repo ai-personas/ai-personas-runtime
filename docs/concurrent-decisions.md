@@ -512,7 +512,11 @@ rules, irrespective of whether a newer unrelated task is running.
 ## Completion and interruption
 
 Only exact pending calls owned by this coordinator may coexist during selection.
-An unknown or orphaned invocation still requires its existing recovery path.
+An orphaned response-only invocation can release its local lease at a settled
+boundary under the newly acquired execution owner. Recovery verifies its exact
+request and uncertainty, empty terminal, unchanged accounting and absence of any
+decision or action. The attempt remains Uncertain and its missing response is
+never adopted. Other unknown invocations retain their existing recovery path.
 On a local error, the coordinator stops new admissions and drains
 already admitted calls, retaining their actual outcomes. Character handovers and
 structural recovery retain their quiescent boundaries. Local failed-lease

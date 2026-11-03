@@ -1153,6 +1153,67 @@ impl TrustedHost<'_> {
         })
     }
 
+    /// Retire a proven response-only orphan's local lease without changing the
+    /// uncertain invocation, empty terminal slot or its retained accounting.
+    pub(crate) fn commit_runtime_orphaned_continuation(
+        &mut self,
+        expected: &ObjectRef,
+        object: StoredObject,
+        invocation: &InvocationRecord,
+        reservation: &ReservationRecord,
+        terminal: &str,
+        actor: &str,
+        owner: &ExecutionOwner,
+        expected_launch: Option<&ObjectRef>,
+    ) -> Result<BatchReceipt> {
+        if owner.acquiring_pid != std::process::id() || owner.database != self.store.path {
+            return Err(StoreError::InvalidState("wrong execution owner for local recovery".into()));
+        }
+        self.store.transaction(|work| {
+            work.admission()?;
+            work.require_quiescent_invocations()?;
+            let current: StoredObject = work.required("object", RUNTIME_CONTROL_STATE_ID)?;
+            let record: InvocationRecord = work.required("invocation", &invocation.id)?;
+            let held: ReservationRecord = work.required("reservation", &record.reservation.key())?;
+            let slot: TerminalEvidenceSlot = work.required("terminal_evidence", terminal)?;
+            if current.exact_ref()? != *expected || record != *invocation || held != *reservation
+                || record.state != InvocationState::Uncertain || record.response_hash.is_some()
+                || record.reconciliation.is_some() || record.runtime_failure_context.is_some()
+                || held.state == ReservationState::Reserved
+                || slot.subject != EntityId::Invocation(record.id.clone()) || slot.object.is_some()
+                || object.id != current.id || object.kind != current.kind
+                || current.body["personas"][actor]["active_invocation"] != record.id
+                || !current.body["personas"][actor]["failed_attempt_hold"].is_null()
+                || !object.body["personas"][actor]["active_invocation"].is_null()
+                || !object.body["personas"][actor]["failed_attempt_hold"].is_null()
+                || !current.body["personas"][actor]["owner_epoch"].as_u64()
+                    .and_then(|epoch| epoch.checked_add(1))
+                    .is_some_and(|epoch| object.body["personas"][actor]["owner_epoch"].as_u64() == Some(epoch))
+            {
+                return Err(StoreError::Conflict(invocation.id.clone()));
+            }
+            live_invocation(&record)?;
+            let has_intent: bool = work.db.query_row(
+                "SELECT EXISTS(SELECT 1 FROM store_cells WHERE ns='intent' AND json_extract(data,'$.invocation_id')=?1)",
+                [&record.id], |row| row.get(0))?;
+            let archive = format!("adoption:{}", sha256_bytes(record.id.as_bytes()));
+            if has_intent || work.cell("decision", &record.id)?.is_some()
+                || work.cell("object", &archive)?.is_some()
+            {
+                return Err(StoreError::Invalid("orphaned call has a decision or action history".into()));
+            }
+            let changes = vec![Change {
+                expected_revision: Some(current.revision), object,
+                depends_on: expected_launch.into_iter().cloned().collect(),
+            }];
+            let candidates = work.validate_changes(&changes)?;
+            work.dependencies(&changes[0].depends_on, &candidates)?;
+            work.bump_epoch()?;
+            let objects = work.apply_changes(&changes, BudgetClass::Ordinary)?;
+            Ok(BatchReceipt { epoch: work.meta.epoch, objects })
+        })
+    }
+
     /// Retain complete failure provenance atomically with local rejection. The
     /// opaque context is not an authority token or a replacement terminal body.
     pub(crate) fn reject_runtime_invocation(
@@ -1893,6 +1954,7 @@ impl TrustedHost<'_> {
 pub struct ExecutionOwner {
     _file: fs::File,
     acquiring_pid: u32,
+    database: PathBuf,
 }
 
 impl Drop for ExecutionOwner {
@@ -1976,6 +2038,7 @@ impl ExecutionOwner {
         let owner = Self {
             _file: file,
             acquiring_pid: unsafe { libc::getpid() } as u32,
+            database: database.to_path_buf(),
         };
         let linked = fs::metadata(&path)?;
         if linked.dev() != metadata.dev()
@@ -2192,10 +2255,15 @@ impl Store {
     /// and subsequent dispatch share the same guard, so
     /// another owner cannot enter between them. Contention grants no dispatch.
     pub fn acquire_execution_owner(&mut self) -> Result<ExecutionOwner> {
-        let owner = ExecutionOwner::try_acquire(&self.path)?.ok_or_else(|| {
+        self.try_execution_owner_with_recovery()?.ok_or_else(|| {
             StoreError::InvalidState("an execution owner is already active".into())
-        })?;
-        self.recover_dispatched()?;
+        })
+    }
+
+    /// Explicit recovery/dispatch entry. A busy owner changes no lifecycle state.
+    pub(crate) fn try_execution_owner_with_recovery(&mut self) -> Result<Option<ExecutionOwner>> {
+        let owner = ExecutionOwner::try_acquire(&self.path)?;
+        if owner.is_some() { self.recover_dispatched()?; }
         Ok(owner)
     }
 

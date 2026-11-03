@@ -21,6 +21,7 @@ pub(crate) use invocation_leases::check_invocation_leases;
 mod decision_scope;
 mod provider_calls;
 mod rejected_continuation;
+mod orphaned_continuation;
 mod history;
 mod initialization;
 mod work_guides;
