@@ -465,12 +465,20 @@ when opening or retaining a long history. It does not omit history, cache
 authorization or validation results, or change fresh lineage and policy checks.
 
 The borrowed state decoder distinguishes pooled exposure manifests from their
-complete source-reference and policy entries. After resolving an entry at its
-validated location, it uses ordinary JSON decoding for that entry's fields,
-which cannot contain another storage reference. Manifests still traverse their
-source and policy indexes. Every occurrence receives complete typed decoding;
-pool digests, index bounds, required fields, unknown fields and unused-entry
-checks retain their existing validation. This avoids repeated reference-map
-lookups and container wrappers inside resolved entries without changing their
-values, order, duplicates or serialized form. Its effect is included in
-`state.deserialize_borrowed`, not a separate whole-session latency measurement.
+complete source-reference and policy entries. Pool validation decodes every
+entry completely and retains its immutable typed value for this decode. A
+resolved entry at an indexed location can then share that exact value without
+repeating its field parsing, allocation, hashing and interning at every use.
+Manifests still traverse every source and policy index. Pool digests, index
+bounds, required fields, unknown fields and unused-entry checks retain their
+existing validation and error order.
+
+The typed handoff lasts for one synchronous deserializer visitor call. Its
+thread-local slot restores any enclosing slot on return, error or unwinding,
+and retains no value afterward. It adds no serialized handles: ordinary JSON
+still takes complete field decoding, including null, numbers and objects that
+resemble an internal type name. Other value types use native JSON decoding of
+the complete entry. Values, collection order, duplicates and serialized form
+remain unchanged, and edits still copy shared values. This changes decoding
+work, not current permission, lineage or policy checks. Its effect is included
+in `state.deserialize_borrowed`, not a separate whole-session latency measurement.

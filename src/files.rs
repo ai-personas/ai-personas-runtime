@@ -93,10 +93,11 @@ pub struct Reference(Arc<ReferenceValue>);
 
 static REFERENCES: std::sync::OnceLock<std::sync::Mutex<crate::shared_values::Pool<ReferenceValue>>>
     = std::sync::OnceLock::new();
+pub(crate) const SHARED_REFERENCE: &str = "ai-personas::complete_reference";
 
 impl<'de> Deserialize<'de> for Reference {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        ReferenceValue::deserialize(deserializer).map(Self::new)
+        crate::shared_values::deserialize(&REFERENCES, SHARED_REFERENCE, deserializer).map(Self)
     }
 }
 
@@ -114,6 +115,10 @@ impl std::ops::DerefMut for Reference {
 }
 
 impl Reference {
+    pub(crate) fn shared_value(&self) -> Arc<ReferenceValue> {
+        Arc::clone(&self.0)
+    }
+
     pub fn new(value: ReferenceValue) -> Self {
         Self(crate::shared_values::intern(&REFERENCES, value))
     }

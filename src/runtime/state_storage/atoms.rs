@@ -129,12 +129,10 @@ pub(super) fn references<'a>(
     if table_identity(sources, policies)? != header.table_sha256 {
         return Err(invalid_storage("retained provenance table digest mismatch"));
     }
-    for source in sources {
-        f::Reference::deserialize(source)?;
-    }
-    for policy in policies {
-        ScopedPolicy::deserialize(policy)?;
-    }
+    let decoded_sources = sources.iter().map(f::Reference::deserialize)
+        .collect::<serde_json::Result<Vec<_>>>()?;
+    let decoded_policies = policies.iter().map(ScopedPolicy::deserialize)
+        .collect::<serde_json::Result<Vec<_>>>()?;
     let mut used_sources = vec![false; sources.len()];
     let mut used_policies = vec![false; policies.len()];
     for (key, manifest) in entries {
@@ -161,7 +159,12 @@ pub(super) fn references<'a>(
                     .get(position)
                     .ok_or_else(|| invalid_storage("retained provenance index absent"))?;
                 used[position] = true;
-                references.insert(borrowed::location(index), borrowed::Replacement::Atom(entry));
+                let replacement = if field == "sources" {
+                    borrowed::Replacement::Reference(entry, decoded_sources[position].clone())
+                } else {
+                    borrowed::Replacement::Policy(entry, decoded_policies[position].clone())
+                };
+                references.insert(borrowed::location(index), replacement);
             }
         }
     }

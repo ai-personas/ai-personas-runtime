@@ -5,6 +5,73 @@ use std::collections::{hash_map::DefaultHasher, HashMap};
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
+use serde::de::{self, Deserialize, Deserializer, Visitor};
+use std::any::Any;
+use std::cell::RefCell;
+use std::fmt;
+
+type Supplied = Arc<dyn Any + Send + Sync>;
+thread_local! {
+    static SUPPLIED: RefCell<Option<Supplied>> = const { RefCell::new(None) };
+}
+
+struct Restore(Option<Supplied>);
+impl Drop for Restore {
+    fn drop(&mut self) {
+        SUPPLIED.with(|slot| *slot.borrow_mut() = self.0.take());
+    }
+}
+
+/// Transfer an already decoded immutable value during one synchronous visitor
+/// call. The previous slot is restored on success, error or unwinding. This is
+/// neither a persistent cache nor a serialized handle.
+pub(crate) fn supply<T: Any + Send + Sync, R>(value: Arc<T>, visit: impl FnOnce() -> R) -> R {
+    let previous = SUPPLIED.with(|slot| slot.borrow_mut().replace(value));
+    let _restore = Restore(previous);
+    visit()
+}
+
+/// Ordinary JSON newtypes visit `visit_newtype_struct`, which performs the
+/// original complete decode and interning. Only the private storage decoder
+/// directly invokes `visit_unit` while supplying an exact validated typed atom.
+/// Null, integers, strings and reference-shaped authored JSON cannot select
+/// that transfer path or name a cached value.
+pub(crate) fn deserialize<'de, T, D>(
+    pool: &'static OnceLock<Mutex<Pool<T>>>,
+    name: &'static str,
+    deserializer: D,
+) -> Result<Arc<T>, D::Error>
+where
+    T: Deserialize<'de> + Eq + Hash + Any + Send + Sync,
+    D: Deserializer<'de>,
+{
+    struct Shared<T: 'static>(&'static OnceLock<Mutex<Pool<T>>>);
+    impl<'de, T> Visitor<'de> for Shared<T>
+    where
+        T: Deserialize<'de> + Eq + Hash + Any + Send + Sync,
+    {
+        type Value = Arc<T>;
+
+        fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("a complete immutable value")
+        }
+
+        fn visit_newtype_struct<D: Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
+            T::deserialize(deserializer).map(|value| intern(self.0, value))
+        }
+
+        fn visit_unit<E: de::Error>(self) -> Result<Self::Value, E> {
+            match SUPPLIED.with(|slot| slot.borrow_mut().take()) {
+                Some(value) => value.downcast::<T>()
+                    .map_err(|_| E::custom("shared decoded value type mismatch")),
+                None => T::deserialize(de::value::UnitDeserializer::<E>::new())
+                    .map(|value| intern(self.0, value)),
+            }
+        }
+    }
+    deserializer.deserialize_newtype_struct(name, Shared(pool))
+}
+
 pub(crate) struct Pool<T> {
     entries: HashMap<u64, Vec<Weak<T>>>,
     inserted_since_sweep: usize,

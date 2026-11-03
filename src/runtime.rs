@@ -996,6 +996,7 @@ pub struct ScopedPolicy(std::sync::Arc<ScopedPolicyValue>);
 
 static SCOPED_POLICIES: std::sync::OnceLock<std::sync::Mutex<crate::shared_values::Pool<ScopedPolicyValue>>>
     = std::sync::OnceLock::new();
+const SHARED_SCOPED_POLICY: &str = "ai-personas::complete_scoped_policy";
 
 impl ScopedPolicy {
     pub fn new(value: ScopedPolicyValue) -> Self {
@@ -1005,7 +1006,7 @@ impl ScopedPolicy {
 
 impl<'de> Deserialize<'de> for ScopedPolicy {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
-        ScopedPolicyValue::deserialize(deserializer).map(Self::new)
+        crate::shared_values::deserialize(&SCOPED_POLICIES, SHARED_SCOPED_POLICY, deserializer).map(Self)
     }
 }
 
