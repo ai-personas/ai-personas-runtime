@@ -694,6 +694,7 @@ pub enum Operation {
         id: String,
         scope: Scope,
         /// Identity of one native file, reused for revisions of that file.
+        /// Nonempty, with no whitespace or control characters.
         /// Separate files need distinct sources even when their paths differ.
         /// Only one file mutation may target a source in a response.
         source: String,
@@ -749,6 +750,7 @@ pub enum Operation {
         scope: Scope,
         /// Existing native file identity. Only one file mutation may target
         /// this source in a response, including writes, imports and retirement.
+        /// Nonempty, with no whitespace or control characters.
         source: String,
         /// Relative native-store path, with the same rules as file_write.
         path: String,
@@ -777,6 +779,7 @@ pub enum Operation {
     FileImport {
         id: String,
         /// Identity of one native file, reused for revisions of that file.
+        /// Nonempty, with no whitespace or control characters.
         /// Separate files need distinct sources: a script and its report are
         /// different files even when they share a filename stem. Different paths
         /// do not distinguish a reused source. Only one file mutation may target
@@ -816,6 +819,7 @@ pub enum Operation {
         scope: Scope,
         /// Existing native file identity. This response cannot also write,
         /// edit, import or retire the same source in another operation.
+        /// Nonempty, with no whitespace or control characters.
         source: String,
         base_revision: String,
     },
