@@ -258,6 +258,15 @@ transactions or omit current-head, revision, duplicate or exact-reference
 checks. This removes temporary copies without changing committed bytes, retained
 history or accounting. Actual latency and memory effects require observation.
 
+Within that transaction, a successfully decoded current object also retains its
+validated allocation, lane and event-slot metadata. Applying its replacement
+can reuse those fields without reading the same complete old body again just
+to check presence or calculate allocation growth. Uncached objects and other
+namespaces still read and validate their current cells. Staging any object
+replacement invalidates both its decoded body and metadata, including a cached
+absence. Every later transaction starts with an empty cache. Encoding, growth
+charges, immutable revisions and commit checks retain their complete inputs.
+
 Store admission, adoption and evidence persistence no longer serialize JSON
 bodies or complete objects merely to discard the bytes from historical size
 checks. These inputs already contain typed JSON values. Required fingerprints

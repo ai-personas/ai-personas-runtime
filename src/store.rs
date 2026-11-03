@@ -738,7 +738,18 @@ struct Cell {
     slots: u64,
 }
 
+#[derive(Clone, Copy)]
+struct CellMetadata {
+    capacity: u64,
+    class: BudgetClass,
+    slots: u64,
+}
+
 impl Cell {
+    fn metadata(&self) -> CellMetadata {
+        CellMetadata { capacity: self.capacity, class: self.class, slots: self.slots }
+    }
+
     fn from_storage(
         db: &Connection,
         namespace: &str,
@@ -3321,6 +3332,11 @@ impl Store {
     }
 }
 
+struct CachedObject {
+    object: Arc<StoredObject>,
+    metadata: CellMetadata,
+}
+
 struct Work<'a> {
     db: &'a Connection,
     limits: &'a Limits,
@@ -3336,7 +3352,7 @@ struct Work<'a> {
     // Only this transaction's current object heads. Immutable shared values
     // avoid decoding the same large head for admission, dependency and control
     // checks. Staging a replacement invalidates its entry, including misses.
-    objects: RefCell<BTreeMap<String, Option<Arc<StoredObject>>>>,
+    objects: RefCell<BTreeMap<String, Option<CachedObject>>>,
 }
 
 impl<'a> Work<'a> {
@@ -3555,13 +3571,30 @@ impl<'a> Work<'a> {
 
     fn object(&self, key: &str) -> Result<Option<Arc<StoredObject>>> {
         if let Some(object) = self.objects.borrow().get(key) {
-            return Ok(object.clone());
+            return Ok(object.as_ref().map(|cached| cached.object.clone()));
         }
-        let object = phase_timing::measure("store.decode_transaction_object", || {
-            self.get::<StoredObject>("object", key)
-        })?.map(Arc::new);
-        self.objects.borrow_mut().insert(key.into(), object.clone());
+        let cached = phase_timing::measure("store.decode_transaction_object", || {
+            self.cell("object", key)?.map(|cell| {
+                Ok::<_, StoreError>(CachedObject {
+                    object: Arc::new(decode_json(&cell.data)?),
+                    metadata: cell.metadata(),
+                })
+            }).transpose()
+        })?;
+        let object = cached.as_ref().map(|cached| cached.object.clone());
+        self.objects.borrow_mut().insert(key.into(), cached);
         Ok(object)
+    }
+
+    fn update_metadata(&self, namespace: &str, key: &str) -> Result<Option<CellMetadata>> {
+        // Reuse only metadata obtained with a complete decoded object in this
+        // transaction. Staging a replacement invalidates the entire entry.
+        if namespace == "object" {
+            if let Some(cached) = self.objects.borrow().get(key) {
+                return Ok(cached.as_ref().map(|cached| cached.metadata));
+            }
+        }
+        Ok(self.cell(namespace, key)?.map(|cell| cell.metadata()))
     }
 
     fn required_object(&self, key: &str) -> Result<Arc<StoredObject>> {
@@ -3692,15 +3725,17 @@ impl<'a> Work<'a> {
         ) {
             return Err(StoreError::Conflict(key.into()));
         }
-        let mut cell = self
-            .cell(ns, key)?
+        let metadata = self
+            .update_metadata(ns, key)?
             .ok_or_else(|| StoreError::Missing(key.into()))?;
-        let data = encode_record(cell.capacity)?;
-        if data.len() as u64 > cell.capacity {
+        let data = encode_record(metadata.capacity)?;
+        let mut cell = Cell { data, capacity: metadata.capacity,
+            class: metadata.class, slots: metadata.slots };
+        if cell.data.len() as u64 > cell.capacity {
             // Retain the complete result. Capacity is measured allocation, not
             // a ceiling; immutable namespaces and transition checks still hold.
             let before = cell.charge(ns, key)?;
-            cell.capacity = data.len() as u64;
+            cell.capacity = cell.data.len() as u64;
             let growth = cell.charge(ns, key)?.checked_sub(before)
                 .ok_or(StoreError::Overflow("cell growth"))?;
             let account = self.meta.account_mut(cell.class);
@@ -3708,7 +3743,6 @@ impl<'a> Work<'a> {
                 .checked_add(growth).ok_or(StoreError::Overflow("cell allocation"))?;
             self.meta.check_dimension(Resource::RetainedBytes, cell.class)?;
         }
-        cell.data = data;
         self.stage_cell(ns, key, cell);
         Ok(())
     }
@@ -4494,7 +4528,7 @@ impl<'a> Work<'a> {
                     Ok::<_, StoreError>(sha256_bytes(&encoded))
                 })?,
             };
-            if self.cell("object", &object.id)?.is_some() {
+            if self.update_metadata("object", &object.id)?.is_some() {
                 self.update_with("object", &object.id, |_| Ok(encoded))?;
             } else {
                 self.insert_with(
