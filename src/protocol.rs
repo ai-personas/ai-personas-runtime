@@ -1052,6 +1052,7 @@ pub enum Operation {
         /// definitions appear in CONTROL.work_capability.inputs_schema. Where
         /// the action permits an earlier local record, cite its inner record ID.
         /// depends_on belongs beside inputs on this operation, never inside it.
+        #[schemars(with = "serde_json_raw::Value")]
         inputs: Value,
         /// Only file_write/file_edit/file_import operation IDs whose proposed revisions this command
         /// consumes. Defaults to [] when omitted; never name another work_command here.
@@ -1072,6 +1073,7 @@ pub enum Operation {
         /// selected inputs_schema. For host.command.v1 this includes command,
         /// result_context, working_directory, stdin, stdin_asset and timeout_seconds.
         /// Put depends_on beside inputs on the effect, never inside this object.
+        #[schemars(with = "serde_json_raw::Value")]
         inputs: Value,
         /// Follow this capability's supplied dependency contract. For
         /// work.command.v1, name only consumed file_write/file_edit/file_import proposals; use [] for

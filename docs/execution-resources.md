@@ -415,6 +415,24 @@ and persona contexts still receive the original contents.
 Inline typed records remain readable, including the public record-map form and
 existing snapshots. Older immutable revisions are not rewritten.
 
+During one retained-record load, identical complete reference and scoped-policy
+JSON can reuse a value already decoded in that load. The lookup compares the
+entire encoded value, and only the corresponding typed visitor can receive it.
+The enclosing record's chunk, length and digest checks still happen first.
+Ordering, duplicates and arbitrary authored JSON keep their original meaning.
+An unsuccessful accelerated decode is repeated through the ordinary decoder to
+retain its complete result and original error location. The temporary lookup
+table drops when the load ends; it supplies no current-state or authority cache.
+
+The application JSON parser uses an immutable upstream `serde_json` revision,
+separate from the equally version-pinned registry parser used for raw values.
+This keeps raw-value support required by the storage reader and optional 3D
+viewer from changing how application `Value` interprets an authored object
+with the reserved raw-value marker. Provider inputs, native JSON values and
+ordinary serialization use the application parser without that feature in both
+core and desktop builds. Schema-only annotations retain the original arbitrary
+JSON input schema; they do not select the runtime parser.
+
 Snapshots share these records until mutable access copies the affected record
 and invalidates its saved encoding. A running Runtime or persistent desktop
 reader can reuse a verified decode only when the next freshly read head contains

@@ -9,6 +9,8 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+mod typed_json;
+
 const FORMAT: &str = "runtime-retained-record-v1";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -245,6 +247,7 @@ impl Encoder {
 pub(super) struct Decoder {
     chunks: Vec<Arc<Chunk>>,
     used: Vec<bool>,
+    atoms: typed_json::Atoms,
 }
 
 impl Decoder {
@@ -264,7 +267,7 @@ impl Decoder {
             };
             chunks.push(chunk);
         }
-        Ok(Self { used: vec![false; chunks.len()], chunks })
+        Ok(Self { used: vec![false; chunks.len()], chunks, atoms: Default::default() })
     }
 
     pub(super) fn finish(self) -> serde_json::Result<Vec<Arc<Chunk>>> {
@@ -313,10 +316,7 @@ impl<T: serde::de::DeserializeOwned> RetainedRecords<T> {
             if crate::store::sha256_bytes(&bytes) != stored.json_sha256 {
                 return Err(error("retained record digest mismatch"));
             }
-            let mut decoder = serde_json::Deserializer::from_slice(&bytes);
-            decoder.disable_recursion_limit();
-            let value = T::deserialize(&mut decoder)?;
-            decoder.end()?;
+            let value = pool.atoms.decode(&bytes)?;
             let encoding = OnceLock::new();
             let _ = encoding.set(Encoding { kind: kind.into(), json_bytes: length,
                 json_sha256: stored.json_sha256, chunks: parts });
