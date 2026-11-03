@@ -1656,27 +1656,37 @@ impl TrustedHost<'_> {
     /// A launcher stop applies to the current work atomically, even while its
     /// execution owner is active. The UI key is retained with the exact derived
     /// request. Replaying that key never stops a subsequently resumed work.
-    pub(crate) fn commit_keyed_runtime_control(
+    pub(crate) fn commit_keyed_runtime_control<E>(
         &mut self,
         id: &str,
         control: RuntimeControl,
-    ) -> Result<(Option<RuntimeControlRequest>, Option<BatchReceipt>, bool)> {
+        authorize: impl FnOnce(&StoredObject, &StoredObject) -> std::result::Result<(), E>,
+    ) -> Result<std::result::Result<(Option<RuntimeControlRequest>, Option<BatchReceipt>, bool), E>> {
         self.store.transaction(|work| {
             work.id(id)?;
             if !matches!(control.action, RuntimeControlAction::Pause | RuntimeControlAction::Canceled) {
                 return Err(StoreError::Invalid("launcher work stop action".into()));
             }
+            // Authorize against the same current heads that govern this stop,
+            // including historical replay and no-op outcomes. This connection
+            // never recovers or waits for the execution owner.
+            let current = work.required_object(RUNTIME_CONTROL_STATE_ID)?;
+            let launch = work.required_object("runtime-launch-v1")?;
+            work.returned(&current, work.limits.max_read_bytes, BudgetClass::Ordinary)?;
+            work.returned(&launch, work.limits.max_read_bytes, BudgetClass::Ordinary)?;
+            if let Err(error) = authorize(&current, &launch) {
+                return Ok(Err(error));
+            }
             if let Some(record) = work.runtime_control_record(id)? {
                 if record.request.control != control {
                     return Err(StoreError::Conflict(id.into()));
                 }
-                return Ok((Some(record.request), Some(record.receipt), true));
+                return Ok(Ok((Some(record.request), Some(record.receipt), true)));
             }
             if let Some(record) = work.get::<RuntimeControlNoop>("runtime_control_noop", id)? {
                 if record.control != control { return Err(StoreError::Conflict(id.into())); }
-                return Ok((None, None, true));
+                return Ok(Ok((None, None, true)));
             }
-            let current: StoredObject = work.required("object", RUNTIME_CONTROL_STATE_ID)?;
             let phase: crate::work::Phase = serde_json::from_value(
                 current.body["board"]["works"][&control.work]["phase"].clone(),
             )?;
@@ -1689,7 +1699,7 @@ impl TrustedHost<'_> {
                 work.insert("runtime_control_noop", id,
                     &RuntimeControlNoop { control, observed: current.exact_ref()? },
                     None, BudgetClass::Closeout, 1)?;
-                return Ok((None, None, false));
+                return Ok(Ok((None, None, false)));
             }
             let request = RuntimeControlRequest {
                 id: id.into(),
@@ -1698,7 +1708,7 @@ impl TrustedHost<'_> {
                 control,
             };
             let receipt = work.commit_runtime_control(request.clone(), false)?;
-            Ok((Some(request), Some(receipt), false))
+            Ok(Ok((Some(request), Some(receipt), false)))
         })
     }
 

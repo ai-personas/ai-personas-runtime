@@ -34,6 +34,7 @@ does not replace the operation's result.
 | `store.fingerprint_invocation` | Stream the complete canonical invocation specification into its digest |
 | `store.check_invocation_ownership` | Read and fingerprint current invocation cells, reuse matching validated metadata, and check the caller's current ownership set |
 | `store.find_runtime_control` | Find retained control keys for one request ID, before complete matching-record validation |
+| `launch.authorize_work_stop` | Validate current configuration, saved operator and cohort ownership inside the pause/cancel transaction |
 | `store.commit_decision` | Complete decision-adoption transaction, including validation, writes, accounting and SQLite commit |
 | `store.fingerprint_decision` | Stream all canonical decision changes, intents and identity fields into their digest |
 | `store.validate_capacity_chain` | Read and validate the exact historical settings receipt chain |

@@ -6149,6 +6149,20 @@ pub(crate) fn runtime_control_is_current(
     ) && phase == recorded_phase)
 }
 
+/// Stop authorization needs current configuration and work authority, not a
+/// decoded history of sources, messages or observations. This narrow read grants
+/// no inference, resume or repair capability; the control transition validates
+/// its own work fields and preserves the complete remaining stored body.
+pub(crate) fn runtime_control_configuration(object: &s::StoredObject) -> Result<Config> {
+    require(
+        object.id == STATE_ID && object.kind == "runtime-state" && object.body["format"] == 1,
+        "runtime control subject",
+    )?;
+    let config = Config::deserialize(&object.body["config"])?;
+    config.validate()?;
+    Ok(config)
+}
+
 /// Structural storage guard, not semantic judgment. The bound counts every
 /// serialized state field plus conservative growth for every possible remaining
 /// pause/ending. Reasons can expand sixfold in JSON. The additional 4096 bytes

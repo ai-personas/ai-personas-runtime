@@ -138,8 +138,15 @@ fn authorized(
     Ok((runtime.as_ref().clone(), state, launch, saved))
 }
 fn authorize_snapshot(state: &State, saved: &Saved, operator: &str) -> BoundaryResult<()> {
+    authorize_cohort(saved, operator, state.config.local_recipients.contains(operator), |actor| {
+        state.personas.get(actor).is_some_and(|p| p.created_by == operator)
+    })
+}
+fn authorize_cohort(saved: &Saved, operator: &str, recipient: bool,
+    owns: impl Fn(&str) -> bool,
+) -> BoundaryResult<()> {
     check(
-        saved.operator == operator && state.config.local_recipients.contains(operator),
+        saved.operator == operator && recipient,
         BoundaryError::Unauthorized,
     )?;
     check(
@@ -147,13 +154,7 @@ fn authorize_snapshot(state: &State, saved: &Saved, operator: &str) -> BoundaryR
         BoundaryError::InvalidState,
     )?;
     for actor in people(saved.setup.cohort) {
-        check(
-            state
-                .personas
-                .get(&actor)
-                .is_some_and(|p| p.created_by == operator),
-            BoundaryError::Unauthorized,
-        )?;
+        check(owns(&actor), BoundaryError::Unauthorized)?;
     }
     Ok(())
 }

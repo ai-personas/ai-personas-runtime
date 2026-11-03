@@ -147,6 +147,15 @@ active. Running calls and commands observe it and retain their actual terminal
 outcomes. A recorded control does not prove remote termination or refund usage.
 Cancellation retains the results and identifies the work as canceled, not complete.
 
+Pause and cancellation authorize the current saved operator, recipient status and
+cohort ownership inside the same transaction as the control. The helper validates
+the complete stored cells, runtime configuration and affected work, without
+decoding all historical sources, observations and messages into execution state.
+Those retained records remain intact; this path cannot resume work, repair their
+contents or establish that they are valid for execution. Replayed and unapplied
+controls also require current authorization. Resumption retains its full state,
+ownership and exact-reference checks.
+
 A concurrent state change can end a session with `snapshot_changed`, including
 when a work control races a prepared step. The recorded control and each call's
 actual outcome remain authoritative. Other Store failures use
