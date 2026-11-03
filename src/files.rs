@@ -53,7 +53,7 @@ pub enum Scope {
     Assets,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Representation {
     Utf8,
@@ -71,9 +71,9 @@ pub enum Representation {
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Reference {
+pub struct ReferenceValue {
     pub source: String,
     pub revision: String,
     pub representation: Representation,
@@ -83,19 +83,51 @@ pub struct Reference {
     pub end: Option<usize>,
 }
 
+/// Complete exact reference with shared immutable storage. Serialized fields,
+/// ordering and equality retain their value semantics; an edit copies its value.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct Reference(Arc<ReferenceValue>);
+
+static REFERENCES: std::sync::OnceLock<std::sync::Mutex<crate::shared_values::Pool<ReferenceValue>>>
+    = std::sync::OnceLock::new();
+
+impl<'de> Deserialize<'de> for Reference {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        ReferenceValue::deserialize(deserializer).map(Self::new)
+    }
+}
+
+impl std::ops::Deref for Reference {
+    type Target = ReferenceValue;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for Reference {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        Arc::make_mut(&mut self.0)
+    }
+}
+
 impl Reference {
+    pub fn new(value: ReferenceValue) -> Self {
+        Self(crate::shared_values::intern(&REFERENCES, value))
+    }
+
     pub fn full(
         source: impl Into<String>,
         revision: impl Into<String>,
         representation: Representation,
     ) -> Self {
-        Self {
+        Self::new(ReferenceValue {
             source: source.into(),
             revision: revision.into(),
             representation,
             start: None,
             end: None,
-        }
+        })
     }
 
     fn request_bytes(&self, historical_limit: usize) -> Result<usize, FilesError> {
@@ -119,7 +151,7 @@ impl Reference {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DerivativeUse {
     /// Exact observations/discovery are allowed; assembly for a new generative
@@ -135,7 +167,7 @@ pub struct PolicyIdentity {
     pub revision: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Policy {
     pub id: String,

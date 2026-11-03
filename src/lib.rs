@@ -2,6 +2,7 @@
 //! AI Personas Rust implementation. See deployment limitations before use.
 mod phase_timing;
 mod schema_diagnostics;
+mod shared_values;
 pub mod auth;
 pub mod computation;
 pub mod http_fetch;

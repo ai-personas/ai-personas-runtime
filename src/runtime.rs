@@ -980,12 +980,45 @@ pub struct State {
 
 /// Host-retained restrictions on exact supplied material. This manifest is not
 /// an inventory to be exposed to the persona and is not an authorization token.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ScopedPolicy {
+pub struct ScopedPolicyValue {
     pub source: String,
     pub revision: String,
     pub policy: f::Policy,
+}
+
+/// Sharing preserves the complete record and does not imply current permission.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub struct ScopedPolicy(std::sync::Arc<ScopedPolicyValue>);
+
+static SCOPED_POLICIES: std::sync::OnceLock<std::sync::Mutex<crate::shared_values::Pool<ScopedPolicyValue>>>
+    = std::sync::OnceLock::new();
+
+impl ScopedPolicy {
+    pub fn new(value: ScopedPolicyValue) -> Self {
+        Self(crate::shared_values::intern(&SCOPED_POLICIES, value))
+    }
+}
+
+impl<'de> Deserialize<'de> for ScopedPolicy {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        ScopedPolicyValue::deserialize(deserializer).map(Self::new)
+    }
+}
+
+impl std::ops::Deref for ScopedPolicy {
+    type Target = ScopedPolicyValue;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for ScopedPolicy {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        std::sync::Arc::make_mut(&mut self.0)
+    }
 }
 // Failure diagnostics are derived output too. Keep their complete private
 // provenance independently of candidate State so rollback cannot erase it.
@@ -6500,11 +6533,11 @@ fn record<'a>(state: &'a State, reference: &f::Reference) -> Result<&'a ManagedR
         .ok_or_else(|| held("exact revision unavailable"))
 }
 fn scoped_policy(kind: &str, source: &str, revision: &str, policy: &f::Policy) -> ScopedPolicy {
-    ScopedPolicy {
+    ScopedPolicy::new(ScopedPolicyValue {
         source: composite_id(kind, &[source]),
         revision: revision.into(),
         policy: policy.clone(),
-    }
+    })
 }
 fn extend_exposure(target: &mut Exposure, source: &Exposure) {
     target.sources.extend(source.sources.iter().cloned());
@@ -6827,7 +6860,7 @@ fn file_reference(reference: &p::ExactRef) -> Result<f::Reference> {
             "unsupported exact representation".into(),
         ));
     };
-    Ok(f::Reference {
+    Ok(f::Reference::new(f::ReferenceValue {
         source: reference.source.clone(),
         revision: reference.revision.clone(),
         representation,
@@ -6841,7 +6874,7 @@ fn file_reference(reference: &p::ExactRef) -> Result<f::Reference> {
             .map(usize::try_from)
             .transpose()
             .map_err(|_| invalid("range overflow"))?,
-    })
+    }))
 }
 /// A host-owned reference is actionable only if the strict wire profile can
 /// name the same representation and range. Never rewrite authored JSON to fit.

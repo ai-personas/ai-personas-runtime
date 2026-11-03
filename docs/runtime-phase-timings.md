@@ -437,3 +437,13 @@ the corpus construction; changed state, warnings and bindings receive fresh chec
 in the next construction. File identities, digests, paths, qualifications and
 binding validation remain unchanged. `runtime.build_corpus` includes this work;
 its timing does not establish the effect on an entire session.
+
+Decoded exact file references and scoped policy records share immutable storage
+when their complete values are equal. Hashes locate candidates; full equality
+decides whether they can share. Every occurrence remains present in its original
+collection and order, and serialization retains the same fields and values.
+Changing a shared value first copies it, so an edit cannot change another record
+or an earlier state. Weak pool entries do not keep discarded values alive, and
+periodic cleanup removes only dead entries. This reduces repeated allocations
+when opening or retaining a long history. It does not omit history, cache
+authorization or validation results, or change fresh lineage and policy checks.
