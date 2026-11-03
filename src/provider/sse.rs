@@ -203,6 +203,7 @@ pub(super) struct Collector {
     stage: &'static str,
     event_index: Option<u64>,
     event_type: Option<&'static str>,
+    last_observed_event: Option<&'static str>,
     event_type_sha256: Option<String>,
     remote_error_type: Option<&'static str>,
     remote_error_code: Option<&'static str>,
@@ -221,6 +222,30 @@ pub(super) struct Collector {
     pub retained_output_items: Option<super::RetainedOutputItems>,
 }
 impl Collector {
+    pub fn progress_receipt(&self) -> Value {
+        let items: Vec<_> = self.items.iter().map(|(index, item)| {
+            let kind = match item.kind {
+                Kind::Message => "message",
+                Kind::Reasoning => "reasoning",
+                Kind::Decision => "decision",
+                Kind::WebSearch => "web_search",
+            };
+            let mut progress = serde_json::json!({"index":index,"kind":kind,
+                "done":item.done,"incomplete":item.incomplete});
+            if matches!(item.kind, Kind::Message | Kind::Decision) {
+                progress["delta_bytes"] = serde_json::json!(item.deltas.len());
+                progress["final_text_bytes"] = serde_json::json!(item.final_text.as_ref().map(String::len));
+                progress["text_done"] = serde_json::json!(item.text_done);
+            }
+            progress
+        }).collect();
+        // Only fixed event labels, local flags and byte counts cross this
+        // boundary. Never include output text, IDs or reasoning contents.
+        serde_json::json!({"profile":"provider-stream-progress-v1","wire":"responses",
+            "last_observed_event":self.last_observed_event,"items":items,
+            "buffered_line_bytes":self.line.len(),"buffered_data_bytes":self.data.len()})
+    }
+
     pub fn new(model: &str) -> Self {
         Self {
             model: model.into(),
@@ -245,6 +270,7 @@ impl Collector {
             stage: "sse_frame",
             event_index: Some(1),
             event_type: None,
+            last_observed_event: None,
             event_type_sha256: None,
             remote_error_type: None,
             remote_error_code: None,
@@ -324,6 +350,7 @@ impl Collector {
     }
     fn event_label(&mut self, name: &str) {
         self.event_type = Some(safe_event_type(name));
+        self.last_observed_event = self.event_type;
         self.event_type_sha256 =
             (self.event_type == Some("unrecognized")).then(|| super::digest(name.as_bytes()));
     }

@@ -48,7 +48,7 @@ impl Stream {
     pub fn finish(&mut self) -> Result<String, Failure> {
         match self { Self::Responses { collector, .. } => collector.finish(), Self::Messages(c) => c.finish() }
     }
-    pub fn receipt(&self, r: &mut AttemptReceipt) {
+    pub fn receipt(&self, r: &mut AttemptReceipt, failed: bool) {
         match self {
             Self::Responses { collector:c, model } => {
                 r.stream_bytes_observed = c.observed as u64;
@@ -64,6 +64,7 @@ impl Stream {
                 r.previous_reported_effort = c.previous_reported_effort.clone();
                 r.reported_model = c.completed.then(|| model.clone());
                 r.usage = c.usage.clone();
+                r.stream_progress = failed.then(|| c.progress_receipt());
             }
             Self::Messages(c) => {
                 r.stream_bytes_observed = c.observed;
@@ -76,6 +77,7 @@ impl Stream {
                 r.response_id_sha256 = c.id.as_ref().map(|id| digest(id.as_bytes()));
                 r.reported_model = c.reported_model.clone();
                 r.usage = c.usage.clone();
+                r.stream_progress = failed.then(|| c.progress_receipt());
                 if r.response_completed && c.closed.len() == c.blocks.len() {
                     r.private_output_items = Some(RetainedOutputItems::capture_messages(c.blocks.values().cloned().collect()));
                 }
@@ -102,6 +104,27 @@ pub(super) struct Messages {
     usage: Usage,
 }
 impl Messages {
+    fn progress_receipt(&self) -> Value {
+        let items: Vec<_> = self.blocks.iter().map(|(index, block)| {
+            let kind = match block["type"].as_str() {
+                Some("tool_use") => "decision",
+                Some("text") => "message",
+                Some("thinking" | "redacted_thinking") => "reasoning",
+                _ => "unsupported",
+            };
+            let mut item = json!({"index":index,"kind":kind,"closed":self.closed.contains(index)});
+            if kind == "decision" {
+                item["partial_input_bytes"] = json!(self.partial.get(index).map(String::len));
+                item["complete_input_bytes"] = json!(self.raw_inputs.get(index).map(String::len));
+            } else if kind == "message" {
+                item["text_bytes"] = json!(block["text"].as_str().map(str::len));
+            }
+            item
+        }).collect();
+        json!({"profile":"provider-stream-progress-v1","wire":"messages","items":items,
+            "buffered_line_bytes":self.line.len(),"buffered_data_bytes":self.data.len()})
+    }
+
     fn new(model: &str) -> Self {
         Self { model:model.into(), reported_model:None, id:None, line:vec![], data:vec![], event:None,
             observed:0, events:0, blocks:BTreeMap::new(), partial:BTreeMap::new(), raw_inputs:BTreeMap::new(), closed:BTreeSet::new(),

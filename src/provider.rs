@@ -761,6 +761,10 @@ pub struct AttemptReceipt {
     pub reported_terminal_status: Option<ReportedTerminalStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_diagnostic: Option<StreamDiagnostic>,
+    /// Content-free observations from a failed stream. These describe local
+    /// receipt progress, not a completed response, usable decision or token usage.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream_progress: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_id: Option<RetainedResponseId>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -803,6 +807,7 @@ impl AttemptReceipt {
             response_completed: false,
             reported_terminal_status: None,
             stream_diagnostic: None,
+            stream_progress: None,
             response_id: None,
             response_id_sha256: None,
             private_output_items: None,
@@ -1659,7 +1664,7 @@ impl DirectCall {
                 receipt.dispatch_may_have_begun =
                     receipt.intake_prelaunch_checked_at_unix.is_some();
             }
-            collector.receipt(&mut receipt);
+            collector.receipt(&mut receipt, result.is_err());
             receipt.network_diagnostic = diagnostics.snapshot();
             receipt.elapsed_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
             receipt.remote_effects_and_charges_may_remain = receipt.dispatch_may_have_begun;

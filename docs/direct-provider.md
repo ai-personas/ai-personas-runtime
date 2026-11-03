@@ -336,6 +336,21 @@ charges stay unknown. Navigation observations describe navigation only. Older
 records retain their original payloads, and no missing historical receipt is
 backfilled. The projection does not include response bodies or credential data.
 
+Failed streaming attempts also retain `stream_progress` when the local collector
+was available. It records observed item kinds and completion flags, byte counts
+for public message or decision text, and bytes still buffered in an unfinished
+event. The Responses collector also retains the last parsed event's fixed label;
+unknown labels become `unrecognized`. No text, item IDs, queries, reasoning
+contents or encrypted state enter this projection. Successful streams omit it.
+
+These observations distinguish a stream that had begun a decision from one
+that had only reported other activity. Text deltas and final text snapshots can
+describe the same bytes, so their counts must not be added. They are not token
+usage, an executable partial decision, proof of remote completion or permission
+to retry. A completed item can still precede a failed or unfinished response.
+Existing failure, EOF, adoption, cancellation and unknown-usage rules remain in
+force, and earlier failures retain the metadata they actually recorded.
+
 When runtime authorization rejects a prepared request before dispatch, its actual
 no-launch receipt, Failed invocation status and unknown-usage hold commit together
 using prepaid records. Cleanup does not need navigation capacity to return the
