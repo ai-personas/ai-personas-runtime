@@ -10,28 +10,34 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt;
 
+// Atoms contain only complete typed reference or policy fields. They cannot
+// contain another storage reference, so their children use native decoding.
+#[derive(Clone, Copy)]
+pub(super) enum Replacement<'de> {
+    Manifest(&'de Value),
+    Atom(&'de Value),
+}
+
 struct Context<'de> {
     root: &'de Value,
-    replacements: HashMap<usize, &'de Value>,
+    replacements: HashMap<usize, Replacement<'de>>,
 }
 
 #[derive(Clone, Copy)]
 struct View<'a, 'de> {
     value: &'de Value,
     context: &'a Context<'de>,
+    atom: bool,
 }
 
 impl<'a, 'de> View<'a, 'de> {
     fn child(self, value: &'de Value) -> Self {
-        Self {
-            value: self
-                .context
-                .replacements
-                .get(&location(value))
-                .copied()
-                .unwrap_or(value),
-            context: self.context,
-        }
+        let (value, atom) = match self.context.replacements.get(&location(value)) {
+            Some(Replacement::Manifest(value)) => (*value, false),
+            Some(Replacement::Atom(value)) => (*value, true),
+            None => (value, false),
+        };
+        Self { value, context: self.context, atom }
     }
 }
 
@@ -44,14 +50,14 @@ pub(super) fn location(value: &Value) -> usize {
 pub(super) struct Decoder<'de>(Context<'de>);
 
 impl<'de> Decoder<'de> {
-    pub(super) fn new(root: &'de Value, replacements: HashMap<usize, &'de Value>) -> Self {
+    pub(super) fn new(root: &'de Value, replacements: HashMap<usize, Replacement<'de>>) -> Self {
         Self(Context { root, replacements })
     }
     pub(super) fn state(&self) -> serde_json::Result<super::State> {
-        super::ExpandedState::deserialize(View { value: self.0.root, context: &self.0 })
+        super::ExpandedState::deserialize(View { value: self.0.root, context: &self.0, atom: false })
     }
     pub(super) fn record<T: serde::Deserialize<'de>>(&self, value: &'de Value) -> serde_json::Result<T> {
-        T::deserialize(View { value, context: &self.0 })
+        T::deserialize(View { value, context: &self.0, atom: false })
     }
 }
 
@@ -66,7 +72,11 @@ macro_rules! scalar {
 macro_rules! container {
     ($method:ident $(, $arg:ident: $kind:ty)*) => {
         fn $method<V: Visitor<'de>>(self, $($arg: $kind,)* visitor: V) -> serde_json::Result<V::Value> {
-            self.value.$method($($arg,)* Containers { visitor, source: self })
+            if self.atom {
+                self.value.$method($($arg,)* visitor)
+            } else {
+                self.value.$method($($arg,)* Containers { visitor, source: self })
+            }
         }
     };
 }
@@ -75,6 +85,9 @@ impl<'a, 'de> Deserializer<'de> for View<'a, 'de> {
     type Error = serde_json::Error;
 
     fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> serde_json::Result<V::Value> {
+        if self.atom {
+            return self.value.deserialize_any(visitor);
+        }
         match self.value {
             Value::Array(_) | Value::Object(_) => self.value.deserialize_any(Containers {
                 visitor,
@@ -116,7 +129,7 @@ impl<'a, 'de> Deserializer<'de> for View<'a, 'de> {
     container!(deserialize_struct, name: &'static str, fields: &'static [&'static str]);
 
     fn deserialize_option<V: Visitor<'de>>(self, visitor: V) -> serde_json::Result<V::Value> {
-        if self.value.is_null() {
+        if self.atom || self.value.is_null() {
             self.value.deserialize_option(visitor)
         } else {
             visitor.visit_some(self)
@@ -128,6 +141,9 @@ impl<'a, 'de> Deserializer<'de> for View<'a, 'de> {
         name: &'static str,
         visitor: V,
     ) -> serde_json::Result<V::Value> {
+        if self.atom {
+            return self.value.deserialize_newtype_struct(name, visitor);
+        }
         self.value.deserialize_newtype_struct(
             name,
             Newtype {
@@ -143,6 +159,9 @@ impl<'a, 'de> Deserializer<'de> for View<'a, 'de> {
         variants: &'static [&'static str],
         visitor: V,
     ) -> serde_json::Result<V::Value> {
+        if self.atom {
+            return self.value.deserialize_enum(name, variants, visitor);
+        }
         self.value.deserialize_enum(
             name,
             variants,

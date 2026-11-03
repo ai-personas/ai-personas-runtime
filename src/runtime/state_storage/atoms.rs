@@ -103,7 +103,7 @@ struct Header {
 /// A replacement's address is scoped to this immutable JSON borrow only.
 pub(super) fn references<'a>(
     pool: &'a Value,
-    references: &mut HashMap<usize, &'a Value>,
+    references: &mut HashMap<usize, borrowed::Replacement<'a>>,
 ) -> serde_json::Result<&'a Map<String, Value>> {
     let header = Header::deserialize(pool)?;
     let _ = (
@@ -161,7 +161,7 @@ pub(super) fn references<'a>(
                     .get(position)
                     .ok_or_else(|| invalid_storage("retained provenance index absent"))?;
                 used[position] = true;
-                references.insert(borrowed::location(index), entry);
+                references.insert(borrowed::location(index), borrowed::Replacement::Atom(entry));
             }
         }
     }

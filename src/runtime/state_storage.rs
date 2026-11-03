@@ -167,7 +167,7 @@ struct PoolHeader {
     entries: serde::de::IgnoredAny,
 }
 
-fn exposure_references(value: &Value) -> serde_json::Result<Option<HashMap<usize, &Value>>> {
+fn exposure_references(value: &Value) -> serde_json::Result<Option<HashMap<usize, borrowed::Replacement<'_>>>> {
     let Some(pool) = value.get(POOL) else {
         return Ok(None);
     };
@@ -221,7 +221,7 @@ fn exposure_references(value: &Value) -> serde_json::Result<Option<HashMap<usize
                     .get(key)
                     .ok_or_else(|| invalid_storage("retained exposure absent"))?;
                 used.insert(key.to_owned());
-                references.insert(borrowed::location(exposure), retained);
+                references.insert(borrowed::location(exposure), borrowed::Replacement::Manifest(retained));
             }
             Ok(())
         },
