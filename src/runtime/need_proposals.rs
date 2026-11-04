@@ -882,7 +882,7 @@ impl Runtime {
     ) -> Result<Prepared> {
         selection.validate()?;
         self.prepare_with_scheduler_and_intake(
-            request, now, |_| Ok(None), None, Some(selection), &BTreeSet::new(),
+            request, now, |_| Ok(None), None, Some(selection), &BTreeSet::new(), None,
         )
     }
 

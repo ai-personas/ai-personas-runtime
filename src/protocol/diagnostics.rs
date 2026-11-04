@@ -94,6 +94,12 @@ fn path_step<'a>(
 }
 
 pub(super) fn duplicate_member_hint(path: &[JsonPathSegment], key: &str) -> ShapeHint {
+    // Effect inputs are opaque in the Decision schema. Their recognized host
+    // argument spellings can still locate a duplicate without echoing an
+    // arbitrary key or interpreting a rejected capability/tag as authority.
+    if let Some(hint) = duplicate_input_hint(path, key) {
+        return hint;
+    }
     let schema = decision_schema();
     let mut candidates = vec![&schema];
     let mut hint = ShapeHint::default();
@@ -106,6 +112,25 @@ pub(super) fn duplicate_member_hint(path: &[JsonPathSegment], key: &str) -> Shap
         candidates = next;
     }
     hint
+}
+
+fn duplicate_input_hint(path: &[JsonPathSegment], key: &str) -> Option<ShapeHint> {
+    let [JsonPathSegment::Member(root), JsonPathSegment::Element(index),
+        JsonPathSegment::Member(inputs), nested @ ..] = path else { return None; };
+    if root != "operations" || inputs != "inputs" { return None; }
+    let schema = crate::runtime::host_command_inputs_schema().ok()?;
+    let mut candidates = vec![&schema];
+    let mut suffix = String::new();
+    let member = JsonPathSegment::Member(key.to_owned());
+    for segment in nested.iter().chain(std::iter::once(&member)) {
+        let Some((next, label)) = path_step(&candidates, &schema, segment) else { break; };
+        suffix.push_str(&label);
+        candidates = next;
+    }
+    (!suffix.is_empty()).then(|| ShapeHint {
+        section: format!("response.operations[{index}].inputs{suffix}"),
+        ..ShapeHint::default()
+    })
 }
 
 pub(super) fn hint(path: &Path, bytes: &[u8]) -> ShapeHint {

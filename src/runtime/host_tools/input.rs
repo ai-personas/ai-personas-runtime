@@ -22,11 +22,14 @@ pub(super) struct Inputs {
     /// For an interpreter script, use a command such as python3 - with the script
     /// in stdin, avoiding an extra layer of shell quoting or a heredoc.
     pub command: String,
-    /// Choose the next decision's result context: output supplies captured stdout
-    /// and stderr without repeating command or literal stdin bodies; complete
-    /// also supplies those input bodies; reference supplies only execution metadata
-    /// and exact readable text references. Every choice retains all observed text
-    /// and exposes exact field references for later reads or context selection.
+    /// Choose what the next decision can see. Your current response and script
+    /// are NOT automatically present in that next prompt. complete supplies the
+    /// exact command, literal stdin, stdout and stderr: use it when interpreting
+    /// or repairing the result needs the code, chosen paths or arguments.
+    /// output supplies stdout/stderr but OMITS that command and script; choose it
+    /// when the output is self-contained or the needed input is otherwise selected.
+    /// reference supplies execution metadata and readable text references only.
+    /// Every choice retains all observed text for exact reads without rerunning it.
     pub result_context: context::ResultContext,
     /// Host working directory; omission uses the offered default.
     #[serde(default)]
@@ -43,9 +46,21 @@ pub(super) struct Inputs {
     /// the complete original file bytes to the command, not the metadata text.
     /// Use cat > a host path to export it,
     /// or an interpreter such as python3 - to execute it. This does not select
-    /// model context. A same-response proposal requires its save ID in depends_on.
+    /// model context. A same-response proposal requires its supporting save's
+    /// operation ID in this effect's depends_on, beside inputs.
     #[serde(default)]
     pub stdin_asset: Option<Asset>,
+    /// Native supporting sources used to derive this command's literal code,
+    /// parameters or interpretation. Their qualifications and accepted warnings
+    /// accompany the result. Use exact references or current input-file handles;
+    /// this does not load their bodies into model context. Each same-response
+    /// proposal requires its supporting save's operation ID in this effect's
+    /// depends_on, beside inputs, even when it supplies context rather than stdin.
+    /// stdin_asset is always included automatically. Unrelated files merely
+    /// present in this call do not become result dependencies. Complete call
+    /// provenance remains retained.
+    #[serde(default)]
+    pub context_sources: Vec<Asset>,
     /// Optional timeout chosen by the persona; omission means no timeout.
     #[serde(default)]
     pub timeout_seconds: Option<u64>,
@@ -74,14 +89,7 @@ impl Inputs {
     fn reference(&self, prepared: &Prepared) -> Result<Option<p::ExactRef>> {
         self.stdin_asset
             .as_ref()
-            .map(|asset| match asset {
-                Asset::Reference { reference } => Ok(reference.clone()),
-                Asset::InputFile { handle } => {
-                    input_files::resolve_output(prepared, std::slice::from_ref(handle))?
-                        .pop()
-                        .ok_or_else(|| held("host stdin asset handle unavailable"))
-                }
-            })
+            .map(|asset| asset.reference(prepared))
             .transpose()
     }
 
@@ -89,31 +97,61 @@ impl Inputs {
         &self,
         prepared: &Prepared,
         decision: &p::Decision,
+        effect_id: &str,
         dependencies: &[String],
     ) -> Result<()> {
         require(
             self.stdin.is_none() || self.stdin_asset.is_none(),
             "choose literal stdin or stdin_asset, not both",
         )?;
-        if let Some(reference) = self.reference(prepared)? {
+        let references = self.reference(prepared)?.into_iter()
+            .map(|reference| ("inputs.stdin_asset".to_owned(), reference))
+            .chain(self.context_sources.iter().enumerate().map(|(index, asset)| {
+                Ok((format!("inputs.context_sources[{index}]"), asset.reference(prepared)?))
+            })
+                .collect::<Result<Vec<_>>>()?);
+        for (field, reference) in references {
             if reference.revision.starts_with(p::PROPOSED_OPERATION_PREFIX)
                 || reference.revision.starts_with(p::PROPOSED_REVISION_PREFIX)
             {
                 let index = proposal_index(decision);
+                let location = format!("host command effect {effect_id:?} {field}");
                 let operation = index
                     .get(&reference.revision)
                     .and_then(|index| decision.operations.get(*index))
-                    .ok_or_else(|| held("host stdin asset proposal absent"))?;
+                    .ok_or_else(|| held(format!("{location}: proposed source save is absent from this response")))?;
                 let save = operation.file_save().unwrap();
                 require(
-                    *save.source == reference.source
-                        && matches!(save.scope, p::Scope::Assets {})
-                        && dependencies.iter().any(|id| id == save.id),
-                    "host stdin asset proposal needs its exact supporting save dependency",
+                    *save.source == reference.source,
+                    &format!("{location}: source does not match proposed save {:?}", save.id),
+                )?;
+                require(
+                    matches!(save.scope, p::Scope::Assets {}),
+                    &format!("{location}: proposed save {:?} must use assets scope", save.id),
+                )?;
+                require(
+                    dependencies.iter().any(|id| id == save.id),
+                    &format!("{location}: proposed save {:?} must be listed in this effect's depends_on", save.id),
                 )?;
             }
         }
         Ok(())
+    }
+
+    pub(super) fn context_receipts(
+        &self, state: &State, prepared: &Prepared,
+        proposals: &BTreeMap<String, String>, now: i64,
+    ) -> Result<Vec<Receipt>> {
+        let a = admission(&state.personas[&prepared.request.persona], now);
+        let mut seen = BTreeSet::new();
+        self.context_sources.iter().map(|asset| {
+            let reference = resolve(&asset.reference(prepared)?, proposals)?;
+            let reference = file_reference(&reference)?;
+            require(seen.insert(reference.clone()), "duplicate host context source")?;
+            let reference = wire_reference(&reference);
+            let (bytes, binding_sha256) = current_asset(state, &reference, &a, true)?;
+            Ok(Receipt { reference, bytes: bytes.len(), sha256:s::sha256_bytes(&bytes), binding_sha256 })
+        }).collect()
     }
 
     pub(super) fn materialize(
@@ -131,7 +169,7 @@ impl Inputs {
         let receipt = if let Some(reference) = reference {
             let reference = wire_reference(&file_reference(&reference)?);
             let a = admission(&state.personas[&prepared.request.persona], now);
-            let (bytes, binding_sha256) = current_asset(state, &reference, &a)?;
+            let (bytes, binding_sha256) = current_asset(state, &reference, &a, false)?;
             let receipt = Receipt {
                 reference,
                 bytes: bytes.len(),
@@ -158,10 +196,21 @@ impl Inputs {
     }
 }
 
+impl Asset {
+    fn reference(&self, prepared: &Prepared) -> Result<p::ExactRef> {
+        match self {
+            Self::Reference { reference } => Ok(reference.clone()),
+            Self::InputFile { handle } => input_files::resolve_output(prepared, std::slice::from_ref(handle))?
+                .pop().ok_or_else(|| held("host input source handle unavailable")),
+        }
+    }
+}
+
 fn current_asset(
     state: &State,
     reference: &p::ExactRef,
     a: &f::Admission,
+    bind_qualification_closure: bool,
 ) -> Result<(Vec<u8>, String)> {
     let reference = file_reference(reference)?;
     let stored = record(state, &reference)?;
@@ -176,7 +225,7 @@ fn current_asset(
     // whole JSON document or current source head. The runner consumes this text
     // directly, without a corpus or prompt quota or another escaping layer.
     let assembled = f::assemble(
-        &corpus(state, a)?,
+        corpus(state, a)?.as_ref(),
         std::slice::from_ref(&reference),
         &[],
         &[],
@@ -185,6 +234,11 @@ fn current_asset(
         0,
         0,
     )?;
+    // Declared context dependencies bind their complete operative qualification
+    // closure, including later warnings on a qualifier. Existing stdin receipts
+    // keep the binding they actually recorded.
+    let qualification_binding = bind_qualification_closure
+        .then(|| s::sha256_bytes(assembled.rendered_context.as_bytes()));
     let text = assembled.entries.into_iter()
         .find(|entry| entry.reference == reference)
         .ok_or_else(|| held("host stdin asset text unavailable at the exact representation and range"))?
@@ -201,13 +255,29 @@ fn current_asset(
             binding.source == reference.source && binding.file_revision == reference.revision
         })
         .collect();
-    Ok((bytes, digest(&(stored, bindings))?))
+    let binding = match qualification_binding {
+        Some(qualifications) => digest(&(stored, bindings, qualifications))?,
+        None => digest(&(stored, bindings))?,
+    };
+    Ok((bytes, binding))
 }
 
 pub(super) fn require_current(state: &State, job: &Job, now: i64) -> Result<()> {
+    // Each check borrows one current state; no validation survives its return.
+    with_read_validation(state, || require_current_inputs(state, job, now))
+}
+
+fn require_current_inputs(state: &State, job: &Job, now: i64) -> Result<()> {
+    let a = admission(&state.personas[&job.actor], now);
+    for receipt in &job.context_sources {
+        let (bytes, binding) = current_asset(state, &receipt.reference, &a, true)?;
+        require(binding == receipt.binding_sha256 && bytes.len() == receipt.bytes
+            && s::sha256_bytes(&bytes) == receipt.sha256
+            && exposure_permitted(state, &job.exposure, &a),
+            "host context source or its current bindings changed before dispatch")?;
+    }
     if let Some(receipt) = &job.stdin_asset {
-        let a = admission(&state.personas[&job.actor], now);
-        let (bytes, binding) = current_asset(state, &receipt.reference, &a)?;
+        let (bytes, binding) = current_asset(state, &receipt.reference, &a, false)?;
         require(
             binding == receipt.binding_sha256
                 && bytes.len() == receipt.bytes
@@ -224,6 +294,13 @@ pub(super) fn require_current(state: &State, job: &Job, now: i64) -> Result<()> 
 /// bodies. The accepted intent still binds the complete actual stdin bytes.
 pub(super) fn observed(job: &Job) -> Result<Value> {
     let mut value = serde_json::to_value(&job.input)?;
+    if !job.context_sources.is_empty() {
+        value["context_sources"] = json!(job.context_sources.iter().map(|receipt| json!({
+            "reference":receipt.reference,"bytes":receipt.bytes,"sha256":receipt.sha256,
+            "body_supplied":false,
+            "meaning":"Persona-declared native dependency of the command; current qualifications accompany the result. Metadata is not model body supply or verified correctness."
+        })).collect::<Vec<_>>());
+    }
     if let Some(choice) = job.result_context {
         value["result_context"] = serde_json::to_value(choice)?;
     }

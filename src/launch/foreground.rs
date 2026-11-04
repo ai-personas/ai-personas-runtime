@@ -22,6 +22,50 @@ pub(super) struct Selection {
     pub next_scheduled_at: Option<u64>,
 }
 
+fn handover_blocks(state: &State, actor: &str, work: &str, pending: &BTreeMap<String, String>) -> bool {
+    pending.contains_key(actor) || (state.personas[actor].character.is_some()
+        && pending.values().any(|pending| pending == work))
+}
+
+fn current_entry(state: &State, work: &w::WorkId, actor: &w::PersonaId, time: u64, now: i64)
+    -> Result<SchedulerConsideration>
+{
+    let opportunity = runtime_opportunity(state, work, actor, time);
+    let mut entry = scheduler_entry(state, work.clone(), actor.clone(), opportunity, now)?;
+    if continuation_permit(state, &actor.0, &work.0, now) && state.work_meta.contains_key(&work.0) {
+        entry.disposition = SchedulerDisposition::Queued;
+    }
+    Ok(entry)
+}
+
+// Work rotation and participant rotation alone can starve a parent route:
+// its actor is busy whenever the parent is scanned, then a fast child claims
+// the freed actor again. Rotate each actor's eligible works as well. No task
+// contents, role, trait, quality judgment or inferred urgency affects this order.
+fn next_actor_work(
+    state: &State, works: &[String], actor: &w::PersonaId, last: Option<&String>,
+    time: u64, now: i64, visited: &BTreeSet<(String, String)>,
+    blocked_works: &BTreeSet<String>, pending_handovers: &BTreeMap<String, String>,
+) -> Result<Option<String>> {
+    let start = last.and_then(|last| works.iter().position(|work| work == last))
+        .map_or(0, |index| (index + 1) % works.len());
+    for offset in 0..works.len() {
+        let work = &works[(start + offset) % works.len()];
+        if blocked_works.contains(work) || visited.contains(&(work.clone(), actor.0.clone()))
+            || handover_blocks(state, &actor.0, work, pending_handovers)
+        { continue; }
+        let wid = w::WorkId(work.clone());
+        let current = state.board.work(&wid)?;
+        if !matches!(current.phase, w::Phase::Open) || !current.participants.contains_key(actor) {
+            continue;
+        }
+        if matches!(current_entry(state, &wid, actor, time, now)?.disposition, SchedulerDisposition::Queued) {
+            return Ok(Some(work.clone()));
+        }
+    }
+    Ok(None)
+}
+
 pub(super) fn select(
     app: &mut Runtime,
     works: &[String],
@@ -41,14 +85,21 @@ pub(super) fn select(
     let (head, state) = app.load()?;
     require(app.invocation_leases_owned(&state, owned)?,
         "unfinished invocation requires completion or explicit recovery")?;
+    // Input delivery also waits for background commands. If the last model
+    // call has settled but its tools still run, admitting another call here
+    // could start more tools forever without delivering queued human input.
+    // Let the foreground wait for the actual command results, then deliver the
+    // input before selecting the next ordinary decision.
+    if (!owned.is_empty() || app.has_background_host_commands())
+        && (feedback::has_pending(app)? || question_commands::has_pending(app)?)
+    {
+        return Ok(Selection::default());
+    }
     if !owned.is_empty() {
         // Ordinary peers may continue while another owned call is pending, but
         // refilling must not starve transactions that require a settled owner.
         // Reuse this selection snapshot; the eventual helpers still validate
         // their exact current records at the quiescent maintenance boundary.
-        if feedback::has_pending(app)? || question_commands::has_pending(app)? {
-            return Ok(Selection::default());
-        }
         for work in works {
             if persona_birth::has_pending_for_work(&state, work)
                 || intake_delegation::has_pending_for_work(&state, work)
@@ -61,10 +112,40 @@ pub(super) fn select(
         // uncertain lease holds its actor, not unrelated ready participants.
     }
     let (old, mut cursor) = app.load_scheduler()?;
+    let runtime = head.exact_ref()?;
+    let mut next_after = *after;
+    let selection = consider(&state, &runtime, &mut cursor, works, &mut next_after, time, now,
+        owned, visited, priority, blocked_works, pending_handovers)?;
+    if selection.considered > 0 {
+        let mut change = scheduler_change(old.as_ref(), &cursor)?;
+        change.depends_on.push(runtime);
+        app.store.compare_and_swap_batch(vec![change])?;
+    }
+    *after = next_after;
+    Ok(selection)
+}
+
+// One immutable snapshot determines the entire consideration pass. Persistence
+// binds its receipt to that snapshot; preparation still rechecks actual state.
+fn consider(
+    state: &State,
+    runtime: &s::ObjectRef,
+    cursor: &mut SchedulerState,
+    works: &[String],
+    after: &mut usize,
+    time: u64,
+    now: i64,
+    owned: &BTreeSet<String>,
+    visited: &BTreeSet<(String, String)>,
+    priority: Option<&(String, String)>,
+    blocked_works: &BTreeSet<String>,
+    pending_handovers: &BTreeMap<String, String>,
+) -> Result<Selection> {
     let started_after = *after;
     let mut next_after = *after;
     let mut selected = None;
     let mut next_scheduled_at = None;
+    let mut persona_work_preferences = BTreeMap::new();
     cursor.last.clear();
     // A selected exclusive candidate may have waited for the affected calls to
     // settle after its cursor was committed. Reconsider that exact work/persona
@@ -114,21 +195,25 @@ pub(super) fn select(
             // Do not admit its actor on another work before the exact handover,
             // or let ordinary peers change that handover's work authority.
             // Other uninitialized peers can still author their fenced units.
-            if pending_handovers.contains_key(&actor.0)
-                || (state.personas[&actor.0].character.is_some()
-                    && pending_handovers.values().any(|pending| pending == work))
-            {
+            if handover_blocks(state, &actor.0, work, pending_handovers) {
                 continue;
             }
             if visited.contains(&(wid.0.clone(), actor.0.clone())) {
                 continue;
             }
-            let opportunity = runtime_opportunity(&state, &wid, &actor, time);
-            let mut entry = scheduler_entry(&state, wid.clone(), actor.clone(), opportunity, now)?;
-            if continuation_permit(&state, &actor.0, work, now) && state.work_meta.contains_key(work) {
-                entry.disposition = SchedulerDisposition::Queued;
+            let entry = current_entry(state, &wid, &actor, time, now)?;
+            let queued = matches!(entry.disposition, SchedulerDisposition::Queued);
+            if queued && preferred_actor.is_none() && !persona_work_preferences.contains_key(&actor.0) {
+                if let Some(next) = next_actor_work(state, works, &actor,
+                    cursor.foreground_work_after.get(&actor.0), time, now,
+                    visited, blocked_works, pending_handovers)?
+                {
+                    persona_work_preferences.insert(actor.0.clone(), next);
+                }
             }
-            if matches!(entry.disposition, SchedulerDisposition::Queued) {
+            if queued && (preferred_actor.is_some()
+                || persona_work_preferences.get(&actor.0) == Some(work))
+            {
                 // A fresh cohort's character calls can only adopt their own
                 // profile/file units. They cannot accept responsibility or
                 // change shared work. Existing accepted participants can make
@@ -160,6 +245,7 @@ pub(super) fn select(
             cursor.considered = increment(cursor.considered)?;
             cursor.last.push(entry);
             if selected.is_some() {
+                cursor.foreground_work_after.insert(selected.as_ref().unwrap().persona.clone(), work.clone());
                 next_after = (index + 1) % works.len();
                 break;
             }
@@ -168,7 +254,6 @@ pub(super) fn select(
     }
     let considered = cursor.last.len();
     if considered > 0 {
-        let runtime = head.exact_ref()?;
         cursor.last_foreground_scan = Some(ForegroundScan {
             runtime: runtime.clone(), works: works.into(), started_after, next_after,
             visited: visited.clone(), owned_invocations: owned.clone(), at_unix: now,
@@ -183,10 +268,8 @@ pub(super) fn select(
             deferred_exclusive_candidate: priority.cloned(),
             blocked_works: blocked_works.clone(),
             pending_character_handovers: pending_handovers.clone(),
+            persona_work_preferences,
         });
-        let mut change = scheduler_change(old.as_ref(), &cursor)?;
-        change.depends_on.push(runtime);
-        app.store.compare_and_swap_batch(vec![change])?;
     }
     *after = next_after;
     Ok(Selection { considered, candidate: selected, next_scheduled_at })

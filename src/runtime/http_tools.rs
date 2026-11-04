@@ -150,7 +150,7 @@ pub(super) fn full_asset<'a>(
     )?;
     // Qualification closure must be complete and current, including source policy.
     f::assemble(
-        &corpus(state, a)?,
+        corpus(state, a)?.as_ref(),
         &[reference],
         &[],
         &[],
@@ -694,6 +694,7 @@ fn retain_result(state: &mut State, id: &str, job: &Job, payload: &Value) -> Res
         policy,
         qualifications: required,
         retired: false,
+        save_context: None,
     }
     .seal()?;
     let reference = wire_reference(&file.reference(f::Representation::Utf8));

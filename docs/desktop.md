@@ -1,13 +1,94 @@
 # Personas Desktop
 
+The persona Character view shows observed maintenance since tracking began:
+ordinary decisions, accepted fragment revision decisions, character transitions,
+consecutive no-change choices and the latest attributed reason. These are activity
+records, not measured maturation or a score. Older untracked decisions are not
+silently counted as zero.
+
 Personas Desktop is a native Rust window for Linux and macOS. It discovers Codex,
 loads model and reasoning choices, provides browser or device-code sign-in, and
 keeps tasks, conversations, files, questions, and persona activity together.
 Its Blender-inspired interface uses embedded Inter and DejaVu Sans Mono fonts,
-a dark theme, compact editor headers,
+a dark theme, readable 16-point body text and 14-point supporting text,
 resizable panels, a task outliner, a persona properties inspector, and a session
 history panel. Blue marks selection and primary actions; orange marks workspace
-icons and items needing attention.
+icons and items needing attention. **Settings → Interface → Text & interface scale**
+enlarges text and controls together, from 75% to 300%, and saves the choice for
+the current workspace. Native display scaling is respected. Markdown, code, graph labels, and plot labels use the same
+readable text sizes; **Reset scale** restores 100%.
+
+The Overview labels participation per task. **Working elsewhere** identifies an
+active call or tool on another task; the persona inspector links to that task.
+**Stopped on this task** records a local continuation choice, not a stopped
+session or a finished result. The selected task lists the follow-up work that
+personas actually requested, with each participant's current execution status.
+
+Desktop refresh uses one coherent snapshot for tasks, results, questions,
+conversation and session status. Inspection holds a read transaction instead
+of the runtime writer lock while decoding history; its actual returned-byte
+accounting is committed separately before the view is returned. Execution still
+checks its own current state before acting. An open window must not serialize
+model admission and result adoption behind repeated full-history UI reads.
+
+Snapshot loading runs in a separate read worker. The controller can process
+task selections and control requests while that read finishes. Only one snapshot
+read is active per window; further requests are coalesced, and a result started
+before a later UI action cannot replace the newer view. All panels and the saved
+session binding are checked together before publication. This does not skip the
+runtime's fresh checks when a control is actually executed.
+
+Selecting another task supersedes the obsolete reply and loads its conversation
+in the same snapshot as its other panels. Initial workspace and conversation reads
+show loading text without continuously animating the entire window.
+Other pending operations also show static status text and wake the window when
+their worker responds. The running-session clock displays elapsed minutes and
+redraws at the next minute boundary; recorded progress still appears immediately.
+
+The pinned workspace reader keeps one decoded history between requests. Every
+request opens a fresh transaction and compares its exact state epoch; a changed
+epoch replaces the cached state. Operator checks, auxiliary records and the
+current clock are still evaluated for each view. Successful lineage checks can
+share already validated ancestors within that immutable projection; failures
+are not memoized. Task selection can reuse unchanged decoded history without
+reopening it. Closing or replacing the workspace terminates its read helper.
+Starting work, unpausing a task and resuming a participant also request fresh
+snapshots through that reader. Start checks the preceding session's outcome and
+the task's current eligibility in one transaction, instead of decoding history
+in separate helper processes. The read still checks current authority and state;
+the control or session worker separately validates the exact supplied references
+before applying a change. Control reads project only task inspection and session
+status, so an unrelated result-panel failure cannot prevent a control's own
+checks. A control read can wait for the reader's current snapshot, and opening
+the mutation or execution worker remains a separate cost.
+When the epoch changes, the reader decodes the fresh heads and reuses retained
+sources, observations and messages only when their complete encoded contents
+match the previously verified records. Changed records decode again; removed
+records leave the cache. Current configuration, lifecycle, permissions and
+projection checks still run. The cache retains memory for the latest decoded
+history while the workspace is open; the first read still loads that history.
+
+The internal `desktop-snapshot-server` accepts JSON lines tagged with
+`kind: "snapshot"` (optional `work` and `session`, plus `conversation`) or
+`kind: "control"` (optional `session`). Both requests only inspect state;
+the control view executes no task action. Unknown tags or fields are rejected.
+Use the desktop and pinned helpers from the same installation.
+
+Desktop message projections retain complete displayed text, attribution, order
+and exact file/history citations. They omit internal provenance graphs that the
+window does not render; full message records remain available through the native
+`conversation` and history interfaces. Refreshes continue to read fresh state,
+but an inspection timestamp alone does not trigger a repaint of unchanged data.
+State decoding and provider latency remain separate from UI response time.
+
+For local rendering diagnostics, set `AI_PERSONAS_DESKTOP_TIMINGS=1`. The desktop
+writes UI update durations, the previous frame CPU duration reported by eframe,
+and repaint call sites to stderr. It logs no task text or provider data. This is
+an opt-in diagnostic with its own overhead, not a whole-system performance score.
+
+Feedback and question answers received during a run wait for existing calls and
+tool commands to settle. New calls do not get ahead of that queued input while
+tools finish; the next eligible decision receives the recorded instruction.
 
 ## Build and open
 
@@ -54,12 +135,78 @@ and select a working folder. The model picker preselects the catalogue's default
 model and reasoning effort; individual persona choices are optional. Manual
 entry remains available when a catalogue cannot be loaded.
 
+### Provider settings and API keys
+
+Open **Settings → Providers** to configure OpenAI, OpenRouter, Anthropic/Claude,
+or OpenCode Console (formerly Zen). Each provider has a separate masked key
+field, default model and reasoning setting, **Save provider settings**,
+**Check connection / load models**, and **Remove saved key**. Model discovery
+does not perform inference or prove a model supports every request option.
+Use the exact model ID from your provider, or enter it manually. `default`
+omits the reasoning option. Anthropic also requires an explicit positive output
+token maximum; its catalogue can supply the advertised maximum.
+
+In workspace setup, choose the **Connection**, then select the workspace model.
+Under each persona's **Model for this persona**, choose an individual model and
+optionally a different configured provider. The setup review shows every
+persona's provider, model, and effort. Starting a task uses those saved bindings;
+there is no automatic provider or model fallback. Existing ChatGPT sign-in
+routes remain available separately.
+
+OpenAI, OpenRouter, and OpenCode use their documented Responses endpoints.
+Anthropic uses its native Messages endpoint and a response-only tool carrying
+the decision JSON. Stream completion and model identity are checked before
+adoption, with native output retained for explicitly selected continuation.
+
+Keys are stored in `provider-credentials.json` in the private progress folder,
+with owner-only file permissions and atomic writes. This file is not encrypted.
+Nonsecret defaults are stored separately in `provider-settings.json`. Keys are
+not included in setup documents, UI snapshots, or run records. Only required
+provider credentials are passed to the session helper; desktop inference keys
+are excluded from the environment inherited by persona host commands. This is
+not isolation from other processes running as the same OS user.
+
+The workspace pins the exact credential fingerprint used during creation.
+Removing its key prevents subsequent runs; restoring the same key enables them.
+After saving a replacement key, **Apply connection** explicitly binds existing
+personas to it. Keep their current model IDs and efforts, or choose to apply the
+model and effort shown in Settings to every persona. While retaining model IDs,
+**Reasoning effort for retained models** optionally sets one effort for all
+existing personas. Leave it empty to preserve their individual efforts. This
+also applies to Codex sign-in and does not reset work or change model IDs.
+The selected provider must support the entered effort for every retained model.
+Existing workspaces can
+switch among the configured providers.
+**Use Codex sign-in · keep persona models** switches to the existing Codex login
+without changing the persona models. These operations preserve work and character
+history and start no inference. An interrupted change retains its exact request;
+**Finish saved provider change** completes that request before another run.
+Later calls use the selected provider's destination; historical source revisions
+retain their original attribution. Run credentials come
+from current runtime bindings, including current persona overrides, rather than
+the original setup document. Editing defaults alone does not change existing
+personas. Provider keys are scoped to the selected progress folder.
+
+A resumed persona whose previous decision was Stop or Pause shows **Ready to
+reconsider** when it is currently eligible. Its **Last decision** remains visible
+separately. Resumption does not rewrite that earlier choice or claim a new model
+decision has already happened. A participant whose last decision was to continue
+or wait, but whose current continuation and pending permission are both absent,
+shows **Needs resume**. This can occur when a task amendment replaces the old continuation and
+a later work pause consumes reconsideration before a new decision is accepted.
+**Resume participant** remains available for that dormant participation.
+
+An accepted host command without a published result is shown as **Tool result
+pending**, including when its result belongs to another task. That recorded state
+does not establish that a process is currently running; pausing or reopening the
+desktop does not change this distinction.
+
 Choose **New task** in the task outliner to start work, or **Add → Start
 exploration** for voluntary conversation and exploration. Filter tasks from the
 outliner, then select a persona on the right to inspect its properties.
 **Conversation** shows attributed replies with formatted headings, emphasis,
 and code;
-**Produced files** opens **Recorded files**, including exact delivered files,
+**Files** opens **Recorded files**, including exact delivered files,
 files cited in replies, and cited historical records. Select **Workspace files**
 to browse the runtime's actual working folder. Both views preview files inside
 the window; **Export recorded files** saves the recorded files and source records
@@ -171,8 +318,9 @@ These views use the current runtime's saved inspection records. The new
 `personas-session --state-root PATH --operator ID conversation WORK` command
 provides the same communication and responsibility snapshot without inference.
 
-## Previewing produced files
+## Previewing files
 
+The **Files** view includes downloaded references as well as authored outputs.
 Workspace files are shared across the runtime's tasks. They are current disk
 contents, not proof of authorship, formal delivery, acceptance, or completion.
 Use **Recorded files** for attributed deliveries and citations. Each cited version
@@ -214,8 +362,11 @@ the preview of a newer selection or another workspace.
   animation, CAD constraints, or engineering validation. GLB is convenient for
   self-contained models inside packages. Local glTF can load adjacent buffers;
   remote buffers are not fetched.
-- STEP uses a same-name STL, OBJ, or GLB companion when available. The viewer
-  explicitly identifies that companion; it does not decode STEP geometry.
+- STEP first uses its native Open CASCADE renderer. If that renderer is missing
+  or cannot decode the source, a same-name STL, OBJ, or GLB companion can be
+  shown instead. The viewer identifies the companion and native failure; it
+  does not label the companion as decoded STEP geometry. Cancellation stops
+  preview work without starting a fallback.
 - ZIP packages list their contents. Select an entry to preview it without
   extracting the whole package; **Back to package** returns to the listing.
 
@@ -227,11 +378,11 @@ the preview of a newer selection or another workspace.
 | DWG | LibreDWG `dwg2dxf` + Python 3 + ezdxf | Converted modelspace SVG. DWG version and entity coverage depend on LibreDWG; unsupported objects and paper layouts may be lost. |
 | Gerber / Excellon | `gerbv` | Selected layer or drill file rendered to SVG. Single-file preview, not a full stack composition or fabrication validation. Legacy RS-274D is not supported by gerbv. |
 | STEP / IGES | Python 3 + Open CASCADE (OCP) | Actual BREP decoded and tessellated to STL for 3D review. PMI, colors, constraints and assembly semantics are not preserved. |
-| FreeCAD `.FCStd` | Python 3 + Open CASCADE (OCP) | Stored BREP members read directly from the archive without loading the FreeCAD document or executing feature scripts; geometry is tessellated to STL. Up to 256 members are combined; documents that store intermediate feature shapes may show overlapping historical geometry. Parametric history, visible-object selection and GUI state are not rendered. |
-| HDF5 | Python 3 + h5py + NumPy | Groups, dataset names, shapes, dtypes, attributes and bounded numeric values become a parameter tree with tables/plots where applicable. External links are not followed; 20,000 values per dataset, 256 datasets, 2,048 group/dataset nodes and 32 hierarchy levels maximum. |
+| FreeCAD `.FCStd` | Python 3 + Open CASCADE (OCP) | Stored BREP members read directly from the archive without loading the FreeCAD document or executing feature scripts; geometry is tessellated to STL. All stored BREP members are combined; documents that store intermediate feature shapes may show overlapping historical geometry. Parametric history, visible-object selection and GUI state are not rendered. |
+| HDF5 | Python 3 + h5py + NumPy | Dataset names, shapes, dtypes, attributes and complete readable supported values become a parameter tree with tables/plots where applicable. There are no application value, dataset-count, group-count or hierarchy-depth caps. Hard-link cycles are identified by object identity; aliases and unresolved soft/external links remain listed. |
 | Blender `.blend` | Blender background exporter | Scene geometry exported to GLB with automatic execution disabled. Modifiers may be applied; animation, materials, lighting, render settings and custom properties are not fully represented. |
 
-These are optional compatible renderers; no tools are automatically installed. The Python adapters are bundled read-only parsers and do not execute code embedded in the selected artifact. Blender runs with `--disable-autoexec` and a bundled trusted exporter. DWG conversion is version/entity limited, not universal. Missing dependencies and malformed inputs remain explicit errors. DXF input is capped at 256 MiB; CAD input at 512 MiB; FreeCAD archives are limited to 10,000 entries, 64 MiB per BREP member and 256 MiB total BREP data. The runtime does not redistribute Blender, LibreDWG, gerbv, Python packages, or Open CASCADE binaries; these remain separately installed tools. The OCP bindings are Apache-2.0, while the Open CASCADE core has LGPL-2.1 with the Open CASCADE exception. Any future bundling or linking of those binaries requires a separate license review.
+These are optional compatible renderers; no tools are automatically installed. The Python adapters are bundled read-only parsers and do not execute code embedded in the selected artifact. They use normal installed Python packages, including user installations, while ignoring ambient Python environment overrides and keeping selected inputs outside the script import directory. Blender runs with `--disable-autoexec` and a bundled trusted exporter. DWG conversion is version/entity limited, not universal. Missing dependencies and malformed inputs remain explicit errors. DXF, CAD and FreeCAD inputs have no application file-size, member-size, total-extraction-size or entry-count caps. Actual parser, memory and host failures remain explicit. Renderer diagnostics are retained without a display truncation cap. The runtime does not redistribute Blender, LibreDWG, gerbv, Python packages, or Open CASCADE binaries; these remain separately installed tools. The OCP bindings are Apache-2.0, while the Open CASCADE core has LGPL-2.1 with the Open CASCADE exception. Any future bundling or linking of those binaries requires a separate license review.
 
 ### Compatible renderers inside the window
 
@@ -299,7 +450,8 @@ open actions are disabled while application selection or launch is pending.
 **Pause** stops further work and waits for current calls and commands to record
 their outcomes. **Cancel task** retains results and records cancellation; it
 does not mark the task complete. **Resume work** lifts a work-wide pause;
-**Resume participant** handles an individual's stop or pause. Choose
+**Resume participant** handles an individual's stop, pause or missing current
+continuation. It offers a fresh choice without accepting responsibility. Choose
 **Start / Continue** separately to start model execution.
 
 Closing a window that started work requests a pause and waits for the session's final record.
@@ -347,6 +499,22 @@ interface. Credentials stay inside the authentication helper and Codex; only
 account metadata and temporary sign-in URL/code events reach the window.
 Native sign-in likewise emits structured authorization events instead of parsed
 terminal instructions. Login and model selection perform no inference.
+
+The controller and display share immutable result and conversation snapshots.
+Filtering and drawing messages borrow their records, including full provenance,
+instead of copying the conversation on every repaint. Replacing a snapshot keeps
+any frame already reading the previous snapshot consistent.
+While a session runs, an otherwise idle window requests a frame once per second
+for elapsed-time displays. Input and result events request an immediate frame;
+loading and sign-in retain their faster animation refresh.
+
+For host performance diagnosis, `AI_PERSONAS_RUNTIME_TIMINGS=1` enables structured
+phase timings on stderr, including timings forwarded from native helpers through
+the desktop. These contain phase labels, process and sequence identifiers,
+elapsed milliseconds, and success flags. They exclude command, prompt, provider,
+and credential bodies and do not enter persona context or durable work state.
+Coordinator timings distinguish candidate selection, reservation, preparation,
+and adoption; nested timings overlap and must not be summed as end-to-end time.
 
 ## Local bundles
 

@@ -341,6 +341,9 @@ pub(super) fn retained_route(state: &State, prepared: &Prepared) -> Option<&'sta
     {
         return None;
     }
+    if prepared.explicit_resume_at_admission && focus.permit && focus.explicit_resume_permit {
+        return Some("explicit_reconsideration");
+    }
     let initial_invitation = focus.permit && !focus.explicit_resume_permit
         && !prepared.explicit_resume_at_admission
         && focus.continuation.is_none() && focus.authored_continuation.is_none()
@@ -409,7 +412,7 @@ impl Runtime {
     /// Snapshot candidates only select work to inspect; each retirement still
     /// validates the current invocation and runtime state before changing it.
     pub(super) fn retire_ready_rejected_continuations(
-        &mut self, work: &str, calls: BTreeSet<String>, now: i64,
+        &mut self, work: &str, calls: BTreeSet<String>, now: i64, owner: &s::ExecutionOwner,
     ) -> Result<()> {
         for id in calls {
             let invocation = match self.store.trusted_host().invocation(&id) {
@@ -421,6 +424,10 @@ impl Runtime {
                 && decode_prepared(&invocation)?.request.work == work
             {
                 self.retire_rejected_continuation(&id, now)?;
+            } else if invocation.state == s::InvocationState::Uncertain
+                && decode_prepared(&invocation)?.request.work == work
+            {
+                self.retire_orphaned_continuation(&id, now, owner, None)?;
             }
         }
         Ok(())
@@ -475,20 +482,30 @@ impl Runtime {
         // preserve both the original terminal and the current control state.
         let no_launch = evidence.body["receipt"]["kind"] == "provider_prelaunch_rejection"
             && recoverable_failure(&invocation, &prepared, &evidence)? == Some("provider_prelaunch_rejection");
-        let prelaunch_stop = if no_launch {
+        // A completed transport can beat the stop monitor, then lose local
+        // adoption to a pause. Its receipt correctly says "ready", not
+        // "cancelled". Observe the actual retained control now so cleanup does
+        // not require resuming paused work merely to release a rejected call.
+        let complete_rejection = complete_response(&invocation, &prepared, &evidence, "ready")?;
+        let current_stop = if no_launch || complete_rejection {
             provider_calls::state_stop(&state, head.revision,
                 prepared.runtime_control_event_cursor.unwrap_or(state.operator_events.len()),
                 &prepared.request)?
                 .map(|mut observation| {
-                    observation["kind"] = json!("runtime_prelaunch_stop_observed");
+                    observation["kind"] = json!(if no_launch {
+                        "runtime_prelaunch_stop_observed"
+                    } else {
+                        "runtime_completed_rejection_stop_observed"
+                    });
                     observation["local_cancellation_requested"] = json!(false);
-                    observation["dispatch_never_began"] = json!(true);
+                    observation["dispatch_never_began"] = json!(no_launch);
+                    observation["complete_response_rejected"] = json!(complete_rejection);
                     observation
                 })
         } else {
             None
         };
-        let stopped = prelaunch_stop.is_some()
+        let stopped = current_stop.is_some()
             || runtime_stopped_response(&invocation, &prepared, &evidence)?;
         let retained_route = if stopped {
             "runtime_stop_observed"
@@ -498,7 +515,7 @@ impl Runtime {
             return Ok(false);
         };
         // Keep every route flag and authored disposition unchanged. In particular,
-        // a consumed one-shot permit, Stop or Pause cannot acquire another
+        // a completed reconsideration, Stop or Pause cannot acquire another
         // admission merely because the last response was invalid. An unfinished
         // v2 timed reconsideration retains its route through a failed attempt;
         // a continuation already consumed under an earlier contract stays spent.
@@ -516,6 +533,8 @@ impl Runtime {
         let context_recovery = provider_context_failure(&invocation, &prepared, &evidence)?;
         let failure_kind = if stopped && no_launch {
             "runtime_stopped_prelaunch"
+        } else if current_stop.is_some() && complete_rejection {
+            "runtime_stopped_completed_rejection"
         } else if stopped {
             "runtime_stopped_response"
         } else if complete_response(&invocation, &prepared, &evidence, "ready")? {
@@ -553,7 +572,7 @@ impl Runtime {
                 "disposition":{"state":invocation.state,"adoption_error":adoption_error},
                 "observed_by":"foreground_runtime","continuation_invocation":continuation_invocation,
                 "retained_route":retained_route,"failure_kind":failure_kind,
-                "current_stop_observation":prelaunch_stop,
+                "current_stop_observation":current_stop,
                 "continuation_changed":false,"replay_authorized":false,
                 "remote_outcome_reconciled":false,
                 "failure_lineage":failure_lineage
@@ -585,6 +604,7 @@ impl Runtime {
             "kind":match failure_kind {
                 "runtime_stopped_prelaunch" => "runtime_stopped_prelaunch_lease_retired",
                 "runtime_stopped_response" => "runtime_stopped_response_lease_retired",
+                "runtime_stopped_completed_rejection" => "runtime_stopped_completed_rejection_lease_retired",
                 "provider_terminal_failure" => "terminal_provider_failure_lease_retired",
                 "response_only_transport_failure" => "response_only_transport_failure_lease_retired",
                 "response_only_http_failure" => "response_only_http_failure_lease_retired",

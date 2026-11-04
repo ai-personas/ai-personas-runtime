@@ -20,6 +20,10 @@ impl fmt::Debug for RetainedOutputItems {
 }
 
 impl RetainedOutputItems {
+    pub(super) fn capture_messages(output: Vec<Value>) -> Self {
+        Self { format:"retained-messages-output-items-v1", terminal_reasoning:None,
+            terminal_output:output, completed_item_events:BTreeMap::new() }
+    }
     pub(super) fn capture(
         response: &Value,
         output: &[Value],
@@ -37,7 +41,7 @@ impl RetainedOutputItems {
 /// Metadata only. Never project assistant text, reasoning summaries, encrypted
 /// content, or item identifiers into diagnostics or the next persona input.
 pub(crate) fn metadata(value: &Value) -> Option<Value> {
-    if value["format"] != FORMAT {
+    if value["format"] != FORMAT && value["format"] != "retained-messages-output-items-v1" {
         return None;
     }
     let output = value["terminal_output"].as_array()?;
@@ -45,17 +49,20 @@ pub(crate) fn metadata(value: &Value) -> Option<Value> {
     let count = |items: Vec<&Value>| {
         json!({
             "items":items.len(),
-            "reasoning_items":items.iter().filter(|item| item["type"] == "reasoning").count(),
+            "reasoning_items":items.iter().filter(|item| matches!(item["type"].as_str(), Some("reasoning" | "thinking" | "redacted_thinking"))).count(),
+            "web_search_items":items.iter().filter(|item| item["type"] == "web_search_call").count(),
             "items_with_encrypted_content":items.iter().filter(|item| {
-                item["type"] == "reasoning"
-                    && item["encrypted_content"].as_str().is_some_and(|text| !text.is_empty())
+                (item["type"] == "reasoning"
+                    && item["encrypted_content"].as_str().is_some_and(|text| !text.is_empty()))
+                    || (item["type"] == "redacted_thinking"
+                        && item["data"].as_str().is_some_and(|text| !text.is_empty()))
             }).count()
         })
     };
     let bytes = serde_json::to_vec(value).ok()?;
     let context = value["terminal_reasoning"]["context"].as_str();
     Some(json!({
-        "format":FORMAT,
+        "format":value["format"],
         "sha256":digest(&bytes),
         "serialized_utf8_bytes":bytes.len(),
         "terminal_output":count(output.iter().collect()),

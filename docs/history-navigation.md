@@ -212,14 +212,28 @@ read-byte cap. Historical `read_overflow` with `text_supplied: false` supplied n
 body; those observations are not rewritten. An incomplete history page
 establishes neither absence nor complete coverage.
 
-Adopted Decision reads supply the exact authored JSON and the explicit required
-qualifications of its original sources. Source ancestry still governs access;
-it does not automatically bring every ancestor's text into the result. Required
-qualifications retain their complete current closure without a configured
-size ceiling. This projection is labeled `authored-decision-qualifications-v2` and does
-not reconstruct the original model input or prove execution. Adopted-Decision
-query cursors from the earlier projection require an explicit fresh query;
-their original observations and archives remain unchanged.
+Adopted Decision reads supply the exact authored JSON and current required
+qualifications of sources actually supplied in its admitted input. The host
+checks the retained original request, including qualified historical bodies,
+native tool-result identities and explicitly supplied provider turns. A selected
+result's execution metadata retains that result's qualifications even when
+context recovery supplies its command and output text only as references. A selected
+turn contributes its own input; separately omitted earlier provider turns are
+not added recursively. An earlier Decision body actually read in that input
+retains its own actual-input dependencies, so later warnings on those sources
+still accompany its use. A metadata-only Decision reference does not select
+that body or its input dependencies. Full provenance remains checked, but ancestry and
+lookup-only metadata do not independently request caveat bodies.
+
+Required qualifications retain their complete current closure without a
+configured size ceiling. Missing or mismatched original input makes the full
+Decision projection unavailable; it never silently drops the required context.
+Listing can still identify an intact archive without reading its original input.
+This projection is labeled `authored-decision-input-qualifications-v3`. It does
+not disclose the original prompt or private provider items, rewrite history or
+prove execution. Adopted-Decision query cursors from the earlier projection
+require an explicit fresh query; their original observations and archives remain
+unchanged.
 
 Qualification metadata lookup and bundle expansion are reserved before that
 work occurs. Listing returns descriptors without resolving their bodies; a

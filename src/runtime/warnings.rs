@@ -115,8 +115,7 @@ pub(super) fn confidentiality(state: &State, input: &Exposure) -> Result<Exposur
 fn trace_confidentiality<const RETAIN: bool>(state: &State, input: &Exposure) -> Result<Exposure> {
     // Sources come from the completed traversal, while policy order preserves
     // the input followed by the same first-seen inherited records.
-    let mut result = Exposure::new(
-        Vec::new(),
+    let mut policies = exposure::PolicyCollector::new(
         if RETAIN { input.policies.clone() } else { Vec::new() },
     );
     let mut pending = input.sources.clone();
@@ -128,7 +127,7 @@ fn trace_confidentiality<const RETAIN: bool>(state: &State, input: &Exposure) ->
         let stored = record(state, &reference)?;
         if let Some(inherited) = &stored.exposure {
             if RETAIN {
-                extend_policies(&mut result.policies, &inherited.policies);
+                policies.extend(&inherited.policies);
             }
             pending.extend(inherited.sources.iter().cloned());
         } else {
@@ -144,9 +143,7 @@ fn trace_confidentiality<const RETAIN: bool>(state: &State, input: &Exposure) ->
                 &reference.revision,
                 &stored.record.policy,
             );
-            if !result.policies.contains(&restriction) {
-                result.policies.push(restriction);
-            }
+            policies.insert(&restriction);
         }
         pending.extend(stored.lineage.iter().cloned());
         pending.extend(stored.record.qualifications.iter().cloned());
@@ -163,17 +160,18 @@ fn trace_confidentiality<const RETAIN: bool>(state: &State, input: &Exposure) ->
                     &binding.revision,
                     &binding.policy,
                 );
-                if !result.policies.contains(&restriction) {
-                    result.policies.push(restriction);
-                }
+                policies.insert(&restriction);
             }
-            if let f::BindingDisposition::Qualify { required } = &binding.disposition {
+            if let f::BindingDisposition::Qualify { required }
+                | f::BindingDisposition::Cite { references: required } = &binding.disposition {
                 pending.extend(required.iter().cloned());
             }
         }
     }
+    let mut result = Exposure::default();
     if RETAIN {
         result.sources = seen.into_iter().collect();
+        result.policies = policies.into_vec();
     }
     Ok(result)
 }
@@ -432,6 +430,7 @@ fn create_marker(
         policy: policy.clone(),
         qualifications: Vec::new(),
         retired: false,
+        save_context: None,
     }.seal()?;
     let reference = record.reference(f::Representation::Utf8);
     state.sources.insert(

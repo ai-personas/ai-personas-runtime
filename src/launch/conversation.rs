@@ -6,6 +6,45 @@ pub fn conversation(root: &Path, operator: &str, work_id: &str) -> Result<Value>
     identity(operator)?;
     identity(work_id)?;
     inspection::project(root, |snapshot, records| {
+        project(snapshot, records, operator, work_id)
+    })
+}
+
+pub(super) fn project(
+    snapshot: &inspection::Snapshot,
+    records: &s::RuntimeInspection<'_, '_>,
+    operator: &str,
+    work_id: &str,
+) -> Result<Value> {
+    project_messages(snapshot, records, operator, work_id, false)
+}
+
+pub(super) fn project_display(
+    snapshot: &inspection::Snapshot,
+    records: &s::RuntimeInspection<'_, '_>,
+    operator: &str,
+    work_id: &str,
+) -> Result<Value> {
+    project_messages(snapshot, records, operator, work_id, true)
+}
+
+/// Displayed text, attribution, and exact citations. The complete retained
+/// message (including its potentially large provenance graph) remains available
+/// through conversation/history inspection; it is not rendered by the desktop.
+pub(super) fn display_message(message: &Message) -> Value {
+    json!({"id":message.id,"sender":message.sender,"recipient":message.recipient,
+        "work":message.work,"thread_work":message.thread_work,"invocation":message.invocation,
+        "subject":message.subject,"text":message.text,"file_references":message.file_references,
+        "history_references":message.history_references,"local_deposit_only":message.local_deposit_only})
+}
+
+fn project_messages(
+    snapshot: &inspection::Snapshot,
+    records: &s::RuntimeInspection<'_, '_>,
+    operator: &str,
+    work_id: &str,
+    display: bool,
+) -> Result<Value> {
         let state = &snapshot.state;
         require(
             snapshot.saved.operator == operator && snapshot.saved.works.contains_key(work_id),
@@ -37,7 +76,8 @@ pub fn conversation(root: &Path, operator: &str, work_id: &str) -> Result<Value>
         let messages: Vec<_> = ordered
             .into_iter()
             .map(|(epoch, message)| {
-                let mut value = serde_json::to_value(message).expect("serializable message");
+                let mut value = if display { display_message(message) }
+                    else { serde_json::to_value(message).expect("serializable message") };
                 value["accepted_epoch"] = epoch.into();
                 value
             })
@@ -60,7 +100,7 @@ pub fn conversation(root: &Path, operator: &str, work_id: &str) -> Result<Value>
             "arrangements":work.arrangements,"current_arrangement":work.current_arrangement,
             "dependencies":work.dependencies,"predecessor":work.predecessor,
             "inference_performed":false,"order":"accepted_decision_epoch_then_message_id",
+            "message_projection":if display { "desktop_text_and_citations" } else { "complete_record" },
             "meaning":"Recorded messages and accepted responsibilities. Message counts do not measure agreement, reading, expertise or completion."}),
         )
-    })
 }

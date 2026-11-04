@@ -838,6 +838,7 @@ fn native_settings(model: &str, effort: &str, access: Access) -> Result<p::Direc
         env: super::ACCOUNT_BINDING_ENV.into(),
     };
     let settings = p::DirectSettings {
+        max_output_tokens: None,
         mode: p::AccessMode::SiwcOAuth,
         model: model.into(),
         effort: effort.into(),

@@ -94,6 +94,9 @@ enum Command {
     /// Inspect provider migration bindings. Requires --state-root and --operator.
     /// Opens Runtime normally, including possible ordinary orphan recovery; no network or credential resolution.
     ProviderMigrationSnapshot,
+    /// Release provably ended, rejected local calls affected by a recorded stop.
+    /// No inference, response adoption, resumption, effect replay or usage reset.
+    RetireStoppedInvocations,
     /// Explicitly preview or apply a provider migration without inference or credential resolution.
     /// Requires --state-root and --operator matching the request. Normal Runtime opening may recover ordinary orphans, even during preview.
     MigrateProvider {
@@ -863,6 +866,9 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             "provider_transport_without_need_proposals":protocol::ordinary_provider_schema(false),
             "initialization_provider_transport":protocol::initialization_provider_schema(),
             "ordinary_provider_carrier":{"type":"custom","name":"submit_decision",
+                "scope":"oauth_responses_only",
+                "api_key_responses":{"type":"json_schema","strict":false},
+                "anthropic_messages":{"type":"tool","name":"submit_decision"},
                 "grammar":provider::ordinary_decision_grammar(true),
                 "grammar_without_need_proposals":provider::ordinary_decision_grammar(false),
                 "unsupported_schema_fallback":"non-strict json_schema"},
@@ -1494,6 +1500,10 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             }
         }
         Command::ProviderMigrationSnapshot => emit(&launch::migration_snapshot(&mut app)?),
+        Command::RetireStoppedInvocations => emit(&serde_json::json!({
+            "retired_invocations": launch::retire_stopped_invocations(&mut app, operator, now)?,
+            "inference_performed": false, "work_resumed": false, "replay_authorized": false,
+        })),
         Command::MigrateProvider { preview, .. } => {
             let request = migration_request
                 .as_ref()

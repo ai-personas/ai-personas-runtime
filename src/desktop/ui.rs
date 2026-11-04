@@ -1,6 +1,7 @@
 use super::{
     backend::{self, Action, Appearance, Event, Input, PersonaDraft, Preferences, Setup, View},
     journal::{self, CodexPaths},
+    providers::{ApiProvider, Selection},
     theme::{self, Icon},
 };
 use eframe::egui::{self, Color32, RichText, Ui};
@@ -70,6 +71,14 @@ pub struct App {
     operator: String,
     codex: CodexPaths,
     native: bool,
+    provider_editor: ApiProvider,
+    provider_key: String,
+    provider_model: String,
+    provider_effort: String,
+    provider_max: String,
+    provider_manual: bool,
+    preserve_provider_models: bool,
+    preserved_provider_effort: String,
     model: String,
     effort: String,
     manual: bool,
@@ -85,6 +94,7 @@ pub struct App {
     focus_files: bool,
     file_viewer: super::artifacts::Viewer,
     preferences: Preferences,
+    restore_window_size: Option<egui::Vec2>,
     show_preferences: bool,
     auth_url: Option<String>,
     auth_code: Option<String>,
@@ -187,6 +197,14 @@ impl App {
             existing_runtime: String::new(),
             operator: "local-operator".into(),
             native: codex.executable.is_empty(),
+            provider_editor: ApiProvider::OpenAi,
+            provider_key: String::new(),
+            provider_model: String::new(),
+            provider_effort: "default".into(),
+            provider_max: String::new(),
+            provider_manual: true,
+            preserve_provider_models: true,
+            preserved_provider_effort: String::new(),
             codex,
             model: String::new(),
             effort: String::new(),
@@ -212,6 +230,7 @@ impl App {
             focus_files: false,
             file_viewer: super::artifacts::Viewer::new(&cc.egui_ctx, cc.gl.as_ref()),
             preferences: Preferences::default(),
+            restore_window_size: None,
             show_preferences: false,
             auth_url: None,
             auth_code: None,
@@ -327,12 +346,13 @@ impl App {
             self.preferences.zoom,
         );
     }
-    fn picker(&mut self, kind: Folder, file: bool) {
+    fn picker(&mut self, ctx: &egui::Context, kind: Folder, file: bool) {
         if self.picker_busy {
             return;
         }
         self.picker_busy = true;
         let tx = self.picker_tx.clone();
+        let ctx = ctx.clone();
         let start = PathBuf::from(&self.workspace);
         std::thread::spawn(move || {
             let dialog = rfd::FileDialog::new().set_directory(start);
@@ -342,6 +362,7 @@ impl App {
                 dialog.pick_folder()
             };
             let _ = tx.send((kind, result));
+            ctx.request_repaint();
         });
     }
     fn events(&mut self, ctx: &egui::Context) {
@@ -381,6 +402,16 @@ impl App {
                                 self.codex = c.clone();
                             }
                             self.native = view.native;
+                            if let Some(provider) = view.api_provider {
+                                self.provider_editor = provider;
+                                if let Some(selection) = view.provider_defaults.get(&provider) {
+                                    self.provider_model = selection.model.clone();
+                                    self.provider_effort = selection.effort.clone();
+                                    self.provider_max = selection.max_output_tokens.map(|n| n.to_string()).unwrap_or_default();
+                                    self.model = selection.model.clone();
+                                    self.effort = selection.effort.clone();
+                                }
+                            }
                             self.progress = view.root.to_string_lossy().into_owned();
                             if let Some(model) = view.saved_settings["model"].as_str() {
                                 self.model = model.into();
@@ -394,6 +425,9 @@ impl App {
                                         profile: s(p, "text").into(),
                                         model: s(p, "model").into(),
                                         effort: s(p, "effort").into(),
+                                        provider: ApiProvider::ALL.into_iter().find(|provider| serde_json::to_value(provider.mode()).ok().as_ref() == Some(&p["provider"]["mode"])),
+                                        max_output_tokens: p["provider"]["max_output_tokens"].as_u64(),
+                                        manual: true,
                                     })
                                     .collect();
                                 if let Some(path) =
@@ -421,7 +455,9 @@ impl App {
                     }
                     if self.view.running.is_none() && view.running.is_some() {
                         self.running_since = Some(Instant::now());
+                        self.notice = None;
                     }
+                    if !self.view.closing && view.closing { self.notice = None; }
                     if view.running.is_none() {
                         self.running_since = None;
                     }
@@ -457,10 +493,14 @@ impl App {
                 Event::Preferences(p) => {
                     self.preferences = p;
                     self.apply_style(ctx);
-                    ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+                    // Zoom takes effect on the next pass. Restoring a size
+                    // measured at that zoom in this pass uses the old scale
+                    // and shrinks or enlarges the window on every reopen.
+                    self.restore_window_size = Some(egui::vec2(
                         self.preferences.width.clamp(780.0, 2400.0),
                         self.preferences.height.clamp(560.0, 1600.0),
-                    )));
+                    ));
+                    ctx.request_repaint();
                 }
             }
         }
@@ -525,7 +565,6 @@ impl App {
         ui.add_space(16.0);
         if self.busy {
             ui.horizontal(|ui| {
-                ui.spinner();
                 ui.label("Opening workspace…");
             });
             ui.add(egui::Label::new(RichText::new(&self.progress).small().weak()).wrap());
@@ -547,7 +586,7 @@ impl App {
     fn locations(&mut self, ui: &mut Ui) {
         field(ui, "Saved progress folder", &mut self.progress, false);
         if ui.button("Choose progress folder…").clicked() {
-            self.picker(Folder::Progress, false);
+            self.picker(ui.ctx(), Folder::Progress, false);
         }
         ui.collapsing("Runtime installation", |ui| {
             field(
@@ -557,11 +596,28 @@ impl App {
                 false,
             );
             if ui.button("Choose helpers…").clicked() {
-                self.picker(Folder::Helpers, false);
+                self.picker(ui.ctx(), Folder::Helpers, false);
             }
         });
     }
     fn account(&mut self, ui: &mut Ui) {
+        let mut selected = self.view.api_provider;
+        let retained = self.view.progress.as_ref().is_some_and(|p| p.bootstrap.is_some() || p.settings.is_some());
+        ui.add_enabled_ui(!self.busy && !self.view.login && !retained, |ui| {
+            egui::ComboBox::from_label("Connection").selected_text(selected.map_or("ChatGPT sign-in", ApiProvider::label)).show_ui(ui, |ui| {
+                for provider in ApiProvider::ALL { ui.selectable_value(&mut selected, Some(provider), provider.label()); }
+                ui.selectable_value(&mut selected, None, "ChatGPT sign-in");
+            });
+        });
+        if selected != self.view.api_provider {
+            if let Some(provider) = selected { self.edit_provider(provider); }
+            self.model = self.provider_model.clone(); self.effort = self.provider_effort.clone();
+            self.send(Action::SelectProvider(selected));
+        }
+        if self.view.api_provider.is_some() || selected.is_some() {
+            self.provider_settings(ui);
+            return;
+        }
         ui.heading("Connect your account");
         ui.label("Use your existing Codex ChatGPT login, or sign in here.");
         ui.add_enabled_ui(
@@ -620,11 +676,11 @@ impl App {
             ui.collapsing("Advanced Codex locations", |ui| {
                 field(ui, "Codex executable", &mut self.codex.executable, false);
                 if ui.button("Locate Codex…").clicked() {
-                    self.picker(Folder::Codex, true);
+                    self.picker(ui.ctx(), Folder::Codex, true);
                 }
                 field(ui, "Home directory", &mut self.codex.host_home, false);
                 if ui.button("Choose home…").clicked() {
-                    self.picker(Folder::HostHome, false);
+                    self.picker(ui.ctx(), Folder::HostHome, false);
                 }
                 field(
                     ui,
@@ -633,7 +689,7 @@ impl App {
                     false,
                 );
                 if ui.button("Choose Codex state…").clicked() {
-                    self.picker(Folder::CodexHome, false);
+                    self.picker(ui.ctx(), Folder::CodexHome, false);
                 }
             });
         } else {
@@ -684,7 +740,6 @@ impl App {
         });
         if self.view.login {
             ui.horizontal(|ui| {
-                ui.spinner();
                 ui.label("Waiting for sign-in…");
                 if ui.button("Cancel sign-in").clicked() {
                     self.send(Action::CancelLogin);
@@ -705,6 +760,10 @@ impl App {
     }
     fn setup(&mut self, ui: &mut Ui) {
         self.banner(ui);
+        if self.view.refreshing && self.view.progress.as_ref().is_some_and(|p| p.setup_authorized) {
+            ui.label("Loading the created workspace…");
+            return;
+        }
         if !self.view.preview.is_null() {
             self.review(ui);
             return;
@@ -730,7 +789,7 @@ impl App {
                 self.account(ui);
                 ui.add_space(22.0);
                 ui.heading("Choose a model");
-                ui.label("Selections come from your installed Codex. You can choose a different model for each persona later in this setup.");
+                ui.label("Choose the workspace default. Each persona can use its own configured provider and model.");
                 model_picker(
                     ui,
                     "group",
@@ -776,7 +835,7 @@ impl App {
                             field(ui, "Name", &mut p.name, false);
                             field(ui, "Starting profile", &mut p.profile, true);
                             ui.collapsing("Model for this persona", |ui| {
-                                let mut custom = !p.model.is_empty();
+                                let mut custom = !p.model.is_empty() || p.provider.is_some();
                                 if ui
                                     .checkbox(&mut custom, "Choose an individual model")
                                     .changed()
@@ -784,23 +843,45 @@ impl App {
                                     if custom {
                                         p.model = self.model.clone();
                                         p.effort = self.effort.clone();
+                                        p.manual = true;
                                     } else {
                                         p.model.clear();
                                         p.effort.clear();
+                                        p.provider = None;
+                                        p.max_output_tokens = None;
                                     }
                                 }
                                 if custom {
-                                    let mut manual = !models(&self.view.models)
-                                        .iter()
-                                        .any(|m| m["slug"] == p.model);
+                                    let previous = p.provider;
+                                    if self.view.api_provider.is_some() {
+                                        egui::ComboBox::from_label("Provider").selected_text(p.provider.or(self.view.api_provider).map_or("Workspace default", ApiProvider::label)).show_ui(ui, |ui| {
+                                            ui.selectable_value(&mut p.provider, None, "Workspace default");
+                                            for provider in ApiProvider::ALL {
+                                                ui.add_enabled_ui(self.view.configured_providers.contains(&provider), |ui| {
+                                                    ui.selectable_value(&mut p.provider, Some(provider), provider.label());
+                                                });
+                                            }
+                                        });
+                                    }
+                                    if p.provider != previous {
+                                        if let Some(defaults) = p.provider.and_then(|provider| self.view.provider_defaults.get(&provider)) {
+                                            p.model = defaults.model.clone(); p.effort = defaults.effort.clone(); p.max_output_tokens = defaults.max_output_tokens;
+                                        } else { p.model = self.model.clone(); p.effort = self.effort.clone(); p.max_output_tokens = None; }
+                                    }
+                                    let catalog = p.provider.and_then(|provider| self.view.provider_catalogs.get(&provider)).unwrap_or(&self.view.models);
                                     model_picker(
                                         ui,
                                         &format!("persona-{i}"),
-                                        &self.view.models,
+                                        catalog,
                                         &mut p.model,
                                         &mut p.effort,
-                                        &mut manual,
+                                        &mut p.manual,
                                     );
+                                    if p.provider.or(self.view.api_provider) == Some(ApiProvider::Anthropic) {
+                                        let mut max = p.max_output_tokens.map(|n| n.to_string()).unwrap_or_default();
+                                        ui.horizontal(|ui| { ui.label("Max output tokens"); if ui.text_edit_singleline(&mut max).changed() { p.max_output_tokens = max.parse().ok(); } });
+                                        ui.small("Required by Anthropic. An empty value uses this provider's saved setting.");
+                                    }
                                 } else {
                                     ui.label(format!("{} · {} reasoning", self.model, self.effort));
                                 }
@@ -838,7 +919,7 @@ impl App {
                 ui.heading("A place for your work");
                 field(ui, "Working folder", &mut self.workspace, false);
                 if ui.button("Choose working folder…").clicked() {
-                    self.picker(Folder::Workspace, false);
+                    self.picker(ui.ctx(), Folder::Workspace, false);
                 }
                 ui.label("Personas can create files, run host commands, and install tools using this computer's account and environment.");
                 ui.collapsing("Advanced", |ui| {
@@ -876,7 +957,7 @@ impl App {
                 false,
             );
             if ui.button("Browse runtime…").clicked() {
-                self.picker(Folder::Runtime, false);
+                self.picker(ui.ctx(), Folder::Runtime, false);
             }
             field(ui, "Its operator name", &mut self.operator, false);
             if ui
@@ -908,7 +989,8 @@ impl App {
                     let choice = &preview["persona_models"][id];
                     ui.label(
                         RichText::new(format!(
-                            "{} · {} reasoning",
+                            "{} · {} · {} reasoning",
+                            s(choice, "provider"),
                             s(choice, "model"),
                             s(choice, "effort")
                         ))
@@ -917,7 +999,7 @@ impl App {
                 });
             }
         }
-        ui.label("Starting a task shares its context with OpenAI and the participating personas. Creating the workspace makes no model call.");
+        ui.label("Starting a task shares its context with the selected providers and participating personas. Creating the workspace makes no model call.");
         if self
             .view
             .progress
@@ -1002,7 +1084,7 @@ impl App {
             }
         }
     }
-    fn messages(&mut self, ui: &mut Ui, messages: &[Value]) {
+    fn messages<'a>(&mut self, ui: &mut Ui, messages: impl IntoIterator<Item = &'a Value>) {
         let colors = theme::palette(ui);
         for m in messages {
             let id = s(m, "id");
@@ -1102,7 +1184,7 @@ impl App {
     fn files(&mut self, ui: &mut Ui, work: &str) {
         ui.horizontal_wrapped(|ui| {
             if ui.add_enabled(!self.busy && !self.picker_busy, egui::Button::new("Export recorded files…")).on_hover_text("Export exact delivered files and eligible message citations with their source records").clicked() {
-                self.picker(Folder::Export(work.into()), false);
+                self.picker(ui.ctx(), Folder::Export(work.into()), false);
             }
             if ui.button(if self.focus_files { "Restore panels" } else { "Expand viewer" }).clicked() {
                 self.focus_files = !self.focus_files;
@@ -1127,7 +1209,6 @@ impl App {
         theme::header(ui, Icon::Questions, "Shared questions", "RETAINED RECORDS");
         if self.view.questions.is_null() {
             if self.busy {
-                ui.spinner();
                 ui.label("Loading question records…");
             } else {
                 ui.label("Question records are unavailable in this inspection.");
@@ -1180,7 +1261,6 @@ impl App {
         theme::header(ui, Icon::Activity, "Activity", "RETAINED RECORDS");
         if self.view.result["work_id"].as_str() != Some(s(work, "id")) {
             if self.busy {
-                ui.spinner();
                 ui.label("Loading activity records…");
             } else {
                 ui.label("Activity records are unavailable in this inspection.");
@@ -1193,7 +1273,7 @@ impl App {
         if let Some(steps) = self.view.inspection["settings"]["steps"].as_u64() {
             ui.label(format!("{steps} recorded call attempts in this runtime"));
         }
-        for a in models_at(&self.view.result, "persona_activity") {
+        for (index, a) in models_at(&self.view.result, "persona_activity").iter().enumerate() {
             egui::Frame::group(ui.style()).show(ui, |ui| {
                 ui.strong(s(a, "label"));
                 let judgment = &a["judgment"];
@@ -1214,7 +1294,8 @@ impl App {
                 if a["origin"]["mandate_revision"] != a["current_mandate_revision"] {
                     ui.label("This account was recorded before the current task amendment.");
                 }
-                ui.collapsing("Attribution and input time", |ui| {
+                egui::CollapsingHeader::new("Attribution and input time")
+                    .id_salt(("activity-origin", s(work, "id"), index)).show(ui, |ui| {
                     json_view(ui, &a["origin"]);
                 });
             });
@@ -1257,11 +1338,9 @@ impl App {
             });
         }
         ui.collapsing("Result evidence", |ui| {
-            let mut v = self.view.result.clone();
-            if let Some(o) = v.as_object_mut() {
-                o.remove("local_deliveries");
-                o.remove("messages");
-            }
+            let v = Value::Object(self.view.result.as_object().into_iter().flatten()
+                .filter(|(key, _)| !matches!(key.as_str(), "local_deliveries" | "messages"))
+                .map(|(key, value)| (key.clone(), value.clone())).collect());
             json_view(ui, &v);
         });
     }
@@ -1380,7 +1459,7 @@ impl App {
                 Dialog::Amend(work)=>{
                     ui.label(format!("Task: {work}"));
                     if self.view.amendment["work"].as_str() != Some(work.as_str()) {
-                        if self.busy { ui.spinner(); } else if ui.button("Retry amendment snapshot").clicked() { self.send(Action::AmendSnapshot(work.clone())); }
+                        if self.busy { ui.label("Loading task details…"); } else if ui.button("Retry amendment snapshot").clicked() { self.send(Action::AmendSnapshot(work.clone())); }
                     }else{
                         field(ui,"Revised complete task",&mut self.text,true);
                         ui.label("The original task and earlier results are retained. Participants receive an invitation to consider the amended task.");
@@ -1416,17 +1495,109 @@ impl App {
             return;
         }
         let mut open = true;
-        egui::Window::new("Settings").open(&mut open).default_width(480.0).vscroll(true).show(ctx,|ui|{
+        egui::Window::new("Settings").open(&mut open).default_width(680.0).max_height(720.0).vscroll(true).show(ctx,|ui|{
+            self.banner(ui);
             theme::header(ui, Icon::Settings, "Interface", "");
             let mut dark=matches!(self.preferences.appearance,Appearance::Dark);
-            let changed=ui.checkbox(&mut dark,"Dark appearance").changed()|ui.add(egui::Slider::new(&mut self.preferences.zoom,0.75..=1.75).text("Interface scale")).changed();
+            let mut changed=ui.checkbox(&mut dark,"Dark appearance").changed();
+            ui.horizontal_wrapped(|ui| {
+                changed |= ui.add(egui::Slider::new(&mut self.preferences.zoom,theme::MIN_ZOOM..=theme::MAX_ZOOM).text("Text & interface scale").fixed_decimals(2)).changed();
+                if ui.button("Reset scale").clicked() { self.preferences.zoom=1.0; changed=true; }
+            });
+            ui.label("Enlarges text, controls, and panels together. This setting is saved for this workspace.");
             if changed{self.preferences.appearance=if dark{Appearance::Dark}else{Appearance::Light};self.apply_style(ctx);let _=self.tx.send(Input::Action(Action::Preferences(self.preferences.clone())));}
             ui.checkbox(&mut self.show_session_strip,"Show session history panel");
+            ui.separator();
+            self.provider_settings(ui);
             ui.separator();self.locations(ui);
             if ui.add_enabled(!self.busy&&self.view.running.is_none()&&!self.view.login,egui::Button::new("Open selected progress folder")).clicked(){self.open();}
             ui.label("The terminal interface uses the same saved progress. Close this window before opening it there.");
         });
         self.show_preferences = open;
+    }
+
+    fn edit_provider(&mut self, provider: ApiProvider) {
+        self.provider_editor = provider;
+        self.provider_key.clear();
+        let selection = self.view.provider_defaults.get(&provider).cloned().unwrap_or_default();
+        self.provider_model = selection.model;
+        self.provider_effort = if selection.effort.is_empty() { "default".into() } else { selection.effort };
+        self.provider_max = selection.max_output_tokens.map(|n| n.to_string()).unwrap_or_default();
+        self.provider_manual = true;
+    }
+    fn provider_settings(&mut self, ui: &mut Ui) {
+        theme::header(ui, Icon::Settings, "Providers", "");
+        ui.label("Configure API keys and model defaults for this workspace. Assign providers in persona setup.");
+        let mut editor = self.provider_editor;
+        egui::ComboBox::from_id_salt("provider-settings").selected_text(editor.label()).show_ui(ui, |ui| {
+            for provider in ApiProvider::ALL {
+                let saved = self.view.configured_providers.contains(&provider);
+                ui.selectable_value(&mut editor, provider, format!("{}{}", provider.label(), if saved { " · key saved" } else { "" }));
+            }
+        });
+        if editor != self.provider_editor { self.edit_provider(editor); }
+        ui.label(format!("Endpoint: {}", editor.mode().endpoint()));
+        let configured = self.view.configured_providers.contains(&editor);
+        ui.label(if configured { "API key saved. Enter a key below to replace it." } else { "API key" });
+        ui.add(egui::TextEdit::singleline(&mut self.provider_key).password(true).hint_text(if configured { "Leave empty to keep saved key" } else { "Paste provider API key" }).desired_width(f32::INFINITY));
+        ui.small("Stored in a private file in this progress folder (not encrypted). Keys are excluded from persona profiles and run records.");
+        let empty = Value::Null;
+        let catalog = self.view.provider_catalogs.get(&editor).unwrap_or(&empty);
+        model_picker(ui, "provider-default", catalog, &mut self.provider_model, &mut self.provider_effort, &mut self.provider_manual);
+        ui.small("Use ‘default’ to let the provider choose reasoning effort. A listed model may still reject unsupported options.");
+        if editor == ApiProvider::Anthropic {
+            field(ui, "Max output tokens (required by Anthropic)", &mut self.provider_max, false);
+            if let Some(max) = models(catalog).iter().find(|m| m["slug"] == self.provider_model).and_then(|m| m["max_output_tokens"].as_u64()) {
+                if ui.button(format!("Use provider-advertised maximum: {max}")).clicked() { self.provider_max = max.to_string(); }
+            }
+        }
+        let editable = !self.busy && self.view.running.is_none() && !self.view.read_only && !self.view.login;
+        ui.horizontal_wrapped(|ui| {
+            if ui.add_enabled(editable && (configured || !self.provider_key.is_empty()), theme::primary("Save provider settings")).clicked() {
+                let max = if editor == ApiProvider::Anthropic { self.provider_max.parse::<u64>().ok().filter(|n| *n > 0) } else { None };
+                if editor == ApiProvider::Anthropic && max.is_none() { self.error = Some("Enter a positive max output token value required by Anthropic.".into()); }
+                else {
+                    let selection = Selection { model:self.provider_model.clone(), effort:self.provider_effort.clone(), max_output_tokens:max };
+                    if self.view.api_provider == Some(editor) { self.model = selection.model.clone(); self.effort = selection.effort.clone(); }
+                    let key = std::mem::take(&mut self.provider_key);
+                    self.send(Action::SaveProvider { provider:editor, key, selection });
+                }
+            }
+            if ui.add_enabled(editable && configured && !self.view.loading_models, egui::Button::new("Check connection / load models")).clicked() { self.send(Action::CheckProvider(editor)); }
+            if ui.add_enabled(editable && configured, egui::Button::new("Remove saved key")).clicked() { self.send(Action::RemoveProvider(editor)); }
+        });
+        if self.view.loading_models { ui.label("Loading models…"); }
+        if let Some(status) = self.view.provider_status.get(&editor) { ui.label(status); }
+        if self.view.ready {
+            ui.separator();
+            ui.label("Apply a connection to existing personas");
+            ui.small("Saved keys and defaults take effect on existing personas only when applied here. Work and persona history are retained. No inference starts.");
+            if self.view.pending_provider_change {
+                if ui.add_enabled(editable, egui::Button::new("Finish saved provider change")).clicked() {
+                    self.send(Action::FinishProviderChange);
+                }
+            } else {
+                ui.checkbox(&mut self.preserve_provider_models, "Keep each persona's current model");
+                ui.small("When keeping models, the selected provider must support their exact model IDs. Otherwise every persona uses the model and effort shown above.");
+                ui.label("Reasoning effort for retained models");
+                ui.add(egui::TextEdit::singleline(&mut self.preserved_provider_effort)
+                    .hint_text("Leave empty to keep each persona's current effort"));
+                ui.small("An entered effort applies to all existing personas when keeping their models, including Codex sign-in. The provider must support it for each model. For example: high.");
+                let effort_override = (!self.preserved_provider_effort.trim().is_empty())
+                    .then(|| self.preserved_provider_effort.trim().to_owned());
+                if ui.add_enabled(editable && configured && self.provider_key.is_empty(),
+                    egui::Button::new(format!("Apply {} connection", editor.label()))).clicked() {
+                    let max = if editor == ApiProvider::Anthropic { self.provider_max.parse::<u64>().ok().filter(|n| *n > 0) } else { None };
+                    self.send(Action::ApplyProvider { provider:Some(editor),
+                        selection:Selection { model:self.provider_model.clone(), effort:self.provider_effort.clone(), max_output_tokens:max },
+                        preserve_models:self.preserve_provider_models,
+                        effort_override: self.preserve_provider_models.then(|| effort_override.clone()).flatten() });
+                }
+                if ui.add_enabled(editable && self.view.codex.is_some(), egui::Button::new("Use Codex sign-in · keep persona models")).clicked() {
+                    self.send(Action::ApplyProvider { provider:None, selection:Selection::default(), preserve_models:true, effort_override });
+                }
+            }
+        }
     }
 
 
@@ -1436,6 +1607,10 @@ impl eframe::App for App {
         self.file_viewer.destroy();
     }
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let _timing = super::timings::frame(ctx, _frame);
+        if let Some(size) = self.restore_window_size.take() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(size));
+        }
         self.events(ctx);
         if self.tab != 1 || !self.view.ready || self.choose_progress {
             self.file_viewer.deactivate(ctx);
@@ -1507,7 +1682,6 @@ impl eframe::App for App {
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                 .show(ctx, |ui| {
                     ui.horizontal(|ui| {
-                        ui.spinner();
                         ui.label(
                             "Pausing work and waiting for its recorded outcome before closing.",
                         );
@@ -1522,15 +1696,8 @@ impl eframe::App for App {
                     }
                 });
         }
-        if self.busy
-            || self.view.loading_models
-            || self.view.running.is_some()
-            || self.view.login
-            || self.picker_busy
-            || self.closing
-        {
-            ctx.request_repaint_after(Duration::from_millis(100));
-        }
+        // Backend, picker and preview completions request their own frames.
+        // Waiting for them alone does not change the visible window.
     }
 }
 fn field(ui: &mut Ui, label: &str, text: &mut String, multi: bool) {
@@ -1550,6 +1717,31 @@ fn field(ui: &mut Ui, label: &str, text: &mut String, multi: bool) {
 fn models(v: &Value) -> &[Value] {
     models_at(v, "models")
 }
+fn call_in_progress(person: &Value) -> bool {
+    attempt_in_progress(&person["active_invocation"])
+}
+fn attempt_in_progress(attempt: &Value) -> bool {
+    matches!(s(attempt, "status"), "prepared" | "dispatched_unresolved" | "complete_response_unadopted")
+}
+fn participant_status(person: &Value) -> String {
+    match s(&person["active_invocation"], "status") {
+        "failed_attempt" => "Call failed".into(),
+        "complete_response_rejected" => "Response rejected".into(),
+        "uncertain" => "Outcome uncertain".into(),
+        _ if call_in_progress(person) => "Working".into(),
+        _ if attempt_in_progress(&person["other_work_attempt"]) => "Working elsewhere".into(),
+        _ if !models_at(person, "other_work_host_commands").is_empty() => "Tool result pending elsewhere".into(),
+        _ if !models_at(person, "pending_host_commands").is_empty() => "Tool result pending".into(),
+        _ if person["resume_candidate"] == true && person["permit"] == false
+            && person["ordinary_continuation"] == false
+            && matches!(s(person, "continuation"), "immediate" | "wait" | "reconsider_at") =>
+                "Needs resume".into(),
+        _ if person["permit"] == true && person["eligible_candidate"] == true
+            && matches!(s(person, "continuation"), "persona_stop" | "persona_pause") =>
+                "Ready to reconsider".into(),
+        _ => theme::continuation_label(s(person, "continuation")).into(),
+    }
+}
 fn models_at<'a>(v: &'a Value, key: &str) -> &'a [Value] {
     v[key].as_array().map(Vec::as_slice).unwrap_or(&[])
 }
@@ -1567,7 +1759,7 @@ fn short(text: &str, max: usize) -> String {
 fn json_view(ui: &mut Ui, v: &Value) {
     let text = serde_json::to_string_pretty(v).unwrap_or_default();
     ui.add(
-        egui::Label::new(RichText::new(text).monospace().size(13.0))
+        egui::Label::new(RichText::new(text).monospace().size(theme::BODY_TEXT))
             .wrap()
             .selectable(true),
     );
@@ -1594,7 +1786,7 @@ fn model_picker(
             ui.label(RichText::new(s(m,"description")).small().weak());
             let efforts=models_at(m,"efforts");
             egui::ComboBox::from_label("Reasoning").selected_text(effort.clone()).show_ui(ui,|ui|{
-                if efforts.is_empty(){for label in ["low","medium","high"]{ui.selectable_value(effort,label.into(),label);}}
+                if efforts.is_empty(){for label in ["default","none","low","medium","high","xhigh","max"]{ui.selectable_value(effort,label.into(),label);}}
                 else{for e in efforts{ui.selectable_value(effort,s(e,"label").into(),s(e,"label")).on_hover_text(s(e,"description"));}}
             });
             if efforts.is_empty(){ui.label(RichText::new("Reasoning suggestions; this catalogue does not advertise supported levels.").small());}

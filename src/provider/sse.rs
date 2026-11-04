@@ -51,6 +51,7 @@ enum Kind {
     Message,
     Reasoning,
     Decision,
+    WebSearch,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Phase {
@@ -104,6 +105,49 @@ struct Item {
     final_text: Option<String>,
     completed_snapshot: Option<Value>,
     call_id: Option<String>,
+    annotations: Annotations,
+}
+
+/// Citation metadata is independent of text deltas. Providers may emit it
+/// after text.done; reconcile its indices against complete content snapshots
+/// without interpreting it as text, a native operation or permission.
+#[derive(Default)]
+struct Annotations {
+    observed: BTreeMap<usize, Value>,
+    complete: Option<Vec<Value>>,
+}
+impl Annotations {
+    fn added(&mut self, index: usize, value: &Value) -> Result<()> {
+        // The documented event allows null: it supplies no citation to adopt.
+        if value.is_null() { return Ok(()); }
+        annotation(value)?;
+        if self.observed.get(&index).is_some_and(|prior| prior != value)
+            || self.complete.as_ref().is_some_and(|all| all.get(index) != Some(value))
+        {
+            return Err(protocol("annotation_snapshot_mismatch"));
+        }
+        self.observed.insert(index, value.clone());
+        Ok(())
+    }
+    fn snapshot(&mut self, part: &Value, complete: bool) -> Result<()> {
+        let values = annotations(part)?;
+        if complete {
+            if self.observed.iter().any(|(index, value)| values.get(*index) != Some(value))
+                || self.complete.as_deref().is_some_and(|prior| prior != values)
+            {
+                return Err(protocol("annotation_snapshot_mismatch"));
+            }
+            self.complete = Some(values.to_vec());
+        }
+        for (index, value) in values.iter().enumerate() { self.added(index, value)?; }
+        Ok(())
+    }
+    fn message_snapshot(&mut self, message: &Value, complete: bool) -> Result<()> {
+        if let Some(part) = array(message, "content")?.first() {
+            self.snapshot(part, complete)?;
+        }
+        Ok(())
+    }
 }
 impl Item {
     fn observe_call(&mut self, value: &Value) -> Result<()> {
@@ -137,6 +181,9 @@ impl Item {
 pub(super) struct Collector {
     model: String,
     decision_carrier: bool,
+    web_search: bool,
+    reported_search_requests: Option<u64>,
+    terminal_search_items: Option<Vec<Value>>,
     allow_thin_completed: bool,
     thin_lifecycle: bool,
     line: Vec<u8>,
@@ -156,6 +203,7 @@ pub(super) struct Collector {
     stage: &'static str,
     event_index: Option<u64>,
     event_type: Option<&'static str>,
+    last_observed_event: Option<&'static str>,
     event_type_sha256: Option<String>,
     remote_error_type: Option<&'static str>,
     remote_error_code: Option<&'static str>,
@@ -174,10 +222,37 @@ pub(super) struct Collector {
     pub retained_output_items: Option<super::RetainedOutputItems>,
 }
 impl Collector {
+    pub fn progress_receipt(&self) -> Value {
+        let items: Vec<_> = self.items.iter().map(|(index, item)| {
+            let kind = match item.kind {
+                Kind::Message => "message",
+                Kind::Reasoning => "reasoning",
+                Kind::Decision => "decision",
+                Kind::WebSearch => "web_search",
+            };
+            let mut progress = serde_json::json!({"index":index,"kind":kind,
+                "done":item.done,"incomplete":item.incomplete});
+            if matches!(item.kind, Kind::Message | Kind::Decision) {
+                progress["delta_bytes"] = serde_json::json!(item.deltas.len());
+                progress["final_text_bytes"] = serde_json::json!(item.final_text.as_ref().map(String::len));
+                progress["text_done"] = serde_json::json!(item.text_done);
+            }
+            progress
+        }).collect();
+        // Only fixed event labels, local flags and byte counts cross this
+        // boundary. Never include output text, IDs or reasoning contents.
+        serde_json::json!({"profile":"provider-stream-progress-v1","wire":"responses",
+            "last_observed_event":self.last_observed_event,"items":items,
+            "buffered_line_bytes":self.line.len(),"buffered_data_bytes":self.data.len()})
+    }
+
     pub fn new(model: &str) -> Self {
         Self {
             model: model.into(),
             decision_carrier: false,
+            web_search: false,
+            reported_search_requests: None,
+            terminal_search_items: None,
             allow_thin_completed: false,
             thin_lifecycle: true,
             line: Vec::new(),
@@ -195,6 +270,7 @@ impl Collector {
             stage: "sse_frame",
             event_index: Some(1),
             event_type: None,
+            last_observed_event: None,
             event_type_sha256: None,
             remote_error_type: None,
             remote_error_code: None,
@@ -220,6 +296,31 @@ impl Collector {
     pub fn with_decision_carrier(mut self, enabled: bool) -> Self {
         self.decision_carrier = enabled;
         self
+    }
+    pub fn with_web_search(mut self, enabled: bool) -> Self {
+        self.web_search = enabled;
+        self
+    }
+    pub fn web_search_receipt(&self) -> Option<Value> {
+        if !self.web_search { return None; }
+        let mut completed: BTreeMap<_, _> = self.items.values()
+            .filter_map(|item| item.completed_snapshot.as_ref())
+            .filter(|item| item["type"] == "web_search_call")
+            .map(|item| (item["id"].as_str().unwrap_or_default(), item)).collect();
+        for item in self.terminal_search_items.iter().flatten() {
+            let id = item["id"].as_str().unwrap_or_default();
+            // Either complete snapshot can omit optional action metadata.
+            // Preserve the observed action without inventing absent details.
+            if completed.get(id).is_some_and(|prior| prior["status"] == item["status"]
+                && super::web_search::action(prior).is_some()
+                && super::web_search::action(item).is_none())
+            { continue; }
+            completed.insert(id, item);
+        }
+        let started = self.items.values().filter(|item| item.kind == Kind::WebSearch).count()
+            .max(completed.len());
+        Some(super::web_search::receipt(completed.into_values(), started, self.completed,
+            self.reported_search_requests))
     }
     pub fn push(&mut self, bytes: &[u8]) -> std::result::Result<(), Failure> {
         if let Some(failure) = self.failure {
@@ -249,6 +350,7 @@ impl Collector {
     }
     fn event_label(&mut self, name: &str) {
         self.event_type = Some(safe_event_type(name));
+        self.last_observed_event = self.event_type;
         self.event_type_sha256 =
             (self.event_type == Some("unrecognized")).then(|| super::digest(name.as_bytes()));
     }
@@ -521,6 +623,7 @@ impl Collector {
                 }
                 self.reported_terminal_status = Some(ReportedTerminalStatus::Completed);
                 self.usage = usage(response.get("usage"))?;
+                self.reported_search_requests = response["tool_usage"]["web_search"]["num_requests"].as_u64();
                 if self.items.values().any(|item| item.incomplete) {
                     return Err(protocol("completed_after_incomplete_item"));
                 }
@@ -542,6 +645,9 @@ impl Collector {
                     if kind == Kind::Decision && !self.decision_carrier {
                         return Err(protocol("unexpected_decision_carrier"));
                     }
+                    if kind == Kind::WebSearch && !self.web_search {
+                        return Err(protocol("unexpected_web_search"));
+                    }
                     if let Some(tracked) = self.items.get(&index) {
                         if tracked.id != id || tracked.kind != kind {
                             return Err(protocol("terminal_item_identity_mismatch"));
@@ -555,6 +661,7 @@ impl Collector {
                                 tracked.observe_phase(item)?;
                                 phase = tracked.phase;
                                 tracked.text(text)?;
+                                tracked.annotations.message_snapshot(item, true)?;
                             }
                             if self.decision_carrier && phase != Some(Phase::Commentary) {
                                 return Err(protocol("decision_carrier_required"));
@@ -562,6 +669,19 @@ impl Collector {
                             carrier.consider(phase, text)?;
                         }
                         Kind::Reasoning => reasoning_item(item, true, false)?,
+                        Kind::WebSearch => {
+                            if let Some(field) = super::web_search::invalid_item_field(item, true) {
+                                return Err(protocol("web_search_terminal_shape").at_field(field));
+                            }
+                            if let Some(done) = self.items.get(&index).and_then(|i| i.completed_snapshot.as_ref()) {
+                                let actions_conflict = super::web_search::action(done)
+                                    .zip(super::web_search::action(item))
+                                    .is_some_and(|(before, after)| before != after);
+                                if done["status"] != item["status"] || actions_conflict {
+                                    return Err(protocol("web_search_terminal_conflict"));
+                                }
+                            }
+                        }
                         Kind::Decision => {
                             let text = decision_text(item, "completed")?;
                             if let Some(tracked) = self.items.get_mut(&index) {
@@ -576,6 +696,8 @@ impl Collector {
                     return Err(protocol("terminal_item_index_missing"));
                 }
                 self.response = Some(carrier.finish()?);
+                self.terminal_search_items = Some(output.iter()
+                    .filter(|item| item["type"] == "web_search_call").cloned().collect());
                 self.retain_output_items(response, output);
                 self.completed = true;
             }
@@ -602,12 +724,18 @@ impl Collector {
                 } else {
                     ReportedTerminalStatus::Incomplete
                 });
+                // A failed response can still report completed read-only
+                // searches. Retain those actions without adopting its text.
+                self.terminal_search_items = response["output"].as_array().map(|items|
+                    items.iter().filter(|item| super::web_search::valid_item(item, true))
+                        .cloned().collect());
                 if kind == "response.incomplete" {
                     let reason = response.get("incomplete_details").and_then(|value| value.get("reason"));
                     self.incomplete_reason = safe_remote_error_label(reason, &["max_output_tokens", "content_filter"]);
                     self.incomplete_reason_sha256 = unknown_error_digest(reason, self.incomplete_reason);
                 }
                 self.usage = usage(response.get("usage"))?;
+                self.reported_search_requests = response["tool_usage"]["web_search"]["num_requests"].as_u64();
                 if kind == "response.failed" {
                     if let Some(error) = response.get("error") {
                         self.observe_remote_error(error.get("type"), error.get("code"));
@@ -641,6 +769,9 @@ impl Collector {
                 if kind_of_item == Kind::Decision && !self.decision_carrier {
                     return Err(protocol("unexpected_decision_carrier"));
                 }
+                if kind_of_item == Kind::WebSearch && !self.web_search {
+                    return Err(protocol("unexpected_web_search"));
+                }
                 let index = index(&event, "output_index")?;
                 let id = wire_id(value, "id")?;
                 let item = self.track(index, id, kind_of_item)?;
@@ -671,9 +802,17 @@ impl Collector {
                         if message_content(value)?.is_some_and(|text| !text.is_empty()) {
                             return Err(protocol("message_added_shape").at_field("content"));
                         }
+                        item.annotations.message_snapshot(value, false)?;
                     } else if kind_of_item == Kind::Decision {
                         if !decision_text(value, "in_progress")?.is_empty() {
                             return Err(protocol("decision_added_input_not_empty"));
+                        }
+                    } else if kind_of_item == Kind::WebSearch {
+                        if let Some(field) = super::web_search::invalid_item_field(value, false) {
+                            return Err(protocol("web_search_added_shape").at_field(field));
+                        }
+                        if !matches!(value["status"].as_str(), Some("in_progress" | "searching")) {
+                            return Err(protocol("web_search_added_shape").at_field("status"));
                         }
                     } else {
                         reasoning_item(value, false, false)?;
@@ -686,15 +825,25 @@ impl Collector {
                     // An incomplete item is not the terminal response event.
                     // Continue to observe the provider's final status and usage;
                     // no partial item can become an adoptable carrier.
-                    item.incomplete = value.get("status").and_then(Value::as_str) == Some("incomplete");
+                    // A partial message/decision cannot become a complete
+                    // answer. An incomplete read-only search can still be
+                    // followed by a complete answer explaining its limitation.
+                    item.incomplete = kind_of_item != Kind::WebSearch
+                        && value.get("status").and_then(Value::as_str) == Some("incomplete");
                     if kind_of_item == Kind::Message && item.incomplete {
                         if let Some(text) = message_content(value)? {
                             item.text(text)?;
                         }
+                        item.annotations.message_snapshot(value, false)?;
                     } else if kind_of_item == Kind::Message {
                         item.text(message_text(value)?)?;
+                        item.annotations.message_snapshot(value, true)?;
                     } else if kind_of_item == Kind::Decision {
                         item.text(decision_text(value, if item.incomplete { "incomplete" } else { "completed" })?)?;
+                    } else if kind_of_item == Kind::WebSearch {
+                        if let Some(field) = super::web_search::invalid_item_field(value, true) {
+                            return Err(protocol("web_search_done_shape").at_field(field));
+                        }
                     } else {
                         reasoning_item(value, true, true)?;
                     }
@@ -705,7 +854,8 @@ impl Collector {
             "response.content_part.added"
             | "response.content_part.done"
             | "response.output_text.delta"
-            | "response.output_text.done" => {
+            | "response.output_text.done"
+            | "response.output_text.annotation.added" => {
                 if index(&event, "content_index")? != 0 {
                     return Err(protocol("message_content_index"));
                 }
@@ -718,6 +868,11 @@ impl Collector {
                     return Err(protocol("content_after_item_done"));
                 }
                 match kind {
+                    "response.output_text.annotation.added" => {
+                        let annotation = event.get("annotation")
+                            .ok_or(protocol("annotation_missing"))?;
+                        item.annotations.added(index(&event, "annotation_index")?, annotation)?;
+                    }
                     "response.output_text.delta" => {
                         if item.text_done || item.part_done {
                             return Err(protocol("delta_after_text_done"));
@@ -742,6 +897,7 @@ impl Collector {
                         {
                             return Err(protocol("added_text_not_empty"));
                         }
+                        item.annotations.snapshot(&event["part"], false)?;
                         item.part_added = true;
                     }
                     _ => {
@@ -751,6 +907,7 @@ impl Collector {
                         item.text(output_text(
                             event.get("part").ok_or(protocol("content_part_missing"))?,
                         )?)?;
+                        item.annotations.snapshot(&event["part"], true)?;
                         item.part_done = true;
                     }
                 }
@@ -766,6 +923,14 @@ impl Collector {
                     item.text(string(&event, "input")?)?;
                     item.text_done = true;
                 }
+            }
+            "response.web_search_call.in_progress"
+            | "response.web_search_call.searching"
+            | "response.web_search_call.completed" => {
+                if !self.web_search { return Err(protocol("unexpected_web_search")); }
+                let item = self.track(index(&event, "output_index")?,
+                    wire_id(&event, "item_id")?, Kind::WebSearch)?;
+                if item.done { return Err(protocol("web_search_after_item_done")); }
             }
             "response.reasoning_summary_part.added"
             | "response.reasoning_summary_part.done"
@@ -888,6 +1053,7 @@ impl Collector {
             final_text: None,
             completed_snapshot: None,
             call_id: None,
+            annotations: Annotations::default(),
         });
         if item.id != id || item.kind != kind {
             return Err(protocol("item_identity_changed"));
@@ -970,6 +1136,7 @@ fn item_kind(value: &Value) -> Result<Kind> {
         "message" => Ok(Kind::Message),
         "reasoning" => Ok(Kind::Reasoning),
         "custom_tool_call" => Ok(Kind::Decision),
+        "web_search_call" => Ok(Kind::WebSearch),
         _ => Err(Failure::RemoteFailure.into()),
     }
 }
@@ -989,7 +1156,49 @@ fn output_text(value: &Value) -> Result<&str> {
     {
         return Err(Failure::RemoteFailure.into());
     }
+    annotations(value)?;
     string(value, "text")
+}
+fn annotations(value: &Value) -> Result<&[Value]> {
+    let Some(values) = value.get("annotations") else { return Ok(&[]); };
+    let values = values.as_array().ok_or(protocol("annotations_not_array"))?;
+    for value in values { annotation(value)?; }
+    Ok(values)
+}
+fn annotation(value: &Value) -> Result<()> {
+    let range = || -> Result<()> {
+        // These are provider text offsets, not UTF-8 native-file ranges. Do not
+        // reinterpret them against decoded Decision strings or truncate them.
+        if index(value, "start_index")? > index(value, "end_index")? {
+            return Err(protocol("annotation_range_reversed"));
+        }
+        Ok(())
+    };
+    match string(value, "type")? {
+        "url_citation" => {
+            range()?;
+            string(value, "title")?;
+            url::Url::parse(string(value, "url")?)
+                .map_err(|_| protocol("annotation_url_invalid"))?;
+        }
+        "file_citation" => {
+            wire_id(value, "file_id")?;
+            string(value, "filename")?;
+            index(value, "index")?;
+        }
+        "container_file_citation" => {
+            range()?;
+            wire_id(value, "container_id")?;
+            wire_id(value, "file_id")?;
+            string(value, "filename")?;
+        }
+        "file_path" => {
+            wire_id(value, "file_id")?;
+            index(value, "index")?;
+        }
+        _ => return Err(protocol("annotation_type_unsupported")),
+    }
+    Ok(())
 }
 fn message_phase(value: &Value) -> Result<Option<Phase>> {
     match value.get("phase").filter(|v| !v.is_null()) {
@@ -1153,6 +1362,9 @@ fn safe_event_type(name: &str) -> &'static str {
         "response.reasoning_text.done" => "response.reasoning_text.done",
         "response.output_text.annotation.added" => "response.output_text.annotation.added",
         "response.queued" => "response.queued",
+        "response.web_search_call.in_progress" => "response.web_search_call.in_progress",
+        "response.web_search_call.searching" => "response.web_search_call.searching",
+        "response.web_search_call.completed" => "response.web_search_call.completed",
         _ => "unrecognized",
     }
 }

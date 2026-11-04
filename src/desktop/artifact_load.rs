@@ -257,26 +257,31 @@ pub(super) fn decode(source: &Source, cancel: &native_preview::Cancellation) -> 
     let name = source.name();
     let ext = extension(Path::new(&name));
     if let Some(route) = native_preview::route(&ext) {
-        if let Err(reason) = route.availability() {
-            return Ok(Decoded {
-                body: Body::Unsupported(format!("{} can render this format inside the workspace. {reason}", route.label)),
-                note: String::new(),
-            });
+        let result = route.availability().and_then(|()| native_preview::prepare(source, route, cancel));
+        match result {
+            Ok(document) => {
+                let note = document.summary.clone();
+                return Ok(Decoded { body: Body::Native(document), note });
+            }
+            Err(reason) => {
+                if cancel.is_cancelled() { return Err("Preview request cancelled.".into()); }
+                if matches!(ext.as_str(), "step" | "stp") {
+                    if let Some(companion) = source.companion() {
+                        let mut decoded = decode(&companion, cancel)
+                            .map_err(|error| format!("Native STEP preview failed: {reason}\nCompanion mesh failed: {error}"))?;
+                        decoded.note = format!(
+                            "STEP source · showing companion mesh {}. The STEP geometry itself is not decoded. Native preview unavailable: {reason}\n{}",
+                            companion.name(), decoded.note
+                        );
+                        return Ok(decoded);
+                    }
+                }
+                return Ok(Decoded {
+                    body: Body::Unsupported(format!("{} could not render this source. {reason}", route.label)),
+                    note: String::new(),
+                });
+            }
         }
-        return native_preview::prepare(source, route, cancel).map(|document| Decoded {
-            body: Body::Native(document), note: String::new(),
-        });
-    }
-    if matches!(ext.as_str(), "step" | "stp") {
-        if let Some(companion) = source.companion() {
-            let mut decoded = decode(&companion, cancel)?;
-            decoded.note = format!(
-                "STEP source · showing companion mesh {}. The STEP geometry itself is not decoded.",
-                companion.name()
-            );
-            return Ok(decoded);
-        }
-        return Ok(Decoded{body:Body::Unsupported("STEP requires a CAD application. A same-name STL, OBJ, or GLB beside this file will render here.".into()),note:String::new()});
     }
     let bytes = source.bytes()?;
     let mut note = String::new();
@@ -289,12 +294,6 @@ pub(super) fn decode(source: &Source, cancel: &native_preview::Cancellation) -> 
             reader.no_limits();
             let image = reader.decode().map_err(|e| e.to_string())?;
             let info = format!("{} × {} px", image.width(), image.height());
-            let image = if image.width().max(image.height()) > 4096 {
-                note = "Preview resized to 4096 pixels on its longest side.".into();
-                image.thumbnail(4096, 4096)
-            } else {
-                image
-            };
             if ext == "gif" {
                 note = "First frame of the animation.".into();
             }

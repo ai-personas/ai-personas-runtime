@@ -12,6 +12,15 @@ scope, maintenance accounting and conflicts follow the existing file-save rules.
 The source must already exist. A missing, null, stale or same-response base is
 not replaced with a newer head.
 
+Use optional `citations` or `citation_handles` for supporting sources and
+calculation evidence. Their exact references remain attached to the accepted
+revision and discoverable in later file-choice tables, without loading their
+bodies. Reserve `qualifications` and `qualification_handles` for caveats or
+corrections that must accompany every use. These load the complete required
+context transitively. Both lists describe the new revision; the persona chooses
+which sources remain useful. Accepted warnings still require their explicit
+resolution. The same distinction applies to `file_write` and `file_import`.
+
 Choose the operation for the intended change. For a localized correction,
 use a short unique passage with `file_edit`. For a complete rewrite, use
 `file_write` with the same source, scope and path, the exact current
@@ -31,6 +40,14 @@ Each `edits` entry contains `old_text` and `new_text`:
 - No whitespace, newline or Unicode normalization occurs. The operation must
   change the base bytes. Reuse an exact reference when no change is needed, or
   use `file_write` when replacing the full content or changing only metadata.
+
+A native save binds its exact proposal and admitted input into the file's
+revision identity. A `file_write` that changes citation or qualification
+attachments can therefore retain identical text while creating a distinct
+revision with its own provenance. Earlier revisions and their attachments remain
+unchanged. The complete attachment lists on the new save are the persona's
+choice; saving does not automatically reclassify or remove old qualifications.
+A new save receipt establishes a recorded change, not improved task quality.
 
 There is no edit-count or text-size quota. The exact-match rules establish which
 bytes the persona requested to change. They do not establish that the correction

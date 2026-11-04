@@ -93,6 +93,13 @@ pub struct Decision {
     /// outcome, not to work. Put additional work explanation in reason.
     /// Supply evidence: [] when no exact evidence identifier applies; never omit it.
     pub work: WorkDisposition,
+    /// Opaque evidence from the removed working-state interface. Not offered
+    /// in current schemas or accepted by live validation. Keeping its exact
+    /// historical value does not supply it as persona context or execute it.
+    #[doc(hidden)]
+    #[serde(default, rename = "working_state", skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
+    pub retired_working_state: Option<Value>,
     /// Consider whether actual experience suggests a useful refinement of your
     /// characteristic attention, judgment, communication or ways of working.
     /// Refining guidance you intend to practice does not require changed OCEAN/VAD
@@ -100,6 +107,11 @@ pub struct Decision {
     /// about the guidance. Account for every fragment mutation and character
     /// adoption in change.operation_ids, including edits made for this task.
     pub fragment_maintenance: Maintenance,
+    /// Review received evidence for useful corrections, reusable procedures or
+    /// improved discovery of supporting resources. Read-only work can reveal
+    /// such a need; the absence of chosen writes alone is not a maintenance
+    /// judgment. No change is appropriate when no useful update is warranted;
+    /// do not create an asset merely to fill this field.
     /// Account for supporting-resource maintenance proposed in this response,
     /// including task deliverable edits. Each file_import and each
     /// file_write/file_edit with scope assets belongs in change.operation_ids.
@@ -354,6 +366,23 @@ impl SelectionIntent {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProviderContextSelection {
+    /// Keep every completed output item, including returned opaque reasoning,
+    /// without replaying this invocation's prompt, images or earlier provider
+    /// history. Select needed native context separately. Available only when
+    /// CONTROL.provider_continuation.available_scopes includes current_output.
+    CurrentOutput {
+        /// work (default) or next_call on this persona/work. Preserve never renews it.
+        lifetime: Option<String>,
+    },
+    /// Carry this invocation's own complete provider input and completed output
+    /// into the next decision, without the earlier provider history supplied to
+    /// this invocation. This keeps one complete turn, including its images and
+    /// returned opaque reasoning, rather than growing a provider transcript.
+    /// Historical material inside this invocation's prompt remains included.
+    CurrentTurn {
+        /// work (default) or next_call on this persona/work. Preserve never renews it.
+        lifetime: Option<String>,
+    },
     /// Carry this invocation's complete provider input and completed output
     /// into a later call, including any earlier history explicitly supplied to
     /// this invocation. The host binds the actual terminal after completion.
@@ -665,6 +694,7 @@ pub enum Operation {
         id: String,
         scope: Scope,
         /// Identity of one native file, reused for revisions of that file.
+        /// Nonempty, with no whitespace or control characters.
         /// Separate files need distinct sources even when their paths differ.
         /// Only one file mutation may target a source in a response.
         source: String,
@@ -686,14 +716,22 @@ pub enum Operation {
         /// reference is not an accepted base revision.
         base_revision: Option<String>,
         text: String,
+        /// Actual caveats or corrections that must accompany every use. Ordinary
+        /// sources and calculation evidence belong in citations instead.
         qualifications: Vec<ExactRef>,
         /// Additional required qualifications chosen by exact current-input
         /// handles. Requires input-file-choices-v2; no lookup by path or head.
         /// Prefer this field when the needed reference is listed in the table.
-        /// Canonical qualifications retain the exact source identifiers; refer
-        /// to those qualifications in text instead of retyping IDs and hashes.
+        /// Use only for mandatory caveats, not bibliography or provenance.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         qualification_handles: Vec<String>,
+        /// Supporting-source citations. Retain exact references without loading
+        /// source bodies or propagating them to every later tool result.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        citations: Vec<ExactRef>,
+        /// Prefer these current input-file handles for supporting-source citations.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        citation_handles: Vec<String>,
         policy_id: String,
     },
     /// Edit an existing native UTF-8 file against its exact accepted current
@@ -712,6 +750,7 @@ pub enum Operation {
         scope: Scope,
         /// Existing native file identity. Only one file mutation may target
         /// this source in a response, including writes, imports and retirement.
+        /// Nonempty, with no whitespace or control characters.
         source: String,
         /// Relative native-store path, with the same rules as file_write.
         path: String,
@@ -722,6 +761,12 @@ pub enum Operation {
         qualifications: Vec<ExactRef>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         qualification_handles: Vec<String>,
+        /// Complete supporting-source citations for this revision. These are
+        /// metadata, not mandatory qualification bodies or next-context choices.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        citations: Vec<ExactRef>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        citation_handles: Vec<String>,
         policy_id: String,
     },
     /// Copy an existing regular host file into a native supporting asset without
@@ -734,6 +779,7 @@ pub enum Operation {
     FileImport {
         id: String,
         /// Identity of one native file, reused for revisions of that file.
+        /// Nonempty, with no whitespace or control characters.
         /// Separate files need distinct sources: a script and its report are
         /// different files even when they share a filename stem. Different paths
         /// do not distinguish a reused source. Only one file mutation may target
@@ -745,10 +791,12 @@ pub enum Operation {
         base_revision: Option<String>,
         /// Host path; relative paths use the offered host working directory.
         host_path: String,
-        /// utf8 (default) retains text and rejects invalid encoding. bytes retains
-        /// any file unchanged, including archives, CAD and images; saved-file
+        /// Choose explicitly: utf8 retains text and rejects invalid encoding.
+        /// bytes retains any file unchanged, including PDFs, archives, CAD and images; saved-file
         /// selections/citations use bytes_metadata and supply no file body.
-        #[serde(default, skip_serializing_if = "FileImportFormat::is_utf8")]
+        // Keep the historical text default when decoding retained decisions;
+        // the live parser and generated contract require an explicit choice.
+        #[serde(default)]
         format: FileImportFormat,
         /// Optional expected SHA-256 of the raw file bytes. A mismatch rejects
         /// this save; omission retains the actual bytes read at adoption.
@@ -756,6 +804,10 @@ pub enum Operation {
         qualifications: Vec<ExactRef>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         qualification_handles: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        citations: Vec<ExactRef>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        citation_handles: Vec<String>,
         policy_id: String,
     },
     /// Retire a source from the active file collection at its exact current head.
@@ -767,6 +819,7 @@ pub enum Operation {
         scope: Scope,
         /// Existing native file identity. This response cannot also write,
         /// edit, import or retire the same source in another operation.
+        /// Nonempty, with no whitespace or control characters.
         source: String,
         base_revision: String,
     },
@@ -999,6 +1052,7 @@ pub enum Operation {
         /// definitions appear in CONTROL.work_capability.inputs_schema. Where
         /// the action permits an earlier local record, cite its inner record ID.
         /// depends_on belongs beside inputs on this operation, never inside it.
+        #[schemars(with = "serde_json_raw::Value")]
         inputs: Value,
         /// Only file_write/file_edit/file_import operation IDs whose proposed revisions this command
         /// consumes. Defaults to [] when omitted; never name another work_command here.
@@ -1019,6 +1073,7 @@ pub enum Operation {
         /// selected inputs_schema. For host.command.v1 this includes command,
         /// result_context, working_directory, stdin, stdin_asset and timeout_seconds.
         /// Put depends_on beside inputs on the effect, never inside this object.
+        #[schemars(with = "serde_json_raw::Value")]
         inputs: Value,
         /// Follow this capability's supplied dependency contract. For
         /// work.command.v1, name only consumed file_write/file_edit/file_import proposals; use [] for
@@ -1049,10 +1104,6 @@ pub enum FileImportFormat {
     Bytes,
 }
 
-impl FileImportFormat {
-    fn is_utf8(&self) -> bool { *self == Self::Utf8 }
-}
-
 pub(crate) enum FileContent<'a> {
     Authored(&'a str),
     Edits(&'a [TextEdit]),
@@ -1069,6 +1120,8 @@ pub(crate) struct FileSave<'a> {
     pub content: FileContent<'a>,
     pub qualifications: &'a [ExactRef],
     pub qualification_handles: &'a [String],
+    pub citations: &'a [ExactRef],
+    pub citation_handles: &'a [String],
     pub policy_id: &'a String,
 }
 
@@ -1076,22 +1129,22 @@ impl Operation {
     pub(crate) fn file_save(&self) -> Option<FileSave<'_>> {
         match self {
             Self::FileWrite { id, scope, source, path, base_revision, text,
-                qualifications, qualification_handles, policy_id } => Some(FileSave {
+                qualifications, qualification_handles, citations, citation_handles, policy_id } => Some(FileSave {
                     id, scope:*scope, source, path, base_revision:base_revision.as_ref(),
                     content:FileContent::Authored(text), qualifications,
-                    qualification_handles, policy_id,
+                    qualification_handles, citations, citation_handles, policy_id,
                 }),
             Self::FileEdit { id, scope, source, path, base_revision, edits,
-                qualifications, qualification_handles, policy_id } => Some(FileSave {
+                qualifications, qualification_handles, citations, citation_handles, policy_id } => Some(FileSave {
                     id, scope:*scope, source, path, base_revision:Some(base_revision),
                     content:FileContent::Edits(edits), qualifications,
-                    qualification_handles, policy_id,
+                    qualification_handles, citations, citation_handles, policy_id,
                 }),
             Self::FileImport { id, source, path, base_revision, host_path, expected_sha256, format,
-                qualifications, qualification_handles, policy_id } => Some(FileSave {
+                qualifications, qualification_handles, citations, citation_handles, policy_id } => Some(FileSave {
                     id, scope:Scope::Assets {}, source, path, base_revision:base_revision.as_ref(),
                     content:FileContent::Host { path:host_path, expected_sha256:expected_sha256.as_deref(), format:*format },
-                    qualifications, qualification_handles, policy_id,
+                    qualifications, qualification_handles, citations, citation_handles, policy_id,
                 }),
             _ => None,
         }
@@ -1213,6 +1266,26 @@ pub enum ProtocolError {
 /// Parse and validate the complete response without performing any mutation.
 /// No valid prefix is returned if any later part of the response is invalid.
 pub fn parse_decision(bytes: &[u8]) -> Result<Decision, ProtocolError> {
+    parse_decision_document(bytes, false)
+}
+
+/// Decode already committed evidence after its caller verifies the immutable
+/// archive and admission. This is never a live adoption or retry interface.
+pub(crate) fn parse_recorded_decision(bytes: &[u8]) -> Result<Decision, ProtocolError> {
+    parse_decision_document(bytes, true)
+}
+
+/// Compare current contract fields in two already authenticated representations
+/// of a committed response. The removed opaque field's old typed defaults can
+/// differ from the exact authored JSON. Its integrity comes from the caller's
+/// archive/proof and authored-byte hashes, not a revived legacy value decoder.
+pub(crate) fn matches_recorded_decision(authored: &Decision, archived: &Decision) -> bool {
+    let mut comparable = authored.clone();
+    comparable.retired_working_state = archived.retired_working_state.clone();
+    comparable == *archived
+}
+
+fn parse_decision_document(bytes: &[u8], recorded: bool) -> Result<Decision, ProtocolError> {
     std::str::from_utf8(bytes).map_err(|error| ProtocolError::InvalidUtf8 {
         offset: error.valid_up_to(),
     })?;
@@ -1244,7 +1317,29 @@ pub fn parse_decision(bytes: &[u8]) -> Result<Decision, ProtocolError> {
             rule: "typed records require JSON objects, not positional arrays",
         });
     }
-    validate_decision(&decision)?;
+    if !recorded && received.get("working_state").is_some() {
+        return Err(invalid(
+            "working_state",
+            "removed interface; retain supporting notes with file operations and select them through next_assets",
+        ));
+    }
+    if !recorded {
+        for (index, operation) in decision.operations.iter().enumerate() {
+            if matches!(operation, Operation::FileImport { .. })
+                && received["operations"][index].get("format").is_none()
+            {
+                return Err(invalid(
+                    &format!("operations[{index}].format"),
+                    "choose utf8 or bytes explicitly; binary files require bytes",
+                ));
+            }
+        }
+    }
+    if recorded {
+        validate_decision_core(&decision)?;
+    } else {
+        validate_decision(&decision)?;
+    }
     Ok(decision)
 }
 
@@ -1288,8 +1383,8 @@ pub(crate) fn same_container_shapes(received: &Value, typed: &Value) -> bool {
             match typed.get(key) {
                 Some(field) => same_container_shapes(value, field),
                 // The typed decoder already rejects unknown fields. Optional
-                // scalar defaults (for example file_import format=utf8), empty
-                // lists and nulls can be omitted from serialization. Scalars
+                // scalar defaults, empty lists and nulls can be omitted from
+                // serialization. Scalars
                 // cannot hide positional records; nonempty arrays and objects
                 // still require their typed containers for comparison.
                 None => {
@@ -1327,6 +1422,18 @@ pub fn decision_schema() -> Value {
     schema["properties"]["version"]["const"] = Value::from(PROTOCOL_VERSION);
     schema["$defs"]["ExactRef"]["properties"]["lifetime"]["enum"] =
         serde_json::json!(["work", "next_call", null]);
+    // Retained decisions can omit the old text default. New responses must
+    // choose their import representation before any host file is read.
+    for operation in schema["$defs"]["Operation"]["oneOf"]
+        .as_array_mut().expect("generated Operation tagged union")
+    {
+        if operation["properties"]["kind"]["const"] == "file_import" {
+            operation["required"].as_array_mut().expect("file import required fields")
+                .push(Value::String("format".into()));
+            operation["properties"]["format"].as_object_mut().expect("file import format schema")
+                .remove("default");
+        }
+    }
     schema
 }
 
@@ -2117,7 +2224,9 @@ fn check_selection(selection: &SelectionIntent, path: &str) -> Result<(), Protoc
         if path != "next_assets" {
             return Err(invalid(path, "provider context belongs in next_assets only"));
         }
-        if let ProviderContextSelection::Current { lifetime } = context {
+        if let ProviderContextSelection::CurrentOutput { lifetime }
+            | ProviderContextSelection::Current { lifetime }
+            | ProviderContextSelection::CurrentTurn { lifetime } = context {
             if !matches!(lifetime.as_deref(), None | Some("work" | "next_call")) {
                 return Err(invalid(path, "provider context lifetime must be work or next_call"));
             }
@@ -2356,7 +2465,7 @@ fn check_operation(
         }
         Operation::FileWrite { .. } | Operation::FileEdit { .. } | Operation::FileImport { .. } => {
             let FileSave { source, path:target, base_revision, content,
-                qualifications, qualification_handles, policy_id, .. } = operation.file_save().unwrap();
+                qualifications, qualification_handles, citations, citation_handles, policy_id, .. } = operation.file_save().unwrap();
             check_id(source, &format!("{path}.source"))?;
             check_text(target, MAX_REASON_BYTES, &format!("{path}.path"))?;
             if !crate::files::canonical_relative_path(target) {
@@ -2389,6 +2498,8 @@ fn check_operation(
             check_handles(qualification_handles, 0, MAX_COLLECTION_ITEMS, &format!("{path}.qualification_handles"))?;
             check_count(qualifications.len() + qualification_handles.len(), 0,
                 MAX_COLLECTION_ITEMS, &format!("{path}.combined_qualifications"))?;
+            check_references(citations, 0, false, &format!("{path}.citations"))?;
+            check_handles(citation_handles, 0, MAX_COLLECTION_ITEMS, &format!("{path}.citation_handles"))?;
             check_id(policy_id, &format!("{path}.policy_id"))
         }
         Operation::FileRetire {
@@ -2801,6 +2912,18 @@ fn check_acyclic(graph: &[BTreeSet<usize>]) -> Result<(), ProtocolError> {
 pub fn validate_decision(
     decision: &Decision,
 ) -> Result<BTreeMap<String, Vec<String>>, ProtocolError> {
+    if decision.retired_working_state.is_some() {
+        return Err(invalid(
+            "working_state",
+            "removed interface; use supporting files and explicit next-context selection",
+        ));
+    }
+    validate_decision_core(decision)
+}
+
+fn validate_decision_core(
+    decision: &Decision,
+) -> Result<BTreeMap<String, Vec<String>>, ProtocolError> {
     if decision.version != PROTOCOL_VERSION {
         return Err(invalid("version", "unsupported protocol version"));
     }
@@ -2926,6 +3049,15 @@ pub fn validate_decision(
                 if operation.file_save().is_none() {
                     graph[index].insert(prerequisite);
                 }
+            }
+        }
+        if let Some(save) = operation.file_save() {
+            check_resolved_references(save.citations, false,
+                &format!("operations[{index}].citations"), &proposals)?;
+            for reference in save.citations {
+                // Citations are atomic metadata bindings, never execution dependencies.
+                link_reference(reference, None, &format!("operations[{index}].citations"),
+                    &proposals, &decision.operations)?;
             }
         }
         if let Operation::Communicate { reference_operations, .. } = operation {

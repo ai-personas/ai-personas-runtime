@@ -380,6 +380,7 @@ fn create_owned(
             provenance,
             model: None,
             effort: None,
+            provider: None,
         },
     );
     let provider = saved.execution_provider()?;
@@ -431,7 +432,7 @@ fn create_owned(
         "proposal or its inherited restrictions do not permit this child and requester",
     )?;
     f::assemble(
-        &corpus(&next, &child_admission)?,
+        corpus(&next, &child_admission)?.as_ref(),
         std::slice::from_ref(&reference),
         &[],
         &[],
@@ -441,7 +442,7 @@ fn create_owned(
         next.config.output_reserve_bytes,
     )?;
     let preview = f::assemble(
-        &corpus(&state, &operator_admission)?,
+        corpus(&state, &operator_admission)?.as_ref(),
         std::slice::from_ref(&reference),
         &[],
         &[],

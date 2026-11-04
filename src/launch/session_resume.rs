@@ -143,13 +143,13 @@ pub(super) fn candidate(
         && actor.failed_attempt_hold.is_none()
         && match actor.active_invocation.as_deref() {
             Some(id) => recovery.is_some_and(|known| known.invocation == id),
-            // A work pause can consume an invitee's initial opportunity before
-            // its first ordinary response. Explicitly resuming that invitee
-            // permits consideration; it does not accept responsibility for it.
-            None => !focus.permit && !focus.ordinary_continuation && matches!(
-                focus.continuation,
-                None | Some(p::Continuation::Stop { .. } | p::Continuation::Pause { .. })
-            ),
+            // A work pause can consume an invitation or explicit reconsideration
+            // before its first accepted response. An amendment can also leave a
+            // historical Immediate/Wait decision with no current ordinary route.
+            // Use the current route flags, not that historical decision's kind.
+            // This offers explicit reconsideration; it accepts no responsibility
+            // and does not revive a prior continuation automatically.
+            None => !focus.permit && !focus.ordinary_continuation,
         }
         && state.work_meta.contains_key(work)
 }

@@ -115,6 +115,7 @@ fn project(
         "persona":persona_id, "label":persona.seed.label,
         "lifecycle":lifecycle::projection(persona),
         "character":character, "characteristic_revisions":revisions,
+        "character_development":character_development::context(state, persona_id, &audience, &mut Exposure::default()),
         "transient_affect":{"context":affect.control,"observation":affect.observation},
         "truncated":truncated, "inference_performed":false,
         "scope":"Accepted characteristic revisions owned or authored by this persona, or the explicitly selected source. Retired revisions remain labeled; supporting assets are separate.",

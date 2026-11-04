@@ -135,16 +135,7 @@ impl Viewer {
                         Response::Catalog(id, loader::scan(&root, hidden))
                     }
                     Request::Recorded(id, source) => Response::Catalog(id, loader::recorded(source)),
-                    Request::Load(id, source, cancel) => {
-                        let ext = extension(Path::new(&source.name()));
-                        let result = if let Some(route) = native_preview::route(&ext) {
-                            native_preview::prepare(&source, route, &cancel).map(|document| {
-                                let note = document.summary.clone();
-                                Decoded { body: Body::Native(document), note }
-                            })
-                        } else { loader::decode(&source, &cancel) };
-                        Response::Preview(id, result)
-                    },
+                    Request::Load(id, source, cancel) => Response::Preview(id, loader::decode(&source, &cancel)),
                     Request::NativePage(id, document, page, cancel) => Response::NativePage(id, native_preview::page(&document, page, &cancel)),
                 };
                 if responses.send(response).is_err() {
@@ -521,10 +512,6 @@ impl Viewer {
                     .fill(theme::palette(ui).canvas),
             )
             .show_inside(ui, |ui| self.preview(ui));
-        if self.loading {
-            ui.ctx()
-                .request_repaint_after(std::time::Duration::from_millis(100));
-        }
     }
     fn preview(&mut self, ui: &mut egui::Ui) {
         let mut back = false;
@@ -629,7 +616,6 @@ impl Viewer {
         }
         if self.loading {
             ui.horizontal_wrapped(|ui| {
-                ui.spinner();
                 ui.label(if self.source.is_some() {
                     "Preparing preview…"
                 } else if self.recorded {

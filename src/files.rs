@@ -28,6 +28,8 @@ use std::io::{self, Write};
 use std::sync::Arc;
 use thiserror::Error;
 
+mod record_facts;
+
 pub const FILE_HASH_PROFILE: &str = "persona-file-record-sha256-v1";
 pub const JSON_PROFILE: &str = "utf8-unique-decoded-keys-scalar-strings-v1";
 pub const CONTEXT_PROFILE: &str = "qualified-exact-context-json-v1";
@@ -53,7 +55,7 @@ pub enum Scope {
     Assets,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Representation {
     Utf8,
@@ -71,9 +73,9 @@ pub enum Representation {
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Reference {
+pub struct ReferenceValue {
     pub source: String,
     pub revision: String,
     pub representation: Representation,
@@ -83,19 +85,56 @@ pub struct Reference {
     pub end: Option<usize>,
 }
 
+/// Complete exact reference with shared immutable storage. Serialized fields,
+/// ordering and equality retain their value semantics; an edit copies its value.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(transparent)]
+pub struct Reference(Arc<ReferenceValue>);
+
+static REFERENCES: std::sync::OnceLock<std::sync::Mutex<crate::shared_values::Pool<ReferenceValue>>>
+    = std::sync::OnceLock::new();
+pub(crate) const SHARED_REFERENCE: &str = "ai-personas::complete_reference";
+
+impl<'de> Deserialize<'de> for Reference {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        crate::shared_values::deserialize(&REFERENCES, SHARED_REFERENCE, deserializer).map(Self)
+    }
+}
+
+impl std::ops::Deref for Reference {
+    type Target = ReferenceValue;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for Reference {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        Arc::make_mut(&mut self.0)
+    }
+}
+
 impl Reference {
+    pub(crate) fn shared_value(&self) -> Arc<ReferenceValue> {
+        Arc::clone(&self.0)
+    }
+
+    pub fn new(value: ReferenceValue) -> Self {
+        Self(crate::shared_values::intern(&REFERENCES, value))
+    }
+
     pub fn full(
         source: impl Into<String>,
         revision: impl Into<String>,
         representation: Representation,
     ) -> Self {
-        Self {
+        Self::new(ReferenceValue {
             source: source.into(),
             revision: revision.into(),
             representation,
             start: None,
             end: None,
-        }
+        })
     }
 
     fn request_bytes(&self, historical_limit: usize) -> Result<usize, FilesError> {
@@ -119,7 +158,7 @@ impl Reference {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DerivativeUse {
     /// Exact observations/discovery are allowed; assembly for a new generative
@@ -135,7 +174,7 @@ pub struct PolicyIdentity {
     pub revision: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Policy {
     pub id: String,
@@ -220,15 +259,22 @@ pub struct FileRevision {
     pub policy: Policy,
     pub qualifications: Vec<Reference>,
     pub retired: bool,
+    /// Exact native save proposal and admitted-input commitment, when present.
+    /// The bytes alone do not identify separately accepted citation/qualification
+    /// attachments or the provenance of a later save of unchanged bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub save_context: Option<String>,
 }
 
 impl FileRevision {
     /// SHA-256 of compact serde_json serialization of this ordered tuple:
     /// (profile, source, path, scope, bytes, author, policy, qualifications, retired).
     /// Sets have BTreeSet order; qualification order is preserved. The only omitted
-    /// record field is revision itself. All metadata therefore changes identity.
+    /// record field is revision itself. A native save additionally binds this
+    /// content identity to save_context; context-free imported records retain
+    /// their content identity. Neither hash by itself proves native acceptance.
     pub fn computed_revision(&self) -> Result<String, FilesError> {
-        hash_json(&(
+        let content = hash_json(&(
             FILE_HASH_PROFILE,
             &self.source,
             &self.path,
@@ -238,7 +284,11 @@ impl FileRevision {
             &self.policy,
             &self.qualifications,
             self.retired,
-        ))
+        ))?;
+        match &self.save_context {
+            Some(context) => hash_json(&("persona-file-save-sha256-v1", content, context)),
+            None => Ok(content),
+        }
     }
 
     /// Convenience for producing a candidate record. Sealing is not acceptance,
@@ -408,6 +458,9 @@ pub struct AcceptedBinding {
 pub enum BindingDisposition {
     /// Applies to every representation/range of the exact subject revision.
     Qualify { required: Vec<Reference> },
+    /// Supporting-source citations, not mandatory context dependencies. Exact
+    /// references remain visible and readable without loading their bodies.
+    Cite { references: Vec<Reference> },
     /// Authored retirement annotation; exact retained bytes remain available.
     Retired { reason: String },
     /// Authored applicability judgment; retained as context, not an access gate.
@@ -508,7 +561,7 @@ impl Corpus {
         let mut total_payload = 0usize;
         let mut total_encoded = policy.encoded_bytes;
         for (index, record) in revisions.into_iter().enumerate() {
-            let encoded_bytes = serialized_len(&record, limits.max_record_bytes)
+            let encoded_bytes = record_facts::encoded_bytes(&record)
                 .map_err(|_| FilesError::CorpusLimit("record bytes"))?;
             let key = (record.source.clone(), record.revision.clone());
             if let Some(existing) = records.get(&key) {
@@ -520,6 +573,7 @@ impl Corpus {
             if !valid_identifier(&record.source)
                 || !valid_identifier(&record.author)
                 || !valid_digest(&record.revision)
+                || record.save_context.as_ref().is_some_and(|context| !valid_digest(context))
                 || !record.policy.valid()
             {
                 return Err(FilesError::InvalidRecord {
@@ -546,7 +600,7 @@ impl Corpus {
             total_payload = checked_add(total_payload, record.bytes.len())?;
             total_encoded = checked_add(total_encoded, encoded_bytes)?;
             register_policy(&mut known_policies, &record.policy)?;
-            if record.computed_revision()? != record.revision {
+            if record_facts::computed_revision(&record)? != record.revision {
                 return Err(FilesError::DigestMismatch { index });
             }
             records.insert(
@@ -677,13 +731,14 @@ impl Corpus {
                 });
             }
             match &binding.disposition {
-                BindingDisposition::Qualify { required } => {
+                BindingDisposition::Qualify { required }
+                | BindingDisposition::Cite { references: required } => {
                     if required.is_empty()
                         || !required.iter().all(Reference::structurally_valid)
                     {
                         return Err(FilesError::InvalidRecord {
                             index,
-                            reason: "invalid required accompaniment",
+                            reason: "invalid binding references",
                         });
                     }
                 }

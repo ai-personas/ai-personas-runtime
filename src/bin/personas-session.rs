@@ -37,6 +37,17 @@ enum Command {
         #[arg(long, default_value_t = 8)]
         limit: usize,
     },
+    /// Coherent desktop panels from a single read snapshot; no inference.
+    DesktopSnapshot {
+        #[arg(long)]
+        work: Option<String>,
+        #[arg(long)]
+        session: Option<String>,
+        #[arg(long)]
+        conversation: bool,
+    },
+    /// Read-only JSON-line requests; reuses decoding at an unchanged store epoch.
+    DesktopSnapshotServer,
     /// Record a need once, without inference, under existing configured authority.
     Intake {
         #[arg(long)]
@@ -145,7 +156,44 @@ enum Command {
     StopWork { file: PathBuf },
     /// Lift an inspected work-wide pause once; preserve individual stops and start no inference.
     ResumeWork { file: PathBuf },
+    /// Record orphan uncertainty, release proven response-only local leases,
+    /// and publish already-retained command results. No dispatch or resumption.
+    RecoverWork { work: String },
 }
+fn snapshot_server(root: &std::path::Path, operator: &str) -> bool {
+    use std::io::{BufRead, Write};
+    #[derive(serde::Deserialize)]
+    #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+    enum Request {
+        Snapshot { work: Option<String>, session: Option<String>, conversation: bool },
+        Control { session: Option<String> },
+    }
+    let mut reader = match session::DesktopReader::open(root) {
+        Ok(reader) => reader,
+        Err(error) => return emit::<()>(Err(error)),
+    };
+    let mut stdout = std::io::stdout().lock();
+    for line in std::io::stdin().lock().split(b'\n') {
+        let result = (|| -> session::BoundaryResult<serde_json::Value> {
+            let line = line.map_err(|_| session::BoundaryError::InvalidRequest)?;
+            let request: Request = serde_json::from_slice(&line)
+                .map_err(|_| session::BoundaryError::InvalidRequest)?;
+            match request {
+                Request::Snapshot { work, session, conversation } =>
+                    reader.snapshot(operator, work.as_deref(), session.as_deref(), conversation),
+                Request::Control { session } => reader.control(operator, session.as_deref()),
+            }
+        })();
+        let output = match result {
+            Ok(value) => serde_json::json!({"version":1,"ok":true,"result":value,"automatic_retry":false}),
+            Err(code) => serde_json::json!({"version":1,"ok":false,"code":code,"automatic_retry":false}),
+        };
+        if serde_json::to_writer(&mut stdout, &output).is_err()
+            || writeln!(&mut stdout).is_err() || stdout.flush().is_err() { return false; }
+    }
+    true
+}
+
 fn emit<T: Serialize>(result: session::BoundaryResult<T>) -> bool {
     match result {
         Ok(value) => {
@@ -307,6 +355,9 @@ async fn main() {
             }
         }
         Command::SessionStatus { id } => emit(session::session_status(&root, &operator, &id)),
+        Command::DesktopSnapshot { work, session: id, conversation } => emit(
+            session::desktop_snapshot(&root, &operator, work.as_deref(), id.as_deref(), conversation)),
+        Command::DesktopSnapshotServer => snapshot_server(&root, &operator),
         Command::SessionMessages { id } => emit(session::session_messages(&root, &operator, &id)),
         Command::Result { work, export_directory } => {
             if let Some(destination) = export_directory {
@@ -372,6 +423,7 @@ async fn main() {
             let input = ai_personas::runtime::read_json_file(&file, usize::MAX)?;
             session::resume_work(&root, &operator, &input)
         })()),
+        Command::RecoverWork { work } => emit(session::recover_work(&root, &operator, &work)),
     };
     if !ok {
         std::process::exit(1);

@@ -20,6 +20,7 @@ use std::{
     thread,
     time::Duration,
 };
+mod snapshots;
 
 pub type Cancel = Arc<AtomicBool>;
 pub fn cancel() -> Cancel {
@@ -29,6 +30,7 @@ pub fn cancel() -> Cancel {
 pub struct Helpers {
     copies: Arc<tempfile::TempDir>,
     pub installation: BTreeMap<String, Binary>,
+    snapshots: Arc<std::sync::Mutex<Option<snapshots::Reader>>>,
 }
 #[derive(Clone)]
 pub struct ResultFiles {
@@ -52,7 +54,9 @@ impl Helpers {
         let checked = |candidate: Result<Self>| -> Result<Self> {
             let helpers = candidate?;
             if let Some(args) = inspection {
-                helpers.call("personas-session", args)?;
+                helpers.snapshot(args, &serde_json::json!({
+                    "kind":"snapshot","work":null,"session":null,"conversation":false,
+                }), &cancel())?;
             }
             Ok(helpers)
         };
@@ -161,6 +165,7 @@ impl Helpers {
         Ok(Self {
             copies: Arc::new(copies),
             installation: mapping,
+            snapshots: Arc::default(),
         })
     }
     pub fn call(&self, name: &str, args: &[String]) -> Result<Value> {
@@ -176,9 +181,17 @@ impl Helpers {
         stop: Option<(Cancel, i32)>,
         event: impl Fn(Value) + Send + 'static,
     ) -> Result<Value> {
+        self.call_events_with_environment(name, args, stop, &std::collections::BTreeMap::new(), event)
+    }
+    pub fn call_events_with_environment(
+        &self, name: &str, args: &[String], stop: Option<(Cancel, i32)>,
+        environment: &std::collections::BTreeMap<String, String>,
+        event: impl Fn(Value) + Send + 'static,
+    ) -> Result<Value> {
         journal::require(HELPERS.contains(&name), "Unknown runtime helper.")?;
         let mut child = Command::new(self.copies.path().join(name))
             .args(args)
+            .envs(environment)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -196,6 +209,8 @@ impl Helpers {
                 .read_to_end(&mut bytes)
                 .map(|_| bytes)
         });
+        let timings = std::env::var_os("AI_PERSONAS_RUNTIME_TIMINGS").as_deref()
+            == Some(std::ffi::OsStr::new("1"));
         let err = thread::spawn(move || {
             let mut code = None;
             // Never retain or forward raw diagnostics: authentication libraries
@@ -205,6 +220,23 @@ impl Helpers {
                 .map_while(std::result::Result::ok)
             {
                 if let Ok(value) = journal::decode(&line) {
+                    // Preserve opt-in host timings across the helper boundary.
+                    // Project only numeric/boolean fields and a bounded phase
+                    // label: never forward raw helper or provider diagnostics.
+                    if timings && value["schema"] == "runtime-phase-timing-v1" {
+                        if let (Some(phase), Some(pid), Some(sequence), Some(elapsed), Some(ok)) = (
+                            value["phase"].as_str().filter(|phase| phase.len() <= 96
+                                && ["store.", "state.", "runtime.", "launch."].iter()
+                                    .any(|prefix| phase.starts_with(prefix))
+                                && phase.bytes().all(|b| b.is_ascii_lowercase() || b == b'.' || b == b'_')),
+                            value["pid"].as_u64(), value["sequence"].as_u64(),
+                            value["elapsed_ms"].as_f64().filter(|ms| ms.is_finite() && *ms >= 0.0),
+                            value["ok"].as_bool(),
+                        ) {
+                            let _ = writeln!(std::io::stderr().lock(), "{}", serde_json::json!({"schema":"runtime-phase-timing-v1",
+                                "phase":phase,"pid":pid,"sequence":sequence,"elapsed_ms":elapsed,"ok":ok}));
+                        }
+                    }
                     if value["event"] == "authorization" {
                         if let Some(url) = value["url"].as_str().filter(|s| {
                             url::Url::parse(s).is_ok_and(|u| {

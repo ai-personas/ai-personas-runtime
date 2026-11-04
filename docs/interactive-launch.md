@@ -66,6 +66,18 @@ Their next decision receives the retained failure. Unknown remote usage remains
 recorded; unresolved external actions and other held outcomes still require
 their actual reconciliation.
 
+After an execution worker disappears, the desktop Task menu offers **Recover
+interrupted work**. The operator action acquires the runtime's execution owner
+and records abandoned dispatches as uncertain. It can release a matching local
+model-call lease only after verifying the exact response-only request, missing
+terminal, and absence of any retained decision or adopted action. It can also
+publish a command result already retained by the runtime; it dispatches no command
+or model call. The earlier session and uncertain attempts remain in history.
+Remote outcomes and unmeasured charges stay unknown. Current work pauses and
+individual Stop/Pause choices remain effective; use Unpause or a separate
+participant resume only when those controls actually require it, then Start /
+Continue for fresh eligible work. An active owner blocks recovery.
+
 **m: amend task** saves a complete replacement request for a standard task,
 preserves the original request, and requests eligible resumption under a new
 mandate. Recorded resource usage remains attributable. Custom outcomes and review terms
@@ -146,6 +158,15 @@ the control against the current work atomically while execution may still be
 active. Running calls and commands observe it and retain their actual terminal
 outcomes. A recorded control does not prove remote termination or refund usage.
 Cancellation retains the results and identifies the work as canceled, not complete.
+
+Pause and cancellation authorize the current saved operator, recipient status and
+cohort ownership inside the same transaction as the control. The helper validates
+the complete stored cells, runtime configuration and affected work, without
+decoding all historical sources, observations and messages into execution state.
+Those retained records remain intact; this path cannot resume work, repair their
+contents or establish that they are valid for execution. Replayed and unapplied
+controls also require current authorization. Resumption retains its full state,
+ownership and exact-reference checks.
 
 A concurrent state change can end a session with `snapshot_changed`, including
 when a work control races a prepared step. The recorded control and each call's

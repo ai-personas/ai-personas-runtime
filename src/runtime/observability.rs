@@ -46,6 +46,9 @@ pub(super) fn model_call_receipt(
     if let Some(history) = receipt["audit"].get("input_history") {
         payload["provider_input_history"] = history.clone();
     }
+    if let Some(research) = receipt["attempt"].get("web_search") {
+        payload["provider_web_search"] = research.clone();
+    }
     add_observation(state, prepared, "host-model-call", "model_call_receipt",
         payload, Vec::new(), Vec::new(), now)
 }

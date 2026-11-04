@@ -36,11 +36,16 @@ pub(super) fn project_pending(
         a,
         &mut value["payload"],
     )?;
-    inherited.sources.extend(projected.references.iter().cloned());
+    // project already returned a complete checked closure for this immutable
+    // state. Only a newly introduced exact reference needs another expansion.
+    if projected.references.iter().any(|reference| !inherited.sources.contains(reference)) {
+        inherited.sources.extend(projected.references.iter().cloned());
+        inherited = expanded_exposure(state, &inherited)?;
+    }
     exact.extend(projected.supplied_text);
     Ok((
         value,
-        expanded_exposure(state, &inherited)?,
+        inherited,
         exact,
         projected.references,
     ))

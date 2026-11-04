@@ -1,6 +1,6 @@
 //! One foreground owner, independent transport futures, sequential adoption.
 use super::*;
-use futures_util::{stream::FuturesUnordered, StreamExt};
+use futures_util::{stream::FuturesUnordered, FutureExt, StreamExt};
 use foreground::Exclusivity;
 use std::collections::VecDeque;
 
@@ -115,7 +115,7 @@ async fn run_with_subtree<D: Driver>(
         // All fallible work after admission is caught here or below. A local
         // error stops new admissions but still drains every actual transport.
         if stop.is_none() {
-            let maintenance = (|| {
+            let maintenance = phase_timing::measure("launch.coordinator_maintenance", || {
                 app.publish_completed_host_commands(unix_now()?)?;
                 if !round_started {
                     // Structural maintenance remains atomic and quiescent.
@@ -135,7 +135,7 @@ async fn run_with_subtree<D: Driver>(
                             if !calls.is_empty() {
                                 drop(state);
                                 phase_timing::measure("launch.maintenance_rejections", ||
-                                    app.retire_ready_rejected_continuations(work, calls, unix_now()?))?;
+                                    app.retire_ready_rejected_continuations(work, calls, unix_now()?, owner))?;
                                 state = maintenance_state(app)?;
                             }
                             if persona_birth::has_pending_for_work(&state, work) {
@@ -161,7 +161,7 @@ async fn run_with_subtree<D: Driver>(
                     round_started = true;
                 }
                 Ok::<_, RuntimeError>(None)
-            })();
+            });
             match maintenance {
                 Ok(Some(reason)) => {
                     stop = Some(reason);
@@ -174,6 +174,7 @@ async fn run_with_subtree<D: Driver>(
         }
 
         let mut next_scheduled_at = None;
+        let mut ready_completion = None;
         while stop.is_none()
             // A completed character unit waits for a settled handover, but
             // does not hold independent initial-character attempts or ordinary
@@ -189,10 +190,20 @@ async fn run_with_subtree<D: Driver>(
                 stop.get_or_insert("interrupted");
                 break;
             }
+            // Context preparation and persistence can be substantial. Do not
+            // make an already completed decision wait for every other ready
+            // persona's admission. Keep adoption on this same coordinator.
+            if let Some(Some(completion)) = pending.next().now_or_never() {
+                ready_completion = Some(completion);
+                break;
+            }
             let mut attempted_id = None;
             let mut exclusivity = Exclusivity::None;
             let mut deferred_candidate = false;
             let admission = (|| {
+                // Workers never mutate Runtime themselves. Publish a finished
+                // tool before selecting the next decision that can use it.
+                app.publish_completed_host_commands(unix_now()?)?;
                 driver.before_step(app)?;
                 let ready = pending_exclusive.iter().position(|candidate| match candidate.exclusivity {
                     Exclusivity::Work => !owned_work.values().any(|work| work == &candidate.work),
@@ -210,10 +221,10 @@ async fn run_with_subtree<D: Driver>(
                 blocked_works.extend(pending_exclusive.iter().enumerate()
                     .filter(|(index, _)| Some(*index) != ready)
                     .map(|(_, candidate)| candidate.work.clone()));
-                let selection = foreground::select(
+                let selection = phase_timing::measure("launch.select_candidate", || foreground::select(
                     app, &works, &mut after, unix_now()?, &owned, &visited,
                     priority.as_ref(), &blocked_works, &pending_handovers,
-                )?;
+                ))?;
                 // A pending structural transaction may prevent any consideration.
                 // Retain the preference until an actual fresh scan considers it.
                 if selection.considered > 0 {
@@ -244,10 +255,11 @@ async fn run_with_subtree<D: Driver>(
                 let foreground::Candidate { work, persona, .. } = candidate;
                 visited.insert((work.clone(), persona.clone()));
                 driver.before_step(app)?;
-                let (request, current) =
-                    reserve_owned(app, &work, &persona, driver.prospective_intake(), &owned)?;
+                let (request, current) = phase_timing::measure("launch.reserve_candidate", ||
+                    reserve_owned(app, &work, &persona, driver.prospective_intake(), &owned))?;
                 attempted_id = Some(request.id.clone());
-                driver.start(app, request, &current, unix_now()?, &owned).map(Some)
+                phase_timing::measure("launch.start_candidate", ||
+                    driver.start(app, request, &current, unix_now()?, &owned)).map(Some)
             })();
             match admission {
                 Ok(Some(call)) => {
@@ -282,14 +294,18 @@ async fn run_with_subtree<D: Driver>(
                 }
             }
         }
-        if !pending.is_empty() {
+        if ready_completion.is_some() || !pending.is_empty() {
             let wait_for_jobs = stop.is_none() && app.has_background_host_commands();
             app.release_decoded_state();
-            let wake = tokio::select! {
-                call = pending.next() => Wake::Call(call.expect("nonempty pending calls")),
-                jobs = app.wait_for_host_command(), if wait_for_jobs => Wake::Jobs(jobs),
-                clock = foreground::wait_for_scheduled_time(next_scheduled_at),
-                    if stop.is_none() => Wake::Clock(clock),
+            let wake = if let Some(completion) = ready_completion {
+                Wake::Call(completion)
+            } else {
+                tokio::select! {
+                    call = pending.next() => Wake::Call(call.expect("nonempty pending calls")),
+                    jobs = app.wait_for_host_command(), if wait_for_jobs => Wake::Jobs(jobs),
+                    clock = foreground::wait_for_scheduled_time(next_scheduled_at),
+                        if stop.is_none() => Wake::Clock(clock),
+                }
             };
             if crate::process_control::signal().is_some() {
                 stop.get_or_insert("interrupted");
@@ -307,7 +323,7 @@ async fn run_with_subtree<D: Driver>(
                     owned_work.remove(&id);
                     exclusive.remove(&id);
                     handover_barrier.remove(&id);
-                    match driver.finish(app, completion) {
+                    match phase_timing::measure("launch.finish_candidate", || driver.finish(app, completion)) {
                         Ok(report) if report.status == AdoptionStatus::CharacterOnly => {
                             // The accepted unit has released its call lease, but
                             // its handover still binds this actor and work.

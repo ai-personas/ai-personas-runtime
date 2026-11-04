@@ -75,12 +75,15 @@ pub(super) fn message_permitted(state: &State, message: &Message, now: i64) -> b
     } else if !state.config.local_recipients.contains(&message.recipient) {
         return false;
     }
-    let Ok(mut exposure) = work_exposure(state, &message.work) else {
+    let Ok(exposure) = work_exposure(state, &message.work) else {
         return false;
     };
-    extend_exposure(&mut exposure, inherited);
-    exposure.sources.extend(message.lineage.iter().cloned());
-    exposure_permitted(state, &exposure, &a)
+    // This check validates complete lineage. Policies retain attribution and
+    // impose no access gate under UR-052; merging their large lists for every
+    // displayed message adds no validation and can become quadratic.
+    let sources: Vec<_> = exposure.sources.iter().chain(&inherited.sources)
+        .chain(&message.lineage).cloned().collect();
+    lineage_permitted(state, &sources, &a)
 }
 
 pub(super) fn message_sender_labels(state: &State, messages: &[Message]) -> BTreeMap<String, String> {
@@ -157,8 +160,13 @@ fn delivery(
     Ok(a)
 }
 pub(super) fn project(app: &mut Runtime, work_id: &str, saved: &Saved) -> Result<Output> {
+    // Reuse immutable records already decoded by this runtime. The transaction
+    // still supplies fresh complete heads, and decoding verifies their retained
+    // bytes and all current inspection invariants before projecting any output.
+    let retained_records = &mut app.retained_records;
     app.store.trusted_host().runtime_projection(u64::MAX, |runtime, launch, records| {
-        let state = Runtime::decode_inspection_state(&runtime)?;
+        let state = phase_timing::measure("launch.result_decode_current_state", ||
+            InspectionStateDecoder::decode_with_records(&runtime, retained_records))?;
         let current = decode_saved(&launch)?;
         require(current.operator == saved.operator, "result operator changed")?;
         let mut output = project_state(&state, work_id, &current, unix_now()?, records)?;
