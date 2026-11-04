@@ -464,6 +464,14 @@ are decoded again; missing, malformed or mismatched records fail the read.
 The cache retains only records in its latest successfully decoded state, and
 provides neither mutation authority nor an alternative current-head lookup.
 
+Final result views produced by a running Runtime use its existing retained-record
+cache. Each view still reads complete current runtime and launch heads in a fresh
+transaction, decodes changing fields, and validates the current configuration,
+format, intake state, operator binding and result evidence. This avoids decoding
+unchanged history from scratch again during shutdown. Returned result content
+and navigation accounting remain complete; an earlier view grants no authority
+for a later action.
+
 Invocation ownership guards similarly reuse decoded lifecycle metadata only
 after a fresh read fingerprints the complete current record bytes. Each Store
 connection keeps the verified SHA-256, state and canonical returned-byte count,

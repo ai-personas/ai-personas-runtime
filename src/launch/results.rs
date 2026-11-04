@@ -160,8 +160,13 @@ fn delivery(
     Ok(a)
 }
 pub(super) fn project(app: &mut Runtime, work_id: &str, saved: &Saved) -> Result<Output> {
+    // Reuse immutable records already decoded by this runtime. The transaction
+    // still supplies fresh complete heads, and decoding verifies their retained
+    // bytes and all current inspection invariants before projecting any output.
+    let retained_records = &mut app.retained_records;
     app.store.trusted_host().runtime_projection(u64::MAX, |runtime, launch, records| {
-        let state = Runtime::decode_inspection_state(&runtime)?;
+        let state = phase_timing::measure("launch.result_decode_current_state", ||
+            InspectionStateDecoder::decode_with_records(&runtime, retained_records))?;
         let current = decode_saved(&launch)?;
         require(current.operator == saved.operator, "result operator changed")?;
         let mut output = project_state(&state, work_id, &current, unix_now()?, records)?;

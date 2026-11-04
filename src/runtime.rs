@@ -2887,7 +2887,14 @@ pub(crate) struct InspectionStateDecoder {
 
 impl InspectionStateDecoder {
     pub(crate) fn decode(&mut self, object: &s::StoredObject) -> Result<State> {
-        let state = state_storage::decode_cached(&object.body, &mut self.records)?;
+        Self::decode_with_records(object, &mut self.records)
+    }
+
+    fn decode_with_records(
+        object: &s::StoredObject,
+        records: &mut state_storage::RecordCache,
+    ) -> Result<State> {
+        let state = state_storage::decode_cached(&object.body, records)?;
         need_proposals::validate_state(&state)?;
         state.config.validate()?;
         require(state.format == 1, "unsupported runtime state version")?;
