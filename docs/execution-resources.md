@@ -218,6 +218,15 @@ Native host-file import reads the complete
 regular UTF-8 file without its former import byte cap. File-corpus byte and
 count quotas are also removed. Historical incomplete captures are not rewritten.
 
+Canceled and uncertain commands can retain a status observation with no recorded
+execution outcome. When both the result and terminal evidence are explicitly
+null, pending and historical recovery projections preserve that status and its
+exact source while honoring the chosen command-input context. They report that
+no outcome was recorded, without inventing output, an exit status or a terminal
+receipt. Consuming the observation does not retry the command. Missing outcomes
+for other states and malformed output captures return a projection error rather
+than being treated as empty captures or allowed to panic.
+
 Store archive reads have no fixed inventory count, exact-ID count or aggregate
 body-byte ceiling. Accounting records the inspected proof/archive bytes and keys
 plus its metadata envelope, including unsuccessful reads. Runtime exposure-pool

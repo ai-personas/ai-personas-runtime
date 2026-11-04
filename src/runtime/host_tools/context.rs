@@ -115,22 +115,33 @@ fn project_result(
         )?);
     }
     let mut supplied_text = if supply_inputs { fields.clone() } else { Vec::new() };
-    for stream in ["stdout", "stderr"] {
-        let segments = payload["result"][stream]["segments"]
-            .as_array_mut()
-            .ok_or_else(|| invalid("pending host capture segments missing"))?;
-        for (index, segment) in segments.iter_mut().enumerate() {
-            let reference = reference_text(
-                segment,
-                "text",
-                &reference,
-                format!("/result/{stream}/segments/{index}/text"),
-                supply_outputs,
-            )?;
-            if supply_outputs {
-                supplied_text.push(reference.clone());
+    // Cancellation before dispatch and uncertain execution both retain a
+    // status observation without an execution outcome. Such observations have
+    // no output segments to project. Missing or malformed completed outcomes
+    // still fail below; null is not a substitute for a captured result.
+    let without_outcome = payload.get("result") == Some(&Value::Null)
+        && payload.get("terminal_evidence") == Some(&Value::Null)
+        && matches!(payload["state"].as_str(), Some("Canceled" | "Uncertain"));
+    if !without_outcome {
+        for stream in ["stdout", "stderr"] {
+            let segments = payload.get_mut("result")
+                .and_then(|result| result.get_mut(stream))
+                .and_then(|capture| capture.get_mut("segments"))
+                .and_then(Value::as_array_mut)
+                .ok_or_else(|| invalid("pending host capture segments missing"))?;
+            for (index, segment) in segments.iter_mut().enumerate() {
+                let reference = reference_text(
+                    segment,
+                    "text",
+                    &reference,
+                    format!("/result/{stream}/segments/{index}/text"),
+                    supply_outputs,
+                )?;
+                if supply_outputs {
+                    supplied_text.push(reference.clone());
+                }
+                fields.push(reference);
             }
-            fields.push(reference);
         }
     }
     references.extend(fields.iter().cloned());
@@ -161,6 +172,12 @@ fn project_result(
             "automatically_selected_for_later":false,"retain_with":"next_assets"},
         "meaning":meaning
     });
+    if without_outcome {
+        payload["context_projection"]["execution_outcome"] = json!({
+            "recorded":false,
+            "meaning":"No command outcome, exit status or stdout/stderr capture was recorded. The original canceled or uncertain state and null terminal evidence are preserved. Reading or consuming this observation does not retry the command."
+        });
+    }
     if let Some(pending) = recovery {
         payload["context_projection"]["provider_rejection"] = json!({
             "invocation":pending.invocation,"terminal":pending.terminal,
