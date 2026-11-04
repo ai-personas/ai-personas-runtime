@@ -205,6 +205,14 @@ JSON escapes instead of replacing them with an unknown-character marker;
 native records and the journal retain the original content. Filesystem paths,
 protocol identifiers and authentication fields keep their actual format rules.
 
+For host commands, both `stdin_asset` and `context_sources` require an explicit
+dependency on each same-response supporting save they reference. The save's
+operation ID belongs in the effect's `depends_on`, beside `inputs`, including
+when it supplies context without stdin bytes. The supplied input descriptions
+state this contract. Rejections identify the effect and input field and distinguish
+an absent proposal, a mismatched source, a non-asset save and a missing dependency.
+The runtime does not infer dependencies or repair the authored response.
+
 New host commands retain their complete observed stdout/stderr. The persona's
 required `result_context` choice supplies complete text or execution metadata
 and exact readable text references in the next decision. Either choice preserves

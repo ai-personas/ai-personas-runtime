@@ -46,15 +46,19 @@ pub(super) struct Inputs {
     /// the complete original file bytes to the command, not the metadata text.
     /// Use cat > a host path to export it,
     /// or an interpreter such as python3 - to execute it. This does not select
-    /// model context. A same-response proposal requires its save ID in depends_on.
+    /// model context. A same-response proposal requires its supporting save's
+    /// operation ID in this effect's depends_on, beside inputs.
     #[serde(default)]
     pub stdin_asset: Option<Asset>,
     /// Native supporting sources used to derive this command's literal code,
     /// parameters or interpretation. Their qualifications and accepted warnings
     /// accompany the result. Use exact references or current input-file handles;
-    /// this does not load their bodies into model context. stdin_asset is always
-    /// included automatically. Unrelated files merely present in this call do
-    /// not become result dependencies. Complete call provenance remains retained.
+    /// this does not load their bodies into model context. Each same-response
+    /// proposal requires its supporting save's operation ID in this effect's
+    /// depends_on, beside inputs, even when it supplies context rather than stdin.
+    /// stdin_asset is always included automatically. Unrelated files merely
+    /// present in this call do not become result dependencies. Complete call
+    /// provenance remains retained.
     #[serde(default)]
     pub context_sources: Vec<Asset>,
     /// Optional timeout chosen by the persona; omission means no timeout.
@@ -93,6 +97,7 @@ impl Inputs {
         &self,
         prepared: &Prepared,
         decision: &p::Decision,
+        effect_id: &str,
         dependencies: &[String],
     ) -> Result<()> {
         require(
@@ -100,23 +105,33 @@ impl Inputs {
             "choose literal stdin or stdin_asset, not both",
         )?;
         let references = self.reference(prepared)?.into_iter()
-            .chain(self.context_sources.iter().map(|asset| asset.reference(prepared))
+            .map(|reference| ("inputs.stdin_asset".to_owned(), reference))
+            .chain(self.context_sources.iter().enumerate().map(|(index, asset)| {
+                Ok((format!("inputs.context_sources[{index}]"), asset.reference(prepared)?))
+            })
                 .collect::<Result<Vec<_>>>()?);
-        for reference in references {
+        for (field, reference) in references {
             if reference.revision.starts_with(p::PROPOSED_OPERATION_PREFIX)
                 || reference.revision.starts_with(p::PROPOSED_REVISION_PREFIX)
             {
                 let index = proposal_index(decision);
+                let location = format!("host command effect {effect_id:?} {field}");
                 let operation = index
                     .get(&reference.revision)
                     .and_then(|index| decision.operations.get(*index))
-                    .ok_or_else(|| held("host input source proposal absent"))?;
+                    .ok_or_else(|| held(format!("{location}: proposed source save is absent from this response")))?;
                 let save = operation.file_save().unwrap();
                 require(
-                    *save.source == reference.source
-                        && matches!(save.scope, p::Scope::Assets {})
-                        && dependencies.iter().any(|id| id == save.id),
-                    "host input source proposal needs its exact supporting save dependency",
+                    *save.source == reference.source,
+                    &format!("{location}: source does not match proposed save {:?}", save.id),
+                )?;
+                require(
+                    matches!(save.scope, p::Scope::Assets {}),
+                    &format!("{location}: proposed save {:?} must use assets scope", save.id),
+                )?;
+                require(
+                    dependencies.iter().any(|id| id == save.id),
+                    &format!("{location}: proposed save {:?} must be listed in this effect's depends_on", save.id),
                 )?;
             }
         }

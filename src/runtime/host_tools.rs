@@ -104,7 +104,7 @@ fn checked_inputs(
     decision: &p::Decision,
     operation: &p::Operation,
 ) -> Result<input::Inputs> {
-    let p::Operation::Effect { capability_id, inputs, depends_on, .. } = operation else {
+    let p::Operation::Effect { id, capability_id, inputs, depends_on } = operation else {
         return Err(held("host command absent"));
     };
     require(prepared.request.mode == Mode::Ordinary, "host command unavailable in this mode")?;
@@ -122,7 +122,7 @@ fn checked_inputs(
         require(decision.operations.iter().any(|o| o.id() == dependency && o.file_save().is_some()),
             "host command dependencies name accepted local saves; combine shell steps in one script")?;
     }
-    input.validate(prepared, decision, depends_on)?;
+    input.validate(prepared, decision, id, depends_on)?;
     Ok(input)
 }
 
