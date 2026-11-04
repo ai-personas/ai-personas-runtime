@@ -117,15 +117,32 @@ pub struct ExposureManifest {
     pub policies: Vec<ScopedPolicy>,
 }
 
-/// Complete exact lineage with copy-on-write ownership. Serialization retains
-/// the ordinary sources/policies object; sharing creates no new wire references.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// Complete exact lineage with copy-on-write ownership. Ordinary serialization
+/// retains the sources/policies object. State storage can capture the typed
+/// value to build its existing provenance pool without repeatedly expanding it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(transparent)]
 pub struct Exposure(Arc<ExposureManifest>);
 
 impl Exposure {
     pub fn new(sources: Vec<f::Reference>, policies: Vec<ScopedPolicy>) -> Self {
         Self(Arc::new(ExposureManifest { sources, policies }))
+    }
+
+    pub(super) fn shared_manifest(&self) -> Arc<ExposureManifest> {
+        Arc::clone(&self.0)
+    }
+}
+
+impl Serialize for Exposure {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if let Some(reference) = super::state_storage::capture_exposure_reference(self)
+            .map_err(serde::ser::Error::custom)?
+        {
+            serde_json::json!({"retained_exposure": reference}).serialize(serializer)
+        } else {
+            self.0.serialize(serializer)
+        }
     }
 }
 

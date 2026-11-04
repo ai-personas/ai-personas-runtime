@@ -26,6 +26,28 @@ struct Table {
 }
 
 impl Table {
+    fn cached(
+        &mut self,
+        encoded: &mut super::packing::capture::Encoded,
+    ) -> serde_json::Result<Value> {
+        if let Some(index) = encoded.index {
+            return Ok(Value::from(index));
+        }
+        let index = if let Some(index) = self.by_digest.get(&encoded.digest) {
+            if self.entries[*index] != encoded.value {
+                return Err(invalid_storage("retained provenance identity conflict"));
+            }
+            *index
+        } else {
+            let index = self.entries.len();
+            self.entries.push(encoded.value.clone());
+            self.by_digest.insert(encoded.digest.clone(), index);
+            index
+        };
+        encoded.index = Some(index);
+        Ok(Value::from(index))
+    }
+
     fn intern(&mut self, value: Value) -> serde_json::Result<Value> {
         let digest = identity(&value)?;
         let index = if let Some(index) = self.by_digest.get(&digest) {
@@ -43,14 +65,23 @@ impl Table {
     }
 }
 
-pub(super) fn pack(entries: Map<String, Value>, state: &mut Value) -> serde_json::Result<Value> {
-    let mut sources = Table::default();
-    let mut policies = Table::default();
-    let mut indexed = Vec::new();
-    let mut packed = Map::new();
-    let mut identities = HashMap::new();
-    for (old_identity, mut manifest) in entries {
-        for (field, table) in [("sources", &mut sources), ("policies", &mut policies)] {
+#[derive(Default)]
+pub(super) struct Builder {
+    sources: Table,
+    policies: Table,
+    indexed: Vec<(String, Value)>,
+}
+
+impl Builder {
+    pub(super) fn expanded(
+        &mut self,
+        old_identity: String,
+        mut manifest: Value,
+    ) -> serde_json::Result<()> {
+        for (field, table) in [
+            ("sources", &mut self.sources),
+            ("policies", &mut self.policies),
+        ] {
             let entries = manifest
                 .get_mut(field)
                 .and_then(Value::as_array_mut)
@@ -59,34 +90,66 @@ pub(super) fn pack(entries: Map<String, Value>, state: &mut Value) -> serde_json
                 *entry = table.intern(std::mem::take(entry))?;
             }
         }
-        indexed.push((old_identity, manifest));
-    }
-    let table_sha256 = table_identity(&sources.entries, &policies.entries)?;
-    for (old_identity, manifest) in indexed {
-        let new_identity = manifest_identity(&table_sha256, &manifest)?;
-        if packed.insert(new_identity.clone(), manifest).is_some() {
-            return Err(invalid_storage("retained manifest identity conflict"));
-        }
-        identities.insert(old_identity, new_identity);
-    }
-    manifests::edit(state, POOL_VERSION, |manifest| {
-        if let Some(reference) = manifest.get_mut(REFERENCE) {
-            let replacement = reference
-                .as_str()
-                .and_then(|key| identities.get(key))
-                .ok_or_else(|| invalid_storage("retained manifest identity absent"))?;
-            *reference = Value::String(replacement.clone());
-        }
+        self.indexed.push((old_identity, manifest));
         Ok(())
-    })?;
-    // Move the tables into place; do not copy their complete owned JSON trees.
-    let mut pool = Map::new();
-    pool.insert("version".into(), POOL_VERSION.into());
-    pool.insert("entries".into(), Value::Object(packed));
-    pool.insert("table_sha256".into(), Value::String(table_sha256));
-    pool.insert("source_references".into(), Value::Array(sources.entries));
-    pool.insert("policy_references".into(), Value::Array(policies.entries));
-    Ok(Value::Object(pool))
+    }
+
+    pub(super) fn typed(
+        &mut self,
+        old_identity: String,
+        exposure: &Exposure,
+        cache: &mut super::packing::capture::Cache,
+    ) -> serde_json::Result<()> {
+        let sources = exposure
+            .sources
+            .iter()
+            .map(|value| self.sources.cached(cache.source(value)?))
+            .collect::<serde_json::Result<Vec<_>>>()?;
+        let policies = exposure
+            .policies
+            .iter()
+            .map(|value| self.policies.cached(cache.policy(value)?))
+            .collect::<serde_json::Result<Vec<_>>>()?;
+        self.indexed
+            .push((old_identity, json!({"sources":sources,"policies":policies})));
+        Ok(())
+    }
+
+    pub(super) fn finish(self, state: &mut Value) -> serde_json::Result<Value> {
+        let Self {
+            sources,
+            policies,
+            indexed,
+        } = self;
+        let mut packed = Map::new();
+        let mut identities = HashMap::new();
+        let table_sha256 = table_identity(&sources.entries, &policies.entries)?;
+        for (old_identity, manifest) in indexed {
+            let new_identity = manifest_identity(&table_sha256, &manifest)?;
+            if packed.insert(new_identity.clone(), manifest).is_some() {
+                return Err(invalid_storage("retained manifest identity conflict"));
+            }
+            identities.insert(old_identity, new_identity);
+        }
+        manifests::edit(state, POOL_VERSION, |manifest| {
+            if let Some(reference) = manifest.get_mut(REFERENCE) {
+                let replacement = reference
+                    .as_str()
+                    .and_then(|key| identities.get(key))
+                    .ok_or_else(|| invalid_storage("retained manifest identity absent"))?;
+                *reference = Value::String(replacement.clone());
+            }
+            Ok(())
+        })?;
+        // Move the tables into place; do not copy their complete owned JSON trees.
+        let mut pool = Map::new();
+        pool.insert("version".into(), POOL_VERSION.into());
+        pool.insert("entries".into(), Value::Object(packed));
+        pool.insert("table_sha256".into(), Value::String(table_sha256));
+        pool.insert("source_references".into(), Value::Array(sources.entries));
+        pool.insert("policy_references".into(), Value::Array(policies.entries));
+        Ok(Value::Object(pool))
+    }
 }
 
 #[derive(Deserialize)]
@@ -129,9 +192,13 @@ pub(super) fn references<'a>(
     if table_identity(sources, policies)? != header.table_sha256 {
         return Err(invalid_storage("retained provenance table digest mismatch"));
     }
-    let decoded_sources = sources.iter().map(f::Reference::deserialize)
+    let decoded_sources = sources
+        .iter()
+        .map(f::Reference::deserialize)
         .collect::<serde_json::Result<Vec<_>>>()?;
-    let decoded_policies = policies.iter().map(ScopedPolicy::deserialize)
+    let decoded_policies = policies
+        .iter()
+        .map(ScopedPolicy::deserialize)
         .collect::<serde_json::Result<Vec<_>>>()?;
     let mut used_sources = vec![false; sources.len()];
     let mut used_policies = vec![false; policies.len()];

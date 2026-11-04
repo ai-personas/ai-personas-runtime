@@ -8,6 +8,10 @@ mod borrowed;
 mod manifests;
 mod packing;
 
+pub(super) fn capture_exposure_reference(exposure: &Exposure) -> serde_json::Result<Option<String>> {
+    packing::capture::reference(exposure)
+}
+
 // This adapter applies only to a runtime ManagedRevision. Storage encoding must
 // preserve every declared FileRevision field and its computed identity.
 #[derive(Serialize, Deserialize)]

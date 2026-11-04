@@ -401,6 +401,18 @@ interpreted as a storage index. Earlier immutable snapshots retain their recorde
 encoding. This reduces repeated storage and processing; it removes no history,
 selects no persona context and establishes no improvement in work quality.
 
+During one state save, the encoder captures typed exposure manifests and reuses
+the complete canonical JSON of their shared source references and policies.
+Only the existing versioned field inventory selects storage references. If a
+captured value falls outside that inventory, its entire field is serialized
+normally before packing. Manifest identities, table order and complete saved
+bytes retain the existing encoding. Strong ownership prevents allocation reuse
+within the save, and copying on edit preserves earlier captured values. The
+temporary cache ends with the save; it performs no current-authority lookup.
+Nested state encoding, errors and unwinding restore the enclosing serialization
+scope. Ordinary exposure serialization and independently retained record bytes
+remain expanded.
+
 Sources, observations and messages use independently encoded retained records
 inside the runtime head. Each encoding identifies the complete typed JSON by
 kind, original byte length and SHA-256, with ordered indexes into shared byte
