@@ -1,6 +1,8 @@
 # One-command foreground launch
 
-With **no arguments**, `./personas` now opens [integrated first-run and returning-work interaction](interactive-launch.md). The manual setup and thin-wrapper behavior below describe **explicit argument-based commands**, not the no-argument journey.
+With **no arguments**, `./personas` opens the desktop when available in a graphical session; new desktop workspaces use the [editable numerical-character runtime](editable-persona-models.md). Terminal use of that runtime is explicit: `./personas --neural --help` lists its initialization, request, execution and inspection commands. The initial `--neural` flag forwards the remaining arguments unchanged to the native CLI.
+
+`--terminal`, the fallback terminal onboarding and the explicit need-based commands below still use the historical journal runtime. Existing journals remain available. The [earlier onboarding guide](interactive-launch.md) describes that terminal flow; its state and commands are separate from editable-model workspaces.
 
 With explicit arguments, `./personas "Your exact need"` replaces itself with the
 selected installed executable. Options without a need prompt on terminal input.
