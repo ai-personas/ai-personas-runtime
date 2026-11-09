@@ -23,6 +23,20 @@ pub struct DecisionV4 {
     pub operations: Vec<Operation>,
 }
 
+/// Preserve duplicate-key rejection and identify the failing decision field.
+/// Live adoption and recovery must interpret the same retained bytes identically.
+pub fn parse_decision(bytes: &[u8]) -> super::Result<DecisionV4> {
+    let value = crate::files::parse_json_unique(bytes)
+        .map_err(|error| super::failure(format!("invalid JSON: {error:?}")))?;
+    serde_path_to_error::deserialize(value).map_err(|error| {
+        super::failure(format!(
+            "Invalid decision at {}: {}",
+            error.path(),
+            error.inner()
+        ))
+    })
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct WorkJudgment {
