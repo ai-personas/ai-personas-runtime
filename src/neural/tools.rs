@@ -113,6 +113,8 @@ pub struct Outcome {
     pub expected_revision: Option<i64>,
     pub description: String,
     pub state: OutcomeState,
+    /// Exact asset:id@revision references for produced artifacts. Object receipts
+    /// belong in evidence. Use an empty list when the outcome has no asset.
     pub artifacts: Vec<String>,
     /// Exact retained references, not prose claims or external URLs.
     pub evidence: Vec<String>,

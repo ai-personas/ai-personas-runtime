@@ -495,12 +495,18 @@ fn internal(
         }
         "work.outcome" => {
             let x: tools::Outcome = decode(input)?;
-            check_references(db, &x.artifacts)?;
             check_references(db, &x.evidence)?;
             for r in &x.artifacts {
-                if store::exact(db, r)?.reference.kind != "asset" {
-                    return Err(failure("outcome artifacts must be exact assets"));
+                if !r.starts_with("asset:") {
+                    return Err(failure(format!(
+                        "work.outcome.artifacts requires exact asset:id@revision references; {r:?} is not an asset reference. Put object receipts in evidence. Use artifacts=[] when no asset was produced."
+                    )));
                 }
+                store::exact(db, r).map_err(|error| {
+                    failure(format!(
+                        "Invalid work.outcome.artifacts reference {r:?}: {error}"
+                    ))
+                })?;
             }
             let (key, revision) = match (&x.id, x.expected_revision) {
                 (None, None) => (id("outcome")?, 0),
