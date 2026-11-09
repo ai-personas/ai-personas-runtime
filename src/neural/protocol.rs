@@ -65,6 +65,8 @@ pub enum Maintenance {
         reason: String,
     },
     Change {
+        /// Applicable operation ids. For persona maintenance, an operation-free
+        /// next_model activation or rollback is a change with an empty list.
         operations: Vec<String>,
         reason: String,
     },

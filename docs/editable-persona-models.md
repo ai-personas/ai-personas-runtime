@@ -29,6 +29,8 @@ Development uses the same ordinary decision interface:
 
 Activation and rollback clear the cached contextual evaluation across all of that identity's tasks in the same transaction, because those outputs came from the previous weights. The exact evaluations remain in immutable history. Other tasks retain their commitments, chosen resources and continuation, including an explicit stop; a new contextual appraisal remains the persona's choice.
 
+An operation-free activation or rollback may truthfully declare persona maintenance as `change` with an empty operation-id list: `next_model` is the actual change in that response. Ordinary maintenance changes still need their applicable operation ids, and every activation/rollback retains its full authority and evidence checks.
+
 An edit is evidence of a changed parameter, not evidence of improvement. Matched synthetic responses can expose a difference or regression; they do not establish lasting benefit in actual work. Choosing no change remains valid.
 
 ## Decisions, context and work
