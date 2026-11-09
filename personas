@@ -3,6 +3,24 @@
 # Rust retains authentication, capability evidence, setup, intake and admission.
 set -eu
 
+# The editable model runtime uses one native CLI for setup, work and inspection.
+# Pass its arguments intact; do not reinterpret exact needs or model selections.
+if [ "${1-}" = "--neural" ]; then
+    shift
+    editable_dir=$(CDPATH= cd -P "${0%/*}" && pwd -P)
+    if [ "${PERSONAS_BIN+x}" = x ]; then
+        [ -n "$PERSONAS_BIN" ] && [ -f "$PERSONAS_BIN" ] && [ -x "$PERSONAS_BIN" ] || { printf '%s\n' 'PERSONAS_BIN must name an executable.' >&2; exit 126; }
+        editable_bin=$PERSONAS_BIN
+    elif [ -x "$editable_dir/target/debug/ai-personas" ]; then
+        editable_bin=$editable_dir/target/debug/ai-personas
+    elif [ -x "$editable_dir/target/release/ai-personas" ]; then
+        editable_bin=$editable_dir/target/release/ai-personas
+    else
+        editable_bin=$(command -v ai-personas) || { printf '%s\n' 'Build the runtime with cargo build --locked --bins.' >&2; exit 127; }
+    fi
+    exec "$editable_bin" neural "$@"
+fi
+
 interface=auto
 case "${1-}" in
     -gui|--gui) interface=gui; shift ;;

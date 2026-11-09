@@ -43,6 +43,8 @@ impl From<ProfileArg> for Profile {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Forward-only editable persona networks with indexed state and direct inference.
+    Neural { #[command(subcommand)] command: ai_personas::neural::cli::Command },
     /// Import selected provider settings and create a continuing local cohort. No inference.
     Setup {
         #[arg(long)]
@@ -801,11 +803,17 @@ async fn main() {
     }
 }
 async fn run(cli: Cli) -> runtime::Result<()> {
-    let _signals = if matches!(&cli.command, Command::Run { .. }) {
+    let _signals = if matches!(&cli.command, Command::Run { .. } | Command::Neural { .. }) {
         Some(ai_personas::process_control::install()?)
     } else {
         None
     };
+    if let Command::Neural { command } = cli.command {
+        let root=cli.state_root.as_deref().ok_or_else(||argument("--state-root"))?;
+        let result=ai_personas::neural::cli::execute(root,cli.operator.as_deref().unwrap_or("user"),command).await
+            .map_err(|e|runtime::RuntimeError::Invalid(e.to_string()))?;
+        return emit(&result);
+    }
     match &cli.command {
         Command::Setup {
             provider_config,
@@ -1702,6 +1710,7 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             emit(&report)
         }
         Command::Schema
+        | Command::Neural { .. }
         | Command::Setup { .. }
         | Command::Run { .. }
         | Command::Result { .. }

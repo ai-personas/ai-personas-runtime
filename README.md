@@ -2,6 +2,15 @@
 
 Explore distinct AI characters choosing how to collaborate on your tasks.
 
+The new [editable persona-model runtime](docs/editable-persona-models.md) implements
+LLM-authored numerical character parameters with forward evaluation, candidate
+assessment and atomic activation/rollback. It uses `./personas --neural` and a
+separate indexed state directory. Open that directory in the desktop with
+`./personas --gui --progress PATH`. The guide includes setup and live-run commands.
+
+The onboarding and fragment-runtime instructions below describe the earlier
+development interface; they do not initialize the editable-model runtime.
+
 <img src="docs/assets/ai-personas-cartoon.png" alt="AI characters sharing ideas, choosing tools and bookmarking work." width="720">
 
 *Design illustration.*

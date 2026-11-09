@@ -9,6 +9,7 @@ mod mesh;
 mod theme;
 mod timings;
 mod ui;
+mod neural;
 
 use clap::Parser;
 use std::path::PathBuf;
@@ -42,6 +43,9 @@ pub fn run() -> eframe::Result {
         "Personas",
         native,
         Box::new(move |cc| {
+            if let Some(root)=options.progress.as_ref().filter(|root|root.join("neural.sqlite").is_file()) {
+                return Ok(Box::new(neural::App::new(cc,root.clone())));
+            }
             Ok(Box::new(ui::App::new(
                 cc,
                 options.progress,
