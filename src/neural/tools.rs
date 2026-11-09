@@ -184,6 +184,7 @@ pub const NAMES: &[(&str,&str)] = &[
     ("persona.evaluate","Evaluate your active network on evidence-linked contextual features; missing features are unknown."),
     ("persona.patch","Directly replace literal parameters against an exact predecessor and return forward-only before/after probes. Does not activate."),
     ("persona.assess","Compare old/candidate behavior in isolated provider calls. These calls execute no tools or real work. Results are synthetic observations."),
+    ("history.search","Rediscover authored/addressed events in this work by literal or regex search, with exact prior request, response, tool-result and provider-receipt references. Returns metadata, not replayed history. Empty query lists events; results are paginated."),
     ("persona.create","Create an attributed pending identity with a fresh own-model initialization. This does not invite or assign responsibility."),
     ("asset.search","Find retained shared resources by path and lexical/regex cues."),
     ("asset.read","Read exact retained text or record, optionally a measured UTF-8 byte range. A read does not rerun a tool."),
@@ -210,7 +211,7 @@ pub fn describe(name: &str) -> Result<Value> {
         .ok_or_else(|| failure(format!("unknown tool {name}")))?
         .1;
     let inputs = match name {
-        "tools.search" | "asset.search" => schema::<Search>()?,
+        "tools.search" | "asset.search" | "history.search" => schema::<Search>()?,
         "tools.describe" => schema::<Describe>()?,
         "persona.initialize" => schema::<protocol::InitializeModel>()?,
         "persona.read" | "asset.read" => schema::<Read>()?,
@@ -240,7 +241,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
         Ok(())
     }
     match name {
-        "tools.search" | "asset.search" => {
+        "tools.search" | "asset.search" | "history.search" => {
             let x: Search = serde_json::from_value(value.clone())?;
             if x.regex {
                 regex::Regex::new(&x.query)?;

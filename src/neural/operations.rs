@@ -136,7 +136,9 @@ fn maintenance(
             if reason.trim().is_empty()
                 || named.len() != ids.len()
                 || !changed.is_subset(&named)
-                || named.iter().any(|id| !operations.iter().any(|o| o.id == *id))
+                || named
+                    .iter()
+                    .any(|id| !operations.iter().any(|o| o.id == *id))
                 || !operations.iter().any(|o| {
                     named.contains(o.id.as_str()) && (predicate(&o.tool) || optional(&o.tool))
                 })
@@ -247,6 +249,57 @@ fn internal(
             }
             Ok(
                 json!({"tools":x.names.iter().map(|n|tools::describe(n)).collect::<Result<Vec<_>>>()?}),
+            )
+        }
+        "history.search" => {
+            let query: tools::Search = decode(input)?;
+            let mut statement = db.prepare("SELECT e.seq,e.actor,e.target,e.kind,e.digest,e.invocation,e.created,i.snapshot,i.response,i.receipt FROM events e LEFT JOIN invocations i ON i.id=e.invocation WHERE e.work=?1 AND (e.actor=?2 OR e.target=?2 OR e.target='*') ORDER BY e.seq DESC")?;
+            let rows = statement
+                .query_map(params![work, actor], |r| {
+                    Ok((
+                        r.get::<_, i64>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, String>(3)?,
+                        r.get::<_, String>(4)?,
+                        r.get::<_, Option<String>>(5)?,
+                        r.get::<_, i64>(6)?,
+                        r.get::<_, Option<String>>(7)?,
+                        r.get::<_, Option<String>>(8)?,
+                        r.get::<_, Option<String>>(9)?,
+                    ))
+                })?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            let mut hits = Vec::new();
+            for (
+                seq,
+                author,
+                target,
+                kind,
+                digest,
+                invocation,
+                created,
+                request,
+                response,
+                receipt,
+            ) in rows
+            {
+                let body: Value = store::object(db, &digest)?;
+                let searchable = format!(
+                    "{seq} {author} {target} {kind} {} {}",
+                    invocation.as_deref().unwrap_or(""),
+                    serde_json::to_string(&body)?
+                );
+                if tools::matches(&query, &searchable)? {
+                    let object = |digest: Option<String>| digest.map(|d| format!("object:{d}"));
+                    hits.push(json!({"event":seq,"work":work,"actor":author,"target":target,"kind":kind,"created_unix":created,
+                        "body_reference":format!("object:{digest}"),"invocation":invocation,"request_reference":object(request),
+                        "response_reference":object(response),"provider_receipt_reference":object(receipt),
+                        "tool":body["tool"],"operation":body["operation"],"tool_result_reference":body["result"]}));
+                }
+            }
+            Ok(
+                json!({"total":hits.len(),"offset":query.offset,"items":hits.into_iter().skip(query.offset).take(query.page_size).collect::<Vec<_>>(),"body_supplied":false,"scope":"Your authored or addressed events in this work; exact bodies are available through asset.read."}),
             )
         }
         "asset.search" => {
@@ -718,7 +771,7 @@ pub fn adopt(store: &mut Store, snapshot: &Snapshot, decision: &DecisionV2) -> R
         for (ordinal,raw) in decision.operations.iter().enumerate() {
             let mut op=raw.clone();resolve(&mut op.input,&aliases)?;
             if persona.model.is_none()&&!matches!(op.tool.as_str(),"persona.initialize"|"persona.read"|"tools.search"|"tools.describe"|"asset.read") {return Err(failure("initialize and activate your character before accepting or doing work"));}
-            if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.search"|"peer.message") {return Err(failure("accept your invitation before ordinary work"));}
+            if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.search"|"history.search"|"peer.message") {return Err(failure("accept your invitation before ordinary work"));}
             if part.declined{return Err(failure("declined participation cannot perform operations"));}
             if tools::is_external(&op.tool) {
                 validate_external(db,&persona,&op)?;
