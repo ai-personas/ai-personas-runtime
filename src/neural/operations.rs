@@ -142,7 +142,7 @@ fn maintenance(
                         .any(|o| o.id == *id && (predicate(&o.tool) || optional(&o.tool)))
                 })
             {
-                return Err(failure("maintenance change must name its actual mutation operation ids; host.command may be included when it maintains supporting files"));
+                return Err(failure("maintenance change must name its actual mutation operation ids; host.command may be included for supporting files and result.deliver for freezing an exact package"));
             }
         }
     }
@@ -709,7 +709,7 @@ pub fn adopt(store: &mut Store, snapshot: &Snapshot, decision: &DecisionV2) -> R
         if switching&&!decision.operations.is_empty(){return Err(failure("activate/rollback in a separate response with no operations; the next call uses the replacement model"));}
         // Host commands may be read-only; explicit asset mutations must be acknowledged.
         maintenance(&decision.persona_maintenance,&decision.operations,tools::model_mutation,|name|matches!(name,"persona.evaluate"|"persona.assess"))?;
-        maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|name=="host.command")?;
+        maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"host.command"|"result.deliver"))?;
         let mut ids=BTreeSet::new();
         for op in &decision.operations {
             if op.id.trim().is_empty()||!ids.insert(&op.id)||!snapshot.tool_names.contains(&op.tool){return Err(failure("operation id duplicate/blank or tool schema not supplied; describe it first"));}
