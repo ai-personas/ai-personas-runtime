@@ -144,7 +144,7 @@ fn maintenance(
                     named.contains(o.id.as_str()) && (predicate(&o.tool) || optional(&o.tool))
                 }))
             {
-                return Err(failure("maintenance change must name all applicable mutation ids and contain an applicable operation, or use empty ids for an operation-free persona activation/rollback. Context evaluation/assessment counts for persona maintenance; host.command or result.deliver counts for asset maintenance"));
+                return Err(failure("maintenance change must name all applicable mutation ids and contain an applicable operation, or use empty ids for an operation-free persona activation/rollback. Context evaluation/assessment counts for persona maintenance; host.command, work.outcome or result.deliver counts for asset maintenance"));
             }
         }
     }
@@ -817,8 +817,10 @@ pub fn adopt(store: &mut Store, snapshot: &Snapshot, decision: &DecisionV4) -> R
         if switching&&!snapshot.data["context_recovery"].is_null(){return Err(failure("Context recovery supplies metadata, not observed candidate/assessment bodies. Recover the needed evidence before activating or rolling back a character model."));}
         if switching&&!decision.operations.is_empty(){return Err(failure("activate/rollback in a separate response with no operations; the next call uses the replacement model"));}
         // Host commands may be read-only; explicit asset mutations must be acknowledged.
-        maintenance(&decision.persona_maintenance,&decision.operations,tools::model_mutation,|name|matches!(name,"persona.evaluate"|"persona.assess"),switching)?;
-        maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"host.command"|"result.deliver"),false)?;
+        maintenance(&decision.persona_maintenance,&decision.operations,tools::model_mutation,|name|matches!(name,"persona.evaluate"|"persona.assess"),switching)
+            .map_err(|e|failure(format!("persona_maintenance: {e}")))?;
+        maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"host.command"|"work.outcome"|"result.deliver"),false)
+            .map_err(|e|failure(format!("asset_maintenance: {e}")))?;
         let mut ids=BTreeSet::new();
         for op in &decision.operations {
             if op.id.trim().is_empty()||!ids.insert(&op.id){return Err(failure("operation id duplicate or blank"));}
