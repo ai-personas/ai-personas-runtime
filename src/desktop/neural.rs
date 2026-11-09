@@ -164,8 +164,17 @@ impl App {
                         Ok(value) => {
                             if value.get("invocations").is_some() {
                                 self.status = value;
+                                self.notice.clear();
                             } else {
-                                self.notice = serde_json::to_string(&value).unwrap_or_default();
+                                self.notice = if let Some(need) = value["need"].as_str() {
+                                    format!("Task created: {need}")
+                                } else if let Some(state) = value["state"].as_str() {
+                                    format!("Scheduling {state}.")
+                                } else if value.get("resumed").is_some() {
+                                    "Participant resumed.".into()
+                                } else {
+                                    "Saved.".into()
+                                };
                             }
                         }
                         Err(error) => {
@@ -190,7 +199,8 @@ impl App {
                 || event["kind"] == "initialization_note"
             {
                 ui.group(|ui| {
-                    ui.label(RichText::new(event["actor"].as_str().unwrap_or("Persona")).strong());
+                    let actor = event["actor"].as_str().unwrap_or("Persona");
+                    ui.label(RichText::new(self.persona_label(actor)).strong());
                     if event["kind"] == "initialization_note" {
                         ui.label("Initialization note — character model not yet active");
                     }
@@ -226,6 +236,15 @@ impl App {
                 }
             });
         }
+    }
+    fn persona_label<'a>(&'a self, id: &'a str) -> &'a str {
+        self.status["personas"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|p| p["body"]["id"] == id)
+            .and_then(|p| p["body"]["label"].as_str())
+            .unwrap_or(id)
     }
     fn personas(&mut self, ui: &mut egui::Ui) {
         for person in self.status["personas"].as_array().into_iter().flatten() {
@@ -394,7 +413,7 @@ impl eframe::App for App {
                         }
                     });
                 egui::ComboBox::from_id_salt("persona")
-                    .selected_text(&self.persona)
+                    .selected_text(self.persona_label(&self.persona))
                     .show_ui(ui, |ui| {
                         for p in self.status["personas"].as_array().into_iter().flatten() {
                             if let Some(id) = p["body"]["id"].as_str() {
