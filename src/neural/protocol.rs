@@ -7,9 +7,9 @@ use serde_json::Value;
 /// revisions are resolved by the runtime, never invented by the language model.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct DecisionV2 {
-    /// Must be exactly 2. ModelPackage has its own separate version 1.
-    #[schemars(range(min = 2, max = 2))]
+pub struct DecisionV3 {
+    /// Must be exactly 3. ModelPackage has its own separate version 1.
+    #[schemars(range(min = 3, max = 3))]
     pub version: u32,
     /// Copy the current snapshot's top-level invocation, never an older event id.
     pub invocation: String,
@@ -76,17 +76,16 @@ pub enum NextModel {
     },
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum ContextChoice {
-    Preserve,
-    Replace {
-        references: Vec<ContextResource>,
-        tools: Vec<String>,
-        reason: String,
-    },
-    Clear {
-        reason: String,
-    },
+#[serde(deny_unknown_fields)]
+pub struct ContextChoice {
+    /// Complete explicit resource selection for the next decision. Newly read
+    /// observations are supplied once; retain their exact references or a saved
+    /// working note if their information is still needed. Empty clears selection.
+    pub references: Vec<ContextResource>,
+    /// Complete selection of helpful tool schemas, not a permission list.
+    pub tools: Vec<String>,
+    /// Explain why this selection preserves the information needed to act next.
+    pub reason: String,
 }
 
 /// A whole exact resource, or an explicit byte excerpt of retained UTF-8 data.

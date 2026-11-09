@@ -762,7 +762,7 @@ fn switch_model(
     Ok(())
 }
 
-pub fn adopt(store: &mut Store, snapshot: &Snapshot, decision: &DecisionV2) -> Result<()> {
+pub fn adopt(store: &mut Store, snapshot: &Snapshot, decision: &DecisionV3) -> Result<()> {
     store.transaction(|db|{
         if store::stopped(db,&snapshot.work,&snapshot.actor)?.is_some(){return Err(failure("control changed before adoption"));}
         if snapshot.data["control_versions"]!=store::control_versions(db,&snapshot.work,&snapshot.actor)?{
@@ -777,7 +777,7 @@ pub fn adopt(store: &mut Store, snapshot: &Snapshot, decision: &DecisionV2) -> R
         let part_record=store::required(db,"participation",&format!("{}/{}",snapshot.work,snapshot.actor))?;
         let mut persona:Persona=decode(&p.body)?;let mut part:Participation=decode(&part_record.body)?;
         if p.reference.revision!=snapshot.persona_revision||part_record.reference.revision!=snapshot.participation_revision||persona.epoch!=snapshot.epoch||persona.model!=snapshot.model {return Err(failure("stale decision authority"));}
-        if decision.version!=2{return Err(failure("DecisionV2.version must be 2; the initial ModelPackage.version is separately 1"));}
+        if decision.version!=3{return Err(failure("DecisionV3.version must be 3 and next_context must explicitly select references, tools and reason; ModelPackage.version is separately 1"));}
         if decision.invocation!=snapshot.invocation{return Err(failure(format!("invocation must equal the current snapshot id {}",snapshot.invocation)));}
         if decision.work.reason.trim().is_empty(){return Err(failure("work judgment needs a reason"));}
         check_references(db,&decision.work.evidence)?;
@@ -811,19 +811,14 @@ pub fn adopt(store: &mut Store, snapshot: &Snapshot, decision: &DecisionV2) -> R
             }
         }
         switch_model(db,snapshot,&mut persona,&mut part,&decision.next_model)?;
-        match &decision.next_context {
-            ContextChoice::Preserve=>{},
-            ContextChoice::Clear{reason}=>{if reason.trim().is_empty(){return Err(failure("context change needs reason"));}part.context.clear();part.tools.clear();},
-            ContextChoice::Replace{references,tools:names,reason}=>{
-                if reason.trim().is_empty(){return Err(failure("context change needs reason"));}
-                let mut refs=serde_json::to_value(references)?;resolve(&mut refs,&aliases)?;part.context=decode(&refs)?;
-                for selection in &part.context{
-                    let (start,end)=selection.range();
-                    context::read(db,selection.reference(),start,end)?;
-                }
-                for name in names{tools::describe(name)?;}part.tools=names.clone();
-            },
+        if decision.next_context.reason.trim().is_empty(){return Err(failure("next context selection needs a reason"));}
+        let mut refs=serde_json::to_value(&decision.next_context.references)?;resolve(&mut refs,&aliases)?;part.context=decode(&refs)?;
+        for selection in &part.context{
+            let (start,end)=selection.range();
+            context::read(db,selection.reference(),start,end)?;
         }
+        for name in &decision.next_context.tools{tools::describe(name)?;}
+        part.tools=decision.next_context.tools.clone();
         if part.declined&&!matches!(decision.continuation,Continuation::Stop{..}){return Err(failure("declining requires an explicit stop for this participation"));}
         if let Some(reply)=&decision.reply{
             let kind=if snapshot.model.is_some(){"reply"}else{"initialization_note"};
