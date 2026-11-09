@@ -196,7 +196,33 @@ async fn decision(root: &Path, work: &str, actor: &str) -> Result<()> {
         "{}",
         json!({"event":"decision_dispatched","actor":actor,"work":work,"invocation":snapshot.invocation,"model":persona.provider.model,"effort":persona.provider.effort,"character_model":persona.model,"prompt_bytes":request.prompt.len()})
     );
-    let output = invoke(root, work, actor, persona.provider, request, false).await?;
+    let output = match invoke(root, work, actor, persona.provider, request, false).await {
+        Ok(output) => output,
+        Err(error) => {
+            if let Some(recovery) = context::pending_context_recovery(&store.db, work, actor)? {
+                if recovery["failed_invocation"] == snapshot.invocation {
+                    store.transaction(|db| {
+                        store::event(
+                            db,
+                            work,
+                            "runtime",
+                            actor,
+                            "context_recovery_scheduled",
+                            &recovery,
+                            Some(&snapshot.invocation),
+                        )?;
+                        Ok(())
+                    })?;
+                    eprintln!(
+                        "{}",
+                        json!({"event":"context_recovery_scheduled","actor":actor,"invocation":snapshot.invocation,"completed_operations_replayed":false})
+                    );
+                    return Ok(());
+                }
+            }
+            return Err(error);
+        }
+    };
     let parsed = crate::files::parse_json_unique(output.response.as_bytes())
         .map_err(|e| failure(format!("invalid JSON: {e:?}")))
         .and_then(|value| serde_json::from_value::<DecisionV3>(value).map_err(Into::into));

@@ -23,6 +23,7 @@ Treat a request to do, create, build or design something as a request for the us
 Every response includes a work judgment (with actual remaining work), persona maintenance, asset maintenance, next model/context choice, continuation, optional user reply, and operations. no_change/defer requires a reason. change lists operation ids. Your previous work judgment and chosen operations are supplied as decision_continuity alongside newly observed consequences. Use that evidence to assess whether preparation is leading to concrete progress. Incomplete, explicitly provisional artifacts are legitimate intermediate work: build, inspect and revise candidates as information develops, without mistaking them for the finished result. Do not wait for every uncertainty to disappear before making feasible reversible progress. Distinguish individual sufficiency, shared sufficiency, partial work, blockage, and user acceptance. Before stopping, reassess the original need, actual deliverables, unresolved findings and peers' current progress. Finishing a self-selected subtask is not by itself a reason to stop while you can usefully advance the requested result. Consider extending your contribution or helping with uncovered work; choose wait when a real peer dependency is the reason to pause and you intend to respond. If stopping with an incomplete result, explain the actual impediment or decision to withdraw, not merely that more work or validation remains. A proposed handoff is not another persona's acceptance. Your reasoned choice still controls continuation; no fixed workflow, quota or round count forces it. There are no application action, token, time, or retry quotas.
 Tools are discovered by tools.search and tools.describe. Select schemas when needed to understand an operation. Schema selection is context, not permission: every operation must conform to its registered schema whether or not you selected that schema in this call. All inputs are strictly validated. No operation executes until the whole response is accepted. Use unique local operation ids; refer to an earlier same-response asset.save result as $id. External effects are dispatched afterward, so do not guess results or chain their outputs in the same response. Host commands have full host access including network/installations, no default timeout. The shown host working directory is shared. asset.save retains exact UTF-8 content in the runtime store, not on the host filesystem; use host.command to create host files and asset.import to retain their exact bytes. Input code for python3 - belongs literally in stdin. Avoid invoking a substitute agent/orchestrator for persona reasoning.
 Exact references use kind:id@revision, or object:digest for immutable JSON/bytes. Reads never rerun operations. history.search can rediscover your prior authored/addressed events in this work, including exact request snapshots, responses and receipts; it returns metadata without replaying their bodies. Context is selective: choose exact supporting references and tool schemas for the next concrete decision, not as a permanent archive. A selection may be a whole exact reference string or {reference,start,end} for a UTF-8 byte excerpt (end exclusive). Context accounting reports actual serialized bytes and prior provider usage, without limits. Replace or clear resources that have served their purpose; a concise working note can cite full retained evidence without carrying every document or old command receipt. New tool results arrive independently of selection. tools.search/describe and asset.search/read are always available. Every next_context must explicitly contain the complete references and tools lists plus a reason; there is no preserve shortcut. Empty lists clear the selection. New events and read results are supplied once, not automatically retained. To keep facts needed beyond that observation, select their exact references or save a concise working note and select it (an earlier same-response save can be selected as $operation_id). Keep decisions, interfaces, unresolved questions and evidence pointers in that working context; do not repeatedly rediscover facts you still need. Current need, your own commitments, available peers, new events, your active network outputs, and pending tool results are supplied independently. Record reusable skills/methods as assets with useful paths/cues. Assets support reasoning; they do not replace the character network. Tool results state what was actually observed, including failure or uncertain dispatch; never assume success. Preserve exact evidence in outcomes and deliveries. result.deliver freezes exact asset versions with their supported use and remaining gaps. Host acceptance verifies mechanics, never overall design quality.
+If context_recovery is present, the provider explicitly rejected the previous input as too long. This fresh request supplies metadata instead of event and selected-resource bodies; it does not mean those contents were observed. Exact bytes remain retained. Use the supplied object references and asset.read byte ranges to inspect what you need, then explicitly choose a workable next_context. Raw stdout/stderr references avoid reading an entire structured command receipt. Do not rerun completed commands merely to recover their output or select the same oversized body whole. Character activation/rollback waits for an ordinary request with observed evidence. There is no application token quota or silent truncation; the provider's actual refusal triggered this recovery.
 "#;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -93,6 +94,106 @@ fn decision_continuity(
         view["previous_work_decision"] = json!({"invocation":invocation,"request":format!("object:{snapshot}"),"response":format!("object:{response}"),"created":created,"completed":completed,"judgment":decision["work"],"operations":operations});
     }
     Ok(view)
+}
+
+/// An explicit provider capacity refusal permits a different, metadata-only
+/// observation. Other failures and uncertain dispatches retain their pause.
+/// Rejected recovery decisions keep this projection until one is accepted.
+pub fn pending_context_recovery(
+    db: &rusqlite::Connection,
+    work: &str,
+    actor: &str,
+) -> Result<Option<Value>> {
+    let row: Option<(String, String, String)> = db.query_row(
+        "SELECT id,snapshot,receipt FROM invocations WHERE work=?1 AND actor=?2 AND state='provider_failed' AND receipt IS NOT NULL AND rowid>COALESCE((SELECT MAX(rowid) FROM invocations WHERE work=?1 AND actor=?2 AND state='accepted'),0) ORDER BY rowid DESC LIMIT 1",
+        params![work, actor], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    ).optional()?;
+    let Some((invocation, snapshot, receipt)) = row else {
+        return Ok(None);
+    };
+    let attempt: Value = store::object(db, &receipt)?;
+    if attempt["stream_diagnostic"]["remote_error_code"] != "context_length_exceeded" {
+        return Ok(None);
+    }
+    let prior: Value = store::object(db, &snapshot)?;
+    // Assessment probes have no ordinary decision authority. If even the
+    // recovery projection is refused, pause rather than repeat that request.
+    if prior.get("contract_object").is_none() || !prior["data"]["context_recovery"].is_null() {
+        return Ok(None);
+    }
+    Ok(Some(json!({
+        "cause":"context_length_exceeded",
+        "failed_invocation":invocation,
+        "failed_snapshot":format!("object:{snapshot}"),
+        "failed_receipt":format!("object:{receipt}"),
+        "meaning":"Fresh decision after the provider refused the full input. Event and selected-resource bodies are represented by metadata only in this request. Exact content remains available; choose explicit reads/excerpts and the next context. No completed command is replayed, no prior response is adopted, and remote charges remain as reported by the retained receipt."
+    })))
+}
+
+fn reference_metadata(db: &rusqlite::Connection, reference: &str) -> Result<Value> {
+    let digest = if let Some(digest) = reference.strip_prefix("object:") {
+        digest.to_owned()
+    } else {
+        let record = store::exact(db, reference)?;
+        if record.reference.kind == "asset" {
+            record.body["blob"]
+                .as_str()
+                .ok_or_else(|| failure("asset has no blob"))?
+                .to_owned()
+        } else {
+            record.reference.digest
+        }
+    };
+    let (bytes, media): (i64, String) = db.query_row(
+        "SELECT length(bytes),media FROM objects WHERE digest=?1",
+        [&digest],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    Ok(
+        json!({"reference":reference,"content_object":format!("object:{digest}"),"bytes":bytes,"media":media,"body_not_supplied":true}),
+    )
+}
+
+fn recovery_event(db: &rusqlite::Connection, mut event: Value) -> Result<Value> {
+    let mut body = reference_metadata(
+        db,
+        &format!(
+            "object:{}",
+            event["digest"]
+                .as_str()
+                .ok_or_else(|| failure("event has no digest"))?
+        ),
+    )?;
+    body["tool"] = event["body"]["tool"].clone();
+    body["operation"] = event["body"]["operation"].clone();
+    if let Some(reference) = event["body"]["result"].as_str() {
+        body["result"] = reference_metadata(db, reference)?;
+        let result: Value = store::object(
+            db,
+            reference
+                .strip_prefix("object:")
+                .ok_or_else(|| failure("tool result has no object reference"))?,
+        )?;
+        body["result"]["read_target"] = result["reference"].clone();
+        for key in ["candidate", "assessment", "evaluation"] {
+            if let Some(reference) = result[key].as_str() {
+                body["result"][key] = reference_metadata(db, reference)?;
+            }
+        }
+        body["result"]["observed_range"] = result["range"].clone();
+        body["result"]["raw_logs"] = result["raw_logs"].clone();
+        body["result"]["image_bytes"] = result["bytes"].clone();
+        body["result"]["image_mime"] = result["mime"].clone();
+        if let Some(outcome) = result.get("outcome") {
+            body["result"]["command_status"] = json!({
+                "process_started":outcome["process_started"],"exit_code":outcome["exit_code"],
+                "signal":outcome["signal"],"timed_out":outcome["timed_out"],"succeeded":outcome["succeeded"],
+                "stdout_bytes":outcome["stdout"]["bytes_observed"],"stderr_bytes":outcome["stderr"]["bytes_observed"]
+            });
+        }
+    }
+    event["body"] = body;
+    Ok(event)
 }
 
 pub fn model(db: &rusqlite::Connection, persona: &Persona) -> Result<ModelPackage> {
@@ -225,6 +326,7 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
         let participation:Participation=serde_json::from_value(part.body.clone())?;
         let work=store::required(db,"work",work_id)?;
         let contract=FeatureContract::standard();
+        let recovery=pending_context_recovery(db,work_id,actor)?;
         let events=store::events(db,work_id,actor,participation.cursor)?;
         // Withheld invitations/messages remain unread until an own-model call.
         let cursor=if bootstrap{participation.cursor}else{events.iter().filter_map(|e|e["event"].as_i64()).max().unwrap_or(participation.cursor)};
@@ -237,6 +339,10 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
             }
             if event["kind"]=="model_changed"{
                 event["body"]=json!({"model":event["body"]["model"],"epoch":event["body"]["epoch"],"change_record":format!("object:{}",event["digest"].as_str().unwrap_or(""))});
+            }
+            if recovery.is_some(){
+                supplied_events.push(recovery_event(db,event)?);
+                continue;
             }
             if let Some(digest)=event["body"]["result"].as_str().and_then(|r|r.strip_prefix("object:")) {
                 let result:Value=store::object(db,digest)?;
@@ -255,7 +361,8 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
             let r=selection.reference();
             let (start,end)=selection.range();
             if bootstrap{bootstrap_reference(db,actor,r)?;}
-            if start.is_none()&&r==work.reference.handle(){Ok(json!({"reference":r,"supplied_in":"work"}))}
+            if recovery.is_some(){let mut metadata=reference_metadata(db,r)?;metadata["selected_range"]=json!({"start":start,"end":end});Ok(metadata)}
+            else if start.is_none()&&r==work.reference.handle(){Ok(json!({"reference":r,"supplied_in":"work"}))}
             else if start.is_none()&&participation.last_evaluation.as_deref()==Some(r){Ok(json!({"reference":r,"supplied_in":"last_contextual_evaluation"}))}
             else{read(db,r,start,end)}
         }).collect::<Result<Vec<_>>>()?;
@@ -319,6 +426,7 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
             "work":{"reference":work.reference.handle(),"record":if bootstrap{json!({"stage":"character_initialization","need":"Author and activate a general-purpose character network from your attributed seed. Actual work is held for your first active-model decision."})}else{work.body}},"participation":participation_view,
             "latest_user_communication":if bootstrap{None}else{latest_user_communication(db,work_id,actor)?},
             "decision_continuity":if bootstrap{Value::Null}else{decision_continuity(db,work_id,actor,participation.turn)?},
+            "context_recovery":recovery,
             "peers":if bootstrap{vec![]}else{peers},"participants":if bootstrap{vec![]}else{participants},"outcomes":if bootstrap{vec![]}else{outcomes},"deliveries":if bootstrap{vec![]}else{deliveries},"new_events":supplied_events,
             "selected_resources":selected,"available_tools":tool_schemas,"host_working_directory":if bootstrap{Value::Null}else{config.body["working_directory"].clone()},
             "decision_schema":serde_json::to_value(schemars::schema_for!(DecisionV3))?});

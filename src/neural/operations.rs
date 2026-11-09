@@ -783,6 +783,7 @@ pub fn adopt(store: &mut Store, snapshot: &Snapshot, decision: &DecisionV3) -> R
         check_references(db,&decision.work.evidence)?;
         match &decision.continuation {Continuation::Ready{purpose} if purpose.trim().is_empty()=>return Err(failure("ready needs a purpose")),Continuation::Wait{reason,..}|Continuation::Stop{reason} if reason.trim().is_empty()=>return Err(failure("waiting/stopping needs a reason")),_=>{}}
         let switching=!matches!(decision.next_model,NextModel::Preserve);
+        if switching&&!snapshot.data["context_recovery"].is_null(){return Err(failure("Context recovery supplies metadata, not observed candidate/assessment bodies. Recover the needed evidence before activating or rolling back a character model."));}
         if switching&&!decision.operations.is_empty(){return Err(failure("activate/rollback in a separate response with no operations; the next call uses the replacement model"));}
         // Host commands may be read-only; explicit asset mutations must be acknowledged.
         maintenance(&decision.persona_maintenance,&decision.operations,tools::model_mutation,|name|matches!(name,"persona.evaluate"|"persona.assess"))?;

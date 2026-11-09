@@ -67,6 +67,8 @@ External effects dispatch only after commit, in declared order. They cannot cons
 
 A process lock owns dispatch/recovery while independent connections support inspection, user input and controls. A crash before dispatch can abandon preparation safely. A crash after dispatch leaves an uncertain outcome and pauses admission for that persona; external operations are never automatically replayed. A complete retained response can be adopted only against its original authority. Explicit global/work/persona pauses cancel local calls and host execution; remote stop or absence of charges is never inferred. The separate `admission` control drains already admitted work without starting new decisions, supporting upgrades between calls.
 
+An explicit provider `context_length_exceeded` refusal has a distinct recovery path. The failed request and receipt remain retained. A fresh decision receives metadata and exact references in place of new-event and selected-resource bodies, including raw command-stream references and byte counts. The persona chooses reads, excerpts and its next context; no command is replayed and no application token cap or automatic semantic summary is introduced. Metadata is labeled as unobserved content, and character activation/rollback is deferred until an ordinary request. An accepted decision ends the recovery projection. If even that projection is refused, or another provider/dispatch failure occurs, normal explicit-review pause behavior applies. Recovery never resumes an explicitly stopped participation or clears an operator pause.
+
 ## Running it
 
 Build without adding or running unit tests:
