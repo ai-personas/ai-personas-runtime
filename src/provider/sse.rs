@@ -568,6 +568,28 @@ impl Collector {
             }
             return Ok(());
         }
+        if matches!(kind, "error" | "response.error") {
+            // A provider can reject a request before creating a response.
+            // Preserve its sanitized error labels without inventing response
+            // identity, usage, completion or authority to adopt any output.
+            if let (Some(expected), Some(id)) =
+                (self.response_id.as_deref(), event.get("response_id"))
+            {
+                if id.as_str() != Some(expected) {
+                    return Err(protocol("event_response_id_mismatch"));
+                }
+            }
+            let error = event.get("error").filter(|value| value.is_object());
+            self.observe_remote_error(
+                error.and_then(|value| value.get("type")),
+                error.unwrap_or(&event).get("code"),
+            );
+            return Err(StreamFailure {
+                failure: Failure::RemoteFailure,
+                rule: "provider_error",
+                field: None,
+            });
+        }
         let response_id = self
             .response_id
             .as_deref()
@@ -750,15 +772,6 @@ impl Collector {
                     },
                     field: None,
                 });
-            }
-            "error" | "response.error" => {
-                // A nested error object takes precedence over flat error fields.
-                let error = event.get("error").filter(|value| value.is_object());
-                self.observe_remote_error(
-                    error.and_then(|value| value.get("type")),
-                    error.unwrap_or(&event).get("code"),
-                );
-                return Err(Failure::RemoteFailure.into());
             }
             "response.refusal.delta" | "response.refusal.done" => {
                 return Err(Failure::RemoteFailure.into());

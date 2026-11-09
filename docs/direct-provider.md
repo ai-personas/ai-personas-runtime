@@ -753,3 +753,13 @@ Unknown string labels retain a SHA-256 fingerprint for correlation, alongside
 `unrecognized`; their text and the provider's free-form error message are not
 retained. These fingerprints identify equal labels, not their meaning. Diagnostic
 classification does not authorize replay or settle missing usage.
+
+A standalone `error` or `response.error` event can precede `response.created`.
+The collector records its sanitized error type/code and fails the attempt with
+`provider_error`, without inventing a response ID, completion, usage or output.
+If a response is already bound, an explicit conflicting response ID still fails
+validation. Frame, sequence, model and post-completion checks also remain in
+force. This follows the separate error-event shape in the
+[Responses streaming reference](https://developers.openai.com/api/reference/resources/responses/streaming-events).
+The original failure that exposed this ordering defect retained only
+`event_before_created`; its remote error code cannot be recovered retroactively.
