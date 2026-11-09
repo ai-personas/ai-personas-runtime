@@ -209,6 +209,8 @@ pub(super) struct Collector {
     remote_error_code: Option<&'static str>,
     remote_error_type_sha256: Option<String>,
     remote_error_code_sha256: Option<String>,
+    // Host-only until credential redaction in the transport receipt.
+    remote_error_event: Option<Vec<u8>>,
     incomplete_reason: Option<&'static str>,
     incomplete_reason_sha256: Option<String>,
     pub diagnostic: Option<StreamDiagnostic>,
@@ -276,6 +278,7 @@ impl Collector {
             remote_error_code: None,
             remote_error_type_sha256: None,
             remote_error_code_sha256: None,
+            remote_error_event: None,
             incomplete_reason: None,
             incomplete_reason_sha256: None,
             diagnostic: None,
@@ -354,6 +357,9 @@ impl Collector {
         self.event_type_sha256 =
             (self.event_type == Some("unrecognized")).then(|| super::digest(name.as_bytes()));
     }
+    pub fn error_event(&self) -> Option<&[u8]> {
+        self.remote_error_event.as_deref()
+    }
     // Called only immediately before a sticky remote failure.
     fn observe_remote_error(&mut self, error_type: Option<&Value>, code: Option<&Value>) {
         self.remote_error_type = safe_remote_error_label(
@@ -373,6 +379,7 @@ impl Collector {
                 "insufficient_quota",
                 "context_length_exceeded",
                 "invalid_encrypted_content",
+                "invalid_value",
                 "model_not_found",
                 "slow_down",
                 "server_is_overloaded",
@@ -580,6 +587,7 @@ impl Collector {
                 }
             }
             let error = event.get("error").filter(|value| value.is_object());
+            self.remote_error_event = Some(bytes.to_vec());
             self.observe_remote_error(
                 error.and_then(|value| value.get("type")),
                 error.unwrap_or(&event).get("code"),

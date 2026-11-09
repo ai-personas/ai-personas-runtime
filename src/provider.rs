@@ -761,6 +761,10 @@ pub struct AttemptReceipt {
     pub reported_terminal_status: Option<ReportedTerminalStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_diagnostic: Option<StreamDiagnostic>,
+    /// Structured standalone SSE error with the same credential redaction and
+    /// private-continuation protection as HTTP errors. Not a response body.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream_error_diagnostic: Option<HttpErrorDiagnostic>,
     /// Content-free observations from a failed stream. These describe local
     /// receipt progress, not a completed response, usable decision or token usage.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -807,6 +811,7 @@ impl AttemptReceipt {
             response_completed: false,
             reported_terminal_status: None,
             stream_diagnostic: None,
+            stream_error_diagnostic: None,
             stream_progress: None,
             response_id: None,
             response_id_sha256: None,
@@ -1617,7 +1622,7 @@ impl DirectCall {
                     ).await?;
                     receipt.http_status = Some(response.status);
                     if response.status != 200 {
-                        let mut capture = http_error::Capture::new(error_secrets, audit.input_history.is_some());
+                        let mut capture = http_error::Capture::new(error_secrets.clone(), audit.input_history.is_some());
                         receipt.http_diagnostic = Some(capture.diagnostic(false));
                         let mut body = response.body;
                         loop {
@@ -1665,6 +1670,11 @@ impl DirectCall {
                     receipt.intake_prelaunch_checked_at_unix.is_some();
             }
             collector.receipt(&mut receipt, result.is_err());
+            if let Some(event) = collector.error_event() {
+                let mut capture = http_error::Capture::new(error_secrets, audit.input_history.is_some());
+                capture.push(event);
+                receipt.stream_error_diagnostic = Some(capture.diagnostic(true));
+            }
             receipt.network_diagnostic = diagnostics.snapshot();
             receipt.elapsed_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
             receipt.remote_effects_and_charges_may_remain = receipt.dispatch_may_have_begun;

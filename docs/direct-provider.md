@@ -750,9 +750,12 @@ Stream failure diagnostics retain static recognized error types and codes,
 including `slow_down` and `server_is_overloaded` described in the
 [official rate-limit guidance](https://developers.openai.com/api/docs/guides/rate-limits).
 Unknown string labels retain a SHA-256 fingerprint for correlation, alongside
-`unrecognized`; their text and the provider's free-form error message are not
-retained. These fingerprints identify equal labels, not their meaning. Diagnostic
-classification does not authorize replay or settle missing usage.
+`unrecognized`; their literal labels are not retained. These fingerprints identify
+equal labels, not their meaning. A standalone Responses error also retains
+`stream_error_diagnostic`: its event byte count/digest and structured explanation,
+using the existing HTTP-error credential redaction. Requests containing private
+continuation items withhold that explanation. Neither diagnostic authorizes
+replay or settles missing usage.
 
 A standalone `error` or `response.error` event can precede `response.created`.
 The collector records its sanitized error type/code and fails the attempt with
