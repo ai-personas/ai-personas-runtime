@@ -126,6 +126,8 @@ pub enum OutcomeState {
 #[serde(deny_unknown_fields)]
 pub struct Deliver {
     pub title: String,
+    /// Exact assets forming one coherent package. Logical paths must be relative
+    /// and unambiguous; exported files preserve these paths within the delivery.
     pub artifacts: Vec<String>,
     pub scope: DeliveryScope,
     pub supported_use: String,

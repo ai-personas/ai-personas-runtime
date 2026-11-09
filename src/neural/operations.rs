@@ -30,6 +30,25 @@ fn check_appraisal(db: &Connection, a: &Appraisal) -> Result<()> {
     }
     Ok(())
 }
+
+/// A delivery is a coherent file tree. Keep different deliveries separate, but
+/// preserve relative references among files within one delivered package.
+pub fn package_paths(db:&Connection,references:&[String])->Result<BTreeMap<std::path::PathBuf,String>> {
+    use std::path::{Component,Path,PathBuf};
+    let mut paths=BTreeMap::<PathBuf,String>::new();
+    for reference in references {
+        let asset=store::exact(db,reference)?;
+        if asset.reference.kind!="asset"{return Err(failure("delivery artifacts must be exact retained assets"));}
+        let path=asset.body["path"].as_str().ok_or_else(||failure("asset has no logical path"))?;
+        if path.is_empty()||Path::new(path).components().any(|c|!matches!(c,Component::Normal(_))){return Err(failure(format!("Organize {reference} under a relative file path before delivery: {path}")));}
+        let path=Path::new(path).components().collect::<PathBuf>();
+        for (existing,old_reference) in &paths {
+            if (&path==existing&&reference!=old_reference)||(&path!=existing&&(path.starts_with(existing)||existing.starts_with(&path))){return Err(failure(format!("Conflicting delivery paths {} and {}; choose coherent asset versions/paths",path.display(),existing.display())));}
+        }
+        paths.insert(path,reference.clone());
+    }
+    Ok(paths)
+}
 fn resolve(value: &mut Value, aliases: &BTreeMap<String, String>) -> Result<()> {
     match value {
         Value::String(s) if s.starts_with('$') => {
@@ -420,11 +439,7 @@ fn internal(
                 ));
             }
             check_references(db, &x.evidence)?;
-            for r in &x.artifacts {
-                if store::exact(db, r)?.reference.kind != "asset" {
-                    return Err(failure("delivery artifact must be an exact asset"));
-                }
-            }
+            package_paths(db,&x.artifacts)?;
             let mut body = serde_json::to_value(x)?;
             body["work"] = json!(work);
             body["owner"] = json!(actor);
@@ -684,7 +699,8 @@ pub fn adopt(store: &mut Store, snapshot: &Snapshot, decision: &DecisionV2) -> R
                 let operation=store::put(db,&op)?;
                 db.execute("INSERT INTO outbox VALUES(?1,?2,?3,?4,?5,?6,'pending',NULL)",params![id("effect")?,snapshot.invocation,ordinal as i64,snapshot.work,snapshot.actor,operation])?;
             }else{
-                let result=internal(db,snapshot,&mut persona,&mut part,&op)?;
+                let result=internal(db,snapshot,&mut persona,&mut part,&op)
+                    .map_err(|error|failure(format!("Operation {} ({}): {error}",op.id,op.tool)))?;
                 if op.tool=="asset.save" {if let Some(r)=result["reference"].as_str(){aliases.insert(op.id.clone(),r.to_owned());}}
                 let digest=store::put(db,&result)?;
                 store::event(db,&snapshot.work,&snapshot.actor,&snapshot.actor,"tool_result",&json!({"operation":op.id,"tool":op.tool,"result":format!("object:{digest}"),"context":"complete"}),Some(&snapshot.invocation))?;

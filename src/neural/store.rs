@@ -196,7 +196,7 @@ pub fn exact(db: &Connection, handle: &str) -> Result<Record> {
         "SELECT digest FROM versions WHERE kind=?1 AND id=?2 AND revision=?3",
         params![kind, id, revision],
         |r| r.get(0),
-    )?;
+    ).optional()?.ok_or_else(||failure(format!("No retained version matches exact reference {handle}; copy its observed handle or search its path/cues")))?;
     Ok(Record {
         body: object(db, &digest)?,
         reference: Reference {

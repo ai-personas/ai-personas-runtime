@@ -157,6 +157,18 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
             else if participation.last_evaluation.as_ref()==Some(r){Ok(json!({"reference":r,"supplied_in":"last_contextual_evaluation"}))}
             else{read(db,r,None,None)}
         }).collect::<Result<Vec<_>>>()?;
+        let mut supplied_bodies=selected.iter().filter(|v|v.get("text").is_some()||v.get("record").is_some())
+            .filter_map(|v|v["reference"].as_str().map(str::to_owned)).collect::<BTreeSet<_>>();
+        supplied_bodies.insert(work.reference.handle());
+        for event in &mut supplied_events {
+            if matches!(event["body"]["tool"].as_str(),Some("asset.read"|"persona.read")) {
+                if let Some(reference)=event["supplied_result"]["reference"].as_str() {
+                    if supplied_bodies.contains(reference) {
+                        event["supplied_result"]=json!({"reference":reference,"observed_range":event["supplied_result"]["range"],"body_already_supplied":true,"location":"selected_resources or mandatory work record","exact_read_receipt":event["body"]["result"]});
+                    }
+                }
+            }
+        }
         let mut tool_names=participation.tools.clone();
         tool_names.extend(["tools.search","tools.describe","asset.search","asset.read"].into_iter().map(str::to_owned));
         if persona.model.is_none(){tool_names.extend(["persona.initialize","persona.read"].into_iter().map(str::to_owned));}

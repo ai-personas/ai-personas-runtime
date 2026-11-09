@@ -11,7 +11,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{
     collections::BTreeSet,
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
 };
 
 #[derive(Subcommand)]
@@ -273,37 +273,17 @@ pub fn export(store: &mut Store, directory: &Path, work: Option<&str>) -> Result
             .filter(|r| work.is_none_or(|w| r.body["work"] == w))
             .collect::<Vec<_>>();
         let mut artifacts = Vec::new();
-        let mut seen = BTreeSet::new();
         for delivery in &deliveries {
-            for reference in delivery.body["artifacts"]
-                .as_array()
-                .ok_or_else(|| failure("delivery artifacts invalid"))?
-            {
-                let reference = reference
-                    .as_str()
-                    .ok_or_else(|| failure("artifact reference invalid"))?;
-                if !seen.insert(reference.to_owned()) {
-                    continue;
-                }
-                let asset = store::exact(db, reference)?;
-                let path = asset.body["path"]
-                    .as_str()
-                    .ok_or_else(|| failure("asset path invalid"))?;
-                let relative = Path::new(path);
-                if relative
-                    .components()
-                    .any(|p| !matches!(p, Component::Normal(_)))
-                    || path.is_empty()
-                {
-                    return Err(failure(format!(
-                        "asset path cannot be exported relatively: {path}"
-                    )));
-                }
+            let references:Vec<String>=serde_json::from_value(delivery.body["artifacts"].clone())?;
+            for (relative,reference) in operations::package_paths(db,&references)? {
+                let asset = store::exact(db, &reference)?;
                 let blob = asset.body["blob"]
                     .as_str()
                     .ok_or_else(|| failure("asset blob invalid"))?;
                 artifacts.push((
-                    reference.to_owned(),
+                    delivery.reference.handle(),
+                    reference,
+                    relative,
                     asset.body.clone(),
                     store::bytes(db, blob)?,
                 ));
@@ -313,11 +293,10 @@ pub fn export(store: &mut Store, directory: &Path, work: Option<&str>) -> Result
     })?;
     std::fs::create_dir(directory)?;
     let mut manifest = Vec::new();
-    // Exact revisions each receive an immutable export directory. Two delivered
-    // versions with the same logical path cannot overwrite one another.
-    for (reference, metadata, bytes) in data.1 {
-        let relative = PathBuf::from(reference.replace([':', '@'], "_"))
-            .join(metadata["path"].as_str().unwrap());
+    // Each exact delivery preserves its logical file tree. Separate packages
+    // can retain different versions without breaking relative imports/links.
+    for (delivery, reference, path, metadata, bytes) in data.1 {
+        let relative = PathBuf::from(delivery.replace([':', '@'], "_")).join(path);
         let target = directory.join(&relative);
         std::fs::create_dir_all(target.parent().unwrap())?;
         use std::io::Write;
@@ -326,7 +305,7 @@ pub fn export(store: &mut Store, directory: &Path, work: Option<&str>) -> Result
             .create_new(true)
             .open(&target)?;
         file.write_all(&bytes)?;
-        manifest.push(json!({"reference":reference,"export_path":relative,"metadata":metadata,"bytes":bytes.len(),"sha256":crate::store::sha256_bytes(&bytes)}));
+        manifest.push(json!({"delivery":delivery,"reference":reference,"export_path":relative,"metadata":metadata,"bytes":bytes.len(),"sha256":crate::store::sha256_bytes(&bytes)}));
     }
     let value =
         json!({"deliveries":data.0,"artifacts":manifest,"quality_verified_by_export":false});
