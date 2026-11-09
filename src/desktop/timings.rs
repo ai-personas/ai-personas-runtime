@@ -27,6 +27,16 @@ impl Drop for Frame {
             "schema":"desktop-frame-timing-v1", "pid":std::process::id(),
             "ui_ms":elapsed_ms, "previous_frame_cpu_seconds":self.previous_cpu_seconds,
             "repaint_causes":causes,
+            "input_event_kinds": self.context.input(|input| input.events.iter().map(|event| match event {
+                egui::Event::PointerMoved(_) => "pointer_moved",
+                egui::Event::MouseMoved(_) => "mouse_moved",
+                egui::Event::PointerButton { .. } => "pointer_button",
+                egui::Event::MouseWheel { .. } => "wheel",
+                egui::Event::Key { .. } => "key",
+                egui::Event::Text(_) => "text",
+                egui::Event::WindowFocused(_) => "focus",
+                _ => "other",
+            }).collect::<Vec<_>>()),
         });
         let _ = writeln!(std::io::stderr().lock(), "{event}");
     }

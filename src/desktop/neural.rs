@@ -1,27 +1,80 @@
-//! Desktop view for the indexed runtime. Uses the same Rust entry points as the
-//! terminal; no desktop-only orchestration, model calls or state translation.
-use ai_personas::neural::{
-    cli::{self, Command},
-    context,
-    store::{self, Store},
+//! Native workspace for editable persona models. Inspection uses a read-only
+//! snapshot; controls retain the same runtime entry points as the terminal.
+use super::{
+    artifacts, document,
+    theme::{self, Icon},
 };
-use eframe::egui::{self, RichText};
+use ai_personas::{
+    neural::cli::{self, Command},
+    persona_model::{FeatureContract, Tensor},
+};
+use eframe::egui::{self, Color32, FontId, RichText, Stroke, Ui};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
+    collections::BTreeSet,
     path::PathBuf,
-    sync::mpsc,
+    sync::{mpsc, Arc},
     time::{Duration, Instant},
 };
+mod character;
+mod data;
+mod export;
+mod workspace;
 
+const TEAL: Color32 = Color32::from_rgb(103, 198, 185);
+const PURPLE: Color32 = Color32::from_rgb(172, 150, 221);
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+enum Editor {
+    #[default]
+    Studio,
+    Conversations,
+    Artifacts,
+    Character,
+}
+#[derive(Serialize, Deserialize)]
+#[serde(default)]
+struct Layout {
+    editor: Editor,
+    outliner: bool,
+    inspector: bool,
+    activity: bool,
+    left_width: f32,
+    right_width: f32,
+    bottom_height: f32,
+    dark: bool,
+    scale: f32,
+}
+impl Default for Layout {
+    fn default() -> Self {
+        Self {
+            editor: Editor::Studio,
+            outliner: true,
+            inspector: true,
+            activity: false,
+            left_width: 210.,
+            right_width: 310.,
+            bottom_height: 180.,
+            dark: true,
+            scale: 1.,
+        }
+    }
+}
+enum Dialog {
+    Task,
+    Message,
+    Settings,
+}
 enum Update {
-    Status(Value, Vec<Value>),
+    Status(Result<data::Snapshot, String>),
     Done(Result<Value, String>),
     RunDone(Result<Value, String>),
-    Read(Result<Value, String>),
+    Preview(u64, Result<data::Preview, String>),
+    Saved(u64, Result<String, String>),
 }
 pub struct App {
     root: PathBuf,
-    status: Value,
+    snapshot: data::Snapshot,
     events: Vec<Value>,
     cursor: i64,
     tx: mpsc::Sender<Update>,
@@ -30,26 +83,56 @@ pub struct App {
     last_poll: Instant,
     running: bool,
     busy: bool,
+    closing: bool,
     error: Option<String>,
     notice: String,
-    need: String,
-    invited: std::collections::BTreeSet<String>,
+    layout: Layout,
     work: String,
     persona: String,
+    need: String,
+    invited: BTreeSet<String>,
     message: String,
-    reference: String,
-    resource: Value,
-    tab: usize,
-    closing: bool,
+    dialog: Option<Dialog>,
+    conversation_filter: String,
+    conversation_persona: String,
+    conversation_channel: usize,
+    conversation_page: usize,
+    asset_filter: String,
+    asset_owner: String,
+    artifact_scope: usize,
+    artifact_mode: usize,
+    selected_reference: String,
+    reference_input: String,
+    preview_generation: u64,
+    preview_pending: bool,
+    preview_metadata: Value,
+    viewer: artifacts::Viewer,
+    files: artifacts::Viewer,
+    character_tab: usize,
+    contextual: bool,
+    parameter_filter: String,
+    tensor_filter: String,
+    inspector_window: bool,
+    export_dialog: Option<export::Dialog>,
+    export_generation: u64,
 }
 impl App {
-    pub fn new(ctx: &egui::Context, root: PathBuf) -> Self {
-        super::theme::install_fonts(ctx);
-        super::theme::apply(ctx, true, 1.0);
+    pub fn new(
+        ctx: &egui::Context,
+        root: PathBuf,
+        gl: Option<&Arc<eframe::glow::Context>>,
+    ) -> Self {
+        theme::install_fonts(ctx);
+        egui_extras::install_image_loaders(ctx);
+        let layout = std::fs::read(root.join("desktop-layout.json"))
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Layout>(&b).ok())
+            .unwrap_or_default();
+        theme::apply(ctx, layout.dark, layout.scale);
         let (tx, rx) = mpsc::channel();
         Self {
             root,
-            status: Value::Null,
+            snapshot: Default::default(),
             events: vec![],
             cursor: 0,
             tx,
@@ -58,17 +141,38 @@ impl App {
             last_poll: Instant::now() - Duration::from_secs(5),
             running: false,
             busy: false,
+            closing: false,
             error: None,
             notice: String::new(),
-            need: String::new(),
-            invited: Default::default(),
+            layout,
             work: String::new(),
             persona: String::new(),
+            need: String::new(),
+            invited: BTreeSet::new(),
             message: String::new(),
-            reference: String::new(),
-            resource: Value::Null,
-            tab: 0,
-            closing: false,
+            dialog: None,
+            conversation_filter: String::new(),
+            conversation_persona: String::new(),
+            conversation_channel: 0,
+            conversation_page: 0,
+            asset_filter: String::new(),
+            asset_owner: String::new(),
+            artifact_scope: 0,
+            artifact_mode: 0,
+            selected_reference: String::new(),
+            reference_input: String::new(),
+            preview_generation: 0,
+            preview_pending: false,
+            preview_metadata: Value::Null,
+            viewer: artifacts::Viewer::new(ctx, gl),
+            files: artifacts::Viewer::new(ctx, gl),
+            character_tab: 0,
+            contextual: true,
+            parameter_filter: String::new(),
+            tensor_filter: String::new(),
+            inspector_window: false,
+            export_dialog: None,
+            export_generation: 0,
         }
     }
     fn poll(&mut self, ctx: &egui::Context) {
@@ -77,40 +181,22 @@ impl App {
         }
         self.polling = true;
         self.last_poll = Instant::now();
-        let root = self.root.clone();
-        let tx = self.tx.clone();
-        let ctx = ctx.clone();
-        let after = self.cursor;
+        let (root, after, tx, ctx) = (self.root.clone(), self.cursor, self.tx.clone(), ctx.clone());
         std::thread::spawn(move || {
-            let result = (|| -> ai_personas::neural::Result<_> {
-                let mut store = Store::open(&root)?;
-                let status = store.status()?;
-                let mut events = Vec::new();
-                for work in store::list(&store.db, "work")? {
-                    events.extend(store::events(&store.db, &work.reference.id, "user", after)?);
-                }
-                events.sort_by_key(|v| v["event"].as_i64());
-                Ok((status, events))
-            })();
-            let update = match result {
-                Ok((status, events)) => Update::Status(status, events),
-                Err(e) => Update::Done(Err(e.to_string())),
-            };
-            let _ = tx.send(update);
+            let result = data::snapshot(&root, after).map_err(|e| e.to_string());
+            let _ = tx.send(Update::Status(result));
             ctx.request_repaint();
         });
     }
     fn command(&mut self, ctx: &egui::Context, command: Command) {
         let run = matches!(command, Command::Run { .. });
         if run {
-            self.running = true;
+            self.running = true
         } else {
-            self.busy = true;
+            self.busy = true
         }
         self.error = None;
-        let root = self.root.clone();
-        let tx = self.tx.clone();
-        let ctx = ctx.clone();
+        let (root, tx, ctx) = (self.root.clone(), self.tx.clone(), ctx.clone());
         std::thread::spawn(move || {
             let result = tokio::runtime::Runtime::new()
                 .map_err(|e| e.to_string())
@@ -126,174 +212,195 @@ impl App {
             ctx.request_repaint();
         });
     }
+    fn open_resource(&mut self, ctx: &egui::Context, reference: String) {
+        self.selected_reference = reference.clone();
+        self.reference_input = reference.clone();
+        self.layout.editor = Editor::Artifacts;
+        self.artifact_mode = 0;
+        self.preview_generation += 1;
+        self.preview_pending = true;
+        self.preview_metadata = Value::Null;
+        self.viewer.clear_selection();
+        self.error = None;
+        let (root, serial, tx, ctx) = (
+            self.root.clone(),
+            self.preview_generation,
+            self.tx.clone(),
+            ctx.clone(),
+        );
+        std::thread::spawn(move || {
+            let result = data::preview(&root, &reference).map_err(|e| e.to_string());
+            let _ = tx.send(Update::Preview(serial, result));
+            ctx.request_repaint();
+        });
+    }
     fn drain(&mut self) {
         while let Ok(update) = self.rx.try_recv() {
-            let run_finished = matches!(&update, Update::RunDone(_));
             match update {
-                Update::Status(status, events) => {
+                Update::Status(result) => {
                     self.polling = false;
-                    self.status = status;
-                    for event in events {
-                        self.cursor = self.cursor.max(event["event"].as_i64().unwrap_or(0));
-                        self.events.push(event);
-                    }
-                    if self.work.is_empty() {
-                        self.work = self.status["work"][0]["body"]["id"]
-                            .as_str()
-                            .unwrap_or("")
-                            .into();
-                    }
-                    if self.persona.is_empty() {
-                        self.persona = self.status["personas"][0]["body"]["id"]
-                            .as_str()
-                            .unwrap_or("")
-                            .into();
-                    }
-                }
-                Update::Read(result) => match result {
-                    Ok(v) => self.resource = v,
-                    Err(e) => self.error = Some(e),
-                },
-                Update::Done(result) | Update::RunDone(result) => {
-                    self.busy = false;
-                    self.polling = false;
-                    if run_finished {
-                        self.running = false;
-                    }
                     match result {
-                        Ok(value) => {
-                            if value.get("invocations").is_some() {
-                                self.status = value;
-                                self.notice.clear();
-                            } else {
-                                self.notice = if let Some(need) = value["need"].as_str() {
-                                    format!("Task created: {need}")
-                                } else if let Some(state) = value["state"].as_str() {
-                                    format!("Scheduling {state}.")
-                                } else if value.get("resumed").is_some() {
-                                    "Participant resumed.".into()
-                                } else {
-                                    "Saved.".into()
-                                };
+                        Ok(mut snapshot) => {
+                            self.cursor = snapshot.cursor;
+                            self.events.append(&mut snapshot.events);
+                            self.snapshot = snapshot;
+                            if self.work.is_empty() {
+                                self.work = self
+                                    .records("work")
+                                    .first()
+                                    .map(|r| s(&r["body"], "id").into())
+                                    .unwrap_or_default();
+                            }
+                            if self.persona.is_empty() {
+                                self.persona = self
+                                    .records("personas")
+                                    .first()
+                                    .map(|r| s(&r["body"], "id").into())
+                                    .unwrap_or_default();
                             }
                         }
-                        Err(error) => {
-                            self.error = Some(error);
+                        Err(e) => self.error = Some(e),
+                    }
+                }
+                Update::Preview(serial, result) if serial == self.preview_generation => {
+                    self.preview_pending = false;
+                    match result {
+                        Ok(preview) => {
+                            self.preview_metadata = preview.metadata;
+                            self.viewer.open_snapshot(
+                                preview.directory,
+                                preview.path,
+                                preview.digest,
+                            );
+                        }
+                        Err(e) => self.error = Some(e),
+                    }
+                }
+                Update::Preview(_, _) => {}
+                Update::Saved(serial, result) => match result {
+                    Ok(note) => {
+                        self.notice = note;
+                        if self
+                            .export_dialog
+                            .as_ref()
+                            .is_some_and(|d| d.serial == serial)
+                        {
+                            self.export_dialog = None;
                         }
                     }
-                    self.last_poll = Instant::now() - Duration::from_secs(3);
+                    Err(e) => {
+                        if let Some(dialog) =
+                            self.export_dialog.as_mut().filter(|d| d.serial == serial)
+                        {
+                            dialog.busy = false;
+                            dialog.error = Some(e);
+                        } else {
+                            self.error = Some(e);
+                        }
+                    }
+                },
+                Update::Done(result) => {
+                    self.busy = false;
+                    self.command_finished(result);
+                }
+                Update::RunDone(result) => {
+                    self.running = false;
+                    self.busy = false;
+                    self.command_finished(result);
                 }
             }
         }
     }
-    fn conversation(&mut self, ui: &mut egui::Ui) {
-        for event in &self.events {
-            // Peers receive a compact delivery announcement; the user also
-            // receives its full record. Render the full record once.
-            if event["kind"] == "delivery" && event["target"] == "*" {
-                continue;
+    fn command_finished(&mut self, result: Result<Value, String>) {
+        match result {
+            Ok(v) => {
+                self.notice = if let Some(need) = v["need"].as_str() {
+                    format!("Created: {need}")
+                } else if let Some(state) = v["state"].as_str() {
+                    format!("Scheduling {state}")
+                } else {
+                    "Workspace updated".into()
+                };
             }
-            if event["kind"] == "reply"
-                || event["kind"] == "message"
-                || event["kind"] == "delivery"
-                || event["kind"] == "initialization_note"
-            {
-                ui.group(|ui| {
-                    let actor = event["actor"].as_str().unwrap_or("Persona");
-                    ui.label(RichText::new(self.persona_label(actor)).strong());
-                    if event["kind"] == "initialization_note" {
-                        ui.label("Initialization note — character model not yet active");
-                    }
-                    if let Some(text) = event["body"]["text"].as_str() {
-                        ui.label(text);
-                    } else if let Some(text) = event["body"]["record"]["title"].as_str() {
-                        ui.label(text);
-                        ui.label(event["body"]["reference"].as_str().unwrap_or(""));
-                    }
-                });
-                ui.add_space(6.0);
-            }
+            Err(e) => self.error = Some(e),
         }
-        for delivery in self.status["deliveries"].as_array().into_iter().flatten() {
-            let body = &delivery["body"];
-            ui.collapsing(body["title"].as_str().unwrap_or("Delivery"), |ui| {
-                ui.label(format!(
-                    "{} · {}",
-                    body["scope"].as_str().unwrap_or(""),
-                    body["owner"].as_str().unwrap_or("")
-                ));
-                ui.label(body["supported_use"].as_str().unwrap_or(""));
-                for artifact in body["artifacts"].as_array().into_iter().flatten() {
-                    if let Some(reference) = artifact.as_str() {
-                        if ui.button(reference).clicked() {
-                            self.reference = reference.into();
-                            self.tab = 2;
-                        }
-                    }
-                }
-                for gap in body["remaining"].as_array().into_iter().flatten() {
-                    ui.label(format!("Remaining: {}", gap.as_str().unwrap_or("")));
-                }
-            });
-        }
+        self.last_poll = Instant::now() - Duration::from_secs(3);
     }
-    fn persona_label<'a>(&'a self, id: &'a str) -> &'a str {
-        self.status["personas"]
+    fn records(&self, key: &str) -> &[Value] {
+        self.snapshot.status[key]
             .as_array()
-            .into_iter()
-            .flatten()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+    fn label<'a>(&'a self, id: &'a str) -> &'a str {
+        self.records("personas")
+            .iter()
             .find(|p| p["body"]["id"] == id)
             .and_then(|p| p["body"]["label"].as_str())
             .unwrap_or(id)
     }
-    fn personas(&mut self, ui: &mut egui::Ui) {
-        for person in self.status["personas"].as_array().into_iter().flatten() {
-            let body = &person["body"];
-            ui.group(|ui| {
-                ui.heading(body["label"].as_str().unwrap_or("Persona"));
-                ui.label(format!(
-                    "{} · {} · {}",
-                    body["lifecycle"].as_str().unwrap_or(""),
-                    body["provider"]["model"].as_str().unwrap_or(""),
-                    body["provider"]["effort"].as_str().unwrap_or("")
-                ));
-                ui.label(format!("Character revision {}", body["epoch"]));
-                if let Some(model) = body["model"].as_str() {
-                    if ui.button("Inspect character parameters").clicked() {
-                        self.reference = format!("object:{model}");
-                        self.tab = 2;
-                    }
-                }
-                for participation in self.status["participation"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                {
-                    if participation["body"]["persona"] == body["id"] {
-                        ui.label(format!(
-                            "{} · {} accepted decisions",
-                            participation["body"]["continuation"]["kind"]
-                                .as_str()
-                                .unwrap_or(""),
-                            participation["body"]["turn"]
-                        ));
-                        if let Some(reason) =
-                            participation["body"]["last_judgment"]["reason"].as_str()
-                        {
-                            ui.label(reason);
-                        }
-                    }
-                }
-            });
-            ui.add_space(8.0);
+    fn selected_person(&self) -> Value {
+        self.records("personas")
+            .iter()
+            .find(|p| p["body"]["id"] == self.persona)
+            .map(|p| p["body"].clone())
+            .unwrap_or(Value::Null)
+    }
+    fn participation(&self, id: &str) -> Value {
+        self.records("participation")
+            .iter()
+            .find(|p| p["body"]["persona"] == id && p["body"]["work"] == self.work)
+            .map(|p| p["body"].clone())
+            .unwrap_or(Value::Null)
+    }
+    fn task_title(&self) -> &str {
+        self.records("work")
+            .iter()
+            .find(|p| p["body"]["id"] == self.work)
+            .and_then(|p| p["body"]["original_need"].as_str())
+            .unwrap_or("Your workspace")
+    }
+    fn delivered_refs(&self) -> BTreeSet<String> {
+        self.records("deliveries")
+            .iter()
+            .filter(|d| d["body"]["work"] == self.work)
+            .flat_map(|d| d["body"]["artifacts"].as_array().into_iter().flatten())
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect()
+    }
+    fn color(&self, id: &str) -> Color32 {
+        let palette = [
+            TEAL,
+            PURPLE,
+            theme::ACCENT,
+            Color32::from_rgb(121, 166, 230),
+            Color32::from_rgb(219, 134, 158),
+        ];
+        let index = self
+            .records("personas")
+            .iter()
+            .position(|p| p["body"]["id"] == id)
+            .unwrap_or(0);
+        palette[index % palette.len()]
+    }
+    fn save_layout(&self) {
+        if let Ok(bytes) = serde_json::to_vec_pretty(&self.layout) {
+            let path = self.root.join("desktop-layout.json");
+            let temp = self
+                .root
+                .join(format!(".desktop-layout-{}.json", std::process::id()));
+            if std::fs::write(&temp, bytes).is_ok() {
+                let _ = std::fs::rename(temp, path);
+            }
         }
     }
 }
 impl eframe::App for App {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        let _timing = super::timings::frame(ctx, frame);
         self.drain();
         self.poll(ctx);
-        ctx.request_repaint_after(Duration::from_millis(500));
+        ctx.request_repaint_after(Duration::from_secs(2));
         if ctx.input(|i| i.viewport().close_requested()) && self.running {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             if !self.closing {
@@ -311,275 +418,139 @@ impl eframe::App for App {
         if self.closing && !self.running {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
-        egui::TopBottomPanel::top("editable_header").show(ctx, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.heading("Personas");
-                let in_flight = self.status["invocations"]["dispatched"]
-                    .as_u64()
-                    .unwrap_or(0);
-                if in_flight > 0 {
-                    ui.label(format!("{in_flight} model calls in progress"));
-                }
-                if ui
-                    .add_enabled(
-                        !self.running && !self.busy && in_flight == 0,
-                        egui::Button::new("Continue eligible work"),
-                    )
-                    .clicked()
-                {
-                    self.command(ctx, Command::Run { watch: false });
-                }
-                if ui
-                    .add_enabled(!self.busy, egui::Button::new("Pause all"))
-                    .clicked()
-                {
-                    self.command(
-                        ctx,
-                        Command::Control {
-                            scope: "global".into(),
-                            state: "paused".into(),
-                            reason: "User paused the desktop workspace".into(),
-                        },
-                    );
-                }
-                if ui
-                    .add_enabled(!self.busy, egui::Button::new("Enable scheduling"))
-                    .clicked()
-                {
-                    self.command(
-                        ctx,
-                        Command::Control {
-                            scope: "global".into(),
-                            state: "running".into(),
-                            reason: "User enabled scheduling".into(),
-                        },
-                    );
-                }
+        self.header(ctx);
+        self.status_bar(ctx);
+        if self.layout.activity {
+            self.activity_dock(ctx);
+        }
+        let wide = ctx.content_rect().width() > 1100.;
+        if self.layout.inspector && wide {
+            self.inspector_panel(ctx);
+        }
+        if self.layout.outliner {
+            self.outliner(ctx);
+        }
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::new()
+                    .fill(theme::Palette::new(self.layout.dark).canvas)
+                    .inner_margin(16),
+            )
+            .show(ctx, |ui| match self.layout.editor {
+                Editor::Studio => self.studio(ui),
+                Editor::Conversations => self.conversations(ui),
+                Editor::Artifacts => self.artifacts(ui),
+                Editor::Character => self.character(ui),
             });
-            ui.small(self.root.display().to_string());
-            for control in self.status["controls"].as_array().into_iter().flatten() {
-                if control["state"] != "running" {
-                    ui.label(format!(
-                        "{}: {} — {}",
-                        control["scope"].as_str().unwrap_or(""),
-                        control["state"].as_str().unwrap_or(""),
-                        control["reason"].as_str().unwrap_or("")
-                    ));
-                }
-            }
-            ui.horizontal(|ui| {
-                for (i, label) in [
-                    "Conversation & deliveries",
-                    "Personas",
-                    "Resources",
-                    "New task",
-                ]
-                .iter()
-                .enumerate()
-                {
-                    ui.selectable_value(&mut self.tab, i, *label);
-                }
-            });
-            if let Some(error) = &self.error {
-                ui.colored_label(egui::Color32::LIGHT_RED, error);
-            }
-            if !self.notice.is_empty() {
-                ui.label(&self.notice);
-            }
-            if self.running {
-                ui.label("Personas are working. Each decides when to continue, wait or stop.");
-            }
-        });
-        egui::TopBottomPanel::bottom("editable_feedback").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                let selected = self.status["work"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .find(|w| w["body"]["id"] == self.work)
-                    .and_then(|w| w["body"]["original_need"].as_str())
-                    .unwrap_or("Choose task");
-                egui::ComboBox::from_id_salt("work")
-                    .selected_text(selected)
-                    .show_ui(ui, |ui| {
-                        for w in self.status["work"].as_array().into_iter().flatten() {
-                            if let Some(id) = w["body"]["id"].as_str() {
-                                ui.selectable_value(
-                                    &mut self.work,
-                                    id.into(),
-                                    w["body"]["original_need"].as_str().unwrap_or(id),
-                                );
-                            }
-                        }
-                    });
-                egui::ComboBox::from_id_salt("persona")
-                    .selected_text(self.persona_label(&self.persona))
-                    .show_ui(ui, |ui| {
-                        for p in self.status["personas"].as_array().into_iter().flatten() {
-                            if let Some(id) = p["body"]["id"].as_str() {
-                                ui.selectable_value(
-                                    &mut self.persona,
-                                    id.into(),
-                                    p["body"]["label"].as_str().unwrap_or(id),
-                                );
-                            }
-                        }
-                    });
-            });
-            ui.add(
-                egui::TextEdit::multiline(&mut self.message)
-                    .hint_text("Feedback, clarification or a reason to resume")
-                    .desired_rows(2)
-                    .desired_width(f32::INFINITY),
-            );
-            ui.horizontal(|ui| {
-                let enabled = !self.busy
-                    && !self.message.trim().is_empty()
-                    && !self.work.is_empty()
-                    && !self.persona.is_empty();
-                if ui
-                    .add_enabled(enabled, egui::Button::new("Send message"))
-                    .clicked()
-                {
-                    let text = std::mem::take(&mut self.message);
-                    self.command(
-                        ctx,
-                        Command::Message {
-                            work: self.work.clone(),
-                            persona: self.persona.clone(),
-                            text,
-                        },
-                    );
-                }
-                if ui
-                    .add_enabled(enabled, egui::Button::new("Resume participant"))
-                    .clicked()
-                {
-                    let reason = std::mem::take(&mut self.message);
-                    self.command(
-                        ctx,
-                        Command::Resume {
-                            work: self.work.clone(),
-                            persona: self.persona.clone(),
-                            reason,
-                        },
-                    );
-                }
-                if ui
-                    .add_enabled(enabled, egui::Button::new("Amend task"))
-                    .clicked()
-                {
-                    let text = std::mem::take(&mut self.message);
-                    self.command(
-                        ctx,
-                        Command::Amend {
-                            work: self.work.clone(),
-                            text,
-                        },
-                    );
-                }
-            });
-        });
-        egui::CentralPanel::default().show(ctx, |ui| {
-            egui::ScrollArea::vertical()
-                .id_salt(("editable_scroll", self.tab))
-                .stick_to_bottom(self.tab == 0)
-                .show(ui, |ui| match self.tab {
-                    0 => self.conversation(ui),
-                    1 => self.personas(ui),
-                    2 => {
-                        ui.horizontal(|ui| {
-                            ui.text_edit_singleline(&mut self.reference);
-                            if ui.button("Read exact resource").clicked() {
-                                let root = self.root.clone();
-                                let reference = self.reference.clone();
-                                let tx = self.tx.clone();
-                                let ctx = ctx.clone();
-                                std::thread::spawn(move || {
-                                    let result = Store::open(&root)
-                                        .and_then(|s| context::read(&s.db, &reference, None, None))
-                                        .map_err(|e| e.to_string());
-                                    let _ = tx.send(Update::Read(result));
-                                    ctx.request_repaint();
-                                });
-                            }
-                        });
-                        if let Some(text) = self.resource["text"].as_str() {
-                            ui.add(
-                                egui::TextEdit::multiline(&mut text.to_owned())
-                                    .code_editor()
-                                    .desired_width(f32::INFINITY),
-                            );
-                        } else {
-                            ui.label(
-                                serde_json::to_string_pretty(&self.resource).unwrap_or_default(),
-                            );
-                        }
-                        if ui.button("Export delivered files…").clicked() {
-                            if let Some(parent) = rfd::FileDialog::new().pick_folder() {
-                                self.command(
-                                    ctx,
-                                    Command::Export {
-                                        directory: parent.join(format!(
-                                            "personas-delivery-{}",
-                                            ai_personas::neural::now()
-                                        )),
-                                        work: if self.work.is_empty() {
-                                            None
-                                        } else {
-                                            Some(self.work.clone())
-                                        },
-                                    },
-                                );
-                            }
-                        }
-                    }
-                    _ => {
-                        ui.heading("What would you like to work on?");
-                        ui.add(
-                            egui::TextEdit::multiline(&mut self.need)
-                                .desired_rows(5)
-                                .desired_width(f32::INFINITY),
-                        );
-                        ui.label("Invite personas. Each chooses whether and how to contribute.");
-                        for p in self.status["personas"].as_array().into_iter().flatten() {
-                            if let Some(id) = p["body"]["id"].as_str() {
-                                let mut selected = self.invited.contains(id);
-                                if ui
-                                    .checkbox(
-                                        &mut selected,
-                                        p["body"]["label"].as_str().unwrap_or(id),
-                                    )
-                                    .changed()
-                                {
-                                    if selected {
-                                        self.invited.insert(id.into());
-                                    } else {
-                                        self.invited.remove(id);
-                                    }
-                                }
-                            }
-                        }
-                        if ui
-                            .add_enabled(
-                                !self.busy
-                                    && !self.need.trim().is_empty()
-                                    && !self.invited.is_empty(),
-                                egui::Button::new("Create task"),
-                            )
-                            .clicked()
-                        {
-                            let need = std::mem::take(&mut self.need);
-                            self.command(
-                                ctx,
-                                Command::Request {
-                                    need,
-                                    invite: self.invited.iter().cloned().collect(),
-                                },
-                            );
-                        }
-                    }
+        if self.inspector_window {
+            let mut open = true;
+            egui::Window::new("Inspector")
+                .open(&mut open)
+                .default_width(330.)
+                .show(ctx, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| self.inspector(ui));
                 });
-        });
+            self.inspector_window = open;
+        }
+        self.dialogs(ctx);
+        self.export_window(ctx);
     }
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.save_layout();
+        self.viewer.destroy();
+        self.files.destroy();
+    }
+}
+fn s<'a>(v: &'a Value, key: &str) -> &'a str {
+    v[key].as_str().unwrap_or("")
+}
+fn title(s: &str) -> String {
+    let mut c = s.replace('_', " ").chars().collect::<Vec<_>>();
+    if let Some(first) = c.first_mut() {
+        first.make_ascii_uppercase();
+    }
+    c.into_iter().collect()
+}
+fn excerpt(text: &str, max: usize) -> String {
+    let mut v = text.chars().take(max).collect::<String>();
+    if text.chars().count() > max {
+        v.push('…');
+    }
+    v
+}
+fn number(value: u64) -> String {
+    let s = value.to_string();
+    let mut out = String::new();
+    for (i, c) in s.chars().enumerate() {
+        if i > 0 && (s.len() - i) % 3 == 0 {
+            out.push(',')
+        }
+        out.push(c);
+    }
+    out
+}
+fn size(bytes: u64) -> String {
+    if bytes >= 1_048_576 {
+        format!("{:.1} MB", bytes as f64 / 1_048_576.)
+    } else if bytes >= 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.)
+    } else {
+        format!("{bytes} B")
+    }
+}
+fn time_label(ts: i64) -> String {
+    format!(
+        "{:02}:{:02}:{:02} UTC",
+        ts.rem_euclid(86400) / 3600,
+        ts.rem_euclid(3600) / 60,
+        ts.rem_euclid(60)
+    )
+}
+fn eyebrow(ui: &mut Ui, text: &str) {
+    ui.label(
+        RichText::new(text.to_uppercase())
+            .size(11.)
+            .color(theme::palette(ui).muted)
+            .extra_letter_spacing(1.2),
+    );
+}
+fn section(ui: &mut Ui, label: &str, detail: &str) {
+    ui.horizontal(|ui| {
+        ui.strong(label);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.small(detail);
+        });
+    });
+    ui.add_space(7.);
+}
+fn card(ui: &Ui) -> egui::Frame {
+    egui::Frame::new()
+        .fill(theme::palette(ui).panel)
+        .stroke(Stroke::new(1., theme::palette(ui).hover))
+        .corner_radius(6)
+        .inner_margin(12)
+}
+fn avatar(ui: &mut Ui, label: &str, color: Color32, diameter: f32) -> egui::Response {
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(diameter, diameter), egui::Sense::click());
+    ui.painter()
+        .circle_filled(rect.center(), diameter / 2., color.gamma_multiply(0.2));
+    ui.painter().circle_stroke(
+        rect.center(),
+        diameter / 2. - 1.,
+        Stroke::new(1., color.gamma_multiply(0.7)),
+    );
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        label
+            .chars()
+            .next()
+            .unwrap_or('?')
+            .to_uppercase()
+            .to_string(),
+        FontId::proportional(diameter * 0.4),
+        color,
+    );
+    response
 }

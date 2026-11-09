@@ -23,6 +23,7 @@ enum Update {
 }
 
 pub struct App {
+    gl: Option<std::sync::Arc<eframe::glow::Context>>,
     workspace: Option<neural::App>,
     tx: mpsc::Sender<Update>,
     rx: mpsc::Receiver<Update>,
@@ -64,7 +65,8 @@ fn field(ui: &mut egui::Ui, label: &str, value: &mut String) {
 }
 
 impl App {
-    pub fn new(ctx: &egui::Context, requested: Option<PathBuf>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, requested: Option<PathBuf>) -> Self {
+        let ctx = &cc.egui_ctx;
         theme::install_fonts(ctx);
         theme::apply(ctx, true, 1.0);
         let (tx, rx) = mpsc::channel();
@@ -95,6 +97,7 @@ impl App {
             .join("ai-personas/workspaces")
             .join(name.as_deref().unwrap_or("new-workspace"));
         Self {
+            gl: cc.gl.clone(),
             workspace: None,
             tx,
             rx,
@@ -257,7 +260,7 @@ impl App {
                 Update::Opened(result) => {
                     self.busy = false;
                     match result {
-                        Ok(root) => self.workspace = Some(neural::App::new(ctx, root)),
+                        Ok(root) => self.workspace = Some(neural::App::new(ctx, root, self.gl.as_ref())),
                         Err(error) => self.error = Some(error),
                     }
                 }
@@ -428,6 +431,11 @@ impl Drop for App {
 }
 
 impl eframe::App for App {
+    fn on_exit(&mut self, gl: Option<&eframe::glow::Context>) {
+        if let Some(workspace) = &mut self.workspace {
+            workspace.on_exit(gl);
+        }
+    }
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.drain(ctx);
         if let Some(workspace) = &mut self.workspace {

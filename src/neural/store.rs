@@ -118,22 +118,27 @@ impl Store {
     }
 
     pub fn status(&mut self) -> Result<Value> {
-        self.snapshot(|db| {
-            let mut invocations = db.prepare("SELECT state,COUNT(*) FROM invocations GROUP BY state")?;
-            let counts = invocations.query_map([], |r| Ok((r.get::<_, String>(0)?,r.get::<_, i64>(1)?)))?
-                .collect::<std::result::Result<std::collections::BTreeMap<_,_>,_>>()?;
-            let mut effects = db.prepare("SELECT state,COUNT(*) FROM outbox GROUP BY state")?;
-            let effect_counts = effects.query_map([], |r| Ok((r.get::<_, String>(0)?,r.get::<_, i64>(1)?)))?
-                .collect::<std::result::Result<std::collections::BTreeMap<_,_>,_>>()?;
-            let mut controls=db.prepare("SELECT scope,state,reason,revision FROM controls ORDER BY scope")?;
-            let controls=controls.query_map([],|r|Ok(json!({"scope":r.get::<_,String>(0)?,"state":r.get::<_,String>(1)?,"reason":r.get::<_,String>(2)?,"revision":r.get::<_,i64>(3)?})))?.collect::<std::result::Result<Vec<_>,_>>()?;
-            Ok(json!({"format":"neural-runtime-v2","personas":list(db,"persona")?,
-                "work":list(db,"work")?,"participation":list(db,"participation")?,
-                "outcomes":list(db,"outcome")?,"deliveries":list(db,"delivery")?,
-                "invocations":counts,"operations":effect_counts,"controls":controls,
-                "meaning":"Stored activity, authored judgments and retained deliveries; not an independent quality verdict."}))
-        })
+        self.snapshot(|db| status(db))
     }
+}
+
+/// Read the workspace projection inside the caller's existing transaction.
+/// Desktop inspection can therefore combine status, messages and artifact
+/// metadata at one SQLite snapshot without acquiring the execution writer.
+pub fn status(db: &Connection) -> Result<Value> {
+    let mut invocations = db.prepare("SELECT state,COUNT(*) FROM invocations GROUP BY state")?;
+    let counts = invocations.query_map([], |r| Ok((r.get::<_, String>(0)?,r.get::<_, i64>(1)?)))?
+        .collect::<std::result::Result<std::collections::BTreeMap<_,_>,_>>()?;
+    let mut effects = db.prepare("SELECT state,COUNT(*) FROM outbox GROUP BY state")?;
+    let effect_counts = effects.query_map([], |r| Ok((r.get::<_, String>(0)?,r.get::<_, i64>(1)?)))?
+        .collect::<std::result::Result<std::collections::BTreeMap<_,_>,_>>()?;
+    let mut controls=db.prepare("SELECT scope,state,reason,revision FROM controls ORDER BY scope")?;
+    let controls=controls.query_map([],|r|Ok(json!({"scope":r.get::<_,String>(0)?,"state":r.get::<_,String>(1)?,"reason":r.get::<_,String>(2)?,"revision":r.get::<_,i64>(3)?})))?.collect::<std::result::Result<Vec<_>,_>>()?;
+    Ok(json!({"format":"neural-runtime-v2","personas":list(db,"persona")?,
+        "work":list(db,"work")?,"participation":list(db,"participation")?,
+        "outcomes":list(db,"outcome")?,"deliveries":list(db,"delivery")?,
+        "invocations":counts,"operations":effect_counts,"controls":controls,
+        "meaning":"Stored activity, authored judgments and retained deliveries; not an independent quality verdict."}))
 }
 
 pub fn put_bytes(db: &Connection, media: &str, bytes: &[u8]) -> Result<String> {

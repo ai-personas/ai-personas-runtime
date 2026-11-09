@@ -196,6 +196,31 @@ impl Viewer {
         self.cancel.cancel();
         self.model.destroy();
     }
+    /// Open an exact retained artifact supplied by the indexed workspace's
+    /// read worker. The existing decoder and native renderers stay off the UI
+    /// thread; Snapshot checks the retained digest again before rendering.
+    pub fn open_snapshot(&mut self, directory: Arc<tempfile::TempDir>, path: PathBuf, sha256: String) {
+        self.trail.clear();
+        self.details = None;
+        self.load(Source::Snapshot { path, sha256, _directory: directory });
+    }
+    pub fn clear_selection(&mut self) {
+        self.serial += 1;
+        self.reset_preview();
+        self.source = None;
+        self.trail.clear();
+        self.loading = false;
+    }
+    pub fn preview_ui(&mut self, ui: &mut egui::Ui) {
+        self.poll(ui.ctx());
+        self.preview(ui);
+    }
+    pub fn workspace_mode(&mut self) {
+        if self.recorded {
+            self.recorded = false;
+            self.initialized = false;
+        }
+    }
     pub fn focus_citation(&mut self, message: String) {
         self.recorded = true;
         self.initialized = false;

@@ -7,6 +7,71 @@ configuration. Creation uses the same native initialization as the terminal and
 makes no reasoning calls. Create a task and start eligible work from the workspace.
 An explicit `--progress PATH` opens saved editable state or sets up a new location.
 
+## Editable-model studio
+
+Editable workspaces now open a Blender-inspired studio with a resizable outliner,
+central editors, a persistent inspector and an optional activity dock. The initial
+window is 1440 × 900 logical pixels; narrower windows keep the inspector available
+as a floating panel. Settings control dark/light appearance, interface scale and
+panel visibility. Panel widths and editor selection survive reopening the workspace.
+
+- **Workspace** shows the exact task, active model calls, persona participation,
+  a graph of actual peer messages, recent conversations, retained artifacts and
+  the personas' intended outcomes. Select a persona to inspect it; double-click
+  its graph node or outliner entry to open Character Lab.
+- **Conversations** includes direct persona-to-persona exchanges as well as
+  messages involving the user and deliveries. Search text, choose a persona or
+  channel, and browse older pages. Every page remains accessible; pagination is
+  a display choice. Source references open the exact retained resource.
+- **Artifacts** lists searchable current assets and exact delivered revisions,
+  including an older delivery when the current asset head has changed. Filter by
+  owner, inspect provenance and author qualifications, preview or save the file,
+  and export delivered packages. The integrated save dialog accepts a destination
+  folder and file/package name, including on desktops without a file-chooser
+  portal. Existing destinations are preserved. Workspace files remain separately browsable.
+  Retention and delivery labels do not imply manufacturing readiness or approval.
+- **Character Lab** shows the selected provider/model and reasoning effort,
+  attributed starting profile, active model intent, numerical epoch, computed
+  inclinations, recorded appraisal inputs, network connections, every stored
+  coefficient, candidates and activation history. Baseline evaluation explicitly
+  leaves all appraisal inputs unknown. A contextual trace is used only when it
+  belongs to the selected task and matches the active model. These outputs are
+  inclinations, not measured abilities, emotions or proven improvements.
+
+Artifact previews reuse the desktop's asynchronous image, Markdown/code, data,
+3D, archive and optional native renderers. Exact bytes are read and hash-checked
+on a worker, staged outside the runtime, and checked again by the preview loader.
+Late results from an earlier selection cannot replace the selected artifact.
+PDF viewing requires Poppler's `pdfinfo` and `pdftoppm` on PATH; CAD and other
+native formats retain their documented optional renderer requirements. A single
+retained native CAD file does not implicitly provide its sibling project files.
+
+The studio reads status, current assets, delivered versions, model packages,
+appraisals and incremental event records in one read-only SQLite transaction.
+The local operator can inspect saved peer exchanges; this does not change which
+messages each persona receives. Automatic refresh makes no inference calls,
+adds no persona context and changes no runtime state. Raw tool/provider payloads
+are not decoded into the recurring activity feed. The existing task, message,
+resume, amendment, scheduling and export commands are invoked only by their
+corresponding explicit controls. Closing an observing window leaves an externally
+owned run working; a run started by that window retains its pause-and-close path.
+
+Live validation used the ongoing five-persona `gpt-6.1-sol` / `max` SMPS workspace,
+not fabricated demonstration data. The core and desktop builds passed. Actual
+window inspection covered the collaboration overview, peer messages, character
+outputs/network/coefficients, artifact selection, source metadata, embedded image
+and multipage PDF previews, panel resizing and a 900 × 650 logical-pixel window.
+The integrated Save file action produced the exact retained image bytes. The
+Export deliveries action produced eight delivery records and 33 artifact copies;
+every exported size, digest and file body matched its retained blob. Those
+deliveries remain partial, and export is not an engineering quality verdict.
+The missing PDF tools were installed in the local user environment; other machines
+still need their renderer dependencies. Closing and reopening the observer kept
+runtime controls, persona/work heads and operator event history unchanged while
+new persona decisions continued. No runtime unit tests were added or run.
+
+## Historical fragment workspaces
+
 The remaining sections describe the earlier fragment workspace interface, which
 is still available when explicitly opening one of its saved desktop journals.
 
