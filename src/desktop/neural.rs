@@ -128,6 +128,7 @@ impl App {
     }
     fn drain(&mut self) {
         while let Ok(update) = self.rx.try_recv() {
+            let run_finished = matches!(&update, Update::RunDone(_));
             match update {
                 Update::Status(status, events) => {
                     self.polling = false;
@@ -156,17 +157,18 @@ impl App {
                 Update::Done(result) | Update::RunDone(result) => {
                     self.busy = false;
                     self.polling = false;
+                    if run_finished {
+                        self.running = false;
+                    }
                     match result {
                         Ok(value) => {
                             if value.get("invocations").is_some() {
-                                self.running = false;
                                 self.status = value;
                             } else {
                                 self.notice = serde_json::to_string(&value).unwrap_or_default();
                             }
                         }
                         Err(error) => {
-                            self.running = false;
                             self.error = Some(error);
                         }
                     }
@@ -177,6 +179,11 @@ impl App {
     }
     fn conversation(&mut self, ui: &mut egui::Ui) {
         for event in &self.events {
+            // Peers receive a compact delivery announcement; the user also
+            // receives its full record. Render the full record once.
+            if event["kind"] == "delivery" && event["target"] == "*" {
+                continue;
+            }
             if event["kind"] == "reply"
                 || event["kind"] == "message"
                 || event["kind"] == "delivery"
@@ -455,95 +462,105 @@ impl eframe::App for App {
             });
         });
         egui::CentralPanel::default().show(ctx, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| match self.tab {
-                0 => self.conversation(ui),
-                1 => self.personas(ui),
-                2 => {
-                    ui.horizontal(|ui| {
-                        ui.text_edit_singleline(&mut self.reference);
-                        if ui.button("Read exact resource").clicked() {
-                            let root = self.root.clone();
-                            let reference = self.reference.clone();
-                            let tx = self.tx.clone();
-                            let ctx = ctx.clone();
-                            std::thread::spawn(move || {
-                                let result = Store::open(&root)
-                                    .and_then(|s| context::read(&s.db, &reference, None, None))
-                                    .map_err(|e| e.to_string());
-                                let _ = tx.send(Update::Read(result));
-                                ctx.request_repaint();
-                            });
+            egui::ScrollArea::vertical()
+                .id_salt(("editable_scroll", self.tab))
+                .stick_to_bottom(self.tab == 0)
+                .show(ui, |ui| match self.tab {
+                    0 => self.conversation(ui),
+                    1 => self.personas(ui),
+                    2 => {
+                        ui.horizontal(|ui| {
+                            ui.text_edit_singleline(&mut self.reference);
+                            if ui.button("Read exact resource").clicked() {
+                                let root = self.root.clone();
+                                let reference = self.reference.clone();
+                                let tx = self.tx.clone();
+                                let ctx = ctx.clone();
+                                std::thread::spawn(move || {
+                                    let result = Store::open(&root)
+                                        .and_then(|s| context::read(&s.db, &reference, None, None))
+                                        .map_err(|e| e.to_string());
+                                    let _ = tx.send(Update::Read(result));
+                                    ctx.request_repaint();
+                                });
+                            }
+                        });
+                        if let Some(text) = self.resource["text"].as_str() {
+                            ui.add(
+                                egui::TextEdit::multiline(&mut text.to_owned())
+                                    .code_editor()
+                                    .desired_width(f32::INFINITY),
+                            );
+                        } else {
+                            ui.label(
+                                serde_json::to_string_pretty(&self.resource).unwrap_or_default(),
+                            );
                         }
-                    });
-                    if let Some(text) = self.resource["text"].as_str() {
+                        if ui.button("Export delivered files…").clicked() {
+                            if let Some(parent) = rfd::FileDialog::new().pick_folder() {
+                                self.command(
+                                    ctx,
+                                    Command::Export {
+                                        directory: parent.join(format!(
+                                            "personas-delivery-{}",
+                                            ai_personas::neural::now()
+                                        )),
+                                        work: if self.work.is_empty() {
+                                            None
+                                        } else {
+                                            Some(self.work.clone())
+                                        },
+                                    },
+                                );
+                            }
+                        }
+                    }
+                    _ => {
+                        ui.heading("What would you like to work on?");
                         ui.add(
-                            egui::TextEdit::multiline(&mut text.to_owned())
-                                .code_editor()
+                            egui::TextEdit::multiline(&mut self.need)
+                                .desired_rows(5)
                                 .desired_width(f32::INFINITY),
                         );
-                    } else {
-                        ui.label(serde_json::to_string_pretty(&self.resource).unwrap_or_default());
-                    }
-                    if ui.button("Export delivered files…").clicked() {
-                        if let Some(parent) = rfd::FileDialog::new().pick_folder() {
+                        ui.label("Invite personas. Each chooses whether and how to contribute.");
+                        for p in self.status["personas"].as_array().into_iter().flatten() {
+                            if let Some(id) = p["body"]["id"].as_str() {
+                                let mut selected = self.invited.contains(id);
+                                if ui
+                                    .checkbox(
+                                        &mut selected,
+                                        p["body"]["label"].as_str().unwrap_or(id),
+                                    )
+                                    .changed()
+                                {
+                                    if selected {
+                                        self.invited.insert(id.into());
+                                    } else {
+                                        self.invited.remove(id);
+                                    }
+                                }
+                            }
+                        }
+                        if ui
+                            .add_enabled(
+                                !self.busy
+                                    && !self.need.trim().is_empty()
+                                    && !self.invited.is_empty(),
+                                egui::Button::new("Create task"),
+                            )
+                            .clicked()
+                        {
+                            let need = std::mem::take(&mut self.need);
                             self.command(
                                 ctx,
-                                Command::Export {
-                                    directory: parent.join(format!(
-                                        "personas-delivery-{}",
-                                        ai_personas::neural::now()
-                                    )),
-                                    work: if self.work.is_empty() {
-                                        None
-                                    } else {
-                                        Some(self.work.clone())
-                                    },
+                                Command::Request {
+                                    need,
+                                    invite: self.invited.iter().cloned().collect(),
                                 },
                             );
                         }
                     }
-                }
-                _ => {
-                    ui.heading("What would you like to work on?");
-                    ui.add(
-                        egui::TextEdit::multiline(&mut self.need)
-                            .desired_rows(5)
-                            .desired_width(f32::INFINITY),
-                    );
-                    ui.label("Invite personas. Each chooses whether and how to contribute.");
-                    for p in self.status["personas"].as_array().into_iter().flatten() {
-                        if let Some(id) = p["body"]["id"].as_str() {
-                            let mut selected = self.invited.contains(id);
-                            if ui
-                                .checkbox(&mut selected, p["body"]["label"].as_str().unwrap_or(id))
-                                .changed()
-                            {
-                                if selected {
-                                    self.invited.insert(id.into());
-                                } else {
-                                    self.invited.remove(id);
-                                }
-                            }
-                        }
-                    }
-                    if ui
-                        .add_enabled(
-                            !self.busy && !self.need.trim().is_empty() && !self.invited.is_empty(),
-                            egui::Button::new("Create task"),
-                        )
-                        .clicked()
-                    {
-                        let need = std::mem::take(&mut self.need);
-                        self.command(
-                            ctx,
-                            Command::Request {
-                                need,
-                                invite: self.invited.iter().cloned().collect(),
-                            },
-                        );
-                    }
-                }
-            });
+                });
         });
     }
 }

@@ -6,7 +6,7 @@ The new [editable persona-model runtime](docs/editable-persona-models.md) implem
 LLM-authored numerical character parameters with forward evaluation, candidate
 assessment and atomic activation/rollback. It uses `./personas --neural` and a
 separate indexed state directory. Open that directory in the desktop with
-`./personas --gui --progress PATH`. The guide includes setup and live-run commands.
+`./personas --gui --progress PATH`. The guide includes setup and live-run commands. The [live validation report](docs/live-validation-2026-11-09.md) records the five-persona Codex `gpt-6.1-sol` SMPS run and its limits.
 
 The onboarding and fragment-runtime instructions below describe the earlier
 development interface; they do not initialize the editable-model runtime.
