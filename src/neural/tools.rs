@@ -64,6 +64,9 @@ pub struct ImageRead {
 pub struct HostCommand {
     pub command: String,
     pub stdin: Option<String>,
+    /// Literal command launch directory. Absolute paths are used directly;
+    /// relative paths resolve from the workspace directory shown in context.
+    /// Omission uses that workspace directory. Each command chooses independently.
     pub working_directory: Option<String>,
     pub timeout_seconds: Option<u64>,
     /// output: stdout/stderr and status; complete: also inputs; reference: exact result pointer.

@@ -314,6 +314,11 @@ async fn external(
     match op.tool.as_str() {
         "host.command" => {
             let input: tools::HostCommand = serde_json::from_value(op.input.clone())?;
+            let directory = input
+                .working_directory
+                .as_deref()
+                .map(|path| cfg.working_directory.join(path))
+                .unwrap_or_else(|| cfg.working_directory.clone());
             let host = crate::host_command::Inputs {
                 command: input.command.clone(),
                 stdin: input.stdin.clone().map(crate::host_command::Stdin::Utf8),
@@ -325,7 +330,7 @@ async fn external(
             let actor = actor.to_owned();
             let outcome = tokio::task::spawn_blocking(move || {
                 let controls = Store::open(&root);
-                crate::host_command::execute(&host, &cfg.working_directory, || match &controls {
+                crate::host_command::execute(&host, &directory, || match &controls {
                     Ok(store) => control_observation(store, &work, &actor),
                     Err(e) => Some(json!({"control_unavailable":e.to_string()})),
                 })
