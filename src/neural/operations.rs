@@ -136,13 +136,12 @@ fn maintenance(
             if reason.trim().is_empty()
                 || named.len() != ids.len()
                 || !changed.is_subset(&named)
-                || named.iter().any(|id| {
-                    !operations
-                        .iter()
-                        .any(|o| o.id == *id && (predicate(&o.tool) || optional(&o.tool)))
+                || named.iter().any(|id| !operations.iter().any(|o| o.id == *id))
+                || !operations.iter().any(|o| {
+                    named.contains(o.id.as_str()) && (predicate(&o.tool) || optional(&o.tool))
                 })
             {
-                return Err(failure("maintenance change must name its actual mutation operation ids; host.command may be included for supporting files and result.deliver for freezing an exact package"));
+                return Err(failure("maintenance change must name all applicable mutation ids and contain an applicable operation; related existing operation ids may accompany it. Context evaluation/assessment counts for persona maintenance; host.command or result.deliver counts for asset maintenance"));
             }
         }
     }
