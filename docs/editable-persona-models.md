@@ -67,7 +67,7 @@ flowchart LR
     H --> A
 ```
 
-SQLite WAL transactions separate current heads, immutable versions/objects, targeted events, invocations, controls and external effects. Current state no longer serializes a growing conversation/history blob. Reads verify content digests. The host-authored instruction prefix is retained separately from changing request data, so an old request can be reconstructed after a binary update.
+SQLite WAL transactions separate current heads, immutable versions/objects, targeted events, invocations, controls and external effects. Current state no longer serializes a growing conversation/history blob. Reads verify content digests. The host-authored instruction prefix includes the fixed decision schema and feature contract, before changing persona state, context accounting and observations. Those definitions are supplied once, with their exact prefix bytes retained separately from changing request data. An old request is reconstructed from its retained prefix and snapshot, including the layout actually used before an upgrade; current code does not regenerate its old schema. This layout establishes stable shared bytes, not a provider cache hit or cost saving. Provider cache behavior remains unchanged, and receipts retain actual reported usage.
 
 Adoption compares persona revision, participation revision, model digest/epoch, work revision and relevant control revisions. Unrelated peer messages arrive as later observations. A user amendment or pause/resume cycle invalidates an older in-flight decision. Complete validation, internal mutations and outbox insertion share a transaction: a later invalid operation rolls back earlier tentative saves/messages too.
 
