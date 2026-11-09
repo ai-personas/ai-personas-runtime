@@ -225,7 +225,7 @@ async fn decision(root: &Path, work: &str, actor: &str) -> Result<()> {
     };
     let parsed = crate::files::parse_json_unique(output.response.as_bytes())
         .map_err(|e| failure(format!("invalid JSON: {e:?}")))
-        .and_then(|value| serde_json::from_value::<DecisionV3>(value).map_err(Into::into));
+        .and_then(|value| serde_json::from_value::<DecisionV4>(value).map_err(Into::into));
     let accepted = parsed.and_then(|value| {
         operations::adopt(&mut store, &snapshot, &value)?;
         Ok(value)
@@ -457,7 +457,7 @@ fn recover(store: &mut Store) -> Result<()> {
         let snapshot: Snapshot = store::object(&store.db, &snapshot)?;
         let value = crate::files::parse_json_unique(&store::bytes(&store.db, &response)?)
             .map_err(|e| failure(format!("recovery JSON failure {e:?}")))
-            .and_then(|v| serde_json::from_value::<DecisionV3>(v).map_err(Into::into));
+            .and_then(|v| serde_json::from_value::<DecisionV4>(v).map_err(Into::into));
         if let Err(error) = value.and_then(|v| operations::adopt(store, &snapshot, &v)) {
             reject(store, &snapshot, &error.to_string())?;
         }

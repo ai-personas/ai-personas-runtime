@@ -7,9 +7,9 @@ use serde_json::Value;
 /// revisions are resolved by the runtime, never invented by the language model.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct DecisionV3 {
-    /// Must be exactly 3. ModelPackage has its own separate version 1.
-    #[schemars(range(min = 3, max = 3))]
+pub struct DecisionV4 {
+    /// Must be exactly 4. ModelPackage has its own separate version 1.
+    #[schemars(range(min = 4, max = 4))]
     pub version: u32,
     /// Copy the current snapshot's top-level invocation, never an older event id.
     pub invocation: String,
@@ -84,6 +84,13 @@ pub struct ContextChoice {
     pub references: Vec<ContextResource>,
     /// Complete selection of helpful tool schemas, not a permission list.
     pub tools: Vec<String>,
+    /// Your concise factual handoff to the next decision, replacing the previous
+    /// note. Preserve discoveries, current decisions, working tool invocations,
+    /// failed approaches, exact evidence pointers and the next concrete action
+    /// that will otherwise be forgotten. Distinguish observed from pending.
+    /// This is working context, not character or a runtime-written summary.
+    /// Empty clears the note; bootstrap notes are not carried into active work.
+    pub working_note: String,
     /// Explain why this selection preserves the information needed to act next.
     pub reason: String,
 }

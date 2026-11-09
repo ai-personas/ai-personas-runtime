@@ -768,7 +768,7 @@ fn switch_model(
     Ok(())
 }
 
-pub fn adopt(store: &mut Store, snapshot: &Snapshot, decision: &DecisionV3) -> Result<()> {
+pub fn adopt(store: &mut Store, snapshot: &Snapshot, decision: &DecisionV4) -> Result<()> {
     store.transaction(|db|{
         if store::stopped(db,&snapshot.work,&snapshot.actor)?.is_some(){return Err(failure("control changed before adoption"));}
         if snapshot.data["control_versions"]!=store::control_versions(db,&snapshot.work,&snapshot.actor)?{
@@ -783,7 +783,7 @@ pub fn adopt(store: &mut Store, snapshot: &Snapshot, decision: &DecisionV3) -> R
         let part_record=store::required(db,"participation",&format!("{}/{}",snapshot.work,snapshot.actor))?;
         let mut persona:Persona=decode(&p.body)?;let mut part:Participation=decode(&part_record.body)?;
         if p.reference.revision!=snapshot.persona_revision||part_record.reference.revision!=snapshot.participation_revision||persona.epoch!=snapshot.epoch||persona.model!=snapshot.model {return Err(failure("stale decision authority"));}
-        if decision.version!=3{return Err(failure("DecisionV3.version must be 3 and next_context must explicitly select references, tools and reason; ModelPackage.version is separately 1"));}
+        if decision.version!=4{return Err(failure("DecisionV4.version must be 4 and next_context must explicitly contain references, tools, working_note and reason; ModelPackage.version is separately 1"));}
         if decision.invocation!=snapshot.invocation{return Err(failure(format!("invocation must equal the current snapshot id {}",snapshot.invocation)));}
         if decision.work.reason.trim().is_empty(){return Err(failure("work judgment needs a reason"));}
         check_references(db,&decision.work.evidence)?;
