@@ -33,19 +33,43 @@ fn check_appraisal(db: &Connection, a: &Appraisal) -> Result<()> {
 
 /// A delivery is a coherent file tree. Keep different deliveries separate, but
 /// preserve relative references among files within one delivered package.
-pub fn package_paths(db:&Connection,references:&[String])->Result<BTreeMap<std::path::PathBuf,String>> {
-    use std::path::{Component,Path,PathBuf};
-    let mut paths=BTreeMap::<PathBuf,String>::new();
+pub fn package_paths(
+    db: &Connection,
+    references: &[String],
+) -> Result<BTreeMap<std::path::PathBuf, String>> {
+    use std::path::{Component, Path, PathBuf};
+    let mut paths = BTreeMap::<PathBuf, String>::new();
     for reference in references {
-        let asset=store::exact(db,reference)?;
-        if asset.reference.kind!="asset"{return Err(failure("delivery artifacts must be exact retained assets"));}
-        let path=asset.body["path"].as_str().ok_or_else(||failure("asset has no logical path"))?;
-        if path.is_empty()||Path::new(path).components().any(|c|!matches!(c,Component::Normal(_))){return Err(failure(format!("Organize {reference} under a relative file path before delivery: {path}")));}
-        let path=Path::new(path).components().collect::<PathBuf>();
-        for (existing,old_reference) in &paths {
-            if (&path==existing&&reference!=old_reference)||(&path!=existing&&(path.starts_with(existing)||existing.starts_with(&path))){return Err(failure(format!("Conflicting delivery paths {} and {}; choose coherent asset versions/paths",path.display(),existing.display())));}
+        let asset = store::exact(db, reference)?;
+        if asset.reference.kind != "asset" {
+            return Err(failure("delivery artifacts must be exact retained assets"));
         }
-        paths.insert(path,reference.clone());
+        let path = asset.body["path"]
+            .as_str()
+            .ok_or_else(|| failure("asset has no logical path"))?;
+        if path.is_empty()
+            || Path::new(path)
+                .components()
+                .any(|c| !matches!(c, Component::Normal(_)))
+        {
+            return Err(failure(format!(
+                "Organize {reference} under a relative file path before delivery: {path}"
+            )));
+        }
+        let path = Path::new(path).components().collect::<PathBuf>();
+        for (existing, old_reference) in &paths {
+            if (&path == existing && reference != old_reference)
+                || (&path != existing
+                    && (path.starts_with(existing) || existing.starts_with(&path)))
+            {
+                return Err(failure(format!(
+                    "Conflicting delivery paths {} and {}; choose coherent asset versions/paths",
+                    path.display(),
+                    existing.display()
+                )));
+            }
+        }
+        paths.insert(path, reference.clone());
     }
     Ok(paths)
 }
@@ -253,6 +277,9 @@ fn internal(
         }
         "asset.read" | "persona.read" => {
             let x: tools::Read = decode(input)?;
+            if persona.model.is_none() {
+                context::bootstrap_reference(db, actor, &x.reference)?;
+            }
             context::read(db, &x.reference, x.start, x.end)
         }
         "asset.save" => {
@@ -439,7 +466,7 @@ fn internal(
                 ));
             }
             check_references(db, &x.evidence)?;
-            package_paths(db,&x.artifacts)?;
+            package_paths(db, &x.artifacts)?;
             let mut body = serde_json::to_value(x)?;
             body["work"] = json!(work);
             body["owner"] = json!(actor);
@@ -703,7 +730,7 @@ pub fn adopt(store: &mut Store, snapshot: &Snapshot, decision: &DecisionV2) -> R
                     .map_err(|error|failure(format!("Operation {} ({}): {error}",op.id,op.tool)))?;
                 if op.tool=="asset.save" {if let Some(r)=result["reference"].as_str(){aliases.insert(op.id.clone(),r.to_owned());}}
                 let digest=store::put(db,&result)?;
-                store::event(db,&snapshot.work,&snapshot.actor,&snapshot.actor,"tool_result",&json!({"operation":op.id,"tool":op.tool,"result":format!("object:{digest}"),"context":"complete"}),Some(&snapshot.invocation))?;
+                store::event(db,&snapshot.work,&snapshot.actor,&snapshot.actor,"tool_result",&json!({"operation":op.id,"tool":op.tool,"result":format!("object:{digest}"),"context":"complete","bootstrap":snapshot.model.is_none()}),Some(&snapshot.invocation))?;
             }
         }
         switch_model(db,snapshot,&mut persona,&mut part,&decision.next_model)?;
@@ -712,7 +739,11 @@ pub fn adopt(store: &mut Store, snapshot: &Snapshot, decision: &DecisionV2) -> R
             ContextChoice::Clear{reason}=>{if reason.trim().is_empty(){return Err(failure("context change needs reason"));}part.context.clear();part.tools.clear();},
             ContextChoice::Replace{references,tools:names,reason}=>{
                 if reason.trim().is_empty(){return Err(failure("context change needs reason"));}
-                let mut refs=serde_json::to_value(references)?;resolve(&mut refs,&aliases)?;part.context=decode(&refs)?;check_references(db,&part.context)?;
+                let mut refs=serde_json::to_value(references)?;resolve(&mut refs,&aliases)?;part.context=decode(&refs)?;
+                for selection in &part.context{
+                    let (start,end)=selection.range();
+                    context::read(db,selection.reference(),start,end)?;
+                }
                 for name in names{tools::describe(name)?;}part.tools=names.clone();
             },
         }
@@ -723,6 +754,11 @@ pub fn adopt(store: &mut Store, snapshot: &Snapshot, decision: &DecisionV2) -> R
         }
         part.cursor=snapshot.cursor;part.turn=part.turn.checked_add(1).ok_or_else(||failure("turn overflow"))?;
         part.continuation=decision.continuation.clone();part.last_judgment=Some(decision.work.clone());
+        if snapshot.model.is_none()&&persona.model.is_some(){
+            part.context.clear();part.tools.clear();
+            if matches!(part.continuation,Continuation::Ready{..}){part.continuation=Continuation::Ready{purpose:"Consider my actual invitation under my active character model".into()};}
+        }
+        if persona.model.is_none(){for selection in &part.context{context::bootstrap_reference(db,&snapshot.actor,selection.reference())?;}}
         if switching{store::write(db,"persona",&snapshot.actor,p.reference.revision,&persona,Some(&snapshot.invocation))?;}
         store::write(db,"participation",&part_record.reference.id,part_record.reference.revision,&part,Some(&snapshot.invocation))?;
         db.execute("UPDATE invocations SET state='accepted',updated=?2 WHERE id=?1",params![snapshot.invocation,now()])?;

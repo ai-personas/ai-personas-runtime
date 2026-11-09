@@ -80,13 +80,39 @@ pub enum NextModel {
 pub enum ContextChoice {
     Preserve,
     Replace {
-        references: Vec<String>,
+        references: Vec<ContextResource>,
         tools: Vec<String>,
         reason: String,
     },
     Clear {
         reason: String,
     },
+}
+
+/// A whole exact resource, or an explicit byte excerpt of retained UTF-8 data.
+/// Selection changes supplied context only; the complete resource remains stored.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum ContextResource {
+    Full(String),
+    Excerpt {
+        reference: String,
+        start: usize,
+        end: usize,
+    },
+}
+impl ContextResource {
+    pub fn reference(&self) -> &str {
+        match self {
+            Self::Full(reference) | Self::Excerpt { reference, .. } => reference,
+        }
+    }
+    pub fn range(&self) -> (Option<usize>, Option<usize>) {
+        match self {
+            Self::Full(_) => (None, None),
+            Self::Excerpt { start, end, .. } => (Some(*start), Some(*end)),
+        }
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -151,7 +177,7 @@ pub struct Participation {
     pub continuation: Continuation,
     pub cursor: i64,
     pub turn: u64,
-    pub context: Vec<String>,
+    pub context: Vec<ContextResource>,
     pub tools: Vec<String>,
     pub last_judgment: Option<WorkJudgment>,
     pub last_evaluation: Option<String>,
