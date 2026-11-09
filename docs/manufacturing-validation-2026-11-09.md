@@ -70,4 +70,21 @@ Other contributions remained in revision: the buffered supervisor had 127 compon
 
 Across the recorded earlier runtime validation, excluded exploratory follow-up, new mechanics checks and this qualifying checkpoint, reported usage totaled **21,710,799 tokens**, with at least seven canceled or refused calls of unknown usage. This excludes the coding agent's own usage and does not establish dollar billing. The separate phase snapshots of the same run are not added together. Continued execution will increase these totals.
 
+## Later copied artifacts and diagnostic continuation
+
+Subsequent independent checks retained these specific intermediate snapshots; later persona revisions may supersede them:
+
+| Copied artifact | Independently observed result | Unclosed scope |
+| --- | --- | --- |
+| Auxiliary revision 9 placement | 87 footprints, 285 pad objects, matching source net assignments; four copper layers | No tracks, vias or zones; 216 unconnected items and eight courtyard conflicts, plus drawing warnings |
+| Return assembly revision 3 | All 23 bus-bar holes and two strap holes matched editable coordinates and diameters in millimetre DXF and SVG | The accompanying electrical topology still referenced an older mechanical hash; material, joints and system integration remained open |
+| Supervisor candidate 5, revised drawings | 127 components and 442 named pin assignments matched the native export, including 78 multi-pin connection groups and 12 intentional no-connect pins; 20-page PDF exported | Four ERC errors and 127 footprint-link warnings; visual inspection still found label/pin-area overlap |
+| Main path P9 | Authored calculation reproduced exactly; separate energy arithmetic reproduced the conditional 19.287 ms hold-up result | Component assumptions, physical construction, thermal envelope and full-system integration were unclosed |
+
+P9 replaces the direct 12 V source arrangement with a 24 V reservoir and purchased regulated 12 V stage. Its simultaneous empty-bank/full-load calculation reaches about 495.5 W and checks the source against its nominal 504 W rating. Interpolating the manufacturer's plotted derating curve gives approximately 441 W at 55°C in the documented orientation. That comparison leaves a transient allowance, operating-envelope revision or design change to substantiate; it does not establish the actual enclosure temperature or predict a particular failure. The persona's own report explicitly labels its assumptions conditional. [RSP-500 manufacturer specification, page 3](https://www.meanwell.com/Upload/PDF/RSP-500/RSP-500-SPEC.PDF).
+
+Phase 6 then drained completely with **586 accepted decisions, seven rejected decisions, one provider failure and 747 completed effects**. Cumulative reported usage was **16,443,228 tokens**: 14,201,712 input and 2,241,516 output, including 390,144 cached input tokens. All 593 calls reporting a model identified `gpt-6.1-sol` / `max`. There were 107 assets and no frozen deliveries; the five character models remained at their initial active revisions. Scoped runtime-validation usage across the previously listed runs was then 24,197,684 reported tokens, excluding unknown usage and the coding agent.
+
+All seven rejected decisions had zero adopted state versions and zero outbox entries. Four omitted `next_context.reason`, but the old diagnostic named only the missing field. Commit `2e35673` adds the structural field path through one parser shared by ordinary adoption and recovery, preserving duplicate-key rejection and the existing DecisionV4 schema. Core and desktop builds passed, and phase 7 resumed the same work and character models without amendments, engineering feedback or stop resumption. Ordinary live decisions have been accepted on this build; a live rejection exercising the new diagnostic remains to be observed. The desktop viewer was refreshed to this build and its read-only persona-status view inspected.
+
 Private evidence is retained outside the repository under `/home/dev/.local/state/ai-personas-validation/20261109-manufacture-artifacts`, including phase manifests, immutable state, provider receipts, independent snapshot reviews and exported mechanics reports. The implementation remains on `feat/editable-persona-models` in the separate editable checkout; the original checkout and prior deliveries are preserved.
