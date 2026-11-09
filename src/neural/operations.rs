@@ -437,6 +437,31 @@ fn internal(
             store::event(db, work, actor, "*", "invitation_response", &x, Some(call))?;
             Ok(json!({"accepted":x.accept,"commitment":x.commitment}))
         }
+        "work.commitment" => {
+            let x: tools::Commitment = decode(input)?;
+            if !part.accepted
+                || part.declined
+                || x.commitment.trim().is_empty()
+                || x.reason.trim().is_empty()
+            {
+                return Err(failure("revising a commitment requires an accepted participation, current contribution and reason"));
+            }
+            let previous = context::commitment(db, work, actor)?;
+            let body = json!({"commitment":x.commitment,"reason":x.reason,"previous":previous.as_ref().map(|p|p["reference"].clone())});
+            let digest = store::put(db, &body)?;
+            store::event(
+                db,
+                work,
+                actor,
+                "*",
+                "commitment_changed",
+                &body,
+                Some(call),
+            )?;
+            Ok(
+                json!({"reference":format!("object:{digest}"),"commitment":x.commitment,"original_need_unchanged":true}),
+            )
+        }
         "peer.invite" => {
             let x: tools::Invite = decode(input)?;
             store::required(db, "persona", &x.persona)?;

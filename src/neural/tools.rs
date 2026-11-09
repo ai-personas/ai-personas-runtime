@@ -100,6 +100,14 @@ pub struct Respond {
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct Commitment {
+    /// Your current contribution to the original need, not a replacement need.
+    pub commitment: String,
+    /// Explain the change and account for unfinished earlier obligations.
+    pub reason: String,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct Outcome {
     pub id: Option<String>,
     pub expected_revision: Option<i64>,
@@ -196,6 +204,7 @@ pub const NAMES: &[(&str,&str)] = &[
     ("peer.message","Deliver an attributed message and exact references; does not invent attention, assent or resume a stopped participation."),
     ("peer.invite","Invite an existing persona to choose a contribution to this work."),
     ("peer.respond","Accept or decline your actual invitation, recording your own commitment only."),
+    ("work.commitment","Revise your own accepted contribution as the work develops, retaining the earlier commitment and explaining unfinished obligations. Does not change the original need, assign peers or resume anyone."),
     ("work.outcome","Record/update your intended outcome, exact artifacts, remaining work and dependencies. Authored assessment does not prove correctness."),
     ("work.request","Originate a new need and invite existing personas voluntarily; preserves originating work."),
     ("result.deliver","Deliver exact retained artifacts with supported use, evidence and remaining gaps; claimed completion is separate from user acceptance."),
@@ -227,6 +236,7 @@ pub fn describe(name: &str) -> Result<Value> {
         "peer.message" => schema::<Message>()?,
         "peer.invite" => schema::<Invite>()?,
         "peer.respond" => schema::<Respond>()?,
+        "work.commitment" => schema::<Commitment>()?,
         "work.outcome" => schema::<Outcome>()?,
         "work.request" => schema::<RequestWork>()?,
         "result.deliver" => schema::<Deliver>()?,
@@ -272,6 +282,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
         "peer.message" => parse::<Message>(value),
         "peer.invite" => parse::<Invite>(value),
         "peer.respond" => parse::<Respond>(value),
+        "work.commitment" => parse::<Commitment>(value),
         "work.outcome" => parse::<Outcome>(value),
         "work.request" => parse::<RequestWork>(value),
         "result.deliver" => parse::<Deliver>(value),
