@@ -304,22 +304,6 @@ async fn assess(
     })
 }
 
-fn media(bytes: &[u8]) -> Result<&'static str> {
-    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        Ok("image/png")
-    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
-        Ok("image/jpeg")
-    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
-        Ok("image/gif")
-    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
-        Ok("image/webp")
-    } else {
-        Err(failure(
-            "unsupported image bytes: PNG, JPEG, GIF or WebP required",
-        ))
-    }
-}
-
 async fn external(
     root: &Path,
     work: &str,
@@ -376,10 +360,12 @@ async fn external(
             let input: tools::ImageRead = serde_json::from_value(op.input.clone())?;
             let path = cfg.working_directory.join(&input.path);
             let bytes = tokio::fs::read(&path).await?;
-            let mime = media(&bytes)?;
+            let mime = context::image_media(&bytes).ok_or_else(|| {
+                failure("unsupported image bytes: PNG, JPEG, GIF or WebP required")
+            })?;
             let blob = store::put_bytes(&store.db, mime, &bytes)?;
             Ok(
-                json!({"path":path,"image_blob":blob,"mime":mime,"bytes":bytes.len(),"next_context":"exact captured bytes as image input"}),
+                json!({"path":path,"reference":format!("object:{blob}"),"image_blob":blob,"mime":mime,"bytes":bytes.len(),"next_context":"Exact captured bytes are supplied as image input. Select reference in next_context.references to keep this image in later decisions without recapturing its host file."}),
             )
         }
         "persona.assess" => {

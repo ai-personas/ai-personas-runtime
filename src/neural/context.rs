@@ -22,6 +22,7 @@ Preserve the original need. Decide your own approach and tools; no domain workfl
 Treat a request to do, create, build or design something as a request for the usable end result. Derive what the recipient must actually be able to do with it, and retain that completion standard while choosing your approach. Do not silently turn implementation into a preliminary study, instructions for someone else, or a catalogue of missing work. Choose and use appropriate authoring and validation tools, including installing tools when useful; produce the actual editable artifacts, required dependencies and usable exports when the need calls for them. Check their content, interfaces, interoperability and supported use, not only whether a script exits successfully. Sparse requests can be clarified, but make explicit revisable assumptions and keep doing independent work when an answer is not indispensable. Unperformed physical or external validation must remain explicit; it does not excuse leaving feasible design, implementation or digital verification undone. Do not claim results you cannot substantiate.
 Every response includes a work judgment (with actual remaining work), persona maintenance, asset maintenance, next model/context choice, continuation, optional user reply, and operations. no_change/defer requires a reason. change lists operation ids. Your previous work judgment and chosen operations are supplied as decision_continuity alongside newly observed consequences. Use that evidence to assess whether preparation is leading to concrete progress. Incomplete, explicitly provisional artifacts are legitimate intermediate work: build, inspect and revise candidates as information develops, without mistaking them for the finished result. Do not wait for every uncertainty to disappear before making feasible reversible progress. Distinguish individual sufficiency, shared sufficiency, partial work, blockage, and user acceptance. Before stopping, reassess the original need, actual deliverables, unresolved findings and peers' current progress. Finishing a self-selected subtask is not by itself a reason to stop while you can usefully advance the requested result. Consider extending your contribution or helping with uncovered work; choose wait when a real peer dependency is the reason to pause and you intend to respond. If stopping with an incomplete result, explain the actual impediment or decision to withdraw, not merely that more work or validation remains. A proposed handoff is not another persona's acceptance. Your reasoned choice still controls continuation; no fixed workflow, quota or round count forces it. There are no application action, token, time, or retry quotas.
 Tools are discovered by tools.search and tools.describe. Select schemas when needed to understand an operation. Schema selection is context, not permission: every operation must conform to its registered schema whether or not you selected that schema in this call. All inputs are strictly validated. No operation executes until the whole response is accepted. Use unique local operation ids; refer to an earlier same-response asset.save result as $id. External effects are dispatched afterward, so do not guess results or chain their outputs in the same response. Host commands have full host access including network/installations, no default timeout. The shown host working directory is shared. asset.save retains exact UTF-8 content in the runtime store, not on the host filesystem; use host.command to create host files and asset.import to retain their exact bytes. Input code for python3 - belongs literally in stdin. Avoid invoking a substitute agent/orchestrator for persona reasoning.
+image.read captures a host image as immutable bytes and returns an exact object reference. Whole retained image objects or image assets selected in next_context.references remain actual visual inputs on subsequent calls. asset.read can also inspect an already captured image by exact reference without a host recapture. Retain a needed image explicitly while doing further work, then remove it when it has served its purpose. Byte excerpts are text ranges, not image crops; image content is never silently resized or replaced with a newer host file.
 Exact references use kind:id@revision, or object:digest for immutable JSON/bytes. Reads never rerun operations. history.search can rediscover your prior authored/addressed events in this work, including exact request snapshots, responses and receipts; it returns metadata without replaying their bodies. Context is selective: choose exact supporting references and tool schemas for the next concrete decision, not as a permanent archive. A selection may be a whole exact reference string or {reference,start,end} for a UTF-8 byte excerpt (end exclusive). Context accounting reports actual serialized bytes and prior provider usage, without limits. Replace or clear resources that have served their purpose; a concise working note can cite full retained evidence without carrying every document or old command receipt. New tool results arrive independently of selection. tools.search/describe and asset.search/read are always available. Every next_context must explicitly contain the complete references and tools lists plus a reason; there is no preserve shortcut. Empty lists clear the selection. New events and read results are supplied once, not automatically retained. To keep facts needed beyond that observation, select their exact references or save a concise working note and select it (an earlier same-response save can be selected as $operation_id). Keep decisions, interfaces, unresolved questions and evidence pointers in that working context; do not repeatedly rediscover facts you still need. Current need, your own commitments, available peers, new events, your active network outputs, and pending tool results are supplied independently. Record reusable skills/methods as assets with useful paths/cues. Assets support reasoning; they do not replace the character network. Tool results state what was actually observed, including failure or uncertain dispatch; never assume success. Preserve exact evidence in outcomes and deliveries. result.deliver freezes exact asset versions with their supported use and remaining gaps. Host acceptance verifies mechanics, never overall design quality.
 If context_recovery is present, the provider explicitly rejected the previous input as too long. This fresh request supplies metadata instead of event and selected-resource bodies; it does not mean those contents were observed. Exact bytes remain retained. Use the supplied object references and asset.read byte ranges to inspect what you need, then explicitly choose a workable next_context. Raw stdout/stderr references avoid reading an entire structured command receipt. Do not rerun completed commands merely to recover their output or select the same oversized body whole. Character activation/rollback waits for an ordinary request with observed evidence. There is no application token quota or silent truncation; the provider's actual refusal triggered this recovery.
 "#;
@@ -229,18 +230,46 @@ pub fn read(
         (record.body, blob)
     };
     let bytes = store::bytes(db, &blob)?;
+    let media: String =
+        db.query_row("SELECT media FROM objects WHERE digest=?1", [&blob], |r| {
+            r.get(0)
+        })?;
     let start = start.unwrap_or(0);
     let end = end.unwrap_or(bytes.len());
     if start > end || end > bytes.len() {
         return Err(failure("read range is outside retained bytes"));
+    }
+    if start == 0
+        && end == bytes.len()
+        && (media.starts_with("image/") || media == "application/octet-stream")
+    {
+        if let Some(mime) = image_media(&bytes) {
+            return Ok(
+                json!({"reference":reference,"metadata":body,"bytes":bytes.len(),"range":[start,end],"image_blob":blob,"mime":mime,"visual_input":"Exact retained image; select this reference to retain it in later decisions."}),
+            );
+        }
     }
     match std::str::from_utf8(&bytes[start..end]) {
         Ok(text) => Ok(
             json!({"reference":reference,"metadata":body,"bytes":bytes.len(),"range":[start,end],"text":text}),
         ),
         Err(_) => Ok(
-            json!({"reference":reference,"metadata":body,"bytes":bytes.len(),"range":[start,end],"binary":true,"note":"Not valid UTF-8 at this range. Use image.read on a host image for visual input or export the resource."}),
+            json!({"reference":reference,"metadata":body,"bytes":bytes.len(),"range":[start,end],"binary":true,"note":"Not valid UTF-8 at this range. Select a whole retained PNG, JPEG, GIF or WebP for visual input, or export the resource. Byte excerpts are not image crops."}),
         ),
+    }
+}
+
+pub fn image_media(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some("image/jpeg")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("image/gif")
+    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+        Some("image/webp")
+    } else {
+        None
     }
 }
 
@@ -366,6 +395,13 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
             else if start.is_none()&&participation.last_evaluation.as_deref()==Some(r){Ok(json!({"reference":r,"supplied_in":"last_contextual_evaluation"}))}
             else{read(db,r,start,end)}
         }).collect::<Result<Vec<_>>>()?;
+        for resource in &selected {
+            if let (Some(blob),Some(mime))=(resource["image_blob"].as_str(),resource["mime"].as_str()) {
+                image_blobs.push((blob.to_owned(),mime.to_owned()));
+            }
+        }
+        let mut seen_images=BTreeSet::new();
+        image_blobs.retain(|(blob,_)|seen_images.insert(blob.clone()));
         let mut supplied_bodies=selected.iter().filter(|v|v.get("text").is_some()||v.get("record").is_some())
             .filter(|v|v.get("record").is_some()||(v["range"][0]==0&&v["range"][1]==v["bytes"]))
             .filter_map(|v|v["reference"].as_str().map(str::to_owned)).collect::<BTreeSet<_>>();
@@ -434,7 +470,8 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
         let resource_bytes=data["selected_resources"].as_array().expect("resources is an array").iter().map(|value|Ok(json!({"reference":value["reference"],"range":value["range"],"serialized_bytes":serde_json::to_vec(value)?.len()}))).collect::<Result<Vec<_>>>()?;
         let previous:Option<String>=db.query_row("SELECT receipt FROM invocations WHERE actor=?1 AND state='accepted' AND receipt IS NOT NULL ORDER BY updated DESC,rowid DESC LIMIT 1",[actor],|r|r.get(0)).optional()?;
         let previous=previous.map(|digest|store::object::<Value>(db,&digest).map(|receipt|json!({"receipt":format!("object:{digest}"),"usage":receipt["usage"]}))).transpose()?;
-        data["context_accounting"]=json!({"meaning":"Observed bytes, not token estimates or limits. Choose the exact context useful for your next decision; complete resources remain retained.","developer_prefix_bytes":CONTRACT.len(),"components_serialized_bytes":component_bytes,"selected_resource_bytes":resource_bytes,"previous_accepted_provider_usage":previous});
+        let image_bytes=image_blobs.iter().map(|(blob,mime)|{let bytes:i64=db.query_row("SELECT length(bytes) FROM objects WHERE digest=?1",[blob],|r|r.get(0))?;Ok(json!({"reference":format!("object:{blob}"),"mime":mime,"bytes":bytes}))}).collect::<Result<Vec<_>>>()?;
+        data["context_accounting"]=json!({"meaning":"Observed bytes, not token estimates or limits. Choose the exact context useful for your next decision; complete resources remain retained.","developer_prefix_bytes":CONTRACT.len(),"components_serialized_bytes":component_bytes,"selected_resource_bytes":resource_bytes,"images":image_bytes,"previous_accepted_provider_usage":previous});
         let mut refs=BTreeSet::new();collect_references(&data,&mut refs);
         let contract_object=store::put_bytes(db,"text/plain; charset=utf-8",CONTRACT.as_bytes())?;
         let snapshot=Snapshot{contract_object,invocation:invocation.clone(),persona_revision:p.reference.revision,participation_revision:part.reference.revision,
