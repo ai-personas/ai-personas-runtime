@@ -711,13 +711,13 @@ pub fn adopt(store: &mut Store, snapshot: &Snapshot, decision: &DecisionV2) -> R
         maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"host.command"|"result.deliver"))?;
         let mut ids=BTreeSet::new();
         for op in &decision.operations {
-            if op.id.trim().is_empty()||!ids.insert(&op.id)||!snapshot.tool_names.contains(&op.tool){return Err(failure("operation id duplicate/blank or tool schema not supplied; describe it first"));}
+            if op.id.trim().is_empty()||!ids.insert(&op.id){return Err(failure("operation id duplicate or blank"));}
             tools::validate(&op.tool,&op.input)?;
         }
         let mut aliases=BTreeMap::new();
         for (ordinal,raw) in decision.operations.iter().enumerate() {
             let mut op=raw.clone();resolve(&mut op.input,&aliases)?;
-            if persona.model.is_none()&&!matches!(op.tool.as_str(),"persona.initialize"|"persona.read"|"tools.search"|"tools.describe"|"asset.read"|"asset.search") {return Err(failure("initialize and activate your character before accepting or doing work"));}
+            if persona.model.is_none()&&!matches!(op.tool.as_str(),"persona.initialize"|"persona.read"|"tools.search"|"tools.describe"|"asset.read") {return Err(failure("initialize and activate your character before accepting or doing work"));}
             if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.search"|"peer.message") {return Err(failure("accept your invitation before ordinary work"));}
             if part.declined{return Err(failure("declined participation cannot perform operations"));}
             if tools::is_external(&op.tool) {
