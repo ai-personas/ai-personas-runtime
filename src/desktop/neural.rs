@@ -43,9 +43,9 @@ pub struct App {
     closing: bool,
 }
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>, root: PathBuf) -> Self {
-        super::theme::install_fonts(&cc.egui_ctx);
-        super::theme::apply(&cc.egui_ctx, true, 1.0);
+    pub fn new(ctx: &egui::Context, root: PathBuf) -> Self {
+        super::theme::install_fonts(ctx);
+        super::theme::apply(ctx, true, 1.0);
         let (tx, rx) = mpsc::channel();
         Self {
             root,

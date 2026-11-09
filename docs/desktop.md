@@ -1,5 +1,15 @@
 # Personas Desktop
 
+New workspaces use the [editable persona models](editable-persona-models.md). The
+default launcher opens a workspace chooser with character-profile setup, Codex
+account/model discovery, browser or device sign-in, and optional saved provider
+configuration. Creation uses the same native initialization as the terminal and
+makes no reasoning calls. Create a task and start eligible work from the workspace.
+An explicit `--progress PATH` opens saved editable state or sets up a new location.
+
+The remaining sections describe the earlier fragment workspace interface, which
+is still available when explicitly opening one of its saved desktop journals.
+
 The persona Character view shows observed maintenance since tracking began:
 ordinary decisions, accepted fragment revision decisions, character transitions,
 consecutive no-change choices and the latest attributed reason. These are activity

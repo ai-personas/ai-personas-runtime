@@ -2,7 +2,7 @@
 
 This implements the user's clarification to `AI_Personas_Final_Design.pdf` (8 November 2026): **the LLM supplies numerical parameter changes directly**. The PDF's fine-tuning service, LoRA recipe, optimizer, gradients and training jobs are replaced by literal edits and forward evaluation. The general reasoning model remains the selected provider model. Each continuing persona owns a separate small characteristic network, whose computed outputs enter that reasoning model's context. This is a concrete interface between a characteristic model and a reasoning model; behavioral benefit still needs live evidence.
 
-The implementation is part of the existing Rust application. It reuses the direct provider transport, Codex authentication adapter, host-command executor and process cancellation. New state uses `neural.sqlite`; existing fragment-based state and deliverables are left intact. Use the explicit `neural` entry points below. The existing onboarding interface still creates the earlier fragment runtime; the desktop detects and opens an editable-model state folder passed with `--progress`.
+The implementation is part of the existing Rust application. It reuses the direct provider transport, Codex authentication adapter, host-command executor and process cancellation. New state uses `neural.sqlite`; existing fragment-based state and deliverables are left intact. New desktop workspaces use this runtime, with character-profile entry, Codex account/model discovery and the same initialization function as the CLI. The explicit `neural` terminal entry points are documented below. An explicitly opened historical desktop journal retains its existing viewer.
 
 ## Character and direct editing
 
@@ -76,6 +76,8 @@ A process lock owns dispatch/recovery while independent connections support insp
 An explicit provider `context_length_exceeded` refusal has a distinct recovery path. The failed request and receipt remain retained. A fresh decision receives metadata and exact references in place of new-event and selected-resource bodies, including raw command-stream references and byte counts. The persona chooses reads, excerpts and its next context; no command is replayed and no application token cap or automatic semantic summary is introduced. Metadata is labeled as unobserved content, and character activation/rollback is deferred until an ordinary request. An accepted decision ends the recovery projection. If even that projection is refused, or another provider/dispatch failure occurs, normal explicit-review pause behavior applies. Recovery never resumes an explicitly stopped participation or clears an operator pause.
 
 ## Running it
+
+In a graphical session, `./personas` opens the workspace chooser. Select **New workspace**, enter the personas' starting characters, select a model and reasoning effort, and create the workspace. The Codex connection uses existing account metadata or browser/device sign-in through the selected authentication helper. Advanced setup can instead select an existing provider configuration with environment-backed credential references. Creation performs no reasoning call. Use **New task** and **Continue eligible work** to begin; reopening saved progress does not resume stopped participants. `--gui --progress PATH` opens an existing editable workspace or offers setup for a new location. Existing terminal onboarding still uses the earlier runtime; use the explicit commands below for editable-model terminal work.
 
 Build without adding or running unit tests:
 
