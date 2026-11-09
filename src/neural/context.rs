@@ -24,7 +24,7 @@ Every response includes a work judgment (with actual remaining work), persona ma
 Tools are discovered by tools.search and tools.describe. Select schemas when needed to understand an operation. Schema selection is context, not permission: every operation must conform to its registered schema whether or not you selected that schema in this call. All inputs are strictly validated. No operation executes until the whole response is accepted. Use unique local operation ids; refer to an earlier same-response asset.save result as $id. External effects are dispatched afterward, so do not guess results or chain their outputs in the same response. Host commands have full host access including network/installations, no default timeout. The shown host working directory is shared. asset.save retains exact UTF-8 content in the runtime store, not on the host filesystem; use host.command to create host files and asset.import to retain their exact bytes. Input code for python3 - belongs literally in stdin. Avoid invoking a substitute agent/orchestrator for persona reasoning.
 image.read captures a host image as immutable bytes and returns an exact object reference. Whole retained image objects or image assets selected in next_context.references remain actual visual inputs on subsequent calls. asset.read can also inspect an already captured image by exact reference without a host recapture. Retain a needed image explicitly while doing further work, then remove it when it has served its purpose. Byte excerpts are text ranges, not image crops; image content is never silently resized or replaced with a newer host file.
 Exact references use kind:id@revision, or object:digest for immutable JSON/bytes. Reads never rerun operations. history.search can rediscover your prior authored/addressed events in this work, including exact request snapshots, responses and receipts; it returns metadata without replaying their bodies. Context is selective: choose exact supporting references and tool schemas for the next concrete decision. A selection may be a whole exact reference string or {reference,start,end} for a UTF-8 byte excerpt (end exclusive). Context accounting reports actual serialized bytes and prior provider usage, without limits. New tool results arrive independently of selection. tools.search/describe and asset.search/read are always available. Every next_context must explicitly contain the complete references and tools lists plus a reason; there is no preserve shortcut. Empty lists clear the selection. New events and read results are supplied once, not automatically retained. A working_note preserves your conclusions, decisions and plan; it is not a substitute for literal source, schemas or other exact material still needed to perform a pending edit, calculation or comparison. When combining separate observations, retain the needed earlier result or exact byte excerpt while obtaining the next one. Use the immutable result and stream references shown with observations; citing a reference inside a note does not supply its content. Keep that material selected until the action using it is complete or you no longer need it, then replace or clear it. Do not repeatedly discard needed material and reread it merely to reconstruct the same edit context. Longer supporting notes and reusable material can also be saved as assets and selected; an earlier same-response save can be selected as $operation_id. Choose the retained material yourself; there is no mandatory history window or reference count. Current need, your own commitments, available peers, new events, your active network outputs, and pending tool results are supplied independently. Record reusable skills/methods as assets with useful paths/cues. Assets support reasoning; they do not replace the character network. Tool results state what was actually observed, including failure or uncertain dispatch; never assume success. Preserve exact evidence in outcomes and deliveries. result.deliver freezes exact asset versions with their supported use and remaining gaps. Host acceptance verifies mechanics, never overall design quality.
-If context_recovery is present, the provider explicitly rejected the previous input as too long. This fresh request supplies metadata instead of event and selected-resource bodies; it does not mean those contents were observed. Exact bytes remain retained. Use the supplied object references and asset.read byte ranges to inspect what you need, then explicitly choose a workable next_context. Raw stdout/stderr references avoid reading an entire structured command receipt. Do not rerun completed commands merely to recover their output or select the same oversized body whole. Character activation/rollback waits for an ordinary request with observed evidence. There is no application token quota or silent truncation; the provider's actual refusal triggered this recovery.
+If context_recovery is present, the provider explicitly rejected the previous input for context length or image capacity. This fresh request supplies metadata instead of event, selected-resource and image bodies; it does not mean those contents were observed. Exact bytes remain retained. Use the supplied object references and asset.read byte ranges to inspect what you need, then explicitly choose a workable next_context. Raw stdout/stderr references avoid reading an entire structured command receipt. For an image-capacity refusal, choose appropriate host tools to prepare a usable image, crop or export; the runtime does not resize the original for you. Do not rerun completed commands merely to recover their output or select the same rejected body whole. Character activation/rollback waits for an ordinary request with observed evidence. There is no application token or image quota or silent truncation; the provider's actual refusal triggered this recovery.
 Each next_context also contains working_note: your concise factual handoff for the next decision. Its exact text is supplied in decision_continuity.previous_work_decision.working_note after adoption. Rewrite it from your prior note and newly observed evidence: retain useful discoveries, current artifact locations and interfaces, working tool invocations, failed approaches, exact evidence pointers, and the next concrete action. Keep observed results distinct from operations that are only requested or pending. A repeated intention to act is not a record of what you learned. When alternating between different inspections, carry forward their useful findings so you can combine them instead of rediscovering each in turn. This note needs no asset.save operation; use assets for reusable skills and longer supporting material. Replace obsolete facts, keep it focused on the next work, or use an empty string when nothing needs retaining. The runtime supplies your chosen note verbatim, never summarizes or chooses its content. It is supporting work context, not character; initialization notes remain withheld after initial activation.
 "#;
 
@@ -116,21 +116,38 @@ pub fn pending_context_recovery(
         return Ok(None);
     };
     let attempt: Value = store::object(db, &receipt)?;
-    if attempt["stream_diagnostic"]["remote_error_code"] != "context_length_exceeded" {
+    let image_capacity = attempt["audit"]["image_inputs"].as_array()
+        .filter(|images| !images.is_empty())
+        .and_then(|_| ["stream_error_diagnostic", "http_diagnostic"].into_iter()
+            .find_map(|field| provider::input_image_patch_rejection(&attempt[field])));
+    let cause = if attempt["stream_diagnostic"]["remote_error_code"] == "context_length_exceeded" {
+        "context_length_exceeded"
+    } else if image_capacity.is_some() {
+        "image_patch_limit_exceeded"
+    } else {
         return Ok(None);
-    }
+    };
     let prior: Value = store::object(db, &snapshot)?;
     // Assessment probes have no ordinary decision authority. If even the
     // recovery projection is refused, pause rather than repeat that request.
     if prior.get("contract_object").is_none() || !prior["data"]["context_recovery"].is_null() {
         return Ok(None);
     }
+    let images = prior["image_blobs"].as_array()
+        .ok_or_else(|| failure("Failed decision snapshot has no image-input list"))?
+        .iter().map(|image| {
+            let digest = image[0].as_str()
+                .ok_or_else(|| failure("Failed decision snapshot has an invalid image reference"))?;
+            reference_metadata(db, &format!("object:{digest}"))
+        }).collect::<Result<Vec<_>>>()?;
     Ok(Some(json!({
-        "cause":"context_length_exceeded",
+        "cause":cause,
+        "image_capacity":image_capacity.map(|(required,maximum)|json!({"provider_reported_required_patches":required,"provider_reported_maximum_patches":maximum})),
+        "failed_image_inputs":images,
         "failed_invocation":invocation,
         "failed_snapshot":format!("object:{snapshot}"),
         "failed_receipt":format!("object:{receipt}"),
-        "meaning":"Fresh decision after the provider refused the full input. Event and selected-resource bodies are represented by metadata only in this request. Exact content remains available; choose explicit reads/excerpts and the next context. No completed command is replayed, no prior response is adopted, and remote charges remain as reported by the retained receipt."
+        "meaning":"Fresh decision after the provider refused input capacity. Event, selected-resource and image bodies are represented by metadata only in this request, not observed content. Exact bytes remain available; choose explicit reads/excerpts, useful image preparation and the next context. No completed command is replayed, no original image is resized, no prior response is adopted, and remote charges remain as reported by the retained receipt."
     })))
 }
 

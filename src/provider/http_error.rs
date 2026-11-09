@@ -138,3 +138,26 @@ pub(crate) fn input_text_length_rejected(diagnostic: &Value) -> bool {
     };
     reported_lengths().is_some_and(|(maximum, actual)| actual > maximum)
 }
+
+/// Recognize the observed, complete image-capacity refusal. The provider's
+/// reported numbers remain evidence; they do not become application limits.
+pub(crate) fn input_image_patch_rejection(diagnostic: &Value) -> Option<(u64, u64)> {
+    if diagnostic["body_complete"] != true || diagnostic["json_observed"] != true
+        || diagnostic["error_type"] != "invalid_request_error"
+        || diagnostic["error_code"] != "invalid_value"
+        || diagnostic["message_redacted"] != false
+    {
+        return None;
+    }
+    let number = |text: &str| -> Option<u64> {
+        (!text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit()))
+            .then(|| text.parse().ok()).flatten()
+    };
+    let rest = diagnostic["message"].as_str()?
+        .strip_prefix("The image you provided requires ")?;
+    let (required, maximum) = rest.split_once(
+        " patches after processing, exceeding the limit of ")?;
+    let required = number(required)?;
+    let maximum = number(maximum.strip_suffix(". Please resize the image and try again.")?)?;
+    (required > maximum).then_some((required, maximum))
+}
