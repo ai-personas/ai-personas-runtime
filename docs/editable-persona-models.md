@@ -27,6 +27,8 @@ Development uses the same ordinary decision interface:
 4. After observing the assessment, the persona can activate the exact candidate in an operation-free response. Activation increments its decision epoch atomically. The next fresh call uses the new model.
 5. An explicit rollback can select a retained ancestor. Obligations, observations, relationships and stopping decisions remain intact.
 
+Activation and rollback clear the cached contextual evaluation across all of that identity's tasks in the same transaction, because those outputs came from the previous weights. The exact evaluations remain in immutable history. Other tasks retain their commitments, chosen resources and continuation, including an explicit stop; a new contextual appraisal remains the persona's choice.
+
 An edit is evidence of a changed parameter, not evidence of improvement. Matched synthetic responses can expose a difference or regression; they do not establish lasting benefit in actual work. Choosing no change remains valid.
 
 ## Decisions, context and work

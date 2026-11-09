@@ -755,14 +755,38 @@ fn switch_model(
         .checked_add(1)
         .ok_or_else(|| failure("epoch overflow"))?;
     persona.lifecycle = "active".into();
-    part.last_evaluation = None;
+    // The model belongs to the identity, not one task. Every cached appraisal
+    // contains outputs from its former weights, including on stopped tasks.
+    // Invalidate those pointers in this same activation transaction while
+    // retaining their immutable evidence and each task's continuation.
+    let mut invalidated = Vec::new();
+    if let Some(reference) = part.last_evaluation.take() {
+        invalidated.push(json!({"work":part.work,"evaluation":reference}));
+    }
+    for record in store::list(db, "participation")? {
+        if record.body["persona"] != persona.id || record.body["work"] == snapshot.work {
+            continue;
+        }
+        let mut other: Participation = decode(&record.body)?;
+        if let Some(reference) = other.last_evaluation.take() {
+            store::write(
+                db,
+                "participation",
+                &record.reference.id,
+                record.reference.revision,
+                &other,
+                Some(&snapshot.invocation),
+            )?;
+            invalidated.push(json!({"work":other.work,"evaluation":reference}));
+        }
+    }
     store::event(
         db,
         &snapshot.work,
         &snapshot.actor,
         &snapshot.actor,
         "model_changed",
-        &json!({"choice":next,"epoch":persona.epoch,"model":persona.model}),
+        &json!({"choice":next,"epoch":persona.epoch,"model":persona.model,"invalidated_contextual_evaluations":invalidated}),
         Some(&snapshot.invocation),
     )?;
     Ok(())
