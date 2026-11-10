@@ -586,7 +586,11 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
                 }
                 if event["body"]["context"]!="reference" {
                     event["supplied_result"]=if event["body"]["context"]=="output"&&result.get("outcome").is_some() {
-                        json!({"outcome":result["outcome"],"context_sources":result["context_sources"]})
+                        // Keep exact stream handles with the observed output,
+                        // so later selections can retain raw byte excerpts
+                        // without loading the whole command receipt or reading
+                        // a mutable host log again.
+                        json!({"outcome":result["outcome"],"raw_logs":result["raw_logs"],"context_sources":result["context_sources"]})
                     } else {result};
                 }
             }

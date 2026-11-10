@@ -69,7 +69,8 @@ pub struct HostCommand {
     /// Omission uses that workspace directory. Each command chooses independently.
     pub working_directory: Option<String>,
     pub timeout_seconds: Option<u64>,
-    /// output: stdout/stderr and status; complete: also inputs; reference: exact result pointer.
+    /// output: stdout/stderr, status and immutable raw-stream references;
+    /// complete: also inputs; reference: exact result pointer without its body.
     pub result_context: ResultContext,
     /// Exact assets needed to interpret output. Same-response saves use $operation_id.
     pub context_sources: Vec<String>,
