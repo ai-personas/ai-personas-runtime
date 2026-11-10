@@ -202,7 +202,7 @@ pub const NAMES: &[(&str,&str)] = &[
     ("asset.search","Find retained shared resources by path and lexical/regex cues."),
     ("asset.read","Read exact retained text or record, optionally a measured UTF-8 byte range. A read does not rerun a tool."),
     ("asset.save","Save UTF-8 supporting content with path/cues and exact base. New identity/receipt is returned by the host. Does not write a host file."),
-    ("asset.import","Retain exact bytes read from a host file after dispatch; metadata is not prior body supply."),
+    ("asset.import","Retain exact bytes read from a host file after dispatch; metadata is not prior body supply. The exact asset reference arrives in a later tool receipt. Same-response $operation_id references cannot name this import; read its result before selecting or citing the resulting asset."),
     ("asset.organize","Move/update discovery metadata or retire a resource while preserving exact prior bytes and history."),
     ("image.read","Capture a host image and supply its exact bytes as image input in the next decision."),
     ("host.command","Run a shell command with full host access and installation/network capabilities. Prefer python3 - with literal stdin for Python. Actual output is returned after execution."),
