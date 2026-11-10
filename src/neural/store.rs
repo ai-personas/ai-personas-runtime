@@ -137,6 +137,7 @@ pub fn status(db: &Connection) -> Result<Value> {
     Ok(json!({"format":"neural-runtime-v2","personas":list(db,"persona")?,
         "work":list(db,"work")?,"participation":list(db,"participation")?,
         "outcomes":list(db,"outcome")?,"deliveries":list(db,"delivery")?,
+        "jobs":super::jobs::index(db,None,false)?,
         "invocations":counts,"operations":effect_counts,"controls":controls,
         "meaning":"Stored activity, authored judgments and retained deliveries; not an independent quality verdict."}))
 }

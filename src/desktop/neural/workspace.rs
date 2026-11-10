@@ -140,7 +140,7 @@ impl App {
                 for control in self
                     .records("controls")
                     .iter()
-                    .filter(|c| c["state"] != "running")
+                    .filter(|c| c["state"] != "running" && !s(c, "scope").starts_with("job:"))
                 {
                     ui.colored_label(
                         theme::ACCENT,
@@ -1004,7 +1004,10 @@ impl App {
             {
                 self.files.workspace_mode();
             }
-            ui.menu_button("Open reference", |ui| {
+            egui::containers::menu::MenuButton::new("Open reference")
+                .config(egui::containers::menu::MenuConfig::new()
+                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside))
+                .ui(ui, |ui| {
                 ui.add(
                     egui::TextEdit::singleline(&mut self.reference_input)
                         .hint_text("asset:…@revision or object:…")
@@ -1167,6 +1170,17 @@ impl App {
                         if ui.small_button("Inspect request").clicked() {
                             self.open_resource(ctx, s(effect, "operation").into());
                         }
+                        if let Some(job) = effect["job"].as_str() {
+                            if let Some(started) = effect["started"].as_i64() {
+                                ui.weak(format!("{}s since launch", ai_personas::neural::now().saturating_sub(started)));
+                            }
+                            if !effect["cancellation"].is_null() {
+                                ui.weak("Cancellation requested");
+                            }
+                            if ui.small_button("Inspect job").clicked() {
+                                self.open_resource(ctx, job.into());
+                            }
+                        }
                     });
                 }
                 let rows: Vec<Value> = self
@@ -1175,7 +1189,7 @@ impl App {
                     .rev()
                     .filter(|e| e["work"] == self.work && match self.activity_filter {
                         1 => e["kind"] == "tool_result",
-                        2 => e["tool_outcome"]["problem"] == true || matches!(s(e, "kind"), "provider_failure" | "decision_rejected" | "uncertain_effect"),
+                        2 => e["tool_outcome"]["problem"] == true || matches!(s(e, "kind"), "provider_failure" | "decision_rejected" | "uncertain_effect" | "uncertain_job"),
                         _ => true,
                     })
                     .cloned()

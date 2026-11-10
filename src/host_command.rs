@@ -236,7 +236,19 @@ impl Drop for RunningCommand {
 pub fn execute(
     input: &Inputs,
     directory: &Path,
+    observe_stop: impl FnMut() -> Option<serde_json::Value>,
+) -> Outcome {
+    execute_with_start(input, directory, observe_stop, |_, _, _| Ok(()))
+}
+
+/// Report the actual launched process and its live log paths. The callback
+/// must finish successfully before execution is allowed to continue unobserved.
+/// These paths are mutable host files, never immutable output evidence.
+pub fn execute_with_start(
+    input: &Inputs,
+    directory: &Path,
     mut observe_stop: impl FnMut() -> Option<serde_json::Value>,
+    mut on_start: impl FnMut(u32, &Path, &Path) -> std::io::Result<()>,
 ) -> Outcome {
     use std::os::unix::ffi::OsStrExt;
     let started = Instant::now();
@@ -310,6 +322,7 @@ pub fn execute(
         let execution_started = Instant::now();
         let mut child = RunningCommand { child, reaped: false };
         outcome.process_started = true;
+        on_start(child.child.id(), &stdout_path, &stderr_path)?;
         let mut next_control_check = Instant::now();
         let status = loop {
             if let Some(status) = child.try_wait()? {

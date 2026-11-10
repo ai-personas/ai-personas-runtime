@@ -161,7 +161,7 @@ impl App {
         ui.add_space(8.);
         let path = s(&metadata, "path");
         ui.add(egui::Label::new(RichText::new(if path.is_empty() {
-            "Exact resource"
+            if metadata["kind"] == "job" { "Background command" } else { "Exact resource" }
         } else {
             path.rsplit('/').next().unwrap_or(path)
         }).size(18.).strong()).wrap());
@@ -194,10 +194,52 @@ impl App {
         if ui.small_button("Copy reference").clicked() {
             ui.ctx().copy_text(self.selected_reference.clone());
         }
-        if let Some(digest) = metadata["blob"].as_str() {
+        if let Some(digest) = metadata["blob"].as_str().or_else(|| metadata["record_digest"].as_str()) {
             ui.add_space(12.);
-            eyebrow(ui, "SHA-256");
+            eyebrow(ui, if metadata["blob"].is_string() { "File SHA-256" } else { "Record SHA-256" });
             ui.add(egui::Label::new(RichText::new(digest).monospace().size(11.).weak()).wrap());
+        }
+        if metadata["kind"] == "job" {
+            let job = &metadata["job"];
+            ui.add_space(15.);
+            section(ui, "Execution", "At this recorded revision");
+            theme::property(ui, "Version", &metadata["version"].to_string());
+            ui.strong(match s(job, "state") {
+                "submitted" => "Submitted; launch not yet recorded",
+                "running" => "Process running",
+                "completed" => "Terminal result recorded",
+                "not_started" => "Process not started",
+                "uncertain" => "Outcome uncertain",
+                state => state,
+            });
+            for (field, label) in [("submitted", "Submitted"), ("started", "Launched"), ("finished", "Finished")] {
+                if let Some(time) = job[field].as_i64() {
+                    theme::property(ui, label, &time_label(time));
+                }
+            }
+            if let Some(reason) = job["cancellation"]["reason"].as_str() {
+                ui.label(format!("Cancellation requested: {reason}"));
+            }
+            for (field, label) in [("input", "Open command input"), ("result", "Open terminal receipt")] {
+                if let Some(reference) = job[field].as_str() {
+                    if ui.button(label).clicked() { self.open_resource(ui.ctx(), reference.into()); }
+                }
+            }
+            let identity = self.selected_reference.rsplit_once('@').map(|(id, _)| id);
+            let latest = self.snapshot.status["jobs"].as_array().into_iter().flatten()
+                .filter_map(|job| job["reference"].as_str())
+                .find(|reference| reference.rsplit_once('@').map(|(id, _)| id) == identity)
+                .map(str::to_owned);
+            if let Some(reference) = latest.filter(|reference| reference != &self.selected_reference) {
+                if ui.button("Open latest job revision").clicked() { self.open_resource(ui.ctx(), reference); }
+            }
+            return;
+        }
+        if !self.selected_reference.starts_with("asset:") {
+            ui.add_space(15.);
+            section(ui, "Retained record", "");
+            ui.weak("The preview shows this exact stored record. Later observations remain separate.");
+            return;
         }
         ui.add_space(15.);
         section(ui, "Qualifications", "From the author");

@@ -48,6 +48,11 @@ panel visibility. Panel widths and editor selection survive reopening the worksp
   durations, and open the exact result or event. Queued, running and uncertain
   tools remain visible independently of model calls. An exit code of zero
   describes process execution; it does not establish artifact correctness.
+  Persona-selected background jobs include elapsed time and an exact job link.
+  Submission, cancellation requests and terminal results appear separately;
+  the job inspector shows its recorded revision, owner, command and result links.
+  **Open reference** also accepts exact job records, whose original stored bytes
+  are available in the preview without treating them as delivered artifacts.
 
 Artifact previews reuse the desktop's asynchronous image, Markdown/code, data,
 3D, archive and optional native renderers. Exact bytes are read and hash-checked

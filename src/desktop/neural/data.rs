@@ -178,6 +178,17 @@ pub(super) fn snapshot(root: &Path, after: i64) -> neural::Result<Snapshot> {
         let operation: Value = store::object(&db, &digest)?;
         active_effects.push(json!({"id":id,"actor":actor,"work":work,"state":state,"tool":operation["tool"],"operation":format!("object:{digest}")}));
     }
+    for job in status["jobs"].as_array().into_iter().flatten() {
+        let state = match job["state"].as_str() {
+            Some("submitted") => "pending",
+            Some("running") => "dispatched",
+            Some("uncertain") => "uncertain",
+            _ => continue,
+        };
+        active_effects.push(json!({"id":job["reference"],"actor":job["owner"],"work":job["work"],
+            "state":state,"tool":"host.start (background)","operation":job["input"],
+            "job":job["reference"],"started":job["started"],"cancellation":job["cancellation"]}));
+    }
     let directory = store::head(&db, "config", "runtime")?
         .and_then(|r| r.body["working_directory"].as_str().map(PathBuf::from))
         .unwrap_or_default();
@@ -208,7 +219,11 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
     let outcome = &result["outcome"];
     let (label, problem) = if result["error"].is_string() {
         ("Failed".to_owned(), true)
-    } else if body["tool"] != "host.command" {
+    } else if body["tool"] == "host.start" && result["submitted"] == true {
+        ("Job submitted".to_owned(), false)
+    } else if body["tool"] == "host.cancel" && result["cancellation_requested"] == true {
+        ("Cancellation requested".to_owned(), false)
+    } else if body["tool"] != "host.command" && !(body["tool"] == "host.start" && body["phase"] == "terminal") {
         ("Recorded".to_owned(), false)
     } else if outcome["timed_out"] == true {
         ("Timed out".to_owned(), true)
@@ -263,10 +278,16 @@ pub(super) fn preview(root: &Path, reference: &str) -> neural::Result<Preview> {
                 .into_owned();
             (store::bytes(&db, digest)?, name, record.body)
         } else {
+            let mut metadata = json!({"reference":reference,"kind":record.reference.kind,
+                "version":record.reference.revision,"record_digest":record.reference.digest,
+                "owner":record.body["owner"]});
+            if record.reference.kind == "job" {
+                metadata["job"] = record.body.clone();
+            }
             (
-                serde_json::to_vec_pretty(&record.body)?,
+                store::bytes(&db, &record.reference.digest)?,
                 format!("{}-{}.json", record.reference.kind, record.reference.id),
-                json!({"reference":reference}),
+                metadata,
             )
         }
     };

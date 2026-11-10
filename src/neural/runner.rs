@@ -1,6 +1,6 @@
 use super::{
     context::{self, Snapshot},
-    failure, now, operations,
+    failure, jobs, now, operations,
     protocol::*,
     store::{self, Store},
     tools, Result,
@@ -310,10 +310,19 @@ async fn external(
     actor: &str,
     invocation: &str,
     op: &Operation,
+    jobs: &jobs::Manager,
 ) -> Result<Value> {
     let mut store = Store::open(root)?;
     let cfg = config(&store)?;
     match op.tool.as_str() {
+        "host.start" => {
+            let input: tools::HostCommand = serde_json::from_value(op.input.clone())?;
+            let directory = input.working_directory.as_deref()
+                .map(|path| cfg.working_directory.join(path))
+                .unwrap_or_else(|| cfg.working_directory.clone());
+            jobs.submit(&mut store, work, actor, invocation, &op.id, &input, directory)
+        }
+        "host.observe" => jobs::observe(&store, actor, &serde_json::from_value(op.input.clone())?),
         "host.command" => {
             let input: tools::HostCommand = serde_json::from_value(op.input.clone())?;
             let directory = input
@@ -340,12 +349,7 @@ async fn external(
             .await?;
             // Keep exact raw logs as immutable objects as well as the host's
             // complete textual capture. Later file edits cannot rewrite evidence.
-            let mut logs = Vec::new();
-            for (stream, capture) in [("stdout", &outcome.stdout), ("stderr", &outcome.stderr)] {
-                if let Some(path) = &capture.log_path {
-                    match std::fs::read(path){Ok(bytes)=>logs.push(json!({"stream":stream,"object":format!("object:{}",store::put_bytes(&store.db,"application/octet-stream",&bytes)?),"bytes":bytes.len()})),Err(e)=>logs.push(json!({"stream":stream,"retention_error":e.to_string()}))}
-                }
-            }
+            let logs = jobs::retain_logs(&store.db, &outcome)?;
             Ok(
                 json!({"input":input,"outcome":outcome,"raw_logs":logs,"context_sources":input.context_sources}),
             )
@@ -387,7 +391,7 @@ async fn external(
     }
 }
 
-async fn effects(root: &Path, actor: &str) -> Result<()> {
+async fn effects(root: &Path, actor: &str, jobs: &jobs::Manager) -> Result<()> {
     let mut store = Store::open(root)?;
     loop {
         let row:Option<(String,String,String,String)>=store.db.query_row("SELECT id,work,invocation,operation FROM outbox WHERE actor=?1 AND state='pending' ORDER BY invocation,ordinal LIMIT 1",[actor],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?;
@@ -411,7 +415,7 @@ async fn effects(root: &Path, actor: &str) -> Result<()> {
             }
             Ok(())
         })?;
-        let result = external(root, &work, actor, &invocation, &op).await;
+        let result = external(root, &work, actor, &invocation, &op, jobs).await;
         let value = match result {
             Ok(value) => value,
             Err(error) => {
@@ -433,6 +437,7 @@ async fn effects(root: &Path, actor: &str) -> Result<()> {
 
 fn recover(store: &mut Store) -> Result<()> {
     store.transaction(|db|{
+        jobs::recover(db)?;
         let mut statement=db.prepare("SELECT id,work,actor,state FROM invocations WHERE state IN ('prepared','dispatched','probe_prepared','probe_dispatched')")?;
         let rows=statement.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?)))?.collect::<std::result::Result<Vec<_>,_>>()?;
         for (call,work,actor,state) in rows {
@@ -480,9 +485,11 @@ pub async fn run(root: &Path, watch: bool) -> Result<Value> {
     let root = store.root.clone();
     let mut busy = BTreeSet::new();
     let mut tasks = tokio::task::JoinSet::new();
+    let jobs = jobs::Manager::default();
     let mut served = std::collections::BTreeMap::new();
     let mut scheduling_order = 0u64;
     loop {
+        jobs.reap(&mut store)?;
         if let Some(signal) = crate::process_control::signal() {
             store.control("global", "paused", signal)?;
         }
@@ -541,12 +548,13 @@ pub async fn run(root: &Path, watch: bool) -> Result<Value> {
                 .ok_or_else(|| failure("scheduler order overflow"))?;
             served.insert((actor.clone(), work.clone()), scheduling_order);
             let root = root.clone();
+            let jobs = jobs.clone();
             tasks.spawn(async move {
                 let result = async {
-                    effects(&root, &actor).await?;
+                    effects(&root, &actor, &jobs).await?;
                     if ready {
                         decision(&root, &work, &actor).await?;
-                        effects(&root, &actor).await?;
+                        effects(&root, &actor, &jobs).await?;
                     }
                     Ok::<(), super::Error>(())
                 }
@@ -554,7 +562,7 @@ pub async fn run(root: &Path, watch: bool) -> Result<Value> {
                 (actor, work, result)
             });
         }
-        if tasks.is_empty()
+        if tasks.is_empty() && jobs.is_empty()?
             && (draining || !watch && !future_wake || crate::process_control::signal().is_some())
         {
             break;

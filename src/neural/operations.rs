@@ -2,7 +2,7 @@
 //! entries; their results are never assumed while accepting a decision.
 use super::{
     context::{self, Snapshot},
-    failure, id, now,
+    failure, id, jobs, now,
     protocol::*,
     store::{self, Reference, Store},
     tools, Result,
@@ -144,7 +144,7 @@ fn maintenance(
                     named.contains(o.id.as_str()) && (predicate(&o.tool) || optional(&o.tool))
                 }))
             {
-                return Err(failure("maintenance change must name all applicable mutation ids and contain an applicable operation, or use empty ids for an operation-free persona activation/rollback. Context evaluation/assessment counts for persona maintenance; host.command, image.read, work.outcome or result.deliver counts for asset maintenance"));
+                return Err(failure("maintenance change must name all applicable mutation ids and contain an applicable operation, or use empty ids for an operation-free persona activation/rollback. Context evaluation/assessment counts for persona maintenance; host.command, host.start, host.cancel, image.read, work.outcome or result.deliver counts for asset maintenance"));
             }
         }
     }
@@ -485,6 +485,7 @@ fn internal(
             invite(db, work, &x.persona, actor, &x.contribution, Some(call))?;
             Ok(json!({"invited":x.persona,"accepted":false}))
         }
+        "host.cancel" => jobs::cancel(db, actor, call, &decode(input)?),
         "peer.message" => {
             let x: tools::Message = decode(input)?;
             check_references(db, &x.references)?;
@@ -819,7 +820,7 @@ pub fn adopt(store: &mut Store, snapshot: &Snapshot, decision: &DecisionV4) -> R
         // Host commands may be read-only; explicit asset mutations must be acknowledged.
         maintenance(&decision.persona_maintenance,&decision.operations,tools::model_mutation,|name|matches!(name,"persona.evaluate"|"persona.assess"),switching)
             .map_err(|e|failure(format!("persona_maintenance: {e}")))?;
-        maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"host.command"|"image.read"|"work.outcome"|"result.deliver"),false)
+        maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"host.command"|"host.start"|"host.cancel"|"image.read"|"work.outcome"|"result.deliver"),false)
             .map_err(|e|failure(format!("asset_maintenance: {e}")))?;
         let mut ids=BTreeSet::new();
         for op in &decision.operations {
@@ -873,12 +874,16 @@ pub fn adopt(store: &mut Store, snapshot: &Snapshot, decision: &DecisionV4) -> R
 
 pub fn validate_external(db: &Connection, persona: &Persona, op: &Operation) -> Result<()> {
     match op.tool.as_str() {
-        "host.command" => {
+        "host.command" | "host.start" => {
             let x: tools::HostCommand = decode(&op.input)?;
             check_references(db, &x.context_sources)?;
             if x.command.trim().is_empty() {
                 return Err(failure("empty command"));
             }
+        }
+        "host.observe" => {
+            let x: tools::HostObserve = decode(&op.input)?;
+            jobs::owned(db, &persona.id, &x.job)?;
         }
         "asset.import" => {
             let x: tools::Import = decode(&op.input)?;

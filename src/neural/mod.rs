@@ -2,6 +2,7 @@
 //! host executors; history is immutable and never part of a mutable state blob.
 pub mod cli;
 pub mod context;
+pub mod jobs;
 pub mod operations;
 pub mod protocol;
 pub mod runner;

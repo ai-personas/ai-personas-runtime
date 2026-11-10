@@ -74,6 +74,35 @@ pub struct HostCommand {
     /// Exact assets needed to interpret output. Same-response saves use $operation_id.
     pub context_sources: Vec<String>,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HostObserve {
+    /// Any observed exact job:id@revision for your job. Reads its current state.
+    pub job: String,
+    /// Omit for status only. A selected stream captures an immutable byte range
+    /// from the live log; this is a partial observation until the job finishes.
+    pub stream: Option<HostStream>,
+    #[serde(default)]
+    pub start: u64,
+    /// Exclusive byte offset. Omission captures through the observed log size.
+    pub end: Option<u64>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum HostStream {
+    Stdout,
+    Stderr,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HostCancel {
+    /// Any observed exact job:id@revision for your job. Never a raw process id.
+    pub job: String,
+    pub reason: String,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ResultContext {
@@ -206,6 +235,9 @@ pub const NAMES: &[(&str,&str)] = &[
     ("asset.organize","Move/update discovery metadata or retire a resource while preserving exact prior bytes and history."),
     ("image.read","Capture a host image and supply its exact bytes as image input in the next decision."),
     ("host.command","Run a shell command with full host access and installation/network capabilities. Prefer python3 - with literal stdin for Python. Actual output is returned after execution."),
+    ("host.start","Submit an owned background host command and return a job reference. Submission is not process launch or completion. Continue independent work or wait for its completion event; no default timeout. Uses the same inputs as host.command."),
+    ("host.observe","Observe your background job's current state and optionally retain an exact stdout/stderr byte range. Does not wait, rerun or cancel it."),
+    ("host.cancel","Request cancellation of your background job with an explicit reason. The later terminal receipt records what actually stopped; a request alone is not completion."),
     ("peer.message","Deliver an attributed message and exact references; does not invent attention, assent or resume a stopped participation."),
     ("peer.invite","Invite an existing persona to choose a contribution to this work."),
     ("peer.respond","Accept or decline your actual invitation, recording your own commitment only."),
@@ -237,7 +269,9 @@ pub fn describe(name: &str) -> Result<Value> {
         "asset.import" => schema::<Import>()?,
         "asset.organize" => schema::<AssetMetadata>()?,
         "image.read" => schema::<ImageRead>()?,
-        "host.command" => schema::<HostCommand>()?,
+        "host.command" | "host.start" => schema::<HostCommand>()?,
+        "host.observe" => schema::<HostObserve>()?,
+        "host.cancel" => schema::<HostCancel>()?,
         "peer.message" => schema::<Message>()?,
         "peer.invite" => schema::<Invite>()?,
         "peer.respond" => schema::<Respond>()?,
@@ -283,7 +317,17 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
         "asset.import" => parse::<Import>(value),
         "asset.organize" => parse::<AssetMetadata>(value),
         "image.read" => parse::<ImageRead>(value),
-        "host.command" => parse::<HostCommand>(value),
+        "host.command" | "host.start" => parse::<HostCommand>(value),
+        "host.observe" => {
+            let x: HostObserve = serde_json::from_value(value.clone())?;
+            if x.end.is_some_and(|end| end < x.start)
+                || x.stream.is_none() && (x.start != 0 || x.end.is_some())
+            {
+                return Err(failure("stream byte range requires a stream and end >= start"));
+            }
+            Ok(())
+        }
+        "host.cancel" => parse::<HostCancel>(value),
         "peer.message" => parse::<Message>(value),
         "peer.invite" => parse::<Invite>(value),
         "peer.respond" => parse::<Respond>(value),
@@ -298,7 +342,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
 pub fn is_external(name: &str) -> bool {
     matches!(
         name,
-        "host.command" | "asset.import" | "image.read" | "persona.assess"
+        "host.command" | "host.start" | "host.observe" | "asset.import" | "image.read" | "persona.assess"
     )
 }
 pub fn asset_mutation(name: &str) -> bool {
