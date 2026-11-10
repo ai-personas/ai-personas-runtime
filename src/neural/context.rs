@@ -29,6 +29,7 @@ If context_recovery is present, the provider explicitly rejected the previous in
 Each next_context also contains working_note: your concise factual handoff for the next decision. Its exact text is supplied in decision_continuity.previous_work_decision.working_note after adoption. Rewrite it from your prior note and newly observed evidence: retain useful discoveries, current artifact locations and interfaces, working tool invocations, failed approaches, exact evidence pointers, and the next concrete action. Keep observed results distinct from operations that are only requested or pending. A repeated intention to act is not a record of what you learned. When alternating between different inspections, carry forward their useful findings so you can combine them instead of rediscovering each in turn. This note needs no asset.save operation; use assets for reusable skills and longer supporting material. Replace obsolete facts, keep it focused on the next work, or use an empty string when nothing needs retaining. The runtime supplies your chosen note verbatim, never summarizes or chooses its content. It is supporting work context, not character; initialization notes remain withheld after initial activation.
 The deliveries list is a discovery index of exact versions, with original authorship, scope, user acceptance and remaining work preserved. An index entry does not supply its supported-use description, artifact membership or evidence. Those exact fields remain available through asset.read or next_context selection of the delivery reference. Choose the records useful for your next decision; delivery does not establish overall quality or user acceptance.
 current_controls supplies applicable execution-control state and exact history references when retained. control_changed events attribute changes. A running control permits work at that scope; other controls and your continuation still apply. A control change is not a terminal execution receipt and does not resume an explicitly stopped participation.
+Each participant's execution view reports retained inference, unfinished effect and background-job state at this request's snapshot, including the originating work. A ready continuation does not mean that peer is idle: an earlier command or another work may still occupy its execution. Dispatched means awaiting an observed result, not proof that a host process started or succeeded. Uncertain remains unresolved. These observations do not assign duties, rank peers, change controls or establish that a peer has read your message.
 "#;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -101,6 +102,44 @@ fn decision_continuity(
         view["previous_work_decision"] = json!({"invocation":invocation,"request":format!("object:{snapshot}"),"response":format!("object:{response}"),"created":created,"completed":completed,"judgment":decision["work"],"operations":operations,"working_note":decision["next_context"]["working_note"],"context_choice_reason":decision["next_context"]["reason"]});
     }
     Ok(view)
+}
+
+/// Current execution records are distinct from a persona's chosen continuation.
+/// Supply metadata and exact pointers, without other tasks' content or tool bodies.
+pub fn execution_status(
+    db: &rusqlite::Connection,
+    actor: &str,
+    background_jobs: &[Value],
+) -> Result<Value> {
+    let mut statement = db.prepare(
+        "SELECT id,work,state,snapshot,receipt,created,updated FROM invocations
+         WHERE actor=?1 AND state IN ('prepared','dispatched','responded','probe_prepared','probe_dispatched')
+         ORDER BY rowid",
+    )?;
+    let inference = statement.query_map([actor], |r| {
+        Ok(json!({"invocation":r.get::<_,String>(0)?,"work":r.get::<_,String>(1)?,
+            "state":r.get::<_,String>(2)?,"request":format!("object:{}",r.get::<_,String>(3)?),
+            "provider_record":r.get::<_,Option<String>>(4)?.map(|digest|format!("object:{digest}")),
+            "created":r.get::<_,i64>(5)?,"updated":r.get::<_,i64>(6)?}))
+    })?.collect::<std::result::Result<Vec<_>,_>>()?;
+    let mut statement = db.prepare(
+        "SELECT o.id,o.work,o.state,o.operation,o.invocation,o.ordinal,i.created
+         FROM outbox o JOIN invocations i ON i.id=o.invocation
+         WHERE o.actor=?1 AND o.state!='completed' ORDER BY o.rowid",
+    )?;
+    let effects = statement.query_map([actor], |r| {
+        Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,
+            r.get::<_,String>(3)?,r.get::<_,String>(4)?,r.get::<_,i64>(5)?,r.get::<_,i64>(6)?))
+    })?.collect::<std::result::Result<Vec<_>,_>>()?;
+    let effects = effects.into_iter().map(|(effect,work,state,digest,invocation,ordinal,created)| {
+        let operation: Value = store::object(db, &digest)?;
+        Ok(json!({"effect":effect,"work":work,"state":state,"tool":operation["tool"],
+            "operation":format!("object:{digest}"),"invocation":invocation,
+            "ordinal":ordinal,"decision_created":created}))
+    }).collect::<Result<Vec<_>>>()?;
+    Ok(json!({"inference":inference,"unfinished_effects":effects,
+        "background_jobs":background_jobs.iter().filter(|job|job["owner"]==actor).collect::<Vec<_>>(),
+        "persona_control":super::controls::current(db,&format!("persona:{actor}"))?}))
 }
 
 /// An explicit provider capacity refusal permits a different, metadata-only
@@ -560,12 +599,13 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
             }
         }
         let participation_view=json!({"accepted":participation.accepted,"declined":participation.declined,"commitment":commitment(db,work_id,actor)?,"continuation":participation.continuation,"selection":{"references":participation.context,"tools":participation.tools}});
+        let background_jobs=if bootstrap{vec![]}else{super::jobs::index(db,None,true)?};
         let peers=store::list(db,"persona")?.into_iter().map(|r|json!({"id":r.body["id"],"label":r.body["label"],"lifecycle":r.body["lifecycle"],"model":r.body["model"]})).collect::<Vec<_>>();
         let participants=store::list(db,"participation")?.into_iter().filter(|r|r.body["work"]==work_id).map(|r|{
             let peer=r.body["persona"].as_str().ok_or_else(||failure("participation has no persona"))?;
             let current=if peer==actor {Some(json!({"supplied_in":"participation.commitment"}))}else{commitment(db,work_id,peer)?};
             let communication=if peer==actor{Some(json!({"supplied_in":"latest_user_communication"}))}else{latest_user_communication(db,work_id,peer)?};
-            Ok(json!({"reference":r.reference.handle(),"persona":peer,"accepted":r.body["accepted"],"declined":r.body["declined"],"commitment":current,"latest_user_communication":communication,"continuation":r.body["continuation"],"judgment":r.body["last_judgment"]["status"]}))
+            Ok(json!({"reference":r.reference.handle(),"persona":peer,"accepted":r.body["accepted"],"declined":r.body["declined"],"commitment":current,"latest_user_communication":communication,"continuation":r.body["continuation"],"judgment":r.body["last_judgment"]["status"],"execution":if bootstrap{Value::Null}else{execution_status(db,peer,&background_jobs)?}}))
         }).collect::<Result<Vec<_>>>()?;
         let outcomes=store::list(db,"outcome")?.into_iter().filter(|r|r.body["work"]==work_id).map(|r|{
             if r.body["owner"]==actor {json!({"reference":r.reference.handle(),"record":r.body})}
@@ -602,7 +642,7 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
             "latest_user_communication":if bootstrap{None}else{latest_user_communication(db,work_id,actor)?},
             "decision_continuity":decision_continuity(db,work_id,actor,participation.turn,bootstrap)?,
             "context_recovery":recovery,
-            "background_jobs":if bootstrap{vec![]}else{super::jobs::index(db,Some(actor),true)?},
+            "background_jobs":background_jobs.iter().filter(|job|job["owner"]==actor).collect::<Vec<_>>(),
             "current_controls":if bootstrap{vec![]}else{super::controls::relevant(db,work_id,actor)?},
             "peers":if bootstrap{vec![]}else{peers},"participants":if bootstrap{vec![]}else{participants},"outcomes":if bootstrap{vec![]}else{outcomes},"deliveries":if bootstrap{vec![]}else{deliveries},"new_events":supplied_events,
             "selected_resources":selected,"available_tools":tool_schemas,"host_working_directory":if bootstrap{Value::Null}else{config.body["working_directory"].clone()}});
