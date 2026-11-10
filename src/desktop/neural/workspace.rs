@@ -70,7 +70,12 @@ impl App {
                         .filter(|e| e["state"] == "dispatched")
                         .count();
                     if tools > 0 {
-                        theme::badge(ui, &format!("{tools} tools running"), theme::ACCENT);
+                        let label = if tools == 1 {
+                            "1 tool running".to_owned()
+                        } else {
+                            format!("{tools} tools running")
+                        };
+                        theme::badge(ui, &label, theme::ACCENT);
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.menu_button("Run controls", |ui| {
@@ -1143,7 +1148,8 @@ impl App {
                     .cloned()
                     .collect();
                 egui::ScrollArea::vertical()
-                    .id_salt("activity-events")
+                    .id_salt(("activity-events", self.work.as_str(), self.activity_filter))
+                    .auto_shrink([false, false])
                     .show_rows(ui, 28., rows.len(), |ui, range| {
                         for i in range {
                             let e = &rows[i];
