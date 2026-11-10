@@ -28,6 +28,7 @@ pub(super) struct Snapshot {
     pub appraisal_provenance: BTreeMap<(String, String), Value>,
     pub candidates: Vec<Value>,
     pub active: Vec<Value>,
+    pub inference_recovery: BTreeMap<String, Value>,
     pub active_effects: Vec<Value>,
     pub directory: PathBuf,
 }
@@ -120,7 +121,12 @@ pub(super) fn snapshot(root: &Path, after: i64) -> neural::Result<Snapshot> {
     assets.sort_by_key(|a| std::cmp::Reverse(a["created"].as_i64().unwrap_or(0)));
     let contract = FeatureContract::standard();
     let mut characters = BTreeMap::new();
+    let mut inference_recovery = BTreeMap::new();
     for p in status["personas"].as_array().into_iter().flatten() {
+        let actor = p["body"]["id"].as_str().unwrap_or("");
+        if let Some(recovery) = neural::recovery::pending(&db, actor)? {
+            inference_recovery.insert(actor.to_owned(), recovery);
+        }
         if let Some(digest) = p["body"]["model"].as_str() {
             let model: ModelPackage = store::object(&db, digest)?;
             let baseline = model
@@ -203,6 +209,7 @@ pub(super) fn snapshot(root: &Path, after: i64) -> neural::Result<Snapshot> {
         appraisal_provenance,
         candidates,
         active,
+        inference_recovery,
         active_effects,
         directory,
     })

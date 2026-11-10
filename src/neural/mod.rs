@@ -6,6 +6,7 @@ pub mod controls;
 pub mod jobs;
 pub mod operations;
 pub mod protocol;
+pub mod recovery;
 pub mod runner;
 pub mod store;
 pub mod tools;

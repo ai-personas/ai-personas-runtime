@@ -413,6 +413,14 @@ impl App {
         if p.is_null() {
             return "No task participation".into();
         }
+        if !matches!(s(&p["continuation"], "kind"), "stop" | "stopped") {
+            if let Some(recovery) = self.snapshot.inference_recovery.get(id) {
+                let seconds = recovery["not_before_unix"].as_i64().unwrap_or(0)
+                    .saturating_sub(ai_personas::neural::now());
+                return if seconds > 0 { format!("Inference recovery · {seconds}s") }
+                    else { "Inference recovery eligible".into() };
+            }
+        }
         match s(&p["continuation"], "kind") {
             "ready" => "Ready to continue",
             "wait" | "waiting" => "Waiting",
@@ -1156,6 +1164,19 @@ impl App {
                     }
                     ui.weak("Process outcomes are separate from artifact quality.");
                 });
+                let recoveries: Vec<_> = self.snapshot.inference_recovery.iter()
+                    .filter(|(actor, _)| !self.participation(actor).is_null())
+                    .map(|(actor, recovery)| (actor.clone(), recovery.clone())).collect();
+                for (actor, recovery) in recoveries {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.colored_label(theme::ACCENT, self.label(&actor));
+                        ui.strong(self.persona_state(&actor));
+                        ui.weak("Fresh inference only; pauses and stops still apply.");
+                        if ui.small_button("Inspect failed attempt").clicked() {
+                            self.open_resource(ctx, s(&recovery, "failed_receipt").into());
+                        }
+                    });
+                }
                 let active_effects: Vec<Value> = self.snapshot.active_effects.iter().filter(|e| e["work"] == self.work).cloned().collect();
                 for effect in &active_effects {
                     ui.horizontal_wrapped(|ui| {

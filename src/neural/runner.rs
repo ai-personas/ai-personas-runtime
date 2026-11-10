@@ -1,6 +1,6 @@
 use super::{
     context::{self, Snapshot},
-    failure, jobs, now, operations,
+    failure, jobs, now, operations, recovery,
     protocol::*,
     store::{self, Store},
     tools, Result,
@@ -170,7 +170,8 @@ pub async fn invoke(
             store.transaction(|db|{
                 let receipt=match &error{provider::ProviderError::Attempt{receipt,..}=>store::put(db,receipt)?,_=>store::put(db,&json!({"error":error.to_string(),"dispatch_observation":"consult prepared receipt; no automatic retry"}))?};
                 db.execute("UPDATE invocations SET state='provider_failed',receipt=?2,updated=?3 WHERE id=?1",params![call_id,receipt,now()])?;
-                store::event(db,work,"runtime",actor,"provider_failure",&json!({"invocation":call_id,"error":error.to_string(),"receipt":format!("object:{receipt}"),"automatic_retry":false}),Some(&call_id))?;Ok(())
+                let fresh_inference_scheduled=recovery::schedule(db,work,actor,&call_id,&format!("object:{receipt}"),&error,probe)?;
+                store::event(db,work,"runtime",actor,"provider_failure",&json!({"invocation":call_id,"error":error.to_string(),"receipt":format!("object:{receipt}"),"automatic_retry":fresh_inference_scheduled,"fresh_inference_scheduled":fresh_inference_scheduled}),Some(&call_id))?;Ok(())
             })?;
             Err(error.into())
         }
@@ -199,6 +200,10 @@ async fn decision(root: &Path, work: &str, actor: &str) -> Result<()> {
     let output = match invoke(root, work, actor, persona.provider, request, false).await {
         Ok(output) => output,
         Err(error) => {
+            if let Some(recovery) = recovery::scheduled(&store.db, &snapshot.invocation)? {
+                eprintln!("{}", json!({"event":"inference_recovery_scheduled","actor":actor,"invocation":snapshot.invocation,"recovery":recovery}));
+                return Ok(());
+            }
             if let Some(recovery) = context::pending_context_recovery(&store.db, work, actor)? {
                 if recovery["failed_invocation"] == snapshot.invocation {
                     store.transaction(|db| {
@@ -521,7 +526,7 @@ pub async fn run(root: &Path, watch: bool) -> Result<Value> {
                 params![part.persona, part.work],
                 |r| r.get(0),
             )?;
-            let ready = !draining
+            let mut ready = !draining
                 && match &part.continuation {
                     Continuation::Ready { .. } => true,
                     Continuation::Stop { .. } => false,
@@ -534,6 +539,16 @@ pub async fn run(root: &Path, watch: bool) -> Result<Value> {
                                 .is_empty()
                     }
                 };
+            if ready {
+                if let Some(recovery) = recovery::pending(&store.db, &part.persona)? {
+                    let not_before = recovery["not_before_unix"].as_i64()
+                        .ok_or_else(|| failure("invalid retained inference recovery time"))?;
+                    if now() < not_before {
+                        ready = false;
+                        future_wake = true;
+                    }
+                }
+            }
             if !shutting_down && (pending > 0 || ready) {
                 eligible.push((part.persona, part.work, ready));
             }

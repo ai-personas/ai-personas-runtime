@@ -1,5 +1,5 @@
 use super::{
-    failure, id, now,
+    failure, id, now, recovery,
     protocol::*,
     store::{self, Store},
     tools, Result,
@@ -137,7 +137,7 @@ pub fn execution_status(
             "operation":format!("object:{digest}"),"invocation":invocation,
             "ordinal":ordinal,"decision_created":created}))
     }).collect::<Result<Vec<_>>>()?;
-    Ok(json!({"inference":inference,"unfinished_effects":effects,
+    Ok(json!({"inference":inference,"inference_recovery":recovery::pending(db,actor)?,"unfinished_effects":effects,
         "background_jobs":background_jobs.iter().filter(|job|job["owner"]==actor).collect::<Vec<_>>(),
         "persona_control":super::controls::current(db,&format!("persona:{actor}"))?}))
 }
@@ -151,7 +151,9 @@ pub fn pending_context_recovery(
     actor: &str,
 ) -> Result<Option<Value>> {
     let row: Option<(String, String, String)> = db.query_row(
-        "SELECT id,snapshot,receipt FROM invocations WHERE work=?1 AND actor=?2 AND state='provider_failed' AND receipt IS NOT NULL AND rowid>COALESCE((SELECT MAX(rowid) FROM invocations WHERE work=?1 AND actor=?2 AND state='accepted'),0) ORDER BY rowid DESC LIMIT 1",
+        "SELECT id,snapshot,receipt FROM invocations i WHERE work=?1 AND actor=?2 AND state='provider_failed' AND receipt IS NOT NULL AND rowid>COALESCE((SELECT MAX(rowid) FROM invocations WHERE work=?1 AND actor=?2 AND state='accepted'),0)
+         AND NOT EXISTS(SELECT 1 FROM events e WHERE e.invocation=i.id AND e.kind='inference_recovery_scheduled')
+         ORDER BY rowid DESC LIMIT 1",
         params![work, actor], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
     ).optional()?;
     let Some((invocation, snapshot, receipt)) = row else {
@@ -515,7 +517,7 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
         let mut image_blobs=Vec::new();
         let mut supplied_events=Vec::new();
         for mut event in events {
-            if bootstrap&&!(event["target"]==actor&&matches!(event["kind"].as_str(),Some("tool_result"|"decision_rejected"|"provider_failure"|"runner_failure"|"recovered_invocation"))){continue;}
+            if bootstrap&&!(event["target"]==actor&&matches!(event["kind"].as_str(),Some("tool_result"|"decision_rejected"|"provider_failure"|"runner_failure"|"recovered_invocation"|"inference_recovery_scheduled"))){continue;}
             if !bootstrap&&event["body"]["bootstrap"]==true{
                 event["body"]=json!({"preparation_record":format!("object:{}",event["digest"].as_str().unwrap_or("")),"stage":"bootstrap","automatic_body_supply":false});
             }
