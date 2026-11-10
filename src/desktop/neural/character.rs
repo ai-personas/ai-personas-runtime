@@ -15,6 +15,27 @@ impl App {
         }
         Some((character.baseline.clone(), false))
     }
+    fn appraisal_origin(&mut self, ui: &mut Ui, inspect: bool) {
+        let key = (self.work.clone(), self.persona.clone());
+        let Some(provenance) = self.snapshot.appraisal_provenance.get(&key).cloned() else {
+            ui.weak("Appraisal origin unavailable; current applicability is unknown.");
+            return;
+        };
+        if let Some(recorded) = provenance["recorded_at_utc"].as_str() {
+            ui.small(format!("Appraised {recorded}"));
+        }
+        if let Some(subsequent) = provenance["accepted_decisions_since"].as_u64() {
+            ui.small(format!("{subsequent} accepted decisions since"));
+        }
+        ui.weak("Recorded observations; subsequent work does not refresh them.");
+        if inspect {
+            if let Some(reference) = provenance["response"].as_str() {
+                if ui.small_button("Inspect authored appraisal →").clicked() {
+                    self.open_resource(ui.ctx(), reference.into());
+                }
+            }
+        }
+    }
     pub(super) fn inspector_panel(&mut self, ctx: &egui::Context) {
         let p = theme::Palette::new(self.layout.dark);
         let panel = egui::SidePanel::right("studio-inspector")
@@ -92,6 +113,9 @@ impl App {
                 .small()
                 .color(color),
             );
+            if contextual {
+                self.appraisal_origin(ui, false);
+            }
             ui.add_space(8.);
             self.output_bars(ui, &evaluation, true);
             ui.add_space(10.);
@@ -278,7 +302,8 @@ impl App {
                 egui::ScrollArea::vertical().id_salt("character-profile").show(ui,|ui|{
                 ui.horizontal_wrapped(|ui|{ui.selectable_value(&mut self.contextual,true,"Latest context");ui.selectable_value(&mut self.contextual,false,"Baseline");});
                 if let Some((evaluation,contextual))=self.evaluation(){
-                    ui.small(if contextual{"Recorded contextual evaluation for this task, bound to the active model."}else{"Forward evaluation with all appraisal inputs unknown. This is not a current emotional or task assessment."});ui.add_space(14.);
+                    ui.small(if contextual{"Recorded contextual evaluation for this task, bound to the active model."}else{"Forward evaluation with all appraisal inputs unknown. This is not a current emotional or task assessment."});
+                    if contextual{self.appraisal_origin(ui,true);}ui.add_space(14.);
                     let column_gap=ui.spacing().item_spacing.x;ui.spacing_mut().item_spacing.x=18.;
             ui.columns(2,|cols|{
                         section(&mut cols[0],"Forward inclinations", "−1 … +1");self.output_bars(&mut cols[0],&evaluation,false);
@@ -300,6 +325,9 @@ impl App {
                     ui.selectable_value(&mut self.contextual, true, "Latest context");
                     ui.selectable_value(&mut self.contextual, false, "Baseline");
                 });
+                if self.evaluation().is_some_and(|(_, contextual)| contextual) {
+                    self.appraisal_origin(ui, true);
+                }
                 ui.add_space(8.);
                 egui::ScrollArea::both()
                     .id_salt("character-network")

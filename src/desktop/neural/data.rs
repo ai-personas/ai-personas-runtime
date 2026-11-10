@@ -25,6 +25,7 @@ pub(super) struct Snapshot {
     pub assets: Vec<Value>,
     pub characters: BTreeMap<String, Character>,
     pub evaluations: BTreeMap<String, Evaluation>,
+    pub appraisal_provenance: BTreeMap<(String, String), Value>,
     pub candidates: Vec<Value>,
     pub active: Vec<Value>,
     pub directory: PathBuf,
@@ -123,10 +124,23 @@ pub(super) fn snapshot(root: &Path, after: i64) -> neural::Result<Snapshot> {
         }
     }
     let mut evaluations = BTreeMap::new();
+    let mut appraisal_provenance = BTreeMap::new();
     for p in status["participation"].as_array().into_iter().flatten() {
         if let Some(reference) = p["body"]["last_evaluation"].as_str() {
             if let Some(digest) = reference.strip_prefix("object:") {
                 evaluations.insert(reference.into(), store::object(&db, digest)?);
+                let participation: neural::protocol::Participation =
+                    serde_json::from_value(p["body"].clone())?;
+                if let Some(provenance) = neural::context::appraisal_provenance(
+                    &db,
+                    &participation.work,
+                    &participation.persona,
+                    reference,
+                    participation.turn,
+                )? {
+                    appraisal_provenance
+                        .insert((participation.work, participation.persona), provenance);
+                }
             }
         }
     }
@@ -147,6 +161,7 @@ pub(super) fn snapshot(root: &Path, after: i64) -> neural::Result<Snapshot> {
         assets,
         characters,
         evaluations,
+        appraisal_provenance,
         candidates,
         active,
         directory,

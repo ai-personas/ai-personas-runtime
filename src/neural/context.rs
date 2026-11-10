@@ -319,6 +319,82 @@ fn evaluation_view(db: &rusqlite::Connection, reference: &str) -> Result<Value> 
     )
 }
 
+/// Attribute an exact appraisal to its latest accepted evaluation in this
+/// participation. Identical arithmetic can have different origins in two works;
+/// the immutable evaluation digest alone does not identify when it was authored.
+pub fn appraisal_provenance(
+    db: &rusqlite::Connection,
+    work: &str,
+    actor: &str,
+    reference: &str,
+    accepted_decisions: u64,
+) -> Result<Option<Value>> {
+    let row: Option<(i64, String, String, i64, String, String)> = db
+        .query_row(
+            "SELECT e.seq,e.digest,e.invocation,e.created,i.snapshot,i.response
+         FROM events e JOIN objects eo ON eo.digest=e.digest
+         JOIN objects ro ON ro.digest=substr(json_extract(CAST(eo.bytes AS TEXT),'$.result'),8)
+         JOIN invocations i ON i.id=e.invocation
+         WHERE e.work=?1 AND e.actor=?2 AND e.target=?2 AND e.kind='tool_result'
+           AND json_extract(CAST(eo.bytes AS TEXT),'$.tool')='persona.evaluate'
+           AND json_extract(CAST(ro.bytes AS TEXT),'$.evaluation')=?3
+           AND i.state='accepted' AND i.work=?1 AND i.actor=?2
+         ORDER BY e.seq DESC LIMIT 1",
+            params![work, actor, reference],
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((event, digest, invocation, recorded, snapshot, response)) = row else {
+        return Ok(None);
+    };
+    let receipt: Value = store::object(db, &digest)?;
+    let result_digest = receipt["result"]
+        .as_str()
+        .and_then(|r| r.strip_prefix("object:"))
+        .ok_or_else(|| failure("appraisal event has no exact result"))?;
+    let result: Value = store::object(db, result_digest)?;
+    if receipt["tool"] != "persona.evaluate" || result["evaluation"] != reference {
+        return Err(failure(
+            "appraisal provenance does not match its retained result",
+        ));
+    }
+    let participation_digest: String = db.query_row(
+        "SELECT digest FROM versions WHERE kind='participation' AND id=?1 AND invocation=?2 ORDER BY revision DESC LIMIT 1",
+        params![format!("{work}/{actor}"), invocation], |r| r.get(0),
+    )?;
+    let participation: Participation = store::object(db, &participation_digest)?;
+    if participation.work != work
+        || participation.persona != actor
+        || participation.last_evaluation.as_deref() != Some(reference)
+    {
+        return Err(failure(
+            "appraisal provenance does not match its accepted participation",
+        ));
+    }
+    let subsequent = accepted_decisions
+        .checked_sub(participation.turn)
+        .ok_or_else(|| failure("appraisal provenance is newer than the current participation"))?;
+    let recorded_utc: Option<String> = db.query_row(
+        "SELECT strftime('%Y-%m-%d %H:%M:%S UTC',?1,'unixepoch')",
+        [recorded], |r| r.get(0),
+    )?;
+    Ok(Some(json!({
+        "event":event,"record":format!("object:{digest}"),"invocation":invocation,
+        "operation":receipt["operation"],"request":format!("object:{snapshot}"),
+        "response":format!("object:{response}"),"recorded_at_unix":recorded,"recorded_at_utc":recorded_utc,
+        "accepted_decision":participation.turn,"accepted_decisions_since":subsequent
+    })))
+}
+
 pub fn bootstrap_reference(db: &rusqlite::Connection, actor: &str, reference: &str) -> Result<()> {
     let owned = if let Some(digest) = reference.strip_prefix("object:") {
         let own_response: bool = db.query_row(
@@ -467,7 +543,12 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
             let evaluation=model(db,&persona)?.evaluate(&contract,&Appraisal::default()).map_err(failure)?;
             evaluation_view(db,&format!("object:{}",store::put(db,&evaluation)?))
         }).transpose()?;
-        let evaluation=participation.last_evaluation.as_deref().map(|r|evaluation_view(db,r)).transpose()?;
+        let evaluation=participation.last_evaluation.as_deref().map(|r|{
+            let mut view=evaluation_view(db,r)?;
+            view["provenance"]=serde_json::to_value(appraisal_provenance(db,work_id,actor,r,participation.turn)?)?;
+            view["meaning"]=json!("Outputs from your recorded appraisal, not a fresh observation of the current situation. Later events do not update these inputs automatically. Decide whether they still apply; persona.evaluate can record a revised appraisal without changing character parameters. Age and decision counts describe provenance, not an expiry rule or a requirement to edit weights.");
+            Ok::<_,super::Error>(view)
+        }).transpose()?;
         for event in &mut supplied_events {
             if event["body"]["tool"]=="persona.evaluate"&&event["supplied_result"]["evaluation"]==json!(participation.last_evaluation){
                 event["supplied_result"]=json!({"evaluation":participation.last_evaluation,"supplied_in":"last_contextual_evaluation"});

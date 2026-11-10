@@ -35,7 +35,10 @@ panel visibility. Panel widths and editor selection survive reopening the worksp
   inclinations, recorded appraisal inputs, network connections, every stored
   coefficient, candidates and activation history. Baseline evaluation explicitly
   leaves all appraisal inputs unknown. A contextual trace is used only when it
-  belongs to the selected task and matches the active model. These outputs are
+  belongs to the selected task and matches the active model. Its recording time,
+  subsequent decision count and exact authored source distinguish the recorded
+  appraisal from current observations; the inspector and network view show the
+  same provenance. These outputs are
   inclinations, not measured abilities, emotions or proven improvements.
 
 Artifact previews reuse the desktop's asynchronous image, Markdown/code, data,
