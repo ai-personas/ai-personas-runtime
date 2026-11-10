@@ -272,6 +272,27 @@ fn run_python(mode: &str, input: &Path, output: &Path, folder: &Path, cancel: &C
     run("python3", &command, folder, cancel)
 }
 
+pub(super) fn tar_archive(bytes: &[u8], member: Option<(usize, &str)>, cancel: &Cancellation) -> Result<Vec<u8>, String> {
+    cancelled(cancel)?;
+    let directory = tempfile::Builder::new().prefix("personas-archive-")
+        .tempdir().map_err(|e| e.to_string())?;
+    let folder = directory.path();
+    let input = folder.join("archive");
+    let output = folder.join("result");
+    let script = folder.join("archive_reader.py");
+    std::fs::write(&input, bytes).map_err(|e| e.to_string())?;
+    std::fs::write(&script, include_str!("archive_reader.py")).map_err(|e| e.to_string())?;
+    // Standard-library parser. Member paths are never used as filesystem destinations.
+    let mut command = args(&["-I"]);
+    command.extend([script.into_os_string(), input.into_os_string(), output.as_os_str().into()]);
+    if let Some((index, name)) = member {
+        command.extend([index.to_string().into(), name.into()]);
+    }
+    run("python3", &command, folder, cancel)?;
+    cancelled(cancel)?;
+    loader::read_file(&output)
+}
+
 fn pdf_pages(path: &Path, folder: &Path, cancel: &Cancellation) -> Result<(usize, String), String> {
     let output = run("pdfinfo", &[path.as_os_str().into()], folder, cancel)?;
     let pages = output
@@ -301,7 +322,7 @@ pub(super) fn prepare(
         .file_name()
         .ok_or("The selected file has no filename.")?;
     let input = input_dir.join(name);
-    std::fs::write(&input, source.bytes()?).map_err(|e| e.to_string())?;
+    std::fs::write(&input, source.bytes(cancel)?).map_err(|e| e.to_string())?;
     cancelled(cancel)?;
     let mut diagnostics = String::new();
     let (pages, labels, summary) = match route.kind {

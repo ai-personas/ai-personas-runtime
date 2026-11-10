@@ -21,8 +21,9 @@ enum Source {
         sha256: String,
         _directory: Arc<tempfile::TempDir>,
     },
-    Zip {
+    Member {
         container: Arc<Source>,
+        format: ArchiveFormat,
         index: usize,
         name: String,
     },
@@ -38,10 +39,14 @@ struct Catalog {
     files: Vec<Entry>,
     note: String,
 }
+#[derive(Clone, Copy)]
+enum ArchiveFormat { Zip, Tar }
+#[derive(serde::Deserialize)]
 struct ArchiveEntry {
     index: usize,
     name: String,
     size: u64,
+    note: Option<String>,
 }
 enum Body {
     Image(egui::ColorImage, String),
@@ -49,7 +54,7 @@ enum Body {
     Parameters(serde_json::Value, String, Vec<data_view::Dataset>),
     Table(Vec<Vec<String>>, String),
     Mesh(Arc<mesh::Mesh>),
-    Archive(Vec<ArchiveEntry>),
+    Archive(ArchiveFormat, Vec<ArchiveEntry>),
     Native(Arc<native_preview::Document>),
     Unsupported(String),
 }
@@ -419,6 +424,7 @@ impl Viewer {
         ui.horizontal_wrapped(|ui| {
             ui.menu_button("Viewer support", |ui| {
                 ui.label("Built in: images/SVG, Markdown/code, JSON/CSV, STL/OBJ/GLB/glTF, ZIP.");
+                ui.label("TAR, TAR.GZ/TGZ, TAR.BZ2 and TAR.XZ packages: Python 3 standard library.");
                 ui.separator();
                 for route in native_preview::ROUTES {
                     ui.strong(route.label);
@@ -480,7 +486,7 @@ impl Viewer {
         let mut open = None;
         egui::SidePanel::left("produced-file-browser").default_width(205.0).width_range(155.0..=350.0).frame(egui::Frame::new().inner_margin(6).fill(theme::palette(ui).panel)).show_inside(ui,|ui|{
             ui.add(egui::TextEdit::singleline(&mut self.filter).hint_text("Find files…").desired_width(f32::INFINITY));
-            let kinds=["All formats","Images & drawings","3D geometry","Documents & code","Data & parameters","ZIP packages","Other formats","Electronics","Audio & video"];
+            let kinds=["All formats","Images & drawings","3D geometry","Documents & code","Data & parameters","Packages","Other formats","Electronics","Audio & video"];
             egui::ComboBox::from_id_salt("artifact-kind").selected_text(kinds[self.kind]).width(ui.available_width()).show_ui(ui,|ui|{for (i,name) in kinds.iter().enumerate(){ui.selectable_value(&mut self.kind,i,*name);}});
             ui.horizontal(|ui|{
                 if ui.add_enabled(!self.folder.as_os_str().is_empty(),egui::Button::new("Up")).clicked(){self.folder.pop();}
@@ -794,8 +800,8 @@ impl Viewer {
                         });
                 }
             }
-            Body::Archive(entries) => {
-                ui.label(format!("{} files in this package", entries.len()));
+            Body::Archive(format, entries) => {
+                ui.label(format!("{} entries in this package", entries.len()));
                 ui.add(
                     egui::TextEdit::singleline(&mut self.archive_filter)
                         .hint_text("Find a file inside the package…")
@@ -803,24 +809,33 @@ impl Viewer {
                 );
                 let filter = self.archive_filter.to_lowercase();
                 egui::ScrollArea::vertical()
-                    .id_salt(("zip", self.serial))
+                    .id_salt(("archive", self.serial))
                     .show(ui, |ui| {
                         for entry in entries
                             .iter()
                             .filter(|e| e.name.to_lowercase().contains(&filter))
                         {
-                            ui.horizontal(|ui| {
+                            ui.push_id(entry.index, |ui| ui.horizontal(|ui| {
                                 ui.label(
                                     egui::RichText::new(size_label(entry.size)).small().weak(),
                                 );
-                                if ui
-                                    .add(egui::Button::new(&entry.name).frame(false).truncate())
-                                    .on_hover_text(&entry.name)
-                                    .clicked()
-                                {
-                                    archive_entry = Some((entry.index, entry.name.clone()));
-                                }
-                            });
+                                ui.vertical(|ui| {
+                                    let path = Path::new(&entry.name);
+                                    let name = path.file_name().map(|n| n.to_string_lossy())
+                                        .unwrap_or_else(|| entry.name.as_str().into());
+                                    if ui
+                                        .add_enabled(entry.note.is_none(), egui::Button::new(name.as_ref()).frame(false).truncate())
+                                        .on_hover_text(&entry.name)
+                                        .clicked()
+                                    {
+                                        archive_entry = Some((*format, entry.index, entry.name.clone()));
+                                    }
+                                    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+                                        ui.add(egui::Label::new(egui::RichText::new(parent.to_string_lossy()).small().weak()).truncate());
+                                    }
+                                    if let Some(note) = &entry.note { ui.weak(note); }
+                                });
+                            }));
                         }
                     });
             }
@@ -842,11 +857,12 @@ impl Viewer {
         if let Some((source, choose)) = external {
             self.open_external(ui.ctx(), source, choose);
         }
-        if let Some((index, name)) = archive_entry {
+        if let Some((format, index, name)) = archive_entry {
             if let Some(source) = self.source.clone() {
                 self.trail.push(source.clone());
-                self.load(Source::Zip {
+                self.load(Source::Member {
                     container: Arc::new(source),
+                    format,
                     index,
                     name,
                 });
@@ -887,7 +903,7 @@ impl Viewer {
                             .filter(|n| !n.is_empty())
                             .unwrap_or(std::ffi::OsStr::new("artifact"));
                         let path = dir.path().join(name);
-                        std::fs::write(&path, source.bytes()?).map_err(|e| e.to_string())?;
+                        std::fs::write(&path, source.bytes(&native_preview::Cancellation::default())?).map_err(|e| e.to_string())?;
                         temporary = Some(dir);
                         path
                     }
@@ -951,11 +967,11 @@ fn extension(path: &Path) -> String {
         .to_ascii_lowercase()
 }
 fn category(path: &Path) -> usize {
+    if ArchiveFormat::for_name(&path.to_string_lossy()).is_some() { return 5; }
     match extension(path).as_str() {
         "png" | "jpg" | "jpeg" | "webp" | "gif" | "svg" | "bmp" | "tiff" | "tif" | "ico" | "dxf" => 1,
         "stl" | "obj" | "glb" | "gltf" | "step" | "stp" | "iges" | "igs" | "blend" | "fcstd" => 2,
         "csv" | "tsv" | "json" | "h5" | "hdf5" | "hdf" => 4,
-        "zip" => 5,
         "kicad_pcb" | "kicad_sch" | "brd" | "sch" | "gbr" | "ger" | "gerber" | "gtl" | "gbl" | "gts" | "gbs" | "gto" | "gbo" | "gko" | "gml" | "gm1" | "drl" | "xln" => 7,
         "mp3" | "wav" | "ogg" | "flac" | "m4a" | "aac" | "mp4" | "mov" | "webm" | "avi" | "mkv" | "m4v" => 8,
         "bin" | "dwg" => 6,

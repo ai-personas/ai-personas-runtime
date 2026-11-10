@@ -45,7 +45,7 @@ pub(super) fn native_drawing(source: &Source, cancel: &native_preview::Cancellat
     if cancel.is_cancelled() { return Err("Preview request cancelled.".into()); }
     // Small physical drawing dimensions must not cap the readable page resolution.
     // Reuse the SVG renderer; the derived page still has a 2400-pixel longest side.
-    let body = svg(source, &source.bytes()?, f32::INFINITY)?;
+    let body = svg(source, &source.bytes(cancel)?, f32::INFINITY)?;
     if cancel.is_cancelled() { return Err("Preview request cancelled.".into()); }
     Ok(Decoded { body, note: String::new() })
 }
@@ -58,19 +58,20 @@ impl Source {
                 .unwrap_or_default()
                 .to_string_lossy()
                 .into_owned(),
-            Self::Zip { name, .. } => name.clone(),
+            Self::Member { name, .. } => name.clone(),
         }
     }
     pub(super) fn label(&self) -> String {
         match self {
             Self::File(p) => p.display().to_string(),
             Self::Snapshot { .. } => format!("Recorded: {}", self.name()),
-            Self::Zip {
+            Self::Member {
                 container, name, ..
             } => format!("{} / {name}", container.label()),
         }
     }
-    pub(super) fn bytes(&self) -> Result<Vec<u8>, String> {
+    pub(super) fn bytes(&self, cancel: &native_preview::Cancellation) -> Result<Vec<u8>, String> {
+        if cancel.is_cancelled() { return Err("Preview request cancelled.".into()); }
         match self {
             Self::File(p) => read_file(p),
             Self::Snapshot { path, sha256, .. } => {
@@ -81,23 +82,28 @@ impl Source {
                 )?;
                 Ok(bytes)
             }
-            Self::Zip {
+            Self::Member {
                 container,
+                format,
                 index,
                 name,
             } => {
-                let bytes = container.bytes()?;
-                let mut zip =
-                    zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| e.to_string())?;
-                let mut entry = zip.by_index(*index).map_err(|e| e.to_string())?;
-                if entry.name() != name {
-                    return Err("The package changed since it was opened. Return to the file list and select it again.".into());
+                let bytes = container.bytes(cancel)?;
+                match format {
+                    ArchiveFormat::Zip => {
+                        let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| e.to_string())?;
+                        let mut entry = zip.by_index(*index).map_err(|e| e.to_string())?;
+                        if entry.name() != name {
+                            return Err("The package changed since it was opened. Return to the file list and select it again.".into());
+                        }
+                        read_all(&mut entry)
+                    }
+                    ArchiveFormat::Tar => native_preview::tar_archive(&bytes, Some((*index, name)), cancel),
                 }
-                read_all(&mut entry)
             }
         }
     }
-    fn companion(&self) -> Option<Self> {
+    fn companion(&self, cancel: &native_preview::Cancellation) -> Option<Self> {
         for extension in ["stl", "glb", "obj"] {
             match self {
                 Self::File(p) => {
@@ -106,20 +112,21 @@ impl Source {
                         return Some(Self::File(p));
                     }
                 }
-                Self::Zip {
-                    container, name, ..
+                Self::Member {
+                    container, format, name, ..
                 } => {
                     let name = Path::new(name)
                         .with_extension(extension)
                         .to_string_lossy()
                         .into_owned();
-                    let bytes = container.bytes().ok()?;
-                    let zip = zip::ZipArchive::new(Cursor::new(bytes)).ok()?;
-                    if let Some(index) = zip.index_for_name(&name) {
-                        return Some(Self::Zip {
+                    let bytes = container.bytes(cancel).ok()?;
+                    let entries = format.entries(&bytes, cancel).ok()?;
+                    if let Some(entry) = entries.iter().find(|entry| entry.name == name && entry.note.is_none()) {
+                        return Some(Self::Member {
                             container: container.clone(),
+                            format: *format,
                             name,
-                            index,
+                            index: entry.index,
                         });
                     }
                 }
@@ -127,6 +134,36 @@ impl Source {
             }
         }
         None
+    }
+}
+
+impl ArchiveFormat {
+    pub(super) fn for_name(name: &str) -> Option<Self> {
+        let name = name.to_ascii_lowercase();
+        if name.ends_with(".zip") { return Some(Self::Zip); }
+        [".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz", ".tbz2", ".tar.xz", ".txz"]
+            .iter().any(|suffix| name.ends_with(suffix)).then_some(Self::Tar)
+    }
+
+    fn entries(&self, bytes: &[u8], cancel: &native_preview::Cancellation) -> Result<Vec<ArchiveEntry>, String> {
+        let mut entries = match self {
+            Self::Zip => {
+                let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| e.to_string())?;
+                let mut entries = Vec::new();
+                for index in 0..zip.len() {
+                    if cancel.is_cancelled() { return Err("Preview request cancelled.".into()); }
+                    let f = zip.by_index(index).map_err(|e| e.to_string())?;
+                    if !f.is_dir() {
+                        entries.push(ArchiveEntry { index, name: f.name().into(), size: f.size(), note: None });
+                    }
+                }
+                entries
+            }
+            Self::Tar => serde_json::from_slice(&native_preview::tar_archive(bytes, None, cancel)?)
+                .map_err(|e| format!("Could not read the TAR directory: {e}"))?,
+        };
+        entries.sort_by(|a, b| a.name.cmp(&b.name).then(a.index.cmp(&b.index)));
+        Ok(entries)
     }
 }
 
@@ -266,7 +303,7 @@ pub(super) fn decode(source: &Source, cancel: &native_preview::Cancellation) -> 
             Err(reason) => {
                 if cancel.is_cancelled() { return Err("Preview request cancelled.".into()); }
                 if matches!(ext.as_str(), "step" | "stp") {
-                    if let Some(companion) = source.companion() {
+                    if let Some(companion) = source.companion(cancel) {
                         let mut decoded = decode(&companion, cancel)
                             .map_err(|error| format!("Native STEP preview failed: {reason}\nCompanion mesh failed: {error}"))?;
                         decoded.note = format!(
@@ -283,7 +320,11 @@ pub(super) fn decode(source: &Source, cancel: &native_preview::Cancellation) -> 
             }
         }
     }
-    let bytes = source.bytes()?;
+    let bytes = source.bytes(cancel)?;
+    if let Some(format) = ArchiveFormat::for_name(&name) {
+        let entries = format.entries(&bytes, cancel)?;
+        return Ok(Decoded { body: Body::Archive(format, entries), note: String::new() });
+    }
     let mut note = String::new();
     let body = match ext.as_str() {
         "svg" => svg(source, &bytes, 2.0)?,
@@ -315,22 +356,6 @@ pub(super) fn decode(source: &Source, cancel: &native_preview::Cancellation) -> 
                 None
             },
         )?),
-        "zip" => {
-            let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| e.to_string())?;
-            let mut entries = Vec::new();
-            for index in 0..zip.len() {
-                let f = zip.by_index(index).map_err(|e| e.to_string())?;
-                if !f.is_dir() {
-                    entries.push(ArchiveEntry {
-                        index,
-                        name: f.name().into(),
-                        size: f.size(),
-                    });
-                }
-            }
-            entries.sort_by(|a, b| a.name.cmp(&b.name));
-            Body::Archive(entries)
-        }
         "csv" | "tsv" => {
             let mut reader = csv::ReaderBuilder::new()
                 .has_headers(false)

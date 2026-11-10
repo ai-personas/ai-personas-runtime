@@ -452,8 +452,14 @@ the preview of a newer selection or another workspace.
   shown instead. The viewer identifies the companion and native failure; it
   does not label the companion as decoded STEP geometry. Cancellation stops
   preview work without starting a fallback.
-- ZIP packages list their contents. Select an entry to preview it without
-  extracting the whole package; **Back to package** returns to the listing.
+- ZIP and TAR packages list their contents. TAR, TAR.GZ/TGZ, TAR.BZ2/TBZ/TBZ2
+  and TAR.XZ/TXZ use Python 3's standard-library parser. Select a regular file
+  to preview it without extracting the whole package; **Back to package**
+  returns to the listing. TAR links and special entries display metadata and
+  are not followed. Member identity includes its directory index, preserving
+  duplicate names. Archive reads run on the file worker; cancelling a TAR
+  preview stops its parser process. Member paths never become extraction
+  destinations. Retained container bytes are verified before reading members.
 
 ### Additional engineering and scientific formats
 
