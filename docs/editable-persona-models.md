@@ -38,7 +38,7 @@ Development uses the same ordinary decision interface:
 
 1. `persona.evaluate` records an evidence-linked appraisal and computes the current network's response.
 2. `persona.patch` requires the exact active digest and old values, and returns an inactive candidate with forward before/after probes.
-3. `persona.assess` obtains real provider responses for old and candidate outputs under matching hypothetical situations and resources. Neither arm executes operations, receives an identity seed, or obtains live decision authority. Results remain labeled synthetic.
+3. `persona.assess` obtains real provider responses for old and candidate outputs under matching hypothetical situations and resources. Both ordinary decisions and assessment calls receive the same projection of final numerical inclinations; bias, direct and hidden contributions remain in the retained arithmetic trace. Neither arm executes operations, receives an identity seed, or obtains live decision authority. Results remain labeled synthetic.
 4. After observing the assessment, the persona can activate the exact candidate in an operation-free response. Activation increments its decision epoch atomically. The next fresh call uses the new model.
 5. An explicit rollback can select a retained ancestor. Obligations, observations, relationships and stopping decisions remain intact.
 

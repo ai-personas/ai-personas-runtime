@@ -309,11 +309,7 @@ fn evaluation_view(db: &rusqlite::Connection, reference: &str) -> Result<Value> 
         .strip_prefix("object:")
         .ok_or_else(|| failure("evaluation requires an immutable object reference"))?;
     let evaluation: Evaluation = store::object(db, digest)?;
-    let outputs = evaluation
-        .outputs
-        .into_iter()
-        .map(|(name, output)| (name, output.value))
-        .collect::<std::collections::BTreeMap<_, _>>();
+    let outputs = evaluation.inclinations();
     Ok(
         json!({"reference":reference,"model":evaluation.model,"appraisal":evaluation.appraisal,"outputs":outputs,"full_forward_trace":reference}),
     )

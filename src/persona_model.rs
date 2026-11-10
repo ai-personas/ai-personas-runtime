@@ -449,6 +449,17 @@ pub struct Evaluation {
     pub outputs: BTreeMap<String, Output>,
 }
 
+impl Evaluation {
+    /// Effective inclinations supplied to reasoning. Arithmetic components stay
+    /// in the retained trace, rather than becoming extra behavioral inputs.
+    pub fn inclinations(&self) -> BTreeMap<String, f64> {
+        self.outputs
+            .iter()
+            .map(|(name, output)| (name.clone(), output.value))
+            .collect()
+    }
+}
+
 pub fn digest<T: Serialize>(value: &T) -> Result<String> {
     serde_json::to_vec(value)
         .map(|bytes| crate::store::sha256_bytes(&bytes))
