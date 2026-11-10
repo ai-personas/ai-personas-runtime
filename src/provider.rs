@@ -688,6 +688,16 @@ impl ImageInput {
 /// Redacted fixed-shape stream failure metadata. Values are static labels,
 /// numeric positions or bounded digests, never free-form provider text.
 #[derive(Clone, Debug, Serialize)]
+pub struct StreamStatusObservation {
+    pub value_type: &'static str,
+    /// Only known lifecycle labels are copied. Other strings stay fingerprinted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recognized_value: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value_sha256: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct StreamDiagnostic {
     pub stage: &'static str,
     pub event_index: Option<u64>,
@@ -707,6 +717,9 @@ pub struct StreamDiagnostic {
     pub incomplete_reason: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub incomplete_reason_sha256: Option<String>,
+    /// Status from the item in this rejected event, before shape validation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub item_status: Option<StreamStatusObservation>,
     pub rule: &'static str,
     pub field: Option<&'static str>,
 }
@@ -766,8 +779,8 @@ pub struct AttemptReceipt {
     /// private-continuation protection as HTTP errors. Not a response body.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_error_diagnostic: Option<HttpErrorDiagnostic>,
-    /// Content-free observations from a failed stream. These describe local
-    /// receipt progress, not a completed response, usable decision or token usage.
+    /// Content-free stream observations. Local lifecycle and status observations
+    /// do not establish decision adoption or independently measured token usage.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_progress: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]

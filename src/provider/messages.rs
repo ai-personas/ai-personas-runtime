@@ -70,7 +70,7 @@ impl Stream {
                 r.previous_reported_effort = c.previous_reported_effort.clone();
                 r.reported_model = c.completed.then(|| model.clone());
                 r.usage = c.usage.clone();
-                r.stream_progress = failed.then(|| c.progress_receipt());
+                r.stream_progress = Some(c.progress_receipt());
             }
             Self::Messages(c) => {
                 r.stream_bytes_observed = c.observed;
