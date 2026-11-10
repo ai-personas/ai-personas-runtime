@@ -29,6 +29,9 @@ panel visibility. Panel widths and editor selection survive reopening the worksp
   and export delivered packages. The integrated save dialog accepts a destination
   folder and file/package name, including on desktops without a file-chooser
   portal. Existing destinations are preserved. Workspace files remain separately browsable.
+  The retained list lays out its visible cards while keeping every matching
+  record available through scrolling and search. Card identity follows the exact
+  reference, including when filters or newly retained artifacts change the list.
   Retention and delivery labels do not imply manufacturing readiness or approval.
 - **Character Lab** shows the selected provider/model and reasoning effort,
   attributed starting profile, active model intent, numerical epoch, computed

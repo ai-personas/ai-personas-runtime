@@ -1,4 +1,7 @@
 use super::*;
+
+const COMPACT_ARTIFACT_PADDING: i8 = 7;
+const ARTIFACT_ROW_GAP: f32 = 4.;
 impl App {
     pub(super) fn header(&mut self, ctx: &egui::Context) {
         let p = theme::Palette::new(self.layout.dark);
@@ -929,7 +932,16 @@ impl App {
                 }
             });
     }
+    fn artifact_line_height(ui: &Ui) -> f32 {
+        ui.spacing()
+            .interact_size
+            .y
+            .max(ui.text_style_height(&egui::TextStyle::Body))
+            .max(ui.text_style_height(&egui::TextStyle::Small))
+            .max(16.)
+    }
     fn artifact_row(&mut self, ui: &mut Ui, asset: &Value, compact: bool) {
+        let line_height = Self::artifact_line_height(ui);
         let b = &asset["body"];
         let path = s(b, "path");
         let filename = path.rsplit('/').next().unwrap_or(path);
@@ -945,30 +957,32 @@ impl App {
             } else {
                 theme::palette(ui).header
             })
-            .inner_margin(if compact { 7 } else { 10 })
+            .inner_margin(if compact { COMPACT_ARTIFACT_PADDING } else { 10 })
             .corner_radius(4)
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
+                    ui.set_height(line_height);
                     theme::glyph(ui, Icon::Files, theme::ACCENT);
                     ui.add(egui::Label::new(RichText::new(filename).strong()).truncate());
                 });
                 ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(if extension.is_empty() {
+                    ui.set_height(line_height);
+                    ui.add(
+                        egui::Label::new(RichText::new(if extension.is_empty() {
                             "FILE"
                         } else {
                             &extension
                         })
                         .size(10.)
-                        .color(theme::ACCENT),
+                        .color(theme::ACCENT)).truncate(),
                     );
-                    ui.small(self.label(s(b, "owner")));
+                    ui.add(egui::Label::new(RichText::new(self.label(s(b, "owner"))).small()).truncate());
                     if let Some(version) = asset["revision"].as_u64() {
-                        ui.label(RichText::new(format!("v{version}")).size(10.).weak());
+                        ui.add(egui::Label::new(RichText::new(format!("v{version}")).size(10.).weak()).truncate());
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.small(size(asset["size"].as_u64().unwrap_or(0)));
+                        ui.add(egui::Label::new(RichText::new(size(asset["size"].as_u64().unwrap_or(0))).small()).truncate());
                     });
                 });
             })
@@ -990,23 +1004,21 @@ impl App {
             {
                 self.files.workspace_mode();
             }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("Export deliveries…").clicked() {
-                    self.export_deliveries(ui.ctx());
+            ui.menu_button("Open reference", |ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.reference_input)
+                        .hint_text("asset:…@revision or object:…")
+                        .desired_width(330.),
+                );
+                if ui.button("Open exact resource").clicked() {
+                    let reference = self.reference_input.trim().to_owned();
+                    self.open_resource(ui.ctx(), reference);
+                    ui.close();
                 }
-                ui.menu_button("Open reference", |ui| {
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.reference_input)
-                            .hint_text("asset:…@revision or object:…")
-                            .desired_width(330.),
-                    );
-                    if ui.button("Open exact resource").clicked() {
-                        let reference = self.reference_input.trim().to_owned();
-                        self.open_resource(ui.ctx(), reference);
-                        ui.close();
-                    }
-                });
             });
+            if ui.button("Export deliveries…").clicked() {
+                self.export_deliveries(ui.ctx());
+            }
         });
         ui.add_space(8.);
         if self.artifact_mode == 1 {
@@ -1074,8 +1086,29 @@ impl App {
             // An exact older delivered revision remains accessible even when a
             // newer head exists. Its receipt supplies the exact content on click.
             if self.artifact_scope==1{for reference in delivered{if !assets.iter().any(|a|a["reference"]==reference)&&query.is_empty()&&self.asset_owner.is_empty(){assets.push(serde_json::json!({"reference":reference,"body":{"path":reference,"owner":"","cues":[]},"size":0}));}}}
-            ui.small(format!("{} files",assets.len()));ui.add_space(5.);
-            egui::ScrollArea::vertical().id_salt("retained-artifacts").show(ui,|ui|{for asset in &assets{self.artifact_row(ui,asset,true);ui.add_space(4.);}if assets.is_empty(){ui.weak("No artifacts match these filters.");}});
+            ui.small(format!("{} {}", assets.len(), if assets.len() == 1 { "file" } else { "files" }));ui.add_space(5.);
+            if assets.is_empty() {
+                ui.weak("No artifacts match these filters.");
+            } else {
+                // Two single-line lanes and fixed padding keep card heights
+                // stable, so offscreen cards need no widget layout or painting.
+                let row_height = 2. * Self::artifact_line_height(ui)
+                    + ui.spacing().item_spacing.y
+                    + 2. * f32::from(COMPACT_ARTIFACT_PADDING)
+                    + ARTIFACT_ROW_GAP;
+                egui::ScrollArea::vertical()
+                    .id_salt("retained-artifacts")
+                    .auto_shrink([false, false])
+                    .show_rows(ui, row_height, assets.len(), |ui, range| {
+                        for index in range {
+                            let asset = &assets[index];
+                            ui.push_id(s(asset, "reference"), |ui| {
+                                self.artifact_row(ui, asset, true);
+                            });
+                            ui.add_space(ARTIFACT_ROW_GAP);
+                        }
+                    });
+            }
         });
         egui::CentralPanel::default()
             .frame(
