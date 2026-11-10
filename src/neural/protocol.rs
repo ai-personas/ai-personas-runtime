@@ -107,8 +107,10 @@ pub struct ContextChoice {
     /// This is working context, not character or a runtime-written summary.
     /// Empty clears the note; bootstrap notes are not carried into active work.
     pub working_note: String,
-    /// Explain why this selection preserves the information needed to act next.
-    pub reason: String,
+    /// Optional explanation of this explicit selection. Omission does not keep
+    /// the previous selection or supply an inferred rationale.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 /// A whole exact resource, or an explicit byte excerpt of retained UTF-8 data.
