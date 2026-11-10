@@ -31,8 +31,9 @@ csv = { version = "=1.4.0", optional = true }
 serde = { version = "1", features = ["derive", "rc"] }
 # Isolate application JSON from raw-value features required by optional viewers.
 # Both parsers use the same pinned upstream source version.
-serde_json = { git = "https://github.com/serde-rs/json", rev = "20572a6d066958542d79cdd6cf1a7cd9f0c8e1f8", features = ["unbounded_depth"] }
-serde_json_raw = { package = "serde_json", version = "=1.0.154", features = ["unbounded_depth", "raw_value"] }
+# Retained f64 parameters and evaluations must survive serialization and reload.
+serde_json = { git = "https://github.com/serde-rs/json", rev = "20572a6d066958542d79cdd6cf1a7cd9f0c8e1f8", features = ["unbounded_depth", "float_roundtrip"] }
+serde_json_raw = { package = "serde_json", version = "=1.0.154", features = ["unbounded_depth", "raw_value", "float_roundtrip"] }
 serde_path_to_error = "=0.1.20"
 sha2 = "0.10"
 hex = "0.4"
