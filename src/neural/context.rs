@@ -572,7 +572,11 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
         }).collect::<Result<Vec<_>>>()?;
         let outcomes=store::list(db,"outcome")?.into_iter().filter(|r|r.body["work"]==work_id).map(|r|{
             if r.body["owner"]==actor {json!({"reference":r.reference.handle(),"record":r.body})}
-            else {json!({"reference":r.reference.handle(),"owner":r.body["owner"],"description":r.body["description"],"state":r.body["state"],"remaining":r.body["remaining"],"artifacts":r.body["artifacts"]})}
+            // A peer's proposed result remains conditional on its author's
+            // assumptions and dependencies. Carry those exact qualifications
+            // with the current scope, even when optional evidence is selected
+            // separately, so a compact view does not erase their meaning.
+            else {json!({"reference":r.reference.handle(),"owner":r.body["owner"],"description":r.body["description"],"state":r.body["state"],"assumptions":r.body["assumptions"],"dependencies":r.body["dependencies"],"remaining":r.body["remaining"],"artifacts":r.body["artifacts"]})}
         }).collect::<Vec<_>>();
         // Delivered records are optional historical detail, not a mandatory
         // replay of every package's use instructions and evidence each turn.
