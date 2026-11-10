@@ -1225,7 +1225,17 @@ impl App {
                                     ui.add(egui::Label::new(RichText::new(s(&e["body"], "operation")).size(11.).weak()).truncate());
                                     return;
                                 }
-                                ui.label(RichText::new(title(s(e, "kind"))).size(12.));
+                                let label = if e["kind"] == "control_changed" {
+                                    let scope = s(&e["body"], "scope");
+                                    let label = match scope {
+                                        "global" => "Workspace", "admission" => "Scheduling",
+                                        _ if scope.starts_with("work:") => "Task",
+                                        _ if scope.starts_with("persona:") => "Persona",
+                                        _ => "Background job",
+                                    };
+                                    format!("{label} · {}", title(s(&e["body"], "state")))
+                                } else { title(s(e, "kind")) };
+                                ui.label(RichText::new(label).size(12.));
                                 let detail = ["text", "reason", "error"].into_iter().map(|key| s(&e["body"], key)).find(|text| !text.is_empty()).unwrap_or("");
                                 ui.add(
                                     egui::Label::new(
@@ -1235,8 +1245,9 @@ impl App {
                                     )
                                     .truncate(),
                                 );
-                                if ui.small_button("Inspect event").clicked() {
-                                    self.open_resource(ctx, format!("object:{}", s(e, "digest")));
+                                let control = e["body"]["control"].as_str().filter(|_| e["kind"] == "control_changed");
+                                if ui.small_button(if control.is_some() { "Inspect control" } else { "Inspect event" }).clicked() {
+                                    self.open_resource(ctx, control.map(str::to_owned).unwrap_or_else(|| format!("object:{}", s(e, "digest"))));
                                 }
                             });
                         }

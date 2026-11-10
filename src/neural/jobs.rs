@@ -6,7 +6,7 @@ use super::{
     store::{self, Record, Store},
     tools, Result,
 };
-use rusqlite::{params, Connection};
+use rusqlite::Connection;
 use serde_json::{json, Value};
 use std::{
     fs::File,
@@ -112,8 +112,7 @@ fn uncertain(db: &Connection, job: Record, reason: &str) -> Result<()> {
         }),
         Some(call),
     )?;
-    db.execute("INSERT INTO controls VALUES(?1,'paused',1,?2,?3) ON CONFLICT(scope) DO UPDATE SET state='paused',revision=controls.revision+1,reason=excluded.reason,updated=excluded.updated",
-        params![format!("persona:{actor}"),reason,now()])?;
+    super::controls::change(db,&format!("persona:{actor}"),"paused",reason,super::controls::Origin::Runtime,Some(call))?;
     Ok(())
 }
 
@@ -366,8 +365,7 @@ pub fn cancel(
             "meaning":"No locally running worker is known for this state. An uncertain job requires actual host reconciliation."}),
         );
     }
-    db.execute("INSERT INTO controls VALUES(?1,'canceled',1,?2,?3) ON CONFLICT(scope) DO UPDATE SET state='canceled',revision=controls.revision+1,reason=excluded.reason,updated=excluded.updated",
-        params![format!("job:{}",job.reference.id),input.reason,now()])?;
+    super::controls::change(db,&format!("job:{}",job.reference.id),"canceled",&input.reason,super::controls::Origin::Persona(actor),Some(call))?;
     let mut body = job.body;
     body["cancellation"] = json!({"requested":now(),"invocation":call,"reason":input.reason});
     let r = store::write(

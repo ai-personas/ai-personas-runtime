@@ -53,6 +53,10 @@ panel visibility. Panel widths and editor selection survive reopening the worksp
   the job inspector shows its recorded revision, owner, command and result links.
   **Open reference** also accepts exact job records, whose original stored bytes
   are available in the preview without treating them as delivered artifacts.
+  Execution-control changes show the affected scope and state in Activity.
+  Their exact records expose operator, runtime or persona attribution, the reason,
+  control revision and the previous retained record. A control change remains
+  distinct from a process result or an explicit participation resume.
 
 Artifact previews reuse the desktop's asynchronous image, Markdown/code, data,
 3D, archive and optional native renderers. Exact bytes are read and hash-checked

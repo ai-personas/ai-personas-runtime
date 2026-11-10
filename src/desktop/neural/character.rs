@@ -161,7 +161,7 @@ impl App {
         ui.add_space(8.);
         let path = s(&metadata, "path");
         ui.add(egui::Label::new(RichText::new(if path.is_empty() {
-            if metadata["kind"] == "job" { "Background command" } else { "Exact resource" }
+            match metadata["kind"].as_str() { Some("job") => "Background command", Some("control") => "Execution control", _ => "Exact resource" }
         } else {
             path.rsplit('/').next().unwrap_or(path)
         }).size(18.).strong()).wrap());
@@ -198,6 +198,31 @@ impl App {
             ui.add_space(12.);
             eyebrow(ui, if metadata["blob"].is_string() { "File SHA-256" } else { "Record SHA-256" });
             ui.add(egui::Label::new(RichText::new(digest).monospace().size(11.).weak()).wrap());
+        }
+        if metadata["kind"] == "control" {
+            let control = &metadata["control"];
+            ui.add_space(15.);
+            ui.label(RichText::new("Control state").strong());
+            ui.weak("At this recorded revision");
+            for (label, value) in [
+                ("Scope", s(control, "scope").to_owned()),
+                ("State", title(s(control, "state"))),
+                ("Control revision", control["revision"].to_string()),
+                ("Changed by", s(&control["origin"], "actor").to_owned()),
+                ("Origin", s(&control["origin"], "kind").to_owned()),
+                ("Recorded", control["updated"].as_i64().map(time_label).unwrap_or_default()),
+            ] {
+                ui.add_space(5.);
+                ui.label(RichText::new(label).small().weak());
+                ui.add(egui::Label::new(value).wrap());
+            }
+            ui.add_space(8.);
+            ui.label(s(control, "reason"));
+            ui.weak("A control change is separate from process termination and participation resumption.");
+            if let Some(reference) = control["previous"]["record"].as_str() {
+                if ui.button("Open previous control record").clicked() { self.open_resource(ui.ctx(), reference.into()); }
+            }
+            return;
         }
         if metadata["kind"] == "job" {
             let job = &metadata["job"];

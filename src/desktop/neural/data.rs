@@ -283,6 +283,8 @@ pub(super) fn preview(root: &Path, reference: &str) -> neural::Result<Preview> {
                 "owner":record.body["owner"]});
             if record.reference.kind == "job" {
                 metadata["job"] = record.body.clone();
+            } else if record.reference.kind == "control" {
+                metadata["control"] = record.body.clone();
             }
             (
                 store::bytes(&db, &record.reference.digest)?,

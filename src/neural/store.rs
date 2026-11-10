@@ -106,15 +106,8 @@ impl Store {
         Ok(value)
     }
 
-    pub fn control(&mut self, scope: &str, state: &str, reason: &str) -> Result<()> {
-        if !["running", "paused", "canceled"].contains(&state) {
-            return Err(failure("invalid control state"));
-        }
-        self.transaction(|tx| {
-            tx.execute("INSERT INTO controls VALUES(?1,?2,1,?3,?4) ON CONFLICT(scope) DO UPDATE SET state=excluded.state,revision=controls.revision+1,reason=excluded.reason,updated=excluded.updated",
-                params![scope,state,reason,now()])?;
-            Ok(())
-        })
+    pub fn control(&mut self, scope: &str, state: &str, reason: &str, origin: super::controls::Origin<'_>) -> Result<Reference> {
+        self.transaction(|db| super::controls::change(db, scope, state, reason, origin, None))
     }
 
     pub fn status(&mut self) -> Result<Value> {
@@ -132,8 +125,9 @@ pub fn status(db: &Connection) -> Result<Value> {
     let mut effects = db.prepare("SELECT state,COUNT(*) FROM outbox GROUP BY state")?;
     let effect_counts = effects.query_map([], |r| Ok((r.get::<_, String>(0)?,r.get::<_, i64>(1)?)))?
         .collect::<std::result::Result<std::collections::BTreeMap<_,_>,_>>()?;
-    let mut controls=db.prepare("SELECT scope,state,reason,revision FROM controls ORDER BY scope")?;
-    let controls=controls.query_map([],|r|Ok(json!({"scope":r.get::<_,String>(0)?,"state":r.get::<_,String>(1)?,"reason":r.get::<_,String>(2)?,"revision":r.get::<_,i64>(3)?})))?.collect::<std::result::Result<Vec<_>,_>>()?;
+    let mut scopes=db.prepare("SELECT scope FROM controls ORDER BY scope")?;
+    let scopes=scopes.query_map([],|r|r.get::<_,String>(0))?.collect::<std::result::Result<Vec<_>,_>>()?;
+    let controls=scopes.iter().map(|scope|super::controls::current(db,scope)).collect::<Result<Vec<_>>>()?.into_iter().flatten().collect::<Vec<_>>();
     Ok(json!({"format":"neural-runtime-v2","personas":list(db,"persona")?,
         "work":list(db,"work")?,"participation":list(db,"participation")?,
         "outcomes":list(db,"outcome")?,"deliveries":list(db,"delivery")?,

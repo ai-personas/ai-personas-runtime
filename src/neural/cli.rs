@@ -6,7 +6,6 @@ use super::{
     Result,
 };
 use clap::Subcommand;
-use rusqlite::params;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{
@@ -226,7 +225,7 @@ pub async fn execute(root: &Path, operator: &str, command: Command) -> Result<Va
                         let (kind,key)=scope.split_once(':').ok_or_else(||failure("scope must be global, admission, work:<id> or persona:<id>"))?;
                         if !["work","persona"].contains(&kind){return Err(failure("unknown control scope"));}store::required(&store.db,kind,key)?;
                     }
-                    store.control(&scope,&state,&reason)?;Ok(json!({"scope":scope,"state":state,"reason":reason,"stopped_participations_resumed":false}))
+                    let record=store.control(&scope,&state,&reason,super::controls::Origin::Operator(operator))?;Ok(json!({"scope":scope,"state":state,"reason":reason,"record":record.handle(),"stopped_participations_resumed":false}))
                 },
                 Command::Resume{work,persona,reason}=>store.transaction(|db|{
                     if reason.trim().is_empty(){return Err(failure("resume needs an attributed reason"));}
@@ -234,8 +233,8 @@ pub async fn execute(root: &Path, operator: &str, command: Command) -> Result<Va
                     if part.declined{return Err(failure("a declined contribution needs a new work invitation, not implicit acceptance"));}
                     part.continuation=Continuation::Ready{purpose:reason.clone()};
                     store::write(db,"participation",&record.reference.id,record.reference.revision,&part,None)?;
-                    db.execute("INSERT INTO controls VALUES(?1,'running',1,?2,?3) ON CONFLICT(scope) DO UPDATE SET state='running',revision=controls.revision+1,reason=excluded.reason,updated=excluded.updated",params![format!("persona:{persona}"),reason,now()])?;
-                    store::event(db,&work,operator,&persona,"explicit_resume",&json!({"reason":reason}),None)?;
+                    let control=super::controls::change(db,&format!("persona:{persona}"),"running",&reason,super::controls::Origin::Operator(operator),None)?;
+                    store::event(db,&work,operator,&persona,"explicit_resume",&json!({"reason":reason,"control":control.handle()}),None)?;
                     Ok(json!({"resumed":persona,"work":work,"other_controls_preserved":true}))
                 }),
                 Command::Message{work,persona,text}=>store.transaction(|db|{

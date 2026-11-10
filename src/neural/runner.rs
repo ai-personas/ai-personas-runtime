@@ -444,14 +444,14 @@ fn recover(store: &mut Store) -> Result<()> {
             let uncertain=state.ends_with("dispatched");
             db.execute("UPDATE invocations SET state=?2,updated=?3 WHERE id=?1",params![call,if uncertain{"uncertain"}else{"abandoned_preparation"},now()])?;
             store::event(db,&work,"runtime",&actor,"recovered_invocation",&json!({"invocation":call,"prior_state":state,"remote_result_unknown":uncertain,"automatic_retry":false}),Some(&call))?;
-            if uncertain{pause(db,&actor,"Interrupted provider dispatch requires explicit review/resume; remote effects or charges may remain")?;}
+            if uncertain{pause(db,&actor,"Interrupted provider dispatch requires explicit review/resume; remote effects or charges may remain",Some(&call))?;}
         }
         let mut statement=db.prepare("SELECT id,work,actor,invocation FROM outbox WHERE state='dispatched'")?;
         let rows=statement.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?)))?.collect::<std::result::Result<Vec<_>,_>>()?;
         for (effect,work,actor,call) in rows {
             db.execute("UPDATE outbox SET state='uncertain' WHERE id=?1",[&effect])?;
             store::event(db,&work,"runtime",&actor,"uncertain_effect",&json!({"effect":effect,"automatic_retry":false,"action":"Inspect the actual host state before deciding any new action"}),Some(&call))?;
-            pause(db,&actor,"Interrupted host dispatch requires reconciliation; it is never replayed automatically")?;
+            pause(db,&actor,"Interrupted host dispatch requires reconciliation; it is never replayed automatically",Some(&call))?;
         }Ok(())
     })?;
     // A complete response can be adopted after a crash only against its exact
@@ -473,8 +473,8 @@ fn recover(store: &mut Store) -> Result<()> {
     Ok(())
 }
 
-fn pause(db: &rusqlite::Connection, actor: &str, reason: &str) -> Result<()> {
-    db.execute("INSERT INTO controls VALUES(?1,'paused',1,?2,?3) ON CONFLICT(scope) DO UPDATE SET state='paused',revision=controls.revision+1,reason=excluded.reason,updated=excluded.updated",params![format!("persona:{actor}"),reason,now()])?;
+fn pause(db: &rusqlite::Connection, actor: &str, reason: &str, invocation: Option<&str>) -> Result<()> {
+    super::controls::change(db,&format!("persona:{actor}"),"paused",reason,super::controls::Origin::Runtime,invocation)?;
     Ok(())
 }
 
@@ -488,11 +488,16 @@ pub async fn run(root: &Path, watch: bool) -> Result<Value> {
     let jobs = jobs::Manager::default();
     let mut served = std::collections::BTreeMap::new();
     let mut scheduling_order = 0u64;
+    let mut observed_signal = None;
     loop {
         jobs.reap(&mut store)?;
         if let Some(signal) = crate::process_control::signal() {
-            store.control("global", "paused", signal)?;
+            if observed_signal != Some(signal) {
+                store.control("global", "paused", signal, super::controls::Origin::Runtime)?;
+                observed_signal = Some(signal);
+            }
         }
+        let shutting_down = crate::process_control::signal().is_some();
         let admission: Option<String> = store
             .db
             .query_row(
@@ -529,7 +534,7 @@ pub async fn run(root: &Path, watch: bool) -> Result<Value> {
                                 .is_empty()
                     }
                 };
-            if pending > 0 || ready {
+            if !shutting_down && (pending > 0 || ready) {
                 eligible.push((part.persona, part.work, ready));
             }
         }
@@ -572,7 +577,7 @@ pub async fn run(root: &Path, watch: bool) -> Result<Value> {
                 let (actor,work,result)=joined?;busy.remove(&actor);
                 if let Err(error)=result {
                     store.transaction(|db|{
-                        pause(db,&actor,&error.to_string())?;
+                        pause(db,&actor,&error.to_string(),None)?;
                         db.execute("UPDATE invocations SET state='interrupted',updated=?2 WHERE actor=?1 AND state IN ('prepared','dispatched','responded')",params![actor,now()])?;
                         store::event(db,&work,"runtime",&actor,"runner_failure",&json!({"error":error.to_string(),"automatic_retry":false}),None)?;Ok(())
                     })?;
