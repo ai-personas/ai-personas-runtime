@@ -356,7 +356,7 @@ impl App {
         });
         ui.add_space(12.);
         ui.horizontal_wrapped(|ui| {
-            for (i, label) in ["Characteristics", "Network", "Parameters", "Revisions"]
+            for (i, label) in ["Characteristics", "Network", "Parameters", "Revisions", "Development"]
                 .iter()
                 .enumerate()
             {
@@ -401,6 +401,7 @@ impl App {
                     .show(ui, |ui| self.network(ui, &character));
             }
             2 => self.parameter_table(ui, &character),
+            4 => self.character_development(ui),
             _ => {
                 egui::ScrollArea::vertical().id_salt("character-revisions").show(ui,|ui|{
                 section(ui,"Active model", "Exact immutable version");ui.add(egui::Label::new(RichText::new(&character.baseline.model).monospace().size(12.)).wrap());
@@ -415,6 +416,137 @@ impl App {
             });
             }
         }
+    }
+    fn character_development(&mut self, ui: &mut Ui) {
+        let scope = (self.persona.clone(), self.work.clone());
+        if self.development_scope != scope {
+            self.development_scope = scope;
+            self.development_anchor.clear();
+        }
+        egui::ScrollArea::vertical()
+            .id_salt(("character-development", &self.persona, &self.work, &self.development_anchor,
+                self.development_filter, self.development_all_work))
+            .show(ui, |ui| self.character_development_contents(ui));
+    }
+    fn character_development_contents(&mut self, ui: &mut Ui) {
+        ui.horizontal_wrapped(|ui| {
+            if ui.checkbox(&mut self.development_all_work, "Across all tasks").changed() {
+                self.development_anchor.clear();
+            }
+            ui.weak(if self.development_all_work { "Continuing persona history" } else { "Selected task only" });
+        });
+        let decisions: Vec<&Value> = self.character_decisions.iter().rev()
+            .filter(|d| d["actor"] == self.persona && (self.development_all_work || d["work"] == self.work))
+            .collect();
+        if decisions.is_empty() {
+            ui.add_space(15.);
+            ui.weak("No accepted character-maintenance decisions in this scope.");
+            return;
+        }
+        let no_change = decisions.iter().filter(|d| d["maintenance"]["kind"] == "no_change").count();
+        let edits = decisions.iter().flat_map(|d| d["operations"].as_array().into_iter().flatten())
+            .filter(|op| op["tool"] == "persona.patch").count();
+        let bindings = decisions.iter().filter(|d| matches!(d["next_model"]["kind"].as_str(), Some("activate" | "rollback"))).count();
+        ui.add_space(12.);
+        card(ui).show(ui, |ui| {
+            let labels = [format!("{} accepted decisions", decisions.len()), format!("{no_change} no-change choices"),
+                    format!("{edits} parameter {}", if edits == 1 { "proposal" } else { "proposals" }),
+                    format!("{bindings} model {}", if bindings == 1 { "switch" } else { "switches" })];
+            let columns = if ui.available_width() >= 820. { 4 } else { 2 };
+            ui.columns(columns, |columns| {
+                let count = columns.len();
+                for (index, label) in labels.iter().enumerate() {
+                    theme::badge(&mut columns[index % count], label, self.color(&self.persona));
+                    columns[index % count].add_space(6.);
+                }
+            });
+            ui.add_space(8.);
+            ui.weak("Includes initialization. Model switches are accepted activation or rollback choices. Counts describe decisions, not useful learning; appraisals, parameter proposals and comparisons remain distinct.");
+        });
+        ui.add_space(12.);
+        ui.horizontal_wrapped(|ui| {
+            for (index, label) in ["All choices", "No change", "Declared change", "Deferred"].iter().enumerate() {
+                if ui.selectable_value(&mut self.development_filter, index, *label).changed() {
+                    self.development_anchor.clear();
+                }
+            }
+        });
+        let visible: Vec<&Value> = decisions.into_iter().filter(|d| match self.development_filter {
+            1 => d["maintenance"]["kind"] == "no_change",
+            2 => d["maintenance"]["kind"] == "change",
+            3 => d["maintenance"]["kind"] == "defer",
+            _ => true,
+        }).collect();
+        const PAGE: usize = 25;
+        let mut start = visible.iter().position(|d| d["invocation"] == self.development_anchor).unwrap_or(0);
+        ui.horizontal_wrapped(|ui| {
+            if ui.add_enabled(start > 0, egui::Button::new("← Newer")).clicked() {
+                start = start.saturating_sub(PAGE);
+                self.development_anchor = if start == 0 { String::new() } else { s(visible[start], "invocation").into() };
+            }
+            ui.small(format!("{}–{} of {} matching decisions", if visible.is_empty() { 0 } else { start + 1 }, (start + PAGE).min(visible.len()), visible.len()));
+            if ui.add_enabled(start + PAGE < visible.len(), egui::Button::new("Older →")).clicked() {
+                start += PAGE;
+                self.development_anchor = s(visible[start], "invocation").into();
+            }
+        });
+        // Only the visible page is copied before opening a resource can mutate
+        // the editor; retaining history does not require laying it all out.
+        let page: Vec<Value> = visible.iter().skip(start).take(PAGE)
+            .map(|d| (*d).clone()).collect();
+        ui.add_space(8.);
+        ui.vertical(|ui| {
+                if page.is_empty() { ui.weak("No accepted choices match this filter."); }
+                for decision in &page {
+                    ui.push_id(s(decision, "invocation"), |ui| {
+                        card(ui).show(ui, |ui| {
+                            let maintenance = &decision["maintenance"];
+                            ui.horizontal_wrapped(|ui| {
+                                let kind = s(maintenance, "kind");
+                                let label = if kind.is_empty() { "Disposition unavailable".into() } else { title(kind) };
+                                theme::badge(ui, &label, self.color(&self.persona));
+                                ui.small(decision["accepted_utc"].as_str().map(str::to_owned)
+                                    .unwrap_or_else(|| format!("Unix {}", decision["accepted"])));
+                                let next = s(&decision["next_model"], "kind");
+                                ui.weak(if next.is_empty() { "Next model unavailable".into() } else { format!("Next model: {}", title(next)) });
+                            });
+                            ui.add_space(7.);
+                            let reason = s(maintenance, "reason");
+                            ui.add(egui::Label::new(if reason.is_empty() { "No reason is present in this retained field; inspect the exact decision." } else { reason }).wrap());
+                            for operation in decision["operations"].as_array().into_iter().flatten() {
+                                let label = match s(operation, "tool") {
+                                    "persona.initialize" => "Initial parameters",
+                                    "persona.evaluate" => "Contextual appraisal",
+                                    "persona.patch" => "Parameter candidate",
+                                    "persona.assess" => "Candidate comparison",
+                                    other => other,
+                                };
+                                ui.small(format!("Requested: {label}"));
+                            }
+                            if decision["next_model"]["kind"] != "preserve" {
+                                let reason = s(&decision["next_model"], "reason");
+                                if !reason.is_empty() { ui.add(egui::Label::new(reason).wrap()); }
+                                if let Some(candidate) = decision["next_model"]["candidate"].as_str() {
+                                    if ui.small_button("Inspect chosen candidate →").clicked() { self.open_resource(ui.ctx(), candidate.into()); }
+                                }
+                            }
+                            if self.development_all_work {
+                                let work = s(decision, "work");
+                                let need = self.records("work").iter().find(|w| w["body"]["id"] == work)
+                                    .map(|w| s(&w["body"], "original_need")).unwrap_or(work);
+                                ui.add(egui::Label::new(RichText::new(format!("Task: {}", excerpt(need, 100))).small().weak()).wrap())
+                                    .on_hover_text(need);
+                            }
+                            ui.add_space(8.);
+                            ui.horizontal_wrapped(|ui| {
+                                if ui.small_button("Inspect decision →").clicked() { self.open_resource(ui.ctx(), s(decision, "response").into()); }
+                                if ui.small_button("Supplied context →").clicked() { self.open_resource(ui.ctx(), s(decision, "request").into()); }
+                            });
+                        });
+                    });
+                    ui.add_space(9.);
+                }
+            });
     }
     fn output_bars(&self, ui: &mut Ui, evaluation: &Evaluation, compact: bool) {
         let color = self.color(&self.persona);

@@ -7,7 +7,7 @@ use ai_personas::{
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -27,6 +27,7 @@ pub(super) struct Snapshot {
     pub evaluations: BTreeMap<String, Evaluation>,
     pub appraisal_provenance: BTreeMap<(String, String), Value>,
     pub candidates: Vec<Value>,
+    pub character_decisions: Vec<Value>,
     pub active: Vec<Value>,
     pub inference_recovery: BTreeMap<String, Value>,
     pub active_effects: Vec<Value>,
@@ -52,7 +53,7 @@ fn open(root: &Path) -> neural::Result<Connection> {
     db.execute_batch("BEGIN DEFERRED")?;
     Ok(db)
 }
-pub(super) fn snapshot(root: &Path, after: i64) -> neural::Result<Snapshot> {
+pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<String>) -> neural::Result<Snapshot> {
     let db = open(root)?;
     let status = store::status(&db)?;
     let mut events = Vec::new();
@@ -163,6 +164,32 @@ pub(super) fn snapshot(root: &Path, after: i64) -> neural::Result<Snapshot> {
         .into_iter()
         .map(|r| json!({"reference":r.reference.handle(),"body":r.body}))
         .collect();
+    // Completion can arrive out of dispatch order, including decisions that
+    // emit no events. Inspect accepted headers and project each unseen response
+    // once; an event or dispatch cursor would lose late/tool-free decisions.
+    let mut character_decisions = Vec::new();
+    let mut decisions = db.prepare(
+        "SELECT id,actor,work,response,snapshot,updated,rowid,strftime('%Y-%m-%d %H:%M:%S UTC',updated,'unixepoch') FROM invocations WHERE state='accepted' ORDER BY updated,rowid",
+    )?;
+    let rows = decisions.query_map([], |row| Ok((
+        row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?,
+        row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, i64>(5)?,
+        row.get::<_, i64>(6)?, row.get::<_, Option<String>>(7)?,
+    )))?;
+    for row in rows {
+        let (invocation, actor, work, response, request, accepted, order, accepted_utc) = row?;
+        if known_decisions.contains(&invocation) { continue; }
+        let decision: Value = store::object(&db, &response)?;
+        let operations: Vec<Value> = decision["operations"].as_array().into_iter().flatten()
+            .filter(|op| matches!(op["tool"].as_str(), Some("persona.initialize" | "persona.evaluate" | "persona.patch" | "persona.assess")))
+            .map(|op| json!({"id":op["id"],"tool":op["tool"]})).collect();
+        character_decisions.push(json!({
+            "invocation":invocation,"actor":actor,"work":work,"accepted":accepted,"accepted_utc":accepted_utc,"order":order,
+            "response":format!("object:{response}"),"request":format!("object:{request}"),
+            "maintenance":decision["persona_maintenance"],"next_model":decision["next_model"],
+            "operations":operations,
+        }));
+    }
     let mut q=db.prepare("SELECT id,actor,work,state,created FROM invocations WHERE state IN ('prepared','dispatched','responded') ORDER BY created")?;
     let active=q.query_map([],|r|Ok(json!({"id":r.get::<_,String>(0)?,"actor":r.get::<_,String>(1)?,"work":r.get::<_,String>(2)?,"state":r.get::<_,String>(3)?,"created":r.get::<_,i64>(4)?})))?.collect::<Result<Vec<_>,_>>()?;
     let mut q = db.prepare(
@@ -208,6 +235,7 @@ pub(super) fn snapshot(root: &Path, after: i64) -> neural::Result<Snapshot> {
         evaluations,
         appraisal_provenance,
         candidates,
+        character_decisions,
         active,
         inference_recovery,
         active_effects,

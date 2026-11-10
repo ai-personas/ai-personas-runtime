@@ -76,6 +76,8 @@ pub struct App {
     root: PathBuf,
     snapshot: data::Snapshot,
     events: Vec<Value>,
+    character_decisions: Vec<Value>,
+    known_decisions: BTreeSet<String>,
     cursor: i64,
     tx: mpsc::Sender<Update>,
     rx: mpsc::Receiver<Update>,
@@ -110,6 +112,10 @@ pub struct App {
     viewer: artifacts::Viewer,
     files: artifacts::Viewer,
     character_tab: usize,
+    development_anchor: String,
+    development_filter: usize,
+    development_all_work: bool,
+    development_scope: (String, String),
     contextual: bool,
     parameter_filter: String,
     tensor_filter: String,
@@ -135,6 +141,8 @@ impl App {
             root,
             snapshot: Default::default(),
             events: vec![],
+            character_decisions: vec![],
+            known_decisions: BTreeSet::new(),
             cursor: 0,
             tx,
             rx,
@@ -169,6 +177,10 @@ impl App {
             viewer: artifacts::Viewer::new(ctx, gl),
             files: artifacts::Viewer::new(ctx, gl),
             character_tab: 0,
+            development_anchor: String::new(),
+            development_filter: 0,
+            development_all_work: false,
+            development_scope: (String::new(), String::new()),
             contextual: true,
             parameter_filter: String::new(),
             tensor_filter: String::new(),
@@ -184,8 +196,9 @@ impl App {
         self.polling = true;
         self.last_poll = Instant::now();
         let (root, after, tx, ctx) = (self.root.clone(), self.cursor, self.tx.clone(), ctx.clone());
+        let known_decisions = self.known_decisions.clone();
         std::thread::spawn(move || {
-            let result = data::snapshot(&root, after).map_err(|e| e.to_string());
+            let result = data::snapshot(&root, after, &known_decisions).map_err(|e| e.to_string());
             let _ = tx.send(Update::Status(result));
             ctx.request_repaint();
         });
@@ -245,6 +258,11 @@ impl App {
                         Ok(mut snapshot) => {
                             self.cursor = snapshot.cursor;
                             self.events.append(&mut snapshot.events);
+                            for decision in snapshot.character_decisions.drain(..) {
+                                self.known_decisions.insert(s(&decision, "invocation").into());
+                                self.character_decisions.push(decision);
+                            }
+                            self.character_decisions.sort_by_key(|d| (d["accepted"].as_i64().unwrap_or(0), d["order"].as_i64().unwrap_or(0)));
                             self.snapshot = snapshot;
                             if self.work.is_empty() {
                                 self.work = self

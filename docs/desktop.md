@@ -43,6 +43,16 @@ panel visibility. Panel widths and editor selection survive reopening the worksp
   appraisal from current observations; the inspector and network view show the
   same provenance. These outputs are
   inclinations, not measured abilities, emotions or proven improvements.
+- **Character Lab → Development** shows accepted character-maintenance choices,
+  their actual reasons, requested appraisals or parameter candidates, and the
+  chosen next model. Browse every recorded choice by persona and task, filter
+  no-change, declared-change or deferred decisions, and open the exact response or supplied
+  context. Counts include initialization and describe decisions, not maturation.
+  Candidate proposals, comparisons and activation remain distinct. Rejected or
+  incomplete responses are not counted as accepted maintenance. Full UTC dates
+  distinguish decisions across days, and older pages stay anchored to the selected
+  history while new decisions arrive. Task labels are abbreviated with their full
+  text available on hover; the persona's maintenance reason remains complete.
 - **Activity** exposes compact tool outcomes alongside decisions and communication.
   Filter to tool results or problems, inspect reported command exit codes and
   durations, and open the exact result or event. Queued, running and uncertain
@@ -72,6 +82,11 @@ The local operator can inspect saved peer exchanges; this does not change which
 messages each persona receives. Automatic refresh makes no inference calls,
 adds no persona context and changes no runtime state. Each newly observed tool
 result is read and hash-checked once, then reduced to compact outcome metadata.
+Character-maintenance responses are also hash-checked and projected once. Refresh
+checks accepted invocation headers rather than assuming dispatch or event order
+matches completion order, so late completions and decisions without tool events
+remain visible. The display loads neither provider receipts nor reasoning traces
+for this history; full accepted decisions open only on request.
 Commands and log bodies are shown only when an exact resource is opened; provider
 payloads are not loaded into the activity feed. The existing task, message,
 resume, amendment, scheduling and export commands are invoked only by their
@@ -91,6 +106,18 @@ The missing PDF tools were installed in the local user environment; other machin
 still need their renderer dependencies. Closing and reopening the observer kept
 runtime controls, persona/work heads and operator event history unchanged while
 new persona decisions continued. No runtime unit tests were added or run.
+
+Development history was subsequently checked against the continuing main run and
+Vale's two retained, explicitly stopped validation works. The view showed all
+fifteen accepted Vale choices across both tasks, one parameter proposal and one
+initial activation; six comparison probe calls were excluded. Task filters and
+exact response/context links matched the retained records. Older main-run pages
+kept the same first decision while new decisions arrived. Live window inspection
+also covered the complete scrolling history at 900 × 650 logical pixels. These
+observer sessions made no provider calls or control changes; the stopped workspace
+remained unchanged. Core and desktop builds passed without unit tests. Evidence
+is retained outside Git in
+`/workspace/ai-personas-validation/studio-character-observation-20261110`.
 
 ## Historical fragment workspaces
 
