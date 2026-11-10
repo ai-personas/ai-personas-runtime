@@ -11,6 +11,7 @@ use crate::{
 use base64::Engine;
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
+use serde::ser::SerializeMap;
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
@@ -44,9 +45,59 @@ pub struct Snapshot {
     pub model: Option<String>,
     pub cursor: i64,
     pub data: Value,
+    /// Retain the actual wire ordering, independently of later layout changes.
+    /// Empty identifies historical snapshots sent in canonical JSON key order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub data_order: Vec<String>,
     pub supplied_references: Vec<String>,
     pub tool_names: Vec<String>,
     pub image_blobs: Vec<(String, String)>,
+}
+
+/// Shared work and persistent character state precede frequently changing
+/// observations. This orders fields only: every value remains supplied with its
+/// original attribution, and none of this data enters the developer prefix.
+fn data_order(data: &Value) -> Vec<String> {
+    const FIRST: &[&str] = &[
+        "work", "host_working_directory", "initial_seed", "context_recovery",
+        "peers", "deliveries", "identity", "baseline_character",
+        "control_versions", "current_controls",
+    ];
+    const LAST: &[&str] = &[
+        "last_contextual_evaluation", "participation", "decision_continuity",
+        "background_jobs", "participants", "new_events", "invocation",
+        "now_unix", "context_accounting",
+    ];
+    let fields = data.as_object().expect("snapshot is an object");
+    FIRST.iter().copied().filter(|name| fields.contains_key(*name))
+        .chain(fields.keys().map(String::as_str)
+            .filter(|name| !FIRST.contains(name) && !LAST.contains(name)))
+        .chain(LAST.iter().copied().filter(|name| fields.contains_key(*name)))
+        .map(str::to_owned).collect()
+}
+
+fn render_data(snapshot: &Snapshot) -> Result<String> {
+    if snapshot.data_order.is_empty() {
+        // Reconstruct retained historical evidence using its original layout.
+        return Ok(serde_json::to_string(&snapshot.data)?);
+    }
+    let fields = snapshot.data.as_object()
+        .ok_or_else(|| failure("snapshot data is not an object"))?;
+    let mut remaining: BTreeSet<_> = fields.keys().map(String::as_str).collect();
+    let mut bytes = Vec::new();
+    let mut serializer = serde_json::Serializer::new(&mut bytes);
+    let mut map = serde::Serializer::serialize_map(&mut serializer, Some(fields.len()))?;
+    for name in &snapshot.data_order {
+        if !remaining.remove(name.as_str()) {
+            return Err(failure("snapshot data order has an unknown or duplicate field"));
+        }
+        map.serialize_entry(name, &fields[name])?;
+    }
+    if !remaining.is_empty() {
+        return Err(failure("snapshot data order omits fields"));
+    }
+    map.end()?;
+    Ok(String::from_utf8(bytes)?)
 }
 
 /// A persona's current accepted commitment is an attributed event, independent
@@ -656,9 +707,10 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
         data["context_accounting"]=json!({"meaning":"Observed bytes, not token estimates or limits. Choose the exact context useful for your next decision; complete resources remain retained.","developer_prefix_bytes":prefix.len(),"components_serialized_bytes":component_bytes,"selected_resource_bytes":resource_bytes,"images":image_bytes,"previous_accepted_provider_usage":previous});
         let mut refs=BTreeSet::new();collect_references(&data,&mut refs);
         let contract_object=store::put_bytes(db,"text/plain; charset=utf-8",prefix.as_bytes())?;
+        let data_order=data_order(&data);
         let snapshot=Snapshot{contract_object,invocation:invocation.clone(),persona_revision:p.reference.revision,participation_revision:part.reference.revision,
             work:work_id.into(),actor:actor.into(),epoch:persona.epoch,model:persona.model,cursor,data,
-            supplied_references:refs.into_iter().collect(),tool_names,image_blobs};
+            data_order,supplied_references:refs.into_iter().collect(),tool_names,image_blobs};
         let digest=store::put(db,&snapshot)?;
         db.execute("INSERT INTO invocations VALUES(?1,?2,?3,'prepared',?4,NULL,NULL,?5,?5)",params![invocation,work_id,actor,digest,now()])?;
         Ok(snapshot)
@@ -681,7 +733,7 @@ pub fn request(
         });
     }
     Ok(provider::ProviderRequest {
-        prompt: format!("{}\n{}", prefix, serde_json::to_string(&snapshot.data)?),
+        prompt: format!("{}\n{}", prefix, render_data(snapshot)?),
         reusable_prefix_bytes: Some(prefix.len()),
         input_history: None,
         images,
