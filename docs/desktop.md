@@ -40,6 +40,11 @@ panel visibility. Panel widths and editor selection survive reopening the worksp
   appraisal from current observations; the inspector and network view show the
   same provenance. These outputs are
   inclinations, not measured abilities, emotions or proven improvements.
+- **Activity** exposes compact tool outcomes alongside decisions and communication.
+  Filter to tool results or problems, inspect reported command exit codes and
+  durations, and open the exact result or event. Queued, running and uncertain
+  tools remain visible independently of model calls. An exit code of zero
+  describes process execution; it does not establish artifact correctness.
 
 Artifact previews reuse the desktop's asynchronous image, Markdown/code, data,
 3D, archive and optional native renderers. Exact bytes are read and hash-checked
@@ -53,8 +58,10 @@ The studio reads status, current assets, delivered versions, model packages,
 appraisals and incremental event records in one read-only SQLite transaction.
 The local operator can inspect saved peer exchanges; this does not change which
 messages each persona receives. Automatic refresh makes no inference calls,
-adds no persona context and changes no runtime state. Raw tool/provider payloads
-are not decoded into the recurring activity feed. The existing task, message,
+adds no persona context and changes no runtime state. Each newly observed tool
+result is read and hash-checked once, then reduced to compact outcome metadata.
+Commands and log bodies are shown only when an exact resource is opened; provider
+payloads are not loaded into the activity feed. The existing task, message,
 resume, amendment, scheduling and export commands are invoked only by their
 corresponding explicit controls. Closing an observing window leaves an externally
 owned run working; a run started by that window retains its pause-and-close path.

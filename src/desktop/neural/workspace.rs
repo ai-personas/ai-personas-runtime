@@ -63,6 +63,15 @@ impl App {
                     if active > 0 {
                         theme::badge(ui, &format!("{active} active"), TEAL);
                     }
+                    let tools = self
+                        .snapshot
+                        .active_effects
+                        .iter()
+                        .filter(|e| e["state"] == "dispatched")
+                        .count();
+                    if tools > 0 {
+                        theme::badge(ui, &format!("{tools} tools running"), theme::ACCENT);
+                    }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.menu_button("Run controls", |ui| {
                             if ui
@@ -168,7 +177,13 @@ impl App {
                     ui.painter().circle_filled(
                         rect.center(),
                         3.,
-                        if self.snapshot.active.is_empty() {
+                        if self.snapshot.active.is_empty()
+                            && !self
+                                .snapshot
+                                .active_effects
+                                .iter()
+                                .any(|e| e["state"] == "dispatched")
+                        {
                             p.muted
                         } else {
                             TEAL
@@ -178,7 +193,13 @@ impl App {
                         "Waiting for owned work to settle"
                     } else if self.snapshot.status.is_null() {
                         "Loading workspace…"
-                    } else if self.snapshot.active.is_empty() {
+                    } else if self.snapshot.active.is_empty()
+                        && !self
+                            .snapshot
+                            .active_effects
+                            .iter()
+                            .any(|e| e["state"] == "dispatched")
+                    {
                         "Workspace connected"
                     } else {
                         "Live workspace"
@@ -363,7 +384,22 @@ impl App {
                 "Model call in progress"
             } else {
                 "Working on another task"
-            }.into();
+            }
+            .into();
+        }
+        if let Some(effect) = self
+            .snapshot
+            .active_effects
+            .iter()
+            .find(|e| e["actor"] == id)
+        {
+            return match s(effect, "state") {
+                "uncertain" => "Tool outcome uncertain",
+                "pending" => "Tool queued",
+                _ if effect["work"] != self.work => "Running a tool on another task",
+                _ => "Tool run in progress",
+            }
+            .into();
         }
         let p = self.participation(id);
         if p.is_null() {
@@ -454,7 +490,11 @@ impl App {
                         card(&cols[0]).show(&mut cols[0], |ui| {
                             self.message_heading(ui, message);
                             ui.add_space(6.);
-                            ui.add(egui::Label::new(excerpt(s(&message["body"], "text"), 230)).wrap().halign(egui::Align::Min));
+                            ui.add(
+                                egui::Label::new(excerpt(s(&message["body"], "text"), 230))
+                                    .wrap()
+                                    .halign(egui::Align::Min),
+                            );
                             if ui.small_button("Open conversation →").clicked() {
                                 self.layout.editor = Editor::Conversations;
                                 self.conversation_persona = s(message, "actor").into();
@@ -634,6 +674,13 @@ impl App {
                 egui::Align2::LEFT_TOP,
                 if self.snapshot.active.iter().any(|a| a["actor"] == id) {
                     "INFERENCE"
+                } else if self
+                    .snapshot
+                    .active_effects
+                    .iter()
+                    .any(|a| a["actor"] == id)
+                {
+                    "TOOL"
                 } else {
                     "PERSONA"
                 },
@@ -1061,17 +1108,43 @@ impl App {
             .height_range(100.0..=420.0)
             .frame(theme::panel(ctx))
             .show(ctx, |ui| {
-                section(ui, "Activity", "Saved workspace events");
+                ui.horizontal_wrapped(|ui| {
+                    ui.strong("Activity");
+                    for (index, label) in ["All", "Tool results", "Problems"].into_iter().enumerate() {
+                        ui.selectable_value(&mut self.activity_filter, index, label);
+                    }
+                    ui.weak("Process outcomes are separate from artifact quality.");
+                });
+                let active_effects: Vec<Value> = self.snapshot.active_effects.iter().filter(|e| e["work"] == self.work).cloned().collect();
+                for effect in &active_effects {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.colored_label(theme::ACCENT, self.label(s(effect, "actor")));
+                        ui.label(s(effect, "tool"));
+                        ui.strong(match s(effect, "state") {
+                            "pending" => "Queued",
+                            "dispatched" => "Running",
+                            "uncertain" => "Outcome uncertain",
+                            state => state,
+                        });
+                        if ui.small_button("Inspect request").clicked() {
+                            self.open_resource(ctx, s(effect, "operation").into());
+                        }
+                    });
+                }
                 let rows: Vec<Value> = self
                     .events
                     .iter()
                     .rev()
-                    .filter(|e| e["work"] == self.work)
+                    .filter(|e| e["work"] == self.work && match self.activity_filter {
+                        1 => e["kind"] == "tool_result",
+                        2 => e["tool_outcome"]["problem"] == true || matches!(s(e, "kind"), "provider_failure" | "decision_rejected" | "uncertain_effect"),
+                        _ => true,
+                    })
                     .cloned()
                     .collect();
                 egui::ScrollArea::vertical()
                     .id_salt("activity-events")
-                    .show_rows(ui, 24., rows.len(), |ui, range| {
+                    .show_rows(ui, 28., rows.len(), |ui, range| {
                         for i in range {
                             let e = &rows[i];
                             ui.horizontal(|ui| {
@@ -1086,15 +1159,32 @@ impl App {
                                         .size(12.)
                                         .color(self.color(s(e, "actor"))),
                                 );
+                                if e["kind"] == "tool_result" {
+                                    ui.label(RichText::new(s(&e["body"], "tool")).size(12.));
+                                    let result = &e["tool_outcome"];
+                                    ui.label(RichText::new(s(result, "label")).size(12.).color(if result["problem"] == true { Color32::LIGHT_RED } else { TEAL }));
+                                    if let Some(ms) = result["elapsed_milliseconds"].as_u64() {
+                                        ui.weak(format!("{:.1}s", ms as f64 / 1000.));
+                                    }
+                                    if ui.small_button("Inspect result").on_hover_text("Open the exact retained result, including its input and observations.").clicked() {
+                                        self.open_resource(ctx, s(result, "result").into());
+                                    }
+                                    ui.add(egui::Label::new(RichText::new(s(&e["body"], "operation")).size(11.).weak()).truncate());
+                                    return;
+                                }
                                 ui.label(RichText::new(title(s(e, "kind"))).size(12.));
+                                let detail = ["text", "reason", "error"].into_iter().map(|key| s(&e["body"], key)).find(|text| !text.is_empty()).unwrap_or("");
                                 ui.add(
                                     egui::Label::new(
-                                        RichText::new(excerpt(s(&e["body"], "text"), 180))
+                                        RichText::new(excerpt(detail, 180))
                                             .size(12.)
                                             .weak(),
                                     )
                                     .truncate(),
                                 );
+                                if ui.small_button("Inspect event").clicked() {
+                                    self.open_resource(ctx, format!("object:{}", s(e, "digest")));
+                                }
                             });
                         }
                     });

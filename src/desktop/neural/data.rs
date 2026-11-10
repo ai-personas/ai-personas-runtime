@@ -28,6 +28,7 @@ pub(super) struct Snapshot {
     pub appraisal_provenance: BTreeMap<(String, String), Value>,
     pub candidates: Vec<Value>,
     pub active: Vec<Value>,
+    pub active_effects: Vec<Value>,
     pub directory: PathBuf,
 }
 pub(super) struct Preview {
@@ -54,9 +55,11 @@ pub(super) fn snapshot(root: &Path, after: i64) -> neural::Result<Snapshot> {
     let db = open(root)?;
     let status = store::status(&db)?;
     let mut events = Vec::new();
-    // Raw tool/provider payloads are intentionally loaded only through their
-    // exact resource, never decoded or exposed as a recurring UI activity feed.
-    let mut q = db.prepare("SELECT seq,work,actor,target,kind,digest,created FROM events WHERE seq>?1 AND kind!='tool_result' ORDER BY seq")?;
+    // Each new tool result is verified once, then reduced to outcome metadata.
+    // Keep commands, log bodies and provider payloads out of the activity feed.
+    let mut q = db.prepare(
+        "SELECT seq,work,actor,target,kind,digest,created FROM events WHERE seq>?1 ORDER BY seq",
+    )?;
     let rows = q
         .query_map([after], |r| {
             Ok((
@@ -71,7 +74,13 @@ pub(super) fn snapshot(root: &Path, after: i64) -> neural::Result<Snapshot> {
         })?
         .collect::<Result<Vec<_>, _>>()?;
     for (seq, work, actor, target, kind, digest, created) in rows {
-        events.push(json!({"event":seq,"work":work,"actor":actor,"target":target,"kind":kind,"body":store::object::<Value>(&db,&digest)?,"digest":digest,"created":created}));
+        let body = store::object::<Value>(&db, &digest)?;
+        let outcome = if kind == "tool_result" {
+            tool_outcome(&db, &body)?
+        } else {
+            Value::Null
+        };
+        events.push(json!({"event":seq,"work":work,"actor":actor,"target":target,"kind":kind,"body":body,"tool_outcome":outcome,"digest":digest,"created":created}));
     }
     let cursor = db.query_row("SELECT COALESCE(MAX(seq),0) FROM events", [], |r| r.get(0))?;
     let mut assets = Vec::new();
@@ -150,6 +159,25 @@ pub(super) fn snapshot(root: &Path, after: i64) -> neural::Result<Snapshot> {
         .collect();
     let mut q=db.prepare("SELECT id,actor,work,state,created FROM invocations WHERE state IN ('prepared','dispatched','responded') ORDER BY created")?;
     let active=q.query_map([],|r|Ok(json!({"id":r.get::<_,String>(0)?,"actor":r.get::<_,String>(1)?,"work":r.get::<_,String>(2)?,"state":r.get::<_,String>(3)?,"created":r.get::<_,i64>(4)?})))?.collect::<Result<Vec<_>,_>>()?;
+    let mut q = db.prepare(
+        "SELECT id,actor,work,state,operation FROM outbox WHERE state!='completed' ORDER BY rowid",
+    )?;
+    let effects = q
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, String>(4)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut active_effects = Vec::new();
+    for (id, actor, work, state, digest) in effects {
+        let operation: Value = store::object(&db, &digest)?;
+        active_effects.push(json!({"id":id,"actor":actor,"work":work,"state":state,"tool":operation["tool"],"operation":format!("object:{digest}")}));
+    }
     let directory = store::head(&db, "config", "runtime")?
         .and_then(|r| r.body["working_directory"].as_str().map(PathBuf::from))
         .unwrap_or_default();
@@ -164,8 +192,45 @@ pub(super) fn snapshot(root: &Path, after: i64) -> neural::Result<Snapshot> {
         appraisal_provenance,
         candidates,
         active,
+        active_effects,
         directory,
     })
+}
+
+fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
+    let reference = body["result"]
+        .as_str()
+        .ok_or_else(|| neural::failure("Tool result has no exact reference"))?;
+    let digest = reference
+        .strip_prefix("object:")
+        .ok_or_else(|| neural::failure("Tool result reference is not immutable"))?;
+    let result: Value = store::object(db, digest)?;
+    let outcome = &result["outcome"];
+    let (label, problem) = if result["error"].is_string() {
+        ("Failed".to_owned(), true)
+    } else if body["tool"] != "host.command" {
+        ("Recorded".to_owned(), false)
+    } else if outcome["timed_out"] == true {
+        ("Timed out".to_owned(), true)
+    } else if !outcome["runtime_control_observation"].is_null() {
+        ("Canceled by control".to_owned(), false)
+    } else if outcome["failure"].is_string() {
+        ("Could not complete".to_owned(), true)
+    } else if let Some(signal) = outcome["signal"].as_i64() {
+        (format!("Signal {signal}"), true)
+    } else if let Some(code) = outcome["exit_code"].as_i64() {
+        (
+            format!("Exit {code}"),
+            code != 0 || outcome["succeeded"] == false,
+        )
+    } else if outcome["process_started"] == false {
+        ("Did not start".to_owned(), true)
+    } else {
+        ("Outcome unavailable".to_owned(), true)
+    };
+    Ok(
+        json!({"label":label,"problem":problem,"elapsed_milliseconds":outcome["elapsed_milliseconds"],"failure":outcome["failure"],"error":result["error"],"result":reference}),
+    )
 }
 pub(super) fn preview(root: &Path, reference: &str) -> neural::Result<Preview> {
     let db = open(root)?;
