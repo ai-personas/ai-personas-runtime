@@ -26,6 +26,7 @@ mod export;
 mod life;
 mod library_search;
 mod workspace;
+mod usage;
 
 const TEAL: Color32 = Color32::from_rgb(103, 198, 185);
 const PURPLE: Color32 = Color32::from_rgb(172, 150, 221);
@@ -36,6 +37,7 @@ enum Editor {
     Conversations,
     Artifacts,
     Character,
+    Usage,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(default)]
@@ -108,6 +110,7 @@ pub struct App {
     selected_reference: String,
     reference_input: String,
     library_search: library_search::Window,
+    usage: usage::Panel,
     preview_generation: u64,
     preview_pending: bool,
     preview_metadata: Value,
@@ -177,6 +180,7 @@ impl App {
             selected_reference: String::new(),
             reference_input: String::new(),
             library_search: Default::default(),
+            usage: Default::default(),
             preview_generation: 0,
             preview_pending: false,
             preview_metadata: Value::Null,
@@ -484,6 +488,11 @@ impl eframe::App for App {
                 Editor::Conversations => self.conversations(ui),
                 Editor::Artifacts => self.artifacts(ui),
                 Editor::Character => self.character(ui),
+                Editor::Usage => {
+                    if let Some(reference) = self.usage.show(ui, &self.root, &self.work) {
+                        self.open_resource(ctx,reference);
+                    }
+                },
             });
         if self.inspector_window {
             let mut open = true;

@@ -66,6 +66,8 @@ For a matched comparison, `persona.assess` accepts either a hypothetical situati
 
 Inspect a replay locally with `neural replay-input experience:call-ID@1 --resource object:DIGEST`. Verify the original responses, numerical forward evaluations and shared inputs of a completed comparison using `neural verify-assessment assessment:ID@1`. Both commands work offline.
 
+Measure all recorded decisions, rejected outputs, assessment calls, exact context and local scans for an activity with `neural usage WORK_ID`. Each token and charge total includes its own reporting coverage. Source ranges count only when the saved prompt and ordered images match a completed receipt. Object references have their own byte coverage, including a selected earlier tool result. `neural footprint` measures database files, current staging and distinct payloads by use. Pass `--archive PATH` for each additional archive you want measured. Role totals overlap. External copies and earlier peak disk use remain unknown.
+
 A persona can use `work.handoff` to offer its current unfinished outcome to an invited peer. The recipient decides whether to accept the exact remaining work. Acceptance creates a new outcome revision, preserves the original author, and leaves the offer and response inspectable. A changed brief or outcome makes the offer stale. The original owner can withdraw the offer. To run a particular participation, use `neural run --work WORK_ID --persona PERSONA_ID`. Omit either option to include its other eligible activities or participants.
 
 ```sh

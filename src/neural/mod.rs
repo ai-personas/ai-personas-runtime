@@ -1,6 +1,8 @@
 //! Indexed persona runtime. Reuses the application's direct model transport and
 //! host executors; history is immutable and never part of a mutable state blob.
 pub mod cli;
+pub mod accounting;
+pub mod footprint;
 mod archive;
 mod assessment;
 mod character;

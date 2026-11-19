@@ -35,6 +35,7 @@ impl App {
                         (Editor::Conversations, "Conversations"),
                         (Editor::Artifacts, "Artifacts"),
                         (Editor::Character, "Character Lab"),
+                        (Editor::Usage, "Usage"),
                     ] {
                         if ui
                             .add(

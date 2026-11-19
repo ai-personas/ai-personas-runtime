@@ -8,6 +8,8 @@ Personas Desktop is a native Rust workspace for Linux and macOS. Open a saved fo
 
 In **Artifacts**, choose **Search library…** to search names, cues and qualifications. Enable **Include earlier revisions** to follow an old name to the original version or the current one. **Find in this version…** locates literal text or a regular expression. Open a match to inspect its exact lines or copy its byte selection.
 
+**Usage → Selected activity** shows provider usage, matching local tool results, repeated and distinct bytes of source text, and a link to each recorded input and receipt. Select another activity in the outliner to compare it. **Workspace storage** measures the database and retained payloads. Use **Refresh** for a new observation.
+
 Choose **Reply to this message** on a persona’s message to quote it and send a response to its author. **In reply to** opens the exact exchange. The **With you** filter includes messages from named local operators. CLI users can pass `--reply-to experience:event-N@1` to `neural message`.
 
 The conversation preserves authored line breaks. **Copy message** places the original text on the clipboard, including Markdown and spacing.

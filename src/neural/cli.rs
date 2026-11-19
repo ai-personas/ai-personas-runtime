@@ -158,6 +158,13 @@ pub enum Command {
     },
     /// Provider bindings, prompt sizes, use, activation history and dispatch counts.
     Audit,
+    /// Measure every recorded invocation, verified resource input and local search in one activity.
+    Usage { work: String },
+    /// Measure storage under this workspace and optional explicitly named archive files.
+    Footprint {
+        #[arg(long = "archive")]
+        archives: Vec<PathBuf>,
+    },
     /// Save a consistent private snapshot of all numerical workspace records.
     Backup { archive: PathBuf },
     /// Restore a numerical archive into a new workspace without starting work.
@@ -330,6 +337,8 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
                 }),
                 Command::Export{directory,work}=>export(&mut store,&directory,work.as_deref()),
                 Command::Audit=>audit(&mut store),
+                Command::Usage {work}=>store.snapshot(|db|super::accounting::activity(db,&work)),
+                Command::Footprint {archives}=>store.snapshot(|db|super::footprint::observe(db,root,&archives)),
                 Command::Backup{archive}=>super::archive::backup(&store,&archive),
                 _=>unreachable!(),
             }
