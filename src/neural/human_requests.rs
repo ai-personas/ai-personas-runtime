@@ -24,6 +24,49 @@ pub struct Request {
     pub artifacts: Vec<String>,
 }
 
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Withdraw {
+    pub request: String,
+    pub reason: String,
+}
+
+pub(super) fn withdraw(db: &Connection, snapshot: &Snapshot, input: Withdraw) -> Result<Value> {
+    let record = exact(db, &input.request)?;
+    let mut body = record.body;
+    if body["work"] != snapshot.work
+        || body["requester"] != snapshot.actor
+        || body["state"] != "open"
+        || input.reason.trim().is_empty()
+    {
+        return Err(failure(
+            "Only the requester can withdraw their open, unclaimed request with a reason",
+        ));
+    }
+    body["state"] = json!("withdrawn");
+    body["updated"] = json!(now());
+    body["withdrawal"] =
+        json!({"reason":input.reason,"decision":format!("experience:{}@1",snapshot.invocation)});
+    let updated = store::write(
+        db,
+        "human_request",
+        &record.reference.id,
+        record.reference.revision,
+        &body,
+        Some(&snapshot.invocation),
+    )?;
+    let event = store::event(
+        db,
+        &snapshot.work,
+        &snapshot.actor,
+        "user",
+        "human_request_withdrawn",
+        &json!({"reference":updated.handle(),"reason":input.reason}),
+        Some(&snapshot.invocation),
+    )?;
+    Ok(json!({"reference":updated.handle(),"state":"withdrawn","event":event}))
+}
+
 fn files(db: &Connection, refs: &[String]) -> Result<Vec<(String, String)>> {
     let mut entries = Vec::new();
     let mut names = BTreeSet::new();
@@ -61,12 +104,14 @@ fn files(db: &Connection, refs: &[String]) -> Result<Vec<(String, String)>> {
     Ok(entries)
 }
 
-pub(super) fn create(db: &Connection, snapshot: &Snapshot, request: Request) -> Result<Value> {
+pub(super) fn create(db: &Connection, snapshot: &Snapshot, mut request: Request) -> Result<Value> {
     if request.title.trim().is_empty() || request.action.trim().is_empty() {
         return Err(failure(
             "Give your request a title and describe the action you need",
         ));
     }
+    let mut seen = BTreeSet::new();
+    request.artifacts.retain(|r| seen.insert(r.clone()));
     files(db, &request.artifacts)?;
     let body = json!({"work":snapshot.work,"requester":snapshot.actor,"title":request.title,"action":request.action,
         "return_requested":request.return_requested,"artifacts":request.artifacts,"state":"open","claimed_by":null,
@@ -98,6 +143,7 @@ pub(super) fn create(db: &Connection, snapshot: &Snapshot, request: Request) -> 
 pub enum Response {
     Take,
     Release,
+    Update,
     Complete,
     Unable,
 }
@@ -141,9 +187,12 @@ pub(super) fn respond(
         Response::Release if state == "in_progress" => {
             ("open", "I returned this request to the inbox.")
         }
+        Response::Update if state == "in_progress" && !note.trim().is_empty() => {
+            ("in_progress", "")
+        }
         Response::Complete if !note.trim().is_empty() => ("completed", ""),
         Response::Unable if !note.trim().is_empty() => ("unable", ""),
-        Response::Complete | Response::Unable => {
+        Response::Update | Response::Complete | Response::Unable => {
             return Err(failure("Describe what happened for the requesting persona"))
         }
         _ => {
@@ -178,6 +227,18 @@ pub(super) fn respond(
     body["state"] = json!(next);
     body["updated"] = json!(now());
     body["last_report"] = json!({"human":operator,"text":text,"attachments":attachments});
+    let work = body["work"]
+        .as_str()
+        .ok_or_else(|| failure("Missing request activity"))?;
+    let requester = body["requester"]
+        .as_str()
+        .ok_or_else(|| failure("Missing requester"))?;
+    let source:i64=db.query_row(
+        "SELECT e.seq FROM versions v JOIN events e ON v.invocation=e.invocation
+         JOIN objects o ON o.digest=e.digest WHERE v.kind='human_request' AND v.id=?1 AND v.revision=1
+         AND e.work=?2 AND e.actor=?3 AND e.target='user' AND e.kind='human_request'
+         AND json_extract(CAST(o.bytes AS TEXT),'$.reference')='human_request:'||v.id||'@1'",
+        rusqlite::params![record.reference.id,work,requester],|row|row.get(0))?;
     let updated = store::write(
         db,
         "human_request",
@@ -188,15 +249,19 @@ pub(super) fn respond(
     )?;
     let event = store::event(
         db,
-        body["work"]
-            .as_str()
-            .ok_or_else(|| failure("Missing request activity"))?,
+        work,
         operator,
-        body["requester"]
-            .as_str()
-            .ok_or_else(|| failure("Missing requester"))?,
-        "user_message",
-        &json!({"text":text,"human_request":updated.handle(),"title":body["title"],"state":next,"attachments":attachments}),
+        requester,
+        if matches!(response, Response::Take | Response::Release)
+            && note.trim().is_empty()
+            && paths.is_empty()
+        {
+            "human_request_progress"
+        } else {
+            "user_message"
+        },
+        &json!({"text":text,"human_request":updated.handle(),"reply_to":format!("experience:event-{source}@1"),
+            "title":body["title"],"state":next,"attachments":attachments}),
         None,
     )?;
     Ok(

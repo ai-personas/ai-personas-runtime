@@ -17,6 +17,9 @@ struct Draft {
 }
 
 impl Inbox {
+    pub(super) fn list(&mut self) {
+        self.selected.clear();
+    }
     pub(super) fn response_saved(&mut self, reference: &str) {
         if let Some((key, _)) = reference.rsplit_once('@') {
             self.drafts.remove(key);
@@ -35,6 +38,7 @@ fn phase(state: &str) -> (&'static str, Color32) {
         "in_progress" => ("In progress", TEAL),
         "completed" => ("Reported complete", theme::GREEN),
         "unable" => ("Unable to complete", PURPLE),
+        "withdrawn" => ("Withdrawn by requester", Color32::GRAY),
         _ => ("Unknown state", Color32::GRAY),
     }
 }
@@ -52,6 +56,16 @@ impl App {
     }
 
     pub(super) fn show_human_request(&mut self, id: &str) {
+        if let Some(body) = self
+            .records("human_requests")
+            .iter()
+            .find(|r| r["reference"]["id"] == id)
+            .map(|r| r["body"].clone())
+        {
+            self.work = s(&body, "work").into();
+            self.persona = s(&body, "requester").into();
+            self.conversation_page = 0;
+        }
         self.inbox.selected = id.into();
         self.layout.editor = Editor::Inbox;
     }
@@ -101,7 +115,7 @@ impl App {
                 && matches!(s(e,"kind"),"message"|"reply")).collect();
             let counts=[requests.iter().filter(|r|r["body"]["state"]=="open").count(),
                 requests.iter().filter(|r|r["body"]["state"]=="in_progress").count(),
-                requests.iter().filter(|r|matches!(s(&r["body"],"state"),"completed"|"unable")).count(),messages.len()];
+                requests.iter().filter(|r|matches!(s(&r["body"],"state"),"completed"|"unable"|"withdrawn")).count(),messages.len()];
             ui.horizontal_wrapped(|ui|{
                 for (idx,label) in ["Open","In progress","Closed","Messages"].iter().enumerate() {
                     ui.selectable_value(&mut self.inbox.tab,idx,format!("{label}  {}",counts[idx]));
@@ -145,7 +159,7 @@ impl App {
                 let b=&r["body"];
                 let state=s(b,"state");
                 if (self.inbox.tab==0 && state!="open") || (self.inbox.tab==1 && state!="in_progress")
-                    || (self.inbox.tab==2 && !matches!(state,"completed"|"unable")) { continue; }
+                    || (self.inbox.tab==2 && !matches!(state,"completed"|"unable"|"withdrawn")) { continue; }
                 let (status,color)=phase(state);
                 card(ui).show(ui,|ui|{
                     ui.set_min_width(ui.available_width());
@@ -214,6 +228,10 @@ impl App {
         });
         ui.add_space(12.);
         let active = matches!(s(b, "state"), "open" | "in_progress");
+        if let Some(reason) = b["withdrawal"]["reason"].as_str() {
+            ui.strong("Reason for withdrawal");
+            ui.label(reason);
+        }
         if active && (b["claimed_by"].is_null() || b["claimed_by"] == self.operator) {
             self.human_response_form(ui, &reference, b);
         }
@@ -223,7 +241,7 @@ impl App {
             .iter()
             .rev()
             .filter(|e| {
-                e["kind"] == "user_message"
+                matches!(s(e, "kind"), "user_message" | "human_request_progress")
                     && e["body"]["human_request"]
                         .as_str()
                         .and_then(|r| r.split_once('@'))
@@ -271,6 +289,13 @@ impl App {
             ..Default::default()
         });
         let mut response = None;
+        if draft.basis != reference
+            && draft.note.is_empty()
+            && draft.path.is_empty()
+            && draft.attachments.is_empty()
+        {
+            draft.basis = reference.into();
+        }
         if draft.basis != reference {
             ui.label("This request changed while you were writing.");
             if ui.button("Use the displayed revision").clicked() {
@@ -344,6 +369,16 @@ impl App {
                     .clicked()
                 {
                     response = Some(Response::Unable);
+                }
+                if b["state"] == "in_progress"
+                    && ui
+                        .add_enabled(
+                            !draft.note.trim().is_empty(),
+                            egui::Button::new("Send progress"),
+                        )
+                        .clicked()
+                {
+                    response = Some(Response::Update);
                 }
                 if b["state"] == "in_progress" && ui.button("Release request").clicked() {
                     response = Some(Response::Release);

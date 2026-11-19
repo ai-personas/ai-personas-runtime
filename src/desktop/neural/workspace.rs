@@ -34,6 +34,7 @@ impl App {
                     let inbox_label = if waiting == 0 {"Needs you".to_string()} else {format!("Needs you · {waiting}")};
                     for (editor, label) in [
                         (Editor::Studio, "Workspace"),
+                        (Editor::People, "Personas"),
                         (Editor::Inbox, inbox_label.as_str()),
                         (Editor::Conversations, "Conversations"),
                         (Editor::Artifacts, "Artifacts"),
@@ -49,6 +50,7 @@ impl App {
                             .clicked()
                         {
                             self.layout.editor = editor;
+                            if editor==Editor::Inbox{self.inbox.list();}
                         }
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -105,6 +107,7 @@ impl App {
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.menu_button("Run controls", |ui| {
+                            if self.following.is_some() && ui.button("Finish current run").clicked(){self.finish_following();ui.close();}
                             if ui
                                 .add_enabled(!self.busy, egui::Button::new("Enable scheduling"))
                                 .clicked()
@@ -120,7 +123,7 @@ impl App {
                                 ui.close();
                             }
                             if !self.work.is_empty() && ui.add_enabled(!self.running && !self.busy && self.snapshot.active.is_empty(),
-                                egui::Button::new("Run activity and its requests")).clicked(){
+                                egui::Button::new("Run once until waiting")).clicked(){
                                 self.command(ctx,Command::Run{watch:false,work:None,persona:None,from_activity:Some(self.work.clone())});
                                 ui.close();
                             }
@@ -256,6 +259,8 @@ impl App {
                     );
                     ui.small(if self.closing {
                         "Waiting for owned work to settle"
+                    } else if self.following.is_some() {
+                        "Following activity"
                     } else if self.snapshot.status.is_null() {
                         "Loading workspace…"
                     } else if self.snapshot.active.is_empty()
@@ -285,7 +290,7 @@ impl App {
                         {
                             self.layout.activity = !self.layout.activity;
                         }
-                        ui.small(format!("{} artifacts", self.snapshot.assets.len()));
+                        let count=self.snapshot.assets.len();ui.small(format!("{count} {}",if count==1{"artifact"}else{"artifacts"}));
                         ui.separator();
                         let count=self.records("personas").len();
                         ui.small(format!("{count} {}",if count==1{"persona"}else{"personas"}));
@@ -348,7 +353,7 @@ impl App {
                                     ui.set_min_width(ui.available_width());
                                     ui.horizontal(|ui| {
                                         if avatar(ui, label, color, 28.).clicked() {
-                                            self.persona = id.into();
+                                            self.show_person(id);
                                         }
                                         ui.vertical(|ui| {
                                             if ui
@@ -360,7 +365,7 @@ impl App {
                                                 )
                                                 .clicked()
                                             {
-                                                self.persona = id.into();
+                                                self.show_person(id);
                                             }
                                             ui.label(RichText::new(state).size(11.).color(p.muted));
                                         });
@@ -369,10 +374,10 @@ impl App {
                                 .response;
                             let response = response.interact(egui::Sense::click());
                             if response.clicked() {
-                                self.persona = id.into();
+                                self.show_person(id);
                             }
                             if response.double_clicked() {
-                                self.persona = id.into();
+                                self.show_person(id);
                                 self.layout.editor = Editor::Character;
                             }
                             ui.add_space(4.);
@@ -1046,7 +1051,7 @@ impl App {
             .max(ui.text_style_height(&egui::TextStyle::Small))
             .max(16.)
     }
-    fn artifact_row(&mut self, ui: &mut Ui, asset: &Value, compact: bool) {
+    pub(super) fn artifact_row(&mut self, ui: &mut Ui, asset: &Value, compact: bool) {
         let line_height = Self::artifact_line_height(ui);
         let b = &asset["body"];
         let path = s(b, "path");

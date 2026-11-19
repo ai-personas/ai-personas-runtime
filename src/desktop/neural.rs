@@ -34,6 +34,7 @@ mod package_reviews;
 mod requested_activities;
 mod inbox;
 mod overview;
+mod people;
 mod mesh_profile;
 mod workspace;
 mod usage;
@@ -47,6 +48,7 @@ const PURPLE: Color32 = Color32::from_rgb(172, 150, 221);
 enum Editor {
     #[default]
     Studio,
+    People,
     Inbox,
     Responsibilities,
     Conversations,
@@ -107,6 +109,7 @@ pub struct App {
     polling: bool,
     last_poll: Instant,
     running: bool,
+    following: Option<(String, Arc<std::sync::atomic::AtomicBool>)>,
     busy: bool,
     closing: bool,
     error: Option<String>,
@@ -197,6 +200,7 @@ impl App {
             polling: false,
             last_poll: Instant::now() - Duration::from_secs(5),
             running: false,
+            following: None,
             busy: false,
             closing: false,
             error: None,
@@ -267,6 +271,24 @@ impl App {
             ctx.request_repaint();
         });
     }
+    fn follow_activity(&mut self, ctx: &egui::Context) {
+        if self.running || self.busy || self.work.is_empty() { return; }
+        let finish=Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (root,work,tx,ctx)=(self.root.clone(),self.work.clone(),self.tx.clone(),ctx.clone());
+        self.running=true;
+        self.error=None;
+        self.following=Some((work.clone(),finish.clone()));
+        std::thread::spawn(move ||{
+            let result=tokio::runtime::Runtime::new().map_err(|e|e.to_string()).and_then(|runtime|
+                runtime.block_on(ai_personas::neural::runner::follow_activity(&root,&work,&finish)).map_err(|e|e.to_string()));
+            let _=tx.send(Update::RunDone(result));ctx.request_repaint();
+        });
+    }
+
+    fn finish_following(&self) {
+        if let Some((_,finish))=&self.following { finish.store(true,std::sync::atomic::Ordering::Release); }
+    }
+
     fn command(&mut self, ctx: &egui::Context, command: Command) {
         let operator = self.operator.trim().to_owned();
         let run = matches!(command, Command::Run { .. });
@@ -418,7 +440,12 @@ impl App {
                 }
                 Update::RunDone(result) => {
                     self.running = false;
-                    self.command_finished(result);
+                    let followed=self.following.take().is_some();
+                    match result {
+                        Ok(_) => self.notice=if followed {"Finished following activity".into()} else {"Run finished".into()},
+                        Err(error) => self.error=Some(error),
+                    }
+                    self.last_poll=Instant::now()-Duration::from_secs(3);
                 }
             }
         }
@@ -537,14 +564,15 @@ impl eframe::App for App {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             if !self.closing {
                 self.closing = true;
-                self.command(
+                self.finish_following();
+                if self.following.is_none() || self.command_bench.executing() { self.command(
                     ctx,
                     Command::Control {
                         scope: "global".into(),
                         state: "paused".into(),
                         reason: "Desktop window closed by user".into(),
                     },
-                );
+                ); }
             }
         }
         if self.closing && !self.running && !self.command_bench.executing() {
@@ -570,6 +598,7 @@ impl eframe::App for App {
             )
             .show(ctx, |ui| match self.layout.editor {
                 Editor::Studio => self.studio(ui),
+                Editor::People => self.people(ui),
                 Editor::Inbox => self.human_inbox(ui),
                 Editor::Responsibilities => {
                     if ui.small_button("← Activity overview").clicked(){self.layout.editor=Editor::Studio;}
@@ -633,6 +662,7 @@ impl eframe::App for App {
         }
     }
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.finish_following();
         self.save_layout();
         self.viewer.destroy();
         self.files.destroy();

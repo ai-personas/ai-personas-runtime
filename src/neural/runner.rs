@@ -695,6 +695,16 @@ pub async fn run(root: &Path, watch: bool) -> Result<Value> {
 }
 
 pub async fn run_selected(root:&Path,watch:bool,work:Option<&str>,actor:Option<&str>,from_activity:Option<&str>)->Result<Value> {
+    drive(root,watch,work,actor,from_activity,None).await
+}
+
+/// Keep receiving chosen wake events while a Studio window follows this activity.
+/// Releasing the listener finishes work already admitted and releases the runner lock.
+pub async fn follow_activity(root:&Path,work:&str,finish:&std::sync::atomic::AtomicBool)->Result<Value> {
+    drive(root,true,None,None,Some(work),Some(finish)).await
+}
+
+async fn drive(root:&Path,watch:bool,work:Option<&str>,actor:Option<&str>,from_activity:Option<&str>,finish:Option<&std::sync::atomic::AtomicBool>)->Result<Value> {
     let mut store = Store::open(root)?;
     let _lock = RunnerLock::acquire(&store.root)?;
     if from_activity.is_some() && (work.is_some() || actor.is_some()) {
@@ -734,7 +744,8 @@ pub async fn run_selected(root:&Path,watch:bool,work:Option<&str>,actor:Option<&
                 observed_signal = Some(signal);
             }
         }
-        let shutting_down = crate::process_control::signal().is_some();
+        let released = finish.is_some_and(|flag|flag.load(std::sync::atomic::Ordering::Acquire));
+        let shutting_down = released || crate::process_control::signal().is_some();
         let admission: Option<String> = store
             .db
             .query_row(
@@ -815,7 +826,7 @@ pub async fn run_selected(root:&Path,watch:bool,work:Option<&str>,actor:Option<&
             });
         }
         if tasks.is_empty()
-            && (draining || !watch && !future_wake || crate::process_control::signal().is_some())
+            && (draining || !watch && !future_wake || shutting_down)
         {
             break;
         }

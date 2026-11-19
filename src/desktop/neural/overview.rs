@@ -57,25 +57,12 @@ impl App {
                 }
                 ui.add_space(9.);
                 ui.horizontal_wrapped(|ui| {
-                    if ui
-                        .add_enabled(
-                            !self.running && !self.busy && self.snapshot.active.is_empty(),
-                            theme::primary("Run activity"),
-                        )
-                        .on_hover_text(
-                            "Continue eligible personas here and in activities they request",
-                        )
-                        .clicked()
-                    {
-                        self.command(
-                            ui.ctx(),
-                            Command::Run {
-                                watch: false,
-                                work: None,
-                                persona: None,
-                                from_activity: Some(self.work.clone()),
-                            },
-                        );
+                    if self.following.as_ref().is_some_and(|(work,_)|work==&self.work) {
+                        theme::badge(ui,"Following this activity",TEAL);
+                        if ui.button("Finish run").on_hover_text("Finish current decisions and stop listening for new arrivals").clicked(){self.finish_following();}
+                    } else if ui.add_enabled(!self.running && !self.busy && self.snapshot.active.is_empty(),theme::primary("Run activity"))
+                        .on_hover_text("Run this activity and its requests. Keep listening for the events each persona chose while Studio is open.").clicked(){
+                        self.follow_activity(ui.ctx());
                     }
                     if ui.button("Activity thread").clicked() {
                         self.requested_activities.open(
@@ -145,6 +132,7 @@ impl App {
         } else {
             1
         };
+        let columns = columns.min(members.len().max(1));
         for row in members.chunks(columns) {
             ui.columns(columns, |cols| {
                 for (col, member) in cols.iter_mut().zip(row) {
@@ -159,20 +147,21 @@ impl App {
                         ui.set_min_width(ui.available_width());
                         ui.horizontal_wrapped(|ui| {
                             if avatar(ui, &name, color, 32.).clicked() {
-                                self.persona = person.into();
-                                self.layout.editor = Editor::Character;
+                                self.show_person(person);
                             }
                             ui.vertical(|ui| {
                                 if ui.link(RichText::new(&name).strong().size(17.)).clicked() {
-                                    self.persona = person.into();
-                                    self.layout.editor = Editor::Character;
+                                    self.show_person(person);
                                 }
                                 ui.small(self.persona_state(person));
                             });
                         });
                         if !reason.is_empty() {
                             ui.add_space(5.);
-                            ui.label(excerpt(reason, 110)).on_hover_text(reason);
+                            ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                                ui.label(excerpt(reason, if columns == 1 { 260 } else { 130 }))
+                                    .on_hover_text(reason)
+                            });
                         }
                     });
                 }
@@ -198,7 +187,15 @@ impl App {
         section(
             ui,
             "Delivered work",
-            &format!("{} packages", deliveries.len()),
+            &format!(
+                "{} {}",
+                deliveries.len(),
+                if deliveries.len() == 1 {
+                    "package"
+                } else {
+                    "packages"
+                }
+            ),
         );
         if deliveries.is_empty() {
             ui.weak("No package has been delivered in this activity yet.");
@@ -232,12 +229,23 @@ impl App {
                 let (label, c) = match accepted {
                     Some(true) => ("Accepted", theme::GREEN),
                     Some(false) => ("Changes requested", theme::ACCENT),
+                    None if b["scope"] == "partial" => ("Partial delivery", theme::ACCENT),
                     None => ("Delivered", TEAL),
                 };
                 theme::badge(ui, label, c);
                 ui.weak(format!("by {}", self.label(s(b, "owner"))));
             });
             ui.label(s(b, "supported_use"));
+            if b["scope"] == "partial" {
+                if let Some(first) = b["remaining"]
+                    .as_array()
+                    .and_then(|g| g.first())
+                    .and_then(Value::as_str)
+                {
+                    ui.weak(format!("Still needed · {}", excerpt(first, 190)))
+                        .on_hover_text(first);
+                }
+            }
             ui.horizontal_wrapped(|ui| {
                 if ui.button("Save package…").clicked() {
                     self.export_package(&handle, s(b, "title"));
