@@ -301,11 +301,12 @@ pub(super) fn comparison_encounter(root: &Path, decision: &str, matched: Option<
             Ok(event["record"].clone())
         }).collect()
     };
-    let situation = matched.map(|reference| {
+    let shared = matched.map(|reference| {
         let digest = reference.strip_prefix("object:").ok_or_else(||neural::failure("Missing matched input digest"))?;
-        Ok::<_,neural::Error>(store::object::<Value>(&db, digest)?["data"]["situation"].clone())
-    }).transpose()?;
-    Ok(json!({"actor":record["actor"],"work":record["body"]["work"],"situation":situation,
+        store::object::<Value>(&db, digest)
+    }).transpose()?.unwrap_or_default();
+    Ok(json!({"actor":record["actor"],"work":record["body"]["work"],"situation":shared["data"]["situation"],
+        "images":shared["image_blobs"],
         "decision":decision,"receipt":record["provider_receipt"],"outgoing":read_events(&record["outgoing"])?,
         "feedback":read_events(&actual["linked_responses_now"])?}))
 }

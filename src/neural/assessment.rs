@@ -189,7 +189,14 @@ fn verify_case(
         .as_str()
         .and_then(|s| s.strip_prefix("object:"))
         .ok_or_else(|| failure("Missing shared output schema"))?;
+    let images: Vec<(String, String)> = serde_json::from_value(fixed["image_blobs"].clone())?;
+    let image_audit: Vec<_> = context::retained_images(db, &images)?
+        .iter()
+        .map(crate::provider::ImageInput::audit)
+        .collect();
     if case["probe"] != json!(probe)
+        || case["image_count"] != images.len()
+        || fixed["image_audit"] != json!(image_audit)
         || fixed["provider_model"] != request.persona.provider.model
         || fixed["reasoning_effort"] != json!(request.persona.provider.effort)
         || fixed["data"]["output_meanings"] != json!(contract.outputs)
@@ -219,13 +226,22 @@ fn verify_case(
                 "Comparison differs from the original pre-decision encounter",
             ));
         }
-    } else if case["origin"] != json!({"kind":"hypothetical"})
-        || fixed["data"]["situation"] != probe.situation
-        || fixed["appraisal"] != json!(probe.appraisal)
-    {
-        return Err(failure(
-            "Hypothetical comparison differs from the requested situation or appraisal",
-        ));
+    } else {
+        let resources = fixed["data"]["resources"]
+            .as_array()
+            .ok_or_else(|| failure("Missing selected resources"))?;
+        let references = resources.iter().map(|item| item["reference"].as_str());
+        let requested = probe
+            .references
+            .iter()
+            .map(|reference| Some(reference.as_str()));
+        if case["origin"] != json!({"kind":"hypothetical"})
+            || fixed["data"]["situation"] != probe.situation
+            || fixed["appraisal"] != json!(probe.appraisal)
+            || references.ne(requested)
+        {
+            return Err(failure("Hypothetical comparison differs from the requested situation, appraisal or resources"));
+        }
     }
     Ok(())
 }

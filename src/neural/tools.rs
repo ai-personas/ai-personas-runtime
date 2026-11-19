@@ -222,7 +222,8 @@ pub struct Probe {
     /// An exact experience:call-ID@1 for one of your accepted, active-character decisions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub replay_decision: Option<String>,
-    /// Request one additional isolated provider call with the same inputs and no numerical inclinations.
+    /// For a candidate, also sample the same inputs with numerical inclinations omitted.
+    /// An active_model comparison always includes this control.
     #[serde(default)]
     pub include_no_character: bool,
 }

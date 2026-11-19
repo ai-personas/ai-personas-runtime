@@ -66,7 +66,7 @@ impl Encounter {
                 ui.separator();
                 egui::ScrollArea::vertical().id_salt(("encounter",decision,self.tab)).show(ui, |ui| {
                     match self.tab {
-                        0 => before_choice(ui, &report["situation"], matched.as_deref(), &mut inspect),
+                        0 => before_choice(ui, report, matched.as_deref(), &mut inspect),
                         1 => actual_response(ui, report, decision, &mut inspect),
                         _ => {
                             let responses = report["feedback"].as_array().map(Vec::as_slice).unwrap_or_default();
@@ -111,15 +111,27 @@ fn attributed_text(ui: &mut Ui, heading: String, text: Option<&str>, time: Optio
     }
 }
 
-fn before_choice(
-    ui: &mut Ui,
-    scenario: &Value,
-    matched: Option<&str>,
-    inspect: &mut Option<String>,
-) {
+fn before_choice(ui: &mut Ui, report: &Value, matched: Option<&str>, inspect: &mut Option<String>) {
     if matched.is_none() {
         ui.weak("This comparison has no retained shared-input object.");
         return;
+    }
+    let scenario = &report["situation"];
+    let images = report["images"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    for (index, image) in images.iter().enumerate() {
+        if let Some(digest) = image[0].as_str() {
+            let label = if images.len() == 1 {
+                "Open shared image ↗".to_owned()
+            } else {
+                format!("Open shared image {} ↗", index + 1)
+            };
+            if ui.button(label).clicked() {
+                *inspect = Some(format!("object:{digest}"));
+            }
+        }
     }
     attributed_text(
         ui,
@@ -215,6 +227,29 @@ fn exchange_text(body: &Value) -> Option<&str> {
     .or(body["decision"]["reason"].as_str())
 }
 
+fn choose_case<'a>(ui: &mut Ui, cases: &'a [Value]) -> Option<(usize, &'a Value)> {
+    let mut index = 0;
+    if cases.len() > 1 {
+        let id = ui.make_persistent_id("comparison-case");
+        index = ui
+            .data(|state| state.get_temp::<usize>(id))
+            .unwrap_or(0)
+            .min(cases.len() - 1);
+        ui.horizontal_wrapped(|ui| {
+            for (i, case) in cases.iter().enumerate() {
+                let label = match case["image_count"].as_u64().unwrap_or(0) {
+                    0 => format!("Case {}", i + 1),
+                    1 => format!("Case {} · image", i + 1),
+                    n => format!("Case {} · {n} images", i + 1),
+                };
+                ui.selectable_value(&mut index, i, label);
+            }
+        });
+        ui.data_mut(|state| state.insert_temp(id, index));
+    }
+    cases.get(index).map(|case| (index, case))
+}
+
 fn exchange(ui: &mut Ui, event: &Value, inspect: &mut Option<String>) {
     ui.add_space(6.);
     ui.strong(format!(
@@ -298,9 +333,11 @@ impl App {
                                 if let Some(reason) = record["interruption"].as_str() {
                                     ui.label(format!("Incomplete comparison · {reason}"));
                                 }
-                                for (i, case) in
-                                    record["cases"].as_array().into_iter().flatten().enumerate()
-                                {
+                                let cases = record["cases"]
+                                    .as_array()
+                                    .map(Vec::as_slice)
+                                    .unwrap_or_default();
+                                if let Some((i, case)) = choose_case(ui, cases) {
                                     ui.push_id(i, |ui| {
                                         ui.add_space(6.);
                                         if let Some(decision) = case["origin"]["decision"].as_str()
