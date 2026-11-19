@@ -200,14 +200,16 @@ pub(super) fn record_applications(
                 "Name each question once and describe what this decision lets you observe",
             ));
         }
-        if question.body["interpretation"]["disposition"] == "closed" {
+        if matches!(question.body["interpretation"]["disposition"].as_str(), Some("closed" | "no_change")) {
             return Err(failure(
-                "Reopen a closed question before applying it to another choice",
+                "Reopen this question before applying it to another choice",
             ));
         }
         let source = if observed(snapshot, &choice.question) {
             "full_record"
-        } else if development["recent_personal_reminder"]["reference"] == choice.question {
+        } else if development["personal_reminders"].as_array().is_some_and(|reminders| {
+            reminders.iter().any(|item| item["reference"] == choice.question)
+        }) || development["recent_personal_reminder"]["reference"] == choice.question {
             "personal_reminder"
         } else if development["revisit_cues"]
             .as_array()
@@ -555,19 +557,33 @@ pub(super) fn applications(
     })? {
         let (id, revision, digest) = r?;
         let mut body: Value = store::object(db, &digest)?;
-        let (Some(owner), Some(work), Some(call)) = (
-            body["owner"].as_str(),
-            body["work"].as_str(),
-            body["decision"].as_str(),
-        ) else {
-            return Err(failure("Incomplete question application"));
-        };
-        let linked = experience::responses_to_call(db, owner, work, call)?;
-        body["reference"] = json!(format!("question_use:{id}@{revision}"));
-        body["linked_responses_now"] = json!(linked);
+        let reference = format!("question_use:{id}@{revision}");
+        body["linked_responses_now"] = json!(application_responses(db, &reference, &body)?);
+        body["reference"] = json!(reference);
         items.push(body);
     }
     Ok(items)
+}
+
+pub(super) fn application_responses(db: &Connection, application: &str, body: &Value) -> Result<Vec<Value>> {
+    let (Some(owner), Some(work), Some(call), Some(question_id)) = (
+        body["owner"].as_str(), body["work"].as_str(), body["decision"].as_str(), body["question_id"].as_str(),
+    ) else {
+        return Err(failure("Incomplete question application"));
+    };
+    let question = store::required(db, "development", question_id)?;
+    let observations = question.body["question_observations"].as_array().into_iter().flatten()
+        .filter(|item| item["observation"]["application"] == application);
+    let mut responses = experience::responses_to_call(db, owner, work, call)?;
+    for response in &mut responses {
+        let interpretations: Vec<_> = observations.clone()
+            .filter(|item| item["observation"]["outcome"] == response["experience"])
+            .filter_map(|item| item["interpretation_decision"].as_str())
+            .map(|decision| format!("experience:{decision}@1"))
+            .collect();
+        response["interpretations"] = json!(interpretations);
+    }
+    Ok(responses)
 }
 
 /// Compact cues only. Real arrivals use the actual event sequence. Listing a
@@ -602,15 +618,24 @@ pub(super) fn index(db: &Connection, actor: &str) -> Result<Vec<Value>> {
         let active=last.is_some_and(|a|a["model"]==persona.body["model"] && a["epoch"]==persona.body["epoch"]);
         let uses=applications.iter().filter(|r|r["question_id"]==key);
         let latest=uses.clone().next();
-        let linked=uses.clone().flat_map(|r|r["linked_responses_now"].as_array().into_iter().flatten().map(move|e|(r,e)))
-            .max_by_key(|(_,e)|e["sequence"].as_i64());
+        let mut pending = Vec::new();
+        for application in uses.clone() {
+            for response in application["linked_responses_now"].as_array().into_iter().flatten() {
+                if response["interpretations"].as_array().is_some_and(Vec::is_empty) {
+                    pending.push(json!({"application":application["reference"],"work":application["work"],
+                        "experience":response["experience"],"sequence":response["sequence"],"author":response["author"],
+                        "relation":response["relation"],"target":response["target"]}));
+                }
+            }
+        }
+        pending.sort_by_key(|response| response["sequence"].as_i64());
         entries.push(
             json!({"reference":record.reference.handle(),"origin_work":record.body["origin_work"],
             "question":detail["question"],"disposition":detail["disposition"],"revisit":revisit,
             "last_adoption":last.map(|a|json!({"candidate":a["candidate"],"model":a["model"],"epoch":a["epoch"],"decision":a["decision"]})),
             "observing_active_model":active,"outcome_observations":record.body["follow_ups"].as_array().map_or(0,Vec::len),
             "application_count":uses.count(),"latest_application":latest.map(|r|json!({"application":r["reference"],"work":r["work"]})),
-            "latest_linked_response":linked.map(|(r,e)|json!({"application":r["reference"],"work":r["work"],"experience":e["experience"],"relation":e["relation"]})),
+            "pending_responses":pending,
             "due_by_time":revisit["at_unix"].as_i64().is_some_and(|t|t<=super::now()),
             "matching_experience":matching.map(|n|format!("experience:event-{n}@1")),
             "later_feedback":feedback.map(|n|format!("experience:event-{n}@1"))}),

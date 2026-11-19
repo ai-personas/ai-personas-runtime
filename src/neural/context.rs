@@ -403,10 +403,8 @@ pub(super) fn read_for(
                     observed["applications_now"]=json!(super::development::applications(db,record.body["owner"].as_str(),Some(&record.reference.id))?);
                 }
             } else if record.reference.kind=="question_use" {
-                let (Some(owner),Some(work),Some(call))=(record.body["owner"].as_str(),record.body["work"].as_str(),record.body["decision"].as_str())
-                    else {return Err(failure("Incomplete question application"));};
-                if actor.is_some_and(|a|a!=owner) { return Err(failure("Question applications belong to their own observer")); }
-                observed["linked_responses_now"]=json!(super::experience::responses_to_call(db,owner,work,call)?);
+                if actor.is_some_and(|a|record.body["owner"]!=a) { return Err(failure("Question applications belong to their own observer")); }
+                observed["linked_responses_now"]=json!(super::development::application_responses(db,reference,&record.body)?);
             } else if record.reference.kind=="character_use" {
                 observed["related_development_now"]=json!(super::development::related_to_use(db,&record.body)?);
             }
@@ -807,21 +805,37 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
             if !open_offers.is_empty(){data["handoff_offers"]=json!(open_offers);}
             data["lifetime_experience"]=super::experience::availability(db,actor,work_id)?;
             let questions = super::development::index(db, actor)?;
-            let open = questions.iter().filter(|q|!matches!(q["disposition"].as_str(),Some("closed"|"no_change")));
-            let entering_or_receiving_feedback = !participation.accepted || data["new_events"].as_array().into_iter().flatten()
-                .any(|e|matches!(e["kind"].as_str(),Some("user_message"|"user_acceptance"|"requirements_amended")));
-            let prior_question = open.clone().find(|q| q["origin_work"]!=work_id
-                && (q["revisit"]["work"].is_null() || q["revisit"]["work"]==work_id)
-                && q["revisit"]["condition"].is_string() && q["revisit"]["event_kind"].is_null() && q["revisit"]["at_unix"].is_null());
-            data["development"] = json!({"open_count":open.clone().count(),
-                "recent_personal_reminder":if entering_or_receiving_feedback {prior_question.map(|q|json!({
-                    "reference":q["reference"],"origin_work":q["origin_work"],"condition":q["revisit"]["condition"],
-                    "meaning":"Your most recently revised open-ended reminder from an earlier activity. Judge whether this occasion fits."}))}else{None},
-                "revisit_cues":open.filter(|q|q["observing_active_model"]==true || q["due_by_time"]==true || !q["matching_experience"].is_null()
-                    || q["origin_work"]==work_id || q["latest_application"]["work"]==work_id || q["latest_linked_response"]["work"]==work_id).collect::<Vec<_>>(),
+            let occasion = !participation.accepted || data["new_events"].as_array().into_iter().flatten().any(|event| {
+                if event["actor"] == actor {
+                    event["kind"] == "invitation_response" && event["body"]["accept"] == true
+                } else {
+                    matches!(event["kind"].as_str(), Some("message"|"reply"|"user_message"|"user_acceptance"|"requirements_amended"))
+                }
+            });
+            let mut reminders = Vec::new();
+            let mut cues = Vec::new();
+            let mut open_count = 0;
+            for question in &questions {
+                let open = !matches!(question["disposition"].as_str(), Some("closed"|"no_change"));
+                open_count += usize::from(open);
+                let revisit = &question["revisit"];
+                if question["pending_responses"].as_array().is_some_and(|r| !r.is_empty()) || open && (
+                    question["observing_active_model"] == true || question["due_by_time"] == true ||
+                    !question["matching_experience"].is_null() || question["origin_work"] == work_id ||
+                    question["latest_application"]["work"] == work_id
+                ) {
+                    cues.push(question);
+                } else if open && occasion && revisit["condition"].is_string()
+                    && (revisit["work"].is_null() || revisit["work"] == work_id)
+                    && revisit["event_kind"].is_null() && revisit["at_unix"].is_null() {
+                    reminders.push(json!({"reference":question["reference"],"origin_work":question["origin_work"],
+                        "question":question["question"],"condition":revisit["condition"]}));
+                }
+            }
+            data["development"] = json!({"open_count":open_count,"personal_reminders":reminders,"revisit_cues":cues,
                 "later_feedback":questions.iter().filter(|q|!q["later_feedback"].is_null()).map(|q|json!({
                     "question":q["reference"],"experience":q["later_feedback"],"origin_work":q["origin_work"]})).collect::<Vec<_>>(),
-                "discovery":"Use development.search for other question metadata. If an open question fits this ordinary choice, optional examining records its exact question and what to watch_for. A pending question survives no_change. Read its current exact revision to revise it, and its question_use to interpret later feedback."});
+                "discovery":"Judge which of your reminder conditions fits this occasion. Optional examining connects an open question to this choice and what to watch_for. Each pending_responses entry is a direct reply or delivery review without a recorded interpretation for that application. Read the current question, application and exact outcome to interpret it. Other later feedback is activity metadata. Questions survive no_change and remain searchable with development.search."});
         }
         let component_bytes=data.as_object().expect("snapshot is an object").iter().map(|(name,value)|Ok((name.clone(),serde_json::to_vec(value)?.len()))).collect::<Result<std::collections::BTreeMap<_,_>>>()?;
         let resource_bytes=data["selected_resources"].as_array().expect("resources is an array").iter().map(|value|Ok(json!({"reference":value["reference"],"range":value["range"],"serialized_bytes":serde_json::to_vec(value)?.len()}))).collect::<Result<Vec<_>>>()?;

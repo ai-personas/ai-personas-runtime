@@ -473,7 +473,11 @@ impl App {
             let applications:Vec<_>=self.records("question_applications").iter().filter(|r|r["question_id"]==id).cloned().collect();
             ui.push_id(&reference,|ui|{
                 let text=s(detail,"question");
-                ui.collapsing(excerpt(text,68),|ui|{
+                let pending = applications.iter().flat_map(|a| a["linked_responses_now"].as_array().into_iter().flatten())
+                    .filter(|r| r["interpretations"].as_array().is_some_and(Vec::is_empty)).count();
+                let mut heading = excerpt(text,68);
+                if pending > 0 { heading.push_str(&format!(" · {pending} awaiting interpretation")); }
+                egui::CollapsingHeader::new(heading).id_salt("question").show(ui,|ui|{
                     ui.add(egui::Label::new(RichText::new(text).strong()).wrap());
                     if let Some(text)=detail["interpretation"].as_str(){ui.label(text);}
                     if let Some(text)=detail["prediction"].as_str(){ui.small(format!("Prediction · {text}"));}
@@ -494,9 +498,19 @@ impl App {
                         }
                         for feedback in application["linked_responses_now"].as_array().into_iter().flatten(){
                             let relation=if feedback["relation"]=="delivery_review"{"Delivery review"}else{"Direct reply"};
-                            if ui.small_button(format!("{relation} from {} ↗",self.label(s(feedback,"author")))).clicked(){
-                                self.open_resource(ui.ctx(),s(feedback,"experience").into());
-                            }
+                            ui.horizontal_wrapped(|ui| {
+                                if ui.small_button(format!("{relation} from {} ↗",self.label(s(feedback,"author")))).clicked(){
+                                    self.open_resource(ui.ctx(),s(feedback,"experience").into());
+                                }
+                                if let Some(interpretations) = feedback["interpretations"].as_array() {
+                                    if interpretations.is_empty() { ui.weak("Awaiting interpretation"); }
+                                    for decision in interpretations.iter().filter_map(Value::as_str) {
+                                        if ui.small_button("Interpreted ↗").on_hover_text(decision).clicked() {
+                                            self.open_resource(ui.ctx(),decision.into());
+                                        }
+                                    }
+                                }
+                            });
                         }
                         for item in body["question_observations"].as_array().into_iter().flatten().filter(|o|o["observation"]["application"]==application["reference"]){
                             let note=&item["observation"];

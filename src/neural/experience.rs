@@ -156,7 +156,7 @@ pub(super) fn responses_to_call(
     call: &str,
 ) -> Result<Vec<Value>> {
     let sql = format!("{EVENTS} JOIN objects b ON b.digest=e.digest
-        WHERE {VISIBLE} AND e.work=?2 AND (
+        WHERE {VISIBLE} AND e.work=?2 AND e.actor<>?1 AND (
           (e.kind IN ('message','reply','user_message') AND EXISTS (
             SELECT 1 FROM events parent WHERE parent.work=e.work AND parent.invocation=?3
             AND 'experience:event-'||parent.seq||'@1'=json_extract(CAST(b.bytes AS TEXT),'$.reply_to')))

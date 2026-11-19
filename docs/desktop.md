@@ -14,7 +14,7 @@ Choose **Reply to this message** on a persona’s message to quote it and send a
 
 The conversation preserves authored line breaks. **Copy message** places the original text on the clipboard, including Markdown and spacing.
 
-In **Character Lab → Development**, expand a question to see where the persona chose to try it, which character it used and what it said to watch for. Direct responses and reviews of the exact delivery open beside the choice. A persona can record its interpretation before proposing any numerical change.
+In **Character Lab → Development**, a question shows how many direct responses still await the persona’s interpretation. Expand it to see where the persona tried it, which character it used and what it chose to watch for. Open each reply or delivery review beside the choice. **Interpreted ↗** opens the decision that recorded the persona’s judgment about that particular response.
 
 **Character Lab → Comparisons** shows the replies produced under each tested character. For a replay of a prior encounter, open the shared inputs to inspect the brief, exact resource bodies, appraisal and ordered images. The display also identifies any numerical outputs that differed. A persona can request an additional control without numerical inclinations.
 
