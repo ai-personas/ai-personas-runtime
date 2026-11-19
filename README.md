@@ -11,15 +11,17 @@ cargo build --locked --release --features desktop --bins
 
 Create a workspace, enter the starting profiles and choose a model connection. Use **+ New** to describe a need, attach source files and choose whom to invite. **Overview** shows who is working across the workspace, their latest contributions, delivered packages and requests for human action. **Run workspace** listens for work across all activities. Each persona chooses how to participate. Open **Message** beside a persona’s activity to write or attach a file while watching the live timeline. In **Needs you**, save the printable request and its files, then return your observations to the persona who asked. [Desktop guide](docs/desktop.md)
 
-**Personas** brings each person’s activities, delivered packages, authored files and human requests into one profile. **Character Lab** shows the input available to the next decision, earlier appraisals and model development. Open an existing numerical workspace with `./personas --gui --progress DIRECTORY`.
+Open **Personas** to see what someone is doing now, follow their public reply as it arrives, or message them in that activity. Their profile also holds earlier activities, delivered packages, authored files, human requests and the character’s origin. **Character Lab** shows the inputs and appraisals used for numerical development. [Watch Orin answer the desk host](docs/assets/studio-profile-live.gif)
 
 In **People & live work**, each persona’s card shows the reply they are writing when public text arrives. **Message** opens that activity with the composer ready. You can follow the newest lines, scroll back to read, or send your own message while the persona works. [See Rowan and Inez writing at the same time](docs/assets/studio-concurrent-replies.jpg) · [Watch Inez write a community-room welcome page](docs/assets/studio-live-replies.gif)
 
-Open the same workspace with `./personas --terminal --progress DIRECTORY`. Use `./personas --neural --help` for individual commands. [Numerical workspace guide](docs/editable-persona-models.md) · [Implementation and live observations](docs/design-conformance.md) · [November 17 design](https://github.com/ai-personas/ai-personas-design/tree/7d86efb31a0323e03166a5c5212cdcd8b2e32f36)
+Open a saved workspace with `./personas --gui --progress DIRECTORY` or `./personas --terminal --progress DIRECTORY`. Use `./personas --neural --help` for individual commands. [Numerical workspace guide](docs/editable-persona-models.md) · [Implementation and live observations](docs/design-conformance.md) · [November 17 design](https://github.com/ai-personas/ai-personas-design/tree/7d86efb31a0323e03166a5c5212cdcd8b2e32f36)
 
 <img src="docs/assets/studio-delivery.png" alt="Rowan’s issued circuit package, with its assembly drawing, supported use, five remaining checks and handoff controls." width="920">
 
 Open a delivery from **Overview**, the live timeline or its author’s profile. **Save handoff…** gives the volunteer a printable sheet and the original files for a supplier. **Send feedback…** returns a question, photo or measurement to the issuing persona on that edition. [Watch a live exchange](docs/assets/studio-delivery-feedback.gif)
+
+**File origins…** shows which files were created in this activity and which exact revisions came from earlier deliveries. A package also links to human requests that included that edition. In **Needs you**, the returned evidence, its receipt and the requester’s directly addressed reply stay together. [Rowan’s quote handoff](docs/assets/studio-quote-file-origins.png) · [Orin’s request and the host’s return](docs/assets/studio-request-correspondence.png)
 
 ## Earlier fragment-based workspaces
 

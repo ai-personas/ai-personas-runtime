@@ -46,6 +46,8 @@ Choose **New workspace** to enter the starting profiles and connect a reasoning 
 
 **Overview** brings together people, recent contributions, delivery packages and requests for a human. Choose **Message** beside a persona’s activity to open its live timeline and write to that participant. **Needs you → Save handoff…** gives you a printable request and, when attached, the exact file package to take to a supplier or colleague.
 
+**Personas → Overview** shows that person’s current work and public reply as it arrives. In a delivery, **File origins…** traces the exact files to the activities that produced them. In **Needs you → Correspondence**, open a returned file, its receipt or the requester’s reply to a human report.
+
 **Draft reply** shows each persona’s words as they arrive. The latest lines stay in view until you scroll back or select a passage. The composer stays available. **Character Lab → Development** lets you follow a persona’s account of a character change through the later decision, the reader’s report and the persona’s own judgment.
 
 Open an issued delivery to inspect its drawing, file revisions and remaining checks. **Save handoff…** places the printable `Delivery.html` alongside `Files.zip`. **Send feedback…** addresses a message or attachment to the issuer and keeps it with that edition. Open **Check receipt** on the delivery to see what reached the persona.
