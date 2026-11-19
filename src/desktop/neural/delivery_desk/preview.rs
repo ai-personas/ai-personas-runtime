@@ -7,6 +7,8 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+#[path = "html.rs"]
+mod html;
 #[path = "pdf.rs"]
 mod pdf;
 
@@ -22,6 +24,7 @@ enum Kind {
     Pdf,
     Vector,
     Raster,
+    Html,
     Text,
     Other,
 }
@@ -38,8 +41,13 @@ impl Format {
             .and_then(|s| s.to_str())
             .unwrap_or("")
             .to_ascii_lowercase();
-        let mime = media.split(';').next().unwrap_or("").trim();
-        let kind = match (ext.as_str(), mime) {
+        let mime = media
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
+        let kind = match (ext.as_str(), mime.as_str()) {
             ("pdf", _) | (_, "application/pdf") => Kind::Pdf,
             ("svg", _) | (_, "image/svg+xml") => Kind::Vector,
             ("png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tif" | "tiff" | "ico", _)
@@ -48,6 +56,9 @@ impl Format {
                 "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "image/tiff"
                 | "image/bmp" | "image/x-icon",
             ) => Kind::Raster,
+            ("html" | "htm" | "xhtml", _) | (_, "text/html" | "application/xhtml+xml") => {
+                Kind::Html
+            }
             (
                 "md" | "markdown" | "txt" | "json" | "csv" | "tsv" | "yaml" | "yml" | "xml" | "net"
                 | "gbr" | "drl",
@@ -60,6 +71,7 @@ impl Format {
             (Kind::Pdf, _) => "PDF document".into(),
             (Kind::Vector, _) => "SVG drawing".into(),
             (Kind::Raster, _) => "Raster image".into(),
+            (Kind::Html, _) => "HTML document".into(),
             (Kind::Text, "md" | "markdown") => "Markdown".into(),
             (Kind::Text, "gbr") => "Gerber source".into(),
             (Kind::Text, "drl") => "Drill source".into(),
@@ -94,6 +106,7 @@ struct Job {
 enum Content {
     Image(egui::ColorImage, Option<String>),
     Pdf(egui::ColorImage, u32),
+    Html(html::Preview),
     Other,
     Text(String, bool),
 }
@@ -135,6 +148,7 @@ enum View {
     Pending,
     Image(egui::TextureHandle, Option<String>),
     Pdf(egui::TextureHandle),
+    Html(html::Preview),
     Text(String, bool),
     Note(String),
 }
@@ -145,6 +159,7 @@ pub(super) struct Inline {
     latest: Arc<AtomicU64>,
     reference: String,
     pages: pdf::Pages,
+    html_source: bool,
     view: View,
 }
 
@@ -199,6 +214,7 @@ impl Inline {
         if self.reference != file.reference {
             self.reference.clone_from(&file.reference);
             self.pages = Default::default();
+            self.html_source = false;
             self.request(ui, root, file);
         }
         if let Some(worker) = &self.worker {
@@ -226,6 +242,7 @@ impl Inline {
                             egui::TextureOptions::LINEAR,
                         ))
                     }
+                    Ok(Content::Html(page)) => View::Html(page),
                     Ok(Content::Text(body, truncated)) => View::Text(body, truncated),
                     Ok(Content::Other) => {
                         View::Note("Use the full file viewer for this format.".into())
@@ -256,6 +273,7 @@ impl Inline {
                 });
             }
             View::Pdf(texture) => self.pages.show(ui, texture, &file.path, &file.reference),
+            View::Html(page) => page.show(ui, &file.reference, &mut self.html_source),
             View::Image(texture, note) => {
                 let available = ui.available_width();
                 let height = (available * 0.72)
@@ -357,7 +375,7 @@ fn load(job: &Job, cancelled: impl Fn() -> bool) -> ai_personas::neural::Result<
     };
     let bytes = store::bytes(&db, digest)?;
     drop(db);
-    let kind = if matches!(kind, Kind::Text) && bytes.starts_with(b"%PDF-") {
+    let kind = if matches!(kind, Kind::Text | Kind::Html) && bytes.starts_with(b"%PDF-") {
         Kind::Pdf
     } else {
         kind
@@ -417,6 +435,7 @@ fn load(job: &Job, cancelled: impl Fn() -> bool) -> ai_personas::neural::Result<
                 note,
             ))
         }
+        Kind::Html => Ok(Content::Html(html::Preview::read(&bytes)?)),
         Kind::Text => {
             if bytes.contains(&0) {
                 return Err(ai_personas::neural::failure(
