@@ -5,7 +5,7 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::Serialize;
 use serde_json::Value;
 
-const KINDS: &str = "'invitation','invitation_response','message','reply','user_message','contribution_proposal',
+const KINDS: &str = "'invitation','invitation_response','message','reply','user_message','requester_message','requester_review','contribution_proposal',
     'handoff_offered','handoff_resolved','asset_feedback','user_acceptance','requirements_amended',
     'commitment_changed','delivery','outcome_changed','package_review','participation_left','responsibility_accepted'";
 
@@ -165,7 +165,7 @@ impl Event {
                     None
                 }
             }
-            "message" | "user_message" => {
+            "reply" | "message" | "user_message" | "requester_message" | "requester_review" => {
                 let body: Value = store::object(db, &self.digest)?;
                 parent = body["reply_to"].as_str().map(str::to_owned);
                 Some(Contact::persona(&self.target))

@@ -8,6 +8,7 @@ pub mod geometry;
 mod archive;
 mod assessment;
 pub mod asset_feedback;
+pub mod activity_requests;
 pub mod package_review;
 pub mod relationships;
 mod character;

@@ -178,8 +178,12 @@ pub(super) fn read_note(
     }
     if let Some(peer) = reader.filter(|id| *id != owner) {
         let event: Option<i64> = db.query_row(
-            "SELECT e.seq FROM events e JOIN invocations i ON i.id=e.invocation AND i.actor=e.actor AND i.work=e.work
-             JOIN objects o ON o.digest=e.digest WHERE e.kind='message' AND e.actor=?1 AND e.target=?2 AND i.state='accepted'
+            "SELECT e.seq FROM events e JOIN invocations i ON i.id=e.invocation AND i.actor=e.actor
+             JOIN objects o ON o.digest=e.digest WHERE ((e.kind='message' AND i.work=e.work)
+             OR (e.kind IN ('requester_message','requester_review') AND i.work=json_extract(CAST(o.bytes AS TEXT),'$.parent')
+             AND e.work=json_extract(CAST(o.bytes AS TEXT),'$.child') AND EXISTS (SELECT 1 FROM events sent
+             WHERE sent.work=i.work AND sent.invocation=i.id AND sent.kind IN ('request_message_sent','request_review_sent')
+             AND 'experience:event-'||sent.seq||'@1'=json_extract(CAST(o.bytes AS TEXT),'$.sent')))) AND e.actor=?1 AND e.target=?2 AND i.state='accepted'
              AND EXISTS(SELECT 1 FROM json_each(CAST(o.bytes AS TEXT),'$.references') r WHERE r.type='text' AND r.value=?3)
              ORDER BY e.seq LIMIT 1",params![owner,peer,handle],|row|row.get(0)).optional()?;
         let seq = event.ok_or_else(|| {

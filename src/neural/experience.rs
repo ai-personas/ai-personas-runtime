@@ -105,7 +105,8 @@ fn reply_recipient<'a>(exchange: &'a Experience, actor: &str) -> Option<&'a str>
     match exchange.kind.as_str() {
         "user_message" | "user_acceptance" | "requirements_amended" if addressed || exchange.target == "*" => Some("user"),
         "invitation" if addressed && exchange.invocation.is_none() => Some("user"),
-        "message" if addressed && exchange.actor != "user" => Some(&exchange.actor),
+        "message" | "request_reply" | "request_delivery" | "requester_message" | "requester_review"
+            if addressed && exchange.invocation.is_some() => Some(&exchange.actor),
         "invitation" | "contribution_proposal" if addressed && exchange.actor != "user" && exchange.invocation.is_some() => Some(&exchange.actor),
         _ => None,
     }
@@ -119,14 +120,18 @@ pub(super) fn reply_targets(db: &Connection, actor: &str, work: &str) -> Result<
 
 pub(super) fn reply_targets_since(db: &Connection, actor: &str, work: &str, after:i64) -> Result<Vec<Value>> {
     let sql = format!("{EVENTS} WHERE {VISIBLE} AND e.work=?2 AND e.seq>?3 AND e.kind IN
-        ('user_message','user_acceptance','requirements_amended','invitation','message','contribution_proposal') ORDER BY e.seq DESC");
+        ('user_message','user_acceptance','requirements_amended','invitation','message','contribution_proposal','request_reply','request_delivery','requester_message','requester_review') ORDER BY e.seq DESC");
     let mut statement = db.prepare(&sql)?;
     let mut seen = BTreeSet::new();
     let mut targets = Vec::new();
     for row in statement.query_map(params![actor, work,after], Experience::row)? {
         let exchange = row?;
         if let Some(recipient) = reply_recipient(&exchange, actor) {
-            if seen.insert((exchange.actor.clone(), recipient.to_owned())) {
+            let route = if matches!(exchange.kind.as_str(),"request_reply"|"request_delivery") {
+                let body:Value=store::object(db,&exchange.digest)?;
+                format!("{}/{}",body["request"].as_str().unwrap_or(""),exchange.kind)
+            } else { String::new() };
+            if seen.insert((exchange.actor.clone(), recipient.to_owned(), route)) {
                 targets.push(json!({"experience":format!("experience:{}@1",exchange.id),"author":exchange.actor,
                     "recipient_for_reply":recipient,"kind":exchange.kind,"received_at":exchange.created}));
             }
@@ -171,7 +176,7 @@ pub(super) fn responses_to_call(
 ) -> Result<Vec<Value>> {
     let sql = format!("{EVENTS} JOIN objects b ON b.digest=e.digest
         WHERE {VISIBLE} AND e.work=?2 AND (e.actor<>?1 OR e.invocation IS NULL) AND (
-          (e.kind IN ('message','reply','user_message') AND EXISTS (
+          (e.kind IN ('message','reply','user_message','request_reply','requester_message','requester_review') AND EXISTS (
             SELECT 1 FROM events parent WHERE parent.work=e.work AND parent.invocation=?3
             AND 'experience:event-'||parent.seq||'@1'=json_extract(CAST(b.bytes AS TEXT),'$.reply_to')))
           OR (e.kind='user_acceptance' AND EXISTS (
@@ -185,6 +190,8 @@ pub(super) fn responses_to_call(
         let body: Value = store::object(db, &e.digest)?;
         let (relation, target) = if e.kind == "user_acceptance" {
             ("delivery_review", &body["decision"]["delivery"])
+        } else if e.kind == "requester_review" {
+            ("requester_review", &body["review"]["delivery"])
         } else {
             ("direct_reply", &body["reply_to"])
         };
@@ -233,7 +240,7 @@ pub(super) fn read(db: &Connection, actor: Option<&str>, reference: &str) -> Res
             json!(store::head(db, "character_use", &item.id)?.map(|r| r.reference.handle()));
         let mut statement = db.prepare(
             "SELECT seq,kind,target FROM events WHERE work=?1 AND invocation=?2
-            AND kind IN ('reply','message','delivery','asset_feedback') ORDER BY seq",
+            AND kind IN ('reply','message','delivery','asset_feedback','request_message_sent','request_review_sent') ORDER BY seq",
         )?;
         event["outgoing"] = json!(statement
             .query_map([&item.work, &item.id], |r| Ok(json!({

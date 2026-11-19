@@ -193,6 +193,8 @@ pub enum Command {
     CharacterPaths(super::character_paths::Query),
     /// Inspect numerical differences on actual decisions for an exact character switch or proposed revision.
     RevisionUses(super::revision_uses::Query),
+    /// Trace persona-originated activities, returned answers, exact deliveries and requester feedback.
+    RequestHistory { work:String, #[command(flatten)] #[serde(flatten)] query:super::activity_requests::Query },
     /// Find exact lifetime records visible to a persona, optionally filtering by work, author and kind.
     ExperienceSearch {
         persona: String,
@@ -468,6 +470,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
                 Command::Read{reference,start,end}=>context::read(&store.db,&reference,start,end),
                 Command::QuestionHistory{reference}=>store.snapshot(|db|super::question_history::inspect(db,&reference)),
                 Command::ExperienceSearch{persona,search}=>store.snapshot(|db|super::experience::search(db,&persona,&search)),
+                Command::RequestHistory{work,query}=>store.snapshot(|db|super::activity_requests::history(db,&work,None,&query)),
                 Command::RevisionUses(query)=>store.snapshot(|db|super::revision_uses::inspect(db,None,&query)),
                 Command::CharacterPaths(query)=>store.snapshot(|db|super::character_paths::inspect(db,None,&query)),
                 Command::AppraisalContext{work,persona}=>store.snapshot(|db|{

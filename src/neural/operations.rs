@@ -585,14 +585,19 @@ fn internal(
             for reference in x.references.iter().filter(|r|r.starts_with("relationship:")) {
                 super::relationships::attachment(db,actor,&x.to,reference)?;
             }
-            if x.to != "user" {
+            let origin = super::activity_requests::origin(db, work)?;
+            let requester = origin.as_ref().filter(|o| o.requester == x.to);
+            if x.to != "user" && requester.is_none() {
                 store::required(db, "participation", &format!("{work}/{}", x.to))?;
             }
             if let Some(parent) = &x.reply_to {
                 check_observed_reply(db,snapshot,&x.to,parent)?;
             }
             let event = store::event(db, work, actor, &x.to, "message", &x, Some(call))?;
-            Ok(json!({"event":event,"delivered_to_inbox":true,"read_or_accepted":false}))
+            let notice = requester.map(|o| super::activity_requests::return_to_parent(
+                db, snapshot, o, event, "request_reply", &serde_json::to_value(&x)?,
+            )).transpose()?;
+            Ok(json!({"event":event,"returned_to_requester":notice,"delivered_to_inbox":true,"read_or_accepted":false}))
         }
         "work.leave" => super::membership::leave(db,snapshot,part,decode(input)?),
         "work.assume" => super::membership::assume(db,snapshot,part,decode(input)?),
@@ -681,16 +686,16 @@ fn internal(
                 &json!({"reference":r.handle(),"title":body["title"],"scope":body["scope"]}),
                 Some(call),
             )?;
-            store::event(
-                db,
-                work,
-                actor,
-                "user",
-                "delivery",
-                &json!({"reference":r.handle(),"record":body}),
-                Some(call),
-            )?;
-            Ok(json!({"reference":r.handle(),"user_accepted":false}))
+            let origin = super::activity_requests::origin(db, work)?;
+            let recipient = origin.as_ref().map_or("user", |o| o.requester.as_str());
+            let source = store::event(db, work, actor, recipient, "delivery",
+                &json!({"reference":r.handle(),"record":body}), Some(call))?;
+            let notice = origin.as_ref().map(|o| super::activity_requests::return_to_parent(
+                db, snapshot, o, source, "request_delivery", &json!({"delivery":r.handle(),
+                "title":body["title"],"scope":body["scope"],"supported_use":body["supported_use"],
+                "remaining":body["remaining"],"artifacts":body["artifacts"]}),
+            )).transpose()?;
+            Ok(json!({"reference":r.handle(),"returned_to_requester":notice,"user_accepted":false}))
         }
         "persona.create" => {
             let x: tools::CreatePersona = decode(input)?;
@@ -712,9 +717,14 @@ fn internal(
             let r = store::write(db, "persona", &new.id, 0, &new, Some(call))?;
             Ok(json!({"persona":new.id,"reference":r.handle(),"invited":false}))
         }
+        "work.requests" => super::activity_requests::history(db,work,Some(actor),&decode(input)?),
+        "work.respond" => super::activity_requests::respond(db,snapshot,decode(input)?),
         "work.request" => {
             let x: tools::RequestWork = decode(input)?;
-            create_activity(db, x.kind, x.need, &x.invitees, actor, Some(call))
+            let mut result = create_activity(db, x.kind, x.need, &x.invitees, actor, Some(call))?;
+            result["returns"] = json!({"activity":work,"recipient":actor,"on_events":["request_return"],
+                "correspond":"work.respond","history":"work.requests"});
+            Ok(result)
         }
         _ => Err(failure("not an internal tool")),
     }
@@ -1027,7 +1037,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
             }
             if part.departure.is_some(){return Err(failure("work.leave ends your operations in this activity; issue it last and stop"));}
             if persona.model.is_none()&&!matches!(op.tool.as_str(),"persona.initialize"|"persona.read"|"tools.search"|"tools.describe"|"asset.read") {return Err(failure("initialize and activate your character before accepting or doing work"));}
-            if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.search"|"asset.find"|"history.search"|"experience.search"|"relationship.contacts"|"relationship.history"|"persona.revision_uses"|"persona.paths"|"peer.message") {return Err(failure("accept your invitation before ordinary work"));}
+            if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.search"|"asset.find"|"history.search"|"experience.search"|"relationship.contacts"|"relationship.history"|"persona.revision_uses"|"persona.paths"|"peer.message"|"work.requests") {return Err(failure("accept your invitation before ordinary work"));}
             if part.declined{return Err(failure("declined participation cannot perform operations"));}
             if tools::is_external(&op.tool) {
                 validate_external(db,&persona,&op)?;
@@ -1052,17 +1062,27 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
         part.tools=decision.next_context.tools.clone();
         if part.departure.is_some()&&!matches!(decision.continuation,Continuation::Stop{..}){return Err(failure("Formally leaving requires an explicit stop for this participation"));}
         if part.declined&&!matches!(decision.continuation,Continuation::Stop{..}){return Err(failure("declining requires an explicit stop for this participation"));}
+        let origin = if snapshot.model.is_some() && decision.reply.is_some() {
+            super::activity_requests::origin(db,&snapshot.work)?
+        } else { None };
+        let mut recipient = origin.as_ref().map_or("user", |o| o.requester.as_str());
         if let Some(parent)=&decision.reply_to {
             if snapshot.model.is_none() || decision.reply.as_deref().is_none_or(|text|text.trim().is_empty()) {
                 return Err(failure("A direct reply needs an active character and message text"));
             }
-            check_observed_reply(db,snapshot,"user",parent)?;
+            if super::experience::check_reply(db,&snapshot.work,Some(&snapshot.actor),"user",parent).is_ok() {
+                recipient="user";
+            }
+            check_observed_reply(db,snapshot,recipient,parent)?;
         }
         if let Some(reply)=&decision.reply{
             let kind=if snapshot.model.is_some(){"reply"}else{"initialization_note"};
             let mut body=json!({"text":reply,"operational_persona":snapshot.model.is_some()});
             if let Some(parent)=&decision.reply_to {body["reply_to"]=json!(parent);}
-            store::event(db,&snapshot.work,&snapshot.actor,"user",kind,&body,Some(&snapshot.invocation))?;
+            let source=store::event(db,&snapshot.work,&snapshot.actor,recipient,kind,&body,Some(&snapshot.invocation))?;
+            if let Some(o)=origin.as_ref().filter(|o| o.requester==recipient) {
+                super::activity_requests::return_to_parent(db,snapshot,o,source,"request_reply",&body)?;
+            }
         }
         part.cursor=snapshot.cursor;part.turn=part.turn.checked_add(1).ok_or_else(||failure("turn overflow"))?;
         part.continuation=decision.continuation.clone();part.last_judgment=Some(decision.work.clone());
@@ -1083,7 +1103,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
     })
 }
 
-fn check_observed_reply(
+pub(super) fn check_observed_reply(
     db: &Connection,
     snapshot: &Snapshot,
     to: &str,

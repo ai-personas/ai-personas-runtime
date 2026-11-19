@@ -27,8 +27,9 @@ pub struct DecisionV4 {
     pub next_model: NextModel,
     pub next_context: ContextChoice,
     pub continuation: Continuation,
+    /// Message for the requester. In a persona-originated activity it returns to that persona.
     pub reply: Option<String>,
-    /// Optional experience:event-N@1 for the human exchange this answers. Use a supplied reply_targets address for recipient_for_reply=user, a received inbox event, or an exact experience you read.
+    /// Optional exact received exchange from the requester or local human. Choose its reply_targets address, inbox event or a previously selected exact read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply_to: Option<String>,
     pub operations: Vec<Operation>,
@@ -196,7 +197,7 @@ pub enum Continuation {
     Wait {
         reason: String,
         wake_at_unix: Option<i64>,
-        /// Incoming event kinds that should wake this participation. Use peer_message for a message addressed to you from another persona, or user_message for a human message.
+        /// Incoming event kinds that should wake this participation. Use peer_message for a message addressed to you from another persona, request_return for answers or deliveries from an activity you originated, or user_message for a human message.
         /// Empty receives any new event. A chosen wake time is an independent trigger.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         on_events: Vec<String>,
