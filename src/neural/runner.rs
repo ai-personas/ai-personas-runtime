@@ -103,6 +103,16 @@ fn config(store: &Store) -> Result<Config> {
         store::required(&store.db, "config", "runtime")?.body,
     )?)
 }
+
+fn source_persona(db: &rusqlite::Connection, snapshot: &Snapshot) -> Result<Persona> {
+    let reference = format!("persona:{}@{}", snapshot.actor, snapshot.persona_revision);
+    Ok(serde_json::from_value(store::exact(db, &reference)?.body)?)
+}
+
+fn source_snapshot(db: &rusqlite::Connection, invocation: &str) -> Result<Snapshot> {
+    let digest: String = db.query_row("SELECT snapshot FROM invocations WHERE id=?1", [invocation], |r| r.get(0))?;
+    store::object(db, &digest)
+}
 fn control_observation(store: &Store, work: &str, actor: &str) -> Option<Value> {
     if let Some(signal) = crate::process_control::signal() {
         return Some(json!({"signal":signal}));
@@ -221,8 +231,7 @@ fn reject(store: &mut Store, snapshot: &Snapshot, error: &str) -> Result<()> {
 async fn decision(root: &Path, work: &str, actor: &str) -> Result<()> {
     let mut store = Store::open(root)?;
     let snapshot = context::prepare(&mut store, work, actor)?;
-    let persona: Persona =
-        serde_json::from_value(store::required(&store.db, "persona", actor)?.body)?;
+    let persona = source_persona(&store.db, &snapshot)?;
     let request = context::request(&store.db, &snapshot)?;
     eprintln!(
         "{}",
@@ -284,8 +293,8 @@ async fn assess(
     input: &tools::AssessModel,
 ) -> Result<Value> {
     let mut store = Store::open(root)?;
-    let persona: Persona =
-        serde_json::from_value(store::required(&store.db, "persona", actor)?.body)?;
+    let source = source_snapshot(&store.db, invocation)?;
+    let persona = source_persona(&store.db, &source)?;
     let candidate = store::exact(&store.db, &input.candidate)?;
     let candidate_digest = candidate.body["model"]
         .as_str()
@@ -407,9 +416,21 @@ async fn effects(root: &Path, actor: &str) -> Result<()> {
             return Ok(());
         }
         let op: Operation = store::object(&store.db, &operation)?;
-        store.transaction(|db| {
+        let dispatched = store.transaction(|db| {
             if store::stopped(db, &work, actor)?.is_some() {
                 return Err(failure("control stopped before effect dispatch"));
+            }
+            let source = source_snapshot(db, &invocation)?;
+            let current = store::required(db, "persona", actor)?;
+            let mandate = store::required(db, "work", &work)?;
+            if current.reference.revision != source.persona_revision || source.data["work"]["reference"] != mandate.reference.handle() {
+                let result = store::put(db, &json!({"dispatched":false,"success":false,
+                    "reason":"The mandate or the persona configuration changed before dispatch. Reconsider the effect in a fresh decision.",
+                    "current_persona":current.reference.handle(),"current_work":mandate.reference.handle()}))?;
+                db.execute("UPDATE outbox SET state='superseded',result=?2 WHERE id=?1 AND state='pending'", params![effect,result])?;
+                store::event(db,&work,actor,actor,"tool_result",&json!({"operation":op.id,"tool":op.tool,"effect":effect,
+                    "result":format!("object:{result}"),"context":"complete"}),Some(&invocation))?;
+                return Ok(false);
             }
             let changed = db.execute(
                 "UPDATE outbox SET state='dispatched' WHERE id=?1 AND state='pending'",
@@ -418,8 +439,9 @@ async fn effects(root: &Path, actor: &str) -> Result<()> {
             if changed != 1 {
                 return Err(failure("effect dispatch lost ownership"));
             }
-            Ok(())
+            Ok(true)
         })?;
+        if !dispatched { continue; }
         let result = external(root, &work, actor, &invocation, &op).await;
         let value = match result {
             Ok(value) => value,

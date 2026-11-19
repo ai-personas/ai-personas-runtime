@@ -69,6 +69,18 @@ pub enum Command {
         persona: String,
         reason: String,
     },
+    /// Select a different reasoning model or effort on this persona's existing connection.
+    Configure {
+        persona: String,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        effort: Option<String>,
+        /// Optional exact persona revision inspected before editing.
+        #[arg(long)]
+        expected: Option<String>,
+        reason: String,
+    },
     /// Continue eligible decisions and accepted effects. Never resumes an explicit stop.
     Run {
         #[arg(long)]
@@ -177,7 +189,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
     if operator.trim().is_empty() { return Err(failure("An operator name is required for attribution")); }
     let mutation = matches!(&command, Command::Request { .. } | Command::Social { .. } | Command::AddPersona { .. }
         | Command::Invite { .. } | Command::Resume { .. } | Command::Message { .. } | Command::Amend { .. }
-        | Command::Accept { .. } | Command::Control { .. });
+        | Command::Accept { .. } | Command::Control { .. } | Command::Configure { .. });
     if mutation {
         let mut store = Store::open(root)?;
         return store.transaction(|db| {
@@ -291,6 +303,33 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
 
 fn operator_action(db: &rusqlite::Connection, operator: &str, command: Command) -> Result<Value> {
     match command {
+        Command::Configure{persona,model,effort,expected,reason} => {
+            if reason.trim().is_empty() || (model.is_none() && effort.is_none()) {
+                return Err(failure("Select a reasoning model or effort and explain the change"));
+            }
+            let active = store::required(db,"persona",&persona)?;
+            if expected.is_some_and(|r| r != active.reference.handle()) {
+                return Err(failure("This persona revision has changed. Inspect its current configuration."));
+            }
+            let mut person: Persona = serde_json::from_value(active.body)?;
+            let previous = json!({"model":person.provider.model,"effort":person.provider.effort});
+            person.provider = person.provider.selection(model.as_deref().unwrap_or(&person.provider.model),
+                effort.as_deref().unwrap_or(&person.provider.effort))?;
+            let selected = json!({"model":person.provider.model,"effort":person.provider.effort});
+            if previous == selected {
+                return Ok(json!({"configuration":active.reference.handle(),"selected":selected,"changed":false}));
+            }
+            let version = store::write(db,"persona",&persona,active.reference.revision,&person,None)?;
+            let record = json!({"operator":operator,"reason":reason,"previous":previous,"selected":selected,
+                "prior_configuration":active.reference.handle(),"configuration":version.handle(),"character_epoch":person.epoch,
+                "character_package":person.model,"inference_started":false});
+            store::write(db,"configuration_change",&id("configuration")?,0,&record,None)?;
+            for part in store::list(db, "participation")?.into_iter().filter(|p|p.body["persona"]==persona) {
+                store::event(db,part.body["work"].as_str().ok_or_else(||failure("Missing activity"))?,
+                    operator,&persona,"configuration_changed",&record,None)?;
+            }
+            Ok(record)
+        }
         Command::Request{need,invite}=>operations::create_activity(db,ActivityKind::Task,need,&invite,operator,None),
         Command::Social{topic,invite}=>operations::create_activity(db,ActivityKind::Social,topic,&invite,operator,None),
         Command::AddPersona{id: requested,label,seed,provider_from}=>{

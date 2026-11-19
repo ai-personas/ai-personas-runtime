@@ -248,6 +248,20 @@ impl<'de> Deserialize<'de> for DirectSettings {
     }
 }
 impl DirectSettings {
+    pub(crate) fn selection(&self, model: &str, effort: &str) -> Result<Self, ProviderError> {
+        let mut next = self.clone();
+        if next.model != model || next.effort != effort {
+            next.model = model.into();
+            next.effort = effort.into();
+            next.evidence.model = model.into();
+            next.evidence.efforts.clear();
+            next.evidence.catalog_evidence_sha256 = None;
+            next.evidence.structured_output_evidence_sha256 = None;
+        }
+        next.validate()?;
+        Ok(next)
+    }
+
     pub fn validate(&self) -> Result<(), ProviderError> {
         self.validate_inner().map_err(ProviderError::Rejected)
     }
@@ -1172,13 +1186,7 @@ impl DirectProvider {
         if model == current.model && effort == current.effort {
             return Ok(Self { inner: self.inner.clone() });
         }
-        let mut settings = current.clone();
-        settings.model = model.into();
-        settings.effort = effort.into();
-        settings.evidence.model = model.into();
-        settings.evidence.efforts.clear();
-        settings.evidence.catalog_evidence_sha256 = None;
-        settings.evidence.structured_output_evidence_sha256 = None;
+        let settings = current.selection(model, effort)?;
         Self::new(settings, self.inner.source.clone(), self.inner.transport.clone(), self.inner.clock.clone())
     }
 

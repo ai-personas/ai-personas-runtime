@@ -322,7 +322,9 @@ pub fn has_arrival(db:&Connection, work:&str, actor:&str, after:i64, kinds:&[Str
         (target=?3 OR (target='*' AND EXISTS(SELECT 1 FROM events j WHERE j.work=e.work AND j.target=?3 AND j.kind='invitation' AND j.seq<=e.seq)))")?;
     let mut rows=query.query(params![work,after,actor])?;
     while let Some(row)=rows.next()? {
-        if kinds.is_empty() || kinds.contains(&row.get::<_,String>(0)?) {return Ok(true);}
+        let kind: String = row.get(0)?;
+        // Recording one's own next-context selection introduces no new observation.
+        if (kinds.is_empty() && kind != "appraisal_selected") || kinds.contains(&kind) {return Ok(true);}
     }
     Ok(false)
 }

@@ -27,7 +27,12 @@ impl App {
         if let Some(subsequent) = provenance["accepted_decisions_since"].as_u64() {
             ui.small(format!("{subsequent} accepted decisions since"));
         }
-        ui.weak("Recorded observations; subsequent work does not refresh them.");
+        let part = self.participation(&self.persona);
+        if let Some(reason) = part["appraisal_use"]["reason"].as_str() {
+            ui.small(format!("Last selected for the following decision · {reason}"));
+        } else {
+            ui.small("The latest context choice uses baseline.");
+        }
         if inspect {
             if let Some(reference) = provenance["response"].as_str() {
                 if ui.small_button("Inspect authored appraisal →").clicked() {
@@ -84,6 +89,14 @@ impl App {
             s(&person["provider"], "effort"),
             s(&person, "lifecycle")
         ));
+        if ui.small_button("Change reasoning settings…").clicked() {
+            if let Some(record) = self.records("personas").iter().find(|p| p["body"]["id"] == self.persona) {
+                self.dialog = Some(Dialog::Reasoning { persona:self.persona.clone(),
+                    expected:format!("persona:{}@{}",self.persona,record["reference"]["revision"]),
+                    model:s(&person["provider"],"model").into(),effort:s(&person["provider"],"effort").into(),
+                    reason:String::new() });
+            }
+        }
         ui.add_space(14.);
         let part = self.participation(&self.persona);
         ui.horizontal(|ui| {

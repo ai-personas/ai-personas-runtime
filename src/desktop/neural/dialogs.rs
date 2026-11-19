@@ -42,6 +42,13 @@ pub(super) enum Dialog {
         title: String,
         reason: String,
     },
+    Reasoning {
+        persona: String,
+        expected: String,
+        model: String,
+        effort: String,
+        reason: String,
+    },
     Settings,
 }
 impl Dialog {
@@ -66,6 +73,7 @@ impl Dialog {
             Self::Participation { action, .. } => action.title(),
             Self::Persona { .. } => "New persona",
             Self::Review { .. } => "Review delivery",
+            Self::Reasoning { .. } => "Change reasoning settings",
             Self::Settings => "Workspace settings",
         }
     }
@@ -336,6 +344,19 @@ impl App {
                                 }
                             }
                         });
+                    }
+                    Dialog::Reasoning { persona, expected, model, effort, reason } => {
+                        ui.heading(self.label(persona));
+                        ui.label("Model ID");
+                        ui.text_edit_singleline(model);
+                        ui.label("Reasoning effort");
+                        ui.text_edit_singleline(effort);
+                        multiline(ui, reason, "Why are you changing this connection setting?");
+                        if ui.add_enabled(!model.trim().is_empty() && !effort.trim().is_empty() && !reason.trim().is_empty(),
+                            theme::primary("Save reasoning settings")).clicked() {
+                            command = Some(Command::Configure { persona: persona.clone(), model: Some(model.trim().into()),
+                                effort: Some(effort.trim().into()), expected: Some(expected.clone()), reason: reason.clone() });
+                        }
                     }
                     Dialog::Settings => self.workspace_settings(ui, ctx),
                 });
