@@ -281,14 +281,8 @@ impl App {
                         "Live workspace"
                     });
                     ui.separator();
-                    ui.small(format!(
-                        "{} accepted decisions",
-                        number(
-                            self.snapshot.status["invocations"]["accepted"]
-                                .as_u64()
-                                .unwrap_or(0)
-                        )
-                    ));
+                    let accepted = self.snapshot.status["invocations"]["accepted"].as_u64().unwrap_or(0);
+                    ui.small(counted(accepted, "accepted decision", "accepted decisions"));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
                             .selectable_label(self.layout.activity, "Activity")
@@ -457,14 +451,18 @@ impl App {
         self.layout.left_width = panel.response.rect.width();
     }
     pub(super) fn persona_state(&self, id: &str) -> String {
-        if let Some(active) = self.snapshot.active.iter().find(|a| a["actor"] == id && a["work"] == self.work) {
+        self.persona_state_in(id, &self.work)
+    }
+
+    pub(super) fn persona_state_in(&self, id: &str, work: &str) -> String {
+        if let Some(active) = self.snapshot.active.iter().find(|a| a["actor"] == id && a["work"] == work) {
             return live_board::call_stage(active, ai_personas::neural::now()).into();
         }
         if let Some(effect) = self
             .snapshot
             .active_effects
             .iter()
-            .filter(|e| e["actor"] == id && e["work"] == self.work)
+            .filter(|e| e["actor"] == id && e["work"] == work)
             .min_by_key(|e| match s(e, "state") { "dispatched" => 0, "uncertain" => 1, _ => 2 })
         {
             return match s(effect, "state") {
@@ -475,10 +473,10 @@ impl App {
             .into();
         }
         let participation = self.records("participation").iter()
-            .map(|r| &r["body"]).find(|p| p["persona"] == id && p["work"] == self.work);
+            .map(|r| &r["body"]).find(|p| p["persona"] == id && p["work"] == work);
         if let Some(p) = participation {
             if p["closed_by_activity"].is_string() || self.records("work").iter()
-                .any(|w| w["body"]["id"] == self.work && w["body"]["phase"] == "dissolved") {
+                .any(|w| w["body"]["id"] == work && w["body"]["phase"] == "dissolved") {
                 return "Activity ended".into();
             }
             if p["departure"].is_string() { return "Left this activity".into(); }
@@ -497,7 +495,7 @@ impl App {
                 let scope = s(c, "scope");
                 c["state"] != "running" && (matches!(scope, "global" | "admission")
                     || scope.strip_prefix("persona:") == Some(id)
-                    || scope.strip_prefix("work:") == Some(self.work.as_str()))
+                    || scope.strip_prefix("work:") == Some(work))
             }) {
                 return format!("Scheduling {}", s(control, "state"));
             }
@@ -1115,7 +1113,14 @@ impl App {
                         .size(10.)
                         .color(theme::ACCENT)).truncate(),
                     );
-                    ui.add(egui::Label::new(RichText::new(self.label(s(b, "owner"))).small()).truncate());
+                    let owner = s(b, "owner");
+                    let author = b["last_content_author"].as_str().unwrap_or(owner);
+                    let credit = if author == owner {
+                        self.label(author).to_owned()
+                    } else {
+                        format!("By {} · owner {}", self.label(author), self.label(owner))
+                    };
+                    ui.add(egui::Label::new(RichText::new(&credit).small()).truncate()).on_hover_text(credit);
                     if let Some(version) = asset["revision"].as_u64() {
                         ui.add(egui::Label::new(RichText::new(format!("v{version}")).size(10.).weak()).truncate());
                     }

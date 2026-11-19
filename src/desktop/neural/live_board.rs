@@ -162,6 +162,11 @@ impl Default for Board {
 }
 
 impl Board {
+    pub(super) fn show_activity(&mut self, work: &str) {
+        self.select_scope(work);
+        self.view = View::Live;
+    }
+
     pub(super) fn take_delivery_focus(&mut self) -> bool {
         std::mem::take(&mut self.delivery_focus)
     }
@@ -182,6 +187,52 @@ impl Board {
         self.expanded = None;
         self.limit = PAGE;
         self.jump_to_latest = true;
+    }
+
+    fn follow_control(&mut self, ui: &mut Ui, events: &[Value], cursor: i64) -> usize {
+        self.index(events);
+        let latest = self.matches.len();
+        let end = self.paused_at.map_or(latest, |at| {
+            self.matches
+                .partition_point(|i| events[*i]["event"].as_i64().unwrap_or(0) <= at)
+        });
+        let new = latest - end;
+        let paused = self.paused_at.is_some();
+        let show_count_beside = new > 0 && ui.available_size_before_wrap().x >= 190.;
+        let label = match (paused, new) {
+            (false, _) => "Pause feed".to_owned(),
+            (true, n) if n > 0 && !show_count_beside => format!("Latest · {n} new"),
+            (true, _) => "Return to latest".to_owned(),
+        };
+        // Keep the same tab stop and footprint when reading or resuming.
+        let toggle = ui
+            .add_sized(
+                [116., ui.spacing().interact_size.y],
+                egui::Button::new(RichText::new(label).small())
+                    .truncate()
+                    .selected(paused),
+            )
+            .on_hover_text(if paused {
+                "Return to the newest event and follow new arrivals"
+            } else {
+                "Keep your place while new events arrive"
+            });
+        if show_count_beside {
+            let count = RichText::new(format!("{new} new"))
+                .small()
+                .color(theme::palette(ui).ink(theme::ACCENT));
+            ui.add(egui::Label::new(count).truncate());
+        }
+        if toggle.clicked() {
+            toggle.request_focus();
+            if paused {
+                self.paused_at = None;
+                self.jump_to_latest = true;
+                return latest;
+            }
+            self.paused_at = Some(cursor);
+        }
+        end
     }
 
     fn index(&mut self, events: &[Value]) {
@@ -350,6 +401,9 @@ impl App {
             .resizable(false)
             .show_separator_line(false)
             .show_inside(ui, |ui| self.live_composer(ui));
+        // The event and people panes share the space above the pinned composer.
+        // Their contents can grow between frames, including while reading a reply.
+        ui.set_clip_rect(ui.clip_rect().intersect(ui.available_rect_before_wrap()));
         if wide {
             let width = (ui.available_width() * 0.30).clamp(231., 326.);
             egui::SidePanel::right("live-people-panel")
@@ -466,8 +520,11 @@ impl App {
         } else {
             ("No calls in progress".into(), p.muted)
         };
-        ui.add(egui::Label::new(RichText::new(self.task_title()).size(23.).strong()).truncate())
-            .on_hover_text(self.task_title());
+        // The workspace context bar already names this activity on short windows.
+        if ui.available_height() >= 410. {
+            ui.add(egui::Label::new(RichText::new(self.task_title()).size(23.).strong()).truncate())
+                .on_hover_text(self.task_title());
+        }
         ui.horizontal_wrapped(|ui| {
             dot(ui, color);
             let status = ui.label(RichText::new(state).size(13.).color(color));
@@ -606,6 +663,7 @@ impl App {
                 ui.add_space(4.);
                 egui::ScrollArea::vertical()
                     .id_salt(("live-roster", &self.work))
+                    .min_scrolled_height(0.)
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         if people.is_empty() {
@@ -915,7 +973,7 @@ impl App {
                     ui.add_space(3.);
                 }
                 let before = (self.live_board.filter, self.live_board.person.clone());
-                ui.horizontal_wrapped(|ui| {
+                let end = ui.horizontal_wrapped(|ui| {
                     let name = Filter::OPTIONS
                         .iter()
                         .find(|(f, _)| *f == self.live_board.filter)
@@ -948,55 +1006,16 @@ impl App {
                                 ui.selectable_value(&mut self.live_board.person, id.clone(), name);
                             }
                         });
-                    if self.live_board.paused_at.is_none()
-                        && ui
-                            .small_button("Pause feed")
-                            .on_hover_text("Hold your place while new events arrive")
-                            .clicked()
-                    {
-                        self.live_board.paused_at = Some(self.cursor);
+                    if before.0 != self.live_board.filter || before.1 != self.live_board.person {
+                        self.live_board.reset_filter();
                     }
-                });
-                if before.0 != self.live_board.filter || before.1 != self.live_board.person {
-                    self.live_board.reset_filter();
-                }
-                self.live_board.index(&self.events);
-                let end = self
-                    .live_board
-                    .paused_at
-                    .map_or(self.live_board.matches.len(), |at| {
-                        self.live_board.matches.partition_point(|i| {
-                            self.events[*i]["event"].as_i64().unwrap_or(0) <= at
-                        })
-                    });
-                if self.live_board.paused_at.is_some() {
-                    let new = self.live_board.matches.len() - end;
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label(
-                            RichText::new(if new > 0 {
-                                format!("Feed paused · {new} new")
-                            } else {
-                                "Feed paused".into()
-                            })
-                            .size(13.)
-                            .color(p.ink(theme::ACCENT)),
-                        );
-                        if ui.small_button("Return to latest").clicked() {
-                            self.live_board.paused_at = None;
-                            self.live_board.jump_to_latest = true;
-                            ui.ctx().request_repaint();
-                        }
-                    });
-                }
+                    self.live_board.follow_control(ui, &self.events, self.cursor)
+                }).inner;
                 ui.separator();
-                let end = if self.live_board.paused_at.is_none() {
-                    self.live_board.matches.len()
-                } else {
-                    end
-                };
                 let start = end.saturating_sub(self.live_board.limit);
                 let mut scroll = egui::ScrollArea::vertical()
                     .id_salt(("live-event-rows", &self.work))
+                    .min_scrolled_height(0.)
                     .auto_shrink([false, false]);
                 if std::mem::take(&mut self.live_board.jump_to_latest) {
                     scroll = scroll.vertical_scroll_offset(0.);
@@ -1054,7 +1073,12 @@ impl App {
                     }
                     Some(EventAction::Request(id)) => self.show_human_request(&id),
                     Some(EventAction::Receipt(seq)) => self.open_message_receipt(ui.ctx(), seq),
-                    Some(EventAction::Expand(seq)) => self.live_board.expanded = seq,
+                    Some(EventAction::Expand(seq)) => {
+                        if seq.is_some() {
+                            self.live_board.paused_at.get_or_insert(self.cursor);
+                        }
+                        self.live_board.expanded = seq;
+                    }
                     None => {}
                 }
             });

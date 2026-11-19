@@ -49,6 +49,7 @@ pub(super) struct Preview {
 pub(super) struct Monitor {
     connection: Option<Connection>,
     version: Option<i64>,
+    appraisal_deadline: Option<i64>,
 }
 
 pub(super) struct Refresh {
@@ -64,10 +65,16 @@ impl Monitor {
             self.connection = Some(db);
         }
         let version = self.connection.as_ref().unwrap().query_row("PRAGMA data_version", [], |r| r.get::<_, i64>(0))?;
-        let snapshot = if self.version == Some(version) {
+        let deadline_reached = self.appraisal_deadline.is_some_and(|time| neural::now() >= time);
+        let snapshot = if self.version == Some(version) && !deadline_reached {
             None
         } else {
             let fresh = snapshot(root, after, known)?;
+            self.appraisal_deadline = fresh.appraisal_provenance.values()
+                .map(|provenance| &provenance["reconsideration"])
+                .filter(|review| review["time_reached"] == false)
+                .filter_map(|review| review["at_unix"].as_i64())
+                .min();
             self.version = Some(version);
             Some(fresh)
         };
@@ -201,7 +208,7 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
     for p in status["participation"].as_array().into_iter().flatten() {
         if let Some(reference) = p["body"]["last_evaluation"].as_str() {
             if let Some(digest) = reference.strip_prefix("object:") {
-                evaluations.insert(reference.into(), store::object(&db, digest)?);
+                let evaluation: Evaluation = store::object(&db, digest)?;
                 let participation: neural::protocol::Participation =
                     serde_json::from_value(p["body"].clone())?;
                 let observed=neural::context::appraisal_context(&db,&participation)?;
@@ -212,9 +219,26 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
                     provenance["basis"]=observed["basis"].clone();
                     provenance["correspondence"]=selected["correspondence"].clone();
                     provenance["changed_dependencies"]=selected["changed_dependencies"].clone();
+                    let review = match selected.get("reconsideration") {
+                        Some(current) => Some(("reconsideration", current.clone())),
+                        None => evaluation.appraisal.reconsideration.as_ref()
+                            .map(|rule| serde_json::to_value(rule).map(|v| ("recorded_reconsideration", v)))
+                            .transpose()?,
+                    };
+                    if let Some((key, mut review)) = review {
+                        if let Some(deadline) = review["at_unix"].as_i64() {
+                            let utc: Option<String> = db.query_row(
+                                "SELECT strftime('%Y-%m-%d %H:%M:%S UTC',?1,'unixepoch')",
+                                [deadline], |r| r.get(0),
+                            )?;
+                            if let Some(utc) = utc { review["at_utc"] = json!(utc); }
+                        }
+                        provenance[key] = review;
+                    }
                     appraisal_provenance
                         .insert((participation.work, participation.persona), provenance);
                 }
+                evaluations.insert(reference.into(), evaluation);
             }
         }
     }

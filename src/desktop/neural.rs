@@ -106,6 +106,7 @@ pub struct App {
     events: Vec<Value>,
     program_runs: BTreeMap<String, Vec<usize>>,
     model_renders: BTreeMap<String, Vec<usize>>,
+    delivery_order: BTreeMap<String, i64>,
     character_decisions: Vec<Value>,
     known_decisions: Arc<BTreeSet<String>>,
     cursor: i64,
@@ -123,6 +124,7 @@ pub struct App {
     layout: Layout,
     work: String,
     persona: String,
+    profile_view: people::ProfileView,
     inbox: inbox::Inbox,
     live_board: live_board::Board,
     live_composer: live_composer::Composer,
@@ -168,7 +170,7 @@ pub struct App {
     relationships: relationships::Panel,
     character_paths: character_paths::Window,
     revision_uses: revision_uses::Panel,
-    contextual: bool,
+    character_input: character::InputView,
     parameter_filter: String,
     tensor_filter: String,
     inspector_window: bool,
@@ -202,6 +204,7 @@ impl App {
             events: vec![],
             program_runs: BTreeMap::new(),
             model_renders: BTreeMap::new(),
+            delivery_order: BTreeMap::new(),
             character_decisions: vec![],
             known_decisions: Default::default(),
             cursor: 0,
@@ -219,6 +222,7 @@ impl App {
             layout,
             work: String::new(),
             persona: String::new(),
+            profile_view: Default::default(),
             inbox: Default::default(),
             live_board: Default::default(),
             live_composer: Default::default(),
@@ -264,7 +268,7 @@ impl App {
             relationships: Default::default(),
             character_paths: Default::default(),
             revision_uses: Default::default(),
-            contextual: true,
+            character_input: Default::default(),
             parameter_filter: String::new(),
             tensor_filter: String::new(),
             inspector_window: false,
@@ -357,7 +361,11 @@ impl App {
     fn apply_snapshot(&mut self, mut snapshot: data::Snapshot) {
         self.cursor = snapshot.cursor;
         for (offset,event) in snapshot.events.iter().enumerate() {
-            if event["body"]["tool"]=="compute.run" {
+            if event["kind"]=="delivery" {
+                if let (Some(reference), Some(sequence)) = (event["body"]["reference"].as_str(), event["event"].as_i64()) {
+                    self.delivery_order.insert(reference.to_owned(), sequence);
+                }
+            } else if event["body"]["tool"]=="compute.run" {
                 if let Some(program)=event["tool_outcome"]["program"].as_str() {
                     self.program_runs.entry(program.to_owned()).or_default().push(self.events.len()+offset);
                 }
@@ -737,6 +745,9 @@ fn number(value: u64) -> String {
         out.push(c);
     }
     out
+}
+fn counted(n: u64, singular: &str, plural: &str) -> String {
+    format!("{} {}", number(n), if n == 1 { singular } else { plural })
 }
 fn size(bytes: u64) -> String {
     if bytes >= 1_048_576 {

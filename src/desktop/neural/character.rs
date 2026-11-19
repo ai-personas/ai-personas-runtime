@@ -1,64 +1,74 @@
 use super::*;
 use ai_personas::persona_model::Evaluation;
+mod appraisal;
+use appraisal::Basis;
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(super) enum InputView {
+    #[default]
+    Next,
+    Recorded,
+    Baseline,
+}
+
 impl App {
-    fn evaluation(&self) -> Option<(Evaluation, bool)> {
+    fn evaluation(&self, view: InputView) -> Option<(Evaluation, bool)> {
         let character = self.snapshot.characters.get(&self.persona)?;
-        if self.contextual {
-            let p = self.participation(&self.persona);
-            if let Some(evaluation) = p["last_evaluation"]
-                .as_str()
-                .and_then(|r| self.snapshot.evaluations.get(r))
-                .filter(|e| e.model == character.baseline.model)
-            {
-                return Some((evaluation.clone(), true));
-            }
-        }
-        Some((character.baseline.clone(), false))
-    }
-    fn appraisal_origin(&mut self, ui: &mut Ui, inspect: bool) {
-        let key = (self.work.clone(), self.persona.clone());
-        let Some(provenance) = self.snapshot.appraisal_provenance.get(&key).cloned() else {
-            ui.weak("Appraisal origin unavailable; current applicability is unknown.");
-            return;
-        };
-        if let Some(recorded) = provenance["recorded_at_utc"].as_str() {
-            ui.small(format!("Appraised {recorded}"));
-        }
-        if let Some(subsequent) = provenance["accepted_decisions_since"].as_u64() {
-            ui.small(format!("{subsequent} accepted decisions since"));
-        }
         let part = self.participation(&self.persona);
-        if let Some(reason) = part["appraisal_use"]["reason"].as_str() {
-            ui.small(format!("Last selected for the following decision · {reason}"));
-            if provenance["basis"]=="baseline" {
-                ui.strong("Next input uses baseline");
-                if let Some(changed)=provenance["changed_dependencies"].as_array() {
-                    for reference in changed.iter().filter_map(Value::as_str) {
-                        if ui.small_button("Changed dependency").on_hover_text(reference).clicked() {self.open_resource(ui.ctx(),reference.into());}
-                    }
+        let recorded = part["last_evaluation"]
+            .as_str()
+            .and_then(|r| self.snapshot.evaluations.get(r));
+        let contextual = match view {
+            InputView::Baseline => false,
+            InputView::Recorded => true,
+            InputView::Next => {
+                let key = (self.work.clone(), self.persona.clone());
+                match Basis::observed(&part, self.snapshot.appraisal_provenance.get(&key)) {
+                    Basis::Contextual => true,
+                    Basis::Baseline => false,
+                    _ => return None,
                 }
             }
-            let exchanges=&provenance["correspondence"]["latest_later_exchanges_by_correspondent"];
-            if let Some(list)=exchanges.as_array().filter(|v|!v.is_empty()) {
-                ui.label(RichText::new("Received after that choice").strong());
-                for exchange in list {
-                    let label=format!("{} · {}",s(exchange,"author"),title(s(exchange,"kind")));
-                    if ui.small_button(label).on_hover_text("Open the latest later exchange from this correspondent").clicked() {
-                        self.open_resource(ui.ctx(),s(exchange,"experience").into());
-                    }
-                }
+        };
+        if contextual {
+            let evaluation = recorded?;
+            if view == InputView::Next && evaluation.model != character.baseline.model {
+                return None;
             }
+            Some((evaluation.clone(), true))
         } else {
-            ui.small("The latest context choice uses baseline.");
-        }
-        if inspect {
-            if let Some(reference) = provenance["response"].as_str() {
-                if ui.small_button("Inspect authored appraisal →").clicked() {
-                    self.open_resource(ui.ctx(), reference.into());
-                }
-            }
+            Some((character.baseline.clone(), false))
         }
     }
+
+    fn appraisal_origin(&mut self, ui: &mut Ui, compact: bool) {
+        let key = (self.work.clone(), self.persona.clone());
+        let part = self.participation(&self.persona);
+        let provenance = self.snapshot.appraisal_provenance.get(&key);
+        let opened = ui
+            .push_id(("appraisal-origin", &key), |ui| {
+                appraisal::panel(ui, &part, provenance, compact, |id| {
+                    self.label(id).to_owned()
+                })
+            })
+            .inner;
+        if let Some(reference) = opened {
+            self.open_resource(ui.ctx(), reference);
+        }
+    }
+
+    fn character_view_options(&mut self, ui: &mut Ui) {
+        ui.horizontal_wrapped(|ui| {
+            ui.selectable_value(&mut self.character_input, InputView::Next, "Next input");
+            ui.selectable_value(
+                &mut self.character_input,
+                InputView::Recorded,
+                "Recorded appraisal",
+            );
+            ui.selectable_value(&mut self.character_input, InputView::Baseline, "Baseline");
+        });
+    }
+
     pub(super) fn inspector_panel(&mut self, ctx: &egui::Context) {
         let p = theme::Palette::new(self.layout.dark);
         let panel = egui::SidePanel::right("studio-inspector")
@@ -123,7 +133,7 @@ impl App {
                 &format!("Epoch {}", person["epoch"].as_u64().unwrap_or(0)),
                 color,
             );
-            ui.small(format!("{} decisions", part["turn"].as_u64().unwrap_or(0)));
+            ui.small(counted(part["turn"].as_u64().unwrap_or(0), "decision", "decisions"));
         });
         if !s(&part["last_judgment"], "reason").is_empty() {
             ui.collapsing("Current work & intention", |ui| {
@@ -134,29 +144,12 @@ impl App {
         }
         ui.add_space(16.);
         section(ui, "Character inclinations", "−1 … +1");
-        if let Some((evaluation, contextual)) = self.evaluation() {
-            ui.label(
-                RichText::new(if contextual {
-                    "Latest contextual evaluation"
-                } else {
-                    "Baseline · all inputs unknown"
-                })
-                .small()
-                .color(color),
-            );
-            if contextual {
-                self.appraisal_origin(ui, false);
+        if self.snapshot.characters.contains_key(&self.persona) {
+            self.appraisal_origin(ui, true);
+            if let Some((evaluation, _)) = self.evaluation(InputView::Next) {
+                ui.add_space(8.);
+                self.output_bars(ui, &evaluation, true);
             }
-            ui.add_space(8.);
-            self.output_bars(ui, &evaluation, true);
-            ui.add_space(10.);
-            ui.label(
-                RichText::new(
-                    "Calculated inclinations, not measures of ability or design quality.",
-                )
-                .size(11.)
-                .weak(),
-            );
         } else {
             ui.weak("The persona has not activated a character model yet.");
         }
@@ -458,11 +451,11 @@ impl App {
                 self.color(&self.persona),
             );
             ui.small(format!(
-                "{} inputs · {} hidden units · {} outputs · {} stored coefficients",
+                "{} inputs · {} · {} outputs · {}",
                 FeatureContract::standard().inputs.len(),
-                character.model.hidden_units,
+                counted(character.model.hidden_units as u64, "hidden unit", "hidden units"),
                 FeatureContract::standard().outputs.len(),
-                character.model.parameters.len()
+                counted(character.model.parameters.len() as u64, "stored coefficient", "stored coefficients")
             ));
         });
         ui.add_space(12.);
@@ -476,47 +469,8 @@ impl App {
         });
         ui.separator();
         match self.character_tab {
-            0 => {
-                egui::ScrollArea::vertical().id_salt("character-profile").show(ui,|ui|{
-                ui.horizontal_wrapped(|ui|{ui.selectable_value(&mut self.contextual,true,"Latest context");ui.selectable_value(&mut self.contextual,false,"Baseline");});
-                if let Some((evaluation,contextual))=self.evaluation(){
-                    ui.small(if contextual{"Recorded contextual evaluation for this task, bound to the active model."}else{"Forward evaluation with all appraisal inputs unknown. This is not a current emotional or task assessment."});
-                    if contextual{self.appraisal_origin(ui,true);}ui.add_space(14.);
-                    let column_gap=ui.spacing().item_spacing.x;ui.spacing_mut().item_spacing.x=18.;
-            ui.columns(2,|cols|{
-                        section(&mut cols[0],"Forward inclinations", "−1 … +1");self.output_bars(&mut cols[0],&evaluation,false);
-                        section(&mut cols[1],"Authored intent", "Active model");cols[1].add(egui::Label::new(&character.model.intent).wrap().halign(egui::Align::Min));cols[1].add_space(16.);
-                        cols[1].collapsing("Starting profile & attribution",|ui|{ui.small(format!("From {}",s(&person,"seed_author")));ui.label(s(&person,"seed"));});
-                        cols[1].add_space(12.);cols[1].small("The persona directly authors numerical edits. Activation and rollback are recorded separately; forward evaluation does not change weights.");
-                    });ui.spacing_mut().item_spacing.x=column_gap;
-                    ui.add_space(20.);section(ui,"Appraisal inputs",if contextual{"Recorded values & evidence"}else{"Unknown at baseline"});
-                    for axis in FeatureContract::standard().inputs{
-                        let feature=evaluation.appraisal.features.get(&axis.id);
-                        ui.collapsing(format!("{}   {}",title(&axis.id),feature.and_then(|f|f.value).map(|v|format!("{v:+.3}")).unwrap_or_else(||"unknown".into())),|ui|{ui.weak(&axis.meaning);if let Some(feature)=feature{ui.label(&feature.interpretation);for reference in &feature.evidence{if ui.small_button(excerpt(reference,55)).on_hover_text(reference).clicked(){self.open_resource(ui.ctx(),reference.clone());}}}});
-                    }
-                }
-            });
-            }
-            1 => {
-                if let Some(decision) = self.character_decisions.iter().rev()
-                    .find(|d| d["actor"] == self.persona && d["work"] == self.work && d["character_use"].is_string()) {
-                    if ui.button("Trace the latest decision…").on_hover_text("Inspect the exact numerical input of this persona's latest accepted choice in the selected activity").clicked() {
-                        self.character_paths.open(ui.ctx(), &self.root, decision);
-                    }
-                }
-                ui.small("Connections show stored weights; biases are listed in Parameters. Teal is positive, orange negative.");
-                ui.horizontal_wrapped(|ui| {
-                    ui.selectable_value(&mut self.contextual, true, "Latest context");
-                    ui.selectable_value(&mut self.contextual, false, "Baseline");
-                });
-                if self.evaluation().is_some_and(|(_, contextual)| contextual) {
-                    self.appraisal_origin(ui, true);
-                }
-                ui.add_space(8.);
-                egui::ScrollArea::both()
-                    .id_salt("character-network")
-                    .show(ui, |ui| self.network(ui, &character));
-            }
+            0 => self.character_profile(ui, &person, &character),
+            1 => self.character_network(ui, &character),
             2 => self.parameter_table(ui, &character),
             4 => self.character_development(ui),
             6 => self.life_history(ui),
@@ -528,6 +482,107 @@ impl App {
             _ => self.character_revisions(ui, &character),
         }
     }
+    fn character_profile(&mut self, ui: &mut Ui, person: &Value, character: &data::Character) {
+        egui::ScrollArea::vertical().id_salt("character-profile").show(ui, |ui| {
+            self.appraisal_origin(ui, false);
+            ui.add_space(10.);
+            self.character_view_options(ui);
+            let Some((evaluation, contextual)) = self.evaluation(self.character_input) else {
+                ui.weak(if self.character_input == InputView::Recorded {
+                    "A recorded evaluation is unavailable for this persona in this activity."
+                } else {
+                    "The next numerical input is unavailable for this activity."
+                });
+                return;
+            };
+            if self.character_input == InputView::Recorded {
+                ui.small(if evaluation.model == character.baseline.model {
+                    "Showing the saved numerical evaluation for this activity."
+                } else {
+                    "Showing the saved numerical evaluation from an earlier model."
+                });
+            } else if self.character_input == InputView::Baseline {
+                ui.small("Showing the active model with all appraisal inputs unknown.");
+            }
+            ui.add_space(14.);
+            let bars = |ui: &mut Ui| {
+                section(ui, "Forward inclinations", "−1 … +1");
+                self.output_bars(ui, &evaluation, false);
+            };
+            let intent = |ui: &mut Ui| {
+                section(ui, "Authored intent", "Active model");
+                ui.add(egui::Label::new(&character.model.intent).wrap());
+                ui.add_space(16.);
+                ui.collapsing("Starting profile & attribution", |ui| {
+                    ui.small(format!("From {}", s(person, "seed_author")));
+                    ui.label(s(person, "seed"));
+                });
+                ui.add_space(12.);
+                ui.small("The persona authors numerical edits. Activation and rollback have separate records.");
+            };
+            if ui.available_width() >= 600. {
+                ui.scope(|ui| {
+                    ui.spacing_mut().item_spacing.x = 18.;
+                    ui.columns(2, |cols| { bars(&mut cols[0]); intent(&mut cols[1]); });
+                });
+            } else {
+                bars(ui);
+                ui.add_space(14.);
+                intent(ui);
+            }
+            ui.add_space(20.);
+            ui.horizontal_wrapped(|ui| {
+                ui.strong("Appraisal inputs");
+                ui.small(if contextual { "Recorded values & evidence" } else { "Unknown at baseline" });
+            });
+            ui.add_space(7.);
+            for axis in FeatureContract::standard().inputs {
+                let feature = evaluation.appraisal.features.get(&axis.id);
+                let value = feature.and_then(|f| f.value).map_or_else(|| "unknown".into(), |v| format!("{v:+.3}"));
+                ui.collapsing(format!("{}   {value}", title(&axis.id)), |ui| {
+                    ui.weak(&axis.meaning);
+                    if let Some(feature) = feature {
+                        ui.label(&feature.interpretation);
+                        for reference in &feature.evidence {
+                            if ui.small_button(excerpt(reference, 55)).on_hover_text(reference).clicked() {
+                                self.open_resource(ui.ctx(), reference.clone());
+                            }
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    fn character_network(&mut self, ui: &mut Ui, character: &data::Character) {
+        egui::ScrollArea::vertical().id_salt("character-network-tab").show(ui, |ui| {
+            if let Some(decision) = self.character_decisions.iter().rev().find(|d|
+                d["actor"] == self.persona && d["work"] == self.work && d["character_use"].is_string()) {
+                if ui.button("Trace the latest decision…")
+                    .on_hover_text("Inspect the numerical input supplied to the latest accepted choice in this activity").clicked() {
+                    self.character_paths.open(ui.ctx(), &self.root, decision);
+                }
+            }
+            self.appraisal_origin(ui, false);
+            ui.add_space(10.);
+            self.character_view_options(ui);
+            let Some((evaluation, _)) = self.evaluation(self.character_input) else {
+                ui.weak("The selected numerical input is unavailable for this activity.");
+                return;
+            };
+            if evaluation.model != character.baseline.model {
+                if ui.link("Open the earlier model used by this appraisal").clicked() {
+                    self.open_resource(ui.ctx(), format!("object:{}", evaluation.model));
+                }
+                return;
+            }
+            ui.small("Teal shows positive weights and orange shows negative weights. Biases appear in Parameters.");
+            ui.add_space(8.);
+            egui::ScrollArea::horizontal().id_salt("character-network")
+                .show(ui, |ui| self.network(ui, character, &evaluation));
+        });
+    }
+
     fn character_development(&mut self, ui: &mut Ui) {
         let scope = (self.persona.clone(), self.work.clone());
         if self.development_scope != scope {
@@ -642,7 +697,8 @@ impl App {
         let bindings = decisions.iter().filter(|d| matches!(d["next_model"]["kind"].as_str(), Some("activate" | "rollback"))).count();
         ui.add_space(12.);
         card(ui).show(ui, |ui| {
-            let labels = [format!("{} accepted decisions", decisions.len()), format!("{no_change} no-change choices"),
+            let labels = [counted(decisions.len() as u64, "accepted decision", "accepted decisions"),
+                    counted(no_change as u64, "no-change choice", "no-change choices"),
                     format!("{edits} parameter {}", if edits == 1 { "proposal" } else { "proposals" }),
                     format!("{bindings} model {}", if bindings == 1 { "switch" } else { "switches" })];
             let columns = if ui.available_width() >= 820. { 4 } else { 2 };
@@ -806,7 +862,7 @@ impl App {
             ui.add_space(if compact { 4. } else { 10. });
         }
     }
-    fn network(&self, ui: &mut Ui, character: &data::Character) {
+    fn network(&self, ui: &mut Ui, character: &data::Character, evaluation: &Evaluation) {
         let contract = FeatureContract::standard();
         let n = contract
             .inputs
@@ -896,10 +952,6 @@ impl App {
                 );
             }
         }
-        let evaluation = self
-            .evaluation()
-            .map(|e| e.0)
-            .unwrap_or_else(|| character.baseline.clone());
         for (i, axis) in contract.inputs.iter().enumerate() {
             let pos = input[i];
             let f = evaluation.appraisal.features.get(&axis.id);
@@ -1039,9 +1091,9 @@ impl App {
             })
             .collect();
         ui.small(format!(
-            "{} of {} stored coefficients",
+            "{} of {}",
             rows.len(),
-            character.model.parameters.len()
+            counted(character.model.parameters.len() as u64, "stored coefficient", "stored coefficients")
         ));
         ui.add_space(8.);
         let available = ui.available_width();

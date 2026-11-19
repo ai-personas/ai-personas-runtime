@@ -160,23 +160,41 @@ impl App {
                 let state=s(b,"state");
                 if (self.inbox.tab==0 && state!="open") || (self.inbox.tab==1 && state!="in_progress")
                     || (self.inbox.tab==2 && !matches!(state,"completed"|"unable"|"withdrawn")) { continue; }
-                let (status,color)=phase(state);
-                card(ui).show(ui,|ui|{
-                    ui.set_min_width(ui.available_width());
-                    ui.horizontal_wrapped(|ui|{theme::badge(ui,status,color);ui.strong(self.label(s(b,"requester")));
-                        ui.weak(excerpt(&self.work_name(s(b,"work")),62));});
-                    ui.add_space(5.);
-                    if ui.link(RichText::new(s(b,"title")).strong().size(18.)).clicked() { self.show_human_request(s(&r["reference"],"id")); }
-                    ui.label(excerpt(s(b,"action"),165));
-                    ui.horizontal_wrapped(|ui|{
-                        let n=b["artifacts"].as_array().map_or(0,Vec::len);
-                        if n>0 { theme::glyph(ui,Icon::Files,theme::palette(ui).muted);ui.weak(format!("{n} attached {}",if n==1{"file"}else{"files"})); }
-                        if let Some(who)=b["claimed_by"].as_str(){ui.weak(format!("Taken by {who}"));}
-                        if ui.button("Open request →").clicked(){self.show_human_request(s(&r["reference"],"id"));}
-                    });
-                });
+                self.request_card(ui, &r);
                 ui.add_space(8.);
             }
+        });
+    }
+
+    pub(super) fn request_card(&mut self, ui: &mut Ui, record: &Value) {
+        let body = &record["body"];
+        let (status, color) = phase(s(body, "state"));
+        card(ui).show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.horizontal_wrapped(|ui| {
+                theme::badge(ui, status, color);
+                ui.strong(self.label(s(body, "requester")));
+                let work = self.work_name(s(body, "work"));
+                ui.weak(excerpt(&work, 62)).on_hover_text(work);
+            });
+            ui.add_space(5.);
+            if ui.link(RichText::new(s(body, "title")).strong().size(18.)).clicked() {
+                self.show_human_request(s(&record["reference"], "id"));
+            }
+            ui.label(excerpt(s(body, "action"), 165));
+            ui.horizontal_wrapped(|ui| {
+                let n = body["artifacts"].as_array().map_or(0, Vec::len);
+                if n > 0 {
+                    theme::glyph(ui, Icon::Files, theme::palette(ui).muted);
+                    ui.weak(format!("{n} attached {}", if n == 1 { "file" } else { "files" }));
+                }
+                if let Some(who) = body["claimed_by"].as_str() {
+                    ui.weak(format!("Taken by {who}"));
+                }
+                if ui.button("Open request →").clicked() {
+                    self.show_human_request(s(&record["reference"], "id"));
+                }
+            });
         });
     }
 

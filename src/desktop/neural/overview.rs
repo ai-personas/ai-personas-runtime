@@ -169,21 +169,7 @@ impl App {
             ui.add_space(6.);
         }
         ui.add_space(10.);
-        let mut deliveries: Vec<_> = self
-            .records("deliveries")
-            .iter()
-            .filter(|r| r["body"]["work"] == self.work)
-            .cloned()
-            .collect();
-        // Events retain issue order even where several packages share a timestamp.
-        let order: BTreeMap<_, _> = self
-            .events
-            .iter()
-            .filter(|e| e["work"] == self.work && e["kind"] == "delivery")
-            .filter_map(|e| Some((e["body"]["reference"].as_str()?, e["event"].as_i64()?)))
-            .collect();
-        deliveries
-            .sort_by_key(|r| std::cmp::Reverse(order.get(inbox::handle(r).as_str()).copied()));
+        let deliveries = self.delivered_packages(|body| body["work"] == self.work);
         if self.live_board.take_delivery_focus() {
             ui.scroll_to_cursor(Some(egui::Align::Min));
         }
@@ -219,35 +205,46 @@ impl App {
         }
     }
 
-    fn delivery_card(&mut self, ui: &mut Ui, d: &Value) {
+    pub(super) fn delivered_packages(&self, include: impl Fn(&Value) -> bool) -> Vec<Value> {
+        let mut packages: Vec<_> = self.records("deliveries").iter()
+            .filter(|d| include(&d["body"])).cloned().collect();
+        packages.sort_by_cached_key(|d| std::cmp::Reverse(self.delivery_order.get(&inbox::handle(d)).copied()));
+        packages
+    }
+
+    pub(super) fn delivery_card(&mut self, ui: &mut Ui, d: &Value) {
         let b = &d["body"];
+        let from_profile = self.layout.editor == Editor::People;
         let handle = inbox::handle(d);
-        let accepted = self.snapshot.status["delivery_reviews"][&handle]["accepted"].as_bool();
+        let review = &self.snapshot.status["delivery_reviews"][&handle];
+        let accepted = review["accepted"].as_bool();
+        let reviewer = s(review, "reviewer").to_owned();
         let n = b["artifacts"].as_array().map_or(0, Vec::len);
+        let gaps = b["remaining"].as_array().map(Vec::as_slice).unwrap_or(&[]);
         card(ui).show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.horizontal_wrapped(|ui| {
                 theme::glyph(ui, Icon::Files, TEAL);
                 ui.strong(s(b, "title"));
-                let (label, c) = match accepted {
-                    Some(true) => ("Accepted", theme::GREEN),
-                    Some(false) => ("Changes requested", theme::ACCENT),
-                    None if b["scope"] == "partial" => ("Partial delivery", theme::ACCENT),
-                    None => ("Delivered", TEAL),
+                let (label, c) = match s(b, "scope") {
+                    "partial" => ("Partial delivery", theme::ACCENT),
+                    "claimed_complete" => ("Author claims complete", TEAL),
+                    _ => ("Delivered", TEAL),
                 };
                 theme::badge(ui, label, c);
                 ui.weak(format!("by {}", self.label(s(b, "owner"))));
             });
+            if let Some(accepted) = accepted {
+                let verdict = if accepted { "Accepted" } else { "Changes requested" };
+                ui.small(if reviewer.is_empty() { verdict.to_owned() } else { format!("{verdict} · {reviewer}") });
+            }
+            if from_profile {
+                let activity = self.work_name(s(b, "work"));
+                ui.small(excerpt(&activity, 100)).on_hover_text(activity);
+            }
             ui.label(s(b, "supported_use"));
-            if b["scope"] == "partial" {
-                if let Some(first) = b["remaining"]
-                    .as_array()
-                    .and_then(|g| g.first())
-                    .and_then(Value::as_str)
-                {
-                    ui.weak(format!("Still needed · {}", excerpt(first, 190)))
-                        .on_hover_text(first);
-                }
+            if let Some(first) = gaps.first().and_then(Value::as_str) {
+                ui.weak(format!("Still needed · {}", excerpt(first, 190))).on_hover_text(first);
             }
             ui.horizontal_wrapped(|ui| {
                 if ui.button("Save package…").clicked() {
@@ -258,24 +255,24 @@ impl App {
                 }
             });
             ui.push_id(&handle, |ui| {
+                let mut contents = format!("{n} {}", if n == 1 { "file" } else { "files" });
+                if !gaps.is_empty() {
+                    contents.push_str(&format!("  ·  {} remaining {}", gaps.len(), if gaps.len() == 1 { "item" } else { "items" }));
+                }
                 ui.collapsing(
-                    format!(
-                        "Files and remaining work  ·  {n} {}",
-                        if n == 1 { "file" } else { "files" }
-                    ),
+                    contents,
                     |ui| {
                         self.attachment_links(ui, &b["artifacts"]);
-                        for gap in b["remaining"]
-                            .as_array()
-                            .into_iter()
-                            .flatten()
-                            .filter_map(Value::as_str)
-                        {
+                        for gap in gaps.iter().filter_map(Value::as_str) {
                             ui.label(format!("• {gap}"));
                         }
                     },
                 )
             });
         });
+        if from_profile && self.layout.editor == Editor::Artifacts {
+            self.work = s(b, "work").into();
+            self.conversation_page = 0;
+        }
     }
 }
