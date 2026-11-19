@@ -2,7 +2,7 @@
 
 The numerical Studio runs continuing personas through direct provider calls. Real participants produced editable designs, exchanged messages, reused other projects’ files and completed a reversible character experiment. **Beneficial self-directed numerical maturation over ordinary work remains unproven.** In the five-person cohort, all five authored and used initial models. Three retained developmental questions after feedback. None proposed a subsequent numerical revision across the eleven activities below.
 
-The design revision is `7d86efb`, published November 17, 2026. The Linux evaluation used successive runtime revisions from `0345495` through `f494c85` on November 19. Each saved decision retains the interface and observations supplied by its own build. [Design](https://github.com/ai-personas/ai-personas-design/tree/7d86efb31a0323e03166a5c5212cdcd8b2e32f36) · [Runtime evaluated](https://github.com/ai-personas/ai-personas-runtime/tree/f494c85cce9f144c739a33b2a8eedef44eb2086e)
+The design revision is `7d86efb`, published November 17, 2026. The Linux evaluation used successive runtime revisions from `0345495` through `be24cb1` on November 19. Each saved decision retains the interface and observations supplied by its own build. [Design](https://github.com/ai-personas/ai-personas-design/tree/7d86efb31a0323e03166a5c5212cdcd8b2e32f36) · [Runtime evaluated](https://github.com/ai-personas/ai-personas-runtime/tree/be24cb11c035527c858cb26ee01416bce1a35cca)
 
 ## What happened in ordinary work
 
@@ -46,6 +46,25 @@ A third assessment replayed two earlier encounters. On Ren’s tentative Saturda
 
 The study produced three completed assessments with thirteen matched-arm provider calls in total. It establishes that a persona can author, compare, decline, adopt, use and roll back an actual numerical revision. It leaves the benefit of that revision, spontaneous ordinary maturation and preservation of individuality through beneficial change unresolved.
 
+## Controlled lookup and source continuity
+
+Ren registered a fictional 124,153-byte collection-desk register, preserved its warning about dated bulletins and moved the same asset to a new library name. This setup took six accepted calls and 58,342 provider-reported tokens. Four independent copies of the same prepared activity then asked Ren about two desk exchanges at 16:10. They shared the question, exact asset, starting numerical state and medium-effort reasoning configuration. The evaluator specified the retrieval method. Ren chose its calls, search terms, surrounding lines and answer.
+
+| Retrieval method | Calls | Input tokens | Cached input | Output | Total tokens | Register text supplied |
+|---|---:|---:|---:|---:|---:|---:|
+| Whole register, first build | 2 | 54,334 | 11,214 | 1,276 | 55,610 | 124,153 bytes |
+| Locate ranges, then read, first build | 6 | 62,676 | 33,642 | 3,249 | 65,925 | 5,240 bytes |
+| Whole register, repeat build | 3 | 62,962 | 16,821 | 1,558 | 64,520 | 124,153 bytes |
+| Search and explicitly request matching excerpts, repeat build | 4 | 40,639 | 22,428 | 1,882 | 42,521 | 4,937 bytes |
+
+All four replies correctly declined BRIDGE-041 after its 15:45 bulletin cutoff and accepted a pre-booked bike carrying a dry crate at YARD-072 through 16:20. The first targeted method used 10,315 more tokens than its whole-register comparison. Direct excerpts used 21,999 fewer tokens than their whole-register comparison. Including the common registration and move, the latter pair used 100,863 and 122,862 tokens respectively. These observations concern one question and two stochastic runs per interface.
+
+The first targeted run scanned 372,459 local text bytes. Its verified inputs separately included 9,864 bytes of previously selected tool-result objects. The direct-excerpt run scanned 248,306 bytes. It received 3,579 distinct register bytes across six excerpt appearances, plus 3,254 bytes of a selected result object. Replay recovered the same excerpt ranges and qualifications. In the repeat pair, measured workspace files occupied 4,550,656 bytes after whole-register reading and 4,341,760 bytes after direct excerpts. Those measurements include their shared prior workspace history. The separately measured common backup was 4,145,152 bytes. Provider storage, other external copies, historical peak disk use and monetary charges remain unknown.
+
+In another activity Sami received the previous library name, no exact handle and a changed condition. Both booked bikes now carried wet crates. Sami correctly declined both exchanges. On its first attempt it re-imported the host file, named the new copy as the current register and also read unrelated meeting notes. This used eleven accepted and two rejected calls, totaling 130,184 tokens. After the runtime distinguished host and library paths in its tool guidance, a fresh run from the same saved society followed the historical name to the actual current revision and correctly reported both the move and the decisions. It read the complete register twice and used 119,610 tokens in five calls. The difference in lookup paths does not isolate the effect of the guidance from model variation.
+
+A separate, intentional duplicate import then returned the original registration, its exact version and its warning alongside the new registration. Sami received this result and reported both names and qualifications. This tests discovery across a move and a duplicate. Sustained organization and retrieval quality across many independent changes remains open.
+
 ## User requirement coverage
 
 Each row identifies the implementation, observation or outstanding evidence for the listed active identifiers. The design repository owns the publication requirements. Retired identifiers are UR-017 and UR-036 through UR-042. [Authoritative requirements](https://github.com/ai-personas/ai-personas-design/blob/7d86efb31a0323e03166a5c5212cdcd8b2e32f36/USER-REQUIREMENTS.md)
@@ -64,14 +83,14 @@ Each row identifies the implementation, observation or outstanding evidence for 
 | UR-051 | Live calls went directly to OpenAI's Responses interface using the selected API-key route and requested model `gpt-6.1-sol`. |
 | UR-011, UR-012, UR-013 | Assets keep content, versions, paths, cues, qualifications and provenance. Imports capture the original bytes. Typed derivatives can name exact sources. |
 | UR-014, UR-019, UR-020, UR-021 | Snapshot reconstruction combines current character and work with selectively read context. Tools, assets, experiences, history and development questions support explicit discovery. Workspace listing returns names and types. |
-| UR-022, UR-023, UR-024 | The runtime records component sizes, provider usage, search cues, retirement and selected excerpts. Savings against a comparable alternative and sustained organization quality remain unmeasured. |
+| UR-022, UR-023, UR-024 | Per-activity usage verifies completed inputs, exact ranges, scans and reported costs. Both higher- and lower-token targeted retrieval were observed against whole-file controls. A different persona recovered a moved name on a repeat lookup. Sustained organization quality remains open. |
 | UR-053 | Persona-authored procedures and programs can be saved as shared versioned resources. In the reading-group exercise Ren imported the operator’s notes and published a guide and a skill, each linked to the exact source. A newly initialized persona, Sami, later discovered and received all three exact resources on another host’s request. |
 | UR-048, UR-050 | The cohort volunteered for tasks and a conversation without an assigned topic. Two new invitees joined the circuit revision. Long-term effects on relationships and future work remain open. |
 | UR-044, UR-045, UR-046, UR-047, UR-049 | The house and circuit amendments led to additional editable work. Participants chose assumptions, revisions, waits and stops. Differing contributions and output quality were observable. The circuit remained partial. |
 | UR-052 | The numerical scheduler records usage, accepts explicit controls and has no application round or cumulative call allowance. The numerical workspace offers scoped file access and import-free WebAssembly. The design's general host execution and installation requirement remains partial. The historical journal runtime has a separate host interface. |
 | UR-029, UR-030 | Three personas, two house phases, the three-to-five-person circuit and later tasks were observed. The three original numerical models stayed at their initial epoch. |
 | UR-032, UR-033 | Immutable inputs, returned decisions, tool observations and later context can be inspected. The runs recorded help, missed retrieval, unclear numerical benefit and a premature assumption. Attributing harmful or helpful transfer to a numerical change needs further evidence. |
-| UR-034 | Live observations led to changes in work-scoped resumption information, computation worker recovery during an update, explicit contextual selection and development follow-up. |
+| UR-034 | Live observations led to changes in work-scoped resumption, computation recovery, contextual selection, development follow-up, direct excerpt returns and duplicate-import provenance. |
 
 ## Mechanical and behavioral acceptance
 
@@ -82,7 +101,7 @@ These observations cover specific parts of the design catalogue. Each row states
 | M01, M02, M03, M15 | A repeated canonical adoption preserved event, effect and version counts. A substituted actual response failed the completion binding. Concurrent retries of an operator action returned the same work. Changed content conflicted. Numerical inspection distinguished metadata edits, equivalent sparse representations and conditional forward effects. |
 | M04, M13, M16 | Backup and restore preserved captured heads, records, invocations, controls and outbox rows. Restoration added an attributed archive record. Recovery distinguishes pending from potentially dispatched effects. Complete failure injection across power loss and every external-effect boundary remains unassessed. Historical fragment journals retain their own reader. |
 | M05, M06, M18, M19, M22 | Live creation, seed authorship, invitation, voluntary joining and changing commitments are separate records. The partial circuit delivery retained remaining work. The book-bag handover exercised a stopped owner, a pending offer, a gap, explicit recipient acceptance, and subsequent completion. Contested responsibility and formal departure need additional cases. |
-| M07, M08, M11, M17 | Provider receipts bind input and usage. Deliberate selection of earlier assets, exact image input, explicit reuse and withholding an amended appraisal were observed. A pending source read in a restored fault fixture was superseded before dispatch after its brief changed. Early provider records have less attribution than current records. |
+| M07, M08, M11, M17 | Provider receipts bind input and usage. Deliberate selection of earlier assets, exact image input, explicit reuse and withholding an amended appraisal were observed. A pending source read in a restored fault fixture was superseded before dispatch after its brief changed. The collection-desk comparison measured all study calls, cache reporting, local scans and source bytes. Unknown charges stay visible. Early provider records have less attribution than current records. |
 | M09, M10, M14, M21 | Human review names an exact delivery. The Studio distinguishes supplied outputs, operator previews, proposed edits, adopted versions and later feedback. Ren’s rollback preserved an unfavorable subsequent observation. Mira’s scarf application linked its pre-edit prediction, exact decision, direct reader response and scoped finding. |
 | M12 | Personas ran retained Wasm and read shared files. The evaluator separately ran Python, OpenSCAD, Make and ngspice on inspected exports. Numerical personas lack a general command and installation adapter. |
 | M20, M23, M24 | Exported packages had exact constituent versions and matching SHA-256 manifests. The concepts state assumptions and remaining physical checks. A manifest verifies bytes and provenance. Independent analysis addresses only its stated scope. |
@@ -97,7 +116,7 @@ These observations cover specific parts of the design catalogue. Each row states
 
 ## Reading and reproducing the evidence
 
-Open **Character Lab → Development** for the actual decision and supplied character. **Comparisons** displays the recorded arms and shared evidence. **Life history** connects an actor’s received events and decisions across activities. **Artifacts** opens exact delivered versions and human reviews. The numerical CLI offers `status`, `read`, `audit`, `export` and `backup`. Tool and input receipts, exact output files, independent verification and an operator’s acceptance answer different questions. [Workspace guide](editable-persona-models.md) · [Desktop guide](desktop.md)
+Open **Character Lab → Development** for the actual decision and supplied character. **Comparisons** displays the recorded arms and shared evidence. **Life history** connects an actor’s received events and decisions across activities. **Artifacts** opens exact delivered versions and human reviews. **Usage** displays per-activity token totals, source coverage, receipts and workspace storage. The numerical CLI offers `usage`, `footprint`, `status`, `read`, `audit`, `export` and `backup`. Tool and input receipts, exact output files, independent verification and an operator’s acceptance answer different questions. [Workspace guide](editable-persona-models.md) · [Desktop guide](desktop.md)
 
 The independent evaluator parsed exported SVGs, rendered them with CairoSVG 2.9.1, compiled the printer assembly with OpenSCAD 2021.01 and reran the supplied scripts with Python 3.10.12. GNU Make 4.3 and ngspice 36 reproduced the circuit recipes. The native Studio and persona SVG tool use resvg 0.45.1.
 
@@ -106,8 +125,9 @@ The independent evaluator parsed exported SVGs, rendered them with CairoSVG 2.9.
 | Main cohort, eleven activities | 648 | 29 | 0 | 8,194,008 |
 | Ren's character, appraisal and replay study | 49 | 17 | 13 | 761,558 |
 | Reading-group skill and substitute host, new calls after restoration | 14 | 0 | 0 | 132,778 |
-| **Total** | **711** | **46** | **13** | **9,088,344** |
+| Collection-desk setup, four controlled runs, two changed-condition runs and intentional duplicate registration | 42 | 2 | 0 | 589,144 |
+| **Total** | **753** | **48** | **13** | **9,677,488** |
 
-The requested model was `gpt-6.1-sol`, with low effort in the main and character studies. The restored reading-group study used the same model at medium effort. Some older receipts omitted the returned model name. The provider supplied token counts, including 3,772,320 cached input tokens. Monetary charge and credit balance were unavailable. Restored historical calls are counted once.
+The requested model was `gpt-6.1-sol`, with low effort in the main and character studies. The restored reading-group and collection-desk studies used the same model at medium effort. Some older receipts omitted the returned model name. The provider supplied token counts, including 4,008,021 cached input tokens. Monetary charge and credit balance were unavailable. Restored historical calls are counted once.
 
 The independent question and replay check had SHA-256 `4c8045beaf90a8c77724a5c8e94e728878c664cd5badc0e12eff60eec806468a`. The handover check had SHA-256 `d9ac6c7c3111784900589ad7a4d550e5235aad2cbecdc8c9629c145deb846dad`.

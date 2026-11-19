@@ -38,6 +38,24 @@ impl Measure {
     }
 }
 
+pub(super) fn usage_totals<'a>(
+    records: impl IntoIterator<Item = &'a Value>,
+) -> BTreeMap<&'static str, Value> {
+    let mut totals = BTreeMap::<_, Measure>::new();
+    for &field in USAGE {
+        totals.insert(field, Measure::default());
+    }
+    for usage in records {
+        for (field, measure) in totals.iter_mut() {
+            measure.observe(usage[*field].as_u64());
+        }
+    }
+    totals
+        .into_iter()
+        .map(|(key, measure)| (key, measure.report()))
+        .collect()
+}
+
 #[derive(Default)]
 struct Coverage {
     path: Option<String>,
@@ -218,12 +236,12 @@ pub fn activity(db: &Connection, work: &str) -> Result<Value> {
     let mut query=db.prepare("SELECT id,actor,state,snapshot,receipt,created,updated FROM invocations WHERE work=?1 ORDER BY created,rowid")?;
     let mut rows = query.query([work])?;
     let mut measures = BTreeMap::<&str, Measure>::new();
-    for key in USAGE.iter().copied().chain([
+    for key in [
         "prompt_bytes",
         "request_bytes",
         "response_schema_bytes",
         "elapsed_ms",
-    ]) {
+    ] {
         measures.insert(key, Measure::default());
     }
     let mut calls = Vec::new();
@@ -254,12 +272,6 @@ pub fn activity(db: &Connection, work: &str) -> Result<Value> {
             .unwrap_or(Value::Null);
         let audit = attempt.get("audit").unwrap_or(&attempt);
         let usage = &attempt["usage"];
-        for &field in USAGE {
-            measures
-                .get_mut(field)
-                .unwrap()
-                .observe(usage[field].as_u64());
-        }
         for (field, source) in [
             ("prompt_bytes", &audit["prompt_bytes"]),
             ("request_bytes", &audit["request_bytes"]),
@@ -348,10 +360,11 @@ pub fn activity(db: &Connection, work: &str) -> Result<Value> {
     let events = count_rows("SELECT kind,count(*) FROM events WHERE work=?1 GROUP BY kind")?;
     let effects = count_rows("SELECT state,count(*) FROM outbox WHERE work=?1 GROUP BY state")?;
     let revisions=count_rows("SELECT v.kind,count(*) FROM versions v JOIN invocations i ON i.id=v.invocation WHERE i.work=?1 GROUP BY v.kind")?;
-    let totals = measures
+    let mut totals = measures
         .into_iter()
         .map(|(key, value)| (key, value.report()))
         .collect::<BTreeMap<_, _>>();
+    totals.extend(usage_totals(calls.iter().map(|c| &c["usage"])));
     let sources = coverage
         .into_iter()
         .map(|(reference, ranges)| ranges.report(reference))

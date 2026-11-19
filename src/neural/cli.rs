@@ -519,15 +519,30 @@ fn publish_directory(from:&Path,to:&Path)->Result<()> {
 }
 
 pub fn audit(store: &mut Store) -> Result<Value> {
-    store.snapshot(|db|{
-        let mut statement=db.prepare("SELECT id,actor,state,snapshot,receipt FROM invocations ORDER BY created,id")?;
-        let rows=statement.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,Option<String>>(4)?)))?.collect::<std::result::Result<Vec<_>,_>>()?;
-        let mut calls=Vec::new();let mut totals=std::collections::BTreeMap::<String,u64>::new();let mut missing_usage=0;
-        for (id,actor,state,snapshot,receipt) in rows {
+    store.snapshot(|db| {
+        let mut statement=db.prepare("SELECT id,work,actor,state,snapshot,receipt FROM invocations ORDER BY created,id")?;
+        let mut rows=statement.query([])?;
+        let mut calls=Vec::new();
+        while let Some(row)=rows.next()? {
+            let id:String=row.get(0)?;
+            let work:String=row.get(1)?;
+            let actor:String=row.get(2)?;
+            let state:String=row.get(3)?;
+            let snapshot:String=row.get(4)?;
+            let receipt:Option<String>=row.get(5)?;
             let value=receipt.as_deref().map(|r|store::object::<Value>(db,r)).transpose()?.unwrap_or(Value::Null);
-            if value["usage"].is_object(){for field in ["input_tokens","cached_input_tokens","output_tokens","total_tokens","actual_cost_microusd"]{if let Some(n)=value["usage"][field].as_u64(){*totals.entry(field.into()).or_default()+=n;}}}else{missing_usage+=1;}
-            calls.push(json!({"id":id,"actor":actor,"state":state,"snapshot":format!("object:{snapshot}"),"receipt":receipt.map(|r|format!("object:{r}")),"reported_model":value["reported_model"],"reported_effort":value["reported_effort"],"usage":value["usage"],"prompt_bytes":value["audit"]["prompt_bytes"],"elapsed_ms":value["elapsed_ms"]}));
+            let request=value.get("audit").unwrap_or(&value);
+            calls.push(json!({"id":id,"work":work,"actor":actor,"state":state,"snapshot":format!("object:{snapshot}"),
+                "receipt":receipt.map(|r|format!("object:{r}")),"reported_model":value["reported_model"],
+                "reported_effort":value["reported_effort"],"usage":value["usage"],"prompt_bytes":request["prompt_bytes"],
+                "request_bytes":request["request_bytes"],"elapsed_ms":value["elapsed_ms"]}));
         }
-        Ok(json!({"calls":calls,"reported_usage_totals":totals,"calls_without_reported_usage":missing_usage,"cost_meaning":"Only explicitly reported costs are measured charges. Token counts do not establish subscription cost or dollar billing.","candidates":store::list(db,"candidate")?,"assessments":store::list(db,"assessment")?,"personas":store::list(db,"persona")?,"acceptances":store::list(db,"acceptance")?}))
+        let coverage=super::accounting::usage_totals(calls.iter().map(|c|&c["usage"]));
+        let totals=coverage.iter().filter_map(|(key,measure)|measure["sum"].as_u64().map(|n|(*key,n))).collect::<std::collections::BTreeMap<_,_>>();
+        let missing=calls.iter().filter(|c|!c["usage"].as_object().is_some_and(|fields|fields.values().any(Value::is_u64))).count();
+        Ok(json!({"calls":calls,"reported_usage_totals":totals,"usage_coverage":coverage,"calls_without_reported_usage":missing,
+            "cost_meaning":"Only explicitly reported costs are measured charges. Each usage field has its own reporting coverage.",
+            "candidates":store::list(db,"candidate")?,"assessments":store::list(db,"assessment")?,
+            "personas":store::list(db,"persona")?,"acceptances":store::list(db,"acceptance")?}))
     })
 }
