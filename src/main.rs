@@ -43,6 +43,16 @@ impl From<ProfileArg> for Profile {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Inspect an owned character package, or show the shared contract when no file is given.
+    Character {
+        package: Option<PathBuf>,
+        /// Evaluate both models on these exact contextual inputs. Omitted inputs are unknown.
+        #[arg(long, requires = "package")]
+        appraisal: Option<PathBuf>,
+        /// Compare another package belonging to the same continuing persona.
+        #[arg(long, requires = "package")]
+        compare: Option<PathBuf>,
+    },
     /// Import selected provider settings and create a continuing local cohort. No inference.
     Setup {
         #[arg(long)]
@@ -804,6 +814,39 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         None
     };
     match &cli.command {
+        Command::Character { package, appraisal, compare } => {
+            use ai_personas::persona_model::{Appraisal, FeatureContract, ModelPackage};
+            let contract = FeatureContract::standard();
+            let Some(package) = package else {
+                let digest = contract.digest().map_err(runtime::RuntimeError::Invalid)?;
+                return emit(&serde_json::json!({"contract":contract, "digest":digest}));
+            };
+            let model: ModelPackage = runtime::read_json_file(package, 0)?;
+            let appraisal: Appraisal = appraisal.as_deref()
+                .map(|path| runtime::read_json_file(path, 0)).transpose()?.unwrap_or_default();
+            let inspect = |model: &ModelPackage| -> runtime::Result<_> {
+                let evaluation = model.evaluate(&contract, &appraisal).map_err(runtime::RuntimeError::Invalid)?;
+                let numerical = model.numerical_digest(&contract).map_err(runtime::RuntimeError::Invalid)?;
+                Ok(serde_json::json!({"owner":model.persona, "package":evaluation.model,
+                    "numerical":numerical, "evaluation":evaluation}))
+            };
+            let inspected = inspect(&model)?;
+            if let Some(path) = compare {
+                let other: ModelPackage = runtime::read_json_file(path, 0)?;
+                if other.persona != model.persona {
+                    return Err(runtime::RuntimeError::Invalid("Comparison requires the same persona owner".into()));
+                }
+                let comparison = inspect(&other)?;
+                let outputs = &inspected["evaluation"]["outputs"];
+                let changed_outputs: Vec<_> = contract.outputs.iter().map(|axis| &axis.id)
+                    .filter(|id| outputs[*id]["value"] != comparison["evaluation"]["outputs"][*id]["value"])
+                    .collect();
+                return emit(&serde_json::json!({"base":inspected, "comparison":comparison,
+                    "numerical_change":inspected["numerical"] != comparison["numerical"],
+                    "changed_outputs_on_this_appraisal":changed_outputs}));
+            }
+            return emit(&inspected);
+        }
         Command::Setup {
             provider_config,
             persona_seeds,
@@ -1692,6 +1735,7 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             emit(&report)
         }
         Command::Schema
+        | Command::Character { .. }
         | Command::Setup { .. }
         | Command::Run { .. }
         | Command::Result { .. }
