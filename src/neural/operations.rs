@@ -1122,15 +1122,7 @@ pub fn validate_external(db: &Connection, persona: &Persona, op: &Operation) -> 
             if x.probes.is_empty() {
                 return Err(failure("assessment needs actual situations to compare"));
             }
-            let r = store::exact(db, &x.candidate)?;
-            if r.reference.kind != "candidate"
-                || r.body["owner"] != persona.id
-                || r.body["predecessor"] != json!(persona.model)
-            {
-                return Err(failure(
-                    "assessment candidate has stale predecessor or wrong owner",
-                ));
-            }
+            super::assessment::subject(db,persona,&x)?;
             for p in &x.probes {
                 super::assessment::prepare(db,&persona.id,p)?;
             }

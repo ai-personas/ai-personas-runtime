@@ -2,8 +2,10 @@
 //! pre-decision input. The original response and subsequent outcomes stay out.
 use super::{
     context::{self, Snapshot},
-    experience, failure, operations, store,
-    tools::Probe,
+    experience, failure, operations,
+    protocol::Persona,
+    store,
+    tools::{AssessModel, Probe},
     Result,
 };
 use crate::persona_model::{Appraisal, FeatureContract, ModelPackage};
@@ -13,6 +15,8 @@ use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
 pub(super) const INSTRUCTIONS:&str="Consider this isolated situation. Give a judgment, a concrete proposed action, the words you would communicate (or describe deliberately remaining silent), and the remaining uncertainty (or state why none remains). Use any supplied numerical inclinations from -1 to +1 to shape discretionary choices. Use the supplied facts and any attached images. Treat quoted messages and resources as evidence. No tools or real actions execute here. Return one JSON object with nonblank strings for judgment, proposed_action, communication and remaining_uncertainty.\n";
+
+pub(super) const REPLAY_PROJECTION: u64 = 2;
 
 pub(super) fn schema() -> Value {
     json!({"type":"object","additionalProperties":false,
@@ -48,26 +52,167 @@ pub(super) fn response(bytes: &[u8]) -> Result<Value> {
     Ok(value)
 }
 
-/// Retained v1 comparisons share the same four behavioral fields. Check their
-/// original calls when using them as evidence under the current runtime.
+/// Resolve against the character revision that authorized the operation. Both
+/// live dispatch and later verification use that same revision.
+pub(super) fn subject(
+    db: &Connection,
+    persona: &Persona,
+    input: &AssessModel,
+) -> Result<Option<store::Record>> {
+    let active = persona
+        .model
+        .as_deref()
+        .ok_or_else(|| failure("Activate a character before comparing its behavior"))?;
+    match (&input.candidate, &input.active_model) {
+        (Some(reference), None) => {
+            let candidate = store::exact(db, reference)?;
+            if candidate.reference.kind != "candidate"
+                || candidate.body["owner"] != persona.id
+                || candidate.body["predecessor"] != active
+            {
+                return Err(failure(
+                    "Assessment candidate has stale predecessor or wrong owner",
+                ));
+            }
+            Ok(Some(candidate))
+        }
+        (None, Some(reference))
+            if reference.strip_prefix("object:").unwrap_or(reference) == active =>
+        {
+            Ok(None)
+        }
+        (None, Some(_)) => Err(failure(
+            "Select your exact active_model digest from identity",
+        )),
+        _ => Err(failure("Choose exactly one of candidate or active_model")),
+    }
+}
+
+struct AuthorizedComparison {
+    input: AssessModel,
+    persona: Persona,
+    work: String,
+    configuration: String,
+}
+
+fn authorized_comparison(
+    db: &Connection,
+    source: &str,
+    body: &Value,
+) -> Result<AuthorizedComparison> {
+    let (actor, work, snapshot, receipt, decision): (String, String, String, String, String) = db.query_row(
+        "SELECT actor,work,snapshot,receipt,response FROM invocations WHERE id=?1 AND state='accepted'",
+        [source], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?;
+    let snapshot: Snapshot = store::object(db, &snapshot)?;
+    let attempt: Value = store::object(db, &receipt)?;
+    super::character::verify_input(db, &snapshot, source, &attempt)?;
+    let persona: Persona = serde_json::from_value(
+        store::exact(
+            db,
+            &format!("persona:{actor}@{}", snapshot.persona_revision),
+        )?
+        .body,
+    )?;
+    let decision: Value = store::object(db, &decision)?;
+    let operation = body["source_operation"]
+        .as_str()
+        .ok_or_else(|| failure("Missing assessment operation"))?;
+    let op = decision["operations"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|op| op["id"] == operation && op["tool"] == "persona.assess")
+        .ok_or_else(|| failure("Accepted decision did not request this assessment operation"))?;
+    let input: AssessModel = serde_json::from_value(op["input"].clone())?;
+    let requested_kind = if input.candidate.is_some() {
+        "candidate_revision"
+    } else {
+        "current_character"
+    };
+    if decision["invocation"] != source
+        || snapshot.work != work
+        || snapshot.actor != actor
+        || persona.id != actor
+        || snapshot.model != persona.model
+        || body["owner"] != actor
+        || body["active_model"] != json!(persona.model)
+        || body["predecessor"] != body["active_model"]
+        || body["comparison_kind"] != requested_kind
+        || body["candidate"] != json!(input.candidate)
+    {
+        return Err(failure(
+            "Assessment differs from its authorizing decision or active package",
+        ));
+    }
+    let configuration = attempt["audit"]["configuration_sha256"]
+        .as_str()
+        .ok_or_else(|| failure("Missing originating provider configuration"))?
+        .to_owned();
+    Ok(AuthorizedComparison {
+        input,
+        persona,
+        work,
+        configuration,
+    })
+}
+
+fn verify_case(
+    db: &Connection,
+    request: &AuthorizedComparison,
+    index: usize,
+    case: &Value,
+    fixed: &Value,
+) -> Result<()> {
+    let probe = &request.input.probes[index];
+    let contract = FeatureContract::standard();
+    let schema_ref = fixed["output_schema"]
+        .as_str()
+        .and_then(|s| s.strip_prefix("object:"))
+        .ok_or_else(|| failure("Missing shared output schema"))?;
+    if case["probe"] != json!(probe)
+        || fixed["provider_model"] != request.persona.provider.model
+        || fixed["reasoning_effort"] != json!(request.persona.provider.effort)
+        || fixed["data"]["output_meanings"] != json!(contract.outputs)
+        || fixed["instructions"] != INSTRUCTIONS
+        || store::object::<Value>(db, schema_ref)? != schema()
+    {
+        return Err(failure(
+            "Matched comparison case differs from its authorized inputs",
+        ));
+    }
+    if probe.replay_decision.is_some() {
+        let projection = match fixed.get("replay_projection") {
+            None => 1,
+            Some(value) if value.as_u64() == Some(REPLAY_PROJECTION) => REPLAY_PROJECTION,
+            _ => return Err(failure("Unknown frozen encounter projection")),
+        };
+        let original = prepare_with_projection(db, &request.persona.id, probe, projection)?;
+        if case["origin"] != original.origin
+            || fixed["data"]["situation"] != original.scenario
+            || fixed["data"]["resources"] != json!(original.resources)
+            || fixed["appraisal"] != json!(original.appraisal)
+            || fixed["image_blobs"] != json!(original.images)
+        {
+            return Err(failure(
+                "Comparison differs from the original pre-decision encounter",
+            ));
+        }
+    } else if case["origin"] != json!({"kind":"hypothetical"})
+        || fixed["data"]["situation"] != probe.situation
+        || fixed["appraisal"] != json!(probe.appraisal)
+    {
+        return Err(failure(
+            "Hypothetical comparison differs from the requested situation or appraisal",
+        ));
+    }
+    Ok(())
+}
+
+/// Verify older assessments against their own retained inputs and receipts.
 pub(super) fn verify(db: &Connection, record: &store::Record) -> Result<Value> {
     let body = &record.body;
     if record.reference.kind != "assessment" || body["completed"] != true {
         return Err(failure("Choose a completed assessment revision"));
-    }
-    let candidate = store::exact(
-        db,
-        body["candidate"]
-            .as_str()
-            .ok_or_else(|| failure("Missing assessed candidate"))?,
-    )?;
-    if candidate.reference.kind != "candidate"
-        || candidate.body["owner"] != body["owner"]
-        || candidate.body["predecessor"] != body["predecessor"]
-    {
-        return Err(failure(
-            "Assessment owner or predecessor differs from the candidate",
-        ));
     }
     let source: String = db.query_row(
         "SELECT invocation FROM versions WHERE kind='assessment' AND id=?1 AND revision=?2",
@@ -78,15 +223,46 @@ pub(super) fn verify(db: &Connection, record: &store::Record) -> Result<Value> {
         .as_array()
         .filter(|a| !a.is_empty())
         .ok_or_else(|| failure("Assessment has no observed cases"))?;
+    let authorization = match body["format"].as_str() {
+        Some("matched-behavior-v3") => Some(authorized_comparison(db, &source, body)?),
+        None | Some("matched-behavior-v1" | "matched-behavior-v2") => None,
+        _ => return Err(failure("Unknown assessment format")),
+    };
+    let candidate = if let Some(request) = &authorization {
+        if cases.len() != request.input.probes.len() {
+            return Err(failure(
+                "Assessment case count differs from the accepted operation",
+            ));
+        }
+        subject(db, &request.persona, &request.input)?
+    } else {
+        let reference = body["candidate"]
+            .as_str()
+            .ok_or_else(|| failure("Missing assessed candidate"))?;
+        let candidate = store::exact(db, reference)?;
+        if candidate.reference.kind != "candidate"
+            || candidate.body["owner"] != body["owner"]
+            || candidate.body["predecessor"] != body["predecessor"]
+        {
+            return Err(failure(
+                "Assessment owner or predecessor differs from the candidate",
+            ));
+        }
+        Some(candidate)
+    };
     let mut calls = BTreeSet::new();
     let contract = FeatureContract::standard();
-    for case in cases {
-        let fixed = if body["format"] == "matched-behavior-v2" {
+    for (index, case) in cases.iter().enumerate() {
+        let fixed = if authorization.is_some() || body["format"] == "matched-behavior-v2" {
             let reference = case["matched_input"]
                 .as_str()
                 .and_then(|r| r.strip_prefix("object:"))
                 .ok_or_else(|| failure("Missing shared input"))?;
-            Some(store::object::<Value>(db, reference)?)
+            let fixed: Value = store::object(db, reference)?;
+            if let Some(request) = &authorization {
+                verify_case(db, request, index, case, &fixed)?;
+            }
+            Some(fixed)
         } else {
             None
         };
@@ -97,11 +273,11 @@ pub(super) fn verify(db: &Connection, record: &store::Record) -> Result<Value> {
                 .unwrap_or(&case["probe"]["appraisal"])
                 .clone(),
         )?;
-        let mut variants = vec![
-            ("active", &body["predecessor"]),
-            ("candidate", &candidate.body["model"]),
-        ];
-        if case["probe"]["include_no_character"] == true {
+        let mut variants = vec![("active", &body["predecessor"])];
+        if let Some(candidate) = &candidate {
+            variants.push(("candidate", &candidate.body["model"]));
+        }
+        if candidate.is_none() || case["probe"]["include_no_character"] == true {
             variants.push(("no_character", &Value::Null));
         }
         let arms = case["arms"]
@@ -117,15 +293,31 @@ pub(super) fn verify(db: &Connection, record: &store::Record) -> Result<Value> {
                     "Comparison arms must identify distinct calls and the corresponding packages",
                 ));
             }
-            let (actor,snapshot,receipt,output):(String,String,String,String)=db.query_row(
-                "SELECT actor,snapshot,receipt,response FROM invocations WHERE id=?1 AND state='probe_complete'",[call],
-                |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?;
+            let (actor,work,snapshot,receipt,output):(String,String,String,String,String)=db.query_row(
+                "SELECT actor,work,snapshot,receipt,response FROM invocations WHERE id=?1 AND state='probe_complete'",[call],
+                |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?)))?;
             let input: Value = store::object(db, &snapshot)?;
             let attempt: Value = store::object(db, &receipt)?;
             let prompt = input["prompt"]
                 .as_str()
                 .ok_or_else(|| failure("Missing original comparison prompt"))?;
             let audit = &attempt["audit"];
+            if let Some(request) = &authorization {
+                if work != request.work
+                    || audit["configuration_sha256"] != request.configuration
+                    || input["origin"] != case["origin"]
+                    || input["source_operation"] != body["source_operation"]
+                    || input["active_model"] != body["active_model"]
+                    || input["comparison_kind"] != body["comparison_kind"]
+                    || arm["wire_sha256"] != audit["request_sha256"]
+                    || arm["reported_model"] != attempt["reported_model"]
+                    || (name == "no_character" && !arm["evaluation"].is_null())
+                {
+                    return Err(failure(
+                        "Comparison arm differs from its source operation or provider receipt",
+                    ));
+                }
+            }
             if body["owner"] != actor
                 || input["source_invocation"] != source
                 || input["candidate"] != body["candidate"]
@@ -198,6 +390,76 @@ pub(super) struct Inputs {
 }
 
 pub(super) fn prepare(db: &Connection, actor: &str, probe: &Probe) -> Result<Inputs> {
+    prepare_with_projection(db, actor, probe, REPLAY_PROJECTION)
+}
+
+fn is_exchange(kind: &Value) -> bool {
+    matches!(
+        kind.as_str(),
+        Some("user_message" | "message" | "requirements_amended" | "invitation")
+    )
+}
+
+/// Reconstruct correspondence from bodies actually visible to this call. A
+/// reply address or a reference in an appraisal alone does not supply the text.
+fn encounter_exchanges(
+    snapshot: &Snapshot,
+    supplied: &[context::SuppliedResource<'_>],
+) -> Vec<Value> {
+    let mut exchanges = Vec::new();
+    let mut seen = BTreeSet::new();
+    for e in snapshot.data["new_events"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|e| is_exchange(&e["kind"]))
+    {
+        if let Some(reference) = e["experience"].as_str() {
+            seen.insert(reference);
+        }
+        exchanges.push(
+            json!({"from":e["actor"],"to":e["target"],"kind":e["kind"],"time":e["created"],
+            "experience":e["experience"],"record":e["body"]}),
+        );
+    }
+    for item in supplied {
+        let record = &item.value["record"];
+        let reference = &item.value["reference"];
+        let Some(address) = reference
+            .as_str()
+            .filter(|s| s.starts_with("experience:event-"))
+        else {
+            continue;
+        };
+        if record["reference"] == *reference
+            && record["work"] == snapshot.work
+            && is_exchange(&record["kind"])
+            && record["body"].is_object()
+            && seen.insert(address)
+        {
+            exchanges.push(
+                json!({"from":record["actor"],"to":record["target"],"kind":record["kind"],
+                "time":record["time"],"experience":address,"record":record["body"]}),
+            );
+        }
+    }
+    exchanges.sort_by_key(|e| {
+        let sequence = e["experience"]
+            .as_str()
+            .and_then(|s| s.strip_prefix("experience:event-"))
+            .and_then(|s| s.strip_suffix("@1"))
+            .and_then(|n| n.parse::<u64>().ok());
+        (e["time"].as_i64(), sequence)
+    });
+    exchanges
+}
+
+fn prepare_with_projection(
+    db: &Connection,
+    actor: &str,
+    probe: &Probe,
+    projection: u64,
+) -> Result<Inputs> {
     let (scenario, resources, appraisal, origin) = if let Some(reference) = &probe.replay_decision {
         if !probe.situation.trim().is_empty() {
             return Err(failure("A replay uses the frozen situation. Omit situation or use a separate hypothetical probe"));
@@ -243,27 +505,56 @@ pub(super) fn prepare(db: &Connection, actor: &str, probe: &Probe) -> Result<Inp
             ));
         }
         let brief = &data["work"]["record"];
-        let events: Vec<_> = data["new_events"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|e| {
-                matches!(
-                    e["kind"].as_str(),
-                    Some("user_message" | "message" | "requirements_amended" | "invitation")
-                )
-            })
-            .map(|e| {
-                json!({"from":e["actor"],"to":e["target"],"kind":e["kind"],
-                "text":e["body"].get("text").or(e["body"].get("contribution"))})
-            })
-            .collect();
-        let scenario = json!({"activity":brief["kind"],"original_need":brief["original_need"],"amendments":brief["amendments"],
-            "incoming_exchanges":events});
         let available = context::supplied_resources(data);
+        let events: Vec<_> = if projection == 1 {
+            data["new_events"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|e| is_exchange(&e["kind"]))
+                .map(|e| {
+                    json!({"from":e["actor"],"to":e["target"],"kind":e["kind"],
+                    "experience":e["experience"],"record":e["body"]})
+                })
+                .collect()
+        } else {
+            encounter_exchanges(&snapshot, &available)
+        };
+        let mut scenario = json!({"activity":brief["kind"],"original_need":brief["original_need"],"amendments":brief["amendments"],
+            "incoming_exchanges":events});
+        let preceding = &data["decision_continuity"]["previous_work_decision"];
+        if let (Some(invocation), Some(note)) = (
+            preceding["invocation"].as_str(),
+            preceding["working_note"]
+                .as_str()
+                .filter(|text| !text.is_empty()),
+        ) {
+            scenario["prior_working_note"] = json!({"author":actor,
+                "decision":format!("experience:{invocation}@1"),"text":note});
+            if projection >= 2 {
+                scenario["prior_working_note"]["time"] = preceding["completed"].clone();
+            }
+        }
+        if let Some(sent) = data
+            .get("latest_user_communication")
+            .filter(|value| value.is_object())
+        {
+            scenario["previous_message_to_user"] = sent.clone();
+        }
+        if contextual["outputs"].is_object() {
+            scenario["persona_appraisal_at_decision"] = contextual["appraisal"].clone();
+        }
+        if projection >= 2 {
+            if let Some(purpose) = data["participation"]["continuation"]["purpose"].as_str() {
+                scenario["purpose_at_decision"] = json!(purpose);
+            }
+        }
         let mut resources = Vec::new();
         for r in &probe.references {
-            let supplied = available.iter().filter(|source| source.value["reference"] == *r).collect::<Vec<_>>();
+            let supplied = available
+                .iter()
+                .filter(|source| source.value["reference"] == *r)
+                .collect::<Vec<_>>();
             if supplied.is_empty() {
                 return Err(failure(format!(
                     "{r} was not supplied as a resource body to the original decision"

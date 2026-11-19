@@ -229,7 +229,13 @@ pub struct Probe {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AssessModel {
-    pub candidate: String,
+    /// Choose an exact inactive candidate to compare with its active predecessor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate: Option<String>,
+    /// Alternatively choose your exact identity.active_model digest to compare its numerical
+    /// inclinations with the same provider reasoning without them. No proposed edit is needed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_model: Option<String>,
     pub probes: Vec<Probe>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -254,7 +260,7 @@ pub const NAMES: &[(&str,&str)] = &[
     ("persona.evaluate","Evaluate your active network on evidence-linked contextual features; missing features are unknown."),
     ("persona.paths","Trace an accepted choice of your own to the actual appraisal, output weights and active or inactive hidden paths. Optionally compare a retained package on that exact input, offline."),
     ("persona.patch","Directly replace literal parameters against an exact predecessor and return forward-only before/after probes. Does not activate."),
-    ("persona.assess","Compare old/candidate behavior in isolated provider calls. These calls execute no tools or real work. Results are synthetic observations."),
+    ("persona.assess","Compare your exact active_model with its numerical inclinations omitted, or a candidate with its active predecessor. Use matched, tool-free provider calls on prior encounters or hypothetical choices."),
     ("development.search","Find your development questions across tasks and social activity, including closed items. Read selected exact records with asset.read."),
     ("development.update","Record or revise your own behavior question with observed experience, competing explanations, a prediction, possible harms and a revisit condition. The item remains available across work and social activity."),
     ("development.close","Retire your own question after reading its current full record. Give your reason, including if the issue remains unresolved. Prior evidence and direct replies remain available."),

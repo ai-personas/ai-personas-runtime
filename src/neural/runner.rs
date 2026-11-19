@@ -323,17 +323,19 @@ async fn assess(
     work: &str,
     actor: &str,
     invocation: &str,
+    operation: &str,
     input: &tools::AssessModel,
 ) -> Result<Value> {
     let mut store = Store::open(root)?;
     let source = source_snapshot(&store.db, invocation)?;
     let persona = source_persona(&store.db, &source)?;
-    let candidate = store::exact(&store.db, &input.candidate)?;
-    let candidate_digest = candidate.body["model"]
-        .as_str()
-        .ok_or_else(|| failure("candidate missing model"))?;
+    let candidate = super::assessment::subject(&store.db, &persona, input)?;
     let old = context::model(&store.db, &persona)?;
-    let new: ModelPackage = store::object(&store.db, candidate_digest)?;
+    let new = candidate.as_ref().map(|record| {
+        let digest = record.body["model"].as_str().ok_or_else(|| failure("Candidate missing model"))?;
+        store::object::<ModelPackage>(&store.db, digest)
+    }).transpose()?;
+    let kind = if new.is_some() { "candidate_revision" } else { "current_character" };
     let contract = FeatureContract::standard();
     let cases = input
         .probes
@@ -352,12 +354,16 @@ async fn assess(
             &store.db,
             &json!({
                 "data":fixed,"instructions":super::assessment::INSTRUCTIONS,"appraisal":case.appraisal,
+                "replay_projection":super::assessment::REPLAY_PROJECTION,
                 "output_schema":format!("object:{schema_digest}"),"image_blobs":case.images,"image_audit":image_audit,
                 "provider_model":persona.provider.model,"reasoning_effort":persona.provider.effort
             }),
         )?;
-        let mut variants = vec![("active", Some(&old)), ("candidate", Some(&new))];
-        if probe.include_no_character {
+        let mut variants = vec![("active", Some(&old))];
+        if let Some(candidate) = &new {
+            variants.push(("candidate", Some(candidate)));
+        }
+        if new.is_none() || probe.include_no_character {
             variants.push(("no_character", None));
         }
         let mut arms = Vec::new();
@@ -388,6 +394,7 @@ async fn assess(
             };
             store.transaction(|db| {
                 let snapshot=store::put(db,&json!({"purpose":"isolated_character_assessment","source_invocation":invocation,
+                    "source_operation":operation,"comparison_kind":kind,"active_model":persona.model,
                     "candidate":input.candidate,"arm":name,"model":model,"prompt":request.prompt,"data":data,
                     "matched_input":format!("object:{matched}"),"image_blobs":case.images,"origin":case.origin}))?;
                 db.execute("INSERT INTO invocations VALUES(?1,?2,?3,'probe_prepared',?4,NULL,NULL,?5,?5)",
@@ -453,7 +460,8 @@ async fn assess(
         }
         let completed=interrupted.is_none() && observations.len()==input.probes.len();
         let body=json!({"owner":actor,"candidate":input.candidate,"predecessor":persona.model,"completed":completed,
-            "format":"matched-behavior-v2","interruption":interrupted,"observations":observations,
+            "format":"matched-behavior-v3","source_operation":operation,"comparison_kind":kind,"active_model":persona.model,
+            "interruption":interrupted,"observations":observations,
             "meaning":"Isolated hypothetical choices under matched inputs. A live outcome and its interpretation require their own evidence."});
         let r=store::write(db,"assessment",&super::id("assessment")?,0,&body,Some(invocation))?;
         Ok(json!({"assessment":r.handle(),"success":completed,"result":body}))
@@ -572,6 +580,7 @@ async fn external(
                 work,
                 actor,
                 invocation,
+                &op.id,
                 &serde_json::from_value(op.input.clone())?,
             )
             .await
