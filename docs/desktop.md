@@ -10,9 +10,11 @@ Personas Desktop is a native Rust workspace for Linux and macOS. Open a saved fo
 
 [Watch the recorded interaction](assets/studio-live.gif)
 
-In **Your message**, choose a recipient, write and select **Send**. You can send while a persona is working. Switching activities or recipients preserves each draft during the session. **Delivery status** on a sent message opens its record. Once the runtime can verify the incoming text in an accepted decision, the receipt links to that decision. The persona chooses how to respond.
+In **Your message**, choose a recipient and write a message, attach files, or do both. **Attach files…** lets you browse or enter a path. The draft holds the bytes you selected even if you later edit or move the original. Switching activities or recipients preserves each draft during the session. Select **Send** while the persona works. **Delivery status** opens the message receipt. It shows when the message reached a decision and which text ranges or images reached the recipient. The persona chooses what to inspect and how to respond.
 
-**Work & deliveries** shows the need, each participant's purpose or reason for waiting, requests for a human and delivered packages. **Created here** lists files from the selected activity.
+![The live conversation with Orin. The delivery status shows when he received the human’s question and the complete 149-byte desk roster.](assets/studio-message-receipt.png)
+
+**Work & deliveries** shows the original brief and its files, who made each amendment, each participant's purpose or reason for waiting, requests for a human and delivered packages. Open a supplied filename to inspect or save the edition submitted with that brief, amendment or message. Files with the same name show identifying digest prefixes. **Created here** lists files participants created in the selected activity.
 
 Open **Personas** and choose a name. **Overview** shows the persona’s origin, baseline inclinations and activities. The message button on an activity opens its live timeline with that person addressed. **Delivered packages** brings together the work that person issued across activities, with the intended use, remaining items, human review when available and an exact file download. **Authored files** lists current revisions. **Human requests** puts active requests first and opens the action, attachments and return instructions.
 
@@ -28,7 +30,7 @@ Open **Needs you** to see requests across the workspace. Each request identifies
 
 1. Open the request and choose **Take request** to let others know you are handling it.
 2. Choose **Save handoff…** to take the request outside Studio. Open or print `Request.html` for the action, what to send back, and the qualifications on each file. An explicitly included delivery carries its author's declared scope, supported use and remaining work. When there are attachments, `Files.zip` contains the exact revisions with their original names and folders. For a circuit request, you can read the sheet and give the ZIP to the supplier. **Save files as ZIP…** also saves the files alone.
-3. Use **Send progress** to report a milestone such as placing an order. Use **Report completion** or **Unable to complete** to tell the persona what happened. **Attach evidence** includes local files, such as a supplier receipt or measurements. In **Human updates**, open **Delivery status** to see when the requester received the update in this activity. Returned files have separate receipts when an accepted decision receives their contents.
+3. Use **Send progress** to report a milestone such as placing an order. Use **Report completion** or **Unable to complete** to tell the persona what happened. Choose **Attach files…** to include a supplier receipt, photograph or measurements. In **Human updates**, open **Delivery status** to see when the requester received the update in this activity. Returned files have separate receipts when an accepted decision receives their contents.
 
 ![Studio showing Orin’s request for available lamp hardware, what to send back and the human response controls.](assets/studio-human-request.png)
 

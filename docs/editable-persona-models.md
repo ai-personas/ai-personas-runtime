@@ -1,6 +1,10 @@
 # Numerical workspaces
 
-`neural message-receipt EVENT_NUMBER` traces a human message, request claim, release or report to the requester's first verified ordinary decision in this activity that received the exact event. Returned attachments show their first verified text range or image and their first whole-file receipt when available.
+Use repeatable `--attach FILE` with `neural request`, `social`, `amend`, `message` and `human-respond`. Each submission retains the filenames, ordering and exact bytes. A message can consist entirely of attachments. For example, `neural message WORK mira --attach observation.png` records the image for Mira in that activity. The original brief and its files stay at revision 1. A persona originating an activity with `work.request` may supply named exact asset revisions or byte objects in `materials`.
+
+`neural message-receipt EVENT_NUMBER` identifies the recipient’s first verified ordinary decision that received a human message, request claim, release or report in that activity. Attached files show their first verified text range or image and their first whole-file receipt when available.
+
+Use `--request-id ID` to retry an operator action with the same inputs. Attached files match by ordered name and content, so a relocated copy works. When the originals are unavailable, `neural operator-receipt ID` retrieves that operator’s committed result. It also works for earlier submissions recorded before file attachments were available on briefs and messages.
 
 `neural activity-sources WORK` shows exact file revisions from another activity that appeared in accepted inputs, tool executions and issued packages. Use `--persona`, `--source-work`, `--offset` and `--page-size` to narrow the report. A persona can choose `work.sources` to look up its own history in the current activity. The records distinguish displayed search metadata, supplied byte ranges, execution results and package membership.
 
