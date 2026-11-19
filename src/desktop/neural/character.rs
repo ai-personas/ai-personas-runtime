@@ -482,6 +482,12 @@ impl App {
             });
             }
             1 => {
+                if let Some(decision) = self.character_decisions.iter().rev()
+                    .find(|d| d["actor"] == self.persona && d["work"] == self.work && d["character_use"].is_string()) {
+                    if ui.button("Trace the latest decision…").on_hover_text("Inspect the exact numerical input of this persona's latest accepted choice in the selected activity").clicked() {
+                        self.character_paths.open(ui.ctx(), &self.root, decision);
+                    }
+                }
                 ui.small("Connections show stored weights; biases are listed in Parameters. Teal is positive, orange negative.");
                 ui.horizontal_wrapped(|ui| {
                     ui.selectable_value(&mut self.contextual, true, "Latest context");
@@ -706,6 +712,7 @@ impl App {
                                 let label = match s(operation, "tool") {
                                     "persona.initialize" => "Initial parameters",
                                     "persona.evaluate" => "Contextual appraisal",
+                                    "persona.paths" => "Recorded numerical paths",
                                     "persona.patch" => "Parameter candidate",
                                     "persona.assess" => "Candidate comparison",
                                     other => other,
@@ -729,6 +736,7 @@ impl App {
                             ui.add_space(8.);
                             ui.horizontal_wrapped(|ui| {
                                 if let Some(r)=decision["character_use"].as_str() {
+                                    if ui.small_button("Numerical paths…").clicked(){self.character_paths.open(ui.ctx(), &self.root, decision);}
                                     if ui.small_button("Character supplied →").clicked(){self.open_resource(ui.ctx(),r.into());}
                                 }
                                 if ui.small_button("Inspect decision →").clicked() { self.open_resource(ui.ctx(), s(decision, "response").into()); }

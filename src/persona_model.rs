@@ -4,6 +4,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
+mod paths;
+pub use paths::OutputPaths;
+
 pub type Result<T> = std::result::Result<T, String>;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -321,11 +324,11 @@ impl ModelPackage {
         Ok(connections)
     }
 
-    pub fn evaluate(
+    fn forward(
         &self,
         contract: &FeatureContract,
         appraisal: &Appraisal,
-    ) -> Result<Evaluation> {
+    ) -> Result<ForwardPass> {
         self.validate(contract)?;
         appraisal.validate(contract)?;
         let mut input = Vec::with_capacity(contract.inputs.len() * 2);
@@ -359,13 +362,10 @@ impl ModelPackage {
                 "forward arithmetic overflow; no output or parameter update adopted".into(),
             );
         }
-        for v in &mut hidden {
-            *v = v.max(0.0);
-        }
         let mut interaction = vec![0.0; contract.outputs.len()];
         for p in parameters {
             if p.tensor == Tensor::Output {
-                interaction[p.row] += p.value * hidden[p.column];
+                interaction[p.row] += p.value * hidden[p.column].max(0.0);
             }
         }
         let mut outputs = BTreeMap::new();
@@ -384,11 +384,23 @@ impl ModelPackage {
                 },
             );
         }
+        Ok(ForwardPass { input, hidden_sums: hidden, outputs })
+    }
+
+    pub fn evaluate(
+        &self,
+        contract: &FeatureContract,
+        appraisal: &Appraisal,
+    ) -> Result<Evaluation> {
+        let ForwardPass { mut hidden_sums, outputs, .. } = self.forward(contract, appraisal)?;
+        for sum in &mut hidden_sums {
+            *sum = sum.max(0.0);
+        }
         Ok(Evaluation {
             model: self.digest()?,
             contract: self.contract.clone(),
             appraisal: appraisal.clone(),
-            hidden,
+            hidden: hidden_sums,
             outputs,
         })
     }
@@ -493,6 +505,11 @@ pub struct Output {
     pub bias: f64,
     pub direct: f64,
     pub interaction: f64,
+}
+struct ForwardPass {
+    input: Vec<f64>,
+    hidden_sums: Vec<f64>,
+    outputs: BTreeMap<String, Output>,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Evaluation {

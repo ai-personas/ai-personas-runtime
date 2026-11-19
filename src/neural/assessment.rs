@@ -225,22 +225,7 @@ pub(super) fn prepare(db: &Connection, actor: &str, probe: &Probe) -> Result<Inp
         let data = &snapshot.data;
         let attempt: Value = store::object(db, &receipt)?;
         let audit = &attempt["audit"];
-        let prompt = context::prompt(db, &snapshot)?;
-        let images = context::image_inputs(db, &snapshot)?
-            .iter()
-            .map(crate::provider::ImageInput::audit)
-            .collect::<Vec<_>>();
-        let actual = audit
-            .get("image_inputs")
-            .cloned()
-            .unwrap_or_else(|| json!([]));
-        if attempt["response_completed"] != true
-            || audit["invocation_id"] != call
-            || audit["prompt_sha256"] != crate::store::sha256_bytes(prompt.as_bytes())
-            || actual != json!(images)
-        {
-            return Err(failure("The original provider receipt does not verify this encounter's prompt and ordered images"));
-        }
+        super::character::verify_input(db, &snapshot, call, &attempt)?;
         let contextual = &data["last_contextual_evaluation"];
         let evaluation = if contextual["outputs"].is_object() {
             contextual

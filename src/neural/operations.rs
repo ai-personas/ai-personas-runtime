@@ -399,6 +399,7 @@ fn internal(
             Ok(json!({"reference":asset.handle(),"blob":digest,"bytes":size,"registered_from":x.reference}))
         }
         "geometry.history" => super::geometry::history::lookup(db,&decode(input)?),
+        "persona.paths" => super::character_paths::inspect(db, Some(actor), &decode(input)?),
         "asset.organize" => {
             let x: tools::AssetMetadata = decode(input)?;
             let record = store::exact(db, &x.reference)?;

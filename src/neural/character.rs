@@ -212,14 +212,28 @@ pub(super) fn contextual(
     Ok(view)
 }
 
-/// Called in the same transaction that retains a completed ordinary provider
-/// response. Reconstruct the exact prompt before attributing this projection.
+pub(super) fn verify_input(db: &Connection, snapshot: &Snapshot, call: &str, attempt: &Value) -> Result<()> {
+    let audit = &attempt["audit"];
+    let prompt = context::prompt(db, snapshot)?;
+    if snapshot.invocation != call || attempt["response_completed"] != true || audit["invocation_id"] != call
+        || audit["prompt_sha256"] != crate::store::sha256_bytes(prompt.as_bytes()) {
+        return Err(failure("Completed provider call does not match its retained input"));
+    }
+    let images: Vec<_> = context::image_inputs(db, snapshot)?.iter().map(crate::provider::ImageInput::audit).collect();
+    let supplied = audit.get("image_inputs").cloned().unwrap_or_else(|| json!([]));
+    if supplied != json!(images) {
+        return Err(failure("Completed provider image inputs differ from the retained ordered images"));
+    }
+    Ok(())
+}
+
+/// Reconstruct the exact prompt before attributing its projection, both on
+/// initial receipt and when inspecting an immutable historical choice.
 pub(super) fn verified_supply(
     db: &Connection,
     call: &str,
     receipt: &str,
     response: &str,
-    attempt: &crate::provider::AttemptReceipt,
 ) -> Result<Option<Value>> {
     let source: String = db.query_row(
         "SELECT snapshot FROM invocations WHERE id=?1",
@@ -227,31 +241,22 @@ pub(super) fn verified_supply(
         |r| r.get(0),
     )?;
     let snapshot: Snapshot = store::object(db, &source)?;
-    if snapshot.model.is_none() || !attempt.response_completed {
+    let attempt: Value = store::object(db, receipt)?;
+    if snapshot.model.is_none() || attempt["response_completed"] != true {
         return Ok(None);
     }
-    let prompt = context::prompt(db, &snapshot)?;
-    if attempt.audit.invocation_id != call
-        || attempt.audit.prompt_sha256 != crate::store::sha256_bytes(prompt.as_bytes())
-    {
-        return Err(failure(
-            "Completed provider call does not match its retained character input",
-        ));
-    }
+    verify_input(db, &snapshot, call, &attempt)?;
     let data = &snapshot.data;
     let contextual = &data["last_contextual_evaluation"];
-    let images = context::image_inputs(db, &snapshot)?;
-    if !images.iter().map(crate::provider::ImageInput::audit).eq(attempt.audit.image_inputs.iter().cloned()) {
-        return Err(failure("Completed provider image inputs differ from the retained ordered images"));
-    }
+    let audit = &attempt["audit"];
     let body = json!({
         "invocation":call,"owner":snapshot.actor,"work":snapshot.work,"epoch":snapshot.epoch,
         "package":snapshot.model,"numerical":data["identity"]["numerical"],
         "contract":data["baseline_character"]["contract"],"configuration":format!("persona:{}@{}",snapshot.actor,snapshot.persona_revision),
         "baseline":data["baseline_character"],"contextual":contextual,
-        "provider_model":attempt.reported_model,"reasoning_effort":attempt.reported_effort,
-        "prompt_sha256":attempt.audit.prompt_sha256,"wire_sha256":attempt.audit.request_sha256,
-        "image_inputs":snapshot.image_blobs,"provider_image_audit":attempt.audit.image_inputs,
+        "provider_model":attempt["reported_model"],"reasoning_effort":attempt["reported_effort"],
+        "prompt_sha256":audit["prompt_sha256"],"wire_sha256":audit["request_sha256"],
+        "image_inputs":snapshot.image_blobs,"provider_image_audit":audit.get("image_inputs").cloned().unwrap_or_else(||json!([])),
         "snapshot":format!("object:{source}"),"provider_receipt":format!("object:{receipt}"),
         "response":format!("object:{response}"),"observation":"supplied"
     });

@@ -216,7 +216,7 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
         if known_decisions.contains(&invocation) { continue; }
         let decision: Value = store::object(&db, &response)?;
         let operations: Vec<Value> = decision["operations"].as_array().into_iter().flatten()
-            .filter(|op| matches!(op["tool"].as_str(), Some("development.update" | "development.close" | "persona.initialize" | "persona.evaluate" | "persona.patch" | "persona.assess")))
+            .filter(|op| matches!(op["tool"].as_str(), Some("development.update" | "development.close" | "persona.initialize" | "persona.evaluate" | "persona.paths" | "persona.patch" | "persona.assess")))
             .map(|op| json!({"id":op["id"],"tool":op["tool"]})).collect();
         let character_use = store::head(&db,"character_use",&invocation)?.map(|r|r.reference.handle());
         character_decisions.push(json!({"character_use":character_use,

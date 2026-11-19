@@ -189,7 +189,7 @@ pub async fn invoke(
                     (false, false) => "responded",
                 };
                 if !probe {
-                    match super::character::verified_supply(db, &call_id, &receipt, &response, &output.attempt) {
+                    match super::character::verified_supply(db, &call_id, &receipt, &response) {
                         Ok(Some(body)) => { store::write(db,"character_use",&call_id,0,&body,Some(&call_id))?; }
                         Ok(None) => {}
                         Err(error) => {

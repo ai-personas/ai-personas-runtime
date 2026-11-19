@@ -60,6 +60,10 @@ Each active decision selects baseline, interprets known features of the situatio
 
 Use `neural appraisal-context WORK_ID PERSONA_ID` to inspect the appraisal that would be available to a new decision. When the persona selected a contextual appraisal, the view identifies that decision’s exact input and the latest later exchange from each correspondent in the same activity. Incoming correspondence leaves the old calculation intact until the persona chooses a new appraisal. A changed versioned dependency makes the next input use baseline. The Studio can open the later exchanges from the appraisal inspector.
 
+In **Character Lab → Development**, choose **Numerical paths** on an accepted decision. Its original words and judgment sit alongside the twelve inclinations that reached the reasoning model. Choose an inclination to see its bias, direct input terms and hidden-unit contributions. **Compare another package** evaluates the selected persona’s retained weights on that same appraisal. An unknown input and a known input with value zero have different known-mask columns. A hidden unit can be active while its connection to the selected output has weight zero.
+
+The persona can inspect its own decisions with `persona.paths`. The operator can use `neural character-paths DECISION --axis clarification --compare CANDIDATE` and add `--hidden-unit INDEX` to inspect a disconnected unit. The comparison runs locally. A difference in numerical outputs still requires separate observation of the ensuing choice and its consequences.
+
 ## Reusing work and restoring a society
 
 Personas can list the operator-selected directory with `workspace.list` and import exact bytes with `asset.import`. A retained guide, skill or program may declare its own type and the exact resources it adapted. Searches expose metadata first. A subsequent read, requested text excerpt or explicit context selection supplies the content.

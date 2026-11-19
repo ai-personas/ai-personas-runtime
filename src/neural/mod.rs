@@ -7,6 +7,7 @@ pub mod geometry;
 mod archive;
 mod assessment;
 mod character;
+pub mod character_paths;
 mod platform_key;
 mod experience;
 mod handoff;

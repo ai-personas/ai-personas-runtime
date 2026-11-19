@@ -18,6 +18,7 @@ use std::{
     time::{Duration, Instant},
 };
 mod character;
+mod character_paths;
 mod comparisons;
 mod explorer;
 mod data;
@@ -131,6 +132,7 @@ pub struct App {
     development_all_work: bool,
     development_scope: (String, String),
     question_history: question_history::History,
+    character_paths: character_paths::Window,
     contextual: bool,
     parameter_filter: String,
     tensor_filter: String,
@@ -205,6 +207,7 @@ impl App {
             development_all_work: false,
             development_scope: (String::new(), String::new()),
             question_history: Default::default(),
+            character_paths: Default::default(),
             contextual: true,
             parameter_filter: String::new(),
             tensor_filter: String::new(),
@@ -562,6 +565,9 @@ impl eframe::App for App {
             self.open_resource(ctx,reference);
         }
         if let Some(reference) = self.question_history.show(ctx, &self.root, &self.snapshot.status) {
+            self.open_resource(ctx, reference);
+        }
+        if let Some(reference) = self.character_paths.show(ctx, &self.root, &self.snapshot.candidates) {
             self.open_resource(ctx, reference);
         }
     }
