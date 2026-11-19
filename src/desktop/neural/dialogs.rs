@@ -110,6 +110,11 @@ impl App {
         }
     }
     pub(super) fn review_controls(&mut self, ui: &mut Ui, reference: &str, title: &str) {
+        let basis = &self.snapshot.status["delivery_mandates"][reference];
+        if basis["same_revision"] == false {
+            ui.small("The brief changed after this delivery.")
+                .on_hover_text(format!("Delivered under {}\nCurrent brief {}",s(basis,"delivered_under"),s(basis,"current_brief")));
+        }
         let review = &self.snapshot.status["delivery_reviews"][reference];
         if let Some(accepted) = review["accepted"].as_bool() {
             ui.small(format!(

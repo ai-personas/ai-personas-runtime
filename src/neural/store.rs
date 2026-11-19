@@ -131,7 +131,7 @@ pub fn status(db: &Connection) -> Result<Value> {
     let controls=scopes.iter().map(|scope|super::controls::current(db,scope)).collect::<Result<Vec<_>>>()?.into_iter().flatten().collect::<Vec<_>>();
     Ok(json!({"format":"neural-runtime-v2","personas":list(db,"persona")?,
         "work":list(db,"work")?,"participation":list(db,"participation")?,
-        "development":list(db,"development")?,"acceptances":list(db,"acceptance")?,"delivery_reviews":delivery_reviews(db)?,"outcomes":list(db,"outcome")?,"deliveries":list(db,"delivery")?,
+        "development":list(db,"development")?,"acceptances":list(db,"acceptance")?,"delivery_reviews":delivery_reviews(db)?,"delivery_mandates":delivery_mandates(db,None)?,"outcomes":list(db,"outcome")?,"deliveries":list(db,"delivery")?,
         "jobs":job_index(db,false)?,
         "invocations":counts,"operations":effect_counts,"controls":controls,
         "meaning":"Stored activity, authored judgments and retained deliveries; not an independent quality verdict."}))
@@ -139,6 +139,27 @@ pub fn status(db: &Connection) -> Result<Value> {
 
 /// Human reviews apply to the exact delivered revision. The committed write
 /// order also covers older review records that had no timestamp in their body.
+/// Recover the brief that actually reached the accepted authoring call, including
+/// for earlier deliveries whose immutable body stored only the activity ID.
+pub fn delivery_mandates(db: &Connection, work: Option<&str>) -> Result<std::collections::BTreeMap<String, Value>> {
+    let mut query = db.prepare("SELECT h.id,h.revision,i.work,w.revision,i.snapshot,
+        json_extract(CAST(s.bytes AS TEXT),'$.data.work.reference')
+        FROM heads h JOIN versions v ON v.kind=h.kind AND v.id=h.id AND v.revision=h.revision
+        JOIN objects b ON b.digest=h.digest JOIN invocations i ON i.id=v.invocation AND i.state='accepted'
+        JOIN objects s ON s.digest=i.snapshot JOIN heads w ON w.kind='work' AND w.id=i.work
+        WHERE h.kind='delivery' AND (?1 IS NULL OR i.work=?1)
+        AND i.work=json_extract(CAST(b.bytes AS TEXT),'$.work') AND i.actor=json_extract(CAST(b.bytes AS TEXT),'$.owner')
+        AND i.id=json_extract(CAST(s.bytes AS TEXT),'$.invocation')")?;
+    let pairs = query.query_map([work], |r| {
+        let version: String = r.get(5)?;
+        let current = format!("work:{}@{}",r.get::<_,String>(2)?,r.get::<_,i64>(3)?);
+        Ok((format!("delivery:{}@{}",r.get::<_,String>(0)?,r.get::<_,i64>(1)?),
+            json!({"delivered_under":version,"current_brief":current,"same_revision":version==current,
+                "original_input":format!("object:{}",r.get::<_,String>(4)?)})))
+    })?.collect::<std::result::Result<_,_>>()?;
+    Ok(pairs)
+}
+
 pub fn delivery_reviews(db: &Connection) -> Result<std::collections::BTreeMap<String, Value>> {
     let mut reviews = std::collections::BTreeMap::new();
     let mut query = db.prepare("SELECT id,revision,digest,created FROM versions WHERE kind='acceptance' ORDER BY rowid")?;

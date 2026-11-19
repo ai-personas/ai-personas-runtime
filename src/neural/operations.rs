@@ -616,6 +616,7 @@ fn internal(
             package_paths(db, &x.artifacts)?;
             let mut body = serde_json::to_value(x)?;
             body["work"] = json!(work);
+            body["mandate"] = snapshot.data["work"]["reference"].clone();
             body["owner"] = json!(actor);
             body["user_accepted"] = json!(false);
             let r = store::write(db, "delivery", &id("delivery")?, 0, &body, Some(call))?;

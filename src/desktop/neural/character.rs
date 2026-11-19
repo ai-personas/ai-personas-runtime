@@ -549,6 +549,12 @@ impl App {
                             ui.add_space(7.);
                             let reason = s(maintenance, "reason");
                             ui.add(egui::Label::new(if reason.is_empty() { "No reason is present in this retained field; inspect the exact decision." } else { reason }).wrap());
+                            if let Some(choice) = decision["next_appraisal"]["kind"].as_str() {
+                                ui.small(format!("Next appraisal · {}", title(choice)));
+                                if let Some(reason) = decision["next_appraisal"]["reason"].as_str() {
+                                    ui.label(reason);
+                                }
+                            }
                             for operation in decision["operations"].as_array().into_iter().flatten() {
                                 let label = match s(operation, "tool") {
                                     "persona.initialize" => "Initial parameters",

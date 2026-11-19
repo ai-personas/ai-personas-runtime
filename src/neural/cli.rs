@@ -209,7 +209,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
             Ok(result)
         });
     }
-    if request_id.is_some() { return Err(failure("--request-id applies to an operator activity, identity, invitation, control, message, amendment, resumption or delivery review")); }
+    if request_id.is_some() { return Err(failure("--request-id applies to an operator action that changes an activity, identity, reasoning configuration, invitation, control, message or delivery review")); }
     match command {
         Command::Restore{archive,sha256}=>super::archive::restore(root,&archive,sha256.as_deref(),operator),
         Command::Init {
@@ -378,7 +378,9 @@ fn operator_action(db: &rusqlite::Connection, operator: &str, command: Command) 
             if reason.trim().is_empty(){return Err(failure("Explain the delivery review"));}
             let record=store::exact(db,&delivery)?;
             if record.reference.kind!="delivery"{return Err(failure("acceptance needs an exact delivered result"));}
-            let decision=json!({"delivery":delivery,"user":operator,"accepted":!reject,"reason":reason});
+            let work=record.body["work"].as_str().ok_or_else(||failure("delivery missing work"))?;
+            let decision=json!({"delivery":delivery,"user":operator,"accepted":!reject,"reason":reason,
+                "brief_at_review":store::required(db,"work",work)?.reference.handle()});
             let r=store::write(db,"acceptance",&id("acceptance")?,0,&decision,None)?;
             store::event(db,record.body["work"].as_str().ok_or_else(||failure("delivery missing work"))?,operator,"*","user_acceptance",&json!({"reference":r.handle(),"decision":decision}),None)?;
             Ok(json!({"reference":r.handle(),"accepted":!reject}))
@@ -411,7 +413,7 @@ pub fn export(store: &mut Store, directory: &Path, work: Option<&str>) -> Result
                 ));
             }
         }
-        Ok((deliveries, artifacts))
+        Ok((deliveries, artifacts, store::delivery_mandates(db,work)?))
     })?;
     let parent=directory.parent().filter(|p|!p.as_os_str().is_empty()).unwrap_or(Path::new("."));
     let staging=tempfile::Builder::new().prefix(".personas-export-").tempdir_in(parent)?;
@@ -432,7 +434,7 @@ pub fn export(store: &mut Store, directory: &Path, work: Option<&str>) -> Result
         manifest.push(json!({"delivery":delivery,"reference":reference,"export_path":relative,"metadata":metadata,"bytes":bytes.len(),"sha256":crate::store::sha256_bytes(&bytes)}));
     }
     let value =
-        json!({"deliveries":data.0,"artifacts":manifest,"quality_verified_by_export":false});
+        json!({"deliveries":data.0,"delivery_mandates":data.2,"artifacts":manifest,"quality_verified_by_export":false});
     std::fs::write(
         staging.path().join("manifest.json"),
         serde_json::to_vec_pretty(&value)?,

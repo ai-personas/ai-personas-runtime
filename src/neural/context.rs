@@ -186,7 +186,7 @@ pub fn execution_status(
     let mut statement = db.prepare(
         "SELECT o.id,o.work,o.state,o.operation,o.invocation,o.ordinal,i.created
          FROM outbox o JOIN invocations i ON i.id=o.invocation
-         WHERE o.actor=?1 AND o.state!='completed' ORDER BY o.rowid",
+         WHERE o.actor=?1 AND o.state IN ('pending','dispatched','uncertain') ORDER BY o.rowid",
     )?;
     let effects = statement.query_map([actor], |r| {
         Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,
@@ -712,9 +712,11 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
         // Keep all exact identities and unfinished scope visible; a chosen
         // read/selection still supplies the complete immutable record.
         let reviews=store::delivery_reviews(db)?;
+        let mandates=store::delivery_mandates(db,Some(work_id))?;
         let deliveries=store::list(db,"delivery")?.into_iter().filter(|r|r.body["work"]==work_id).map(|r|json!({
             "reference":r.reference.handle(),"owner":r.body["owner"],"title":r.body["title"],
             "scope":r.body["scope"],"review":reviews.get(&r.reference.handle()),"remaining":r.body["remaining"],
+            "mandate":mandates.get(&r.reference.handle()),
             "artifact_count":r.body["artifacts"].as_array().map(Vec::len),
             "evidence_count":r.body["evidence"].as_array().map(Vec::len)
         })).collect::<Vec<_>>();
@@ -743,12 +745,20 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
             data["lifetime_experience"]=super::experience::availability(db,actor,work_id)?;
             let questions = super::development::index(db, actor)?;
             let open = questions.iter().filter(|q|!matches!(q["disposition"].as_str(),Some("closed"|"no_change")));
+            let entering_or_receiving_feedback = !participation.accepted || data["new_events"].as_array().into_iter().flatten()
+                .any(|e|matches!(e["kind"].as_str(),Some("user_message"|"user_acceptance"|"requirements_amended")));
+            let prior_question = open.clone().find(|q| q["origin_work"]!=work_id
+                && (q["revisit"]["work"].is_null() || q["revisit"]["work"]==work_id)
+                && q["revisit"]["condition"].is_string() && q["revisit"]["event_kind"].is_null() && q["revisit"]["at_unix"].is_null());
             data["development"] = json!({"open_count":open.clone().count(),
+                "recent_personal_reminder":if entering_or_receiving_feedback {prior_question.map(|q|json!({
+                    "reference":q["reference"],"origin_work":q["origin_work"],"condition":q["revisit"]["condition"],
+                    "meaning":"Your most recently revised open-ended reminder from an earlier activity. Judge whether this occasion fits."}))}else{None},
                 "revisit_cues":open.filter(|q|q["observing_active_model"]==true || q["due_by_time"]==true || !q["matching_experience"].is_null()
                     || q["origin_work"]==work_id).collect::<Vec<_>>(),
                 "later_feedback":questions.iter().filter(|q|!q["later_feedback"].is_null()).map(|q|json!({
                     "question":q["reference"],"experience":q["later_feedback"],"origin_work":q["origin_work"]})).collect::<Vec<_>>(),
-                "discovery":"Use development.search for other question metadata. Read a chosen exact revision with asset.read."});
+                "discovery":"Use development.search for other question metadata. A pending question survives no_change. Read its current exact revision with asset.read to revise it."});
         }
         let component_bytes=data.as_object().expect("snapshot is an object").iter().map(|(name,value)|Ok((name.clone(),serde_json::to_vec(value)?.len()))).collect::<Result<std::collections::BTreeMap<_,_>>>()?;
         let resource_bytes=data["selected_resources"].as_array().expect("resources is an array").iter().map(|value|Ok(json!({"reference":value["reference"],"range":value["range"],"serialized_bytes":serde_json::to_vec(value)?.len()}))).collect::<Result<Vec<_>>>()?;

@@ -169,7 +169,7 @@ pub(super) fn consider(db: &Connection, snapshot: &Snapshot, decision: &Decision
         Some(reference) => {
             let current = owned(db, &snapshot.actor, reference)?;
             if !observed(snapshot, reference) {
-                return Err(failure("Read the question before deferring it"));
+                return Err(failure(format!("The question already persists. Choose no_change to leave it pending, or read {reference} with asset.read before revising its deferral.")));
             }
             (
                 current.reference.id,
@@ -408,10 +408,13 @@ pub(super) fn owned(db: &Connection, actor: &str, reference: &str) -> Result<sto
 pub(super) fn index(db: &Connection, actor: &str) -> Result<Vec<Value>> {
     let mut entries = Vec::new();
     let persona=store::required(db,"persona",actor)?;
-    for record in store::list(db, "development")?
-        .into_iter()
-        .filter(|r| r.body["owner"] == actor)
-    {
+    let mut statement = db.prepare("SELECT h.id FROM heads h JOIN objects o ON h.digest=o.digest
+        JOIN versions v ON v.kind=h.kind AND v.id=h.id AND v.revision=h.revision
+        WHERE h.kind='development' AND json_extract(CAST(o.bytes AS TEXT),'$.owner')=?1 ORDER BY v.rowid DESC")?;
+    let ids = statement.query_map([actor], |r| r.get::<_, String>(0))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    for key in ids {
+        let record = store::required(db, "development", &key)?;
         let detail = &record.body["interpretation"];
         let revisit = &detail["revisit"];
         let matching: Option<i64> = if let Some(kind) = revisit["event_kind"].as_str() {

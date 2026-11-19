@@ -203,13 +203,14 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
             "invocation":invocation,"actor":actor,"work":work,"accepted":accepted,"accepted_utc":accepted_utc,"order":order,
             "response":format!("object:{response}"),"request":format!("object:{request}"),
             "maintenance":decision["persona_maintenance"],"next_model":decision["next_model"],
+            "next_appraisal":decision["next_context"]["appraisal"],
             "operations":operations,
         }));
     }
     let mut q=db.prepare("SELECT id,actor,work,state,created FROM invocations WHERE state IN ('prepared','dispatched','responded') ORDER BY created")?;
     let active=q.query_map([],|r|Ok(json!({"id":r.get::<_,String>(0)?,"actor":r.get::<_,String>(1)?,"work":r.get::<_,String>(2)?,"state":r.get::<_,String>(3)?,"created":r.get::<_,i64>(4)?})))?.collect::<Result<Vec<_>,_>>()?;
     let mut q = db.prepare(
-        "SELECT id,actor,work,state,operation FROM outbox WHERE state!='completed' ORDER BY rowid",
+        "SELECT id,actor,work,state,operation FROM outbox WHERE state IN ('pending','dispatched','uncertain') ORDER BY rowid",
     )?;
     let effects = q
         .query_map([], |r| {
