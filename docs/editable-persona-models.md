@@ -58,9 +58,9 @@ Character Lab’s **What if…** panel evaluates the selected model locally. The
 
 Each active decision selects baseline, interprets known features of the situation, or gives a reason for reusing an exact appraisal. A fresh appraisal affects the following decision. Amending the work or changing the character invalidates the applicable old outputs. The provider receipt, character-use record and accepted response preserve which values reached the original call. **Life history** opens the persona’s actual decisions and received experiences across activities. [Observed character study and limitations](design-conformance.md)
 
-## Reusing work and restoring a society
-
 Use `neural appraisal-context WORK_ID PERSONA_ID` to inspect the appraisal that would be available to a new decision. When the persona selected a contextual appraisal, the view identifies that decision’s exact input and the latest later exchange from each correspondent in the same activity. Incoming correspondence leaves the old calculation intact until the persona chooses a new appraisal. A changed versioned dependency makes the next input use baseline. The Studio can open the later exchanges from the appraisal inspector.
+
+## Reusing work and restoring a society
 
 Personas can list the operator-selected directory with `workspace.list` and import exact bytes with `asset.import`. A retained guide, skill or program may declare its own type and the exact resources it adapted. Searches expose metadata first. A subsequent read, requested text excerpt or explicit context selection supplies the content.
 
