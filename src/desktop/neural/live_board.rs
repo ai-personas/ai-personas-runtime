@@ -1,5 +1,6 @@
 //! Activity-scoped observations, retained events, and human participation.
 pub(super) mod draft;
+mod tool_result;
 
 use super::*;
 use ai_personas::neural::live::RunnerObservation;
@@ -1027,6 +1028,7 @@ impl App {
                 }
             }
         }
+        self.last_tool_result(ui, person, now);
     }
 }
 

@@ -23,6 +23,7 @@ pub(super) struct Index {
     pub deliveries: Vec<usize>,
     positions: BTreeMap<String, usize>,
     last_event: BTreeMap<String, (i64, Option<String>)>,
+    tool_results: BTreeMap<String, BTreeMap<String, i64>>,
     issued: BTreeMap<String, i64>,
     request_events: BTreeMap<String, i64>,
     request_origins: BTreeMap<String, i64>,
@@ -45,6 +46,10 @@ impl Index {
         self.last_event.get(work).map(|(seq, _)| *seq)
     }
 
+    pub(super) fn latest_tool_event(&self, work: &str, person: &str) -> Option<i64> {
+        self.tool_results.get(work)?.get(person).copied()
+    }
+
     pub fn activity(&self, id: &str) -> Option<&Activity> {
         self.activities.get(*self.positions.get(id)?)
     }
@@ -61,6 +66,25 @@ impl Index {
                 (seq, event["created_utc"].as_str().map(str::to_owned)),
             );
             let body = &event["body"];
+            // Synchronous operation receipts declare whether the decision
+            // initialized the persona. External effects require an ordinary
+            // decision and keep their effect ID instead of that flag.
+            if event["kind"] == "tool_result"
+                && body["context"] == "complete"
+                && (body["bootstrap"] == false
+                    || (body["bootstrap"].is_null() && body["effect"].is_string()))
+                && event["actor"] == event["target"]
+                && event["invocation"].is_string()
+                && body["tool"].is_string()
+                && event["tool_outcome"]["result"].is_string()
+            {
+                if let Some(person) = event["actor"].as_str() {
+                    self.tool_results
+                        .entry(work.into())
+                        .or_default()
+                        .insert(person.into(), seq);
+                }
+            }
             if event["kind"] == "tool_result" && matches!(
                 body["tool"].as_str(),
                 Some("asset.save" | "asset.register" | "asset.import" | "asset.organize")
