@@ -129,8 +129,15 @@ impl Desk {
         let work = selected.work.clone();
         self.worker(ctx, move || {
             data::open(&root)
-                .and_then(|db| {
-                    package_review::lookup(&db, (!work.is_empty()).then_some(work.as_str()), &query)
+                .and_then(|mut db| {
+                    let tx = db.transaction()?;
+                    let result = package_review::lookup(
+                        &tx,
+                        (!work.is_empty()).then_some(work.as_str()),
+                        &query,
+                    )?;
+                    tx.commit()?;
+                    Ok(result)
                 })
                 .map(Reply::Page)
                 .map_err(|e| e.to_string())
@@ -442,6 +449,10 @@ impl Desk {
                         let total = page["total"].as_u64().unwrap_or(0) as usize;
                         if total == 0 {
                             ui.weak("No published findings for this selection.");
+                        } else {
+                            let exact = page["matching_basis_count"].as_u64().unwrap_or_default() as usize;
+                            ui.small(format!("{} on these files, inputs and brief   ·   {} on a different or unknown basis",
+                                exact, total.saturating_sub(exact)));
                         }
                         for entry in page["items"].as_array().into_iter().flatten() {
                             review_card(ui, entry, package, &mut inspect);
@@ -607,14 +618,18 @@ fn review_card(ui: &mut Ui, item: &Value, selected: &Value, open: &mut Option<St
             if item["same_basis"] == true {
                 ui.colored_label(TEAL, "Exact files, inputs and brief");
             } else {
+                let mut differences = Vec::new();
                 if item["same_files"] != true {
-                    ui.strong("Different file set");
+                    differences.push("files");
                 }
                 if item["same_inputs"] == false {
-                    ui.strong("Different governing inputs");
+                    differences.push("governing inputs");
                 }
                 if item["same_mandate"] == false {
-                    ui.strong("Different brief");
+                    differences.push("brief");
+                }
+                if !differences.is_empty() {
+                    ui.strong(format!("Changed {}", differences.join(" · ")));
                 }
                 if item["same_mandate"].is_null() {
                     ui.weak("Brief unrecorded");

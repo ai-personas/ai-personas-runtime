@@ -94,6 +94,15 @@ struct Package {
     inputs: BTreeSet<String>,
 }
 
+impl Package {
+    fn same_basis(&self, other: &Self) -> bool {
+        self.mandate.is_some()
+            && self.mandate == other.mandate
+            && self.members == other.members
+            && self.inputs == other.inputs
+    }
+}
+
 struct Target {
     package: Package,
     release_order: Option<i64>,
@@ -301,7 +310,7 @@ fn compare(target: &Target, before: &Package, review: &Value, order: i64) -> Val
         .map(|(a, b)| a == b);
     let reference = review["reference"].as_str().unwrap_or("");
     json!({"review":review,"files":files,"same_files":same_files,"same_mandate":same_mandate,
-        "same_inputs":before.inputs==after.inputs, "same_basis":same_files && before.inputs==after.inputs && same_mandate==Some(true),
+        "same_inputs":before.inputs==after.inputs, "same_basis":before.same_basis(after),
         "available_at_delivery":target.release_order.map(|released|order<released),
         "cited_as_evidence":target.cited.contains(reference),"listed_in_reviews":target.relied_on.contains(reference)})
 }
@@ -386,23 +395,42 @@ pub(super) fn lookup_for(
         return Err(failure("Use a positive page size"));
     }
     let selected = target(db, &query.subject, work, actor)?;
-    let mut total = 0;
-    let mut items = Vec::new();
+    let mut matching = Vec::new();
+    let mut related = Vec::new();
     visit(
         db,
         &selected,
         query.review.as_deref(),
         false,
-        |record, package, order, created| {
-            if total >= query.offset && items.len() < query.page_size {
-                let mut item = compare(&selected, &package, &record, order);
-                item["created"] = json!(created);
-                items.push(item);
+        |_, package, order, _| {
+            if package.same_basis(&selected.package) {
+                matching.push(order);
+            } else {
+                related.push(order);
             }
-            total += 1;
             Ok(())
         },
     )?;
+    // Keep only row IDs while ranking. Materialize per-file differences for the
+    // requested page, newest first within each group.
+    let matching_count = matching.len();
+    let total = matching_count + related.len();
+    let mut items = Vec::new();
+    let mut row = db.prepare("SELECT created,digest FROM versions WHERE rowid=?1")?;
+    for order in matching
+        .into_iter()
+        .chain(related)
+        .skip(query.offset)
+        .take(query.page_size)
+    {
+        let (created, digest): (i64, String) =
+            row.query_row([order], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        let review: Value = store::object(db, &digest)?;
+        let package = serde_json::from_value(review["subject"].clone())?;
+        let mut item = compare(&selected, &package, &review, order);
+        item["created"] = json!(created);
+        items.push(item);
+    }
     let operator_reviews = if let Some(reference) = &selected.package.delivery {
         store::operator_review_history(db, &BTreeSet::from([reference.clone()]))?
             .remove(reference)
@@ -411,7 +439,8 @@ pub(super) fn lookup_for(
         Vec::new()
     };
     Ok(
-        json!({"subject":selected.package,"items":items,"total":total,"offset":query.offset,"operator_review_history":operator_reviews}),
+        json!({"subject":selected.package,"items":items,"total":total,"matching_basis_count":matching_count,
+            "offset":query.offset,"operator_review_history":operator_reviews}),
     )
 }
 
