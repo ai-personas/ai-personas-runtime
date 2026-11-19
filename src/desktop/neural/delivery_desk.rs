@@ -1,7 +1,9 @@
 //! The issued package, its exact file revisions and the operator's review.
 use super::*;
 
+mod origins;
 mod preview;
+mod requests;
 use preview::{Format, Inline};
 
 #[derive(Default)]
@@ -14,6 +16,8 @@ pub(super) struct Desk {
     focus_preview: bool,
     show_references: bool,
     file_page: usize,
+    request_page: usize,
+    origins: Option<origins::Window>,
     file_search: String,
     origin: Option<(String, String, String)>,
 }
@@ -44,6 +48,7 @@ struct Package {
     reference: String,
     files: Vec<File>,
     issued: Option<String>,
+    requests: Vec<usize>,
 }
 
 impl Package {
@@ -88,6 +93,7 @@ impl Package {
             .map(str::to_owned);
         Self {
             body: body.clone(),
+            requests: requests::using_edition(app, &reference),
             reference,
             files,
             issued,
@@ -173,6 +179,8 @@ impl App {
             if desk.package != self.layout.delivery || desk.model.is_none() {
                 desk.selected = model.as_ref().map_or(0, |p| p.default_file());
                 desk.file_page = 0;
+                desk.request_page = 0;
+                desk.origins = None;
                 desk.file_search.clear();
                 desk.focus_preview = false;
                 desk.inline.clear();
@@ -219,6 +227,7 @@ impl App {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 let files_jump = self.package_heading(ui, &p);
+                self.package_human_requests(ui, &p);
                 ui.add_space(12.);
                 if ui.available_width() >= 820. && !p.files.is_empty() {
                     ui.columns(2, |columns| {
@@ -262,6 +271,7 @@ impl App {
                 self.package_sources(ui, &p);
                 ui.add_space(12.);
             });
+        self.delivery_origins_window(ui.ctx(), &p);
     }
 
     fn package_heading(&mut self, ui: &mut Ui, p: &Package) -> bool {
@@ -313,6 +323,14 @@ impl App {
                         .clicked()
                     {
                         files_jump = true;
+                    }
+                    if !p.files.is_empty()
+                        && ui
+                            .link("File origins…")
+                            .on_hover_text("See where the files came from and which earlier deliveries contain the same revisions")
+                            .clicked()
+                    {
+                        self.delivery_desk.origins = Some(origins::Window::default());
                     }
                 });
                 ui.add_space(5.);

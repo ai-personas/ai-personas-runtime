@@ -1,7 +1,9 @@
 //! Exact retained resources from another activity, as observed on accepted choices
 //! and their completed effects. A file's content author survives metadata changes.
+mod delivery;
 mod effects;
 mod resources;
+pub use delivery::delivery_files;
 
 use super::{context::Snapshot, failure, provider_evidence, store, Result};
 use clap::Args;

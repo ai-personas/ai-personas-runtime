@@ -1,5 +1,5 @@
 use super::{Moment, Page};
-use crate::neural::{context, store, Result};
+use crate::neural::{accepted_choice::Choice, context, operations, store, tools, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::{
@@ -17,6 +17,8 @@ pub(super) struct Asset {
     pub content_revision: String,
     pub created: i64,
     pub written_event: Option<i64>,
+    pub write_tool: Option<String>,
+    pub write_receipt: Option<i64>,
 }
 
 pub(super) struct Catalog<'a> {
@@ -81,7 +83,7 @@ impl<'a> Catalog<'a> {
 // The version's writer is the authority for the write. asset.organize preserves
 // the previous revision's bytes and writer. Even an identical new save has its
 // own content provenance. Historical versions need no author/work JSON fields.
-fn origin(db: &Connection, id: &str, revision: i64) -> Result<Option<Asset>> {
+pub(super) fn origin(db: &Connection, id: &str, revision: i64) -> Result<Option<Asset>> {
     let reference = format!("asset:{id}@{revision}");
     let mut path = None;
     let mut blob = None;
@@ -132,7 +134,7 @@ fn origin(db: &Connection, id: &str, revision: i64) -> Result<Option<Asset>> {
                 if writer.is_some() {
                     return Ok(None);
                 }
-                writer = Some((event["tool"].clone(), result));
+                writer = Some((event["tool"].clone(), result, row.get::<_, i64>(1)?));
                 // Import publishes the asset and its terminal outbox receipt in
                 // separate transactions. An intervening input can see the file.
                 if rev == revision && event["tool"] != "asset.import" {
@@ -141,18 +143,22 @@ fn origin(db: &Connection, id: &str, revision: i64) -> Result<Option<Asset>> {
             }
         }
         let previous = format!("asset:{id}@{}", rev - 1);
+        let write_tool = writer
+            .as_ref()
+            .and_then(|(tool, _, _)| tool.as_str())
+            .map(str::to_owned);
+        let write_receipt = writer.as_ref().map(|(_, _, seq)| *seq);
         match writer {
-            Some((tool, _)) if tool == "asset.organize" => {
+            Some((tool, _, seq)) if tool == "asset.organize" => {
                 if rev == 1
-                    || body
-                        .get("previous_revision")
-                        .is_some_and(|v| v != &previous)
+                    || !verified_move(db, &body, &previous, &written, &call, &author, &work, seq)
+                        .unwrap_or(false)
                 {
                     return Ok(None);
                 }
                 continue;
             }
-            Some((_, receipt)) if receipt["blob"] != content => return Ok(None),
+            Some((_, receipt, _)) if receipt["blob"] != content => return Ok(None),
             // Some early records only bind the version to its originating call.
             // Creation and a change of bytes identify a content write. A later
             // same-byte version needs an explicit content or organization origin.
@@ -161,7 +167,7 @@ fn origin(db: &Connection, id: &str, revision: i64) -> Result<Option<Asset>> {
                     && body["organized_in_work"] == work
                     && body["previous_revision"] == previous
                 {
-                    continue;
+                    return Ok(None);
                 }
                 if body["origin_decision"] != call
                     || body["last_content_author"] != author
@@ -191,9 +197,43 @@ fn origin(db: &Connection, id: &str, revision: i64) -> Result<Option<Asset>> {
             content_revision: written,
             created,
             written_event,
+            write_tool,
+            write_receipt,
         }));
     }
     Ok(None)
+}
+
+fn verified_move(
+    db: &Connection,
+    body: &Value,
+    previous: &str,
+    written: &str,
+    call: &str,
+    author: &str,
+    work: &str,
+    receipt: i64,
+) -> Result<bool> {
+    let choice = Choice::load(db, author, work, call)?;
+    let (op, _, seq) = choice.operation(db, "asset.organize", "reference", &json!(written))?;
+    let change: tools::AssetMetadata = serde_json::from_value(op.input)?;
+    if seq != receipt || change.reference != previous {
+        return Ok(false);
+    }
+    let mut expected = store::exact(db, previous)?.body;
+    if !expected.is_object() {
+        return Ok(false);
+    }
+    operations::apply_organization(&mut expected, previous, author, work, &change);
+    // The oldest catalog entries predate explicit organizer attribution.
+    if choice.accepted.snapshot.development_version < 2 {
+        for key in ["organized_by", "organized_in_work", "previous_revision"] {
+            if body.get(key).is_none() {
+                expected.as_object_mut().unwrap().remove(key);
+            }
+        }
+    }
+    Ok(&expected == body)
 }
 
 pub(super) fn supplied(

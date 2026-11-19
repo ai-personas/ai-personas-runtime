@@ -177,6 +177,16 @@ pub(super) fn resolve_operation(op: &mut Operation, aliases: &BTreeMap<String, S
 pub(super) fn returns_alias(tool: &str) -> bool {
     matches!(tool, "asset.save" | "asset.register" | "relationship.record" | "relationship.retire" | "result.review" | "result.deliver" | "human.request" | "human.withdraw")
 }
+
+pub(super) fn apply_organization(body: &mut Value, previous: &str, actor: &str, work: &str, change: &tools::AssetMetadata) {
+    body["path"] = json!(change.path);
+    body["cues"] = json!(change.cues);
+    body["retired"] = json!(change.retired);
+    body["organization_reason"] = json!(change.reason);
+    body["organized_by"] = json!(actor);
+    body["organized_in_work"] = json!(work);
+    body["previous_revision"] = json!(previous);
+}
 fn maintenance(
     value: &Maintenance,
     operations: &[Operation],
@@ -464,13 +474,7 @@ fn internal(
                 return Err(failure("invalid asset metadata change"));
             }
             let mut body = record.body;
-            body["path"] = json!(x.path);
-            body["cues"] = json!(x.cues);
-            body["retired"] = json!(x.retired);
-            body["organization_reason"] = json!(x.reason);
-            body["organized_by"] = json!(actor);
-            body["organized_in_work"] = json!(work);
-            body["previous_revision"] = json!(record.reference.handle());
+            apply_organization(&mut body, &record.reference.handle(), actor, work, &x);
             let r = store::write(
                 db,
                 "asset",

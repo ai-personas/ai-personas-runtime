@@ -24,11 +24,20 @@ pub(super) struct Index {
     last_event: BTreeMap<String, (i64, Option<String>)>,
     issued: BTreeMap<String, i64>,
     request_events: BTreeMap<String, i64>,
+    request_origins: BTreeMap<String, i64>,
 }
 
 impl Index {
     pub(super) fn delivery_issue(&self, reference: &str) -> Option<i64> {
         self.issued.get(reference).copied()
+    }
+
+    pub(super) fn request_event(&self, reference: &str) -> Option<i64> {
+        self.request_events.get(reference).copied()
+    }
+
+    pub(super) fn request_origin(&self, reference: &str) -> Option<i64> {
+        self.request_origins.get(reference).copied()
     }
 
     pub(super) fn latest_event(&self, work: &str) -> Option<i64> {
@@ -54,6 +63,11 @@ impl Index {
             if event["kind"] == "delivery" {
                 if let Some(reference) = body["reference"].as_str() {
                     self.issued.insert(reference.to_owned(), seq);
+                }
+            }
+            if event["kind"] == "human_request" && event["target"] == "user" {
+                if let Some(reference) = body["reference"].as_str() {
+                    self.request_origins.entry(reference.to_owned()).or_insert(seq);
                 }
             }
             if let Some(reference) = body["human_request"].as_str().or_else(|| {

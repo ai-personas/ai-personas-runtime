@@ -712,7 +712,7 @@ fn last_page(total: usize, size: usize) -> usize {
     total.saturating_sub(1) / size
 }
 
-fn pager(ui: &mut Ui, page: &mut usize, total: usize, size: usize, noun: &str) {
+pub(super) fn pager(ui: &mut Ui, page: &mut usize, total: usize, size: usize, noun: &str) {
     if total <= size {
         return;
     }
