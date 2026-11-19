@@ -784,11 +784,10 @@ pub(super) fn prompt(db: &rusqlite::Connection, snapshot: &Snapshot) -> Result<S
     Ok(format!("{prefix}\n{}", render_data(snapshot)?))
 }
 
-pub fn request(
+pub(super) fn image_inputs(
     db: &rusqlite::Connection,
     snapshot: &Snapshot,
-) -> Result<provider::ProviderRequest> {
-    let prefix = String::from_utf8(store::bytes(db, &snapshot.contract_object)?)?;
+) -> Result<Vec<provider::ImageInput>> {
     let mut images = Vec::new();
     for (blob, mime) in &snapshot.image_blobs {
         images.push(provider::ImageInput {
@@ -799,6 +798,12 @@ pub fn request(
             detail: provider::ImageDetail::Original,
         });
     }
+    Ok(images)
+}
+
+pub fn request(db: &rusqlite::Connection, snapshot: &Snapshot) -> Result<provider::ProviderRequest> {
+    let prefix = String::from_utf8(store::bytes(db, &snapshot.contract_object)?)?;
+    let images = image_inputs(db, snapshot)?;
     Ok(provider::ProviderRequest {
         prompt: format!("{}\n{}", prefix, render_data(snapshot)?),
         reusable_prefix_bytes: Some(prefix.len()),

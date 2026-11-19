@@ -16,25 +16,13 @@ fn read_all(reader: &mut impl Read) -> Result<Vec<u8>, String> {
 }
 
 fn svg(source: &Source, bytes: &[u8], maximum_upscale: f32) -> Result<Body, String> {
-    let mut options = resvg::usvg::Options {
-        font_family: "Inter Variable".into(),
-        ..Default::default()
+    let resources = match source {
+        Source::File(path) => path.parent(),
+        _ => None,
     };
-    options.fontdb_mut().load_font_data(include_bytes!("fonts/Inter-Regular.ttf").to_vec());
-    options.fontdb_mut().load_font_data(include_bytes!("fonts/DejaVuSansMono.ttf").to_vec());
-    options.fontdb_mut().set_sans_serif_family("Inter Variable");
-    options.fontdb_mut().set_serif_family("Inter Variable");
-    options.fontdb_mut().set_monospace_family("DejaVu Sans Mono");
-    if let Source::File(path) = source {
-        options.resources_dir = path.parent().map(Path::to_path_buf);
-    }
-    let tree = resvg::usvg::Tree::from_data(bytes, &options).map_err(|error| error.to_string())?;
-    let size = tree.size();
-    let scale = (2400.0 / size.width().max(size.height())).min(maximum_upscale);
-    let width = (size.width() * scale).ceil().max(1.0) as u32;
-    let height = (size.height() * scale).ceil().max(1.0) as u32;
-    let mut pixmap = resvg::tiny_skia::Pixmap::new(width, height).ok_or("SVG preview size is invalid")?;
-    resvg::render(&tree, resvg::tiny_skia::Transform::from_scale(scale, scale), &mut pixmap.as_mut());
+    let preview = ai_personas::vector_preview::render(bytes, maximum_upscale, resources)?;
+    let pixmap = preview.pixels;
+    let (width, height) = (pixmap.width(), pixmap.height());
     Ok(Body::Image(
         egui::ColorImage::from_rgba_premultiplied([width as usize, height as usize], pixmap.data()),
         format!("SVG preview · {width} × {height} px"),

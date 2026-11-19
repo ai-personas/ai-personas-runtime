@@ -14,6 +14,7 @@ pub mod process_control;
 pub mod protocol;
 pub mod provider;
 pub mod store;
+pub mod vector_preview;
 pub mod work;
 
 pub mod runtime;

@@ -380,6 +380,20 @@ async fn external(
                 Ok(match saved{Ok(r)=>json!({"reference":r.handle(),"blob":blob,"bytes":bytes.len(),"source":path}),Err(e)=>json!({"retained_blob":format!("object:{blob}"),"bytes":bytes.len(),"source":path,"asset_update_failed":e.to_string()})})
             })
         }
+        "image.render_svg" => {
+            let x: tools::RenderSvg = serde_json::from_value(op.input.clone())?;
+            let asset = store::exact(&store.db, &x.reference)?;
+            let source = asset.body["blob"].as_str().ok_or_else(||failure("Missing SVG source bytes"))?;
+            let bytes = store::bytes(&store.db, source)?;
+            let (png,width,height,omitted) = tokio::task::spawn_blocking(move || -> Result<_> {
+                let image = crate::vector_preview::render(&bytes, 1.0, None).map_err(failure)?;
+                Ok((image.pixels.encode_png()?, image.pixels.width(), image.pixels.height(), image.omitted_external_images))
+            }).await??;
+            let blob = store::put_bytes(&store.db, "image/png", &png)?;
+            Ok(json!({"reference":format!("object:{blob}"),"source":x.reference,"source_bytes":format!("object:{source}"),
+                "renderer":"resvg 0.45.1","width":width,"height":height,"omitted_external_images":omitted,
+                "image_blob":blob,"mime":"image/png","bytes":png.len()}))
+        }
         "image.read" => {
             let input: tools::ImageRead = serde_json::from_value(op.input.clone())?;
             let (path, bytes) = super::workspace::read_file(&cfg.working_directory, &input.path)?;

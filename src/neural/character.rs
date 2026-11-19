@@ -236,6 +236,10 @@ pub(super) fn verified_supply(
     }
     let data = &snapshot.data;
     let contextual = &data["last_contextual_evaluation"];
+    let images = context::image_inputs(db, &snapshot)?;
+    if !images.iter().map(crate::provider::ImageInput::audit).eq(attempt.audit.image_inputs.iter().cloned()) {
+        return Err(failure("Completed provider image inputs differ from the retained ordered images"));
+    }
     let body = json!({
         "invocation":call,"owner":snapshot.actor,"work":snapshot.work,"epoch":snapshot.epoch,
         "package":snapshot.model,"numerical":data["identity"]["numerical"],
@@ -243,6 +247,7 @@ pub(super) fn verified_supply(
         "baseline":data["baseline_character"],"contextual":contextual,
         "provider_model":attempt.reported_model,"reasoning_effort":attempt.reported_effort,
         "prompt_sha256":attempt.audit.prompt_sha256,"wire_sha256":attempt.audit.request_sha256,
+        "image_inputs":snapshot.image_blobs,"provider_image_audit":attempt.audit.image_inputs,
         "snapshot":format!("object:{source}"),"provider_receipt":format!("object:{receipt}"),
         "response":format!("object:{response}"),"observation":"supplied"
     });
