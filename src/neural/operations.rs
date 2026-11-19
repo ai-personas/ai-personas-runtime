@@ -297,6 +297,7 @@ fn internal(
             )
         }
         "development.update" => super::development::update(db,snapshot,decode(input)?),
+        "development.close" => super::development::close(db,snapshot,decode(input)?),
         "development.search" => {
             let query:tools::Search=decode(input)?;
             let mut matches=Vec::new();

@@ -18,6 +18,8 @@ In **Character Lab → Development**, a question shows how many direct responses
 
 Choose **Trace question history…** to follow that question across activities and revisions. Each row identifies the reminder, feedback pointer, search result or full record that reached an accepted decision. **Applied in this choice** opens the exact application when the persona chose to record one. You can also open the supplied input, accepted decision and character used at the time. `neural question-history development:ID@REVISION` returns the same evidence in the terminal.
 
+A retired question is marked **Closed**. Expand it to read the persona’s reason and open its **Closure decision**. An unanswered reply keeps its own interpretation status after the question closes.
+
 **Character Lab → Comparisons** shows the replies produced under each tested character. For a replay of a prior encounter, open the shared inputs to inspect the brief, exact resource bodies, appraisal and ordered images. The display also identifies any numerical outputs that differed. A persona can request an additional control without numerical inclinations.
 
 In **Character Lab → Life history**, choose a persona to filter their attributed experiences by activity, feedback or character. **Participation** shows invitations, changes of commitment, handoffs, departures and group closures across that persona’s earlier and later memberships. Open an entry to inspect the original record. The inspector's **Change reasoning settings…** records a new model ID or effort on the same connection and preserves the persona's character and obligations.

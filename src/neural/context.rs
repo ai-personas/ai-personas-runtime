@@ -815,10 +815,15 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
             });
             let mut reminders = Vec::new();
             let mut cues = Vec::new();
+            let mut later_feedback = Vec::new();
             let mut open_count = 0;
             for question in &questions {
                 let open = !matches!(question["disposition"].as_str(), Some("closed"|"no_change"));
                 open_count += usize::from(open);
+                if open && !question["later_feedback"].is_null() {
+                    later_feedback.push(json!({"question":question["reference"],"experience":question["later_feedback"],
+                        "origin_work":question["origin_work"]}));
+                }
                 let revisit = &question["revisit"];
                 if question["pending_responses"].as_array().is_some_and(|r| !r.is_empty()) || open && (
                     question["observing_active_model"] == true || question["due_by_time"] == true ||
@@ -834,9 +839,8 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
                 }
             }
             data["development"] = json!({"open_count":open_count,"personal_reminders":reminders,"revisit_cues":cues,
-                "later_feedback":questions.iter().filter(|q|!q["later_feedback"].is_null()).map(|q|json!({
-                    "question":q["reference"],"experience":q["later_feedback"],"origin_work":q["origin_work"]})).collect::<Vec<_>>(),
-                "discovery":"Judge which of your reminder conditions fits this occasion. Optional examining connects an open question to this choice and what to watch_for. Each pending_responses entry is a direct reply or delivery review without a recorded interpretation for that application. Read the current question, application and exact outcome to interpret it. Other later feedback is activity metadata. Questions survive no_change and remain searchable with development.search."});
+                "later_feedback":later_feedback,
+                "discovery":"Judge which of your reminder conditions fits this occasion. Optional examining connects an open question to this choice and what to watch_for. Each pending_responses entry is a direct reply or delivery review without a recorded interpretation for that application. Read the current question, application and exact outcome to interpret it. Other later feedback is activity metadata. Questions survive no_change. Use development.search to find them. After a full read, development.close records why you choose to retire a question."});
         }
         let component_bytes=data.as_object().expect("snapshot is an object").iter().map(|(name,value)|Ok((name.clone(),serde_json::to_vec(value)?.len()))).collect::<Result<std::collections::BTreeMap<_,_>>>()?;
         let resource_bytes=data["selected_resources"].as_array().expect("resources is an array").iter().map(|value|Ok(json!({"reference":value["reference"],"range":value["range"],"serialized_bytes":serde_json::to_vec(value)?.len()}))).collect::<Result<Vec<_>>>()?;

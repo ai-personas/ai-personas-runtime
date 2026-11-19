@@ -142,9 +142,7 @@ impl History {
                                             .wrap(),
                                         )
                                         .on_hover_text(activity);
-                                        ui.small(time_label(
-                                            row["accepted_at"].as_i64().unwrap_or(0),
-                                        ));
+                                        if let Some(utc) = row["accepted_utc"].as_str() { ui.small(utc); }
                                         ui.horizontal_wrapped(|ui| {
                                             for item in
                                                 row["supplied"].as_array().into_iter().flatten()

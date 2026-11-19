@@ -39,7 +39,7 @@ fn supplies(data: &Value, versions: &BTreeSet<String>) -> Vec<Value> {
     {
         let result = &event["supplied_result"];
         match event["body"]["tool"].as_str() {
-            Some("asset.read" | "persona.read" | "development.update")
+            Some("asset.read" | "persona.read" | "development.update" | "development.close")
                 if result["record"].is_object() =>
             {
                 add(&result["reference"], "tool_record")
@@ -84,7 +84,7 @@ pub fn inspect(db: &Connection, reference: &str) -> Result<Value> {
     }
     // Prefilter on retained bytes. A handle quoted in arbitrary prose is not a
     // supply. Only the structured fields inspected above can establish that.
-    let mut calls = db.prepare("SELECT i.id,i.work,i.snapshot,i.response,i.updated,i.receipt FROM invocations i
+    let mut calls = db.prepare("SELECT i.id,i.work,i.snapshot,i.response,i.updated,i.receipt,strftime('%Y-%m-%d %H:%M:%S UTC',i.updated,'unixepoch') FROM invocations i
         JOIN objects s ON s.digest=i.snapshot WHERE i.state='accepted' AND i.actor=?1 AND
         (instr(s.bytes,CAST(?2 AS BLOB))>0 OR EXISTS(SELECT 1 FROM versions v WHERE v.kind='development'
         AND v.id=?3 AND v.invocation=i.id)) ORDER BY i.updated DESC,i.rowid DESC")?;
@@ -97,9 +97,10 @@ pub fn inspect(db: &Connection, reference: &str) -> Result<Value> {
             r.get::<_, String>(3)?,
             r.get::<_, i64>(4)?,
             r.get::<_, Option<String>>(5)?,
+            r.get::<_, Option<String>>(6)?,
         ))
     })? {
-        let (call, work, input, response, time, receipt) = row?;
+        let (call, work, input, response, time, receipt, utc) = row?;
         let frozen: Value = store::object(db, &input)?;
         let supplied = supplies(&frozen["data"], &versions);
         let revised = writes.remove(&call).unwrap_or_default();
@@ -109,7 +110,7 @@ pub fn inspect(db: &Connection, reference: &str) -> Result<Value> {
         }
         let decision: Value = store::object(db, &response)?;
         let usage = store::head(db, "character_use", &call)?;
-        decisions.push(json!({"decision":format!("experience:{call}@1"),"work":work,"accepted_at":time,
+        decisions.push(json!({"decision":format!("experience:{call}@1"),"work":work,"accepted_at":time,"accepted_utc":utc,
             "input":format!("object:{input}"),"response":format!("object:{response}"),"provider_receipt":receipt.map(|r|format!("object:{r}")),
             "supplied":supplied,"revisions_written":revised,"application":application.map(|r|r.reference.handle()),
             "character_use":usage.as_ref().map(|r|r.reference.handle()),"epoch":usage.as_ref().map(|r|&r.body["epoch"]),

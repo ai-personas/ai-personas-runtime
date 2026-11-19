@@ -41,6 +41,18 @@ pub struct QuestionObservation {
     pub interpretation: String,
 }
 
+#[derive(Clone, Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Close {
+    /// Exact current FULL development record you have read.
+    pub base: String,
+    /// Why you choose to stop pursuing this question. Uncertainty is a valid outcome.
+    pub reason: String,
+    /// Optional exact experiences you actually observed for this choice.
+    #[serde(default)]
+    pub evidence: Vec<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Disposition {
@@ -140,7 +152,7 @@ pub(super) fn observed(snapshot: &Snapshot, reference: &str) -> bool {
                     || (event["kind"] == "tool_result"
                         && matches!(
                             event["body"]["tool"].as_str(),
-                            Some("asset.read" | "persona.read" | "development.update")
+                            Some("asset.read" | "persona.read" | "development.update" | "development.close")
                         )
                         && whole(&event["supplied_result"]))
             })
@@ -282,6 +294,7 @@ pub(super) fn consider(db: &Connection, snapshot: &Snapshot, decision: &Decision
             "interpretation":{"question":question.as_deref().filter(|q|!q.trim().is_empty()).unwrap_or(reason),"evidence":evidence}}),
         ),
     };
+    if let Some(fields) = body.as_object_mut() { fields.remove("closure"); }
     body["interpretation"]["disposition"] = json!("awaiting_evidence");
     body["interpretation"]["revisit"] = serde_json::to_value(revisit)?;
     body["deferral"] =
@@ -296,6 +309,24 @@ pub(super) fn consider(db: &Connection, snapshot: &Snapshot, decision: &Decision
         Some(&snapshot.invocation),
     )?;
     Ok(())
+}
+
+pub(super) fn close(db: &Connection, snapshot: &Snapshot, choice: Close) -> Result<Value> {
+    let current = owned(db, &snapshot.actor, &choice.base)?;
+    if !observed(snapshot, &choice.base) || choice.reason.trim().is_empty() {
+        return Err(failure("Read the current question and give your reason for closing it"));
+    }
+    if current.body["interpretation"]["disposition"] == "closed" {
+        return Err(failure("This question is already closed"));
+    }
+    for reference in &choice.evidence { observed_experience(db, snapshot, reference)?; }
+    let mut body = current.body;
+    body["closure"] = json!({"previous":choice.base,"decision":snapshot.invocation,"work":snapshot.work,
+        "reason":choice.reason,"evidence":choice.evidence});
+    body["interpretation"]["disposition"] = json!("closed");
+    body["revisit_after_event"] = json!(snapshot.observation_through.unwrap_or(snapshot.cursor));
+    let saved = store::write(db, "development", &current.reference.id, current.reference.revision, &body, Some(&snapshot.invocation))?;
+    Ok(json!({"reference":saved.handle(),"record":body}))
 }
 
 pub(super) fn update(db: &Connection, snapshot: &Snapshot, update: Update) -> Result<Value> {
@@ -435,6 +466,9 @@ pub(super) fn update(db: &Connection, snapshot: &Snapshot, update: Update) -> Re
                 .is_some_and(|r| r.assessment.is_some()))
     {
         return Err(failure("For a live effect, cite adoption, later use and an observed consequence. For a matched probe with no effect, supply candidate_review with the exact assessment."));
+    }
+    if !matches!(update.disposition, Disposition::Closed) {
+        if let Some(fields) = body.as_object_mut() { fields.remove("closure"); }
     }
     body["interpretation"] = serde_json::to_value(&update)?;
     body["revisit_after_event"] = json!(snapshot.observation_through.unwrap_or(snapshot.cursor));

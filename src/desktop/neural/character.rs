@@ -476,13 +476,26 @@ impl App {
                 let pending = applications.iter().flat_map(|a| a["linked_responses_now"].as_array().into_iter().flatten())
                     .filter(|r| r["interpretations"].as_array().is_some_and(Vec::is_empty)).count();
                 let mut heading = excerpt(text,68);
+                let closed = detail["disposition"] == "closed";
+                if closed { heading.push_str(" · Closed"); }
                 if pending > 0 { heading.push_str(&format!(" · {pending} awaiting interpretation")); }
                 egui::CollapsingHeader::new(heading).id_salt("question").show(ui,|ui|{
                     ui.add(egui::Label::new(RichText::new(text).strong()).wrap());
+                    if closed {
+                        if let Some(reason) = body["closure"]["reason"].as_str() {
+                            ui.label(format!("Closed · {reason}"));
+                            if let Some(decision) = body["closure"]["decision"].as_str() {
+                                if ui.small_button("Closure decision ↗").clicked() { self.open_resource(ui.ctx(),format!("experience:{decision}@1")); }
+                            }
+                        }
+                    }
                     if let Some(text)=detail["interpretation"].as_str(){ui.label(text);}
                     if let Some(text)=detail["prediction"].as_str(){ui.small(format!("Prediction · {text}"));}
                     if let Some(text)=detail["alternatives"].as_str(){ui.small(format!("Other possible causes · {text}"));}
-                    if let Some(condition)=detail["revisit"]["condition"].as_str(){ui.small(format!("Revisit when {condition}"));}
+                    if let Some(condition)=detail["revisit"]["condition"].as_str(){
+                        let label=if closed {"Previous revisit condition"} else {"Revisit when"};
+                        ui.small(format!("{label} · {condition}"));
+                    }
                     for r in detail["evidence"].as_array().into_iter().flatten().filter_map(Value::as_str) {
                         if ui.small_button(r).clicked(){self.open_resource(ui.ctx(),r.into());}
                     }
@@ -504,7 +517,8 @@ impl App {
                         for feedback in application["linked_responses_now"].as_array().into_iter().flatten(){
                             let relation=if feedback["relation"]=="delivery_review"{"Delivery review"}else{"Direct reply"};
                             ui.horizontal_wrapped(|ui| {
-                                if ui.small_button(format!("{relation} from {} ↗",self.label(s(feedback,"author")))).clicked(){
+                                if ui.small_button(format!("{relation} #{} from {} ↗",feedback["sequence"],self.label(s(feedback,"author"))))
+                                    .on_hover_text(s(feedback,"experience")).clicked(){
                                     self.open_resource(ui.ctx(),s(feedback,"experience").into());
                                 }
                                 if let Some(interpretations) = feedback["interpretations"].as_array() {

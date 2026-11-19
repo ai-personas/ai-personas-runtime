@@ -240,6 +240,7 @@ pub const NAMES: &[(&str,&str)] = &[
     ("persona.assess","Compare old/candidate behavior in isolated provider calls. These calls execute no tools or real work. Results are synthetic observations."),
     ("development.search","Find your development questions across tasks and social activity, including closed items. Read selected exact records with asset.read."),
     ("development.update","Record or revise your own behavior question with observed experience, competing explanations, a prediction, possible harms and a revisit condition. The item remains available across work and social activity."),
+    ("development.close","Retire your own question after reading its current full record. Give your reason, including if the issue remains unresolved. Prior evidence and direct replies remain available."),
     ("experience.search","Search your lifetime of work and social experiences by keyword or regular expression. Matches return exact origin and reference. Read chosen records with asset.read or select them for context."),
     ("history.search","Rediscover authored/addressed events in this work by literal or regex search, with exact prior request, response, tool-result and provider-receipt references. Returns metadata, not replayed history. Empty query lists events; results are paginated."),
     ("persona.create","Create an attributed pending identity with a fresh own-model initialization. This does not invite or assign responsibility."),
@@ -280,6 +281,7 @@ pub fn describe(name: &str) -> Result<Value> {
         "asset.find" => schema::<super::discovery::FindText>()?,
         "tools.describe" => schema::<Describe>()?,
         "development.update" => schema::<super::development::Update>()?,
+        "development.close" => schema::<super::development::Close>()?,
         "persona.initialize" => schema::<protocol::InitializeModel>()?,
         "persona.read" | "asset.read" => schema::<Read>()?,
         "persona.evaluate" => schema::<protocol::EvaluateModel>()?,
@@ -335,6 +337,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
         "asset.search" => parse::<super::discovery::Catalog>(value),
         "asset.find" => parse::<super::discovery::FindText>(value),
         "development.update" => parse::<super::development::Update>(value),
+        "development.close" => parse::<super::development::Close>(value),
         "persona.initialize" => parse::<protocol::InitializeModel>(value),
         "persona.read" | "asset.read" => parse::<Read>(value),
         "persona.evaluate" => parse::<protocol::EvaluateModel>(value),
@@ -377,7 +380,7 @@ pub fn asset_mutation(name: &str) -> bool {
     matches!(name, "asset.save" | "asset.import" | "asset.organize")
 }
 pub fn model_mutation(name: &str) -> bool {
-    matches!(name, "persona.initialize" | "persona.patch" | "development.update")
+    matches!(name, "persona.initialize" | "persona.patch" | "development.update" | "development.close")
 }
 
 pub fn matches(search: &Search, text: &str) -> Result<bool> {
