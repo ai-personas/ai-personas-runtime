@@ -57,7 +57,13 @@ enum Command {
         compare: Option<PathBuf>,
     },
     /// Forward-only editable persona networks with indexed state and direct inference.
-    Neural { #[command(subcommand)] command: ai_personas::neural::cli::Command },
+    Neural {
+        /// Stable identity for retrying an operator action with exactly the same content.
+        #[arg(long, global = true)]
+        request_id: Option<String>,
+        #[command(subcommand)]
+        command: ai_personas::neural::cli::Command,
+    },
     /// Import selected provider settings and create a continuing local cohort. No inference.
     Setup {
         #[arg(long)]
@@ -818,9 +824,9 @@ async fn run(cli: Cli) -> runtime::Result<()> {
     } else {
         None
     };
-    if let Command::Neural { command } = cli.command {
+    if let Command::Neural { command, request_id } = cli.command {
         let root=cli.state_root.as_deref().ok_or_else(||argument("--state-root"))?;
-        let result=ai_personas::neural::cli::execute(root,cli.operator.as_deref().unwrap_or("user"),command).await
+        let result=ai_personas::neural::cli::execute_with_request(root,cli.operator.as_deref().unwrap_or("user"),command,request_id.as_deref()).await
             .map_err(|e|runtime::RuntimeError::Invalid(e.to_string()))?;
         return emit(&result);
     }

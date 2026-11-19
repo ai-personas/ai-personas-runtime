@@ -31,6 +31,33 @@ fn check_appraisal(db: &Connection, a: &Appraisal) -> Result<()> {
     Ok(())
 }
 
+pub(super) fn evaluate_appraisal(
+    db: &Connection,
+    snapshot: &Snapshot,
+    persona: &Persona,
+    part: &mut Participation,
+    appraisal: &Appraisal,
+) -> Result<Value> {
+    check_appraisal(db, appraisal)?;
+    if snapshot.development_version >= 4 {
+        let mut known = appraisal.features.values().filter(|feature| feature.value.is_some()).peekable();
+        if known.peek().is_none() {
+            return Err(failure("Choose baseline when all situational features are unknown"));
+        }
+        for feature in known {
+            if feature.evidence.is_empty() || feature.evidence.iter().any(|r| !snapshot.supplied_references.contains(r)) {
+                return Err(failure("Ground each known appraisal value in an exact reference supplied to this decision, such as work.reference or a received experience"));
+            }
+        }
+    }
+    let evaluation = context::model(db, persona)?
+        .evaluate(&FeatureContract::standard(), appraisal)
+        .map_err(failure)?;
+    let digest = store::put(db, &evaluation)?;
+    part.last_evaluation = Some(format!("object:{digest}"));
+    Ok(json!({"evaluation":part.last_evaluation,"result":evaluation,"available_for_next_decision":true}))
+}
+
 /// A delivery is a coherent file tree. Keep different deliveries separate, but
 /// preserve relative references among files within one delivered package.
 pub fn package_paths(
@@ -430,15 +457,7 @@ fn internal(
         }
         "persona.evaluate" => {
             let x: EvaluateModel = decode(input)?;
-            check_appraisal(db, &x.appraisal)?;
-            let evaluation = context::model(db, persona)?
-                .evaluate(&contract, &x.appraisal)
-                .map_err(failure)?;
-            let digest = store::put(db, &evaluation)?;
-            part.last_evaluation = Some(format!("object:{digest}"));
-            Ok(
-                json!({"evaluation":part.last_evaluation,"result":evaluation,"supplied_to_next_decision":true}),
-            )
+            evaluate_appraisal(db, snapshot, persona, part, &x.appraisal)
         }
         "persona.patch" => {
             let x: PatchModel = decode(input)?;
@@ -964,7 +983,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
                 store::event(db,&snapshot.work,&snapshot.actor,&snapshot.actor,"tool_result",&json!({"operation":op.id,"tool":op.tool,"result":format!("object:{digest}"),"context":"complete","bootstrap":snapshot.model.is_none()}),Some(&snapshot.invocation))?;
             }
         }
-        part.appraisal_use = super::character::select_appraisal(snapshot, &part, decision)?;
+        part.appraisal_use = super::character::select_appraisal(db, snapshot, &persona, &mut part, decision)?;
         switch_model(db,snapshot,&mut persona,&mut part,&decision.next_model)?;
         let mut refs=serde_json::to_value(&decision.next_context.references)?;resolve(&mut refs,&aliases)?;part.context=decode(&refs)?;
         for selection in &part.context{

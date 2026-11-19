@@ -13,7 +13,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[derive(Subcommand)]
+#[derive(Subcommand, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Command {
     /// Create an isolated runtime and attributed general-purpose identities; no inference.
     Init {
@@ -169,7 +170,34 @@ fn create_seed(db: &rusqlite::Connection, seed: Seed, author: &str, provider: &c
 }
 
 pub async fn execute(root: &Path, operator: &str, command: Command) -> Result<Value> {
+    execute_with_request(root, operator, command, None).await
+}
+
+pub async fn execute_with_request(root: &Path, operator: &str, command: Command, request_id: Option<&str>) -> Result<Value> {
     if operator.trim().is_empty() { return Err(failure("An operator name is required for attribution")); }
+    let mutation = matches!(&command, Command::Request { .. } | Command::Social { .. } | Command::AddPersona { .. }
+        | Command::Invite { .. } | Command::Resume { .. } | Command::Message { .. } | Command::Amend { .. }
+        | Command::Accept { .. } | Command::Control { .. });
+    if mutation {
+        let mut store = Store::open(root)?;
+        return store.transaction(|db| {
+            let Some(key) = request_id else { return operator_action(db, operator, command); };
+            if key.trim().is_empty() { return Err(failure("Supply a nonblank operator request ID")); }
+            let id = crate::store::sha256_bytes(&serde_json::to_vec(&(operator, key))?);
+            let intent = serde_json::to_value(&command)?;
+            if let Some(previous) = store::head(db, "operator_request", &id)? {
+                if previous.body["operator"] != operator || previous.body["request_id"] != key || previous.body["command"] != intent {
+                    return Err(failure("This operator request ID already names different content"));
+                }
+                return Ok(previous.body["result"].clone());
+            }
+            let result = operator_action(db, operator, command)?;
+            store::write(db, "operator_request", &id, 0,
+                &json!({"operator":operator,"request_id":key,"command":intent,"result":result}), None)?;
+            Ok(result)
+        });
+    }
+    if request_id.is_some() { return Err(failure("--request-id applies to an operator activity, identity, invitation, control, message, amendment, resumption or delivery review")); }
     match command {
         Command::Restore{archive,sha256}=>super::archive::restore(root,&archive,sha256.as_deref(),operator),
         Command::Init {
@@ -250,67 +278,73 @@ pub async fn execute(root: &Path, operator: &str, command: Command) -> Result<Va
         command => {
             let mut store = Store::open(root)?;
             match command {
-                Command::Request{need,invite}=>store.transaction(|db|operations::create_activity(db,ActivityKind::Task,need,&invite,operator,None)),
-                Command::Social{topic,invite}=>store.transaction(|db|operations::create_activity(db,ActivityKind::Social,topic,&invite,operator,None)),
-                Command::AddPersona{id: requested,label,seed,provider_from}=>store.transaction(|db|{
-                    let source:Persona=serde_json::from_value(store::required(db,"persona",&provider_from)?.body)?;
-                    let seed=Seed{id:match requested{Some(id)=>id,None=>id("persona")?},label,seed};
-                    validate_seed(&seed)?;
-                    let reference=create_seed(db,seed,operator,&source.provider)?;
-                    Ok(json!({"persona":reference.id,"reference":reference.handle(),"provider_from":provider_from,"model":source.provider.model,"invited":false}))
-                }),
-                Command::Invite{work,persona,reason}=>store.transaction(|db|{
-                    if reason.trim().is_empty(){return Err(failure("Describe the invitation"));}
-                    operations::invite(db,&work,&persona,operator,&reason,None)?;
-                    Ok(json!({"work":work,"invited":[persona]}))
-                }),
                 Command::Status=>store.status(),
                 Command::Read{reference,start,end}=>context::read(&store.db,&reference,start,end),
-                Command::Control{scope,state,reason}=>{
-                    if scope!="global"&&scope!="admission" {
-                        let (kind,key)=scope.split_once(':').ok_or_else(||failure("scope must be global, admission, work:<id> or persona:<id>"))?;
-                        if !["work","persona"].contains(&kind){return Err(failure("unknown control scope"));}store::required(&store.db,kind,key)?;
-                    }
-                    let record=store.control(&scope,&state,&reason,super::controls::Origin::Operator(operator))?;Ok(json!({"scope":scope,"state":state,"reason":reason,"record":record.handle(),"stopped_participations_resumed":false}))
-                },
-                Command::Resume{work,persona,reason}=>store.transaction(|db|{
-                    if reason.trim().is_empty(){return Err(failure("resume needs an attributed reason"));}
-                    let record=store::required(db,"participation",&format!("{work}/{persona}"))?;let mut part:Participation=serde_json::from_value(record.body)?;
-                    if part.declined{return Err(failure("a declined contribution needs a new work invitation, not implicit acceptance"));}
-                    part.continuation=Continuation::Ready{purpose:reason.clone()};
-                    store::write(db,"participation",&record.reference.id,record.reference.revision,&part,None)?;
-                    store::event(db,&work,operator,&persona,"explicit_resume",&json!({"reason":reason}),None)?;
-                    Ok(json!({"resumed":persona,"work":work,"scheduling_controls":super::controls::relevant(db,&work,&persona)?}))
-                }),
-                Command::Message{work,persona,text}=>store.transaction(|db|{
-                    if text.trim().is_empty(){return Err(failure("Write a message before sending"));}
-                    store::required(db,"participation",&format!("{work}/{persona}"))?;
-                    let event=store::event(db,&work,operator,&persona,"user_message",&json!({"text":text}),None)?;
-                    Ok(json!({"event":event,"stopped_participation_resumed":false}))
-                }),
-                Command::Amend{work,text}=>store.transaction(|db|{
-                    if text.trim().is_empty(){return Err(failure("Describe the amended requirement"));}
-                    let record=store::required(db,"work",&work)?;let mut body:Work=serde_json::from_value(record.body)?;
-                    body.amendments.push(json!({"author":operator,"text":text,"time":now()}));
-                    let r=store::write(db,"work",&work,record.reference.revision,&body,None)?;
-                    store::event(db,&work,operator,"*","requirements_amended",&json!({"reference":r.handle(),"text":text}),None)?;
-                    Ok(json!({"reference":r.handle(),"original_need":body.original_need}))
-                }),
-                Command::Accept{delivery,reject,reason}=>store.transaction(|db|{
-                    if reason.trim().is_empty(){return Err(failure("Explain the delivery review"));}
-                    let record=store::exact(db,&delivery)?;
-                    if record.reference.kind!="delivery"{return Err(failure("acceptance needs an exact delivered result"));}
-                    let decision=json!({"delivery":delivery,"user":operator,"accepted":!reject,"reason":reason});
-                    let r=store::write(db,"acceptance",&id("acceptance")?,0,&decision,None)?;
-                    store::event(db,record.body["work"].as_str().ok_or_else(||failure("delivery missing work"))?,operator,"*","user_acceptance",&json!({"reference":r.handle(),"decision":decision}),None)?;
-                    Ok(json!({"reference":r.handle(),"accepted":!reject}))
-                }),
                 Command::Export{directory,work}=>export(&mut store,&directory,work.as_deref()),
                 Command::Audit=>audit(&mut store),
                 Command::Backup{archive}=>super::archive::backup(&store,&archive),
                 _=>unreachable!(),
             }
         }
+    }
+}
+
+fn operator_action(db: &rusqlite::Connection, operator: &str, command: Command) -> Result<Value> {
+    match command {
+        Command::Request{need,invite}=>operations::create_activity(db,ActivityKind::Task,need,&invite,operator,None),
+        Command::Social{topic,invite}=>operations::create_activity(db,ActivityKind::Social,topic,&invite,operator,None),
+        Command::AddPersona{id: requested,label,seed,provider_from}=>{
+            let source:Persona=serde_json::from_value(store::required(db,"persona",&provider_from)?.body)?;
+            let seed=Seed{id:match requested{Some(id)=>id,None=>id("persona")?},label,seed};
+            validate_seed(&seed)?;
+            let reference=create_seed(db,seed,operator,&source.provider)?;
+            Ok(json!({"persona":reference.id,"reference":reference.handle(),"provider_from":provider_from,"model":source.provider.model,"invited":false}))
+        },
+        Command::Invite{work,persona,reason}=>{
+            if reason.trim().is_empty(){return Err(failure("Describe the invitation"));}
+            operations::invite(db,&work,&persona,operator,&reason,None)?;
+            Ok(json!({"work":work,"invited":[persona]}))
+        },
+        Command::Control{scope,state,reason}=>{
+            if scope!="global"&&scope!="admission" {
+                let (kind,key)=scope.split_once(':').ok_or_else(||failure("scope must be global, admission, work:<id> or persona:<id>"))?;
+                if !["work","persona"].contains(&kind){return Err(failure("unknown control scope"));}store::required(db,kind,key)?;
+            }
+            let record=super::controls::change(db,&scope,&state,&reason,super::controls::Origin::Operator(operator),None)?;Ok(json!({"scope":scope,"state":state,"reason":reason,"record":record.handle(),"stopped_participations_resumed":false}))
+        },
+        Command::Resume{work,persona,reason}=>{
+            if reason.trim().is_empty(){return Err(failure("resume needs an attributed reason"));}
+            let record=store::required(db,"participation",&format!("{work}/{persona}"))?;let mut part:Participation=serde_json::from_value(record.body)?;
+            if part.declined{return Err(failure("a declined contribution needs a new work invitation, not implicit acceptance"));}
+            part.continuation=Continuation::Ready{purpose:reason.clone()};
+            store::write(db,"participation",&record.reference.id,record.reference.revision,&part,None)?;
+            store::event(db,&work,operator,&persona,"explicit_resume",&json!({"reason":reason}),None)?;
+            Ok(json!({"resumed":persona,"work":work,"scheduling_controls":super::controls::relevant(db,&work,&persona)?}))
+        },
+        Command::Message{work,persona,text}=>{
+            if text.trim().is_empty(){return Err(failure("Write a message before sending"));}
+            store::required(db,"participation",&format!("{work}/{persona}"))?;
+            let event=store::event(db,&work,operator,&persona,"user_message",&json!({"text":text}),None)?;
+            Ok(json!({"event":event,"stopped_participation_resumed":false}))
+        },
+        Command::Amend{work,text}=>{
+            if text.trim().is_empty(){return Err(failure("Describe the amended requirement"));}
+            let record=store::required(db,"work",&work)?;let mut body:Work=serde_json::from_value(record.body)?;
+            body.amendments.push(json!({"author":operator,"text":text,"time":now()}));
+            let r=store::write(db,"work",&work,record.reference.revision,&body,None)?;
+            store::event(db,&work,operator,"*","requirements_amended",&json!({"reference":r.handle(),"text":text}),None)?;
+            Ok(json!({"reference":r.handle(),"original_need":body.original_need}))
+        },
+        Command::Accept{delivery,reject,reason}=>{
+            if reason.trim().is_empty(){return Err(failure("Explain the delivery review"));}
+            let record=store::exact(db,&delivery)?;
+            if record.reference.kind!="delivery"{return Err(failure("acceptance needs an exact delivered result"));}
+            let decision=json!({"delivery":delivery,"user":operator,"accepted":!reject,"reason":reason});
+            let r=store::write(db,"acceptance",&id("acceptance")?,0,&decision,None)?;
+            store::event(db,record.body["work"].as_str().ok_or_else(||failure("delivery missing work"))?,operator,"*","user_acceptance",&json!({"reference":r.handle(),"decision":decision}),None)?;
+            Ok(json!({"reference":r.handle(),"accepted":!reject}))
+        },
+        _ => Err(failure("Expected a workspace mutation")),
     }
 }
 

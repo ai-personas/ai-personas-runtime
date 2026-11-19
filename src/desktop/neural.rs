@@ -347,6 +347,8 @@ impl App {
                     "Persona created".into()
                 } else if let Some(accepted) = v["accepted"].as_bool() {
                     if accepted { "Delivery accepted".into() } else { "Changes requested".into() }
+                } else if let Some(archive) = v["archive"].as_str() {
+                    format!("Backup saved to {archive}")
                 } else if let Some(state) = v["state"].as_str() {
                     format!("Scheduling {state}")
                 } else {

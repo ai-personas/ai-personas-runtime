@@ -421,5 +421,11 @@ impl App {
         if ui.button("Copy location").clicked() {
             ctx.copy_text(self.root.display().to_string());
         }
+        if ui.add_enabled(!self.busy, egui::Button::new("Back up workspace…")).clicked() {
+            if let Some(archive) = rfd::FileDialog::new().set_title("Save workspace archive")
+                .set_file_name("personas-workspace.sqlite").save_file() {
+                self.command(ctx, Command::Backup { archive });
+            }
+        }
     }
 }

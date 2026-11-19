@@ -2,7 +2,7 @@
 use super::{
     context::{self, Snapshot},
     failure,
-    protocol::{AppraisalChoice, AppraisalUse, DecisionV4, NextModel, Participation},
+    protocol::{AppraisalChoice, AppraisalUse, DecisionV4, NextModel, Participation, Persona},
     store::{self, Reference},
     Result,
 };
@@ -99,8 +99,10 @@ pub(super) fn observed_input(
 }
 
 pub(super) fn select_appraisal(
+    db: &Connection,
     snapshot: &Snapshot,
-    part: &Participation,
+    persona: &Persona,
+    part: &mut Participation,
     decision: &DecisionV4,
 ) -> Result<Option<AppraisalUse>> {
     let evaluated = decision
@@ -108,8 +110,25 @@ pub(super) fn select_appraisal(
         .iter()
         .any(|op| op.tool == "persona.evaluate");
     let reason = match &decision.next_context.appraisal {
+        Some(AppraisalChoice::Baseline) => return Ok(None),
+        Some(AppraisalChoice::Evaluate { appraisal, reason }) => {
+            if reason.trim().is_empty() || snapshot.model.is_none()
+                || !matches!(decision.next_model, NextModel::Preserve) {
+                return Err(failure("Evaluate needs an active, preserved model and a reason. Select baseline on a model switch, then appraise on the fresh call."));
+            }
+            if evaluated {
+                return Err(failure("Choose one source for a fresh appraisal: next_context.appraisal or persona.evaluate"));
+            }
+            let result = super::operations::evaluate_appraisal(db, snapshot, persona, part, appraisal)?;
+            let digest = store::put(db, &result)?;
+            store::event(db, &snapshot.work, &snapshot.actor, &snapshot.actor, "appraisal_selected",
+                &json!({"method":"next_context.appraisal","result":format!("object:{digest}"),"reason":reason}),
+                Some(&snapshot.invocation))?;
+            reason.clone()
+        }
         Some(AppraisalChoice::Reuse { evaluation, reason }) => {
             if reason.trim().is_empty()
+                || evaluated
                 || !matches!(decision.next_model, NextModel::Preserve)
                 || part.last_evaluation.as_ref() != Some(evaluation)
                 || snapshot.data["last_contextual_evaluation"]["reference"] != *evaluation
@@ -120,7 +139,10 @@ pub(super) fn select_appraisal(
             reason.clone()
         }
         None if evaluated => "New appraisal for the following decision".into(),
-        _ => return Ok(None),
+        None if snapshot.model.is_some() && snapshot.development_version >= 4 => {
+            return Err(failure("Choose next_context.appraisal explicitly: {kind:baseline}, {kind:evaluate,appraisal,reason}, or {kind:reuse,evaluation,reason}"));
+        }
+        None => return Ok(None),
     };
     Ok(Some(AppraisalUse {
         evaluation: part

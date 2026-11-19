@@ -114,8 +114,9 @@ pub enum NextModel {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ContextChoice {
-    /// Omit to use a just-requested evaluation once, or the baseline otherwise.
-    /// Explicit reuse names the latest recorded evaluation for this participation.
+    /// With an active character, explicitly choose baseline, evaluate known
+    /// observations, or reuse a supplied evaluation. A persona.evaluate
+    /// operation also selects its fresh result for the next call.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub appraisal: Option<AppraisalChoice>,
     /// Complete explicit resource selection for the next decision. Newly read
@@ -141,6 +142,7 @@ pub struct ContextChoice {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AppraisalChoice {
     Baseline,
+    Evaluate { appraisal: Appraisal, reason: String },
     Reuse { evaluation: String, reason: String },
 }
 

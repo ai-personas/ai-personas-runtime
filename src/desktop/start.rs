@@ -731,6 +731,28 @@ impl App {
                     self.open(ctx, journal::expand(&PathBuf::from(&self.existing_root)));
                 }
             });
+            if ui.link("Restore a workspace archive…").clicked() {
+                if let Some(archive) = rfd::FileDialog::new().set_title("Choose a workspace archive").pick_file() {
+                    if let Some(parent) = rfd::FileDialog::new().set_title("Choose a folder for the new restored workspace").pick_folder() {
+                        let name = archive.file_stem().and_then(|s|s.to_str()).unwrap_or("workspace");
+                        let root = parent.join(format!("{name}-restored"));
+                        self.busy = true;
+                        self.cancellable = false;
+                        self.error = None;
+                        let (tx, ctx) = (self.tx.clone(), ctx.clone());
+                        std::thread::spawn(move || {
+                            let result = (|| {
+                                tokio::runtime::Runtime::new().map_err(|e|e.to_string())?
+                                    .block_on(cli::execute(&root, "user", cli::Command::Restore { archive, sha256: None }))
+                                    .map_err(|e|e.to_string())?;
+                                root.canonicalize().map_err(|e|e.to_string())
+                            })();
+                            let _ = tx.send(Update::Opened(result));
+                            ctx.request_repaint();
+                        });
+                    }
+                }
+            }
         });
     }
 }
