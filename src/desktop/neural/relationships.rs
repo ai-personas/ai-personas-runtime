@@ -16,6 +16,7 @@ struct View {
     selected: Option<Contact>,
     history: Value,
     account: Value,
+    trace: Option<Value>,
 }
 
 fn fetch(
@@ -25,6 +26,7 @@ fn fetch(
     cached: Option<Arc<Vec<Value>>>,
     encounter_offset: usize,
     revision_offset: usize,
+    trace_reference: Option<&str>,
 ) -> neural::Result<View> {
     let db = data::open(root)?;
     let contacts = match cached {
@@ -74,6 +76,9 @@ fn fetch(
         selected,
         history,
         account,
+        trace: trace_reference
+            .map(|r| records::trace(&db, r))
+            .transpose()?,
     })
 }
 
@@ -88,6 +93,8 @@ pub(super) struct Panel {
     tab: usize,
     encounters: usize,
     revisions: usize,
+    trace_reference: Option<String>,
+    trace_start: usize,
 }
 
 enum Action {
@@ -95,6 +102,7 @@ enum Action {
     Select(Contact),
     Reverse(String),
     Inspect(String),
+    Trace(String),
     Page { encounters: usize, revisions: usize },
 }
 
@@ -107,6 +115,8 @@ impl Panel {
         self.selected = person;
         self.encounters = 0;
         self.revisions = 0;
+        self.trace_reference = None;
+        self.trace_start = 0;
         self.filter.clear();
         self.tab = 0;
     }
@@ -123,9 +133,22 @@ impl Panel {
             self.encounters,
             self.revisions,
         );
+        let trace = if self.tab == 3 {
+            self.trace_reference.clone()
+        } else {
+            None
+        };
         std::thread::spawn(move || {
-            let answer =
-                fetch(&root, &owner, chosen, cached, start, revision).map_err(|e| e.to_string());
+            let answer = fetch(
+                &root,
+                &owner,
+                chosen,
+                cached,
+                start,
+                revision,
+                trace.as_deref(),
+            )
+            .map_err(|e| e.to_string());
             let _ = sender.send(answer);
             ctx.request_repaint();
         });
@@ -268,6 +291,14 @@ impl Panel {
                         2,
                         format!("Revisions ({})", history["revision_count"]),
                     );
+                    if let Some(r) = history["current"]["reference"].as_str() {
+                        if ui
+                            .selectable_label(self.tab == 3, "Decision trace")
+                            .clicked()
+                        {
+                            action = Some(Action::Trace(r.to_owned()));
+                        }
+                    }
                 });
                 ui.separator();
                 match self.tab {
@@ -318,6 +349,10 @@ impl Panel {
                                     if revision["reference"] == history["current"]["reference"] {
                                         theme::badge(ui, "Latest", TEAL);
                                     }
+                                    if ui.small_button("Decision trace").clicked() {
+                                        action =
+                                            Some(Action::Trace(s(revision, "reference").into()));
+                                    }
                                     link(
                                         ui,
                                         "Read this revision ↗",
@@ -338,6 +373,65 @@ impl Panel {
                                 encounters: self.encounters,
                                 revisions: offset,
                             });
+                        }
+                    }
+                    3 => {
+                        if let Some(trace) = &view.trace {
+                            let rev = s(trace, "reference").rsplit('@').next().unwrap_or_default();
+                            ui.horizontal_wrapped(|ui| {
+                                ui.strong(format!("Revision {rev}"));
+                                theme::badge(
+                                    ui,
+                                    &format!("{} cue decisions", trace["cue_decisions"]),
+                                    PURPLE,
+                                );
+                                theme::badge(
+                                    ui,
+                                    &format!("{} full-body decisions", trace["body_decisions"]),
+                                    TEAL,
+                                );
+                            });
+                            let decisions = trace["decisions"]
+                                .as_array()
+                                .map(Vec::as_slice)
+                                .unwrap_or_default();
+                            for row in decisions.iter().skip(self.trace_start).take(PAGE) {
+                                ui.push_id(s(row, "decision"), |ui| {
+                                    ui.add_space(5.);
+                                    let work = work_name(status, s(row, "work"));
+                                    ui.label(RichText::new(excerpt(work, 100)).strong())
+                                        .on_hover_text(work);
+                                    ui.small(s(row, "accepted_utc"));
+                                    ui.horizontal_wrapped(|ui| {
+                                        for signal in
+                                            items(row, "signals").filter_map(Value::as_str)
+                                        {
+                                            let label = match signal {
+                                                "authored" => "Authored revision",
+                                                "cue" => "Address supplied",
+                                                "selected_body" => "Selected body received",
+                                                "read_body" => "Read result received",
+                                                "returned_body" => "Write result received",
+                                                "selected_for_next" => "Selected for next input",
+                                                "requested_read" => "Requested read",
+                                                "revised_from" => "Revised from this version",
+                                                "cited_in_message" => "Cited in peer message",
+                                                _ => signal,
+                                            };
+                                            ui.label(label);
+                                        }
+                                    });
+                                    ui.horizontal_wrapped(|ui| {
+                                        link(ui, "Open input ↗", &row["input"], &mut action);
+                                        link(ui, "Open decision ↗", &row["decision"], &mut action);
+                                    });
+                                    ui.separator();
+                                });
+                            }
+                            if let Some(next) = pager(ui, self.trace_start, decisions.len() as u64)
+                            {
+                                self.trace_start = next;
+                            }
                         }
                     }
                     _ => {
@@ -477,6 +571,11 @@ impl App {
             Some(Action::Inspect(reference)) => {
                 self.open_resource(&ctx, reference);
                 return;
+            }
+            Some(Action::Trace(reference)) => {
+                self.relationships.tab = 3;
+                self.relationships.trace_reference = Some(reference);
+                self.relationships.trace_start = 0;
             }
             Some(Action::Refresh) => {
                 self.relationships.contacts = None;

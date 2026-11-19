@@ -870,7 +870,7 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
             data["lifetime_experience"]=super::experience::availability(db,actor,work_id)?;
             let questions = super::development::index(db, actor)?;
             let occasion = !participation.accepted || data["new_events"].as_array().into_iter().flatten().any(|event| {
-                if event["actor"] == actor {
+                if event["actor"] == actor && event["invocation"].is_string() {
                     event["kind"] == "invitation_response" && event["body"]["accept"] == true
                 } else {
                     matches!(event["kind"].as_str(), Some("message"|"reply"|"user_message"|"user_acceptance"|"requirements_amended"|"asset_feedback"))

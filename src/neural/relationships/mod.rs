@@ -1,5 +1,7 @@
 //! A persona's revisable, directional accounts of its own interactions.
 mod encounters;
+mod trace;
+pub use trace::trace;
 
 use super::{context::Snapshot, development, failure, store, Result};
 use clap::{Args, ValueEnum};

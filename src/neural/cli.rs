@@ -179,6 +179,8 @@ pub enum Command {
     /// Read an observer's encounter index and relationship revisions with a named counterpart.
     RelationshipHistory { observer:String, #[command(flatten)] counterpart:super::relationships::Contact,
         #[command(flatten)] page:super::relationships::Page, #[arg(long,default_value_t=0)] revision_offset:usize },
+    /// Trace a single exact relationship revision through its author’s accepted decisions.
+    RelationshipUse { reference:String },
     /// Inspect the frozen inputs available for a matched replay. No provider call.
     ReplayInput {
         /// The experience:call-ID@1 of an accepted ordinary decision.
@@ -450,6 +452,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
                 Command::PackageReviews{work,query}=>store.snapshot(|db|super::package_review::lookup(db,work.as_deref(),&query)),
                 Command::Relationships{observer,page}=>store.snapshot(|db|super::relationships::contacts(db,&observer,&page)),
                 Command::RelationshipHistory{observer,counterpart,page,revision_offset}=>store.snapshot(|db|super::relationships::history(db,&observer,&super::relationships::History{counterpart,page,revision_offset})),
+                Command::RelationshipUse{reference}=>store.snapshot(|db|super::relationships::trace(db,&reference)),
                 Command::AssetFeedbackHistory(query)=>store.snapshot(|db|super::asset_feedback::history(db,&query)),
                 Command::Catalog(query)=>store.snapshot(|db|super::discovery::catalog(db,&query)),
                 Command::Find(query)=>store.snapshot(|db|super::discovery::find(db,&query)),
