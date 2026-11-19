@@ -4,6 +4,7 @@ mod phase_timing;
 mod schema_diagnostics;
 pub mod auth;
 pub mod computation;
+pub mod document_print;
 pub mod http_fetch;
 pub mod host_command;
 pub mod files;

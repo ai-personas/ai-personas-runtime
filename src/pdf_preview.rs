@@ -102,7 +102,7 @@ fn tail(mut pipe: impl Read) -> io::Result<Vec<u8>> {
 }
 
 #[cfg(target_os = "linux")]
-fn deny_network(command: &mut Command) {
+pub(crate) fn deny_network(command: &mut Command) {
     use std::os::unix::process::CommandExt;
     // The input PDF never supplies an executable or URI. Also deny outbound
     // sockets in the renderer, including when the installer uses a PATH wrapper.
