@@ -1,5 +1,7 @@
 use super::*;
+mod files;
 mod work;
+pub(super) use files::AuthoredFiles;
 
 #[derive(Clone, Copy, Default, Hash, PartialEq, Eq)]
 pub(super) enum ProfileView {
@@ -30,17 +32,22 @@ impl App {
         self.profile_heading(ui);
         let person = self.selected_person();
         let id = s(&person, "id");
+        self.profile_files.observe(
+            ui.ctx(),
+            &self.root,
+            id,
+            &self.home_index,
+            &self.snapshot.assets,
+        );
         let packages = self
             .records("deliveries")
             .iter()
             .filter(|r| r["body"]["owner"] == id)
             .count();
-        let authored_file = |file: &&Value| {
-            let b = &file["body"];
-            let author = b["last_content_author"].as_str().or(b["owner"].as_str());
-            file["current"] == true && b["retired"] != true && author == Some(id)
-        };
-        let files = self.snapshot.assets.iter().filter(authored_file).count();
+        let files_label = self.profile_files.total().map_or_else(
+            || "Authored files".to_owned(),
+            |total| format!("Authored files  {total}"),
+        );
         let own_request = |r: &&Value| r["body"]["requester"] == id;
         let is_open = |r: &Value| matches!(s(&r["body"], "state"), "open" | "in_progress");
         let requests = self.records("human_requests").iter().filter(own_request);
@@ -58,78 +65,58 @@ impl App {
                 ProfileView::Packages,
                 format!("Delivered packages  {packages}"),
             );
-            ui.selectable_value(
-                &mut self.profile_view,
-                ProfileView::Files,
-                format!("Authored files  {files}"),
-            );
+            ui.selectable_value(&mut self.profile_view, ProfileView::Files, files_label);
             ui.selectable_value(&mut self.profile_view, ProfileView::Requests, request_label);
             ui.selectable_value(&mut self.profile_view, ProfileView::Origin, "Origin");
         });
         ui.separator();
         let view = self.profile_view;
-        egui::ScrollArea::vertical()
-            .id_salt(("persona-portrait", id, view))
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.add_space(6.);
-                match view {
-                    ProfileView::Overview => self.profile_overview(ui, &person),
-                    ProfileView::Origin => self.profile_origin(ui, &person),
-                    ProfileView::Packages => {
-                        if packages == 0 {
-                            ui.weak("This persona has not issued a package yet.");
-                        }
-                        for delivery in self.delivered_packages(|body| body["owner"] == id) {
-                            self.delivery_card(ui, &delivery);
-                            ui.add_space(8.);
-                        }
+        let mut contents = |ui: &mut Ui| {
+            ui.add_space(6.);
+            match view {
+                ProfileView::Overview => self.profile_overview(ui, &person),
+                ProfileView::Origin => self.profile_origin(ui, &person),
+                ProfileView::Packages => {
+                    if packages == 0 {
+                        ui.weak("This persona has not issued a package yet.");
                     }
-                    ProfileView::Files => {
-                        if files == 0 {
-                            ui.weak("This persona has no current authored files.");
-                        }
-                        let rows: Vec<_> = self
-                            .snapshot
-                            .assets
-                            .iter()
-                            .filter(authored_file)
-                            .cloned()
-                            .collect();
-                        for file in rows.iter().take(12) {
-                            self.artifact_row(ui, file, true);
-                        }
-                        if rows.len() > 12 {
-                            ui.collapsing(format!("Show {} more files", rows.len() - 12), |ui| {
-                                for file in &rows[12..] {
-                                    self.artifact_row(ui, file, true);
-                                }
-                            });
-                        }
-                    }
-                    ProfileView::Requests => {
-                        let mut sorted_requests: Vec<_> = self
-                            .records("human_requests")
-                            .iter()
-                            .filter(own_request)
-                            .cloned()
-                            .collect();
-                        sorted_requests.sort_by_key(|r| {
-                            (
-                                !is_open(r),
-                                std::cmp::Reverse(r["body"]["updated"].as_i64()),
-                            )
-                        });
-                        if sorted_requests.is_empty() {
-                            ui.weak("This persona has not requested human help.");
-                        }
-                        for request in &sorted_requests {
-                            self.request_card(ui, request);
-                            ui.add_space(8.);
-                        }
+                    for delivery in self.delivered_packages(|body| body["owner"] == id) {
+                        self.delivery_card(ui, &delivery);
+                        ui.add_space(8.);
                     }
                 }
-            });
+                ProfileView::Files => self.profile_authored_files(ui, id),
+                ProfileView::Requests => {
+                    let mut sorted_requests: Vec<_> = self
+                        .records("human_requests")
+                        .iter()
+                        .filter(own_request)
+                        .cloned()
+                        .collect();
+                    sorted_requests.sort_by_key(|r| {
+                        (
+                            !is_open(r),
+                            std::cmp::Reverse(r["body"]["updated"].as_i64()),
+                        )
+                    });
+                    if sorted_requests.is_empty() {
+                        ui.weak("This persona has not requested human help.");
+                    }
+                    for request in &sorted_requests {
+                        self.request_card(ui, request);
+                        ui.add_space(8.);
+                    }
+                }
+            }
+        };
+        if view == ProfileView::Files {
+            contents(ui);
+        } else {
+            egui::ScrollArea::vertical()
+                .id_salt(("persona-portrait", id, view))
+                .auto_shrink([false, false])
+                .show(ui, contents);
+        }
     }
 
     fn profile_heading(&mut self, ui: &mut Ui) {

@@ -107,6 +107,7 @@ pub struct Viewer {
     image_pan: egui::Vec2,
     white_paper: bool,
     source_text: bool,
+    text_page: usize,
     data_mode: usize,
     dataset: usize,
     citation_filter: Option<String>,
@@ -181,6 +182,7 @@ impl Viewer {
             image_pan: egui::Vec2::ZERO,
             white_paper: true,
             source_text: false,
+            text_page: 0,
             data_mode: 0,
             dataset: 0,
             citation_filter: None,
@@ -264,6 +266,7 @@ impl Viewer {
         self.image_zoom = 1.0;
         self.image_pan = egui::Vec2::ZERO;
         self.source_text = false;
+        self.text_page = 0;
         self.data_mode = 0;
         self.dataset = 0;
         self.cancelled = false;
@@ -725,9 +728,10 @@ impl Viewer {
                 });
             }
             Body::Text(text, markdown) => {
+                let paged = text.len() > 64 * 1024;
                 ui.horizontal_wrapped(|ui| {
                     if *markdown {
-                        ui.selectable_value(&mut self.source_text, false, "Rendered Markdown");
+                        ui.selectable_value(&mut self.source_text, false, if paged { "Rendered excerpt" } else { "Rendered Markdown" });
                         ui.selectable_value(&mut self.source_text, true, "Source");
                     } else {
                         ui.weak("Text / code source");
@@ -739,8 +743,9 @@ impl Viewer {
                 if *markdown && !self.source_text && !matches!(&self.source, Some(Source::File(_))) {
                     ui.weak("Local images resolve in workspace Markdown. Recorded and packaged Markdown retain image references without resolving adjacent files.");
                 }
+                let shown = if paged { source_page(ui, text, &mut self.text_page) } else { text };
                 egui::ScrollArea::both()
-                    .id_salt(("artifact-text", self.serial))
+                    .id_salt(("artifact-text", self.serial, self.text_page))
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         if *markdown && !self.source_text {
@@ -749,14 +754,14 @@ impl Viewer {
                                 Some(Source::File(path)) => path.parent(),
                                 _ => None,
                             };
-                            document::markdown_at(ui, text, base);
+                            document::markdown_at(ui, shown, base);
                         } else {
                             let language = self
                                 .source
                                 .as_ref()
                                 .map(|s| extension(Path::new(&s.name())))
                                 .unwrap_or_default();
-                            document::code(ui, text, &language);
+                            document::code(ui, shown, &language);
                         }
                     });
             }
@@ -996,6 +1001,33 @@ fn category(path: &Path) -> usize {
         _ => 3,
     }
 }
+// Each boundary depends only on its page number. Nearby line endings give
+// readable excerpts, including when the source contains a single long line.
+fn source_page<'a>(ui: &mut egui::Ui, text: &'a str, page: &mut usize) -> &'a str {
+    const CHUNK: usize = 12 * 1024;
+    let pages = text.len().div_ceil(CHUNK);
+    *page = (*page).min(pages - 1);
+    ui.horizontal_wrapped(|ui| {
+        if ui.add_enabled(*page > 0, egui::Button::new("Previous page").small()).clicked() { *page -= 1; }
+        let mut number = *page + 1;
+        ui.label("Page");
+        if ui.add(egui::DragValue::new(&mut number).range(1..=pages)).changed() { *page = number - 1; }
+        ui.label(format!("of {pages}"));
+        if ui.add_enabled(*page + 1 < pages, egui::Button::new("Next page").small()).clicked() { *page += 1; }
+    });
+    let bound = |n: usize| {
+        if n == 0 { return 0; }
+        if n >= pages { return text.len(); }
+        let mut end = n * CHUNK;
+        while !text.is_char_boundary(end) { end -= 1; }
+        text.as_bytes()[end.saturating_sub(512)..end].iter().rposition(|&b| b == b'\n')
+            .map_or(end, |i| end.saturating_sub(512) + i + 1)
+    };
+    let (start, end) = (bound(*page), bound(*page + 1));
+    ui.small(format!("Source bytes {}–{} of {}", start + 1, end, text.len()));
+    &text[start..end]
+}
+
 fn size_label(size: u64) -> String {
     if size >= 1024 * 1024 {
         format!("{:.1} MiB", size as f64 / 1048576.0)

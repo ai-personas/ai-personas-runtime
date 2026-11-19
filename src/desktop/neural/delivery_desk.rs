@@ -19,7 +19,14 @@ pub(super) struct Desk {
     request_page: usize,
     origins: Option<origins::Window>,
     file_search: String,
-    origin: Option<(String, String, String)>,
+    origin: Option<(String, ReturnTo)>,
+}
+
+#[derive(Clone)]
+pub(super) struct ReturnTo {
+    pub package: String,
+    pub work: String,
+    pub file: String,
 }
 
 impl Desk {
@@ -30,7 +37,25 @@ impl Desk {
         work: &str,
         file: &str,
     ) {
-        self.origin = from_delivery.then(|| (package.into(), work.into(), file.into()));
+        self.set_return(
+            file,
+            from_delivery.then(|| ReturnTo {
+                package: package.into(),
+                work: work.into(),
+                file: file.into(),
+            }),
+        );
+    }
+
+    pub(super) fn return_for(&self, inspected: &str) -> Option<ReturnTo> {
+        self.origin
+            .as_ref()
+            .filter(|(file, _)| file == inspected)
+            .map(|(_, target)| target.clone())
+    }
+
+    pub(super) fn set_return(&mut self, inspected: &str, target: Option<ReturnTo>) {
+        self.origin = target.map(|target| (inspected.into(), target));
     }
 }
 
@@ -140,31 +165,29 @@ fn revision(reference: &str) -> Option<&str> {
 
 impl App {
     pub(super) fn delivery_return_link(&mut self, ui: &mut Ui) {
-        let Some((package, work, file)) = self
-            .delivery_desk
-            .origin
-            .as_ref()
-            .filter(|(_, _, resource)| resource == &self.selected_reference)
-        else {
+        let Some(target) = self.delivery_desk.return_for(&self.selected_reference) else {
             return;
         };
         if ui
             .link("← Back to delivery")
-            .on_hover_text(package)
+            .on_hover_text(&target.package)
             .clicked()
         {
-            let (package, work, file) = (package.clone(), work.clone(), file.clone());
-            self.open_home_delivery(&package, &work);
-            self.refresh_delivery_model();
-            let desk = &mut self.delivery_desk;
-            if let Some(index) = desk
-                .model
-                .as_ref()
-                .and_then(|p| p.files.iter().position(|f| f.reference == file))
-            {
-                desk.focus_preview |= desk.selected != index;
-                desk.selected = index;
-            }
+            self.return_to_issued_file(&target);
+        }
+    }
+
+    pub(super) fn return_to_issued_file(&mut self, target: &ReturnTo) {
+        self.open_home_delivery(&target.package, &target.work);
+        self.refresh_delivery_model();
+        let desk = &mut self.delivery_desk;
+        if let Some(index) = desk
+            .model
+            .as_ref()
+            .and_then(|p| p.files.iter().position(|f| f.reference == target.file))
+        {
+            desk.focus_preview |= desk.selected != index;
+            desk.selected = index;
         }
     }
 
@@ -372,6 +395,7 @@ impl App {
     fn package_preview(&mut self, ui: &mut Ui, p: &Package) {
         let desk = &mut self.delivery_desk;
         let mut open = None;
+        let mut history = None;
         let response = panel(ui)
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
@@ -405,13 +429,22 @@ impl App {
                 ui.add_space(3.);
                 desk.inline.show(ui, &self.root, file);
                 ui.add_space(4.);
-                if ui
-                    .link("Open full file ↗")
-                    .on_hover_text(format!("{}\n{}", file.path, file.reference))
-                    .clicked()
-                {
-                    open = Some(file.reference.clone());
-                }
+                ui.horizontal_wrapped(|ui| {
+                    if ui
+                        .link("Open full file ↗")
+                        .on_hover_text(format!("{}\n{}", file.path, file.reference))
+                        .clicked()
+                    {
+                        open = Some(file.reference.clone());
+                    }
+                    if ui
+                        .link("File history…")
+                        .on_hover_text(&file.reference)
+                        .clicked()
+                    {
+                        history = Some(file.reference.clone());
+                    }
+                });
             })
             .response;
         if std::mem::take(&mut desk.focus_preview) {
@@ -419,6 +452,8 @@ impl App {
         }
         if let Some(reference) = open {
             self.open_resource(ui.ctx(), reference);
+        } else if let Some(reference) = history {
+            self.open_file_history(ui.ctx(), &reference);
         }
     }
 

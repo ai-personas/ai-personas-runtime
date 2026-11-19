@@ -1268,7 +1268,12 @@ impl App {
             )
             .show_inside(ui, |ui| {
                 if self.preview_pending {
-                    ui.label("Loading exact retained bytes…");
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label("Loading exact retained bytes…");
+                        if self.selected_reference.starts_with("asset:") && ui.small_button("File history…").clicked() {
+                            self.open_file_history(ui.ctx(), &self.selected_reference.clone());
+                        }
+                    });
                 } else if self.selected_reference.is_empty() {
                     ui.add_space(50.);
                     theme::glyph(ui, Icon::Files, theme::ACCENT);
@@ -1283,6 +1288,9 @@ impl App {
                         }
                         if ui.small_button("Copy reference").clicked() {
                             ui.ctx().copy_text(self.selected_reference.clone());
+                        }
+                        if self.selected_reference.starts_with("asset:") && ui.small_button("File history…").clicked() {
+                            self.open_file_history(ui.ctx(), &self.selected_reference.clone());
                         }
                         if self.selected_reference.starts_with("asset:") && ui.small_button("Feedback…").clicked() {
                             self.asset_feedback.open(ui.ctx(), &self.root, &self.selected_reference, &self.work);

@@ -16,6 +16,7 @@ pub(super) struct Activity {
 #[derive(Default)]
 pub(super) struct Index {
     pub generation: u64,
+    pub latest_asset_receipt: i64,
     pub activities: Vec<Activity>,
     pub participations: BTreeMap<String, Vec<usize>>,
     pub requests: Vec<usize>,
@@ -60,6 +61,12 @@ impl Index {
                 (seq, event["created_utc"].as_str().map(str::to_owned)),
             );
             let body = &event["body"];
+            if event["kind"] == "tool_result" && matches!(
+                body["tool"].as_str(),
+                Some("asset.save" | "asset.register" | "asset.import" | "asset.organize")
+            ) {
+                self.latest_asset_receipt = self.latest_asset_receipt.max(seq);
+            }
             if event["kind"] == "delivery" {
                 if let Some(reference) = body["reference"].as_str() {
                     self.issued.insert(reference.to_owned(), seq);

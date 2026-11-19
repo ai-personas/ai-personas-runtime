@@ -29,6 +29,7 @@ mod home_live;
 mod home_navigation;
 mod home_updates;
 mod delivery_desk;
+mod file_history;
 mod delivery_followups;
 mod dialogs;
 mod export;
@@ -123,6 +124,7 @@ pub struct App {
     home: home::Home,
     home_updates: home_updates::Updates,
     delivery_desk: delivery_desk::Desk,
+    file_history: file_history::History,
     delivery_followups: delivery_followups::Panel,
     runner_observation: ai_personas::neural::live::RunnerObservation,
     character_decisions: Vec<Value>,
@@ -143,6 +145,7 @@ pub struct App {
     work: String,
     persona: String,
     profile_view: people::ProfileView,
+    profile_files: people::AuthoredFiles,
     inbox: inbox::Inbox,
     live_board: live_board::Board,
     live_composer: live_composer::Composer,
@@ -227,6 +230,7 @@ impl App {
             home: Default::default(),
             home_updates: Default::default(),
             delivery_desk: Default::default(),
+            file_history: Default::default(),
             delivery_followups: Default::default(),
             runner_observation: Default::default(),
             character_decisions: vec![],
@@ -247,6 +251,7 @@ impl App {
             work: String::new(),
             persona: String::new(),
             profile_view: Default::default(),
+            profile_files: Default::default(),
             inbox: Default::default(),
             live_board: Default::default(),
             live_composer: Default::default(),
@@ -694,7 +699,9 @@ impl eframe::App for App {
                     .fill(theme::Palette::new(self.layout.dark).canvas)
                     .inner_margin(16),
             )
-            .show(ctx, |ui| match self.layout.editor {
+            .show(ctx, |ui| {
+                self.file_history_return(ui);
+                match self.layout.editor {
                 Editor::Home => self.workspace_home(ui),
                 Editor::Studio => self.studio(ui),
                 Editor::Delivery => self.home_package_page(ui),
@@ -722,7 +729,9 @@ impl eframe::App for App {
                         self.open_resource(ctx,reference);
                     }
                 },
+                }
             });
+        self.file_history_window(ctx);
         if self.inspector_window {
             let mut open = true;
             egui::Window::new("Inspector")
