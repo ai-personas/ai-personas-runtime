@@ -7,7 +7,7 @@ use std::{
     rc::Rc,
 };
 
-pub(super) struct Asset {
+pub(in crate::neural) struct Asset {
     pub reference: String,
     pub path: String,
     pub blob: String,
@@ -83,125 +83,132 @@ impl<'a> Catalog<'a> {
 // The version's writer is the authority for the write. asset.organize preserves
 // the previous revision's bytes and writer. Even an identical new save has its
 // own content provenance. Historical versions need no author/work JSON fields.
-pub(super) fn origin(db: &Connection, id: &str, revision: i64) -> Result<Option<Asset>> {
-    let reference = format!("asset:{id}@{revision}");
-    let mut path = None;
-    let mut blob = None;
-    let mut created = 0;
-    let mut written_event = None;
-    for rev in (1..=revision).rev() {
-        let version: Option<(String, String, String, String, i64)> = db
-            .query_row(
-                "SELECT v.digest,i.id,i.work,i.actor,v.created FROM versions v
-             JOIN invocations i ON i.id=v.invocation AND i.state='accepted'
-             WHERE v.kind='asset' AND v.id=?1 AND v.revision=?2",
-                params![id, rev],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
-            )
-            .optional()?;
-        let Some((digest, call, work, author, at)) = version else {
+pub(in crate::neural) fn origin(db: &Connection, id: &str, revision: i64) -> Result<Option<Asset>> {
+    let mut latest: Option<Asset> = None;
+    for number in (1..=revision).rev() {
+        let Some(mut step) = revision_step(db, id, number)? else {
             return Ok(None);
         };
-        let body: Value = store::object(db, &digest)?;
-        let (Some(content), Some(filename)) = (body["blob"].as_str(), body["path"].as_str()) else {
+        if latest.as_ref().is_some_and(|last| last.blob != step.blob) {
             return Ok(None);
+        }
+        if step.write_tool.as_deref() == Some("asset.organize") {
+            if latest.is_none() {
+                latest = Some(step);
+            }
+        } else {
+            if let Some(last) = latest {
+                step.reference = last.reference;
+                step.path = last.path;
+                step.created = last.created;
+                step.written_event = last.written_event;
+            }
+            return Ok(Some(step));
+        }
+    }
+    Ok(None)
+}
+
+/// Inspect the actual writer and tool receipt of one retained revision.
+/// Organization is a verified edit of the preceding record. Content writes
+/// still need their accepted operation before attributing an authored edition.
+pub(in crate::neural) fn revision_step(
+    db: &Connection,
+    id: &str,
+    rev: i64,
+) -> Result<Option<Asset>> {
+    let version: Option<(String, String, String, String, i64)> = db
+        .query_row(
+            "SELECT v.digest,i.id,i.work,i.actor,v.created FROM versions v
+         JOIN invocations i ON i.id=v.invocation AND i.state='accepted'
+         WHERE v.kind='asset' AND v.id=?1 AND v.revision=?2",
+            params![id, rev],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        )
+        .optional()?;
+    let Some((digest, call, work, author, created)) = version else {
+        return Ok(None);
+    };
+    let body: Value = store::object(db, &digest)?;
+    let (Some(content), Some(path)) = (body["blob"].as_str(), body["path"].as_str()) else {
+        return Ok(None);
+    };
+    let written = format!("asset:{id}@{rev}");
+    let mut q=db.prepare_cached("SELECT e.digest,e.seq FROM events e JOIN objects b ON b.digest=e.digest
+        WHERE e.work=?1 AND e.target=?2 AND e.actor=?2 AND e.invocation=?3 AND e.kind='tool_result'
+        AND json_extract(CAST(b.bytes AS TEXT),'$.tool') IN ('asset.save','asset.register','asset.import','asset.organize')")?;
+    let mut rows = q.query(params![work, author, call])?;
+    let mut writer = None;
+    while let Some(row) = rows.next()? {
+        let event: Value = store::object(db, &row.get::<_, String>(0)?)?;
+        let Some(result_id) = event["result"]
+            .as_str()
+            .and_then(|r| r.strip_prefix("object:"))
+        else {
+            continue;
         };
-        if rev == revision {
-            path = Some(filename.to_owned());
-            blob = Some(content.to_owned());
-            created = at;
+        let result: Value = store::object(db, result_id)?;
+        if result["reference"] == written {
+            if writer.is_some() {
+                return Ok(None);
+            }
+            writer = Some((
+                event["tool"].as_str().unwrap_or_default().to_owned(),
+                result,
+                row.get::<_, i64>(1)?,
+            ));
         }
-        if blob.as_deref() != Some(content) {
+    }
+    let previous = format!("asset:{id}@{}", rev - 1);
+    let write_tool = writer.as_ref().map(|(t, _, _)| t.clone());
+    let write_receipt = writer.as_ref().map(|(_, _, seq)| *seq);
+    if let Some((tool, result, seq)) = &writer {
+        if tool == "asset.organize" {
+            if rev == 1
+                || !verified_move(db, &body, &previous, &written, &call, &author, &work, *seq)
+                    .unwrap_or(false)
+            {
+                return Ok(None);
+            }
+        } else if result["blob"] != content {
             return Ok(None);
         }
-        let written = format!("asset:{id}@{rev}");
-        let mut receipts = db.prepare_cached(
-            "SELECT e.digest,e.seq FROM events e JOIN objects b ON b.digest=e.digest
-             WHERE e.work=?1 AND e.target=?2 AND e.actor=?2 AND e.invocation=?3 AND e.kind='tool_result'
-             AND json_extract(CAST(b.bytes AS TEXT),'$.tool') IN ('asset.save','asset.register','asset.import','asset.organize')")?;
-        let mut rows = receipts.query(params![work, author, call])?;
-        let mut writer = None;
-        while let Some(row) = rows.next()? {
-            let event: Value = store::object(db, &row.get::<_, String>(0)?)?;
-            let Some(result_id) = event["result"]
-                .as_str()
-                .and_then(|r| r.strip_prefix("object:"))
-            else {
-                continue;
-            };
-            let result: Value = store::object(db, result_id)?;
-            if result["reference"] == written {
-                if writer.is_some() {
-                    return Ok(None);
-                }
-                writer = Some((event["tool"].clone(), result, row.get::<_, i64>(1)?));
-                // Import publishes the asset and its terminal outbox receipt in
-                // separate transactions. An intervening input can see the file.
-                if rev == revision && event["tool"] != "asset.import" {
-                    written_event = Some(row.get(1)?);
-                }
-            }
-        }
-        let previous = format!("asset:{id}@{}", rev - 1);
-        let write_tool = writer
-            .as_ref()
-            .and_then(|(tool, _, _)| tool.as_str())
-            .map(str::to_owned);
-        let write_receipt = writer.as_ref().map(|(_, _, seq)| *seq);
-        match writer {
-            Some((tool, _, seq)) if tool == "asset.organize" => {
-                if rev == 1
-                    || !verified_move(db, &body, &previous, &written, &call, &author, &work, seq)
-                        .unwrap_or(false)
-                {
-                    return Ok(None);
-                }
-                continue;
-            }
-            Some((_, receipt, _)) if receipt["blob"] != content => return Ok(None),
-            // Some early records only bind the version to its originating call.
-            // Creation and a change of bytes identify a content write. A later
-            // same-byte version needs an explicit content or organization origin.
-            None if rev > 1 && store::exact(db, &previous)?.body["blob"] == content => {
-                if body["organized_by"] == author
-                    && body["organized_in_work"] == work
-                    && body["previous_revision"] == previous
-                {
-                    return Ok(None);
-                }
-                if body["origin_decision"] != call
-                    || body["last_content_author"] != author
-                    || body["work"] != work
-                {
-                    return Ok(None);
-                }
-            }
-            _ => {}
-        }
-        if body["owner"] != author
+    } else if rev > 1
+        && store::exact(db, &previous)?.body["blob"] == content
+        && (body["origin_decision"] != call
+            || body["last_content_author"] != author
+            || body["work"] != work
+            || (body["organized_by"] == author
+                && body["organized_in_work"] == work
+                && body["previous_revision"] == previous))
+    {
+        return Ok(None);
+    }
+    if write_tool.as_deref() != Some("asset.organize")
+        && (body["owner"] != author
             || body.get("origin_decision").is_some_and(|v| v != &call)
             || body
                 .get("last_content_author")
                 .is_some_and(|v| v != &author)
-            || body.get("work").is_some_and(|v| v != &work)
-        {
-            return Ok(None);
-        }
-        return Ok(Some(Asset {
-            reference,
-            path: path.expect("exact filename"),
-            blob: content.into(),
-            author,
-            work,
-            call,
-            content_revision: written,
-            created,
-            written_event,
-            write_tool,
-            write_receipt,
-        }));
+            || body.get("work").is_some_and(|v| v != &work))
+    {
+        return Ok(None);
     }
-    Ok(None)
+    // An import's immutable version can be observed before its outbox receipt.
+    let written_event = write_receipt.filter(|_| write_tool.as_deref() != Some("asset.import"));
+    Ok(Some(Asset {
+        reference: written.clone(),
+        path: path.into(),
+        blob: content.into(),
+        author,
+        work,
+        call,
+        content_revision: written,
+        created,
+        written_event,
+        write_tool,
+        write_receipt,
+    }))
 }
 
 fn verified_move(

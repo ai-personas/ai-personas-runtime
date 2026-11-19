@@ -416,6 +416,7 @@ fn internal(
                 json!({"total":hits.len(),"offset":query.offset,"items":hits.into_iter().skip(query.offset).take(query.page_size).collect::<Vec<_>>(),"body_supplied":false,"scope":"Events you sent or received in this activity. Read an experience handle with asset.read for the attributed exchange and its body."}),
             )
         }
+        "asset.history" => super::asset_history::shared(db,&decode(input)?),
         "asset.search" => super::discovery::catalog(db,&decode(input)?),
         "asset.find" => super::discovery::find(db,&decode(input)?),
         "asset.read" | "persona.read" => {
@@ -1059,7 +1060,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
             resolve_operation(&mut op,&aliases)?;
             if part.departure.is_some(){return Err(failure("work.leave ends your operations in this activity; issue it last and stop"));}
             if persona.model.is_none()&&!matches!(op.tool.as_str(),"persona.initialize"|"persona.read"|"tools.search"|"tools.describe"|"asset.read") {return Err(failure("initialize and activate your character before accepting or doing work"));}
-            if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.search"|"asset.find"|"history.search"|"experience.search"|"relationship.contacts"|"relationship.history"|"persona.revision_uses"|"persona.paths"|"peer.message"|"work.requests"|"work.sources") {return Err(failure("accept your invitation before ordinary work"));}
+            if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.search"|"asset.history"|"asset.find"|"history.search"|"experience.search"|"relationship.contacts"|"relationship.history"|"persona.revision_uses"|"persona.paths"|"peer.message"|"work.requests"|"work.sources") {return Err(failure("accept your invitation before ordinary work"));}
             if part.declined{return Err(failure("declined participation cannot perform operations"));}
             if tools::is_external(&op.tool) {
                 validate_external(db,&persona,&op)?;

@@ -1,8 +1,8 @@
 //! Exact retained resources from another activity, as observed on accepted choices
 //! and their completed effects. A file's content author survives metadata changes.
-mod delivery;
+pub(in crate::neural) mod delivery;
 mod effects;
-mod resources;
+pub(super) mod resources;
 pub use delivery::delivery_files;
 
 use super::{context::Snapshot, failure, provider_evidence, store, Result};

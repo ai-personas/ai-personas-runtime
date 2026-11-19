@@ -9,6 +9,7 @@ pub mod geometry;
 mod archive;
 mod assessment;
 pub mod asset_feedback;
+pub mod asset_history;
 pub mod delivery_feedback;
 pub(crate) mod pdf_evidence;
 pub mod activity_requests;

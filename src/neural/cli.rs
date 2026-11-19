@@ -119,6 +119,22 @@ pub enum Command {
         #[arg(long, default_value_t = 10)]
         page_size: usize,
     },
+    /// Inspect exact file revisions, their edits, prior contents and authenticated contributors.
+    FileHistory {
+        reference: String,
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
+        #[arg(long, default_value_t = 10)]
+        page_size: usize,
+    },
+    /// List issued packages that contain the exact selected file revision.
+    FileDeliveries {
+        reference: String,
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
+        #[arg(long, default_value_t = 10)]
+        page_size: usize,
+    },
     /// Recover your previously committed operator result without reopening any local files.
     OperatorReceipt { #[arg(value_name = "REQUEST_ID")] key: String },
     /// Observe the live executor and the exact activities it schedules, including while idle.
@@ -339,6 +355,18 @@ pub enum Command {
     Usage { work: String },
     /// Current membership, unowned duties, acceptances and effects awaiting resolution.
     Responsibilities { work: String },
+    /// Find a persona’s current and earlier file contributions, including renamed and retired work.
+    AuthoredFiles {
+        person: String,
+        #[arg(long, default_value = "")]
+        query: String,
+        #[arg(long, default_value = "all")]
+        view: String,
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
+        #[arg(long, default_value_t = 20)]
+        page_size: usize,
+    },
     /// Measure storage under this workspace and optional explicitly named archive files.
     Footprint {
         #[arg(long = "archive")]
@@ -541,6 +569,8 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
                 Command::RunnerStatus=>store.snapshot(|db|Ok(serde_json::to_value(super::live::observe_runner(root,db))?)),
                 Command::ActivityTree{work}=>store.snapshot(|db|super::activity_tree::describe(db,&work)),
                 Command::MessageReceipt{event}=>store.snapshot(|db|super::live::message_receipt(db,event)),
+                Command::FileHistory{reference,offset,page_size}=>store.snapshot(|db|super::asset_history::history(db,&reference,offset,page_size)),
+                Command::FileDeliveries{reference,offset,page_size}=>store.snapshot(|db|super::asset_history::deliveries(db,&reference,offset,page_size)),
                 Command::RequestCorrespondence{reference,offset,page_size}=>store.snapshot(|db|super::human_requests::correspondence(db,&reference,offset,page_size)),
                 Command::DeliveryFeedback{delivery,offset,limit}=>store.snapshot(|db|super::delivery_feedback::history(db,&delivery,offset,limit)),
                 Command::OperatorReceipt{key}=>store.snapshot(|db|{
@@ -585,6 +615,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
                 Command::Audit=>audit(&mut store),
                 Command::Responsibilities{work}=>store.snapshot(|db|super::membership::responsibilities(db,&work)),
                 Command::Usage {work}=>store.snapshot(|db|super::accounting::activity(db,&work)),
+                Command::AuthoredFiles{person,query,view,offset,page_size}=>store.snapshot(|db|super::asset_history::authored(db,&person,&query,&view,offset,page_size)),
                 Command::Footprint {archives}=>store.snapshot(|db|super::footprint::observe(db,root,&archives)),
                 Command::Backup{archive}=>super::archive::backup(&store,&archive),
                 _=>unreachable!(),

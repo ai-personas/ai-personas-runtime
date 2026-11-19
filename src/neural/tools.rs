@@ -342,6 +342,7 @@ pub const NAMES: &[(&str,&str)] = &[
     ("history.search","Rediscover authored/addressed events in this work by literal or regex search, with exact prior request, response, tool-result and provider-receipt references. Returns metadata, not replayed history. Empty query lists events; results are paginated."),
     ("persona.create","Create an attributed pending identity with a fresh own-model initialization. This does not invite or assign responsibility."),
     ("asset.search","Search current shared asset metadata by literal or regex. Set history=true for previous library names. same_content finds registrations of identical retained bytes. Use asset.find for exact text search with optional excerpts, or asset.read for a chosen range."),
+    ("asset.history","Inspect a page of editions of an exact shared file, including names, file sizes, attributable editors and whether the bytes changed. Returns metadata and exact asset handles for selective reading."),
     ("asset.find","Locate literal or regex matches in one exact retained UTF-8 asset or object. Returns byte and line ranges. Set excerpts=true to receive the matched lines directly. before and after choose surrounding lines. You can also select a range later."),
     ("asset.read","Read exact retained text or record, optionally a measured UTF-8 byte range. A read does not rerun a tool."),
     ("asset.feedback","Publish an attributed observation on an exact shared asset revision from this activity. Include evidence you choose to share. It reaches the content author across activities. To answer a report on the same revision, set reply_to to its exact asset_feedback handle."),
@@ -392,6 +393,7 @@ pub fn describe(name: &str) -> Result<Value> {
         "tools.search" | "history.search" | "development.search" => schema::<Search>()?,
         "experience.search" => schema::<ExperienceQuery>()?,
         "asset.search" => schema::<super::discovery::Catalog>()?,
+        "asset.history" => schema::<super::asset_history::Lookup>()?,
         "asset.find" => schema::<super::discovery::FindText>()?,
         "asset.feedback" => schema::<super::asset_feedback::Feedback>()?,
         "asset.feedback_history" => schema::<super::asset_feedback::History>()?,
@@ -479,6 +481,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
             Ok(())
         }
         "asset.search" => parse::<super::discovery::Catalog>(value),
+        "asset.history" => parse::<super::asset_history::Lookup>(value),
         "asset.find" => parse::<super::discovery::FindText>(value),
         "asset.feedback" => parse::<super::asset_feedback::Feedback>(value),
         "asset.feedback_history" => parse::<super::asset_feedback::History>(value),
