@@ -146,35 +146,41 @@ fn maintenance(
     optional: fn(&str) -> bool,
     model_switch: bool,
 ) -> Result<()> {
-    let changed = operations
-        .iter()
-        .filter(|o| predicate(&o.tool))
-        .map(|o| o.id.as_str())
-        .collect::<BTreeSet<_>>();
+    let required = operations.iter().filter(|op| predicate(&op.tool))
+        .map(|op| (op.id.as_str(), op.tool.as_str())).collect::<BTreeMap<_, _>>();
+    let reason = match value {
+        Maintenance::Change { reason, .. } | Maintenance::NoChange { reason }
+        | Maintenance::Defer { reason, .. } => reason,
+    };
+    if reason.trim().is_empty() {
+        return Err(failure("Give a reason for this maintenance decision"));
+    }
     match value {
-        Maintenance::NoChange { reason } | Maintenance::Defer { reason, .. } => {
-            if reason.trim().is_empty() || !changed.is_empty() || model_switch {
-                return Err(failure(
-                    "maintenance must acknowledge proposed changes and give a reason",
-                ));
+        Maintenance::NoChange { .. } | Maintenance::Defer { .. } => {
+            if !required.is_empty() {
+                return Err(failure(format!("Use kind change and include these local operation IDs in operations: {}", serde_json::to_string(&required)?)));
+            }
+            if model_switch {
+                return Err(failure("Activation or rollback requires kind change with an empty operations list"));
             }
         }
-        Maintenance::Change {
-            operations: ids,
-            reason,
-        } => {
+        Maintenance::Change { operations: ids, .. } => {
             let named = ids.iter().map(String::as_str).collect::<BTreeSet<_>>();
-            if reason.trim().is_empty()
-                || named.len() != ids.len()
-                || !changed.is_subset(&named)
-                || named
-                    .iter()
-                    .any(|id| !operations.iter().any(|o| o.id == *id))
-                || !(model_switch || operations.iter().any(|o| {
-                    named.contains(o.id.as_str()) && (predicate(&o.tool) || optional(&o.tool))
-                }))
-            {
-                return Err(failure("maintenance change must name all applicable mutation ids and contain an applicable operation, or use empty ids for an operation-free persona activation/rollback. Context evaluation/assessment counts for persona maintenance; image.read, work.outcome or result.deliver counts for asset maintenance"));
+            if named.len() != ids.len() {
+                return Err(failure("Name each local operation ID only once"));
+            }
+            let missing = required.iter().filter(|(id, _)| !named.contains(**id)).collect::<BTreeMap<_, _>>();
+            if !missing.is_empty() {
+                return Err(failure(format!("Add the missing local operation IDs to operations: {}", serde_json::to_string(&missing)?)));
+            }
+            let unknown = named.iter().filter(|id| !operations.iter().any(|op| op.id == **id)).collect::<Vec<_>>();
+            if !unknown.is_empty() {
+                return Err(failure(format!("These IDs have no operation in this response: {}", serde_json::to_string(&unknown)?)));
+            }
+            let applicable = operations.iter().filter(|op| predicate(&op.tool) || optional(&op.tool))
+                .map(|op| (op.id.as_str(), op.tool.as_str())).collect::<BTreeMap<_, _>>();
+            if !model_switch && !applicable.keys().any(|id| named.contains(id)) {
+                return Err(failure(format!("A change needs an applicable local operation ID. Available in this response: {}. With no applicable operations, choose no_change or defer.", serde_json::to_string(&applicable)?)));
             }
         }
     }
@@ -399,6 +405,7 @@ fn internal(
             Ok(json!({"reference":asset.handle(),"blob":digest,"bytes":size,"registered_from":x.reference}))
         }
         "geometry.history" => super::geometry::history::lookup(db,&decode(input)?),
+        "command.history" => super::commands::history(db,&decode(input)?),
         "persona.paths" => super::character_paths::inspect(db, Some(actor), &decode(input)?),
         "asset.organize" => {
             let x: tools::AssetMetadata = decode(input)?;
@@ -963,7 +970,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
         // Host commands may be read-only; explicit asset mutations must be acknowledged.
         maintenance(&decision.persona_maintenance,&decision.operations,tools::model_mutation,|name|matches!(name,"persona.evaluate"|"persona.assess"|"development.update"),switching)
             .map_err(|e|failure(format!("persona_maintenance: {e}")))?;
-        maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"image.read"|"image.render_svg"|"geometry.render"|"geometry.inspect_stl"|"work.outcome"|"result.deliver"),false)
+        maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"image.read"|"image.render_svg"|"command.run"|"geometry.render"|"geometry.inspect_stl"|"work.outcome"|"result.deliver"),false)
             .map_err(|e|failure(format!("asset_maintenance: {e}")))?;
         super::development::record_applications(db,snapshot,&decision.examining)?;
         super::development::consider(db,snapshot,decision)?;
@@ -974,7 +981,17 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
         }
         let mut aliases=BTreeMap::new();
         for (ordinal,raw) in decision.operations.iter().enumerate() {
-            let mut op=raw.clone();resolve(&mut op.input,&aliases)?;
+            let mut op=raw.clone();
+            if op.tool == "command.run" {
+                if let Some(files) = op.input["files"].as_object_mut() {
+                    for reference in files.values_mut() { resolve(reference,&aliases)?; }
+                }
+                if let Some(stdin) = op.input.get_mut("stdin") { resolve(stdin,&aliases)?; }
+            } else if op.tool == "command.install" {
+                if let Some(source) = op.input.get_mut("source") { resolve(source,&aliases)?; }
+            } else {
+                resolve(&mut op.input,&aliases)?;
+            }
             if part.departure.is_some(){return Err(failure("work.leave ends your operations in this activity; issue it last and stop"));}
             if persona.model.is_none()&&!matches!(op.tool.as_str(),"persona.initialize"|"persona.read"|"tools.search"|"tools.describe"|"asset.read") {return Err(failure("initialize and activate your character before accepting or doing work"));}
             if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.search"|"asset.find"|"history.search"|"experience.search"|"peer.message") {return Err(failure("accept your invitation before ordinary work"));}
@@ -1052,6 +1069,8 @@ fn check_observed_reply(
 
 pub fn validate_external(db: &Connection, persona: &Persona, op: &Operation) -> Result<()> {
     match op.tool.as_str() {
+        "command.install" => {super::commands::validate_install(db,&decode(&op.input)?)?;}
+        "command.run" => super::commands::validate_run(db,&decode(&op.input)?)?,
         "geometry.install" => {
             let input: super::geometry::Install = decode(&op.input)?;
             super::geometry::validate_install(db,&input)?;
@@ -1059,7 +1078,7 @@ pub fn validate_external(db: &Connection, persona: &Persona, op: &Operation) -> 
         "geometry.render" => super::geometry::validate_render(db,&decode(&op.input)?)?,
         "geometry.inspect_stl" => {
             let input: super::geometry::Inspect = decode(&op.input)?;
-            super::geometry::blob(db,&input.reference)?;
+            super::workspace::byte_digest(db,&input.reference)?;
         }
         "compute.inspect" => {
             let query: tools::InspectProgram = decode(&op.input)?;

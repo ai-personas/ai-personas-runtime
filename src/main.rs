@@ -46,6 +46,8 @@ enum Command {
     /// Internal portable computation worker.
     #[command(hide = true)]
     ComputeWorker,
+    #[command(hide = true)]
+    WasiWorker,
     /// Inspect an owned character package, or show the shared contract when no file is given.
     Character {
         package: Option<PathBuf>,
@@ -833,6 +835,9 @@ async fn run(cli: Cli) -> runtime::Result<()> {
     match &cli.command {
         Command::ComputeWorker => {
             return ai_personas::neural::workspace::compute_worker().map_err(|e|runtime::RuntimeError::Invalid(e.to_string()));
+        }
+        Command::WasiWorker => {
+            return ai_personas::neural::commands::wasi_worker().map_err(|e|runtime::RuntimeError::Invalid(e.to_string()));
         }
         Command::Character { package, appraisal, compare } => {
             use ai_personas::persona_model::{Appraisal, FeatureContract, ModelPackage};
@@ -1757,6 +1762,7 @@ async fn run(cli: Cli) -> runtime::Result<()> {
         }
         Command::Schema
         | Command::ComputeWorker
+        | Command::WasiWorker
         | Command::Character { .. }
         | Command::Neural { .. }
         | Command::Setup { .. }

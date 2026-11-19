@@ -470,6 +470,15 @@ async fn external(
     let mut store = Store::open(root)?;
     let cfg = config(&store)?;
     match op.tool.as_str() {
+        "command.install" => {
+            let input=serde_json::from_value(op.input.clone())?;
+            super::commands::install(root,actor,Some(invocation),&input,None,move ||control_observation(&store,work,actor).is_some()).await
+        }
+        "command.run" => {
+            let input=serde_json::from_value(op.input.clone())?;
+            let origin=super::commands::Origin{actor,work:Some(work),invocation:Some(invocation),operation:Some(&op.id)};
+            super::commands::run(root,origin,&input,move ||control_observation(&store,work,actor).is_some()).await
+        }
         "geometry.install" => {
             let input = serde_json::from_value(op.input.clone())?;
             super::geometry::install(root,actor,Some(invocation),&input,move ||control_observation(&store,work,actor).is_some()).await

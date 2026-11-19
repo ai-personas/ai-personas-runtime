@@ -243,6 +243,9 @@ pub struct AssetMetadata {
 }
 
 pub const NAMES: &[(&str,&str)] = &[
+    ("command.install","Install the published ngspice circuit simulator or a retained WASI Preview 1 command into the workspace. This changes shared resources. Include the local installation operation ID in asset_maintenance.operations with kind change. Read the exact installation before running it."),
+    ("command.run","Execute an installed portable command with literal arguments, selected files and stdin. Name output files to retain. The receipt links stdout, stderr and output bytes, including partial or failed runs."),
+    ("command.history","List installed portable commands. Find actual executions across activities by exact installation, receipt, source, log or output reference."),
     ("workspace.list","List names and file types in one chosen shared-workspace directory. Import selected file contents separately."),
     ("tools.search","Find tool names and purposes using literal or regex search; no execution."),
     ("tools.describe","Read exact input schemas for named tools."),
@@ -305,6 +308,9 @@ pub fn describe(name: &str) -> Result<Value> {
         "persona.read" | "asset.read" => schema::<Read>()?,
         "persona.evaluate" => schema::<protocol::EvaluateModel>()?,
         "persona.paths" => schema::<super::character_paths::Query>()?,
+        "command.install" => schema::<super::commands::Install>()?,
+        "command.run" => schema::<super::commands::Run>()?,
+        "command.history" => schema::<super::commands::History>()?,
         "persona.patch" => schema::<protocol::PatchModel>()?,
         "persona.assess" => schema::<AssessModel>()?,
         "persona.create" => schema::<CreatePersona>()?,
@@ -367,6 +373,9 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
         "persona.read" | "asset.read" => parse::<Read>(value),
         "persona.evaluate" => parse::<protocol::EvaluateModel>(value),
         "persona.paths" => parse::<super::character_paths::Query>(value),
+        "command.install" => parse::<super::commands::Install>(value),
+        "command.run" => parse::<super::commands::Run>(value),
+        "command.history" => parse::<super::commands::History>(value),
         "persona.patch" => parse::<protocol::PatchModel>(value),
         "persona.assess" => parse::<AssessModel>(value),
         "persona.create" => parse::<CreatePersona>(value),
@@ -404,11 +413,11 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
 pub fn is_external(name: &str) -> bool {
     matches!(
         name,
-        "compute.inspect" | "compute.run" | "geometry.install" | "geometry.render" | "geometry.inspect_stl" | "workspace.list" | "asset.import" | "image.read" | "image.render_svg" | "persona.assess"
+        "command.install" | "command.run" | "compute.inspect" | "compute.run" | "geometry.install" | "geometry.render" | "geometry.inspect_stl" | "workspace.list" | "asset.import" | "image.read" | "image.render_svg" | "persona.assess"
     )
 }
 pub fn asset_mutation(name: &str) -> bool {
-    matches!(name, "asset.save" | "asset.import" | "asset.organize" | "asset.register" | "geometry.install")
+    matches!(name, "asset.save" | "asset.import" | "asset.organize" | "asset.register" | "geometry.install" | "command.install")
 }
 pub fn model_mutation(name: &str) -> bool {
     matches!(name, "persona.initialize" | "persona.patch" | "development.update" | "development.close")

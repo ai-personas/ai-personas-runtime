@@ -211,3 +211,56 @@ pub fn compute_worker() -> Result<()> {
     )?;
     Ok(())
 }
+
+pub(super) fn byte_digest(db: &Connection, reference: &str) -> Result<String> {
+    if let Some(digest) = reference.strip_prefix("object:") {
+        let known: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM objects WHERE digest=?1)",
+            [digest],
+            |r| r.get(0),
+        )?;
+        if known {
+            return Ok(digest.to_owned());
+        }
+        return Err(failure("Unknown byte object"));
+    }
+    let record = store::exact(db, reference)?;
+    if record.reference.kind != "asset" {
+        return Err(failure("Use an exact asset revision or byte object"));
+    }
+    record.body["blob"]
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| failure("Asset has no content"))
+}
+
+pub(super) async fn controlled<T>(
+    future: impl std::future::Future<Output = Result<T>>,
+    stopped: &mut impl FnMut() -> bool,
+) -> Result<T> {
+    tokio::pin!(future);
+    loop {
+        if stopped() {
+            return Err(failure(
+                "Operation interrupted by workspace control",
+            ));
+        }
+        tokio::select! {
+            result = &mut future => return result,
+            _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {}
+        }
+    }
+}
+
+pub(super) fn node_executable() -> Result<PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+        .filter(|p| p.is_absolute())
+        .map(|p| p.join("node"))
+        .find(|p| {
+            p.metadata()
+                .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        })
+        .ok_or_else(|| failure("A Node.js host with --permission is required on PATH"))?
+        .canonicalize().map_err(Into::into)
+}

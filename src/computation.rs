@@ -38,7 +38,7 @@ fn engine() -> Engine {
 pub fn validate(program: &str) -> Result<(), &'static str> {
     compile(program.as_bytes()).map(|_| ())
 }
-fn compile(program: &[u8]) -> Result<(Engine, Module), &'static str> {
+pub(crate) fn compile(program: &[u8]) -> Result<(Engine, Module), &'static str> {
     let engine = engine();
     let module = Module::new(&engine, program).map_err(|_| "invalid_module")?;
     Ok((engine, module))

@@ -13,6 +13,12 @@ use std::{
     path::{Path, PathBuf},
 };
 
+fn workspace_command_paused(store: &Store) -> bool {
+    super::controls::current(&store.db, "global")
+        .map(|state| state.is_some_and(|control| control["state"] != "running"))
+        .unwrap_or(true)
+}
+
 #[derive(Subcommand, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Command {
@@ -93,6 +99,30 @@ pub enum Command {
         persona:Option<String>,
     },
     Status,
+    /// Install a retained WASI command or the published ngspice simulator.
+    InstallCommand {
+        #[command(flatten)]
+        package: super::commands::Install,
+        /// Install exact bytes from an operator-selected local program file.
+        #[arg(long,conflicts_with="source")]
+        from_file: Option<PathBuf>,
+    },
+    /// Run an installed command over named project bytes. Retain streams, outputs and an operator receipt.
+    RunCommand {
+        installation: String,
+        /// JSON array of literal argument strings, after argv[0].
+        #[arg(long,default_value="[]")]
+        arguments: String,
+        /// JSON object mapping relative file names to exact library references.
+        #[arg(long,default_value="{}")]
+        files: String,
+        #[arg(long="output")]
+        outputs: Vec<String>,
+        #[arg(long)]
+        stdin: Option<String>,
+    },
+    /// Find installed commands and recorded executions across activities.
+    CommandHistory(super::commands::History),
     /// Install the pinned OpenSCAD compiler into this workspace.
     InstallOpenscad {
         /// Exact asset or object containing the released compiler for offline installation.
@@ -288,7 +318,8 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
             Ok(result)
         });
     }
-    if request_id.is_some() { return Err(failure("--request-id applies to an operator action that changes an activity, identity, reasoning configuration, invitation, control, message or delivery review")); }
+    if request_id.is_some() && !matches!(&command,Command::RunCommand{..}) { return Err(failure("--request-id applies to operator actions and portable command runs")); }
+    if request_id.is_some_and(|id|id.trim().is_empty()) {return Err(failure("Supply a nonblank operator request ID"));}
     match command {
         Command::Restore{archive,sha256}=>super::archive::restore(root,&archive,sha256.as_deref(),operator),
         Command::Init {
@@ -379,11 +410,22 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
             })
         }
         Command::InspectStl{reference}=>super::geometry::inspect(root,&reference).await,
+        Command::InstallCommand{package,from_file}=>{
+            let control = Store::open(root)?;
+            super::commands::install(root,operator,None,&package,from_file.as_deref(),|| workspace_command_paused(&control)).await
+        }
+        Command::RunCommand{installation,arguments,files,outputs,stdin}=>{
+            let input=super::commands::Run{installation,arguments:serde_json::from_str(&arguments)?,files:serde_json::from_str(&files)?,outputs,stdin};
+            let origin=super::commands::Origin{actor:operator,work:None,invocation:None,operation:request_id};
+            let control = Store::open(root)?;
+            super::commands::run(root,origin,&input,|| workspace_command_paused(&control)).await
+        }
         Command::Run { watch,work,persona } => runner::run_selected(root, watch,work.as_deref(),persona.as_deref()).await,
         command => {
             let mut store = Store::open(root)?;
             match command {
                 Command::Status=>store.status(),
+                Command::CommandHistory(query)=>store.snapshot(|db|super::commands::history(db,&query)),
                 Command::GeometryHistory{reference,offset,page_size}=>store.snapshot(|db|super::geometry::history::lookup(db,&super::geometry::history::Lookup{reference,offset,page_size})),
                 Command::Catalog(query)=>store.snapshot(|db|super::discovery::catalog(db,&query)),
                 Command::Find(query)=>store.snapshot(|db|super::discovery::find(db,&query)),

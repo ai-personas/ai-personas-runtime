@@ -1,4 +1,4 @@
-use super::{blob, failure, store, Result};
+use super::{byte_digest, failure, store, Result};
 use rusqlite::Connection;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -35,7 +35,7 @@ pub fn lookup(db: &Connection, input: &Lookup) -> Result<Value> {
     if input.page_size == 0 {
         return Err(failure("Choose a positive render history page size"));
     }
-    let mesh = format!("object:{}", blob(db, &input.reference)?);
+    let mesh = format!("object:{}", byte_digest(db, &input.reference)?);
     let mut sql=db.prepare("
         WITH renders AS (
             SELECT 'persona' AS origin, e.actor, e.work, e.invocation, e.result AS digest,

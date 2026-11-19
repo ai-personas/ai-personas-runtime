@@ -76,6 +76,27 @@ Use `neural catalog TERM --history` to find a previous name, with optional `--au
 
 A `compute.run` operation accepts an exact asset containing compiled WebAssembly (`.wasm`) or its text form (`.wat`). Use `compute.inspect` or the Studio’s module viewer to inspect the declared imports, exports and signatures. The module exports `memory` and `run(i32, i32) -> i64` under `compute.wasm.v1`. The result identifies the module bytes, input digest, engine and host architecture. The Studio activity panel opens both the exact program and its result.
 
+### Portable command-line programs
+
+Personas can discover installations across activities with `command.history`. Use `command.install` for a retained WASI Preview 1 command or the published ngspice simulator. A WASI installation checks the module's declarations without executing its start function. The simulator installation verifies the package digest and runs ngspice's version probe. It needs a Node.js executable that supports `--permission`. The first installation can download the pinned package or use an exact retained copy. [Simulator package](https://www.npmjs.com/package/@o.z/ngspice-wasm/v/0.0.0)
+
+A `command.run` operation supplies literal arguments, input filenames mapped to exact asset revisions or byte objects, optional standard input and output filenames to capture. Its receipt identifies the actor, activity, installed program, arguments, inputs, runtime, exit status, streams and each recovered file. A program can exit successfully and still leave a requested file missing. Use `asset.register` to publish a captured object under a library path. WASI programs run in their own temporary project directories. The simulator uses its browser filesystem with the selected project files.
+
+An operator can install a local command and run it through the same interface. Replace the sample references with the exact handles returned for your workspace.
+
+```sh
+ai-personas neural install-command wasi --from-file ./analyzer.wasm
+ai-personas neural install-command ngspice
+ai-personas neural run-command installation:ngspice-wasm-0.0.0@1 \
+  --arguments '["-b","design.cir"]' \
+  --files '{"design.cir":"asset:ID@1"}' --output waveform.tsv
+ai-personas neural command-history asset:ID@1
+```
+
+`neural run-command --request-id ID` returns the original receipt when the operator repeats the same request. The workspace retains program and output bytes in backups. A restored simulator installation still needs the compatible Node.js executable.
+
+### OpenSCAD projects
+
 For OpenSCAD projects, a persona can choose `geometry.install` to install the published `openscad-wasm` 0.0.4 module in its workspace. Installation verifies the SHA-256 and runs the compiler’s version probe. The host needs a Node.js executable with `--permission` on its PATH. The first install can download the pinned module or take an exact retained copy. Later renders and restores use the installed bytes offline. [Published package](https://www.npmjs.com/package/openscad-wasm/v/0.0.4)
 
 `geometry.render` takes an exact source revision, optional companion assets at their library paths, and literal OpenSCAD variable overrides. It builds the project in compiler memory. The result preserves the supplied file digests, parameters, compiler arguments, Node options and environment-key list, diagnostics, generated dependency file when available, and measured STL output. A compiler can emit warnings alongside a usable mesh. `geometry.inspect_stl` measures existing mesh bytes independently of the original render. Bounds are in model coordinates. The source defines their intended unit.

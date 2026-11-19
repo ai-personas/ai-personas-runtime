@@ -1,12 +1,12 @@
 //! Install and run the published OpenSCAD compiler against exact project files.
 pub mod history;
-use super::{failure, operations, store, Result};
+use super::{failure, operations, store, workspace::{byte_digest, controlled}, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use rusqlite::Connection;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{collections::BTreeMap, io::Cursor, os::unix::fs::PermissionsExt, process::Stdio};
+use std::{collections::BTreeMap, io::Cursor, process::Stdio};
 
 const PACKAGE: &str = "openscad-wasm-0.0.4";
 const URL: &str = "https://cdn.jsdelivr.net/npm/openscad-wasm@0.0.4/openscad.js";
@@ -39,28 +39,6 @@ pub struct Render {
 pub struct Inspect {
     /// Exact asset revision or object containing binary or ASCII STL.
     pub reference: String,
-}
-
-pub(super) fn blob(db: &Connection, reference: &str) -> Result<String> {
-    if let Some(digest) = reference.strip_prefix("object:") {
-        let known: bool = db.query_row(
-            "SELECT EXISTS(SELECT 1 FROM objects WHERE digest=?1)",
-            [digest],
-            |r| r.get(0),
-        )?;
-        if known {
-            return Ok(digest.to_owned());
-        }
-        return Err(failure("Unknown byte object"));
-    }
-    let record = store::exact(db, reference)?;
-    if record.reference.kind != "asset" {
-        return Err(failure("Use an exact asset revision or byte object"));
-    }
-    record.body["blob"]
-        .as_str()
-        .map(str::to_owned)
-        .ok_or_else(|| failure("Asset has no content"))
 }
 
 fn paths(db: &Connection, input: &Render) -> Result<BTreeMap<std::path::PathBuf, String>> {
@@ -104,7 +82,7 @@ pub(super) fn validate_render(db: &Connection, input: &Render) -> Result<()> {
 
 pub(super) fn validate_install(db: &Connection, input: &Install) -> Result<()> {
     if let Some(source) = &input.source {
-        if blob(db, source)? != MODULE_SHA256 {
+        if byte_digest(db, source)? != MODULE_SHA256 {
             return Err(failure(
                 "Compiler bytes differ from the pinned openscad-wasm 0.0.4 release",
             ));
@@ -113,39 +91,13 @@ pub(super) fn validate_install(db: &Connection, input: &Install) -> Result<()> {
     Ok(())
 }
 
-async fn controlled<T>(
-    future: impl std::future::Future<Output = Result<T>>,
-    stopped: &mut impl FnMut() -> bool,
-) -> Result<T> {
-    tokio::pin!(future);
-    loop {
-        if stopped() {
-            return Err(failure(
-                "Geometry operation interrupted by workspace control",
-            ));
-        }
-        tokio::select! {
-            result = &mut future => return result,
-            _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {}
-        }
-    }
-}
-
 async fn worker(
     compiler: &[u8],
     mut request: Value,
     stopped: &mut impl FnMut() -> bool,
 ) -> Result<Value> {
     use tokio::io::AsyncWriteExt;
-    let node = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
-        .filter(|p| p.is_absolute())
-        .map(|p| p.join("node"))
-        .find(|p| {
-            p.metadata()
-                .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-        })
-        .ok_or_else(|| failure("OpenSCAD requires a Node.js host with --permission on PATH"))?
-        .canonicalize()?;
+    let node = super::workspace::node_executable()?;
     request["compiler"] = json!(STANDARD.encode(compiler));
     let payload = serde_json::to_vec(&request)?;
     drop(request);
@@ -287,7 +239,7 @@ pub async fn inspect(root: &std::path::Path, reference: &str) -> Result<Value> {
     tokio::task::spawn_blocking(move||{
         let mut store=store::Store::open(&root)?;
         let (digest,bytes,renders)=store.snapshot(|db|{
-            let digest=blob(db,&reference)?;
+            let digest=byte_digest(db,&reference)?;
             let bytes=store::bytes(db,&digest)?;
             let renders=history::lookup(db,&history::Lookup::first(&reference))?;
             Ok((digest,bytes,renders))
@@ -311,7 +263,7 @@ pub async fn render(
     let mut supplied = Vec::new();
     let mut entry = None;
     for (path, reference) in paths(&store.db, input)? {
-        let digest = blob(&store.db, &reference)?;
+        let digest = byte_digest(&store.db, &reference)?;
         let bytes = store::bytes(&store.db, &digest)?;
         if reference == input.reference {
             entry = Some(path.clone());
