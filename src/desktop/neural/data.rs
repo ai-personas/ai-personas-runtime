@@ -164,13 +164,14 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
                 evaluations.insert(reference.into(), store::object(&db, digest)?);
                 let participation: neural::protocol::Participation =
                     serde_json::from_value(p["body"].clone())?;
-                if let Some(provenance) = neural::context::appraisal_provenance(
-                    &db,
-                    &participation.work,
-                    &participation.persona,
-                    reference,
-                    participation.turn,
-                )? {
+                let observed=neural::context::appraisal_context(&db,&participation)?;
+                let selected=&observed["contextual"];
+                let origin=if selected["provenance"].is_object() {Some(selected["provenance"].clone())}
+                    else {neural::context::appraisal_provenance(&db,&participation.work,&participation.persona,reference,participation.turn)?};
+                if let Some(mut provenance)=origin {
+                    provenance["basis"]=observed["basis"].clone();
+                    provenance["correspondence"]=selected["correspondence"].clone();
+                    provenance["changed_dependencies"]=selected["changed_dependencies"].clone();
                     appraisal_provenance
                         .insert((participation.work, participation.persona), provenance);
                 }

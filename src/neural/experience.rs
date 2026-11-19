@@ -117,12 +117,16 @@ fn reply_recipient<'a>(exchange: &'a Experience, actor: &str) -> Option<&'a str>
 /// Keep a reply address for the latest received exchange from each correspondent.
 /// The event's text remains available through an exact read.
 pub(super) fn reply_targets(db: &Connection, actor: &str, work: &str) -> Result<Vec<Value>> {
-    let sql = format!("{EVENTS} WHERE {VISIBLE} AND e.work=?2 AND e.kind IN
+    reply_targets_since(db,actor,work,0)
+}
+
+pub(super) fn reply_targets_since(db: &Connection, actor: &str, work: &str, after:i64) -> Result<Vec<Value>> {
+    let sql = format!("{EVENTS} WHERE {VISIBLE} AND e.work=?2 AND e.seq>?3 AND e.kind IN
         ('user_message','user_acceptance','requirements_amended','invitation','message','contribution_proposal') ORDER BY e.seq DESC");
     let mut statement = db.prepare(&sql)?;
     let mut seen = BTreeSet::new();
     let mut targets = Vec::new();
-    for row in statement.query_map([actor, work], Experience::row)? {
+    for row in statement.query_map(params![actor, work,after], Experience::row)? {
         let exchange = row?;
         if let Some(recipient) = reply_recipient(&exchange, actor) {
             if seen.insert((exchange.actor.clone(), recipient.to_owned())) {

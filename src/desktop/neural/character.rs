@@ -30,6 +30,24 @@ impl App {
         let part = self.participation(&self.persona);
         if let Some(reason) = part["appraisal_use"]["reason"].as_str() {
             ui.small(format!("Last selected for the following decision · {reason}"));
+            if provenance["basis"]=="baseline" {
+                ui.strong("Next input uses baseline");
+                if let Some(changed)=provenance["changed_dependencies"].as_array() {
+                    for reference in changed.iter().filter_map(Value::as_str) {
+                        if ui.small_button("Changed dependency").on_hover_text(reference).clicked() {self.open_resource(ui.ctx(),reference.into());}
+                    }
+                }
+            }
+            let exchanges=&provenance["correspondence"]["latest_later_exchanges_by_correspondent"];
+            if let Some(list)=exchanges.as_array().filter(|v|!v.is_empty()) {
+                ui.label(RichText::new("Received after that choice").strong());
+                for exchange in list {
+                    let label=format!("{} · {}",s(exchange,"author"),title(s(exchange,"kind")));
+                    if ui.small_button(label).on_hover_text("Open the latest later exchange from this correspondent").clicked() {
+                        self.open_resource(ui.ctx(),s(exchange,"experience").into());
+                    }
+                }
+            }
         } else {
             ui.small("The latest context choice uses baseline.");
         }

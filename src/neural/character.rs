@@ -192,12 +192,16 @@ pub(super) fn contextual(
         }
     }
     if !stale.is_empty() {
+        stale.sort();
+        stale.dedup();
         return Ok(
             json!({"reference":selected.evaluation,"changed_dependencies":stale,
+            "correspondence":context::appraisal_correspondence(db,&part.work,&part.persona,selected)?,
             "status":"refresh_appraisal","outputs_supplied":false}),
         );
     }
     view["selection"] = serde_json::to_value(selected)?;
+    view["correspondence"]=context::appraisal_correspondence(db,&part.work,&part.persona,selected)?;
     view["provenance"] = serde_json::to_value(context::appraisal_provenance(
         db,
         &part.work,

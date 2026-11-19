@@ -142,6 +142,8 @@ pub enum Command {
     VerifyAssessment { reference:String },
     /// Trace supplied reminders, full records, explicit applications and revisions through accepted decisions.
     QuestionHistory { reference: String },
+    /// Inspect the currently selected appraisal and incoming exchanges after its last selection.
+    AppraisalContext { work:String, persona:String },
     /// Controls: global/work:<id>/persona:<id> cancel active calls; admission drains them.
     Control {
         scope: String,
@@ -385,6 +387,10 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
                 Command::Find(query)=>store.snapshot(|db|super::discovery::find(db,&query)),
                 Command::Read{reference,start,end}=>context::read(&store.db,&reference,start,end),
                 Command::QuestionHistory{reference}=>store.snapshot(|db|super::question_history::inspect(db,&reference)),
+                Command::AppraisalContext{work,persona}=>store.snapshot(|db|{
+                    let part:Participation=serde_json::from_value(store::required(db,"participation",&format!("{work}/{persona}"))?.body)?;
+                    context::appraisal_context(db,&part)
+                }),
                 Command::VerifyAssessment{reference}=>store.snapshot(|db|super::assessment::verify(db,&store::exact(db,&reference)?)),
                 Command::ReplayInput{decision,resources}=>store.snapshot(|db|{
                     let original=super::experience::metadata(db,None,&decision)?;

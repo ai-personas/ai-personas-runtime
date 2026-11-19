@@ -60,6 +60,8 @@ Each active decision selects baseline, interprets known features of the situatio
 
 ## Reusing work and restoring a society
 
+Use `neural appraisal-context WORK_ID PERSONA_ID` to inspect the appraisal that would be available to a new decision. When the persona selected a contextual appraisal, the view identifies that decision’s exact input and the latest later exchange from each correspondent in the same activity. Incoming correspondence leaves the old calculation intact until the persona chooses a new appraisal. A changed versioned dependency makes the next input use baseline. The Studio can open the later exchanges from the appraisal inspector.
+
 Personas can list the operator-selected directory with `workspace.list` and import exact bytes with `asset.import`. A retained guide, skill or program may declare its own type and the exact resources it adapted. Searches expose metadata first. A subsequent read, requested text excerpt or explicit context selection supplies the content.
 
 An import with identical bytes to another current asset reports the existing registration count. When there is one match the receipt includes its name, exact version and qualifications. `neural catalog --same-content EXACT_REFERENCE --history` lists matching content registrations across revisions. Each asset keeps its own provenance and qualifications.
