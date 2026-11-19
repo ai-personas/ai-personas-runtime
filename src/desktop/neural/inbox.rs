@@ -311,9 +311,9 @@ impl App {
                     .desired_rows(3)
                     .desired_width(f32::INFINITY),
             );
-            ui.collapsing(
-                format!("Attach evidence  ·  {}", draft.attachments.len()),
-                |ui| {
+            egui::CollapsingHeader::new(format!("Attach evidence  ·  {}", draft.attachments.len()))
+                .id_salt(("human-response-attachments", reference))
+                .show(ui, |ui| {
                     ui.horizontal_wrapped(|ui| {
                         ui.add(
                             egui::TextEdit::singleline(&mut draft.path)
@@ -346,8 +346,7 @@ impl App {
                         });
                         keep
                     });
-                },
-            );
+                });
             ui.horizontal_wrapped(|ui| {
                 if b["state"] == "open" && ui.add(theme::primary("Take request")).clicked() {
                     response = Some(Response::Take);
