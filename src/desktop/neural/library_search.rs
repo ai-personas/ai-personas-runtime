@@ -82,6 +82,7 @@ impl Window {
                 offset,
                 page_size: 20,
                 case_sensitive: false,
+                excerpts: false,
                 before: self.nearby,
                 after: self.nearby,
             };

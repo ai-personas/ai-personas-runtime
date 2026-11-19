@@ -335,6 +335,37 @@ pub fn model(db: &rusqlite::Connection, persona: &Persona) -> Result<ModelPackag
     Ok(package)
 }
 
+/// A body that appears in the frozen input. Handles, catalog entries and read receipts
+/// alone do not establish that the provider received a resource's content.
+pub(super) struct SuppliedResource<'a> {
+    pub via: &'a str,
+    pub value: &'a Value,
+    pub shared_metadata: Option<&'a Value>,
+}
+
+pub(super) fn supplied_resources<'a>(data: &'a Value) -> Vec<SuppliedResource<'a>> {
+    let mut sources = Vec::new();
+    let mut add = |via: &'a str, value: &'a Value, shared_metadata: Option<&'a Value>| {
+        if value["reference"].is_string() && ["text", "record", "image_blob", "binary"].iter().any(|key| value.get(key).is_some()) {
+            sources.push(SuppliedResource { via, value, shared_metadata });
+        }
+    };
+    for selected in data["selected_resources"].as_array().into_iter().flatten() {
+        add("selection", selected, None);
+    }
+    for event in data["new_events"].as_array().into_iter().flatten() {
+        let Some(result) = event.get("supplied_result") else {continue};
+        let tool = event["body"]["tool"].as_str().unwrap_or("tool result");
+        add(tool, result, None);
+        if tool == "asset.find" {
+            for excerpt in result["supplied_excerpts"].as_array().into_iter().flatten() {
+                add(tool, excerpt, result.get("metadata"));
+            }
+        }
+    }
+    sources
+}
+
 pub fn read(
     db: &rusqlite::Connection,
     reference: &str,

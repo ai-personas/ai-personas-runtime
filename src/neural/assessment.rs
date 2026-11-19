@@ -275,35 +275,21 @@ pub(super) fn prepare(db: &Connection, actor: &str, probe: &Probe) -> Result<Inp
             .collect();
         let scenario = json!({"activity":brief["kind"],"original_need":brief["original_need"],"amendments":brief["amendments"],
             "incoming_exchanges":events});
-        let available = data["selected_resources"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .chain(
-                data["new_events"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|e| e.get("supplied_result")),
-            );
+        let available = context::supplied_resources(data);
         let mut resources = Vec::new();
         for r in &probe.references {
-            let supplied = available
-                .clone()
-                .filter(|v| {
-                    v["reference"] == *r
-                        && ["text", "record", "image_blob", "binary"]
-                            .iter()
-                            .any(|k| v.get(k).is_some())
-                })
-                .collect::<Vec<_>>();
+            let supplied = available.iter().filter(|source| source.value["reference"] == *r).collect::<Vec<_>>();
             if supplied.is_empty() {
                 return Err(failure(format!(
                     "{r} was not supplied as a resource body to the original decision"
                 )));
             }
             // Preserve all distinct excerpts when the same resource was read more than once.
-            for item in supplied {
+            for source in supplied {
+                let mut item = source.value.clone();
+                if let Some(metadata) = source.shared_metadata {
+                    item["metadata"] = metadata.clone();
+                }
                 if let Some(image) = item["image_blob"].as_str() {
                     if !snapshot
                         .image_blobs
@@ -315,8 +301,8 @@ pub(super) fn prepare(db: &Connection, actor: &str, probe: &Probe) -> Result<Inp
                         ));
                     }
                 }
-                if !resources.contains(item) {
-                    resources.push(item.clone());
+                if !resources.contains(&item) {
+                    resources.push(item);
                 }
             }
         }

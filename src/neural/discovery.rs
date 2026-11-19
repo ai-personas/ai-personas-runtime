@@ -45,7 +45,7 @@ pub struct Catalog {
 pub struct FindText {
     /// An exact asset revision or immutable object containing UTF-8 text.
     pub reference: String,
-    /// Literal string or regex to locate. Matching bodies are read separately.
+    /// Literal string or regular expression to locate.
     pub query: String,
     #[arg(long)]
     #[serde(default)]
@@ -54,6 +54,10 @@ pub struct FindText {
     #[arg(long)]
     #[serde(default)]
     pub case_sensitive: bool,
+    /// Return the selected source lines in this result, with overlapping text supplied once.
+    #[arg(long)]
+    #[serde(default)]
+    pub excerpts: bool,
     /// Include this many whole lines before or after a match in its selectable range.
     #[arg(long, default_value_t = 0)]
     #[serde(default)]
@@ -194,6 +198,7 @@ pub fn find(db: &Connection, search: &FindText) -> Result<Value> {
     let line_at = |at: usize| starts.partition_point(|start| *start <= at) - 1;
     let mut items = Vec::new();
     let mut total = 0usize;
+    let mut excerpts: Vec<(usize, usize)> = Vec::new();
     for hit in regex.find_iter(text) {
         if total >= search.offset && items.len() < search.page_size {
             let first = line_at(hit.start());
@@ -203,10 +208,21 @@ pub fn find(db: &Connection, search: &FindText) -> Result<Value> {
                 .get(last.saturating_add(search.after).saturating_add(1))
                 .copied()
                 .unwrap_or(bytes.len());
-            items.push(
-                json!({"match_bytes":[hit.start(),hit.end()],"match_lines":[first+1,last+1],
-                "selection":{"reference":search.reference,"start":start,"end":end}}),
-            );
+            let mut item = json!({"match_bytes":[hit.start(),hit.end()],"match_lines":[first+1,last+1],
+                "selection":{"reference":search.reference,"start":start,"end":end}});
+            if search.excerpts {
+                // Matches and their fixed line windows arrive in source order.
+                if let Some((_, prior_end)) = excerpts
+                    .last_mut()
+                    .filter(|(_, prior_end)| start <= *prior_end)
+                {
+                    *prior_end = (*prior_end).max(end);
+                } else {
+                    excerpts.push((start, end));
+                }
+                item["excerpt_index"] = json!(excerpts.len() - 1);
+            }
+            items.push(item);
         }
         total += 1;
     }
@@ -215,6 +231,16 @@ pub fn find(db: &Connection, search: &FindText) -> Result<Value> {
     report["scanned_text_bytes"] = json!(bytes.len());
     report["total"] = json!(total);
     report["next_offset"] = json!((next < total).then_some(next));
+    if search.excerpts {
+        report["body_supplied"] = json!(!excerpts.is_empty());
+        report["returned_text_bytes"] = json!(excerpts
+            .iter()
+            .map(|(start, end)| end - start)
+            .sum::<usize>());
+        report["supplied_excerpts"] = json!(excerpts.into_iter().map(|(start, end)| json!({
+            "reference": search.reference, "range":[start,end], "bytes": bytes.len(), "text": &text[start..end]
+        })).collect::<Vec<_>>());
+    }
     report["items"] = json!(items);
     Ok(report)
 }
