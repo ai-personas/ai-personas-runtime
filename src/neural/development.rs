@@ -385,12 +385,13 @@ pub(super) fn update(db: &Connection, snapshot: &Snapshot, update: Update) -> Re
         }
         let call=application.body["decision"].as_str().ok_or_else(||failure("Missing application decision"))?;
         let (event,boundary)=subsequent_event(db,snapshot,call,&note.outcome)?;
-        if event["work"]!=application.body["work"] || !(event["kind"]=="tool_result" && event["invocation"]==call
-            || event["actor"]!=snapshot.actor && matches!(event["kind"].as_str(),Some("user_message"|"user_acceptance"|"requirements_amended"|"message"))) {
-            return Err(failure("Use a received exchange from the application activity or a result of that choice"));
-        }
-        let work=event["work"].as_str().ok_or_else(||failure("Missing event activity"))?;
+        let work=application.body["work"].as_str().ok_or_else(||failure("Missing application activity"))?;
         let linked=experience::responses_to_call(db,&snapshot.actor,work,call)?.into_iter().find(|r|r["experience"]==note.outcome);
+        let ordinary = event["work"]==work && (event["kind"]=="tool_result" && event["invocation"]==call
+            || event["actor"]!=snapshot.actor && matches!(event["kind"].as_str(),Some("user_message"|"user_acceptance"|"requirements_amended"|"message")));
+        if !ordinary && !(event["kind"]=="asset_feedback" && linked.is_some()) {
+            return Err(failure("Use a result of this choice, a received exchange in its activity, or feedback linked to the exact asset or report"));
+        }
         let relation=linked.as_ref().and_then(|r|r["relation"].as_str()).unwrap_or(
             if event["kind"]=="tool_result" {"operation_result"} else {"later_in_activity"});
         let entry=json!({"observation":note,"question_applied":application.body["question"],"decision":call,
@@ -657,7 +658,7 @@ pub(super) fn index(db: &Connection, actor: &str) -> Result<Vec<Value>> {
             None
         };
         let feedback:Option<i64>=db.query_row("SELECT MAX(e.seq) FROM events e WHERE e.work=?1 AND e.seq>?2
-            AND e.kind IN ('user_message','user_acceptance','requirements_amended') AND (e.target=?3 OR (e.target='*'
+            AND e.kind IN ('user_message','user_acceptance','requirements_amended','asset_feedback') AND (e.target=?3 OR (e.target='*'
             AND EXISTS(SELECT 1 FROM events j WHERE j.work=e.work AND j.target=?3 AND j.kind='invitation' AND j.seq<=e.seq)))",
             params![record.body["origin_work"].as_str(),record.body["revisit_after_event"].as_i64().unwrap_or(0),actor],|r|r.get(0))?;
         let last=record.body["adoptions"].as_array().and_then(|a|a.last());

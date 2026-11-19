@@ -164,8 +164,8 @@ pub(super) fn check_reply(
     Ok(())
 }
 
-/// Only explicit replies and reviews of an exact delivered revision have a
-/// connected target. A later general message in the same work has no such link.
+/// Link addressed replies, exact delivery reviews and published feedback on
+/// an authored or delivered asset. A general later message has no such link.
 pub(super) fn responses_to_call(
     db: &Connection,
     actor: &str,
@@ -194,6 +194,8 @@ pub(super) fn responses_to_call(
         replies.push(json!({"experience":e.metadata()["reference"],"sequence":e.id.trim_start_matches("event-").parse::<i64>()?,"author":e.actor,"kind":e.kind,
             "relation":relation,"target":target}));
     }
+    replies.extend(super::asset_feedback::responses(db, actor, call)?);
+    replies.sort_by_key(|r|r["sequence"].as_i64());
     Ok(replies)
 }
 
@@ -208,11 +210,13 @@ pub(super) fn availability(db: &Connection, actor: &str, work: &str) -> Result<V
     let feedback = db
         .query_row(&sql, [actor, work], Experience::row)
         .optional()?;
-    Ok(
-        json!({"other_invited_tasks":tasks,"other_social_invitations":conversations,
+    let mut available = json!({"other_invited_tasks":tasks,"other_social_invitations":conversations,
         "latest_feedback_elsewhere":feedback.map(|r|r.metadata()),
-        "discovery":"experience.search finds your earlier choices and exchanges. Select an exact experience to inspect it. Other activities have their own briefs."}),
-    )
+        "discovery":"experience.search finds your earlier choices and exchanges. Select an exact experience to inspect it. Other activities have their own briefs."});
+    if let Some(report) = super::asset_feedback::latest_received(db, actor, work)? {
+        available["latest_resource_feedback_elsewhere"] = report;
+    }
+    Ok(available)
 }
 
 pub(super) fn read(db: &Connection, actor: Option<&str>, reference: &str) -> Result<Value> {
@@ -232,7 +236,7 @@ pub(super) fn read(db: &Connection, actor: Option<&str>, reference: &str) -> Res
             json!(store::head(db, "character_use", &item.id)?.map(|r| r.reference.handle()));
         let mut statement = db.prepare(
             "SELECT seq,kind,target FROM events WHERE work=?1 AND invocation=?2
-            AND kind IN ('reply','message','delivery') ORDER BY seq",
+            AND kind IN ('reply','message','delivery','asset_feedback') ORDER BY seq",
         )?;
         event["outgoing"] = json!(statement
             .query_map([&item.work, &item.id], |r| Ok(json!({

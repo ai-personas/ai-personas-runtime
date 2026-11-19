@@ -404,6 +404,8 @@ fn internal(
             let asset = save_asset(db,actor,call,&x.path,x.base.as_deref(),digest,&x.cues,&x.qualifications,x.resource.as_ref())?;
             Ok(json!({"reference":asset.handle(),"blob":digest,"bytes":size,"registered_from":x.reference}))
         }
+        "asset.feedback" => super::asset_feedback::publish(db, work, actor, Some(call), &decode(input)?),
+        "asset.feedback_history" => super::asset_feedback::history(db, &decode(input)?),
         "geometry.history" => super::geometry::history::lookup(db,&decode(input)?),
         "command.history" => super::commands::history(db,&decode(input)?),
         "persona.paths" => super::character_paths::inspect(db, Some(actor), &decode(input)?),
@@ -965,7 +967,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
         // Host commands may be read-only; explicit asset mutations must be acknowledged.
         maintenance(&decision.persona_maintenance,&decision.operations,tools::model_mutation,|name|matches!(name,"persona.evaluate"|"persona.assess"|"development.update"),switching)
             .map_err(|e|failure(format!("persona_maintenance: {e}")))?;
-        maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"image.read"|"image.render_svg"|"command.run"|"geometry.render"|"geometry.inspect_stl"|"work.outcome"|"result.deliver"),false)
+        maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"asset.feedback"|"image.read"|"image.render_svg"|"command.run"|"geometry.render"|"geometry.inspect_stl"|"work.outcome"|"result.deliver"),false)
             .map_err(|e|failure(format!("asset_maintenance: {e}")))?;
         super::development::record_applications(db,snapshot,&decision.examining)?;
         super::development::consider(db,snapshot,decision)?;

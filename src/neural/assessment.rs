@@ -465,7 +465,7 @@ fn encounter_exchanges(
                 && matches!(
                     event["kind"].as_str(),
                     Some(
-                        "user_acceptance"
+                        "asset_feedback" | "user_acceptance"
                             | "contribution_proposal"
                             | "invitation_response"
                             | "commitment_changed"

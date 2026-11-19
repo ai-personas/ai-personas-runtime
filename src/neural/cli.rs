@@ -160,6 +160,14 @@ pub enum Command {
         #[arg(long)]
         end: Option<usize>,
     },
+    /// Publish an operator observation on an exact shared asset revision in an activity.
+    AssetFeedback {
+        work: String,
+        #[command(flatten)]
+        feedback: super::asset_feedback::Feedback,
+    },
+    /// Read the reports and replies published on this exact shared asset revision.
+    AssetFeedbackHistory(super::asset_feedback::History),
     /// Inspect the frozen inputs available for a matched replay. No provider call.
     ReplayInput {
         /// The experience:call-ID@1 of an accepted ordinary decision.
@@ -297,7 +305,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
     if operator.trim().is_empty() { return Err(failure("An operator name is required for attribution")); }
     let mutation = matches!(&command, Command::Request { .. } | Command::Social { .. } | Command::AddPersona { .. }
         | Command::Invite { .. } | Command::Resume { .. } | Command::Message { .. } | Command::Amend { .. }
-        | Command::Accept { .. } | Command::Control { .. } | Command::Configure { .. }
+        | Command::AssetFeedback { .. } | Command::Accept { .. } | Command::Control { .. } | Command::Configure { .. }
         | Command::Dissolve { .. } | Command::Reopen { .. });
     if mutation {
         let mut store = Store::open(root)?;
@@ -427,6 +435,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
                 Command::Status=>store.status(),
                 Command::CommandHistory(query)=>store.snapshot(|db|super::commands::history(db,&query)),
                 Command::GeometryHistory{reference,offset,page_size}=>store.snapshot(|db|super::geometry::history::lookup(db,&super::geometry::history::Lookup{reference,offset,page_size})),
+                Command::AssetFeedbackHistory(query)=>store.snapshot(|db|super::asset_feedback::history(db,&query)),
                 Command::Catalog(query)=>store.snapshot(|db|super::discovery::catalog(db,&query)),
                 Command::Find(query)=>store.snapshot(|db|super::discovery::find(db,&query)),
                 Command::Read{reference,start,end}=>context::read(&store.db,&reference,start,end),
@@ -539,6 +548,7 @@ fn operator_action(db: &rusqlite::Connection, operator: &str, command: Command) 
         },
         Command::Dissolve{work,reason,expected}=>super::membership::change_activity(db,&work,operator,&reason,expected.as_deref(),false),
         Command::Reopen{work,reason,expected}=>super::membership::change_activity(db,&work,operator,&reason,expected.as_deref(),true),
+        Command::AssetFeedback{work,feedback}=>super::asset_feedback::publish(db,&work,operator,None,&feedback),
         Command::Accept{delivery,reject,reason}=>{
             if reason.trim().is_empty(){return Err(failure("Explain the delivery review"));}
             let record=store::exact(db,&delivery)?;
