@@ -1,5 +1,6 @@
 //! Activity-scoped observations, retained events, and human participation.
 use super::*;
+use ai_personas::neural::live::RunnerObservation;
 use std::collections::VecDeque;
 
 const PAGE: usize = 30;
@@ -169,6 +170,16 @@ impl Board {
         self.view = View::Live;
     }
 
+    pub(super) fn show_event(&mut self, work: &str, sequence: i64) {
+        self.show_activity(work);
+        self.pane = Pane::Timeline;
+        self.filter = Filter::All;
+        self.person.clear();
+        self.reset_filter();
+        self.paused_at = Some(sequence);
+        self.expanded = Some(sequence);
+    }
+
     pub(super) fn take_delivery_focus(&mut self) -> bool {
         self.work_focus
             .take_if(|focus| matches!(focus, WorkSection::Deliveries))
@@ -279,13 +290,14 @@ impl Board {
         self.indexed = events.len();
     }
 
-    fn observe(&mut self, calls: &[Value]) {
+    fn observe(&mut self, calls: &[Value], runner: &RunnerObservation) {
+        let observed = |call: &Value| {
+            call["work"] == self.scope && runner.has_worker(s(call, "work"), s(call, "actor"))
+        };
         self.traces.retain(|id, _| {
-            calls
-                .iter()
-                .any(|c| c["id"] == *id && c["work"] == self.scope)
+            calls.iter().any(|c| c["id"] == *id && observed(c))
         });
-        for call in calls.iter().filter(|c| c["work"] == self.scope) {
+        for call in calls.iter().filter(|c| observed(c)) {
             let (Some(at), Some(bytes)) =
                 (call["observed_at"].as_i64(), call["stream_bytes"].as_u64())
             else {
@@ -327,7 +339,7 @@ fn human_file_count(event: &Value) -> usize {
     }
 }
 
-fn age(seconds: i64) -> String {
+pub(super) fn age(seconds: i64) -> String {
     let seconds = seconds.max(0);
     match seconds {
         0..60 => format!("{seconds}s"),
@@ -344,16 +356,56 @@ fn has_recent_bytes(call: &Value, now: i64) -> bool {
             .is_some_and(|t| (0..=3).contains(&now.saturating_sub(t)))
 }
 
-pub(super) fn call_stage(call: &Value, now: i64) -> &'static str {
+pub(super) fn call_stage(call: &Value, now: i64, worker: bool) -> &'static str {
+    let initializing = call["stage"] == "initialization";
+    if call["state"] == "uncertain" {
+        return match s(call, "stage") {
+            "initialization" => "Initialization outcome unresolved",
+            "assessment" => "Assessment outcome unresolved",
+            "ordinary" => "Decision outcome unresolved",
+            _ => "Call outcome unresolved",
+        };
+    }
+    if !worker {
+        return match s(call, "state") {
+            "probe_prepared" => "Recorded assessment preparation",
+            "prepared" if initializing => "Recorded initialization preparation",
+            "prepared" => "Recorded decision preparation",
+            "probe_dispatched" => "Recorded assessment dispatch",
+            "dispatched" if initializing => "Recorded initialization dispatch",
+            "dispatched" => "Recorded decision dispatch",
+            "responded" if initializing => "Recorded initialization response",
+            "responded" => "Recorded response",
+            _ => "Recorded model call",
+        };
+    }
     match s(call, "state") {
+        "prepared" if initializing => "Initialization prepared",
         "prepared" => "Decision prepared",
         "probe_prepared" => "Assessment prepared",
+        "responded" if initializing => "Initialization response received",
         "responded" => "Response received",
         "probe_dispatched" if has_recent_bytes(call, now) => "Receiving assessment",
+        "dispatched" if initializing && has_recent_bytes(call, now) => "Receiving initialization",
         "dispatched" if has_recent_bytes(call, now) => "Receiving response",
         "probe_dispatched" => "Assessment dispatched",
+        "dispatched" if initializing => "Initialization dispatched",
         "dispatched" => "Decision dispatched",
         _ => "Model call",
+    }
+}
+
+pub(super) fn effect_stage(effect: &Value, worker: bool) -> &'static str {
+    match (s(effect, "state"), effect["job"].is_string(), worker) {
+        ("uncertain", true, _) => "Job outcome unresolved",
+        ("uncertain", false, _) => "Tool outcome unresolved",
+        ("dispatched", true, true) => "Background job running",
+        ("dispatched", false, true) => "Tool dispatched",
+        ("dispatched", true, false) => "Recorded running job",
+        ("dispatched", false, false) => "Recorded tool dispatch",
+        ("pending", true, _) => "Background job queued",
+        ("pending", false, _) => "Tool queued",
+        _ => "Tool status",
     }
 }
 
@@ -408,7 +460,7 @@ impl App {
         }
         let wide = ui.available_width() >= WIDE;
         let now = ai_personas::neural::now();
-        self.live_board.observe(&self.snapshot.active);
+        self.live_board.observe(&self.snapshot.active, &self.runner_observation);
         self.live_heading(ui, now);
         let people = self.live_people();
 
@@ -462,25 +514,30 @@ impl App {
         let following = self
             .following
             .as_ref()
-            .is_some_and(|(work, _)| *work == self.work);
-        let calls: Vec<_> = self
+            .is_some_and(|(work, _)| work.as_deref().is_none_or(|w| w == self.work));
+        let whole_workspace = self.following.as_ref().is_some_and(|(work, _)| work.is_none());
+        let runner_seen = matches!(&self.runner_observation, RunnerObservation::Observed { .. });
+        let worker = |record: &Value| self.runner_observation.has_worker(s(record, "work"), s(record, "actor"));
+        let (calls, retained): (Vec<_>, Vec<_>) = self
             .snapshot
             .active
             .iter()
             .filter(|c| c["work"] == self.work)
-            .collect();
+            .partition(|c| worker(c));
         let effects: Vec<_> = self
             .snapshot
             .active_effects
             .iter()
             .filter(|e| e["work"] == self.work)
             .collect();
-        let running = effects
+        let working: Vec<_> = effects
             .iter()
-            .filter(|e| e["state"] == "dispatched")
-            .count();
+            .filter(|e| e["state"] == "dispatched" && worker(e))
+            .collect();
+        let recorded_tools = effects.iter().filter(|e| e["state"] == "dispatched" && !worker(e)).count();
         let queued = effects.iter().filter(|e| e["state"] == "pending").count();
-        let uncertain = effects.iter().any(|e| e["state"] == "uncertain");
+        let uncertain = effects.iter().any(|e| e["state"] == "uncertain")
+            || self.snapshot.uncertain_calls.iter().any(|c| c["work"] == self.work);
         let blocked = self.records("controls").iter().find(|control| {
             let scope = s(control, "scope");
             control["state"] != "running"
@@ -506,23 +563,26 @@ impl App {
                     format!(
                         "{} · {}",
                         self.label(s(call, "actor")),
-                        call_stage(call, now)
+                        call_stage(call, now, true)
                     )
                 } else {
                     format!("{} model calls", calls.len())
                 },
                 p.ink(TEAL),
             )
-        } else if running > 0 {
+        } else if let Some(effect) = working.first() {
             (
-                format!(
-                    "{running} {} running",
-                    if running == 1 { "tool" } else { "tools" }
-                ),
+                if working.len() == 1 { effect_stage(effect, true).to_owned() }
+                else { format!("{} tools dispatched", working.len()) },
                 p.ink(TEAL),
             )
         } else if uncertain {
-            ("Tool outcome uncertain".into(), p.ink(theme::ACCENT))
+            ("Unresolved outcome".into(), p.ink(theme::ACCENT))
+        } else if !retained.is_empty() {
+            (if retained.len() == 1 { call_stage(retained[0], now, false).into() }
+                else { format!("{} recorded model calls", retained.len()) }, p.muted)
+        } else if recorded_tools > 0 {
+            (counted(recorded_tools as u64, "recorded tool dispatch", "recorded tool dispatches"), p.muted)
         } else if queued > 0 {
             (
                 format!(
@@ -535,7 +595,7 @@ impl App {
             ("Activity ended".into(), p.muted)
         } else if let Some((control, _)) = &blocked {
             (format!("Scheduling {control}"), p.ink(theme::ACCENT))
-        } else if following {
+        } else if following && runner_seen {
             ("Listening for activity".into(), p.ink(TEAL))
         } else {
             ("No calls in progress".into(), p.muted)
@@ -553,15 +613,15 @@ impl App {
             self.live_shortcuts(ui);
             if following {
                 if ui
-                    .small_button("Finish run")
-                    .on_hover_text("Let the current decisions finish and stop listening")
+                    .small_button(if whole_workspace { "Finish workspace run" } else { "Finish run" })
+                    .on_hover_text("Finish admitted work and release the current listener")
                     .clicked()
                 {
                     self.finish_following();
                 }
-            } else if !ended && blocked.is_none() && !self.running && self.snapshot.active.is_empty() && running == 0 {
+            } else if !ended && blocked.is_none() && !self.running && !runner_seen {
                 if ui
-                    .add_enabled(!self.busy, egui::Button::new("Run activity").small())
+                    .add_enabled(self.can_start_run(), egui::Button::new("Run activity").small())
                     .clicked()
                 {
                     self.follow_activity(ui.ctx());
@@ -674,18 +734,14 @@ impl App {
             .active
             .iter()
             .chain(&self.snapshot.active_effects)
+            .chain(&self.snapshot.uncertain_calls)
             .filter(|a| a["work"] == self.work)
         {
             people.insert(s(item, "actor").into());
         }
         let mut people: Vec<_> = people.into_iter().collect();
         people.sort_by_cached_key(|id| {
-            let active = self
-                .snapshot
-                .active
-                .iter()
-                .chain(&self.snapshot.active_effects)
-                .any(|o| o["work"] == self.work && o["actor"] == *id);
+            let active = self.runner_observation.has_worker(&self.work, id);
             (!active, self.label(id).to_lowercase())
         });
         people
@@ -777,15 +833,17 @@ impl App {
             .filter(|e| e["work"] == self.work && e["actor"] == person);
         let mut occupied = false;
         let mut open = None;
+        let worker = self.runner_observation.has_worker(&self.work, person);
         for call in calls {
             occupied = true;
+            let color = if worker { p.ink(TEAL) } else { p.muted };
             ui.horizontal_wrapped(|ui| {
-                dot(ui, p.ink(TEAL));
+                dot(ui, color);
                 ui.label(
-                    RichText::new(call_stage(call, now))
+                    RichText::new(call_stage(call, now, worker))
                         .size(13.)
                         .strong()
-                        .color(p.ink(TEAL)),
+                        .color(color),
                 );
                 if let Some(at) = call["created"].as_i64() {
                     ui.label(
@@ -805,21 +863,29 @@ impl App {
                 } else {
                     format!("{} ago", age(elapsed))
                 };
-                small_text(ui, format!("{} B received · {when}", number(bytes)));
-                if let Some(samples) = self.live_board.traces.get(s(call, "id")) {
-                    draw_trace(ui, samples, p.ink(TEAL));
+                small_text(ui, format!("{} B received · last observed {when}", number(bytes)));
+                if worker {
+                    if let Some(samples) = self.live_board.traces.get(s(call, "id")) {
+                        draw_trace(ui, samples, p.ink(TEAL));
+                    }
                 }
             } else if matches!(s(call, "state"), "dispatched" | "probe_dispatched") {
-                small_text(ui, "No response bytes observed yet");
+                small_text(ui, "No response bytes observed");
             }
+        }
+        for call in self.snapshot.uncertain_calls.iter()
+            .filter(|c| c["work"] == self.work && c["actor"] == person) {
+            occupied = true;
+            ui.label(RichText::new(call_stage(call, now, false)).small().color(p.ink(theme::ACCENT)))
+                .on_hover_text(s(call, "id"));
         }
         for effect in effects {
             occupied = true;
-            let (state, color) = match s(effect, "state") {
-                "dispatched" => ("Tool running", p.ink(TEAL)),
-                "pending" => ("Tool queued", p.muted),
-                "uncertain" => ("Outcome uncertain", p.ink(theme::ACCENT)),
-                _ => ("Tool status", p.muted),
+            let state = effect_stage(effect, worker);
+            let color = match s(effect, "state") {
+                "dispatched" if worker => p.ink(TEAL),
+                "uncertain" => p.ink(theme::ACCENT),
+                _ => p.muted,
             };
             ui.horizontal_wrapped(|ui| {
                 dot(ui, color);
@@ -846,6 +912,10 @@ impl App {
             if !effect["cancellation"].is_null() {
                 small_text(ui, "Cancellation requested");
             }
+        }
+        if worker && !occupied {
+            occupied = true;
+            theme::badge(ui, "Admitted by runner", TEAL);
         }
         if let Some(reference) = open {
             self.open_resource(ui.ctx(), reference);

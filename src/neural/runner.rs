@@ -165,6 +165,9 @@ pub async fn invoke(
     let cancellation = provider::Cancellation::default();
     let mut progress = super::live::Publisher::new(root, &call_id);
     let pending = prepared.dispatch(cancellation.clone());
+    eprintln!("{}", json!({"event": if probe { "assessment_dispatched" } else { "decision_dispatched" },
+        "actor": actor, "work": work, "invocation": call_id, "model": intent.model,
+        "effort": intent.effort, "prompt_bytes": audit.prompt_bytes}));
     tokio::pin!(pending);
     let response = loop {
         tokio::select! {

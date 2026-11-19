@@ -29,28 +29,46 @@ impl App {
                             .extra_letter_spacing(2.),
                     );
                     ui.label(RichText::new("STUDIO").size(11.).color(p.muted));
-                    ui.add_space(20.);
+                    let compact = ctx.content_rect().width() < 970.;
+                    if !compact { ui.add_space(16.); }
                     let waiting = self.open_human_requests(None);
                     let inbox_label = if waiting == 0 {"Needs you".to_string()} else {format!("Needs you · {waiting}")};
-                    for (editor, label) in [
-                        (Editor::Studio, "Workspace"),
+                    let pages = [
+                        (Editor::Home, "Overview"),
+                        (Editor::Studio, "Activity"),
                         (Editor::People, "Personas"),
                         (Editor::Inbox, inbox_label.as_str()),
                         (Editor::Conversations, "Conversations"),
                         (Editor::Artifacts, "Artifacts"),
                         (Editor::Character, "Character Lab"),
                         (Editor::Usage, "Usage"),
-                    ] {
-                        if ui
-                            .add(
-                                egui::Button::new(label)
-                                    .selected(self.layout.editor == editor || (editor==Editor::Studio && self.layout.editor==Editor::Responsibilities))
-                                    .frame(self.layout.editor == editor),
-                            )
-                            .clicked()
-                        {
-                            self.layout.editor = editor;
-                            if editor==Editor::Inbox{self.inbox.list();}
+                    ];
+                    let active = match self.layout.editor {
+                        Editor::Responsibilities | Editor::Delivery => Editor::Studio,
+                        other => other,
+                    };
+                    if compact {
+                        let current = pages.iter().find(|(page,_)| *page == active).unwrap().1;
+                        ui.menu_button(current, |ui| {
+                            for (page, name) in pages {
+                                if ui.selectable_label(active == page, name).clicked() {
+                                    self.layout.editor = page;
+                                    if page == Editor::Inbox { self.inbox.list(); }
+                                    ui.close();
+                                }
+                            }
+                        });
+                        if waiting > 0 && active != Editor::Inbox && ctx.content_rect().width() > 450.
+                            && ui.button(&inbox_label).clicked() {
+                            self.layout.editor = Editor::Inbox;
+                            self.inbox.list();
+                        }
+                    } else {
+                        for (editor, label) in pages {
+                            if ui.add(egui::Button::new(label).selected(active == editor).frame(active == editor)).clicked() {
+                                self.layout.editor = editor;
+                                if editor == Editor::Inbox { self.inbox.list(); }
+                            }
                         }
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -72,6 +90,8 @@ impl App {
                     });
                 });
             });
+        if self.layout.editor == Editor::Home && self.error.is_none() && self.notice.is_empty()
+            && !self.records("controls").iter().any(|c| c["state"] != "running" && !s(c, "scope").starts_with("job:")) { return; }
         egui::TopBottomPanel::top("studio-context")
             .frame(
                 egui::Frame::new()
@@ -79,35 +99,13 @@ impl App {
                     .inner_margin(egui::Margin::symmetric(14, 6)),
             )
             .show(ctx, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    theme::glyph(ui, Icon::Task, p.muted);
-                    ui.add(
-                        egui::Label::new(RichText::new(excerpt(self.task_title(), 65)).strong())
-                            .truncate(),
-                    );
-                    let ended = self.records("work").iter().any(|r| r["body"]["id"]==self.work && r["body"]["phase"]=="dissolved");
-                    if ended { theme::badge(ui,"Activity ended",theme::ACCENT); }
-                    let active = self.snapshot.active.iter().filter(|call| call["work"] == self.work).count();
-                    if active > 0 {
-                        theme::badge(ui, &format!("{active} {}", if active == 1 { "model call" } else { "model calls" }), TEAL);
-                    }
-                    let tools = self
-                        .snapshot
-                        .active_effects
-                        .iter()
-                        .filter(|e| e["work"] == self.work && e["state"] == "dispatched")
-                        .count();
-                    if tools > 0 {
-                        let label = if tools == 1 {
-                            "1 tool running".to_owned()
-                        } else {
-                            format!("{tools} tools running")
-                        };
-                        theme::badge(ui, &label, theme::ACCENT);
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if self.layout.editor != Editor::Home {
+                    let ended = self.home_index.activity(&self.work).is_some_and(|a| a.phase == "dissolved");
+                    let compact = ui.available_width() < 720.;
+                    if compact { ui.horizontal(|ui| self.context_title(ui, ended)); }
+                    ui.horizontal(|ui| ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.menu_button("Run controls", |ui| {
-                            if self.following.is_some() && ui.button("Finish current run").clicked(){self.finish_following();ui.close();}
+                            self.finish_run_button(ui);
                             if self.records("controls").iter().any(|c| c["scope"]=="admission" && c["state"]!="running")
                                 && ui.add_enabled(!self.busy, egui::Button::new("Enable new calls")).clicked() {
                                 self.command(ctx, Command::Control {scope:"admission".into(),state:"running".into(),
@@ -128,14 +126,14 @@ impl App {
                                 );
                                 ui.close();
                             }
-                            if !self.work.is_empty() && ui.add_enabled(!self.running && !self.busy && self.snapshot.active.is_empty(),
+                            if !self.work.is_empty() && ui.add_enabled(self.can_start_run(),
                                 egui::Button::new("Run once until waiting")).clicked(){
                                 self.command(ctx,Command::Run{watch:false,work:None,persona:None,from_activity:Some(self.work.clone())});
                                 ui.close();
                             }
                             if ui
                                 .add_enabled(
-                                    !self.running && !self.busy && self.snapshot.active.is_empty(),
+                                    self.can_start_run(),
                                     egui::Button::new("Continue all eligible work"),
                                 )
                                 .clicked()
@@ -198,11 +196,16 @@ impl App {
                                 self.inspector_window = !self.inspector_window;
                             }
                         }
-                        if theme::icon_button(ui, Icon::Folder, "Toggle outliner").clicked() {
-                            self.layout.outliner = !self.layout.outliner;
+                        if theme::icon_button(ui, Icon::Folder, "Workspace browser").clicked() {
+                            if ctx.content_rect().width() < COMPACT_BROWSER_WIDTH {
+                                self.compact_browser = !self.compact_browser;
+                            } else { self.layout.outliner = !self.layout.outliner; }
                         }
-                    });
-                });
+                        if !compact {
+                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| self.context_title(ui, ended));
+                        }
+                    }));
+                }
                 for control in self
                     .records("controls")
                     .iter()
@@ -236,6 +239,17 @@ impl App {
                 }
             });
     }
+    fn context_title(&self, ui: &mut Ui, ended: bool) {
+        let p = theme::palette(ui);
+        theme::glyph(ui, Icon::Task, p.muted);
+        if ended { theme::badge(ui, "Activity ended", theme::ACCENT); }
+        let worker = |e: &Value| e["work"] == self.work && self.runner_observation.has_worker(&self.work,s(e,"actor"));
+        let calls = self.snapshot.active.iter().filter(|e| worker(e)).count() as u64;
+        let tools = self.snapshot.active_effects.iter().filter(|e| e["state"] == "dispatched" && worker(e)).count() as u64;
+        if calls > 0 { theme::badge(ui, &counted(calls,"model call","model calls"), TEAL); }
+        if tools > 0 { theme::badge(ui, &counted(tools,"tool running","tools running"), theme::ACCENT); }
+        ui.add(egui::Label::new(RichText::new(self.task_title()).strong()).truncate()).on_hover_text(self.task_title());
+    }
     pub(super) fn status_bar(&mut self, ctx: &egui::Context) {
         let p = theme::Palette::new(self.layout.dark);
         egui::TopBottomPanel::bottom("studio-status")
@@ -251,41 +265,16 @@ impl App {
                     ui.painter().circle_filled(
                         rect.center(),
                         3.,
-                        if self.snapshot.active.is_empty()
-                            && !self
-                                .snapshot
-                                .active_effects
-                                .iter()
-                                .any(|e| e["state"] == "dispatched")
-                        {
-                            p.muted
-                        } else {
-                            TEAL
-                        },
+                        if matches!(&self.runner_observation, ai_personas::neural::live::RunnerObservation::Observed { workers, .. } if !workers.is_empty()) { TEAL } else { p.muted },
                     );
-                    ui.small(if self.closing {
-                        "Waiting for owned work to settle"
-                    } else if self.following.is_some() {
-                        "Following activity"
-                    } else if self.snapshot.status.is_null() {
-                        "Loading workspace…"
-                    } else if self.snapshot.active.is_empty()
-                        && !self
-                            .snapshot
-                            .active_effects
-                            .iter()
-                            .any(|e| e["state"] == "dispatched")
-                    {
-                        "Workspace connected"
-                    } else {
-                        "Live workspace"
-                    });
+                    let status = self.runner_status_text();
+                    ui.add(egui::Label::new(RichText::new(excerpt(&status,48)).small()).truncate()).on_hover_text(status);
                     ui.separator();
                     let accepted = self.snapshot.status["invocations"]["accepted"].as_u64().unwrap_or(0);
                     ui.small(counted(accepted, "accepted decision", "accepted decisions"));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
-                            .selectable_label(self.layout.activity, "Activity")
+                            .selectable_label(self.layout.activity, "Event log")
                             .clicked()
                         {
                             self.layout.activity = !self.layout.activity;
@@ -300,36 +289,30 @@ impl App {
     }
     pub(super) fn outliner(&mut self, ctx: &egui::Context) {
         let p = theme::Palette::new(self.layout.dark);
-        let panel = egui::SidePanel::left("studio-outliner")
-            .resizable(true)
-            .default_width(self.layout.left_width)
-            .width_range(170.0..=360.0)
-            .frame(egui::Frame::new().fill(p.panel).inner_margin(12))
-            .show(ctx, |ui| {
-                eyebrow(ui, "Workspace browser");
-                ui.add_space(12.);
+        let compact = ctx.content_rect().width() < COMPACT_BROWSER_WIDTH;
+        let left_width = self.layout.left_width;
+        let contents = |ui: &mut Ui| {
+                if !compact { eyebrow(ui, "Workspace browser"); ui.add_space(12.); }
                 egui::ScrollArea::vertical()
                     .id_salt("outliner-scroll")
                     .show(ui, |ui| {
                         section(ui, "Activities", &self.records("work").len().to_string());
                         ui.add(egui::TextEdit::singleline(&mut self.activity_filter_text).hint_text("Find an activity…").desired_width(f32::INFINITY));
                         let query=self.activity_filter_text.to_lowercase();
-                        let mut tasks:Vec<_>=self.records("work").iter().filter(|t|activity_title(&t["body"]).to_lowercase().contains(&query)).cloned().collect();
-                        let order:BTreeMap<_,_>=self.events.iter().filter_map(|e|Some((e["work"].as_str()?,e["event"].as_i64()?))).collect();
-                        tasks.sort_by_key(|t|std::cmp::Reverse(order.get(s(&t["body"],"id")).copied()));
+                        let mut selected = None;
                         egui::ScrollArea::vertical().id_salt("browser-activities").max_height(176.).auto_shrink([false,true]).show(ui,|ui|{
-                            for task in tasks {
-                                let b=&task["body"];let id=s(b,"id");
-                                if ui.add_sized([ui.available_width(),28.],egui::Button::new(excerpt(activity_title(b),36)).selected(id==self.work).truncate())
-                                    .on_hover_text(activity_title(b)).clicked() {
-                                    self.work=id.into();self.conversation_page=0;
-                                    if self.layout.editor==Editor::Inbox{self.layout.editor=Editor::Studio;}
-                                    if self.participation(&self.persona).is_null(){
-                                        if let Some(p)=self.records("participation").iter().find(|r|r["body"]["work"]==id){self.persona=s(&p["body"],"persona").into();}
-                                    }
+                            for activity in self.home_index.activities.iter().filter(|a|query.is_empty() || a.title.to_lowercase().contains(&query)) {
+                                if ui.add_sized([ui.available_width(),28.],egui::Button::new(excerpt(&activity.title,36)).selected(activity.id==self.work).truncate())
+                                    .on_hover_text(&activity.title).clicked() {
+                                    selected = Some(activity.id.clone());
                                 }
                             }
                         });
+                        if let Some(id) = selected {
+                            self.compact_browser = false;
+                            if matches!(self.layout.editor, Editor::Inbox | Editor::Delivery | Editor::Responsibilities) { self.open_home_activity(&id); }
+                            else { self.select_activity(&id); }
+                        }
                         if self.records("work").is_empty() {
                             ui.weak("Create a task to begin.");
                         }
@@ -398,6 +381,7 @@ impl App {
                             self.layout.editor = Editor::Artifacts;
                             self.artifact_mode = 0;
                             self.artifact_scope = 0;
+                            self.compact_browser = false;
                         }
                         if ui
                             .add_sized(
@@ -416,6 +400,7 @@ impl App {
                             self.layout.editor = Editor::Artifacts;
                             self.artifact_mode = 0;
                             self.artifact_scope = 1;
+                            self.compact_browser = false;
                         }
                         if ui
                             .add_sized(
@@ -427,6 +412,7 @@ impl App {
                             self.layout.editor = Editor::Artifacts;
                             self.artifact_mode = 1;
                             self.files.workspace_mode();
+                            self.compact_browser = false;
                         }
                         ui.add_space(20.);
                         ui.separator();
@@ -447,8 +433,19 @@ impl App {
                             ctx.copy_text(self.root.display().to_string());
                         }
                     });
-            });
-        self.layout.left_width = panel.response.rect.width();
+        };
+        if compact {
+            let mut open = true;
+            egui::Window::new("Workspace browser").id(egui::Id::new("compact-workspace-browser"))
+                .open(&mut open).default_width(260.).default_height(400.).collapsible(false)
+                .show(ctx, contents);
+            self.compact_browser &= open;
+        } else {
+            let panel = egui::SidePanel::left("studio-outliner").resizable(true)
+                .default_width(left_width).width_range(170.0..=360.0)
+                .frame(egui::Frame::new().fill(p.panel).inner_margin(12)).show(ctx, contents);
+            self.layout.left_width = panel.response.rect.width();
+        }
     }
     pub(super) fn persona_state(&self, id: &str) -> String {
         self.persona_state_in(id, &self.work)
@@ -456,7 +453,7 @@ impl App {
 
     pub(super) fn persona_state_in(&self, id: &str, work: &str) -> String {
         if let Some(active) = self.snapshot.active.iter().find(|a| a["actor"] == id && a["work"] == work) {
-            return live_board::call_stage(active, ai_personas::neural::now()).into();
+            return live_board::call_stage(active, ai_personas::neural::now(), self.runner_observation.has_worker(work,id)).into();
         }
         if let Some(effect) = self
             .snapshot
@@ -465,12 +462,7 @@ impl App {
             .filter(|e| e["actor"] == id && e["work"] == work)
             .min_by_key(|e| match s(e, "state") { "dispatched" => 0, "uncertain" => 1, _ => 2 })
         {
-            return match s(effect, "state") {
-                "uncertain" => "Tool outcome uncertain",
-                "pending" => "Tool queued",
-                _ => "Tool run in progress",
-            }
-            .into();
+            return live_board::effect_stage(effect,self.runner_observation.has_worker(work,id)).into();
         }
         let participation = self.records("participation").iter()
             .map(|r| &r["body"]).find(|p| p["persona"] == id && p["work"] == work);
@@ -482,10 +474,10 @@ impl App {
             if p["departure"].is_string() { return "Left this activity".into(); }
             if p["declined"] == true { return "Declined invitation".into(); }
         }
-        if self.snapshot.active.iter().any(|a| a["actor"] == id) {
+        if self.snapshot.active.iter().any(|a| a["actor"] == id && self.runner_observation.has_worker(s(a,"work"),id)) {
             return "Model call on another activity".into();
         }
-        if self.snapshot.active_effects.iter().any(|e| e["actor"] == id && e["state"] == "dispatched") {
+        if self.snapshot.active_effects.iter().any(|e| e["actor"] == id && e["state"] == "dispatched" && self.runner_observation.has_worker(s(e,"work"),id)) {
             return "Running a tool on another activity".into();
         }
         let Some(p) = participation else { return "No task participation".into(); };
@@ -508,7 +500,7 @@ impl App {
         }
         match s(&p["continuation"], "kind") {
             "ready" => "Ready to continue",
-            "wait" | "waiting" => "Waiting",
+            "wait" | "waiting" => "Chose to wait",
             "stop" | "stopped" => "Stopped on this task",
             _ => "Participating",
         }

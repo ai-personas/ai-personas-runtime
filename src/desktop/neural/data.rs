@@ -32,6 +32,7 @@ pub(super) struct Snapshot {
     pub assessments: Vec<Value>,
     pub character_decisions: Vec<Value>,
     pub active: Vec<Value>,
+    pub uncertain_calls: Vec<Value>,
     pub inference_recovery: BTreeMap<String, Value>,
     pub active_effects: Vec<Value>,
     pub directory: PathBuf,
@@ -53,6 +54,7 @@ pub(super) struct Monitor {
 }
 
 pub(super) struct Refresh {
+    pub runner: neural::live::RunnerObservation,
     pub snapshot: Option<Snapshot>,
     pub streams: BTreeMap<String, neural::live::Progress>,
 }
@@ -85,7 +87,8 @@ impl Monitor {
                 let id = c["id"].as_str()?;
                 Some((id.to_owned(), neural::live::read(root, id)?))
             }).collect();
-        Ok(Refresh { snapshot, streams })
+        let runner = neural::live::observe_runner(root, self.connection.as_ref().unwrap());
+        Ok(Refresh { snapshot, streams, runner })
     }
 }
 
@@ -298,8 +301,22 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
             "operations":operations,
         }));
     }
-    let mut q=db.prepare("SELECT id,actor,work,state,created FROM invocations WHERE state IN ('prepared','dispatched','responded','probe_prepared','probe_dispatched') ORDER BY created,rowid")?;
-    let active=q.query_map([],|r|Ok(json!({"id":r.get::<_,String>(0)?,"actor":r.get::<_,String>(1)?,"work":r.get::<_,String>(2)?,"state":r.get::<_,String>(3)?,"created":r.get::<_,i64>(4)?})))?.collect::<Result<Vec<_>,_>>()?;
+    let mut q = db.prepare("SELECT i.id,i.actor,i.work,i.state,i.created,i.updated,
+        CASE WHEN i.state LIKE 'probe_%' OR json_type(CAST(o.bytes AS TEXT),'$.source_invocation')='text' THEN 'assessment'
+             WHEN json_type(CAST(o.bytes AS TEXT),'$.model')='text' THEN 'ordinary'
+             WHEN json_type(CAST(o.bytes AS TEXT),'$.model')='null' THEN 'initialization' ELSE 'unknown' END
+        FROM invocations i JOIN objects o ON o.digest=i.snapshot
+        WHERE i.state IN ('prepared','dispatched','responded','probe_prepared','probe_dispatched','uncertain')
+        ORDER BY i.created,i.rowid")?;
+    let calls = q.query_map([], |r| Ok(json!({"id":r.get::<_,String>(0)?, "actor":r.get::<_,String>(1)?,
+        "work":r.get::<_,String>(2)?, "state":r.get::<_,String>(3)?, "created":r.get::<_,i64>(4)?,
+        "updated":r.get::<_,i64>(5)?, "stage":r.get::<_,String>(6)?})))?;
+    let mut active = Vec::new();
+    let mut uncertain_calls = Vec::new();
+    for call in calls {
+        let call = call?;
+        if call["state"] == "uncertain" { uncertain_calls.push(call); } else { active.push(call); }
+    }
     let mut q = db.prepare(
         "SELECT id,actor,work,state,operation FROM outbox WHERE state IN ('pending','dispatched','uncertain') ORDER BY rowid",
     )?;
@@ -346,6 +363,7 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
         assessments,
         character_decisions,
         active,
+        uncertain_calls,
         inference_recovery,
         active_effects,
         directory,

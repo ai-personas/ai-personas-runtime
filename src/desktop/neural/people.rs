@@ -11,6 +11,7 @@ pub(super) enum ProfileView {
 
 impl App {
     pub(super) fn show_person(&mut self, id: &str) {
+        self.compact_browser = false;
         if self.layout.editor != Editor::People {
             self.profile_view = ProfileView::Overview;
         }

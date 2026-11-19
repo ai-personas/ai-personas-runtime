@@ -74,7 +74,7 @@ impl App {
             .snapshot
             .active
             .iter()
-            .filter(|c| c["work"] == self.work)
+            .filter(|c| c["work"] == self.work && self.runner_observation.has_worker(&self.work,s(c,"actor")))
             .count();
         let ended = record["body"]["phase"] == "dissolved";
         let focus_files = self.live_board.take_files_focus();
@@ -120,10 +120,10 @@ impl App {
                 }
                 ui.add_space(9.);
                 ui.horizontal_wrapped(|ui| {
-                    if self.following.as_ref().is_some_and(|(work,_)|work==&self.work) {
-                        theme::badge(ui,"Following this activity",TEAL);
-                        if ui.button("Finish run").on_hover_text("Finish current decisions and stop listening for new arrivals").clicked(){self.finish_following();}
-                    } else if ui.add_enabled(!ended && !self.running && !self.busy && self.snapshot.active.is_empty(),theme::primary("Run activity"))
+                    if self.running || matches!(self.runner_observation,ai_personas::neural::live::RunnerObservation::Observed { .. }) {
+                        ui.label(self.runner_status_text());
+                        self.finish_run_button(ui);
+                    } else if ui.add_enabled(!ended && self.can_start_run(),theme::primary("Run activity"))
                         .on_hover_text("Run this activity and its requests. Keep listening for the events each persona chose while Studio is open.").clicked(){
                         self.follow_activity(ui.ctx());
                     }
@@ -325,10 +325,9 @@ impl App {
     }
 
     pub(super) fn delivered_packages(&self, include: impl Fn(&Value) -> bool) -> Vec<Value> {
-        let mut packages: Vec<_> = self.records("deliveries").iter()
-            .filter(|d| include(&d["body"])).cloned().collect();
-        packages.sort_by_cached_key(|d| std::cmp::Reverse(self.delivery_order.get(&inbox::handle(d)).copied()));
-        packages
+        let packages = self.records("deliveries");
+        self.home_index.deliveries.iter().filter_map(|i| packages.get(*i))
+            .filter(|d| include(&d["body"])).cloned().collect()
     }
 
     pub(super) fn delivery_card(&mut self, ui: &mut Ui, d: &Value) {
@@ -378,8 +377,8 @@ impl App {
                 if !gaps.is_empty() {
                     contents.push_str(&format!("  ·  {} remaining {}", gaps.len(), if gaps.len() == 1 { "item" } else { "items" }));
                 }
-                ui.collapsing(
-                    contents,
+                egui::CollapsingHeader::new(contents)
+                    .default_open(self.layout.editor == Editor::Delivery).show(ui,
                     |ui| {
                         self.attachment_links(ui, &b["artifacts"]);
                         for gap in gaps.iter().filter_map(Value::as_str) {

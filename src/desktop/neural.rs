@@ -23,6 +23,11 @@ mod revision_uses;
 mod comparisons;
 mod explorer;
 mod data;
+mod home;
+mod home_index;
+mod home_live;
+mod home_navigation;
+mod home_updates;
 mod dialogs;
 mod export;
 mod life;
@@ -49,10 +54,13 @@ mod command_bench;
 
 const TEAL: Color32 = Color32::from_rgb(103, 198, 185);
 const PURPLE: Color32 = Color32::from_rgb(172, 150, 221);
+const COMPACT_BROWSER_WIDTH: f32 = 820.;
 #[derive(Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 enum Editor {
     #[default]
+    Home,
     Studio,
+    Delivery,
     People,
     Inbox,
     Responsibilities,
@@ -65,6 +73,7 @@ enum Editor {
 #[serde(default)]
 struct Layout {
     editor: Editor,
+    delivery: String,
     outliner: bool,
     inspector: bool,
     activity: bool,
@@ -77,7 +86,8 @@ struct Layout {
 impl Default for Layout {
     fn default() -> Self {
         Self {
-            editor: Editor::Studio,
+            editor: Editor::Home,
+            delivery: String::new(),
             outliner: true,
             inspector: false,
             activity: false,
@@ -107,7 +117,10 @@ pub struct App {
     events: Vec<Value>,
     program_runs: BTreeMap<String, Vec<usize>>,
     model_renders: BTreeMap<String, Vec<usize>>,
-    delivery_order: BTreeMap<String, i64>,
+    home_index: home_index::Index,
+    home: home::Home,
+    home_updates: home_updates::Updates,
+    runner_observation: ai_personas::neural::live::RunnerObservation,
     character_decisions: Vec<Value>,
     known_decisions: Arc<BTreeSet<String>>,
     cursor: i64,
@@ -117,7 +130,7 @@ pub struct App {
     monitor: data::Monitor,
     last_poll: Instant,
     running: bool,
-    following: Option<(String, Arc<std::sync::atomic::AtomicBool>)>,
+    following: Option<(Option<String>, Arc<std::sync::atomic::AtomicBool>)>,
     busy: bool,
     closing: bool,
     error: Option<String>,
@@ -175,6 +188,7 @@ pub struct App {
     parameter_filter: String,
     tensor_filter: String,
     inspector_window: bool,
+    compact_browser: bool,
     export_dialog: Option<export::Dialog>,
     export_generation: u64,
 }
@@ -205,7 +219,10 @@ impl App {
             events: vec![],
             program_runs: BTreeMap::new(),
             model_renders: BTreeMap::new(),
-            delivery_order: BTreeMap::new(),
+            home_index: Default::default(),
+            home: Default::default(),
+            home_updates: Default::default(),
+            runner_observation: Default::default(),
             character_decisions: vec![],
             known_decisions: Default::default(),
             cursor: 0,
@@ -273,6 +290,7 @@ impl App {
             parameter_filter: String::new(),
             tensor_filter: String::new(),
             inspector_window: false,
+            compact_browser: false,
             export_dialog: None,
             export_generation: 0,
         }
@@ -294,15 +312,24 @@ impl App {
         });
     }
     fn follow_activity(&mut self, ctx: &egui::Context) {
-        if self.running || self.busy || self.work.is_empty() { return; }
+        if !self.work.is_empty() { self.start_follow(ctx, Some(self.work.clone())); }
+    }
+
+    fn start_follow(&mut self, ctx: &egui::Context, work: Option<String>) {
+        if !self.can_start_run() { return; }
         let finish=Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let (root,work,tx,ctx)=(self.root.clone(),self.work.clone(),self.tx.clone(),ctx.clone());
+        let (root,tx,ctx)=(self.root.clone(),self.tx.clone(),ctx.clone());
         self.running=true;
         self.error=None;
         self.following=Some((work.clone(),finish.clone()));
         std::thread::spawn(move ||{
             let result=tokio::runtime::Runtime::new().map_err(|e|e.to_string()).and_then(|runtime|
-                runtime.block_on(ai_personas::neural::runner::follow_activity(&root,&work,&finish)).map_err(|e|e.to_string()));
+                runtime.block_on(async {
+                    match work {
+                        Some(work) => ai_personas::neural::runner::follow_activity(&root,&work,&finish).await,
+                        None => ai_personas::neural::runner::follow_workspace(&root,&finish).await,
+                    }
+                }).map_err(|e|e.to_string()));
             let _=tx.send(Update::RunDone(result));ctx.request_repaint();
         });
     }
@@ -361,12 +388,10 @@ impl App {
     }
     fn apply_snapshot(&mut self, mut snapshot: data::Snapshot) {
         self.cursor = snapshot.cursor;
+        self.home_index.refresh(&snapshot.status, &snapshot.events);
+        self.home_updates.observe(&snapshot.events, self.events.len());
         for (offset,event) in snapshot.events.iter().enumerate() {
-            if event["kind"]=="delivery" {
-                if let (Some(reference), Some(sequence)) = (event["body"]["reference"].as_str(), event["event"].as_i64()) {
-                    self.delivery_order.insert(reference.to_owned(), sequence);
-                }
-            } else if event["body"]["tool"]=="compute.run" {
+            if event["body"]["tool"]=="compute.run" {
                 if let Some(program)=event["tool_outcome"]["program"].as_str() {
                     self.program_runs.entry(program.to_owned()).or_default().push(self.events.len()+offset);
                 }
@@ -386,10 +411,9 @@ impl App {
         self.character_decisions.sort_by_key(|d| (d["accepted"].as_i64().unwrap_or(0), d["order"].as_i64().unwrap_or(0)));
         self.snapshot = snapshot;
         if self.work.is_empty() {
-            self.work = self.events.iter().rev().find_map(|e|e["work"].as_str().filter(|w|self.records("work").iter().any(|r|r["body"]["id"]==*w)))
-                .map(str::to_owned).or_else(||self.records("work").first()
-                .map(|r| s(&r["body"], "id").into())
-                )
+            self.work = (self.layout.editor == Editor::Delivery).then(|| self.selected_home_package()).flatten()
+                .and_then(|d| d["body"]["work"].as_str().map(str::to_owned))
+                .or_else(||self.home_index.activities.first().map(|a|a.id.clone()))
                 .unwrap_or_default();
         }
         if self.persona.is_empty() {
@@ -407,6 +431,7 @@ impl App {
                     self.polling = false;
                     match result {
                         Ok(fresh) => {
+                            self.runner_observation = fresh.runner;
                             if let Some(snapshot) = fresh.snapshot { self.apply_snapshot(snapshot); }
                             for call in &mut self.snapshot.active {
                                 if let Some(progress) = fresh.streams.get(s(call, "id")) {
@@ -482,9 +507,13 @@ impl App {
                 }
                 Update::RunDone(result) => {
                     self.running = false;
-                    let followed=self.following.take().is_some();
+                    let followed=self.following.take();
                     match result {
-                        Ok(_) => self.notice=if followed {"Finished following activity".into()} else {"Run finished".into()},
+                        Ok(_) => self.notice=match followed {
+                            Some((None,_)) => "Workspace run finished".into(),
+                            Some((Some(_),_)) => "Activity run finished".into(),
+                            None => "Run finished".into(),
+                        },
                         Err(error) => self.error=Some(error),
                     }
                     self.last_poll=Instant::now()-Duration::from_secs(3);
@@ -495,9 +524,11 @@ impl App {
     fn command_finished(&mut self, result: Result<Value, String>) {
         match result {
             Ok(v) => {
-                self.notice = if let Some(kind) = v["kind"].as_str() {
-                    self.work = s(&v, "work").to_owned();
-                    self.conversation_page = 0;
+                self.notice = if v["session"].is_string() && v["requested_by"].is_string() {
+                    "Finish requested for this run".into()
+                } else if let (Some(kind), Some(work)) = (v["kind"].as_str(), v["work"].as_str()) {
+                    self.open_home_activity(work);
+                    if let Some(invited) = v["invited"].as_array().and_then(|p|p.first()).and_then(Value::as_str) { self.persona = invited.into(); }
                     if kind == "social" { "Conversation opened".into() } else { "Task created".into() }
                 } else if let Some(persona) = v["persona"].as_str() {
                     self.persona = persona.to_owned();
@@ -555,11 +586,7 @@ impl App {
             .unwrap_or(Value::Null)
     }
     fn task_title(&self) -> &str {
-        self.records("work")
-            .iter()
-            .find(|p| p["body"]["id"] == self.work)
-            .map(|p| activity_title(&p["body"]))
-            .unwrap_or("Your workspace")
+        self.home_index.activity(&self.work).map(|a| a.title.as_str()).unwrap_or("Your workspace")
     }
     fn delivered_refs(&self) -> BTreeSet<String> {
         self.records("deliveries")
@@ -626,10 +653,11 @@ impl eframe::App for App {
             self.activity_dock(ctx);
         }
         let wide = ctx.content_rect().width() > 1100.;
-        if self.layout.inspector && wide {
+        if self.layout.inspector && wide && self.layout.editor != Editor::Home {
             self.inspector_panel(ctx);
         }
-        if self.layout.outliner {
+        let show_browser = if ctx.content_rect().width() < COMPACT_BROWSER_WIDTH { self.compact_browser } else { self.layout.outliner };
+        if show_browser && self.layout.editor != Editor::Home {
             self.outliner(ctx);
         }
         egui::CentralPanel::default()
@@ -639,11 +667,13 @@ impl eframe::App for App {
                     .inner_margin(16),
             )
             .show(ctx, |ui| match self.layout.editor {
+                Editor::Home => self.workspace_home(ui),
                 Editor::Studio => self.studio(ui),
+                Editor::Delivery => self.home_package_page(ui),
                 Editor::People => self.people(ui),
                 Editor::Inbox => self.human_inbox(ui),
                 Editor::Responsibilities => {
-                    if ui.small_button("← Workspace").clicked(){self.layout.editor=Editor::Studio;}
+                    if ui.small_button("← Activity").clicked(){self.layout.editor=Editor::Studio;}
                     let cursor=self.events.iter().rev().find(|e|e["work"]==self.work).and_then(|e|e["event"].as_i64()).unwrap_or(0);
                     match self.responsibilities.show(ui,&self.root,&self.work,cursor){
                         Some(responsibilities::Action::ChangeActivity{reopen,brief})=>self.dialog=Some(Dialog::ActivityState{

@@ -71,11 +71,7 @@ impl App {
     }
 
     pub(super) fn work_name(&self, work: &str) -> String {
-        self.records("work")
-            .iter()
-            .find(|r| r["body"]["id"] == work)
-            .map(|r| activity_title(&r["body"]).to_owned())
-            .unwrap_or_else(|| work.into())
+        self.home_index.activity(work).map(|a| a.title.clone()).unwrap_or_else(|| work.into())
     }
 
     pub(super) fn attachment_links(&mut self, ui: &mut Ui, references: &Value) {

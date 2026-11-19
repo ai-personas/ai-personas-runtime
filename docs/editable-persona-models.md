@@ -10,6 +10,8 @@ Use `--request-id ID` to retry an operator action with the same inputs. Attached
 
 `neural run --from-activity WORK` follows a root and the activities its participants actually request, including nested requests. Add `--watch` to keep listening for each participant's chosen wake events. `neural activity-tree WORK` reads the scope and participation states. The exact `--work` and `--persona` filters remain available for intentionally narrow runs.
 
+`neural run --watch` listens across the whole workspace, including activities created later. `neural runner-status` shows the current executor, its scope, and the activity admitted for each working persona. From another terminal, use `neural finish-run RUN_ID` with the reported session ID to let admitted decisions and effects settle. Studio exposes the same controls in **Overview**. Opening or inspecting a workspace starts no provider call.
+
 Personas may use `human.request` to ask for a real-world action and describe what they need back. The optional `artifacts` list takes exact file revisions. The optional `deliveries` list takes exact issued packages together with their files, authors, supported uses, declared scopes and remaining work. A requester can use `human.withdraw` on an open request. The Studio inbox and `neural status` show these records even when the requesting persona stops or works elsewhere.
 
 `neural export-handoff HUMAN_REQUEST_REVISION NEW_FOLDER` saves a printable `Request.html` and, when there are files, a separate `Files.zip`. An older request sheet identifies the latest recorded revision and status at export. `neural export-package REFERENCE DESTINATION.zip` saves just the attached files for an exact request or delivery.

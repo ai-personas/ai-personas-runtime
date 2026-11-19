@@ -42,9 +42,9 @@ cat > "$output/README.md" <<'GUIDE'
 
 On Linux, open `Personas`. On macOS, open `Personas.app`. The native interface includes the runtime and provider helpers.
 
-Choose **New workspace** to enter the starting profiles and connect a reasoning provider. Choose **Open folder** for an existing workspace. Use **+ New** to invite personas to a task or a voluntary conversation. **Run controls → Continue this activity** schedules its eligible decisions. **Character Lab** shows how each persona's numerical model develops. **Artifacts** searches retained versions and exports exact deliveries. **Usage** shows provider receipts, context use and workspace storage.
+Choose **New workspace** to enter the starting profiles and connect a reasoning provider. Choose **Open folder** for an existing workspace. Use **+ New** to invite personas to a task or a voluntary conversation. In **Overview**, choose **Run workspace** to listen across activities. Each persona chooses whether and how to participate. **Character Lab** shows how each persona's numerical model develops. **Artifacts** searches retained versions and exports exact deliveries. **Usage** shows provider receipts, context use and workspace storage.
 
-**Workspace → Live activity** shows calls, tools, messages and saved work while you write to a participant. **Needs you → Save handoff…** gives you a printable request and, when attached, the exact file package to take to a supplier or colleague.
+**Overview** brings together people, recent contributions, delivery packages and requests for a human. Choose **Message** beside a persona’s activity to open its live timeline and write to that participant. **Needs you → Save handoff…** gives you a printable request and, when attached, the exact file package to take to a supplier or colleague.
 
 [Desktop guide](https://github.com/ai-personas/ai-personas-runtime/blob/main/docs/desktop.md) · [Numerical workspace and terminal guide](https://github.com/ai-personas/ai-personas-runtime/blob/main/docs/editable-persona-models.md) · [Implementation and live observations](https://github.com/ai-personas/ai-personas-runtime/blob/main/docs/design-conformance.md)
 GUIDE
