@@ -866,7 +866,7 @@ impl App {
                 e["work"] == self.work
                     && matches!(
                         kind,
-                        "message" | "reply" | "delivery" | "initialization_note"
+                        "message" | "reply" | "user_message" | "delivery" | "initialization_note"
                     )
                     && !(kind == "delivery" && target == "*")
                     && (self.conversation_persona.is_empty()
@@ -874,7 +874,7 @@ impl App {
                         || target == self.conversation_persona)
                     && match self.conversation_channel {
                         1 => kind == "message" && actor != "user" && target != "user",
-                        2 => actor == "user" || target == "user",
+                        2 => kind == "user_message" || target == "user",
                         3 => kind == "delivery",
                         _ => true,
                     }
@@ -928,9 +928,22 @@ impl App {
                         card(ui).show(ui, |ui| {
                             ui.set_width(ui.available_width());
                             self.message_heading(ui, event);
+                            if let Some(parent) = event["body"]["reply_to"].as_str() {
+                                if ui.small_button("In reply to ↗").on_hover_text(parent).clicked() {
+                                    self.open_resource(ui.ctx(),parent.into());
+                                }
+                            }
                             ui.add_space(9.);
                             if let Some(text) = event["body"]["text"].as_str() {
                                 document::markdown(ui, text);
+                                if event["target"]=="user" && matches!(event["kind"].as_str(),Some("reply"|"message"))
+                                    && ui.small_button("Reply to this message").clicked() {
+                                    self.dialog=Some(dialogs::Dialog::Participation {
+                                        work:self.work.clone(),title:self.task_title().into(),action:dialogs::Action::Message,
+                                        person:s(event,"actor").into(),text:String::new(),
+                                        reply_to:Some((format!("experience:event-{}@1",event["event"]),excerpt(text,180))),
+                                    });
+                                }
                             } else if event["kind"] == "delivery" {
                                 let body = &event["body"]["record"];
                                 ui.heading(s(body, "title"));

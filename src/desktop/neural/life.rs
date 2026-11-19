@@ -148,6 +148,9 @@ impl App {
                                         .into(),
                                 };
                                 ui.add(egui::Label::new(text).truncate());
+                                if let Some(parent)=b["reply_to"].as_str() {
+                                    if ui.small_button("In reply to ↗").clicked(){selected=Some(parent.to_owned());}
+                                }
                                 let author = self.label(s(e, "actor"));
                                 ui.add(
                                     egui::Label::new(

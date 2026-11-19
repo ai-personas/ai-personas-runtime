@@ -131,7 +131,8 @@ pub fn status(db: &Connection) -> Result<Value> {
     let controls=scopes.iter().map(|scope|super::controls::current(db,scope)).collect::<Result<Vec<_>>>()?.into_iter().flatten().collect::<Vec<_>>();
     Ok(json!({"format":"neural-runtime-v2","personas":list(db,"persona")?,
         "work":list(db,"work")?,"participation":list(db,"participation")?,
-        "development":list(db,"development")?,"acceptances":list(db,"acceptance")?,"delivery_reviews":delivery_reviews(db)?,"delivery_mandates":delivery_mandates(db,None)?,"outcomes":list(db,"outcome")?,"deliveries":list(db,"delivery")?,
+        "development":list(db,"development")?,"question_applications":super::development::applications(db,None,None)?,
+        "acceptances":list(db,"acceptance")?,"delivery_reviews":delivery_reviews(db)?,"delivery_mandates":delivery_mandates(db,None)?,"outcomes":list(db,"outcome")?,"deliveries":list(db,"delivery")?,
         "jobs":job_index(db,false)?,
         "invocations":counts,"operations":effect_counts,"controls":controls,
         "meaning":"Stored activity, authored judgments and retained deliveries; not an independent quality verdict."}))

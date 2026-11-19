@@ -102,6 +102,9 @@ pub struct Message {
     pub to: String,
     pub text: String,
     pub references: Vec<String>,
+    /// Exact incoming exchange when replying directly to its author.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

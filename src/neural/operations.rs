@@ -554,6 +554,9 @@ fn internal(
             if x.to != "user" {
                 store::required(db, "participation", &format!("{work}/{}", x.to))?;
             }
+            if let Some(parent) = &x.reply_to {
+                check_observed_reply(db,snapshot,&x.to,parent)?;
+            }
             let event = store::event(db, work, actor, &x.to, "message", &x, Some(call))?;
             Ok(json!({"event":event,"delivered_to_inbox":true,"read_or_accepted":false}))
         }
@@ -960,6 +963,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
             .map_err(|e|failure(format!("persona_maintenance: {e}")))?;
         maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"image.read"|"image.render_svg"|"work.outcome"|"result.deliver"),false)
             .map_err(|e|failure(format!("asset_maintenance: {e}")))?;
+        super::development::record_applications(db,snapshot,&decision.examining)?;
         super::development::consider(db,snapshot,decision)?;
         let mut ids=BTreeSet::new();
         for op in &decision.operations {
@@ -994,9 +998,17 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
         for name in &decision.next_context.tools{tools::describe(name)?;}
         part.tools=decision.next_context.tools.clone();
         if part.declined&&!matches!(decision.continuation,Continuation::Stop{..}){return Err(failure("declining requires an explicit stop for this participation"));}
+        if let Some(parent)=&decision.reply_to {
+            if snapshot.model.is_none() || decision.reply.as_deref().is_none_or(|text|text.trim().is_empty()) {
+                return Err(failure("A direct reply needs an active character and message text"));
+            }
+            check_observed_reply(db,snapshot,"user",parent)?;
+        }
         if let Some(reply)=&decision.reply{
             let kind=if snapshot.model.is_some(){"reply"}else{"initialization_note"};
-            store::event(db,&snapshot.work,&snapshot.actor,"user",kind,&json!({"text":reply,"operational_persona":snapshot.model.is_some()}),Some(&snapshot.invocation))?;
+            let mut body=json!({"text":reply,"operational_persona":snapshot.model.is_some()});
+            if let Some(parent)=&decision.reply_to {body["reply_to"]=json!(parent);}
+            store::event(db,&snapshot.work,&snapshot.actor,"user",kind,&body,Some(&snapshot.invocation))?;
         }
         part.cursor=snapshot.cursor;part.turn=part.turn.checked_add(1).ok_or_else(||failure("turn overflow"))?;
         part.continuation=decision.continuation.clone();part.last_judgment=Some(decision.work.clone());
@@ -1015,6 +1027,20 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
         db.execute("UPDATE invocations SET state='accepted',updated=?2 WHERE id=?1",params![snapshot.invocation,now()])?;
         Ok(retained)
     })
+}
+
+fn check_observed_reply(
+    db: &Connection,
+    snapshot: &Snapshot,
+    to: &str,
+    parent: &str,
+) -> Result<()> {
+    if !super::development::observed(snapshot, parent) {
+        return Err(failure(
+            "Reply to a received exchange in the current input or read its exact experience first",
+        ));
+    }
+    super::experience::check_reply(db, &snapshot.work, Some(&snapshot.actor), to, parent)
 }
 
 pub fn validate_external(db: &Connection, persona: &Persona, op: &Operation) -> Result<()> {

@@ -113,6 +113,10 @@ pub enum Command {
         work: String,
         persona: String,
         text: String,
+        /// Respond to this exact message from the recipient in this activity.
+        #[arg(long)]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reply_to: Option<String>,
     },
     /// Amend requirements with attribution while preserving the original need.
     Amend {
@@ -360,10 +364,15 @@ fn operator_action(db: &rusqlite::Connection, operator: &str, command: Command) 
             store::event(db,&work,operator,&persona,"explicit_resume",&json!({"reason":reason}),None)?;
             Ok(json!({"resumed":persona,"work":work,"scheduling_controls":super::controls::relevant(db,&work,&persona)?}))
         },
-        Command::Message{work,persona,text}=>{
+        Command::Message{work,persona,text,reply_to}=>{
             if text.trim().is_empty(){return Err(failure("Write a message before sending"));}
             store::required(db,"participation",&format!("{work}/{persona}"))?;
-            let event=store::event(db,&work,operator,&persona,"user_message",&json!({"text":text}),None)?;
+            let mut body=json!({"text":text});
+            if let Some(parent)=reply_to {
+                super::experience::check_reply(db,&work,None,&persona,&parent)?;
+                body["reply_to"]=json!(parent);
+            }
+            let event=store::event(db,&work,operator,&persona,"user_message",&body,None)?;
             Ok(json!({"event":event,"stopped_participation_resumed":false}))
         },
         Command::Amend{work,text}=>{

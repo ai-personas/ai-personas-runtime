@@ -361,7 +361,16 @@ pub(super) fn read_for(
                 return Err(failure("Byte excerpts require an asset or object reference; structured records are supplied whole"));
             }
             let mut observed=json!({"reference":reference,"record":record.body});
-            if record.reference.kind=="character_use" {
+            if record.reference.kind=="development" {
+                if actor.is_none() || actor==record.body["owner"].as_str() {
+                    observed["applications_now"]=json!(super::development::applications(db,record.body["owner"].as_str(),Some(&record.reference.id))?);
+                }
+            } else if record.reference.kind=="question_use" {
+                let (Some(owner),Some(work),Some(call))=(record.body["owner"].as_str(),record.body["work"].as_str(),record.body["decision"].as_str())
+                    else {return Err(failure("Incomplete question application"));};
+                if actor.is_some_and(|a|a!=owner) { return Err(failure("Question applications belong to their own observer")); }
+                observed["linked_responses_now"]=json!(super::experience::responses_to_call(db,owner,work,call)?);
+            } else if record.reference.kind=="character_use" {
                 observed["related_development_now"]=json!(super::development::related_to_use(db,&record.body)?);
             }
             return Ok(observed);
@@ -755,10 +764,10 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
                     "reference":q["reference"],"origin_work":q["origin_work"],"condition":q["revisit"]["condition"],
                     "meaning":"Your most recently revised open-ended reminder from an earlier activity. Judge whether this occasion fits."}))}else{None},
                 "revisit_cues":open.filter(|q|q["observing_active_model"]==true || q["due_by_time"]==true || !q["matching_experience"].is_null()
-                    || q["origin_work"]==work_id).collect::<Vec<_>>(),
+                    || q["origin_work"]==work_id || q["latest_application"]["work"]==work_id || q["latest_linked_response"]["work"]==work_id).collect::<Vec<_>>(),
                 "later_feedback":questions.iter().filter(|q|!q["later_feedback"].is_null()).map(|q|json!({
                     "question":q["reference"],"experience":q["later_feedback"],"origin_work":q["origin_work"]})).collect::<Vec<_>>(),
-                "discovery":"Use development.search for other question metadata. A pending question survives no_change. Read its current exact revision with asset.read to revise it."});
+                "discovery":"Use development.search for other question metadata. If an open question fits this ordinary choice, optional examining records its exact question and what to watch_for. A pending question survives no_change. Read its current exact revision to revise it, and its question_use to interpret later feedback."});
         }
         let component_bytes=data.as_object().expect("snapshot is an object").iter().map(|(name,value)|Ok((name.clone(),serde_json::to_vec(value)?.len()))).collect::<Result<std::collections::BTreeMap<_,_>>>()?;
         let resource_bytes=data["selected_resources"].as_array().expect("resources is an array").iter().map(|value|Ok(json!({"reference":value["reference"],"range":value["range"],"serialized_bytes":serde_json::to_vec(value)?.len()}))).collect::<Result<Vec<_>>>()?;
@@ -772,7 +781,7 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
         let snapshot=Snapshot{contract_object,invocation:invocation.clone(),persona_revision:p.reference.revision,participation_revision:part.reference.revision,
             work:work_id.into(),actor:actor.into(),epoch:persona.epoch,model:persona.model,cursor,
             observation_through:Some(db.query_row("SELECT COALESCE(MAX(seq),0) FROM events",[],|r|r.get(0))?),data,
-            development_version:4,data_order,supplied_references:refs.into_iter().collect(),tool_names,image_blobs};
+            development_version:5,data_order,supplied_references:refs.into_iter().collect(),tool_names,image_blobs};
         let digest=store::put(db,&snapshot)?;
         db.execute("INSERT INTO invocations VALUES(?1,?2,?3,'prepared',?4,NULL,NULL,?5,?5)",params![invocation,work_id,actor,digest,now()])?;
         Ok(snapshot)

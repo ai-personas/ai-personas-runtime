@@ -102,6 +102,74 @@ pub(super) fn metadata(db: &Connection, actor: Option<&str>, reference: &str) ->
     Ok(locate(db, actor, reference)?.metadata())
 }
 
+/// A reply names an exchange the sender received and addresses its original
+/// author. Named local human operators share the user-facing inbox.
+pub(super) fn check_reply(
+    db: &Connection,
+    work: &str,
+    sender: Option<&str>,
+    to: &str,
+    reference: &str,
+) -> Result<()> {
+    let original = locate(db, sender, reference)?;
+    let reciprocal = match sender {
+        None => {
+            original.actor == to
+                && original.target == "user"
+                && matches!(original.kind.as_str(), "message" | "reply")
+        }
+        Some(actor) if to == "user" => {
+            (original.target == actor || original.target == "*")
+                && matches!(
+                    original.kind.as_str(),
+                    "user_message" | "user_acceptance" | "requirements_amended"
+                )
+        }
+        Some(actor) => {
+            original.target == actor && original.actor == to && original.kind == "message"
+        }
+    };
+    if original.work != work || !reciprocal {
+        return Err(failure(
+            "Reply to an exchange you received from this recipient in the same activity",
+        ));
+    }
+    Ok(())
+}
+
+/// Only explicit replies and reviews of an exact delivered revision have a
+/// connected target. A later general message in the same work has no such link.
+pub(super) fn responses_to_call(
+    db: &Connection,
+    actor: &str,
+    work: &str,
+    call: &str,
+) -> Result<Vec<Value>> {
+    let sql = format!("{EVENTS} JOIN objects b ON b.digest=e.digest
+        WHERE {VISIBLE} AND e.work=?2 AND (
+          (e.kind IN ('message','reply','user_message') AND EXISTS (
+            SELECT 1 FROM events parent WHERE parent.work=e.work AND parent.invocation=?3
+            AND 'experience:event-'||parent.seq||'@1'=json_extract(CAST(b.bytes AS TEXT),'$.reply_to')))
+          OR (e.kind='user_acceptance' AND EXISTS (
+            SELECT 1 FROM versions v WHERE v.kind='delivery' AND v.invocation=?3
+            AND 'delivery:'||v.id||'@'||v.revision=json_extract(CAST(b.bytes AS TEXT),'$.decision.delivery'))))
+        ORDER BY e.seq");
+    let mut statement = db.prepare(&sql)?;
+    let mut replies = Vec::new();
+    for row in statement.query_map(params![actor, work, call], Experience::row)? {
+        let e = row?;
+        let body: Value = store::object(db, &e.digest)?;
+        let (relation, target) = if e.kind == "user_acceptance" {
+            ("delivery_review", &body["decision"]["delivery"])
+        } else {
+            ("direct_reply", &body["reply_to"])
+        };
+        replies.push(json!({"experience":e.metadata()["reference"],"sequence":e.id.trim_start_matches("event-").parse::<i64>()?,"author":e.actor,"kind":e.kind,
+            "relation":relation,"target":target}));
+    }
+    Ok(replies)
+}
+
 /// A compact invitation to deliberate retrieval. Other activities contribute
 /// counts and an exact feedback pointer, never a carried-over brief or duty.
 pub(super) fn availability(db: &Connection, actor: &str, work: &str) -> Result<Value> {
@@ -124,6 +192,7 @@ pub(super) fn read(db: &Connection, actor: Option<&str>, reference: &str) -> Res
     let item = locate(db, actor, reference)?;
     let mut event = item.metadata();
     event["body"] = store::object(db, &item.digest)?;
+    let mut result = json!({"reference":reference});
     if item.kind == "accepted_decision" {
         let (snapshot, receipt): (String, Option<String>) = db.query_row(
             "SELECT snapshot,receipt FROM invocations WHERE id=?1",
@@ -134,6 +203,14 @@ pub(super) fn read(db: &Connection, actor: Option<&str>, reference: &str) -> Res
         event["provider_receipt"] = json!(receipt.map(|d| format!("object:{d}")));
         event["character_use"] =
             json!(store::head(db, "character_use", &item.id)?.map(|r| r.reference.handle()));
+        let mut statement = db.prepare("SELECT seq,kind,target FROM events WHERE work=?1 AND invocation=?2
+            AND kind IN ('reply','message','delivery') ORDER BY seq")?;
+        event["outgoing"] = json!(statement.query_map([&item.work,&item.id], |r| Ok(json!({
+            "experience":format!("experience:event-{}@1",r.get::<_,i64>(0)?),
+            "kind":r.get::<_,String>(1)?,"target":r.get::<_,String>(2)?})))?
+            .collect::<rusqlite::Result<Vec<_>>>()?);
+        result["linked_responses_now"] = json!(responses_to_call(db,&item.actor,&item.work,&item.id)?);
     }
-    Ok(json!({"reference":reference,"record":event}))
+    result["record"] = event;
+    Ok(result)
 }

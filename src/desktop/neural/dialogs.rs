@@ -31,6 +31,7 @@ pub(super) enum Dialog {
         action: Action,
         person: String,
         text: String,
+        reply_to: Option<(String, String)>,
     },
     Persona {
         name: String,
@@ -96,6 +97,7 @@ impl App {
             action,
             person: self.persona.clone(),
             text: String::new(),
+            reply_to: None,
         }
     }
 
@@ -260,9 +262,13 @@ impl App {
                         action,
                         person,
                         text,
+                        reply_to,
                     } => {
                         ui.strong(title.as_str());
-                        if *action != Action::Amend {
+                        if let Some((_,quote))=reply_to.as_ref() {
+                            ui.label(format!("Replying to {}",self.label(person)));
+                            ui.add(egui::Label::new(egui::RichText::new(quote.as_str()).italics().weak()).wrap());
+                        } else if *action != Action::Amend {
                             self.choose_person(ui, person, |id| {
                                 let member = self.records("participation").iter().find(|r| {
                                     r["body"]["work"] == *work && r["body"]["persona"] == id
@@ -304,6 +310,7 @@ impl App {
                                     work: work.clone(),
                                     persona: person.clone(),
                                     text: text.clone(),
+                                    reply_to: reply_to.as_ref().map(|(reference,_)|reference.clone()),
                                 },
                                 Action::Amend => Command::Amend {
                                     work: work.clone(),

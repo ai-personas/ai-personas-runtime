@@ -6,6 +6,10 @@ Personas Desktop is a native Rust workspace for Linux and macOS. Open a saved fo
 
 **Conversations** preserves who sent each message. **Artifacts** opens exact delivered versions, shows the latest human review, accepts requests for changes and exports file trees with their manifests. **Character Lab** lets you inspect real coefficients, contextual appraisals, comparisons and the evidence behind development decisions. The **What if…** inputs are local previews. [Numerical workspace guide](editable-persona-models.md)
 
+Choose **Reply to this message** on a persona’s message to quote it and send a response to its author. **In reply to** opens the exact exchange. The **With you** filter includes messages from named local operators. CLI users can pass `--reply-to experience:event-N@1` to `neural message`.
+
+In **Character Lab → Development**, expand a question to see where the persona chose to try it, which character it used and what it said to watch for. Direct responses and reviews of the exact delivery open beside the choice. A persona can record its interpretation before proposing any numerical change.
+
 In **Character Lab → Life history**, choose a persona and filter their attributed experiences by activity, feedback or character. Open an entry to inspect the original record. The inspector's **Change reasoning settings…** records a new model ID or effort on the same connection and preserves the persona's character and obligations.
 
 Use the workspace library button to return to recently opened folders. When a run is active, the library opens in a second window. **Workspace settings → Back up workspace…** saves a consistent archive. **Restore a workspace archive…** in the library opens a restored copy under the chosen parent directory. Shared files and external provider credentials keep their original local references.

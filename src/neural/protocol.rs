@@ -19,11 +19,18 @@ pub struct DecisionV4 {
     /// considered for character maintenance. An explicit empty list is valid.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub considered_experience: Option<Vec<String>>,
+    /// During ordinary work you may try an open question from a supplied cue or
+    /// full record. Name what this decision gives you an opportunity to observe.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub examining: Vec<super::development::Application>,
     pub asset_maintenance: Maintenance,
     pub next_model: NextModel,
     pub next_context: ContextChoice,
     pub continuation: Continuation,
     pub reply: Option<String>,
+    /// If your reply addresses a particular incoming human exchange, its exact observed experience.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<String>,
     pub operations: Vec<Operation>,
 }
 

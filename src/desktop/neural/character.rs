@@ -450,16 +450,41 @@ impl App {
         for question in questions {
             let body=&question["body"];
             let detail=&body["interpretation"];
-            ui.push_id(s(&question,"reference"),|ui|{
+            let id=s(&question["reference"],"id");
+            let reference=format!("development:{id}@{}",question["reference"]["revision"]);
+            let applications:Vec<_>=self.records("question_applications").iter().filter(|r|r["question_id"]==id).cloned().collect();
+            ui.push_id(&reference,|ui|{
                 ui.collapsing(s(detail,"question"),|ui|{
-                    ui.label(s(detail,"interpretation"));
-                    ui.small(format!("Prediction · {}",s(detail,"prediction")));
-                    ui.small(format!("Other possible causes · {}",s(detail,"alternatives")));
+                    if let Some(text)=detail["interpretation"].as_str(){ui.label(text);}
+                    if let Some(text)=detail["prediction"].as_str(){ui.small(format!("Prediction · {text}"));}
+                    if let Some(text)=detail["alternatives"].as_str(){ui.small(format!("Other possible causes · {text}"));}
                     if let Some(condition)=detail["revisit"]["condition"].as_str(){ui.small(format!("Revisit when {condition}"));}
                     for r in detail["evidence"].as_array().into_iter().flatten().filter_map(Value::as_str) {
                         if ui.small_button(r).clicked(){self.open_resource(ui.ctx(),r.into());}
                     }
-                    if ui.small_button("Open full question").clicked(){self.open_resource(ui.ctx(),s(&question,"reference").into());}
+                    if ui.small_button("Open full question").clicked(){self.open_resource(ui.ctx(),reference.clone());}
+                    for application in &applications {
+                        ui.separator();
+                        let work=self.records("work").iter().find(|w|w["body"]["id"]==application["work"])
+                            .map(|w|activity_title(&w["body"])).unwrap_or("Activity");
+                        ui.strong(format!("Tried in {}",excerpt(work,88)));
+                        ui.label(s(application,"watch_for"));
+                        if ui.small_button(format!("Inspect choice · epoch {}",application["epoch"])).clicked(){
+                            self.open_resource(ui.ctx(),s(application,"reference").into());
+                        }
+                        for feedback in application["linked_responses_now"].as_array().into_iter().flatten(){
+                            let relation=if feedback["relation"]=="delivery_review"{"Delivery review"}else{"Direct reply"};
+                            if ui.small_button(format!("{relation} from {} ↗",self.label(s(feedback,"author")))).clicked(){
+                                self.open_resource(ui.ctx(),s(feedback,"experience").into());
+                            }
+                        }
+                        for item in body["question_observations"].as_array().into_iter().flatten().filter(|o|o["observation"]["application"]==application["reference"]){
+                            let note=&item["observation"];
+                            ui.strong(title(s(note,"finding")));
+                            ui.label(s(note,"interpretation"));
+                            if ui.small_button("Observed outcome ↗").clicked(){self.open_resource(ui.ctx(),s(note,"outcome").into());}
+                        }
+                    }
                 });
             });
         }

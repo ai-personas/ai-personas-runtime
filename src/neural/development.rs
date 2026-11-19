@@ -10,6 +10,36 @@ use rusqlite::{params, Connection};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::BTreeSet;
+
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Application {
+    /// Exact owned development revision.
+    pub question: String,
+    /// An observable choice or consequence to look for on this occasion.
+    pub watch_for: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Finding {
+    Consistent,
+    Contrary,
+    Inconclusive,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct QuestionObservation {
+    /// Exact question_use revision for the ordinary choice that examined this question.
+    pub application: String,
+    /// Exact received event or tool result that you observed for this application.
+    pub outcome: String,
+    pub finding: Finding,
+    /// What this occasion shows and the limits of that inference.
+    pub interpretation: String,
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -63,6 +93,10 @@ pub struct Update {
     /// Your judgment about an inactive candidate and its observed comparison.
     #[serde(default)]
     pub candidate_review: Option<CandidateReview>,
+    /// Interpret an ordinary application under the character actually supplied,
+    /// including a decision made before any candidate existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question_observation: Option<QuestionObservation>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
@@ -136,6 +170,67 @@ fn observed_experience(db: &Connection, snapshot: &Snapshot, reference: &str) ->
         return Err(failure(format!(
             "Read the exact experience {reference} before interpreting it"
         )));
+    }
+    Ok(())
+}
+
+pub(super) fn record_applications(
+    db: &Connection,
+    snapshot: &Snapshot,
+    choices: &[Application],
+) -> Result<()> {
+    if choices.is_empty() {
+        return Ok(());
+    }
+    if snapshot.development_version < 5
+        || snapshot.model.is_none()
+        || !snapshot.data["context_recovery"].is_null()
+    {
+        return Err(failure(
+            "Examining a question requires ordinary work with a supplied character",
+        ));
+    }
+    let usage = store::required(db, "character_use", &snapshot.invocation)?;
+    let development = &snapshot.data["development"];
+    let mut seen = BTreeSet::new();
+    for choice in choices {
+        let question = owned(db, &snapshot.actor, &choice.question)?;
+        if choice.watch_for.trim().is_empty() || !seen.insert(question.reference.id.clone()) {
+            return Err(failure(
+                "Name each question once and describe what this decision lets you observe",
+            ));
+        }
+        if question.body["interpretation"]["disposition"] == "closed" {
+            return Err(failure(
+                "Reopen a closed question before applying it to another choice",
+            ));
+        }
+        let source = if observed(snapshot, &choice.question) {
+            "full_record"
+        } else if development["recent_personal_reminder"]["reference"] == choice.question {
+            "personal_reminder"
+        } else if development["revisit_cues"]
+            .as_array()
+            .is_some_and(|rows| rows.iter().any(|r| r["reference"] == choice.question))
+        {
+            "revisit_cue"
+        } else {
+            return Err(failure(
+                "Use the exact question from a supplied reminder or cue, or read its full record",
+            ));
+        };
+        let key = format!("{}/{}", question.reference.id, snapshot.invocation);
+        store::write(
+            db,
+            "question_use",
+            &key,
+            0,
+            &json!({"owner":snapshot.actor,"work":snapshot.work,"decision":snapshot.invocation,
+            "question":choice.question,"question_id":question.reference.id,"watch_for":choice.watch_for,"question_input":source,
+            "character_use":usage.reference.handle(),"model":usage.body["package"],"epoch":usage.body["epoch"],
+            "input":usage.body["snapshot"],"provider_receipt":usage.body["provider_receipt"]}),
+            Some(&snapshot.invocation),
+        )?;
     }
     Ok(())
 }
@@ -247,6 +342,35 @@ pub(super) fn update(db: &Connection, snapshot: &Snapshot, update: Update) -> Re
         if !retained {
             observed_experience(db, snapshot, reference)?;
         }
+    }
+    if let Some(note) = &update.question_observation {
+        let application = store::exact(db,&note.application)?;
+        if application.reference.kind!="question_use" || application.body["owner"]!=snapshot.actor
+            || application.body["question_id"]!=key || !observed(snapshot,&note.application)
+            || note.interpretation.trim().is_empty() {
+            return Err(failure("Read your exact application of this question and describe what the outcome showed"));
+        }
+        let call=application.body["decision"].as_str().ok_or_else(||failure("Missing application decision"))?;
+        let (event,boundary)=subsequent_event(db,snapshot,call,&note.outcome)?;
+        if event["work"]!=application.body["work"] || !(event["kind"]=="tool_result" && event["invocation"]==call
+            || event["actor"]!=snapshot.actor && matches!(event["kind"].as_str(),Some("user_message"|"user_acceptance"|"requirements_amended"|"message"))) {
+            return Err(failure("Use a received exchange from the application activity or a result of that choice"));
+        }
+        let work=event["work"].as_str().ok_or_else(||failure("Missing event activity"))?;
+        let linked=experience::responses_to_call(db,&snapshot.actor,work,call)?.into_iter().find(|r|r["experience"]==note.outcome);
+        let relation=linked.as_ref().and_then(|r|r["relation"].as_str()).unwrap_or(
+            if event["kind"]=="tool_result" {"operation_result"} else {"later_in_activity"});
+        let entry=json!({"observation":note,"question_applied":application.body["question"],"decision":call,
+            "character_use":application.body["character_use"],"decision_effects":boundary,"relation":relation,
+            "reply_or_review_target":linked.as_ref().and_then(|r|r["target"].as_str()),"outcome_author":event["actor"],
+            "judgment_author":snapshot.actor,"interpretation_decision":snapshot.invocation});
+        if !body["question_observations"].is_array() {body["question_observations"]=json!([]);}
+        let prior=body["question_observations"].as_array_mut().unwrap();
+        if prior.iter().any(|r|r["observation"]["application"]==note.application && r["observation"]["outcome"]==note.outcome
+            && r["observation"]==entry["observation"]) {
+            return Err(failure("This interpretation of the same observation is already recorded"));
+        }
+        prior.push(entry);
     }
     if let Some(review) = &update.candidate_review {
         let candidate = store::exact(db, &review.candidate)?;
@@ -365,29 +489,38 @@ fn follow_up_record(
             )
         })?;
     let call = &usage.reference.id;
+    let (event,boundary)=subsequent_event(db,snapshot,call,&follow_up.outcome)?;
+    Ok(
+        json!({"adoption":adoption["decision"],"character_use":usage.reference.handle(),
+        "decision":call,"decision_work":usage.body["work"],"decision_effects":boundary,
+        "outcome":follow_up.outcome,"outcome_work":event["work"],"outcome_author":event["actor"],
+        "judgment_author":snapshot.actor}),
+    )
+}
+
+fn subsequent_event(
+    db: &Connection,
+    snapshot: &Snapshot,
+    call: &str,
+    outcome: &str,
+) -> Result<(Value, String)> {
     let boundary = store::required(db, "decision_effects", call)?;
     let after = boundary.body["last_event"]
         .as_i64()
         .ok_or_else(|| failure("Missing accepted event boundary"))?;
-    observed_experience(db, snapshot, &follow_up.outcome)?;
-    let event = experience::metadata(db, Some(&snapshot.actor), &follow_up.outcome)?;
-    let sequence = follow_up
-        .outcome
+    observed_experience(db, snapshot, outcome)?;
+    let event = experience::metadata(db, Some(&snapshot.actor), outcome)?;
+    let sequence = outcome
         .strip_prefix("experience:event-")
         .and_then(|v| v.strip_suffix("@1"))
         .and_then(|v| v.parse::<i64>().ok())
         .ok_or_else(|| failure("Point to the observed outcome event"))?;
-    if sequence <= after && !(event["invocation"] == *call && event["kind"] == "tool_result") {
+    if sequence <= after && !(event["invocation"] == call && event["kind"] == "tool_result") {
         return Err(failure(
             "The cited outcome must be a result of the decision or arrive after that decision",
         ));
     }
-    Ok(
-        json!({"adoption":adoption["decision"],"character_use":usage.reference.handle(),
-        "decision":call,"decision_work":usage.body["work"],"decision_effects":boundary.reference.handle(),
-        "outcome":follow_up.outcome,"outcome_work":event["work"],"outcome_author":event["actor"],
-        "judgment_author":snapshot.actor}),
-    )
+    Ok((event, boundary.reference.handle()))
 }
 
 pub(super) fn owned(db: &Connection, actor: &str, reference: &str) -> Result<store::Record> {
@@ -403,11 +536,45 @@ pub(super) fn owned(db: &Connection, actor: &str, reference: &str) -> Result<sto
     Ok(item)
 }
 
+pub(super) fn applications(
+    db: &Connection,
+    actor: Option<&str>,
+    question: Option<&str>,
+) -> Result<Vec<Value>> {
+    let mut statement=db.prepare("SELECT v.id,v.revision,v.digest FROM versions v JOIN objects b ON b.digest=v.digest
+        WHERE v.kind='question_use' AND (?1 IS NULL OR json_extract(CAST(b.bytes AS TEXT),'$.owner')=?1)
+        AND (?2 IS NULL OR json_extract(CAST(b.bytes AS TEXT),'$.question_id')=?2) ORDER BY v.rowid DESC")?;
+    let mut items = Vec::new();
+    for r in statement.query_map(params![actor, question], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, i64>(1)?,
+            r.get::<_, String>(2)?,
+        ))
+    })? {
+        let (id, revision, digest) = r?;
+        let mut body: Value = store::object(db, &digest)?;
+        let (Some(owner), Some(work), Some(call)) = (
+            body["owner"].as_str(),
+            body["work"].as_str(),
+            body["decision"].as_str(),
+        ) else {
+            return Err(failure("Incomplete question application"));
+        };
+        let linked = experience::responses_to_call(db, owner, work, call)?;
+        body["reference"] = json!(format!("question_use:{id}@{revision}"));
+        body["linked_responses_now"] = json!(linked);
+        items.push(body);
+    }
+    Ok(items)
+}
+
 /// Compact cues only. Real arrivals use the actual event sequence. Listing a
 /// due question never changes work eligibility or another persona's judgment.
 pub(super) fn index(db: &Connection, actor: &str) -> Result<Vec<Value>> {
     let mut entries = Vec::new();
     let persona=store::required(db,"persona",actor)?;
+    let applications=applications(db,Some(actor),None)?;
     let mut statement = db.prepare("SELECT h.id FROM heads h JOIN objects o ON h.digest=o.digest
         JOIN versions v ON v.kind=h.kind AND v.id=h.id AND v.revision=h.revision
         WHERE h.kind='development' AND json_extract(CAST(o.bytes AS TEXT),'$.owner')=?1 ORDER BY v.rowid DESC")?;
@@ -432,11 +599,17 @@ pub(super) fn index(db: &Connection, actor: &str) -> Result<Vec<Value>> {
             params![record.body["origin_work"].as_str(),record.body["revisit_after_event"].as_i64().unwrap_or(0),actor],|r|r.get(0))?;
         let last=record.body["adoptions"].as_array().and_then(|a|a.last());
         let active=last.is_some_and(|a|a["model"]==persona.body["model"] && a["epoch"]==persona.body["epoch"]);
+        let uses=applications.iter().filter(|r|r["question_id"]==key);
+        let latest=uses.clone().next();
+        let linked=uses.clone().flat_map(|r|r["linked_responses_now"].as_array().into_iter().flatten().map(move|e|(r,e)))
+            .max_by_key(|(_,e)|e["sequence"].as_i64());
         entries.push(
             json!({"reference":record.reference.handle(),"origin_work":record.body["origin_work"],
             "question":detail["question"],"disposition":detail["disposition"],"revisit":revisit,
             "last_adoption":last.map(|a|json!({"candidate":a["candidate"],"model":a["model"],"epoch":a["epoch"],"decision":a["decision"]})),
             "observing_active_model":active,"outcome_observations":record.body["follow_ups"].as_array().map_or(0,Vec::len),
+            "application_count":uses.count(),"latest_application":latest.map(|r|json!({"application":r["reference"],"work":r["work"]})),
+            "latest_linked_response":linked.map(|(r,e)|json!({"application":r["reference"],"work":r["work"],"experience":e["experience"],"relation":e["relation"]})),
             "due_by_time":revisit["at_unix"].as_i64().is_some_and(|t|t<=super::now()),
             "matching_experience":matching.map(|n|format!("experience:event-{n}@1")),
             "later_feedback":feedback.map(|n|format!("experience:event-{n}@1"))}),
