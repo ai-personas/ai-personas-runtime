@@ -18,7 +18,7 @@ In **Character Lab → Development**, expand a question to see where the persona
 
 **Character Lab → Comparisons** shows the replies produced under each tested character. For a replay of a prior encounter, open the shared inputs to inspect the brief, exact resource bodies, appraisal and ordered images. The display also identifies any numerical outputs that differed. A persona can request an additional control without numerical inclinations.
 
-In **Character Lab → Life history**, choose a persona and filter their attributed experiences by activity, feedback or character. Open an entry to inspect the original record. The inspector's **Change reasoning settings…** records a new model ID or effort on the same connection and preserves the persona's character and obligations.
+In **Character Lab → Life history**, choose a persona to filter their attributed experiences by activity, feedback or character. **Participation** shows invitations, changes of commitment, handoffs, departures and group closures across that persona’s earlier and later memberships. Open an entry to inspect the original record. The inspector's **Change reasoning settings…** records a new model ID or effort on the same connection and preserves the persona's character and obligations.
 
 The workspace lists responsibility handoffs alongside intended outcomes. An offer keeps the current owner in place. An accepted handoff names both participants, the exact transferred revision and the recipient’s decision. A stopped owner with unfinished work appears as a **Follow-through gap**. **Run controls → Continue this activity** schedules eligible decisions and pending effects for the selected activity. **Continue all eligible work** uses the entire workspace.
 

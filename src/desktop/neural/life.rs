@@ -5,9 +5,16 @@ impl App {
     pub(super) fn life_history(&mut self, ui: &mut Ui) {
         ui.heading(format!("{}’s life history", self.label(&self.persona)));
         ui.horizontal_wrapped(|ui| {
-            for (i, title) in ["All", "Tasks", "Social", "Character", "Feedback"]
-                .into_iter()
-                .enumerate()
+            for (i, title) in [
+                "All",
+                "Tasks",
+                "Social",
+                "Character",
+                "Feedback",
+                "Participation",
+            ]
+            .into_iter()
+            .enumerate()
             {
                 ui.selectable_value(&mut self.life_filter, i, title);
             }
@@ -25,17 +32,17 @@ impl App {
                 )
             })
             .collect();
-        let invitations: BTreeMap<_, _> = self
-            .events
-            .iter()
-            .filter(|e| e["kind"] == "invitation" && e["target"] == self.persona)
-            .map(|e| {
-                (
-                    s(e, "work").to_owned(),
-                    e["event"].as_i64().unwrap_or(i64::MAX),
-                )
-            })
-            .collect();
+        let mut invitations: BTreeMap<&str, i64> = BTreeMap::new();
+        for e in &self.events {
+            if e["kind"] == "invitation" && e["target"] == self.persona {
+                if let Some(seq) = e["event"].as_i64() {
+                    invitations
+                        .entry(s(e, "work"))
+                        .and_modify(|first| *first = (*first).min(seq))
+                        .or_insert(seq);
+                }
+            }
+        }
         let events: Vec<_> = self
             .events
             .iter()
@@ -50,23 +57,32 @@ impl App {
                             e["event"].as_i64().is_some_and(|seq| seq >= *joined)
                         }));
                 let social = activities.get(work).is_some_and(|(_, social)| *social);
+                let membership = matches!(
+                    kind,
+                    "invitation"
+                        | "invitation_response"
+                        | "commitment_changed"
+                        | "contribution_proposal"
+                        | "participation_left"
+                        | "handoff_offered"
+                        | "handoff_resolved"
+                        | "responsibility_accepted"
+                        | "activity_dissolved"
+                        | "activity_reopened"
+                        | "explicit_resume"
+                );
                 visible
-                    && matches!(
-                        kind,
-                        "invitation"
-                            | "invitation_response"
-                            | "message"
-                            | "reply"
-                            | "user_message"
-                            | "user_acceptance"
-                            | "requirements_amended"
-                            | "commitment_changed"
-                            | "handoff_offered"
-                            | "handoff_resolved"
-                            | "delivery"
-                            | "model_changed"
-                            | "explicit_resume"
-                    )
+                    && (membership
+                        || matches!(
+                            kind,
+                            "message"
+                                | "reply"
+                                | "user_message"
+                                | "user_acceptance"
+                                | "requirements_amended"
+                                | "delivery"
+                                | "model_changed"
+                        ))
                     && !(kind == "delivery" && e["target"] == "user")
                     && match self.life_filter {
                         1 => !social,
@@ -76,6 +92,7 @@ impl App {
                             kind,
                             "user_message" | "user_acceptance" | "requirements_amended"
                         ),
+                        5 => membership,
                         _ => true,
                     }
             })
@@ -126,6 +143,16 @@ impl App {
                                     }
                                 });
                                 let text = match kind {
+                                    "invitation" | "contribution_proposal" => {
+                                        s(b, "contribution").into()
+                                    }
+                                    "invitation_response" => {
+                                        if b["accept"] == true {
+                                            format!("Accepted · {}", s(b, "commitment"))
+                                        } else {
+                                            format!("Declined · {}", s(b, "reason"))
+                                        }
+                                    }
                                     "model_changed" => format!(
                                         "Epoch {} · {}",
                                         b["epoch"],
@@ -140,8 +167,6 @@ impl App {
                                         },
                                         s(&b["decision"], "reason")
                                     ),
-                                    "invitation_response" => s(b, "reason").into(),
-                                    "invitation" => s(b, "contribution").into(),
                                     _ => b["text"]
                                         .as_str()
                                         .or(b["reason"].as_str())
@@ -150,13 +175,20 @@ impl App {
                                         .into(),
                                 };
                                 ui.add(egui::Label::new(text).truncate());
-                                if let Some(parent)=b["reply_to"].as_str() {
-                                    if ui.small_button("In reply to ↗").clicked(){selected=Some(parent.to_owned());}
+                                if let Some(parent) = b["reply_to"].as_str() {
+                                    if ui.small_button("In reply to ↗").clicked() {
+                                        selected = Some(parent.to_owned());
+                                    }
                                 }
                                 let author = self.label(s(e, "actor"));
+                                let route = match s(e, "target") {
+                                    "*" => author.to_owned(),
+                                    "user" => format!("{author} → You"),
+                                    to => format!("{author} → {}", self.label(to)),
+                                };
                                 ui.add(
                                     egui::Label::new(
-                                        egui::RichText::new(format!("{author} · {activity}"))
+                                        egui::RichText::new(format!("{route} · {activity}"))
                                             .small()
                                             .color(theme::palette(ui).muted),
                                     )
