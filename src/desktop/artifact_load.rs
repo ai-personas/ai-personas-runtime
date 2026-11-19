@@ -297,13 +297,35 @@ fn aligned_numeric_rows(text: &str) -> Option<Vec<Vec<String>>> {
     (rows.len() > 1).then_some(rows)
 }
 
+fn retained_pdf_header(source: &Source, extension: &str) -> Result<bool, String> {
+    let Source::Snapshot { path, .. } = source else {
+        return Ok(false);
+    };
+    // The prefix selects a decoder. Native preparation verifies the whole
+    // snapshot digest before staging the file under its recorded name.
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut header = Vec::with_capacity(1024);
+    file.take(1024)
+        .read_to_end(&mut header)
+        .map_err(|e| e.to_string())?;
+    if matches!(extension, "" | "bin" | "dat" | "data" | "blob") {
+        Ok(ai_personas::pdf_preview::is_pdf(&header))
+    } else {
+        Ok(header.trim_ascii_start().starts_with(b"%PDF-"))
+    }
+}
+
 pub(super) fn decode(source: &Source, cancel: &native_preview::Cancellation) -> Result<Decoded, String> {
     if cancel.is_cancelled() {
         return Err("Preview request cancelled.".into());
     }
     let name = source.name();
     let ext = extension(Path::new(&name));
-    if let Some(route) = native_preview::route(&ext) {
+    let mut route = native_preview::route(&ext);
+    if route.is_none() && retained_pdf_header(source, &ext)? {
+        route = native_preview::route("pdf");
+    }
+    if let Some(route) = route {
         let result = route.availability().and_then(|()| native_preview::prepare(source, route, cancel));
         match result {
             Ok(document) => {

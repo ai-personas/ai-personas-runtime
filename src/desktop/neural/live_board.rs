@@ -78,6 +78,7 @@ impl Filter {
                             | "host.cancel"
                             | "command.run"
                             | "compute.run"
+                            | "document.render_pdf"
                             | "geometry.render"
                     )
             }
@@ -119,7 +120,7 @@ impl Filter {
                     )
                     || (is_tool && matches!(
                         tool,
-                        "asset.save" | "asset.register" | "asset.retire" | "geometry.render"
+                        "asset.save" | "asset.register" | "asset.retire" | "geometry.render" | "document.render_pdf"
                     ))
             }
             Self::Tools => is_tool,
@@ -1072,7 +1073,7 @@ fn preview_text(source: &str, limit: usize) -> String {
 
 enum EventAction {
     Open(String),
-    Package { reference: String, work: String },
+    Package(String),
     SourceFile {
         source: String,
         object: String,
@@ -1196,9 +1197,7 @@ impl App {
                 }
                 match action {
                     Some(EventAction::Open(reference)) => self.open_resource(ui.ctx(), reference),
-                    Some(EventAction::Package { reference, work }) => {
-                        self.open_home_delivery(&reference, &work)
-                    }
+                    Some(EventAction::Package(reference)) => self.open_issued_package(ui.ctx(), &reference),
                     Some(EventAction::SourceFile { source, object, name }) => {
                         self.open_named_resource(ui.ctx(), object, Some((source, name)))
                     }
@@ -1334,10 +1333,7 @@ impl App {
                 if let Some(package) = feedback_reference(event) {
                     let title = self.feedback_title(event, package);
                     if live_composer::feedback_link(ui, title, package, 3).clicked() {
-                        action = Some(EventAction::Package {
-                            reference: package.into(),
-                            work: s(event, "work").into(),
-                        });
+                        action = Some(EventAction::Package(package.into()));
                     }
                 }
                 let text = event_text(event);
@@ -1452,6 +1448,11 @@ impl App {
                         }
                     }
                     if kind == "tool_result" {
+                        if let Some(image) = result["page_image"].as_str() {
+                            if text_action(ui, "Open rendered page").clicked() {
+                                action = Some(EventAction::Open(image.into()));
+                            }
+                        }
                         if let Some(result) = result["result"].as_str() {
                             if text_action(ui, "Tool receipt").clicked() {
                                 action = Some(EventAction::Open(result.into()));
@@ -1463,7 +1464,7 @@ impl App {
                             body["delivery"].as_str().or(body["reference"].as_str())
                         {
                             if text_action(ui, "Open package").clicked() {
-                                action = Some(EventAction::Open(package.into()));
+                                action = Some(EventAction::Package(package.into()));
                             }
                         }
                     }
@@ -1530,6 +1531,9 @@ impl App {
                     result["file_reference"].is_string(),
                     s(result, "label"),
                 ) {
+                    ("document.render_pdf", _, label) if result["page_image"].is_string() => {
+                        label.replacen("Rendered", "rendered", 1)
+                    }
                     ("asset.register", true, _) => "registered a file".into(),
                     ("asset.save", true, _) => "saved a file revision".into(),
                     ("asset.import", true, _) => "imported a file".into(),

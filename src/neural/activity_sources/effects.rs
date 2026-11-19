@@ -20,7 +20,7 @@ pub(super) type Receipts = HashMap<String, Option<Receipt>>;
 fn external(tool: &str) -> bool {
     matches!(
         tool,
-        "compute.run" | "command.run" | "image.render_svg" | "geometry.render"
+        "compute.run" | "command.run" | "image.render_svg" | "document.render_pdf" | "geometry.render"
     )
 }
 
@@ -291,7 +291,7 @@ fn execution(
                 "requested_program",
                 requested,
             )],
-            "image.render_svg" => vec![member(
+            "image.render_svg" | "document.render_pdf" => vec![member(
                 named(&op.input["reference"])?,
                 "requested_source",
                 requested,
@@ -342,6 +342,18 @@ fn execution(
         "compute.run" => compute(catalog, op, result),
         "command.run" => command(catalog, time, op, result),
         "image.render_svg" => svg(catalog, op, result),
+        "document.render_pdf" => {
+            let page = crate::neural::pdf_evidence::verify(catalog.db, &op.input, result)?;
+            let detail = json!({
+                "source_bytes": page.source_bytes,
+                "page": page.page,
+                "page_count": page.page_count,
+                "image": page.image,
+                "width": page.width,
+                "height": page.height
+            });
+            Ok(Execution::new(true, vec![member(&page.source, "render_source", detail)]))
+        }
         "geometry.render" => render(catalog, op, result),
         _ => Err(failure("Unknown execution receipt")),
     }

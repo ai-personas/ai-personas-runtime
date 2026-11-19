@@ -133,6 +133,20 @@ pub struct RenderSvg {
     /// Exact retained SVG asset revision to render as a self-contained document.
     pub reference: String,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RenderPdf {
+    /// Exact retained PDF asset revision or object:<sha256> from an attachment.
+    pub reference: String,
+    /// One-based page to render. The receipt gives the total number of pages.
+    #[serde(default = "first_page")]
+    #[schemars(range(min = 1))]
+    pub page: u32,
+}
+fn first_page() -> u32 {
+    1
+}
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Compute {
@@ -343,6 +357,7 @@ pub const NAMES: &[(&str,&str)] = &[
     ("asset.organize","Move/update discovery metadata or retire a resource while preserving exact prior bytes and history."),
     ("image.read","Capture a host image and supply its exact bytes as image input in the next decision."),
     ("image.render_svg","Render an exact retained SVG drawing, diagram or card. The following decision receives the actual PNG pixels. External image files are omitted."),
+    ("document.render_pdf","View a page of an exact retained PDF document or attachment. Choose a one-based page to receive its PNG pixels and the total page count."),
     ("compute.inspect","Read the declared imports, exports and function signatures of an exact WebAssembly asset without running it. Execution produces a separate result receipt."),
     ("compute.run","Execute an exact retained compiled WebAssembly (.wasm) or WebAssembly text (.wat) asset with the compute.wasm.v1 ABI. Supply UTF-8 input. The module returns text using its exported memory and run(i32,i32) -> i64. High 32 bits give the output offset and low 32 bits its length."),
     ("peer.message","Deliver an attributed message and exact references; does not invent attention, assent or resume a stopped participation."),
@@ -409,6 +424,7 @@ pub fn describe(name: &str) -> Result<Value> {
         "asset.organize" => schema::<AssetMetadata>()?,
         "image.read" => schema::<ImageRead>()?,
         "image.render_svg" => schema::<RenderSvg>()?,
+        "document.render_pdf" => schema::<RenderPdf>()?,
         "compute.inspect" => schema::<InspectProgram>()?,
         "compute.run" => schema::<Compute>()?,
         "workspace.list" => schema::<ListDirectory>()?,
@@ -494,6 +510,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
         "asset.organize" => parse::<AssetMetadata>(value),
         "image.read" => parse::<ImageRead>(value),
         "image.render_svg" => parse::<RenderSvg>(value),
+        "document.render_pdf" => parse::<RenderPdf>(value),
         "compute.inspect" => parse::<InspectProgram>(value),
         "compute.run" => parse::<Compute>(value),
         "workspace.list" => {
@@ -525,7 +542,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
 pub fn is_external(name: &str) -> bool {
     matches!(
         name,
-        "command.install" | "command.run" | "compute.inspect" | "compute.run" | "geometry.install" | "geometry.render" | "geometry.inspect_stl" | "geometry.profile_stl" | "workspace.list" | "asset.import" | "image.read" | "image.render_svg" | "persona.assess"
+        "command.install" | "command.run" | "compute.inspect" | "compute.run" | "geometry.install" | "geometry.render" | "geometry.inspect_stl" | "geometry.profile_stl" | "workspace.list" | "asset.import" | "image.read" | "image.render_svg" | "document.render_pdf" | "persona.assess"
     )
 }
 pub fn asset_mutation(name: &str) -> bool {

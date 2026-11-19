@@ -4,6 +4,7 @@ use crate::neural::{context, failure, provider_evidence, store, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
+mod pdf_pages;
 
 struct Event {
     seq: i64,
@@ -163,21 +164,26 @@ impl Event {
     }
 }
 
-fn attachments(db: &Connection, body: &Value) -> Result<Vec<crate::neural::input_files::Material>> {
-    let Some(manifest) = body.get("attachments") else { return Ok(Vec::new()); };
+fn attachments(db: &Connection, body: &Value) -> Result<(Vec<crate::neural::input_files::Material>, BTreeSet<String>)> {
+    let Some(manifest) = body.get("attachments") else { return Ok(Default::default()); };
     let files: Vec<crate::neural::input_files::Material> = serde_json::from_value(manifest.clone())?;
     let mut verified = BTreeMap::new();
+    let mut pdfs = BTreeSet::new();
     for file in &files {
         if file.name.is_empty() || file.reference != format!("object:{}", file.sha256) {
             return Err(failure("Attachment has an invalid name or content address"));
         }
-        let len = match verified.entry(&file.sha256) {
+        let (len, pdf) = match verified.entry(&file.sha256) {
             std::collections::btree_map::Entry::Occupied(entry) => *entry.get(),
-            std::collections::btree_map::Entry::Vacant(entry) => *entry.insert(store::bytes(db, &file.sha256)?.len() as u64),
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                let bytes = store::bytes(db, &file.sha256)?;
+                *entry.insert((bytes.len() as u64, crate::pdf_preview::is_pdf(&bytes)))
+            }
         };
         if len != file.bytes { return Err(failure("Attachment differs from its retained size")); }
+        if pdf { pdfs.insert(file.reference.clone()); }
     }
-    Ok(files)
+    Ok((files, pdfs))
 }
 
 // Identify the actual source slots before looking at their contents. Text in a
@@ -278,9 +284,19 @@ fn byte_observation(
     .then_some(("image", [start, end]))
 }
 
-/// First verified receipt of the full incoming update in the requesting activity,
-/// plus its first verified byte range and first whole-file receipt for each return.
+/// Verify the incoming message, exact source bytes and derived pages against a
+/// single committed view while the activity may continue in another process.
 pub fn inspect(db: &Connection, event: i64) -> Result<Value> {
+    if !db.is_autocommit() {
+        return receipt(db, event);
+    }
+    let snapshot = db.unchecked_transaction()?;
+    let report = receipt(&snapshot, event)?;
+    snapshot.commit()?;
+    Ok(report)
+}
+
+fn receipt(db: &Connection, event: i64) -> Result<Value> {
     let update = Event::get(db, event)?
         .filter(|e| {
             e.invocation.is_none()
@@ -300,12 +316,16 @@ pub fn inspect(db: &Connection, event: i64) -> Result<Value> {
         issue.check_message(&update.body,&update.work,&update.target,update.seq)?;
         Ok((reference,issue.record.body["title"].clone()))
     }).transpose()?;
-    let files = attachments(db, &update.body)?;
+    let (files, pdfs) = attachments(db, &update.body)?;
+    let mut pages = pdf_pages::Pages::find(db, &update, &pdfs)?;
     let addresses: BTreeSet<_> = files.iter().map(|f| f.reference.as_str()).collect();
     let handle = update.reference();
     let mut wanted = addresses.clone();
     wanted.insert(&handle);
-    let mut calls=db.prepare("SELECT i.id,i.updated FROM invocations i JOIN objects s ON s.digest=i.snapshot
+    let mut needles = addresses.clone();
+    let image_references = pages.image_references();
+    needles.extend(image_references.iter().map(String::as_str));
+    let mut calls=db.prepare("SELECT i.id,i.updated,i.rowid FROM invocations i JOIN objects s ON s.digest=i.snapshot
         WHERE i.work=?1 AND i.actor=?2 AND i.state='accepted' AND i.created>=?3
         AND json_type(CAST(s.bytes AS TEXT),'$.model')='text' AND (
             instr(s.bytes,CAST(?4 AS BLOB))>0 OR EXISTS(SELECT 1 FROM json_each(CAST(s.bytes AS TEXT),'$.data.new_events') e
@@ -319,7 +339,7 @@ pub fn inspect(db: &Connection, event: i64) -> Result<Value> {
         handle,
         event,
         update.kind,
-        serde_json::to_string(&addresses)?
+        serde_json::to_string(&needles)?
     ])?;
     let mut received = Value::Null;
     let mut bodies = BTreeMap::new();
@@ -340,6 +360,7 @@ pub fn inspect(db: &Connection, event: i64) -> Result<Value> {
         }
         let inputs = supplied(db, s, &wanted)?;
         let proof = json!({"decision":format!("experience:{call}@1"),"accepted_at":row.get::<_,i64>(1)?,"binding":accepted.binding});
+        let order: i64 = row.get(2)?;
         if received.is_null() {
             let via = if s.data["new_events"]
                 .as_array()
@@ -357,7 +378,9 @@ pub fn inspect(db: &Connection, event: i64) -> Result<Value> {
             let Some(via) = via else { continue };
             received = proof.clone();
             received["via"] = json!(via);
+            pages.after_message_receipt(order);
         }
+        pages.observe(s, order, &proof);
         for source in inputs {
             let Some(reference) = source.value["reference"]
                 .as_str()
@@ -380,15 +403,19 @@ pub fn inspect(db: &Connection, event: i64) -> Result<Value> {
                 }
             }
         }
-        if whole.len() == addresses.len() {
+        if whole.len() == addresses.len() && pages.all_supplied() {
             break;
         }
     }
     let files = files
         .iter()
         .map(|file| {
-            json!({"name":file.name,"reference":file.reference,"bytes":file.bytes,
-        "supplied":bodies.get(&file.reference),"whole":whole.get(&file.reference)})
+            let mut entry = json!({"name":file.name,"reference":file.reference,"bytes":file.bytes,
+                "supplied":bodies.get(&file.reference),"whole":whole.get(&file.reference)});
+            if pdfs.contains(&file.reference) {
+                entry["pdf_pages"] = json!(pages.for_file(&file.reference, !received.is_null()));
+            }
+            entry
         })
         .collect::<Vec<_>>();
     let mut report = json!({"message":handle,"kind":update.kind,"work":update.work,"sender":update.actor,

@@ -10,6 +10,7 @@ mod archive;
 mod assessment;
 pub mod asset_feedback;
 pub mod delivery_feedback;
+pub(crate) mod pdf_evidence;
 pub mod activity_requests;
 pub mod activity_tree;
 pub mod activity_sources;

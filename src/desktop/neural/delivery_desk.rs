@@ -357,7 +357,11 @@ impl App {
                     });
                 let file = &p.files[desk.selected];
                 ui.horizontal_wrapped(|ui| {
-                    ui.small(&file.format.label);
+                    ui.small(if desk.inline.detected_pdf(&file.reference) {
+                        "PDF document"
+                    } else {
+                        &file.format.label
+                    });
                     if let Some(rev) = revision(&file.reference) {
                         ui.small(format!("·  Revision {rev}"));
                     }
@@ -465,7 +469,10 @@ impl App {
                         } else {
                             ui.small("·  Content author unrecorded");
                         }
-                        if file.format.inline() && ui.small_button("Preview here").clicked() {
+                        if (file.format.inline()
+                            || self.delivery_desk.inline.detected_pdf(&file.reference))
+                            && ui.small_button("Preview here").clicked()
+                        {
                             self.delivery_desk.selected = index;
                             self.delivery_desk.focus_preview = true;
                             ui.ctx().request_repaint();

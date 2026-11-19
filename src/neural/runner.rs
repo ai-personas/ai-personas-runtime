@@ -17,6 +17,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
+mod pdf;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -642,14 +643,26 @@ async fn effects(root: &Path, actor: &str, selected_work:&str) -> Result<()> {
             Ok(true)
         })?;
         if !dispatched { continue; }
-        let result = external(root, &work, actor, &invocation, &op).await;
-        let value = match result {
+        let result = if op.tool == "document.render_pdf" {
+            match serde_json::from_value(op.input.clone()) {
+                Ok(input) => pdf::render(root, &work, actor, input).await,
+                Err(error) => Err(error.into()),
+            }
+        } else {
+            external(root, &work, actor, &invocation, &op).await.map(|value| (value, None))
+        };
+        let (mut value, png) = match result {
             Ok(value) => value,
             Err(error) => {
-                json!({"error":error.to_string(),"success":false,"automatic_retry":false})
+                (json!({"error":error.to_string(),"success":false,"automatic_retry":false}), None)
             }
         };
         store.transaction(|db|{
+            if let Some(png) = png {
+                let digest = store::put_bytes(db, "image/png", &png)?;
+                value["reference"] = json!(format!("object:{digest}"));
+                value["image_blob"] = json!(digest);
+            }
             let digest=store::put(db,&value)?;
             db.execute("UPDATE outbox SET state='completed',result=?2 WHERE id=?1 AND state='dispatched'",params![effect,digest])?;
             store::event(db,&work,actor,actor,"tool_result",&json!({"operation":op.id,"tool":op.tool,"effect":effect,"result":format!("object:{digest}"),"context":"complete"}),Some(&invocation))?;Ok(())

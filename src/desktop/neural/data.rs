@@ -420,6 +420,12 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
         (label,run["success"]!=true)
     } else if body["tool"] == "geometry.install" {
         (if result["already_installed"]==true { "Compiler already installed" } else { "Compiler installed" }.to_owned(), false)
+    } else if body["tool"] == "document.render_pdf" {
+        match (result["success"].as_bool(), result["page"].as_u64(), result["page_count"].as_u64()) {
+            (Some(true), Some(page), Some(count)) if page > 0 && page <= count =>
+                (format!("Rendered PDF page {page} of {count}"), false),
+            _ => ("PDF page unavailable".into(), true),
+        }
     } else if body["tool"] == "geometry.render" {
         if result["success"]!=true { ("Render failed".to_owned(),true) }
         else if result["warnings"].as_array().is_some_and(|warnings|!warnings.is_empty()) { ("Rendered with warnings".to_owned(),true) }
@@ -476,6 +482,13 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
     if body["tool"]=="geometry.render" {
         for key in ["source","mesh","geometry","installation","compiler_version","diagnostics","warnings","errors","parameters"] {
             projection[key]=result[key].clone();
+        }
+    }
+    if body["tool"] == "document.render_pdf" && !problem && result["success"] == true {
+        if let Some(digest) = result["image_blob"].as_str() {
+            if result["reference"] == format!("object:{digest}") && result["mime"] == "image/png" {
+                projection["page_image"] = result["reference"].clone();
+            }
         }
     }
     Ok(projection)

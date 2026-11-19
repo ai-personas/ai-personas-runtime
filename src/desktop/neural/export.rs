@@ -11,9 +11,16 @@ enum Contents {
     Handoff { reference: String, files: usize },
 }
 
-fn title_stem(title: &str) -> String {
-    title.split_whitespace().collect::<Vec<_>>().join("-").chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '_' }).take(72).collect()
+fn title_stem(title: &str, fallback: &str) -> String {
+    let words: Vec<_> = title
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .collect();
+    if words.is_empty() {
+        return fallback.to_owned();
+    }
+    let stem: String = words.join("-").chars().take(72).collect();
+    stem.trim_end_matches('-').to_owned()
 }
 pub(super) struct Dialog {
     pub serial: u64,
@@ -44,7 +51,7 @@ impl Dialog {
 impl App {
     pub(super) fn export_package(&mut self, reference: &str, title: &str) {
         self.export_generation += 1;
-        let name = title_stem(title);
+        let name = title_stem(title, "Delivery");
         self.export_dialog = Some(Dialog::new(self.export_generation, Contents::Package(reference.into()), format!("{name}.zip")));
     }
     pub(super) fn save_request_handoff(&mut self, reference: &str, title: &str, files: usize) {
@@ -54,8 +61,8 @@ impl App {
         self.save_handoff(reference, title, files, "Delivery");
     }
     fn save_handoff(&mut self, reference: &str, title: &str, files: usize, fallback: &str) {
-        let stem = title_stem(title);
-        let folder = if stem.is_empty() { format!("{fallback}-handoff") } else { format!("{stem}-handoff") };
+        let stem = title_stem(title, fallback);
+        let folder = format!("{stem}-handoff");
         self.export_generation += 1;
         self.export_dialog = Some(Dialog::new(
             self.export_generation,

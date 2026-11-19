@@ -4,20 +4,26 @@ use super::*;
 pub(super) struct Window {
     event: Option<i64>,
     decisions: usize,
+    cursor: i64,
     reader: Option<mpsc::Receiver<Result<Value, String>>>,
     report: Option<Result<Value, String>>,
 }
 
 impl App {
     pub(super) fn open_message_receipt(&mut self, ctx: &egui::Context, event: i64) {
-        let (root, ctx) = (self.root.clone(), ctx.clone());
-        let (tx, rx) = mpsc::channel();
         self.message_receipt = Window {
             event: Some(event),
-            decisions: self.known_decisions.len(),
-            reader: Some(rx),
-            report: None,
+            ..Default::default()
         };
+        self.refresh_message_receipt(ctx, event);
+    }
+
+    fn refresh_message_receipt(&mut self, ctx: &egui::Context, event: i64) {
+        let (root, ctx) = (self.root.clone(), ctx.clone());
+        let (tx, rx) = mpsc::channel();
+        self.message_receipt.decisions = self.known_decisions.len();
+        self.message_receipt.cursor = self.cursor;
+        self.message_receipt.reader = Some(rx);
         std::thread::spawn(move || {
             let result = data::open(&root)
                 .and_then(|db| ai_personas::neural::live::message_receipt(&db, event));
@@ -53,8 +59,19 @@ impl App {
             .and_then(|r| r.as_ref().ok())
             .is_some_and(|r| r["delivery"].is_string());
         let title = if feedback { "Feedback receipt" } else { "Delivery status" };
-        egui::Window::new(title).id(egui::Id::new("live-message-receipt")).open(&mut visible)
-            .default_width(425.).resizable(true).vscroll(true).show(ctx, |ui| {
+        let viewport = ctx.content_rect().shrink(6.);
+        let style = ctx.style();
+        let frame = egui::Frame::window(&style);
+        let heading = egui::TextStyle::Heading.resolve(&style);
+        let title_height = ctx.fonts_mut(|fonts| fonts.row_height(&heading)).max(style.spacing.interact_size.y);
+        let chrome = frame.total_margin().sum()
+            + egui::vec2(0., title_height + frame.inner_margin.sum().y + frame.stroke.width);
+        let available = (viewport.size() - chrome).max(egui::vec2(1., 1.));
+        let initial = egui::vec2(520., 620.).min(available);
+        egui::Window::new(title).id(egui::Id::new("human-message-receipt")).open(&mut visible)
+            .default_size(initial).default_pos(viewport.center() - (initial + chrome) / 2.)
+            .min_size(egui::vec2(220., 110.).min(available)).max_size(available)
+            .constrain_to(viewport).resizable(true).vscroll(true).show(ctx, |ui| {
                 let report = match &self.message_receipt.report {
                     Some(Ok(report)) => report,
                     Some(Err(error)) => {ui.label(error); refresh = ui.button("Retry").clicked(); return;}
@@ -112,7 +129,9 @@ impl App {
                         if let Some(call)=supplied["decision"].as_str() {
                             let start=supplied["range"][0].as_u64().unwrap_or(0);
                             let end=supplied["range"][1].as_u64().unwrap_or(0);
-                            let label=if supplied["kind"]=="image" {"Image supplied".to_owned()}
+                            let label=if file["pdf_pages"].is_array() && supplied["kind"]=="text" {
+                                    format!("Source bytes supplied as text · {start}..{end}")
+                                } else if supplied["kind"]=="image" {"Image supplied".to_owned()}
                                 else if start==0 && end==size {"Whole text supplied".into()}
                                 else {format!("Text supplied · bytes {start}..{end}")};
                             ui.horizontal_wrapped(|ui| {
@@ -120,21 +139,28 @@ impl App {
                                 if ui.small_button("Inspect file receipt").clicked() {inspect=Some(call.to_owned());}
                             });
                             if let Some(later)=file["whole"]["decision"].as_str().filter(|_|end-start<size) {
-                                if ui.small_button("Inspect whole-file receipt").clicked() {inspect=Some(later.to_owned());}
+                                let label = if file["pdf_pages"].is_array() {"Inspect source-byte receipt"} else {"Inspect whole-file receipt"};
+                                if ui.small_button(label).clicked() {inspect=Some(later.to_owned());}
                             }
                         } else if report["received"].is_object() {ui.weak("File reference received");}
                           else {ui.weak("Attachment recorded");}
+                        if let Some(pages) = file["pdf_pages"].as_array() {
+                            if let Some(reference) = page_receipts(ui, file, pages, recipient) {
+                                inspect = Some(reference);
+                            }
+                        }
                     });
                 }
                 let pending=report["received"].is_null() || files.iter().any(|f|f["whole"].is_null());
                 let unverified=report["unverified_candidates"].as_u64().unwrap_or(0);
                 if unverified>0 {ui.weak(format!("Unverified candidate inputs · {unverified}"));}
-                refresh = pending && self.message_receipt.decisions != self.known_decisions.len();
+                refresh = (pending && self.message_receipt.decisions != self.known_decisions.len())
+                    || (self.message_receipt.cursor != self.cursor && files.iter().any(|f|f["pdf_pages"].is_array()));
             });
         if !visible {
             self.message_receipt = Default::default();
-        } else if refresh {
-            self.open_message_receipt(ctx, event);
+        } else if refresh && self.message_receipt.reader.is_none() {
+            self.refresh_message_receipt(ctx, event);
         }
         if let Some((reference, work)) = open_package {
             self.message_receipt = Default::default();
@@ -147,4 +173,50 @@ impl App {
             self.open_named_resource(ctx, reference, Some((format!("experience:event-{event}@1"), name)));
         }
     }
+}
+
+fn page_receipts(ui: &mut Ui, file: &Value, pages: &[Value], recipient: &str) -> Option<String> {
+    if pages.is_empty() {
+        ui.weak("No page render verified for this PDF.");
+        return None;
+    }
+    let supplied = pages.iter().filter(|p| p["supplied"].is_object()).count();
+    let mut inspect = None;
+    egui::CollapsingHeader::new(format!("PDF pages · {} rendered · {supplied} supplied", pages.len()))
+        .id_salt(("pdf-pages", s(file, "reference"))).default_open(pages.len() <= 5)
+        .show(ui, |ui| {
+            for page in pages {
+                ui.push_id(page["page"].as_u64(), |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.strong(format!("Page {} of {}", page["page"], page["page_count"]))
+                            .on_hover_text(format!("{}\n{}\n{}", s(file, "name"), s(page,"source_bytes"), s(page,"image")));
+                        if page["supplied"].is_object() {
+                            theme::badge(ui, "Page pixels supplied", TEAL);
+                        } else {
+                            theme::badge(ui, "Page rendered", theme::palette(ui).muted);
+                        }
+                    });
+                    if let Some(decision) = page["supplied"]["decision"].as_str() {
+                        let when = time_label(page["supplied"]["accepted_at"].as_i64().unwrap_or_default());
+                        ui.small(format!("First verified in {recipient}’s decision · {when}"));
+                        if ui.small_button("Inspect receiving decision").clicked() {
+                            inspect = Some(decision.into());
+                        }
+                    }
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.link("Page image").on_hover_text(s(page, "image")).clicked() {
+                            inspect = Some(s(page, "image").into());
+                        }
+                        if ui.link("Render receipt").on_hover_text(s(&page["render"], "event")).clicked() {
+                            inspect = Some(s(&page["render"], "event").into());
+                        }
+                        if page["source"] != page["source_bytes"]
+                            && ui.link("Source revision").on_hover_text(s(page, "source")).clicked() {
+                            inspect = Some(s(page, "source").into());
+                        }
+                    });
+                });
+            }
+        });
+    inspect
 }

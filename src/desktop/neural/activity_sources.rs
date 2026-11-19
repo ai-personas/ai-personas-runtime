@@ -330,6 +330,19 @@ fn file_row(
         }
     });
     ui.collapsing("Details", |ui| {
+        let detail = &row["detail"];
+        if row["tool"] == "document.render_pdf" {
+            if let (Some(page), Some(count), Some(image)) =
+                (detail["page"].as_u64(), detail["page_count"].as_u64(), detail["image"].as_str())
+            {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(format!("PDF page {page} of {count}"));
+                    if ui.link("Open rendered page").on_hover_text(image).clicked() {
+                        app.open_resource(ui.ctx(), image.into());
+                    }
+                });
+            }
+        }
         ui.horizontal_wrapped(|ui| {
             ui.small(format!("{} · {}", s(row, "tool"), title(s(row, "role"))));
             if ui.small_button("Open origin activity").clicked() {

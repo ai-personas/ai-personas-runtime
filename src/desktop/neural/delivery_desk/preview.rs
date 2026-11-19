@@ -1,7 +1,14 @@
 //! A bounded in-page preview of a single immutable package member.
 use super::*;
 use ai_personas::neural::store;
-use std::{io::Cursor, path::Path};
+use std::{
+    io::Cursor,
+    path::Path,
+    sync::atomic::{AtomicU64, Ordering},
+};
+
+#[path = "pdf.rs"]
+mod pdf;
 
 // These bounds apply to the inline preview only. The original revision stays
 // available in the full file viewer and in the package.
@@ -12,6 +19,7 @@ const TEXT_LINES: usize = 9;
 
 #[derive(Clone, Copy)]
 enum Kind {
+    Pdf,
     Vector,
     Raster,
     Text,
@@ -32,6 +40,7 @@ impl Format {
             .to_ascii_lowercase();
         let mime = media.split(';').next().unwrap_or("").trim();
         let kind = match (ext.as_str(), mime) {
+            ("pdf", _) | (_, "application/pdf") => Kind::Pdf,
             ("svg", _) | (_, "image/svg+xml") => Kind::Vector,
             ("png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tif" | "tiff" | "ico", _)
             | (
@@ -48,6 +57,7 @@ impl Format {
             _ => Kind::Other,
         };
         let label = match (kind, ext.as_str()) {
+            (Kind::Pdf, _) => "PDF document".into(),
             (Kind::Vector, _) => "SVG drawing".into(),
             (Kind::Raster, _) => "Raster image".into(),
             (Kind::Text, "md" | "markdown") => "Markdown".into(),
@@ -66,7 +76,7 @@ impl Format {
         Self { label, kind }
     }
     pub fn visual(&self) -> bool {
-        matches!(self.kind, Kind::Vector | Kind::Raster)
+        matches!(self.kind, Kind::Vector | Kind::Raster | Kind::Pdf)
     }
     pub fn inline(&self) -> bool {
         !matches!(self.kind, Kind::Other)
@@ -77,13 +87,17 @@ struct Job {
     root: PathBuf,
     reference: String,
     kind: Kind,
+    page: u32,
+    serial: u64,
     ctx: egui::Context,
 }
 enum Content {
     Image(egui::ColorImage, Option<String>),
+    Pdf(egui::ColorImage, u32),
+    Other,
     Text(String, bool),
 }
-type Answer = (String, Result<Content, String>);
+type Answer = (u64, ai_personas::neural::Result<Content>);
 
 struct Worker {
     tx: mpsc::Sender<Job>,
@@ -91,14 +105,21 @@ struct Worker {
 }
 
 impl Worker {
-    fn new() -> Self {
+    fn new(latest: Arc<AtomicU64>) -> Self {
         let (tx, jobs) = mpsc::channel::<Job>();
         let (out, rx) = mpsc::channel();
         std::thread::spawn(move || {
             while let Ok(first) = jobs.recv() {
                 let job = jobs.try_iter().last().unwrap_or(first);
-                let answer = load(&job).map_err(|e| e.to_string());
-                if out.send((job.reference, answer)).is_err() {
+                let cancelled = || latest.load(Ordering::Relaxed) != job.serial;
+                if cancelled() {
+                    continue;
+                }
+                let answer = load(&job, cancelled);
+                if cancelled() {
+                    continue;
+                }
+                if out.send((job.serial, answer)).is_err() {
                     break;
                 }
                 job.ctx.request_repaint();
@@ -113,6 +134,7 @@ enum View {
     #[default]
     Pending,
     Image(egui::TextureHandle, Option<String>),
+    Pdf(egui::TextureHandle),
     Text(String, bool),
     Note(String),
 }
@@ -120,73 +142,120 @@ enum View {
 #[derive(Default)]
 pub(super) struct Inline {
     worker: Option<Worker>,
+    latest: Arc<AtomicU64>,
     reference: String,
+    pages: pdf::Pages,
     view: View,
+}
+
+impl Drop for Inline {
+    fn drop(&mut self) {
+        self.latest.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 impl Inline {
     pub fn clear(&mut self) {
+        self.latest.fetch_add(1, Ordering::Relaxed);
         self.reference.clear();
+        self.pages = Default::default();
         self.view = View::Pending;
+    }
+
+    pub fn detected_pdf(&self, reference: &str) -> bool {
+        self.reference == reference && self.pages.count.is_some()
+    }
+
+    fn request(&mut self, ui: &Ui, root: &Path, file: &File) {
+        let serial = self.latest.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
+        ui.ctx().request_repaint();
+        self.view = match file.bytes {
+            None => View::Note("The file metadata is unavailable.".into()),
+            Some(n) if n > SOURCE_LIMIT => {
+                View::Note("This file is too large for an inline preview.".into())
+            }
+            Some(_) => {
+                let worker = self
+                    .worker
+                    .get_or_insert_with(|| Worker::new(self.latest.clone()));
+                let job = Job {
+                    root: root.into(),
+                    reference: file.reference.clone(),
+                    kind: file.format.kind,
+                    page: self.pages.page,
+                    serial,
+                    ctx: ui.ctx().clone(),
+                };
+                if worker.tx.send(job).is_ok() {
+                    View::Pending
+                } else {
+                    View::Note("The file preview worker is unavailable.".into())
+                }
+            }
+        };
     }
 
     pub fn show(&mut self, ui: &mut Ui, root: &Path, file: &File) {
         if self.reference != file.reference {
             self.reference.clone_from(&file.reference);
-            self.view = match file.bytes {
-                None => View::Note("The file metadata is unavailable.".into()),
-                Some(_) if !file.format.inline() => {
-                    View::Note("Use the full file viewer for this format.".into())
-                }
-                Some(n) if n > SOURCE_LIMIT => {
-                    View::Note("This file is too large for an inline preview.".into())
-                }
-                Some(_) => {
-                    let worker = self.worker.get_or_insert_with(Worker::new);
-                    if worker
-                        .tx
-                        .send(Job {
-                            root: root.into(),
-                            reference: file.reference.clone(),
-                            kind: file.format.kind,
-                            ctx: ui.ctx().clone(),
-                        })
-                        .is_ok()
-                    {
-                        View::Pending
-                    } else {
-                        View::Note("The file preview worker is unavailable.".into())
-                    }
-                }
-            };
+            self.pages = Default::default();
+            self.request(ui, root, file);
         }
         if let Some(worker) = &self.worker {
-            for (reference, result) in worker.rx.try_iter() {
-                if reference != self.reference {
+            for (serial, result) in worker.rx.try_iter() {
+                if serial != self.latest.load(Ordering::Relaxed) {
                     continue;
                 }
                 self.view = match result {
                     Ok(Content::Image(pixels, note)) => View::Image(
                         ui.ctx().load_texture(
-                            format!("delivery-{reference}"),
+                            format!("delivery-{}", file.reference),
                             pixels,
                             egui::TextureOptions::LINEAR,
                         ),
                         note,
                     ),
+                    Ok(Content::Pdf(pixels, pages)) => {
+                        if self.pages.count.is_none() && !matches!(file.format.kind, Kind::Pdf) {
+                            ui.ctx().request_repaint();
+                        }
+                        self.pages.count = Some(pages);
+                        View::Pdf(ui.ctx().load_texture(
+                            format!("delivery-{}-page-{}", file.reference, self.pages.page),
+                            pixels,
+                            egui::TextureOptions::LINEAR,
+                        ))
+                    }
                     Ok(Content::Text(body, truncated)) => View::Text(body, truncated),
-                    Err(e) => View::Note(format!("Preview unavailable. {e}")),
+                    Ok(Content::Other) => {
+                        View::Note("Use the full file viewer for this format.".into())
+                    }
+                    Err(e) => {
+                        if let Some(total) = e
+                            .downcast_ref::<ai_personas::pdf_preview::RenderError>()
+                            .and_then(|e| e.page_count)
+                        {
+                            self.pages.count = Some(total);
+                        }
+                        View::Note(format!("Preview unavailable. {e}"))
+                    }
                 };
             }
         }
+        let document = matches!(file.format.kind, Kind::Pdf) || self.pages.count.is_some();
+        if document && self.pages.navigation(ui, &file.reference) {
+            self.request(ui, root, file);
+        }
         let p = theme::palette(ui);
         match &self.view {
+            View::Pending if document => self.pages.loading(ui),
             View::Pending => {
                 ui.horizontal_wrapped(|ui| {
                     ui.spinner();
                     ui.weak("Loading exact file…");
                 });
             }
+            View::Pdf(texture) => self.pages.show(ui, texture, &file.path, &file.reference),
             View::Image(texture, note) => {
                 let available = ui.available_width();
                 let height = (available * 0.72)
@@ -239,12 +308,18 @@ impl Inline {
             }
             View::Note(text) => {
                 ui.weak(text);
+                if document
+                    && file.bytes.is_some_and(|n| n <= SOURCE_LIMIT)
+                    && ui.small_button("Retry page").clicked()
+                {
+                    self.request(ui, root, file);
+                }
             }
         }
     }
 }
 
-fn load(job: &Job) -> ai_personas::neural::Result<Content> {
+fn load(job: &Job, cancelled: impl Fn() -> bool) -> ai_personas::neural::Result<Content> {
     let db = data::open(&job.root)?;
     let asset = store::exact(&db, &job.reference)?;
     if asset.reference.kind != "asset" || asset.reference.handle() != job.reference {
@@ -265,9 +340,41 @@ fn load(job: &Job) -> ai_personas::neural::Result<Content> {
             "This file is too large for an inline preview.",
         ));
     }
+    // Some retained files have a generic name and media type. Check just the
+    // header before fetching an otherwise unsupported binary.
+    let kind = if matches!(job.kind, Kind::Other) {
+        let prefix: Vec<u8> = db.query_row(
+            "SELECT substr(bytes,1,1024) FROM objects WHERE digest=?1",
+            [digest],
+            |r| r.get(0),
+        )?;
+        if !ai_personas::pdf_preview::is_pdf(&prefix) {
+            return Ok(Content::Other);
+        }
+        Kind::Pdf
+    } else {
+        job.kind
+    };
     let bytes = store::bytes(&db, digest)?;
     drop(db);
-    match job.kind {
+    let kind = if matches!(kind, Kind::Text) && bytes.starts_with(b"%PDF-") {
+        Kind::Pdf
+    } else {
+        kind
+    };
+    match kind {
+        Kind::Pdf => {
+            let page = ai_personas::pdf_preview::render_with_control(&bytes, job.page, cancelled)?;
+            let image =
+                image::load_from_memory_with_format(&page.png, image::ImageFormat::Png)?.to_rgba8();
+            let max_side = job.ctx.input(|i| i.max_texture_side).clamp(1, 2400) as u32;
+            let image = sized_thumbnail(image, max_side);
+            let pixels = egui::ColorImage::from_rgba_unmultiplied(
+                [image.width() as usize, image.height() as usize],
+                image.as_raw(),
+            );
+            Ok(Content::Pdf(pixels, page.page_count))
+        }
         Kind::Vector => {
             let drawing = ai_personas::vector_preview::render(&bytes, 1.5, None)
                 .map_err(ai_personas::neural::failure)?;
@@ -275,7 +382,7 @@ fn load(job: &Job) -> ai_personas::neural::Result<Content> {
             let (width, height) = (pixmap.width(), pixmap.height());
             let image = image::RgbaImage::from_raw(width, height, pixmap.take())
                 .ok_or_else(|| ai_personas::neural::failure("Invalid SVG raster."))?;
-            let image = thumbnail(image);
+            let image = sized_thumbnail(image, 1280);
             let pixels = egui::ColorImage::from_rgba_premultiplied(
                 [image.width() as usize, image.height() as usize],
                 image.as_raw(),
@@ -301,7 +408,7 @@ fn load(job: &Job) -> ai_personas::neural::Result<Content> {
             let reader = reader()?;
             let note = (reader.format() == Some(image::ImageFormat::Gif))
                 .then(|| "First frame of the animation.".into());
-            let image = thumbnail(reader.decode()?.to_rgba8());
+            let image = sized_thumbnail(reader.decode()?.to_rgba8(), 1280);
             Ok(Content::Image(
                 egui::ColorImage::from_rgba_unmultiplied(
                     [image.width() as usize, image.height() as usize],
@@ -333,18 +440,16 @@ fn load(job: &Job) -> ai_personas::neural::Result<Content> {
                 end < content.len(),
             ))
         }
-        Kind::Other => Err(ai_personas::neural::failure(
-            "Use the full file viewer for this format.",
-        )),
+        Kind::Other => Ok(Content::Other),
     }
 }
 
-fn thumbnail(image: image::RgbaImage) -> image::RgbaImage {
+fn sized_thumbnail(image: image::RgbaImage, maximum: u32) -> image::RgbaImage {
     let (w, h) = image.dimensions();
     let longest = w.max(h);
-    if longest <= 1280 {
+    if longest <= maximum {
         return image;
     }
-    let length = |n| ((u64::from(n) * 1280) / u64::from(longest)).max(1) as u32;
+    let length = |n| ((u64::from(n) * u64::from(maximum)) / u64::from(longest)).max(1) as u32;
     image::imageops::thumbnail(&image, length(w), length(h))
 }
