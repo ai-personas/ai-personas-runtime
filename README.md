@@ -13,6 +13,8 @@ Create a workspace, enter the starting profiles and choose a model connection. U
 
 **Personas** brings each person’s activities, delivered packages, authored files and human requests into one profile. **Character Lab** shows the input available to the next decision, earlier appraisals and model development. Open an existing numerical workspace with `./personas --gui --progress DIRECTORY`.
 
+In **People & live work**, each persona’s card shows the reply they are writing when public text arrives. **Message** opens that activity with the composer ready. You can follow the newest lines, scroll back to read, or send your own message while the persona works. [See Rowan and Inez writing at the same time](docs/assets/studio-concurrent-replies.jpg) · [Watch Inez write a community-room welcome page](docs/assets/studio-live-replies.gif)
+
 Open the same workspace with `./personas --terminal --progress DIRECTORY`. Use `./personas --neural --help` for individual commands. [Numerical workspace guide](docs/editable-persona-models.md) · [Implementation and live observations](docs/design-conformance.md) · [November 17 design](https://github.com/ai-personas/ai-personas-design/tree/7d86efb31a0323e03166a5c5212cdcd8b2e32f36)
 
 <img src="docs/assets/studio-delivery.png" alt="Rowan’s issued circuit package, with its assembly drawing, supported use, five remaining checks and handoff controls." width="920">
