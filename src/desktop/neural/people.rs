@@ -119,6 +119,9 @@ impl App {
                             self.conversation_page = 0;
                             self.layout.editor = Editor::Studio;
                         }
+                        if ui.small_button("Earlier work").on_hover_text("Files from other activities recorded for this persona here").clicked() {
+                            self.open_sources(ui.ctx(), w, Some(id));
+                        }
                     });
                     if let Some(reason) = p["continuation"]["reason"]
                         .as_str()

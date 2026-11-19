@@ -1,11 +1,11 @@
 //! Shared visual language for the desktop editors and their controls.
 use eframe::egui::{self, Color32, FontId, Pos2, Rect, RichText, Stroke, Ui};
 
-pub const ACCENT: Color32 = Color32::from_rgb(232, 145, 63);
-pub const BLUE: Color32 = Color32::from_rgb(71, 114, 179);
-pub const GREEN: Color32 = Color32::from_rgb(125, 183, 137);
+pub const ACCENT: Color32 = Color32::from_rgb(229, 163, 89);
+pub const BLUE: Color32 = Color32::from_rgb(46, 94, 163);
+pub const GREEN: Color32 = Color32::from_rgb(120, 191, 153);
 pub const BODY_TEXT: f32 = 16.0;
-pub const SMALL_TEXT: f32 = 14.0;
+pub const SMALL_TEXT: f32 = 13.0;
 pub const MONO_TEXT: f32 = 14.0;
 pub const MIN_ZOOM: f32 = 0.75;
 pub const MAX_ZOOM: f32 = 3.0;
@@ -21,34 +21,57 @@ pub struct Palette {
     pub muted: Color32,
     pub hover: Color32,
     pub selection: Color32,
+    pub accent: Color32,
 }
 impl Palette {
     pub fn new(dark: bool) -> Self {
         if dark {
             Self {
-                canvas: Color32::from_rgb(32, 33, 35),
-                panel: Color32::from_rgb(43, 44, 47),
-                header: Color32::from_rgb(51, 52, 55),
-                field: Color32::from_rgb(27, 28, 30),
-                border: Color32::from_rgb(23, 24, 26),
-                text: Color32::from_rgb(216, 219, 224),
-                muted: Color32::from_rgb(151, 156, 165),
-                hover: Color32::from_rgb(63, 65, 70),
-                selection: Color32::from_rgb(57, 83, 119),
+                canvas: Color32::from_rgb(18, 23, 29),
+                panel: Color32::from_rgb(26, 33, 41),
+                header: Color32::from_rgb(33, 43, 54),
+                field: Color32::from_rgb(14, 19, 25),
+                border: Color32::from_rgb(56, 69, 83),
+                text: Color32::from_rgb(232, 238, 244),
+                muted: Color32::from_rgb(164, 178, 192),
+                hover: Color32::from_rgb(43, 58, 73),
+                selection: Color32::from_rgb(43, 70, 102),
+                accent: Color32::from_rgb(148, 192, 251),
             }
         } else {
             Self {
-                canvas: Color32::from_rgb(238, 239, 241),
-                panel: Color32::from_rgb(222, 224, 228),
-                header: Color32::from_rgb(207, 210, 215),
-                field: Color32::from_rgb(247, 248, 250),
-                border: Color32::from_rgb(177, 182, 190),
-                text: Color32::from_rgb(41, 45, 52),
-                muted: Color32::from_rgb(92, 99, 111),
-                hover: Color32::from_rgb(194, 202, 215),
-                selection: Color32::from_rgb(185, 205, 234),
+                canvas: Color32::from_rgb(240, 244, 248),
+                panel: Color32::from_rgb(253, 254, 255),
+                header: Color32::from_rgb(232, 238, 244),
+                field: Color32::from_rgb(247, 249, 252),
+                border: Color32::from_rgb(188, 201, 213),
+                text: Color32::from_rgb(26, 41, 57),
+                muted: Color32::from_rgb(73, 94, 114),
+                hover: Color32::from_rgb(217, 228, 239),
+                selection: Color32::from_rgb(204, 224, 246),
+                accent: Color32::from_rgb(33, 82, 150),
             }
         }
+    }
+
+    /// Preserve each status or persona's hue while keeping small labels legible.
+    pub fn ink(self, color: Color32) -> Color32 {
+        let luminance = |rgb: egui::Rgba| 0.2126 * rgb.r() + 0.7152 * rgb.g() + 0.0722 * rgb.b();
+        let foreground = egui::Rgba::from(color);
+        let surface = luminance(self.header.into());
+        let value = luminance(foreground);
+        let contrast = 5.5;
+        if (value.max(surface) + 0.05) >= contrast * (value.min(surface) + 0.05) {
+            return color;
+        }
+        let text = egui::Rgba::from(self.text);
+        let target = if luminance(text) > surface {
+            contrast * (surface + 0.05) - 0.05
+        } else {
+            (surface + 0.05) / contrast - 0.05
+        };
+        let mix = ((target - value) / (luminance(text) - value)).clamp(0.0, 1.0);
+        (foreground * (1.0 - mix) + text * mix).into()
     }
 }
 pub fn palette(ui: &Ui) -> Palette {
@@ -87,7 +110,7 @@ pub fn apply(ctx: &egui::Context, dark: bool, zoom: f32) {
     } else {
         egui::Visuals::light()
     };
-    style.spacing.item_spacing = egui::vec2(6.0, 5.0);
+    style.spacing.item_spacing = egui::vec2(7.0, 5.0);
     style.spacing.button_padding = egui::vec2(9.0, 5.0);
     style.spacing.interact_size = egui::vec2(28.0, 28.0);
     style.spacing.window_margin = egui::Margin::same(14);
@@ -95,9 +118,9 @@ pub fn apply(ctx: &egui::Context, dark: bool, zoom: f32) {
     style.spacing.scroll.bar_width = 7.0;
     for (text, size) in [
         (egui::TextStyle::Body, BODY_TEXT),
-        (egui::TextStyle::Button, BODY_TEXT),
+        (egui::TextStyle::Button, 15.0),
         (egui::TextStyle::Small, SMALL_TEXT),
-        (egui::TextStyle::Heading, 22.0),
+        (egui::TextStyle::Heading, 24.0),
     ] {
         style.text_styles.insert(text, FontId::proportional(size));
     }
@@ -110,45 +133,51 @@ pub fn apply(ctx: &egui::Context, dark: bool, zoom: f32) {
     v.extreme_bg_color = p.field;
     v.text_edit_bg_color = Some(p.field);
     v.code_bg_color = p.field;
-    v.faint_bg_color = p.header.gamma_multiply(0.5);
+    v.faint_bg_color = p.accent.gamma_multiply(0.05);
     v.weak_text_color = Some(p.muted);
     v.selection.bg_fill = p.selection;
     v.selection.stroke = Stroke::new(1.0_f32, if dark { Color32::WHITE } else { p.text });
-    v.hyperlink_color = if dark {
-        Color32::from_rgb(133, 178, 238)
-    } else {
-        BLUE
-    };
-    v.warn_fg_color = ACCENT;
-    v.error_fg_color = Color32::from_rgb(225, 122, 117);
-    v.window_corner_radius = egui::CornerRadius::same(5);
-    v.menu_corner_radius = egui::CornerRadius::same(3);
+    v.hyperlink_color = p.accent;
+    v.text_cursor.stroke = Stroke::new(2.0, p.accent);
+    v.warn_fg_color = p.ink(ACCENT);
+    v.error_fg_color = p.ink(Color32::from_rgb(237, 133, 130));
+    v.window_corner_radius = egui::CornerRadius::same(9);
+    v.menu_corner_radius = egui::CornerRadius::same(6);
     v.window_stroke = Stroke::new(1.0_f32, p.border);
     v.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, p.border);
     v.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, p.text);
-    v.widgets.noninteractive.corner_radius = egui::CornerRadius::same(3);
+    v.widgets.noninteractive.bg_fill = p.panel;
+    v.widgets.noninteractive.weak_bg_fill = p.header;
+    v.widgets.noninteractive.corner_radius = egui::CornerRadius::same(5);
     v.widgets.inactive.weak_bg_fill = p.header;
     v.widgets.inactive.bg_fill = p.header;
     v.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, p.border);
     v.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, p.text);
     v.widgets.hovered.weak_bg_fill = p.hover;
     v.widgets.hovered.bg_fill = p.hover;
-    v.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, p.muted.gamma_multiply(0.6));
+    v.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, p.border.lerp_to_gamma(p.muted, 0.55));
     v.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, p.text);
-    v.widgets.active.weak_bg_fill = if dark { BLUE } else { p.selection };
-    v.widgets.active.bg_fill = if dark { BLUE } else { p.selection };
-    v.widgets.active.fg_stroke = Stroke::new(1.0_f32, if dark { Color32::WHITE } else { p.text });
+    v.widgets.active.weak_bg_fill = p.selection;
+    v.widgets.active.bg_fill = p.selection;
+    v.widgets.active.bg_stroke = Stroke::new(1.0_f32, p.accent);
+    let strong = if dark {
+        Color32::from_rgb(250, 252, 255)
+    } else {
+        Color32::from_rgb(9, 26, 44)
+    };
+    v.widgets.active.fg_stroke = Stroke::new(1.0_f32, strong);
     for widget in [
         &mut v.widgets.inactive,
         &mut v.widgets.hovered,
         &mut v.widgets.active,
         &mut v.widgets.open,
     ] {
-        widget.corner_radius = egui::CornerRadius::same(3);
+        widget.corner_radius = egui::CornerRadius::same(5);
         widget.expansion = 0.0;
     }
     v.widgets.open.weak_bg_fill = p.selection;
     v.widgets.open.bg_fill = p.selection;
+    v.widgets.open.bg_stroke = Stroke::new(1.0_f32, p.accent);
     v.widgets.open.fg_stroke = Stroke::new(1.0_f32, p.text);
     v.collapsing_header_frame = true;
     v.indent_has_left_vline = true;
@@ -167,8 +196,8 @@ pub fn header(ui: &mut Ui, icon: Icon, title: &str, detail: &str) {
     let p = palette(ui);
     egui::Frame::new()
         .fill(p.header)
-        .inner_margin(egui::Margin::symmetric(7, 5))
-        .corner_radius(3)
+        .inner_margin(egui::Margin::symmetric(9, 6))
+        .corner_radius(5)
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
@@ -181,16 +210,12 @@ pub fn header(ui: &mut Ui, icon: Icon, title: &str, detail: &str) {
         });
 }
 pub fn badge(ui: &mut Ui, text: &str, color: Color32) {
-    let color = if ui.visuals().dark_mode {
-        color
-    } else {
-        let shade = |channel: u8| (u16::from(channel) * 60 / 100) as u8;
-        Color32::from_rgb(shade(color.r()), shade(color.g()), shade(color.b()))
-    };
+    let color = palette(ui).ink(color);
     egui::Frame::new()
-        .fill(color.gamma_multiply(0.14))
+        .fill(color.gamma_multiply(0.10))
+        .stroke(Stroke::new(0.75, color.gamma_multiply(0.28)))
         .inner_margin(egui::Margin::symmetric(6, 2))
-        .corner_radius(3)
+        .corner_radius(6)
         .show(ui, |ui| {
             ui.label(RichText::new(text).size(SMALL_TEXT).color(color));
         });
@@ -235,7 +260,7 @@ pub fn paint_icon(painter: &egui::Painter, rect: Rect, icon: Icon, color: Color3
             rect.top() + y * rect.height(),
         )
     };
-    let stroke = Stroke::new(1.2_f32, color);
+    let stroke = Stroke::new(1.4_f32, color);
     let line = |points: &[(f32, f32)]| {
         painter.add(egui::Shape::line(
             points.iter().map(|&(x, y)| at(x, y)).collect(),
@@ -343,14 +368,22 @@ pub fn paint_icon(painter: &egui::Painter, rect: Rect, icon: Icon, color: Color3
     }
 }
 pub fn icon_button(ui: &mut Ui, icon: Icon, label: &str) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(25.0, 24.0), egui::Sense::click());
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(28.0, 28.0), egui::Sense::click());
     let visuals = ui.style().interact(&response);
     if response.hovered() || response.has_focus() {
-        ui.painter().rect_filled(rect, 3, visuals.weak_bg_fill);
+        ui.painter().rect_filled(rect, 5, visuals.weak_bg_fill);
+    }
+    if response.has_focus() {
+        ui.painter().rect_stroke(
+            rect,
+            5,
+            Stroke::new(1.0, palette(ui).accent),
+            egui::StrokeKind::Inside,
+        );
     }
     paint_icon(
         ui.painter(),
-        rect.shrink2(egui::vec2(5.0, 4.0)),
+        rect.shrink(5.0),
         icon,
         visuals.fg_stroke.color,
     );

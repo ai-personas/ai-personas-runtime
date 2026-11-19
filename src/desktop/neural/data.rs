@@ -42,6 +42,46 @@ pub(super) struct Preview {
     pub digest: String,
     pub metadata: Value,
 }
+
+/// data_version changes when another connection commits. Keep this observer
+/// outside the read transaction so quiet workspaces can stay open cheaply.
+#[derive(Default)]
+pub(super) struct Monitor {
+    connection: Option<Connection>,
+    version: Option<i64>,
+}
+
+pub(super) struct Refresh {
+    pub snapshot: Option<Snapshot>,
+    pub streams: BTreeMap<String, neural::live::Progress>,
+}
+
+impl Monitor {
+    pub fn refresh(&mut self, root: &Path, after: i64, known: &BTreeSet<String>, active: &[Value]) -> neural::Result<Refresh> {
+        if self.connection.is_none() {
+            let db = Connection::open_with_flags(root.join("neural.sqlite"), OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+            db.busy_timeout(std::time::Duration::from_secs(5))?;
+            self.connection = Some(db);
+        }
+        let version = self.connection.as_ref().unwrap().query_row("PRAGMA data_version", [], |r| r.get::<_, i64>(0))?;
+        let snapshot = if self.version == Some(version) {
+            None
+        } else {
+            let fresh = snapshot(root, after, known)?;
+            self.version = Some(version);
+            Some(fresh)
+        };
+        let calls = snapshot.as_ref().map_or(active, |s| &s.active);
+        let streams = calls.iter()
+            .filter(|c| matches!(c["state"].as_str(), Some("dispatched" | "probe_dispatched")))
+            .filter_map(|c| {
+                let id = c["id"].as_str()?;
+                Some((id.to_owned(), neural::live::read(root, id)?))
+            }).collect();
+        Ok(Refresh { snapshot, streams })
+    }
+}
+
 pub(super) fn open(root: &Path) -> neural::Result<Connection> {
     let db =
         Connection::open_with_flags(root.join("neural.sqlite"), OpenFlags::SQLITE_OPEN_READ_ONLY)?;
@@ -234,7 +274,7 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
             "operations":operations,
         }));
     }
-    let mut q=db.prepare("SELECT id,actor,work,state,created FROM invocations WHERE state IN ('prepared','dispatched','responded') ORDER BY created")?;
+    let mut q=db.prepare("SELECT id,actor,work,state,created FROM invocations WHERE state IN ('prepared','dispatched','responded','probe_prepared','probe_dispatched') ORDER BY created,rowid")?;
     let active=q.query_map([],|r|Ok(json!({"id":r.get::<_,String>(0)?,"actor":r.get::<_,String>(1)?,"work":r.get::<_,String>(2)?,"state":r.get::<_,String>(3)?,"created":r.get::<_,i64>(4)?})))?.collect::<Result<Vec<_>,_>>()?;
     let mut q = db.prepare(
         "SELECT id,actor,work,state,operation FROM outbox WHERE state IN ('pending','dispatched','uncertain') ORDER BY rowid",
@@ -378,6 +418,13 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
     };
     let mut projection=json!({"label":label,"problem":problem,"elapsed_milliseconds":outcome["elapsed_milliseconds"],"failure":outcome["failure"],"error":result["error"],"result":reference,
         "program":result["program"],"program_format":result["execution"].get("format").or_else(||result.get("format"))});
+    if matches!(body["tool"].as_str(), Some("asset.save" | "asset.register" | "asset.import" | "asset.organize")) {
+        if let Some(handle) = result["reference"].as_str().filter(|r| r.starts_with("asset:")) {
+            let file = store::exact(db, handle)?;
+            projection["file_reference"] = json!(file.reference.handle());
+            projection["file_path"] = file.body["path"].clone();
+        }
+    }
     if body["tool"]=="command.run" {
         projection["receipt"]=result["receipt"].clone();
         for key in ["installation","program","exit_code","error","stdout","stderr","outputs","missing_outputs"] {

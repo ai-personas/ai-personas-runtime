@@ -34,6 +34,10 @@ mod package_reviews;
 mod requested_activities;
 mod inbox;
 mod overview;
+mod live_board;
+mod live_composer;
+mod message_receipt;
+mod activity_sources;
 mod people;
 mod mesh_profile;
 mod workspace;
@@ -86,9 +90,10 @@ impl Default for Layout {
 }
 use dialogs::Dialog;
 enum Update {
-    Status(Result<data::Snapshot, String>),
+    Status(data::Monitor, Result<data::Refresh, String>),
     Done(Result<Value, String>),
     BenchDone(Result<Value, String>),
+    LiveMessage(live_composer::SubmissionResult),
     RunDone(Result<Value, String>),
     Preview(u64, Result<data::Preview, String>),
     Saved(u64, Result<String, String>),
@@ -102,11 +107,12 @@ pub struct App {
     program_runs: BTreeMap<String, Vec<usize>>,
     model_renders: BTreeMap<String, Vec<usize>>,
     character_decisions: Vec<Value>,
-    known_decisions: BTreeSet<String>,
+    known_decisions: Arc<BTreeSet<String>>,
     cursor: i64,
     tx: mpsc::Sender<Update>,
     rx: mpsc::Receiver<Update>,
     polling: bool,
+    monitor: data::Monitor,
     last_poll: Instant,
     running: bool,
     following: Option<(String, Arc<std::sync::atomic::AtomicBool>)>,
@@ -118,6 +124,10 @@ pub struct App {
     work: String,
     persona: String,
     inbox: inbox::Inbox,
+    live_board: live_board::Board,
+    live_composer: live_composer::Composer,
+    message_receipt: message_receipt::Window,
+    activity_sources: activity_sources::Window,
     activity_filter_text: String,
     dialog: Option<Dialog>,
     submitting_dialog: bool,
@@ -193,11 +203,12 @@ impl App {
             program_runs: BTreeMap::new(),
             model_renders: BTreeMap::new(),
             character_decisions: vec![],
-            known_decisions: BTreeSet::new(),
+            known_decisions: Default::default(),
             cursor: 0,
             tx,
             rx,
             polling: false,
+            monitor: Default::default(),
             last_poll: Instant::now() - Duration::from_secs(5),
             running: false,
             following: None,
@@ -209,6 +220,10 @@ impl App {
             work: String::new(),
             persona: String::new(),
             inbox: Default::default(),
+            live_board: Default::default(),
+            live_composer: Default::default(),
+            message_receipt: Default::default(),
+            activity_sources: Default::default(),
             activity_filter_text: String::new(),
             dialog: None,
             submitting_dialog: false,
@@ -258,16 +273,18 @@ impl App {
         }
     }
     fn poll(&mut self, ctx: &egui::Context) {
-        if self.polling || self.last_poll.elapsed() < Duration::from_secs(2) {
+        if self.polling || self.last_poll.elapsed() < Duration::from_millis(450) {
             return;
         }
         self.polling = true;
         self.last_poll = Instant::now();
         let (root, after, tx, ctx) = (self.root.clone(), self.cursor, self.tx.clone(), ctx.clone());
         let known_decisions = self.known_decisions.clone();
+        let active = self.snapshot.active.clone();
+        let mut monitor = std::mem::take(&mut self.monitor);
         std::thread::spawn(move || {
-            let result = data::snapshot(&root, after, &known_decisions).map_err(|e| e.to_string());
-            let _ = tx.send(Update::Status(result));
+            let result = monitor.refresh(&root, after, &known_decisions, &active).map_err(|e| e.to_string());
+            let _ = tx.send(Update::Status(monitor, result));
             ctx.request_repaint();
         });
     }
@@ -337,45 +354,56 @@ impl App {
             ctx.request_repaint();
         });
     }
+    fn apply_snapshot(&mut self, mut snapshot: data::Snapshot) {
+        self.cursor = snapshot.cursor;
+        for (offset,event) in snapshot.events.iter().enumerate() {
+            if event["body"]["tool"]=="compute.run" {
+                if let Some(program)=event["tool_outcome"]["program"].as_str() {
+                    self.program_runs.entry(program.to_owned()).or_default().push(self.events.len()+offset);
+                }
+            } else if event["body"]["tool"]=="geometry.render" {
+                for key in ["source","mesh","result"] {
+                    if let Some(reference)=event["tool_outcome"][key].as_str() {
+                        self.model_renders.entry(reference.to_owned()).or_default().push(self.events.len()+offset);
+                    }
+                }
+            }
+        }
+        self.events.append(&mut snapshot.events);
+        for decision in snapshot.character_decisions.drain(..) {
+            Arc::make_mut(&mut self.known_decisions).insert(s(&decision, "invocation").into());
+            self.character_decisions.push(decision);
+        }
+        self.character_decisions.sort_by_key(|d| (d["accepted"].as_i64().unwrap_or(0), d["order"].as_i64().unwrap_or(0)));
+        self.snapshot = snapshot;
+        if self.work.is_empty() {
+            self.work = self.events.iter().rev().find_map(|e|e["work"].as_str().filter(|w|self.records("work").iter().any(|r|r["body"]["id"]==*w)))
+                .map(str::to_owned).or_else(||self.records("work").first()
+                .map(|r| s(&r["body"], "id").into())
+                )
+                .unwrap_or_default();
+        }
+        if self.persona.is_empty() {
+            self.persona = self.records("participation").iter().find(|r|r["body"]["work"]==self.work)
+                .map(|r|s(&r["body"],"persona").into()).or_else(||self.records("personas").first().map(|r|s(&r["body"],"id").into()))
+                .unwrap_or_default();
+        }
+    }
+
     fn drain(&mut self,ctx:&egui::Context) {
         while let Ok(update) = self.rx.try_recv() {
             match update {
-                Update::Status(result) => {
+                Update::Status(monitor, result) => {
+                    self.monitor = monitor;
                     self.polling = false;
                     match result {
-                        Ok(mut snapshot) => {
-                            self.cursor = snapshot.cursor;
-                            for (offset,event) in snapshot.events.iter().enumerate() {
-                                if event["body"]["tool"]=="compute.run" {
-                                    if let Some(program)=event["tool_outcome"]["program"].as_str() {
-                                        self.program_runs.entry(program.to_owned()).or_default().push(self.events.len()+offset);
-                                    }
-                                } else if event["body"]["tool"]=="geometry.render" {
-                                    for key in ["source","mesh","result"] {
-                                        if let Some(reference)=event["tool_outcome"][key].as_str() {
-                                            self.model_renders.entry(reference.to_owned()).or_default().push(self.events.len()+offset);
-                                        }
-                                    }
+                        Ok(fresh) => {
+                            if let Some(snapshot) = fresh.snapshot { self.apply_snapshot(snapshot); }
+                            for call in &mut self.snapshot.active {
+                                if let Some(progress) = fresh.streams.get(s(call, "id")) {
+                                    call["stream_bytes"] = serde_json::json!(progress.stream_bytes);
+                                    call["observed_at"] = serde_json::json!(progress.observed_at);
                                 }
-                            }
-                            self.events.append(&mut snapshot.events);
-                            for decision in snapshot.character_decisions.drain(..) {
-                                self.known_decisions.insert(s(&decision, "invocation").into());
-                                self.character_decisions.push(decision);
-                            }
-                            self.character_decisions.sort_by_key(|d| (d["accepted"].as_i64().unwrap_or(0), d["order"].as_i64().unwrap_or(0)));
-                            self.snapshot = snapshot;
-                            if self.work.is_empty() {
-                                self.work = self.events.iter().rev().find_map(|e|e["work"].as_str().filter(|w|self.records("work").iter().any(|r|r["body"]["id"]==*w)))
-                                    .map(str::to_owned).or_else(||self.records("work").first()
-                                    .map(|r| s(&r["body"], "id").into())
-                                    )
-                                    .unwrap_or_default();
-                            }
-                            if self.persona.is_empty() {
-                                self.persona = self.records("participation").iter().find(|r|r["body"]["work"]==self.work)
-                                    .map(|r|s(&r["body"],"persona").into()).or_else(||self.records("personas").first().map(|r|s(&r["body"],"id").into()))
-                                    .unwrap_or_default();
                             }
                         }
                         Err(e) => self.error = Some(e),
@@ -418,6 +446,11 @@ impl App {
                         }
                     }
                 },
+                Update::LiveMessage(result) => {
+                    if self.live_composer.receive(result) {
+                        self.last_poll = Instant::now() - Duration::from_secs(3);
+                    }
+                }
                 Update::BenchDone(result) => {
                     self.busy=false;
                     self.command_bench.receive(result);
@@ -559,7 +592,7 @@ impl eframe::App for App {
         let _timing = super::timings::frame(ctx, frame);
         self.drain(ctx);
         self.poll(ctx);
-        ctx.request_repaint_after(Duration::from_secs(2));
+        ctx.request_repaint_after(Duration::from_millis(450));
         if ctx.input(|i| i.viewport().close_requested()) && (self.running || self.command_bench.executing()) {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             if !self.closing {
@@ -601,7 +634,7 @@ impl eframe::App for App {
                 Editor::People => self.people(ui),
                 Editor::Inbox => self.human_inbox(ui),
                 Editor::Responsibilities => {
-                    if ui.small_button("← Activity overview").clicked(){self.layout.editor=Editor::Studio;}
+                    if ui.small_button("← Workspace").clicked(){self.layout.editor=Editor::Studio;}
                     let cursor=self.events.iter().rev().find(|e|e["work"]==self.work).and_then(|e|e["event"].as_i64()).unwrap_or(0);
                     match self.responsibilities.show(ui,&self.root,&self.work,cursor){
                         Some(responsibilities::Action::ChangeActivity{reopen,brief})=>self.dialog=Some(Dialog::ActivityState{
@@ -637,6 +670,8 @@ impl eframe::App for App {
         bench.window(ctx,self);
         self.command_bench = bench;
         self.dialogs(ctx);
+        self.sources_window(ctx);
+        self.message_receipt_window(ctx);
         self.export_window(ctx);
         if let Some(action)=self.requested_activities.show(ctx,&self.root,&self.snapshot.status,self.cursor) {
             match action {

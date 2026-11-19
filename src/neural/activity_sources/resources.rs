@@ -206,7 +206,12 @@ pub(super) fn supplied(
         return Ok(());
     }
     let mut seen = BTreeSet::new();
-    let mut read_bodies = BTreeSet::new();
+    let mut read_bodies: BTreeSet<_> = snapshot.data["selected_resources"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(std::ptr::from_ref)
+        .collect();
     for event in snapshot.data["new_events"].as_array().into_iter().flatten() {
         if event["kind"] != "tool_result"
             || event["actor"] != snapshot.actor
@@ -274,7 +279,7 @@ pub(super) fn supplied(
     for source in context::supplied_resources(&snapshot.data) {
         // The shared enumerator borrows these same frozen JSON values. Preserve
         // their event attribution even if another event echoes an identical body.
-        if source.via != "selection" && !read_bodies.contains(&std::ptr::from_ref(source.value)) {
+        if !read_bodies.contains(&std::ptr::from_ref(source.value)) {
             continue;
         }
         let value = source.value;

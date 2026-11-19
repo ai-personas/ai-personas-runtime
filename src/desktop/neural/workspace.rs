@@ -89,7 +89,7 @@ impl App {
                     if ended { theme::badge(ui,"Activity ended",theme::ACCENT); }
                     let active = self.snapshot.active.iter().filter(|call| call["work"] == self.work).count();
                     if active > 0 {
-                        theme::badge(ui, &format!("{active} active"), TEAL);
+                        theme::badge(ui, &format!("{active} {}", if active == 1 { "model call" } else { "model calls" }), TEAL);
                     }
                     let tools = self
                         .snapshot
@@ -108,6 +108,12 @@ impl App {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.menu_button("Run controls", |ui| {
                             if self.following.is_some() && ui.button("Finish current run").clicked(){self.finish_following();ui.close();}
+                            if self.records("controls").iter().any(|c| c["scope"]=="admission" && c["state"]!="running")
+                                && ui.add_enabled(!self.busy, egui::Button::new("Enable new calls")).clicked() {
+                                self.command(ctx, Command::Control {scope:"admission".into(),state:"running".into(),
+                                    reason:"User enabled new calls from Studio".into()});
+                                ui.close();
+                            }
                             if ui
                                 .add_enabled(!self.busy, egui::Button::new("Enable scheduling"))
                                 .clicked()
@@ -451,37 +457,50 @@ impl App {
         self.layout.left_width = panel.response.rect.width();
     }
     pub(super) fn persona_state(&self, id: &str) -> String {
-        if let Some(active) = self.snapshot.active.iter().find(|a| a["actor"] == id) {
-            return if active["work"] == self.work {
-                "Model call in progress"
-            } else {
-                "Working on another task"
-            }
-            .into();
+        if let Some(active) = self.snapshot.active.iter().find(|a| a["actor"] == id && a["work"] == self.work) {
+            return live_board::call_stage(active, ai_personas::neural::now()).into();
         }
         if let Some(effect) = self
             .snapshot
             .active_effects
             .iter()
-            .find(|e| e["actor"] == id)
+            .filter(|e| e["actor"] == id && e["work"] == self.work)
+            .min_by_key(|e| match s(e, "state") { "dispatched" => 0, "uncertain" => 1, _ => 2 })
         {
             return match s(effect, "state") {
                 "uncertain" => "Tool outcome uncertain",
                 "pending" => "Tool queued",
-                _ if effect["work"] != self.work => "Running a tool on another task",
                 _ => "Tool run in progress",
             }
             .into();
         }
-        let p = self.participation(id);
-        if p.is_null() {
-            return "No task participation".into();
+        let participation = self.records("participation").iter()
+            .map(|r| &r["body"]).find(|p| p["persona"] == id && p["work"] == self.work);
+        if let Some(p) = participation {
+            if p["closed_by_activity"].is_string() || self.records("work").iter()
+                .any(|w| w["body"]["id"] == self.work && w["body"]["phase"] == "dissolved") {
+                return "Activity ended".into();
+            }
+            if p["departure"].is_string() { return "Left this activity".into(); }
+            if p["declined"] == true { return "Declined invitation".into(); }
         }
-        if p["closed_by_activity"].is_string(){return "Activity ended".into();}
-        if p["departure"].is_string(){return "Left this activity".into();}
-        if p["declined"]==true{return "Declined invitation".into();}
+        if self.snapshot.active.iter().any(|a| a["actor"] == id) {
+            return "Model call on another activity".into();
+        }
+        if self.snapshot.active_effects.iter().any(|e| e["actor"] == id && e["state"] == "dispatched") {
+            return "Running a tool on another activity".into();
+        }
+        let Some(p) = participation else { return "No task participation".into(); };
         if p["accepted"]!=true{return "Invited".into();}
         if !matches!(s(&p["continuation"], "kind"), "stop" | "stopped") {
+            if let Some(control) = self.records("controls").iter().find(|c| {
+                let scope = s(c, "scope");
+                c["state"] != "running" && (matches!(scope, "global" | "admission")
+                    || scope.strip_prefix("persona:") == Some(id)
+                    || scope.strip_prefix("work:") == Some(self.work.as_str()))
+            }) {
+                return format!("Scheduling {}", s(control, "state"));
+            }
             if let Some(recovery) = self.snapshot.inference_recovery.get(id) {
                 let seconds = recovery["not_before_unix"].as_i64().unwrap_or(0)
                     .saturating_sub(ai_personas::neural::now());
@@ -510,6 +529,10 @@ impl App {
         }
     }
     pub(super) fn studio(&mut self, ui: &mut Ui) {
+        if self.live_workspace_selected(ui) {
+            self.studio_live(ui);
+            return;
+        }
         egui::ScrollArea::vertical()
             .id_salt(("studio-overview",self.work.clone()))
             .show(ui, |ui| {
@@ -974,6 +997,10 @@ impl App {
                                 if ui.small_button("Copy message").clicked() {
                                     ui.ctx().copy_text(text.to_owned());
                                     self.notice="Original message copied".into();
+                                }
+                                if event["kind"]=="user_message" && event["invocation"].is_null()
+                                    && ui.small_button("Delivery status").clicked() {
+                                    self.open_message_receipt(ui.ctx(), event["event"].as_i64().unwrap_or_default());
                                 }
                                 if event["target"]=="user" && matches!(event["kind"].as_str(),Some("reply"|"message"))
                                     && ui.small_button("Reply to this message").clicked() {

@@ -60,7 +60,7 @@ impl App {
                     if self.following.as_ref().is_some_and(|(work,_)|work==&self.work) {
                         theme::badge(ui,"Following this activity",TEAL);
                         if ui.button("Finish run").on_hover_text("Finish current decisions and stop listening for new arrivals").clicked(){self.finish_following();}
-                    } else if ui.add_enabled(!self.running && !self.busy && self.snapshot.active.is_empty(),theme::primary("Run activity"))
+                    } else if ui.add_enabled(!ended && !self.running && !self.busy && self.snapshot.active.is_empty(),theme::primary("Run activity"))
                         .on_hover_text("Run this activity and its requests. Keep listening for the events each persona chose while Studio is open.").clicked(){
                         self.follow_activity(ui.ctx());
                     }
@@ -184,6 +184,9 @@ impl App {
             .collect();
         deliveries
             .sort_by_key(|r| std::cmp::Reverse(order.get(inbox::handle(r).as_str()).copied()));
+        if self.live_board.take_delivery_focus() {
+            ui.scroll_to_cursor(Some(egui::Align::Min));
+        }
         section(
             ui,
             "Delivered work",
