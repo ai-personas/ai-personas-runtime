@@ -560,6 +560,7 @@ fn internal(
             let event = store::event(db, work, actor, &x.to, "message", &x, Some(call))?;
             Ok(json!({"event":event,"delivered_to_inbox":true,"read_or_accepted":false}))
         }
+        "work.handoff" => super::handoff::execute(db,snapshot,decode(input)?),
         "work.outcome" => {
             let x: tools::Outcome = decode(input)?;
             check_references(db, &x.evidence)?;
@@ -575,14 +576,14 @@ fn internal(
                     ))
                 })?;
             }
-            let (key, revision) = match (&x.id, x.expected_revision) {
-                (None, None) => (id("outcome")?, 0),
+            let (key, revision, prior) = match (&x.id, x.expected_revision) {
+                (None, None) => (id("outcome")?, 0, None),
                 (Some(key), Some(revision)) => {
                     let old = store::required(db, "outcome", key)?;
                     if old.body["owner"] != *actor || old.body["work"] != *work {
                         return Err(failure("cannot change another persona's outcome"));
                     }
-                    (key.clone(), revision)
+                    (key.clone(), revision, Some(old.body))
                 }
                 _ => {
                     return Err(failure(
@@ -593,6 +594,8 @@ fn internal(
             let mut body = serde_json::to_value(x)?;
             body["owner"] = json!(actor);
             body["work"] = json!(work);
+            body["original_author"]=prior.as_ref().and_then(|b|b.get("original_author").or(b.get("owner"))).cloned().unwrap_or_else(||json!(actor));
+            if let Some(handoff)=prior.as_ref().and_then(|b|b.get("accepted_handoff")){body["accepted_handoff"]=handoff.clone();}
             let r = store::write(db, "outcome", &key, revision, &body, Some(call))?;
             store::event(
                 db,

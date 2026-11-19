@@ -6,6 +6,7 @@ mod assessment;
 mod character;
 mod platform_key;
 mod experience;
+mod handoff;
 pub mod development;
 pub mod context;
 pub mod controls;

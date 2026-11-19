@@ -85,6 +85,12 @@ pub enum Command {
     Run {
         #[arg(long)]
         watch: bool,
+        /// Schedule only this activity.
+        #[arg(long)]
+        work:Option<String>,
+        /// Schedule only this persona, optionally within the selected activity.
+        #[arg(long)]
+        persona:Option<String>,
     },
     Status,
     /// Read an exact immutable resource or object.
@@ -300,7 +306,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
                 json!({"created":store.root,"personas":seen.len(),"model":provider.model,"effort":provider.effort,"inference_performed":false}),
             )
         }
-        Command::Run { watch } => runner::run(root, watch).await,
+        Command::Run { watch,work,persona } => runner::run_selected(root, watch,work.as_deref(),persona.as_deref()).await,
         command => {
             let mut store = Store::open(root)?;
             match command {

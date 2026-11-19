@@ -525,10 +525,10 @@ async fn external(
     }
 }
 
-async fn effects(root: &Path, actor: &str) -> Result<()> {
+async fn effects(root: &Path, actor: &str, selected_work:&str) -> Result<()> {
     let mut store = Store::open(root)?;
     loop {
-        let row:Option<(String,String,String,String)>=store.db.query_row("SELECT id,work,invocation,operation FROM outbox WHERE actor=?1 AND state='pending' ORDER BY invocation,ordinal LIMIT 1",[actor],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?;
+        let row:Option<(String,String,String,String)>=store.db.query_row("SELECT id,work,invocation,operation FROM outbox WHERE actor=?1 AND work=?2 AND state='pending' ORDER BY rowid LIMIT 1",[actor,selected_work],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?;
         let Some((effect, work, invocation, operation)) = row else {
             return Ok(());
         };
@@ -581,7 +581,7 @@ async fn effects(root: &Path, actor: &str) -> Result<()> {
     }
 }
 
-fn recover(store: &mut Store) -> Result<()> {
+fn recover(store: &mut Store,work:Option<&str>,actor:Option<&str>) -> Result<()> {
     store.transaction(|db|{
         let mut statement=db.prepare("SELECT id,work,actor,state FROM invocations WHERE state IN ('prepared','dispatched','probe_prepared','probe_dispatched')")?;
         let rows=statement.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?)))?.collect::<std::result::Result<Vec<_>,_>>()?;
@@ -603,9 +603,9 @@ fn recover(store: &mut Store) -> Result<()> {
     // retained authority. It is never silently replayed against a fresh snapshot.
     let mut statement = store
         .db
-        .prepare("SELECT id,snapshot FROM invocations WHERE state='responded'")?;
+        .prepare("SELECT id,snapshot FROM invocations WHERE state='responded' AND (?1 IS NULL OR work=?1) AND (?2 IS NULL OR actor=?2)")?;
     let rows = statement
-        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+        .query_map(params![work,actor], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     drop(statement);
     for (call, source) in rows {
@@ -623,9 +623,16 @@ fn pause(db: &rusqlite::Connection, actor: &str, reason: &str, invocation: Optio
 }
 
 pub async fn run(root: &Path, watch: bool) -> Result<Value> {
+    run_selected(root,watch,None,None).await
+}
+
+pub async fn run_selected(root:&Path,watch:bool,work:Option<&str>,actor:Option<&str>)->Result<Value> {
     let mut store = Store::open(root)?;
     let _lock = RunnerLock::acquire(&store.root)?;
-    recover(&mut store)?;
+    if let Some(id)=work{store::required(&store.db,"work",id)?;}
+    if let Some(id)=actor{store::required(&store.db,"persona",id)?;}
+    if let (Some(work),Some(actor))=(work,actor){store::required(&store.db,"participation",&format!("{work}/{actor}"))?;}
+    recover(&mut store,work,actor)?;
     let root = store.root.clone();
     let mut busy = BTreeSet::new();
     let mut tasks = tokio::task::JoinSet::new();
@@ -653,7 +660,7 @@ pub async fn run(root: &Path, watch: bool) -> Result<Value> {
         let mut future_wake = false;
         for record in store::list(&store.db, "participation")? {
             let part: Participation = serde_json::from_value(record.body)?;
-            if busy.contains(&part.persona)
+            if work.is_some_and(|w|w!=part.work) || actor.is_some_and(|a|a!=part.persona) || busy.contains(&part.persona)
                 || store::stopped(&store.db, &part.work, &part.persona)?.is_some()
             {
                 continue;
@@ -706,10 +713,10 @@ pub async fn run(root: &Path, watch: bool) -> Result<Value> {
             let root = root.clone();
             tasks.spawn(async move {
                 let result = async {
-                    effects(&root, &actor).await?;
+                    effects(&root, &actor,&work).await?;
                     if ready {
                         decision(&root, &work, &actor).await?;
-                        effects(&root, &actor).await?;
+                        effects(&root, &actor,&work).await?;
                     }
                     Ok::<(), super::Error>(())
                 }

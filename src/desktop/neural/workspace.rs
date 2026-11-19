@@ -113,14 +113,19 @@ impl App {
                                 );
                                 ui.close();
                             }
+                            if !self.work.is_empty() && ui.add_enabled(!self.running && !self.busy && self.snapshot.active.is_empty(),
+                                egui::Button::new("Continue this activity")).clicked(){
+                                self.command(ctx,Command::Run{watch:false,work:Some(self.work.clone()),persona:None});
+                                ui.close();
+                            }
                             if ui
                                 .add_enabled(
                                     !self.running && !self.busy && self.snapshot.active.is_empty(),
-                                    egui::Button::new("Continue eligible work"),
+                                    egui::Button::new("Continue all eligible work"),
                                 )
                                 .clicked()
                             {
-                                self.command(ctx, Command::Run { watch: false });
+                                self.command(ctx, Command::Run { watch: false,work:None,persona:None });
                                 ui.close();
                             }
                             if ui
@@ -578,26 +583,42 @@ impl App {
                 ui.spacing_mut().item_spacing.x = column_gap;
                 ui.add_space(16.);
                 section(ui, "Intended outcomes", "Authored by the personas");
-                for outcome in self
-                    .records("outcomes")
-                    .to_vec()
-                    .into_iter()
-                    .filter(|o| o["body"]["work"] == self.work)
-                {
+                let outcomes:Vec<_>=self.records("outcomes").iter().filter(|o|o["body"]["work"]==self.work).cloned().collect();
+                for outcome in outcomes {
                     let b = &outcome["body"];
+                    let reference=format!("outcome:{}@{}",s(&outcome["reference"],"id"),outcome["reference"]["revision"]);
+                    let ownership=self.snapshot.status["outcome_ownership"][&reference].clone();
+                    let gap=ownership["state"]=="follow_through_gap";
                     ui.collapsing(
                         format!(
-                            "{} · {}",
+                            "{}{} · {}",
+                            if gap{"Follow-through gap · "}else{""},
                             self.label(s(b, "owner")),
-                            excerpt(s(b, "description"), 70)
+                            excerpt(s(b, "description"), 55)
                         ),
                         |ui| {
                             ui.label(s(b, "description"));
+                            if gap{ui.label("The named owner stopped or has no accepted participation. This outcome remains unfinished.");}
+                            if let Some(accepted)=ownership["accepted_handoff"].as_str(){
+                                if ui.small_button("Accepted handoff ↗").clicked(){self.open_resource(ui.ctx(),accepted.into());}
+                            }
                             for item in b["remaining"].as_array().into_iter().flatten() {
                                 ui.label(format!("• {}", item.as_str().unwrap_or("")));
                             }
                         },
                     );
+                }
+                let offers:Vec<_>=self.records("handoffs").iter().filter(|h|h["work"]==self.work).cloned().collect();
+                if !offers.is_empty(){
+                    ui.add_space(12.);section(ui,"Responsibility handoffs",&offers.len().to_string());
+                    for h in offers{
+                        ui.horizontal_wrapped(|ui|{
+                            ui.strong(format!("{} → {}",self.label(s(&h,"from")),self.label(s(&h,"to"))));
+                            theme::badge(ui,if h["basis_current"]==false{"Original scope changed"}else{s(&h,"state")},PURPLE);
+                            if ui.small_button("Inspect handoff ↗").clicked(){self.open_resource(ui.ctx(),s(&h,"reference").into());}
+                        });
+                        ui.label(h["answer"]["reason"].as_str().unwrap_or(s(&h,"reason")));
+                    }
                 }
             });
     }

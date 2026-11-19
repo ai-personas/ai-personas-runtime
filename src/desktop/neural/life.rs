@@ -61,6 +61,8 @@ impl App {
                             | "user_acceptance"
                             | "requirements_amended"
                             | "commitment_changed"
+                            | "handoff_offered"
+                            | "handoff_resolved"
                             | "delivery"
                             | "model_changed"
                             | "explicit_resume"

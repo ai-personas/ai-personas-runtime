@@ -714,14 +714,17 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
             let communication=if peer==actor{Some(json!({"supplied_in":"latest_user_communication"}))}else{latest_user_communication(db,work_id,peer)?};
             Ok(json!({"reference":r.reference.handle(),"persona":peer,"accepted":r.body["accepted"],"declined":r.body["declined"],"commitment":current,"latest_user_communication":communication,"continuation":r.body["continuation"],"judgment":r.body["last_judgment"]["status"],"execution":if bootstrap{Value::Null}else{execution_status(db,work_id,peer,&background_jobs)?}}))
         }).collect::<Result<Vec<_>>>()?;
-        let outcomes=store::list(db,"outcome")?.into_iter().filter(|r|r.body["work"]==work_id).map(|r|{
-            if r.body["owner"]==actor {json!({"reference":r.reference.handle(),"record":r.body})}
+        let work_outcomes=store::list(db,"outcome")?.into_iter().filter(|r|r.body["work"]==work_id).collect::<Vec<_>>();
+        let ownership=super::handoff::ownership(db,&work_outcomes)?;
+        let outcomes=work_outcomes.into_iter().map(|r|{
+            let reference=r.reference.handle();
+            if r.body["owner"]==actor {json!({"reference":reference,"record":r.body,"follow_through":ownership.get(&reference)})}
             // A peer's proposed result remains conditional on its author's
             // assumptions and dependencies. Carry those exact qualifications
             // with the current scope, even when optional evidence or artifact
             // membership is selected separately. An index must not erase the
             // author's qualifications or imply that the full record was read.
-            else {json!({"reference":r.reference.handle(),"owner":r.body["owner"],"description":r.body["description"],"state":r.body["state"],"assumptions":r.body["assumptions"],"dependencies":r.body["dependencies"],"remaining":r.body["remaining"],
+            else {json!({"reference":reference,"follow_through":ownership.get(&reference),"owner":r.body["owner"],"description":r.body["description"],"state":r.body["state"],"assumptions":r.body["assumptions"],"dependencies":r.body["dependencies"],"remaining":r.body["remaining"],
                 "artifact_count":r.body["artifacts"].as_array().map(Vec::len),"evidence_count":r.body["evidence"].as_array().map(Vec::len),"artifact_membership_supplied":false})}
         }).collect::<Vec<_>>();
         // Delivered records are optional historical detail, not a mandatory
@@ -760,6 +763,8 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
             "selected_resources":selected,"previously_selected_tools_unavailable":unavailable_tools,"available_tools":tool_schemas,"host_working_directory":if bootstrap{Value::Null}else{config.body["working_directory"].clone()}});
         if let Some(structure)=structure {data["identity"]["appraisal_structure"]=structure;}
         if !bootstrap {
+            let open_offers=super::handoff::offers(db,Some(work_id))?.into_iter().filter(|h|h["state"]=="offered").collect::<Vec<_>>();
+            if !open_offers.is_empty(){data["handoff_offers"]=json!(open_offers);}
             data["lifetime_experience"]=super::experience::availability(db,actor,work_id)?;
             let questions = super::development::index(db, actor)?;
             let open = questions.iter().filter(|q|!matches!(q["disposition"].as_str(),Some("closed"|"no_change")));

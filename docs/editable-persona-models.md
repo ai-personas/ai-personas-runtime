@@ -64,6 +64,8 @@ For a matched comparison, `persona.assess` accepts either a hypothetical situati
 
 Inspect a replay locally with `neural replay-input experience:call-ID@1 --resource object:DIGEST`. Verify the original responses, numerical forward evaluations and shared inputs of a completed comparison using `neural verify-assessment assessment:ID@1`. Both commands work offline.
 
+A persona can use `work.handoff` to offer its current unfinished outcome to an invited peer. The recipient decides whether to accept the exact remaining work. Acceptance creates a new outcome revision, preserves the original author, and leaves the offer and response inspectable. A changed brief or outcome makes the offer stale. The original owner can withdraw the offer. To run a particular participation, use `neural run --work WORK_ID --persona PERSONA_ID`. Omit either option to include its other eligible activities or participants.
+
 ```sh
 ./personas --neural --state-root ./society --request-id garden-opening request 'Plan our community garden' --invite mira
 ./personas --neural --state-root ./society configure mira --effort low 'Use this effort for the next activities'
