@@ -4,6 +4,11 @@ use eframe::egui::{self, Color32, FontId, Pos2, Rect, RichText, Stroke, Ui};
 pub const ACCENT: Color32 = Color32::from_rgb(232, 145, 63);
 pub const BLUE: Color32 = Color32::from_rgb(71, 114, 179);
 pub const GREEN: Color32 = Color32::from_rgb(125, 183, 137);
+pub const BODY_TEXT: f32 = 16.0;
+pub const SMALL_TEXT: f32 = 14.0;
+pub const MONO_TEXT: f32 = 14.0;
+pub const MIN_ZOOM: f32 = 0.75;
+pub const MAX_ZOOM: f32 = 3.0;
 
 #[derive(Clone, Copy)]
 pub struct Palette {
@@ -83,22 +88,22 @@ pub fn apply(ctx: &egui::Context, dark: bool, zoom: f32) {
         egui::Visuals::light()
     };
     style.spacing.item_spacing = egui::vec2(6.0, 5.0);
-    style.spacing.button_padding = egui::vec2(7.0, 3.0);
-    style.spacing.interact_size = egui::vec2(24.0, 22.0);
+    style.spacing.button_padding = egui::vec2(9.0, 5.0);
+    style.spacing.interact_size = egui::vec2(28.0, 28.0);
     style.spacing.window_margin = egui::Margin::same(14);
     style.spacing.indent = 16.0;
     style.spacing.scroll.bar_width = 7.0;
     for (text, size) in [
-        (egui::TextStyle::Body, 12.0),
-        (egui::TextStyle::Button, 11.5),
-        (egui::TextStyle::Small, 10.5),
-        (egui::TextStyle::Heading, 16.0),
+        (egui::TextStyle::Body, BODY_TEXT),
+        (egui::TextStyle::Button, BODY_TEXT),
+        (egui::TextStyle::Small, SMALL_TEXT),
+        (egui::TextStyle::Heading, 22.0),
     ] {
         style.text_styles.insert(text, FontId::proportional(size));
     }
     style
         .text_styles
-        .insert(egui::TextStyle::Monospace, FontId::monospace(11.0));
+        .insert(egui::TextStyle::Monospace, FontId::monospace(MONO_TEXT));
     let v = &mut style.visuals;
     v.panel_fill = p.panel;
     v.window_fill = p.panel;
@@ -148,7 +153,7 @@ pub fn apply(ctx: &egui::Context, dark: bool, zoom: f32) {
     v.collapsing_header_frame = true;
     v.indent_has_left_vline = true;
     ctx.set_style(style);
-    ctx.set_zoom_factor(zoom.clamp(0.75, 1.75));
+    ctx.set_zoom_factor(if zoom.is_finite() { zoom.clamp(MIN_ZOOM, MAX_ZOOM) } else { 1.0 });
 }
 
 pub fn panel(ctx: &egui::Context) -> egui::Frame {
@@ -168,9 +173,9 @@ pub fn header(ui: &mut Ui, icon: Icon, title: &str, detail: &str) {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
                 glyph(ui, icon, p.muted);
-                ui.label(RichText::new(title).size(12.0).strong());
+                ui.label(RichText::new(title).size(BODY_TEXT).strong());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(RichText::new(detail).size(10.5).color(p.muted));
+                    ui.label(RichText::new(detail).size(SMALL_TEXT).color(p.muted));
                 });
             });
         });
@@ -187,7 +192,7 @@ pub fn badge(ui: &mut Ui, text: &str, color: Color32) {
         .inner_margin(egui::Margin::symmetric(6, 2))
         .corner_radius(3)
         .show(ui, |ui| {
-            ui.label(RichText::new(text).size(10.5).color(color));
+            ui.label(RichText::new(text).size(SMALL_TEXT).color(color));
         });
 }
 pub fn primary(label: &str) -> egui::Button<'_> {
@@ -198,7 +203,7 @@ pub fn primary(label: &str) -> egui::Button<'_> {
 pub fn property(ui: &mut Ui, label: &str, value: &str) {
     ui.horizontal_wrapped(|ui| {
         ui.add_sized(
-            [68.0, 18.0],
+            [100.0, 24.0],
             egui::Label::new(RichText::new(label).small().weak()),
         );
         ui.add(egui::Label::new(value).wrap());
@@ -362,7 +367,7 @@ pub fn message_body(ui: &mut Ui, text: &str) {
 
 pub fn continuation_label(value: &str) -> &str {
     match value {
-        "persona_stop" => "Stopped",
+        "persona_stop" => "Stopped on this task",
         "persona_pause" => "Paused",
         "immediate" => "Continuing",
         "wait" => "Waiting",

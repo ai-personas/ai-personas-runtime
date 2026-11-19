@@ -1,33 +1,25 @@
 # AI Personas
 
-Explore distinct AI characters choosing how to collaborate on your tasks.
+Create continuing personas, invite them into a task and see what each one contributes. Each new Studio persona owns a small numerical character model. The selected reasoning provider uses its evaluated inclinations when deciding how to act.
 
-<img src="docs/assets/ai-personas-cartoon.png" alt="AI characters sharing ideas, choosing tools and bookmarking work." width="720">
-
-*Design illustration.*
-
-From this checkout:
-
-```sh
-./personas
-```
-
-The launcher opens the Rust desktop app when installed in a graphical session,
-or terminal onboarding otherwise. The desktop provides automatic Codex and model
-discovery, graphical setup, tasks, feedback, questions, results, and file export.
-Use an existing Codex ChatGPT login or sign in from the window. Account usage may
-be charged. [Desktop guide and packaging](docs/desktop.md).
-
-Build the desktop for Linux or macOS with Rust/Cargo 1.88+ and a native compiler/linker:
+Build and open the native Studio on Linux or macOS:
 
 ```sh
 cargo build --locked --release --features desktop --bins
 ./personas --gui
 ```
 
-Use `./personas --terminal` for the terminal interface (Python 3.9+ required).
-Packaged desktop users need neither Python nor Cargo. Network access is required
-for authentication and model use; native sign-in needs a same-host browser.
+Create a workspace, enter the starting profiles and choose a model connection. Use **New task** to invite personas. **Character Lab** shows their model parameters, appraisals and development decisions. The studio also opens an existing numerical workspace with `./personas --gui --progress DIRECTORY`.
+
+For terminal operation, use `./personas --neural --help`. [Numerical workspace guide](docs/editable-persona-models.md) · [November 17 design](https://github.com/ai-personas/ai-personas-design/tree/7d86efb31a0323e03166a5c5212cdcd8b2e32f36)
+
+<img src="docs/assets/ai-personas-cartoon.png" alt="AI characters sharing ideas, choosing tools and bookmarking work." width="720">
+
+*Design illustration.*
+
+## Earlier fragment-based workspaces
+
+Explicitly opening a progress journal with `./personas --gui --progress DIRECTORY` uses its existing interface. The following instructions describe these journals and the earlier `./personas --terminal` launcher.
 
 Startup reuses saved progress and handles leftover empty lock files automatically.
 If a progress folder needs attention, the terminal explains the problem and lets

@@ -51,7 +51,7 @@ pub fn markdown_at(ui: &mut Ui, text: &str, base: Option<&std::path::Path>) {
     let p = theme::palette(ui);
     let link_color = ui.visuals().hyperlink_color;
     let mut job = egui::text::LayoutJob::default();
-    let mut size = 13.0;
+    let mut size = theme::BODY_TEXT;
     let mut strong = 0;
     let mut emphasis = 0;
     let mut strike = 0;
@@ -165,7 +165,7 @@ pub fn markdown_at(ui: &mut Ui, text: &str, base: Option<&std::path::Path>) {
         }
         let format = |mono: bool| egui::TextFormat {
             font_id: if mono {
-                FontId::monospace(11.5)
+                FontId::monospace(theme::MONO_TEXT)
             } else {
                 FontId::proportional(size + if strong > 0 { 0.5 } else { 0.0 })
             },
@@ -206,12 +206,12 @@ pub fn markdown_at(ui: &mut Ui, text: &str, base: Option<&std::path::Path>) {
             }
             Event::Start(Tag::Heading { level, .. }) => {
                 flush(ui, &mut job, &mut links);
-                size = 21.0 - level as u8 as f32;
+                size = theme::BODY_TEXT + 9.0 - level as u8 as f32;
                 ui.add_space(5.0);
             }
             Event::End(TagEnd::Heading(_) | TagEnd::Paragraph | TagEnd::Item) => {
                 flush(ui, &mut job, &mut links);
-                size = 13.0;
+                size = theme::BODY_TEXT;
                 ui.add_space(3.0);
             }
             Event::Start(Tag::Strong) => strong += 1,

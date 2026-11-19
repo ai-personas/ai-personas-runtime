@@ -102,7 +102,7 @@ impl App {
                         ui.add_space(10.0);
                         theme::glyph(ui, Icon::Folder, theme::ACCENT);
                         ui.add(
-                            egui::Label::new(RichText::new(&w.title).size(14.0).strong()).wrap(),
+                            egui::Label::new(RichText::new(&w.title).size(18.0).strong()).wrap(),
                         );
                         theme::badge(
                             ui,
@@ -247,7 +247,7 @@ impl App {
         let name_width = (width - counts - 91.0).max(110.0);
         let (head, _) = ui.allocate_exact_size(egui::vec2(width, 27.0), egui::Sense::hover());
         ui.painter().rect_filled(head, 0, p.header);
-        let font = egui::FontId::proportional(11.0);
+        let font = egui::FontId::proportional(theme::SMALL_TEXT);
         ui.painter().text(
             egui::pos2(head.left() + 7.0, head.center().y),
             egui::Align2::LEFT_CENTER,
@@ -280,7 +280,6 @@ impl App {
         );
         if self.busy {
             ui.horizontal(|ui| {
-                ui.spinner();
                 ui.label("Finding workspaces…");
             });
         }
@@ -349,14 +348,14 @@ impl App {
                             egui::pos2(rect.left() + name_width + 22.0, rect.center().y),
                             egui::Align2::CENTER_CENTER,
                             w.tasks.to_string(),
-                            egui::FontId::monospace(11.5),
+                            egui::FontId::monospace(theme::MONO_TEXT),
                             p.muted,
                         );
                         ui.painter().text(
                             egui::pos2(rect.left() + name_width + 79.0, rect.center().y),
                             egui::Align2::CENTER_CENTER,
                             w.sessions.to_string(),
-                            egui::FontId::monospace(11.5),
+                            egui::FontId::monospace(theme::MONO_TEXT),
                             p.muted,
                         );
                     }
@@ -364,7 +363,7 @@ impl App {
                         egui::pos2(rect.right() - 7.0, rect.center().y),
                         egui::Align2::RIGHT_CENTER,
                         updated(w),
-                        egui::FontId::proportional(11.0),
+                        egui::FontId::proportional(theme::SMALL_TEXT),
                         p.muted,
                     );
                     response.widget_info(|| {

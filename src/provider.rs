@@ -8,6 +8,7 @@
 pub(crate) mod onboarding;
 mod sse;
 mod http_error;
+pub(crate) use http_error::input_image_patch_rejection;
 mod network_error;
 mod output_items;
 mod input_history;

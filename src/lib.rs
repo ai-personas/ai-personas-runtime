@@ -9,6 +9,7 @@ pub mod host_command;
 pub mod files;
 pub mod mock_effects;
 pub mod persona_model;
+pub mod neural;
 pub mod process_control;
 pub mod protocol;
 pub mod provider;

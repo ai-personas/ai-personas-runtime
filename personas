@@ -3,6 +3,24 @@
 # Rust retains authentication, capability evidence, setup, intake and admission.
 set -eu
 
+# The editable model runtime uses one native CLI for setup, work and inspection.
+# Pass its arguments intact; do not reinterpret exact needs or model selections.
+if [ "${1-}" = "--neural" ]; then
+    shift
+    editable_dir=$(CDPATH= cd -P "${0%/*}" && pwd -P)
+    if [ "${PERSONAS_BIN+x}" = x ]; then
+        [ -n "$PERSONAS_BIN" ] && [ -f "$PERSONAS_BIN" ] && [ -x "$PERSONAS_BIN" ] || { printf '%s\n' 'PERSONAS_BIN must name an executable.' >&2; exit 126; }
+        editable_bin=$PERSONAS_BIN
+    elif [ -x "$editable_dir/target/debug/ai-personas" ]; then
+        editable_bin=$editable_dir/target/debug/ai-personas
+    elif [ -x "$editable_dir/target/release/ai-personas" ]; then
+        editable_bin=$editable_dir/target/release/ai-personas
+    else
+        editable_bin=$(command -v ai-personas) || { printf '%s\n' 'Build the runtime with cargo build --locked --bins.' >&2; exit 127; }
+    fi
+    exec "$editable_bin" neural "$@"
+fi
+
 interface=auto
 case "${1-}" in
     -gui|--gui) interface=gui; shift ;;
@@ -50,7 +68,8 @@ if [ "$#" -eq 0 ]; then
 fi
 
 usage() {
-    printf '%s\n' 'Usage: ./personas --gui [--progress PATH] [--helpers PATH]
+    printf '%s\n' 'Usage: ./personas --neural [OPTIONS] COMMAND
+       ./personas --gui [--progress PATH] [--helpers PATH]
        ./personas --terminal
        ./personas [OPTIONS] "Your need"
        ./personas [OPTIONS]                 # explicit-option prompt; no arguments open onboarding
@@ -61,9 +80,16 @@ usage() {
        ./personas [OPTIONS] --questions WORK
        ./personas [OPTIONS] --answer-question FILE.json
 
-No arguments: desktop when installed in a graphical session; otherwise terminal onboarding.
---gui (or -gui): require the desktop app. --terminal: require the terminal interface.
-Explicit options below use the existing installation and saved configuration. No automatic
+Editable numerical characters: use --neural init, request, run, status, read, audit,
+control, resume, message, amend, accept or export. Run ./personas --neural --help
+for native command help; see docs/editable-persona-models.md for setup.
+New desktop workspaces use the editable-character runtime. Existing journals can
+still be opened explicitly. No arguments choose desktop in a graphical session,
+or historical terminal onboarding otherwise. --terminal requires that terminal UI.
+--gui (or -gui) requires the desktop app.
+
+The remaining explicit options below use the historical journal runtime and saved
+configuration. They do not select the editable-character runtime. No automatic
 setup, sign-in, refresh, build, state reset, recovery, or model substitution.
 A run uses the selected provider account without application call quotas.
 

@@ -1,4 +1,5 @@
 //! Solid geometry preview for produced models. No CAD scripts are executed.
+use super::theme;
 use eframe::{
     egui,
     glow::{self, HasContext},
@@ -335,7 +336,7 @@ impl Viewport {
             rect.left_bottom() + egui::vec2(10.0, -10.0),
             egui::Align2::LEFT_BOTTOM,
             "Drag: orbit   Shift-drag / right-drag: pan   Scroll: zoom",
-            egui::FontId::proportional(10.5),
+            egui::FontId::proportional(theme::SMALL_TEXT),
             egui::Color32::from_gray(200),
         );
         let center = rect.right_top() + egui::vec2(-36.0, 36.0);
@@ -351,7 +352,7 @@ impl Viewport {
                 end,
                 egui::Align2::CENTER_CENTER,
                 label,
-                egui::FontId::proportional(10.0),
+                egui::FontId::proportional(theme::SMALL_TEXT),
                 color,
             );
         }

@@ -43,6 +43,9 @@ impl From<ProfileArg> for Profile {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Internal portable computation worker.
+    #[command(hide = true)]
+    ComputeWorker,
     /// Inspect an owned character package, or show the shared contract when no file is given.
     Character {
         package: Option<PathBuf>,
@@ -53,6 +56,8 @@ enum Command {
         #[arg(long, requires = "package")]
         compare: Option<PathBuf>,
     },
+    /// Forward-only editable persona networks with indexed state and direct inference.
+    Neural { #[command(subcommand)] command: ai_personas::neural::cli::Command },
     /// Import selected provider settings and create a continuing local cohort. No inference.
     Setup {
         #[arg(long)]
@@ -808,12 +813,22 @@ async fn main() {
     }
 }
 async fn run(cli: Cli) -> runtime::Result<()> {
-    let _signals = if matches!(&cli.command, Command::Run { .. }) {
+    let _signals = if matches!(&cli.command, Command::Run { .. } | Command::Neural { .. }) {
         Some(ai_personas::process_control::install()?)
     } else {
         None
     };
+    if let Command::Neural { command } = cli.command {
+        let root=cli.state_root.as_deref().ok_or_else(||argument("--state-root"))?;
+        let result=ai_personas::neural::cli::execute(root,cli.operator.as_deref().unwrap_or("user"),command).await
+            .map_err(|e|runtime::RuntimeError::Invalid(e.to_string()))?;
+        return emit(&result);
+    }
     match &cli.command {
+        Command::ComputeWorker => {
+            let (program, input): (String, String) = serde_json::from_reader(std::io::stdin().lock())?;
+            return emit(&ai_personas::computation::execute(&program, &input));
+        }
         Command::Character { package, appraisal, compare } => {
             use ai_personas::persona_model::{Appraisal, FeatureContract, ModelPackage};
             let contract = FeatureContract::standard();
@@ -1735,7 +1750,9 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             emit(&report)
         }
         Command::Schema
+        | Command::ComputeWorker
         | Command::Character { .. }
+        | Command::Neural { .. }
         | Command::Setup { .. }
         | Command::Run { .. }
         | Command::Result { .. }

@@ -408,14 +408,14 @@ fn plot(ui: &mut Ui, series: &[(String, Vec<Option<[f64; 2]>>)], x_label: &str, 
             egui::pos2(rect.left() - 6.0, y),
             egui::Align2::RIGHT_CENTER,
             format!("{:.3}", (min[1] + (max[1] - min[1]) * t as f64) * scale[1]),
-            egui::FontId::monospace(10.0),
+            egui::FontId::monospace(theme::MONO_TEXT),
             p.muted,
         );
         painter.text(
             egui::pos2(x, rect.bottom() + 8.0),
             egui::Align2::CENTER_TOP,
             format!("{:.3}", (min[0] + (max[0] - min[0]) * t as f64) * scale[0]),
-            egui::FontId::monospace(10.0),
+            egui::FontId::monospace(theme::MONO_TEXT),
             p.muted,
         );
     }
@@ -423,7 +423,7 @@ fn plot(ui: &mut Ui, series: &[(String, Vec<Option<[f64; 2]>>)], x_label: &str, 
         egui::pos2(rect.center().x, outer.bottom() - 3.0),
         egui::Align2::CENTER_BOTTOM,
         x_label,
-        egui::FontId::proportional(11.0),
+        egui::FontId::proportional(theme::SMALL_TEXT),
         p.text,
     );
     let position = |point: [f64; 2]| {
