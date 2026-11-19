@@ -72,15 +72,12 @@ pub(super) async fn compute(
     stopped: impl Fn() -> bool,
 ) -> Result<crate::computation::Outcome> {
     use tokio::io::AsyncWriteExt;
-    let executable = std::env::current_exe()?;
-    let executable = if executable
-        .file_stem()
-        .is_some_and(|name| name == "personas-desktop")
-    {
-        executable.with_file_name("ai-personas")
-    } else {
-        executable
-    };
+    // An application update can unlink the running binary while its decisions
+    // are still in flight. Linux can execute the same open image directly.
+    #[cfg(target_os="linux")]
+    let executable=std::path::PathBuf::from("/proc/self/exe");
+    #[cfg(not(target_os="linux"))]
+    let executable=std::env::current_exe()?;
     let mut child = tokio::process::Command::new(executable)
         .arg("compute-worker")
         .stdin(Stdio::piped())
@@ -114,4 +111,10 @@ pub(super) async fn compute(
             }
         }
     }
+}
+
+pub fn compute_worker() -> Result<()> {
+    let (program,input):(String,String)=serde_json::from_reader(std::io::stdin().lock())?;
+    serde_json::to_writer(std::io::stdout().lock(), &crate::computation::execute(&program,&input))?;
+    Ok(())
 }

@@ -5,6 +5,13 @@ mod desktop;
 
 #[cfg(unix)]
 fn main() -> eframe::Result {
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("compute-worker")) {
+        if let Err(error)=ai_personas::neural::workspace::compute_worker() {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
     desktop::run()
 }
 

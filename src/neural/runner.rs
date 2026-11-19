@@ -151,31 +151,43 @@ pub async fn invoke(
     match response {
         Ok(mut output) => {
             output.attempt.reported_model.clone_from(&output.reported_model);
-            store.transaction(|db| {
+            let terminal = store.transaction(|db| {
                 let response =
                     store::put_bytes(db, "application/json", output.response.as_bytes())?;
                 let receipt = store::put(db, &output.attempt)?;
+                let stopped = output.disposition != provider::CompletionDisposition::Ready
+                    || store::stopped(db, work, actor)?.is_some() || crate::process_control::signal().is_some();
+                let mut state = match (probe, stopped) {
+                    (true, false) => "probe_complete",
+                    (true, true) => "probe_canceled",
+                    (false, true) => "canceled_response",
+                    (false, false) => "responded",
+                };
                 if !probe {
-                    super::character::record_supply(db, &call_id, &receipt, &response, &output.attempt)?;
+                    match super::character::verified_supply(db, &call_id, &receipt, &response, &output.attempt) {
+                        Ok(Some(body)) => { store::write(db,"character_use",&call_id,0,&body,Some(&call_id))?; }
+                        Ok(None) => {}
+                        Err(error) => {
+                            state="unverified_response";
+                            store::event(db,work,"runtime",actor,"character_input_unverified",
+                                &json!({"invocation":call_id,"receipt":format!("object:{receipt}"),"response":format!("object:{response}"),"reason":error.to_string()}),Some(&call_id))?;
+                        }
+                    }
                 }
                 db.execute(
                     "UPDATE invocations SET state=?2,response=?3,receipt=?4,updated=?5 WHERE id=?1",
                     params![
                         call_id,
-                        if probe { "probe_complete" } else { "responded" },
+                        state,
                         response,
                         receipt,
                         now()
                     ],
                 )?;
-                Ok(())
+                Ok(state)
             })?;
-            if output.disposition != provider::CompletionDisposition::Ready
-                || control_observation(&store, work, actor).is_some()
-            {
-                return Err(failure(
-                    "provider response retained but control canceled local adoption",
-                ));
+            if !matches!(terminal, "responded" | "probe_complete") {
+                return Err(failure(format!("Completed provider response retained with disposition {terminal}")));
             }
             Ok(output)
         }
@@ -194,7 +206,8 @@ pub async fn invoke(
 fn reject(store: &mut Store, snapshot: &Snapshot, error: &str) -> Result<()> {
     store.transaction(|db|{
         let response:Option<String>=db.query_row("SELECT response FROM invocations WHERE id=?1",[&snapshot.invocation],|r|r.get(0))?;
-        db.execute("UPDATE invocations SET state='rejected',updated=?2 WHERE id=?1 AND state='responded'",params![snapshot.invocation,now()])?;
+        let changed=db.execute("UPDATE invocations SET state='rejected',updated=?2 WHERE id=?1 AND state='responded'",params![snapshot.invocation,now()])?;
+        if changed==0 {return Ok(());}
         store::event(db,&snapshot.work,"runtime",&snapshot.actor,"decision_rejected",&json!({"invocation":snapshot.invocation,"reason":error,"rejected_response":response.map(|r|format!("object:{r}")),"effects_adopted":false}),Some(&snapshot.invocation))?;
         Ok(())
     })
@@ -241,11 +254,7 @@ async fn decision(root: &Path, work: &str, actor: &str) -> Result<()> {
             return Err(error);
         }
     };
-    let parsed = parse_decision(output.response.as_bytes());
-    let accepted = parsed.and_then(|value| {
-        operations::adopt(&mut store, &snapshot, &value)?;
-        Ok(value)
-    });
+    let accepted = operations::adopt(&mut store, &snapshot.invocation);
     match accepted {
         Ok(value) => eprintln!(
             "{}",
@@ -440,15 +449,14 @@ fn recover(store: &mut Store) -> Result<()> {
     // retained authority. It is never silently replayed against a fresh snapshot.
     let mut statement = store
         .db
-        .prepare("SELECT snapshot,response FROM invocations WHERE state='responded'")?;
+        .prepare("SELECT id,snapshot FROM invocations WHERE state='responded'")?;
     let rows = statement
         .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     drop(statement);
-    for (snapshot, response) in rows {
-        let snapshot: Snapshot = store::object(&store.db, &snapshot)?;
-        let value = parse_decision(&store::bytes(&store.db, &response)?);
-        if let Err(error) = value.and_then(|v| operations::adopt(store, &snapshot, &v)) {
+    for (call, source) in rows {
+        if let Err(error) = operations::adopt(store, &call) {
+            let snapshot: Snapshot = store::object(&store.db, &source)?;
             reject(store, &snapshot, &error.to_string())?;
         }
     }

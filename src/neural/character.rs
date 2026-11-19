@@ -138,13 +138,13 @@ pub(super) fn contextual(
 
 /// Called in the same transaction that retains a completed ordinary provider
 /// response. Reconstruct the exact prompt before attributing this projection.
-pub(super) fn record_supply(
+pub(super) fn verified_supply(
     db: &Connection,
     call: &str,
     receipt: &str,
     response: &str,
     attempt: &crate::provider::AttemptReceipt,
-) -> Result<()> {
+) -> Result<Option<Value>> {
     let source: String = db.query_row(
         "SELECT snapshot FROM invocations WHERE id=?1",
         [call],
@@ -152,7 +152,7 @@ pub(super) fn record_supply(
     )?;
     let snapshot: Snapshot = store::object(db, &source)?;
     if snapshot.model.is_none() || !attempt.response_completed {
-        return Ok(());
+        return Ok(None);
     }
     let prompt = context::prompt(db, &snapshot)?;
     if attempt.audit.invocation_id != call
@@ -174,6 +174,5 @@ pub(super) fn record_supply(
         "snapshot":format!("object:{source}"),"provider_receipt":format!("object:{receipt}"),
         "response":format!("object:{response}"),"observation":"supplied"
     });
-    store::write(db, "character_use", call, 0, &body, Some(call))?;
-    Ok(())
+    Ok(Some(body))
 }

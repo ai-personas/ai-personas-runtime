@@ -63,11 +63,31 @@ pub fn relevant(db: &Connection, work: &str, actor: &str) -> Result<Vec<Value>> 
         format!("work:{work}"),
         format!("persona:{actor}"),
     ] {
-        if let Some(value) = current(db, &scope)? {
+        if let Some(value) = for_activity(db, work, &scope)? {
             values.push(value);
         }
     }
     Ok(values)
+}
+
+/// Older participant resumes also wrote a persona-wide running control.
+/// Its scheduling state applies everywhere. Its human message belongs only
+/// to the activity named in the original resume event.
+pub fn for_activity(db: &Connection, work: &str, scope: &str) -> Result<Option<Value>> {
+    let Some(mut control)=current(db,scope)? else {return Ok(None);};
+    if scope.starts_with("persona:") && control["state"]=="running" {
+        if let Some(reference)=control["record"].as_str() {
+            let origin:Option<String>=db.query_row(
+                "SELECT e.work FROM events e JOIN objects o ON o.digest=e.digest WHERE e.kind='explicit_resume'
+                 AND json_extract(CAST(o.bytes AS TEXT),'$.control')=?1 ORDER BY e.seq LIMIT 1",
+                [reference], |row|row.get(0)).optional()?;
+            if origin.as_deref().is_some_and(|origin|origin!=work) {
+                control.as_object_mut().unwrap().remove("reason");
+                control["resume_message_belongs_to_work"]=json!(origin);
+            }
+        }
+    }
+    Ok(Some(control))
 }
 
 fn recipients(db: &Connection, scope: &str) -> Result<Vec<(String, String)>> {

@@ -122,8 +122,8 @@ fn maintenance(
         .map(|o| o.id.as_str())
         .collect::<BTreeSet<_>>();
     match value {
-        Maintenance::NoChange { reason } | Maintenance::Defer { reason } => {
-            if reason.trim().is_empty() || !changed.is_empty() {
+        Maintenance::NoChange { reason } | Maintenance::Defer { reason, .. } => {
+            if reason.trim().is_empty() || !changed.is_empty() || model_switch {
                 return Err(failure(
                     "maintenance must acknowledge proposed changes and give a reason",
                 ));
@@ -670,6 +670,7 @@ pub fn invite(
 ) -> Result<()> {
     store::required(db, "work", work)?;
     store::required(db, "persona", actor)?;
+    let joined_after = db.query_row("SELECT COALESCE(MAX(seq),0) FROM events", [], |r| r.get(0))?;
     let part = Participation {
         persona: actor.into(),
         work: work.into(),
@@ -678,7 +679,7 @@ pub fn invite(
         continuation: Continuation::Ready {
             purpose: "Consider the invitation and initialize my character if needed".into(),
         },
-        cursor: 0,
+        cursor: joined_after,
         turn: 0,
         context: vec![],
         tools: vec![],
@@ -736,17 +737,18 @@ fn switch_model(
             {
                 return Err(failure("candidate owner or predecessor mismatch"));
             }
+            let mut assessment=None;
             if persona.model.is_some() {
                 if snapshot.development_version>0 && follow_up.as_deref().is_none_or(|s|s.trim().is_empty()) {
                     return Err(failure("State what later behavior or outcome you intend to observe"));
                 }
-                let assessed = store::list(db, "assessment")?.iter().any(|r| {
+                assessment = store::list(db, "assessment")?.into_iter().find(|r| {
                     r.body["candidate"] == *candidate
                         && r.body["completed"] == true
                         && r.body["owner"] == persona.id && r.body["predecessor"] == json!(persona.model)
                         && super::character::saw_record(snapshot,&r.reference.handle(),"assessment")
-                });
-                if !assessed {
+                }).map(|r|r.reference.handle());
+                if assessment.is_none() {
                     return Err(failure(
                         "observe completed comparative assessment before activating a revision",
                     ));
@@ -755,12 +757,14 @@ fn switch_model(
             if let Some(question)=record.body["development"].as_str() {
                 let origin=store::exact(db,question)?;
                 let mut current=store::required(db,"development",&origin.reference.id)?;
-                if origin.reference.kind!="development" || current.body["owner"]!=persona.id {
-                    return Err(failure("Candidate has no matching owner development record"));
+                if origin.reference!=current.reference || origin.reference.kind!="development" || current.body["owner"]!=persona.id {
+                    return Err(failure("The development question changed since the proposal. Reconsider the candidate against its current interpretation."));
                 }
                 current.body["adoptions"].as_array_mut().ok_or_else(||failure("Invalid development history"))?.push(
                     json!({"candidate":candidate,"origin":question,"decision":snapshot.invocation,
-                        "work":snapshot.work,"model":record.body["model"],"reason":reason,"follow_up":follow_up}));
+                        "work":snapshot.work,"model":record.body["model"],"assessment":assessment,
+                        "epoch":persona.epoch.checked_add(1).ok_or_else(||failure("epoch overflow"))?,
+                        "reason":reason,"follow_up":follow_up}));
                 store::write(db,"development",&current.reference.id,current.reference.revision,&current.body,Some(&snapshot.invocation))?;
             }
             record.body["model"]
@@ -778,6 +782,9 @@ fn switch_model(
                 return Err(failure("rollback requires exact current model and reason"));
             }
             check_references(db, evidence)?;
+            if snapshot.development_version>=2 && !evidence.iter().any(|r|r.starts_with("experience:") && super::development::observed(snapshot,r)) {
+                return Err(failure("Rollback needs an observed experience that bears on this decision"));
+            }
             let mut ancestor = context::model(db, persona)?.predecessor;
             let mut found = false;
             while let Some(digest) = ancestor {
@@ -792,6 +799,14 @@ fn switch_model(
                 return Err(failure(
                     "rollback target is not an ancestor of your current model",
                 ));
+            }
+            for mut question in store::list(db,"development")? {
+                if question.body["owner"]!=persona.id || !question.body["adoptions"].as_array().is_some_and(|rows|
+                    rows.iter().any(|a|a["model"]==*expected_model && a["epoch"]==persona.epoch)) {continue;}
+                if !question.body["rollbacks"].is_array(){question.body["rollbacks"]=json!([]);}
+                question.body["rollbacks"].as_array_mut().unwrap().push(json!({"decision":snapshot.invocation,
+                    "from":expected_model,"to":model,"work":snapshot.work,"reason":reason,"evidence":evidence}));
+                store::write(db,"development",&question.reference.id,question.reference.revision,&question.body,Some(&snapshot.invocation))?;
             }
             model.clone()
         }
@@ -854,8 +869,22 @@ fn switch_model(
     Ok(())
 }
 
-pub fn adopt(store: &mut Store, snapshot: &Snapshot, decision: &DecisionV4) -> Result<()> {
+/// Read both authorities inside the same transaction that records their effects.
+/// Reopening an already adopted call returns its original choice.
+pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
     store.transaction(|db|{
+        let (work,actor,state,source,response):(String,String,String,String,Option<String>)=db.query_row(
+            "SELECT work,actor,state,snapshot,response FROM invocations WHERE id=?1", [call],
+            |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?)))?;
+        if !matches!(state.as_str(),"responded"|"accepted") {return Err(failure("invocation has no adoptable retained response"));}
+        let snapshot=&store::object::<Snapshot>(db,&source)?;
+        if snapshot.invocation!=call || snapshot.work!=work || snapshot.actor!=actor {return Err(failure("retained snapshot does not own this invocation"));}
+        let response=response.ok_or_else(|| failure("missing retained response"))?;
+        let retained=parse_decision(&store::bytes(db,&response)?)?;
+        let decision=&retained;
+        if decision.invocation!=call {return Err(failure("response must name the invocation that produced it"));}
+        if state=="accepted" {return Ok(retained);}
+        let first_event_exclusive:i64=db.query_row("SELECT COALESCE(MAX(seq),0) FROM events",[],|r|r.get(0))?;
         if store::stopped(db,&snapshot.work,&snapshot.actor)?.is_some(){return Err(failure("control changed before adoption"));}
         if snapshot.data["control_versions"]!=store::control_versions(db,&snapshot.work,&snapshot.actor)?{
             return Err(failure("control revision changed during this decision"));
@@ -863,14 +892,11 @@ pub fn adopt(store: &mut Store, snapshot: &Snapshot, decision: &DecisionV4) -> R
         if store::required(db,"work",&snapshot.work)?.reference.handle()!=snapshot.data["work"]["reference"].as_str().unwrap_or(""){
             return Err(failure("requirements changed during this decision; reconsider the amended need"));
         }
-        let state:String=db.query_row("SELECT state FROM invocations WHERE id=?1",[&snapshot.invocation],|r|r.get(0))?;
-        if state!="responded"{return Err(failure("invocation has no adoptable retained response"));}
         let p=store::required(db,"persona",&snapshot.actor)?;
         let part_record=store::required(db,"participation",&format!("{}/{}",snapshot.work,snapshot.actor))?;
         let mut persona:Persona=decode(&p.body)?;let mut part:Participation=decode(&part_record.body)?;
         if p.reference.revision!=snapshot.persona_revision||part_record.reference.revision!=snapshot.participation_revision||persona.epoch!=snapshot.epoch||persona.model!=snapshot.model {return Err(failure("stale decision authority"));}
         if decision.version!=4{return Err(failure("DecisionV4.version must be 4 and next_context must explicitly contain references, tools and working_note; ModelPackage.version is separately 1"));}
-        if decision.invocation!=snapshot.invocation{return Err(failure(format!("invocation must equal the current snapshot id {}",snapshot.invocation)));}
         if decision.work.reason.trim().is_empty(){return Err(failure("work judgment needs a reason"));}
         check_references(db,&decision.work.evidence)?;
         match &decision.continuation {Continuation::Ready{purpose} if purpose.trim().is_empty()=>return Err(failure("ready needs a purpose")),Continuation::Wait{reason,..}|Continuation::Stop{reason} if reason.trim().is_empty()=>return Err(failure("waiting/stopping needs a reason")),_=>{}}
@@ -882,6 +908,7 @@ pub fn adopt(store: &mut Store, snapshot: &Snapshot, decision: &DecisionV4) -> R
             .map_err(|e|failure(format!("persona_maintenance: {e}")))?;
         maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"image.read"|"work.outcome"|"result.deliver"),false)
             .map_err(|e|failure(format!("asset_maintenance: {e}")))?;
+        super::development::consider(db,snapshot,decision)?;
         let mut ids=BTreeSet::new();
         for op in &decision.operations {
             if op.id.trim().is_empty()||!ids.insert(&op.id){return Err(failure("operation id duplicate or blank"));}
@@ -928,8 +955,13 @@ pub fn adopt(store: &mut Store, snapshot: &Snapshot, decision: &DecisionV4) -> R
         if persona.model.is_none(){for selection in &part.context{context::bootstrap_reference(db,&snapshot.actor,selection.reference())?;}}
         if switching{store::write(db,"persona",&snapshot.actor,p.reference.revision,&persona,Some(&snapshot.invocation))?;}
         store::write(db,"participation",&part_record.reference.id,part_record.reference.revision,&part,Some(&snapshot.invocation))?;
+        if snapshot.model.is_some() && snapshot.development_version>=2 {
+            let last_event:i64=db.query_row("SELECT COALESCE(MAX(seq),0) FROM events",[],|r|r.get(0))?;
+            store::write(db,"decision_effects",call,0,&json!({"owner":actor,"work":work,"model":snapshot.model,
+                "first_event_exclusive":first_event_exclusive,"last_event":last_event,"response":format!("object:{response}")}),Some(call))?;
+        }
         db.execute("UPDATE invocations SET state='accepted',updated=?2 WHERE id=?1",params![snapshot.invocation,now()])?;
-        Ok(())
+        Ok(retained)
     })
 }
 

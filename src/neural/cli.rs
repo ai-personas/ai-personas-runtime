@@ -271,9 +271,8 @@ pub async fn execute(root: &Path, operator: &str, command: Command) -> Result<Va
                     if part.declined{return Err(failure("a declined contribution needs a new work invitation, not implicit acceptance"));}
                     part.continuation=Continuation::Ready{purpose:reason.clone()};
                     store::write(db,"participation",&record.reference.id,record.reference.revision,&part,None)?;
-                    let control=super::controls::change(db,&format!("persona:{persona}"),"running",&reason,super::controls::Origin::Operator(operator),None)?;
-                    store::event(db,&work,operator,&persona,"explicit_resume",&json!({"reason":reason,"control":control.handle()}),None)?;
-                    Ok(json!({"resumed":persona,"work":work,"other_controls_preserved":true}))
+                    store::event(db,&work,operator,&persona,"explicit_resume",&json!({"reason":reason}),None)?;
+                    Ok(json!({"resumed":persona,"work":work,"scheduling_controls":super::controls::relevant(db,&work,&persona)?}))
                 }),
                 Command::Message{work,persona,text}=>store.transaction(|db|{
                     if text.trim().is_empty(){return Err(failure("Write a message before sending"));}

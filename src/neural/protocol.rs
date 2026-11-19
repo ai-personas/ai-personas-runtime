@@ -15,6 +15,10 @@ pub struct DecisionV4 {
     pub invocation: String,
     pub work: WorkJudgment,
     pub persona_maintenance: Maintenance,
+    /// For every active-character decision, list the exact observed experiences
+    /// considered for character maintenance. An explicit empty list is valid.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub considered_experience: Option<Vec<String>>,
     pub asset_maintenance: Maintenance,
     pub next_model: NextModel,
     pub next_context: ContextChoice,
@@ -72,6 +76,12 @@ pub enum Maintenance {
     },
     Defer {
         reason: String,
+        /// For a character deferral, keep the condition under which to reconsider.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        revisit: Option<super::development::Revisit>,
+        /// Optional exact current question being deferred.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        question: Option<String>,
     },
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]

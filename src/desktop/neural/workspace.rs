@@ -130,6 +130,21 @@ impl App {
                                 ui.close();
                             }
                             ui.weak("Explicitly stopped participants stay stopped until resumed.");
+                            for (scope, label) in [(format!("work:{}", self.work), "This activity"),
+                                (format!("persona:{}", self.persona), "Selected persona across activities")] {
+                                if scope.ends_with(':') { continue; }
+                                ui.separator();
+                                ui.small(label);
+                                ui.horizontal(|ui| {
+                                    for (state, action) in [("running", "Enable"), ("paused", "Pause"), ("canceled", "Cancel")] {
+                                        if ui.add_enabled(!self.busy, egui::Button::new(action)).clicked() {
+                                            self.command(ctx, Command::Control { scope:scope.clone(), state:state.into(),
+                                                reason:format!("Operator selected {action} for {scope} in the desktop") });
+                                            ui.close();
+                                        }
+                                    }
+                                });
+                            }
                         });
                         ui.add_enabled_ui(!self.work.is_empty(), |ui| {
                             ui.menu_button("Participate", |ui| {

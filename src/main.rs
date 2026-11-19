@@ -826,8 +826,7 @@ async fn run(cli: Cli) -> runtime::Result<()> {
     }
     match &cli.command {
         Command::ComputeWorker => {
-            let (program, input): (String, String) = serde_json::from_reader(std::io::stdin().lock())?;
-            return emit(&ai_personas::computation::execute(&program, &input));
+            return ai_personas::neural::workspace::compute_worker().map_err(|e|runtime::RuntimeError::Invalid(e.to_string()));
         }
         Command::Character { package, appraisal, compare } => {
             use ai_personas::persona_model::{Appraisal, FeatureContract, ModelPackage};

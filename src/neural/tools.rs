@@ -300,7 +300,7 @@ pub fn asset_mutation(name: &str) -> bool {
     matches!(name, "asset.save" | "asset.import" | "asset.organize")
 }
 pub fn model_mutation(name: &str) -> bool {
-    matches!(name, "persona.initialize" | "persona.patch")
+    matches!(name, "persona.initialize" | "persona.patch" | "development.update")
 }
 
 pub fn matches(search: &Search, text: &str) -> Result<bool> {

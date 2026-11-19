@@ -6,7 +6,8 @@ use serde_json::{json, Value};
 const EVENTS: &str = "SELECT 'event-' || e.seq AS id, e.work,e.actor,e.target,e.kind,e.digest,
                       e.invocation,e.created FROM events e";
 const VISIBLE: &str = "(e.actor=?1 OR e.target=?1 OR (e.target='*' AND EXISTS
-    (SELECT 1 FROM heads h WHERE h.kind='participation' AND h.id=e.work||'/'||?1)))";
+    (SELECT 1 FROM events invitation WHERE invitation.work=e.work AND invitation.target=?1
+     AND invitation.kind='invitation' AND invitation.seq<=e.seq)))";
 const DECISIONS: &str =
     "SELECT i.id,i.work,i.actor,i.actor,'accepted_decision',i.response,i.id,i.created
     FROM invocations i WHERE i.state='accepted'";
@@ -75,7 +76,7 @@ pub(super) fn search(db: &Connection, actor: &str, query: &Search) -> Result<Val
     )
 }
 
-pub(super) fn read(db: &Connection, actor: Option<&str>, reference: &str) -> Result<Value> {
+fn locate(db: &Connection, actor: Option<&str>, reference: &str) -> Result<Experience> {
     let id = reference
         .strip_prefix("experience:")
         .and_then(|r| r.strip_suffix("@1"))
@@ -94,6 +95,15 @@ pub(super) fn read(db: &Connection, actor: Option<&str>, reference: &str) -> Res
     if item.id != id {
         return Err(failure("Noncanonical experience identity"));
     }
+    Ok(item)
+}
+
+pub(super) fn metadata(db: &Connection, actor: Option<&str>, reference: &str) -> Result<Value> {
+    Ok(locate(db, actor, reference)?.metadata())
+}
+
+pub(super) fn read(db: &Connection, actor: Option<&str>, reference: &str) -> Result<Value> {
+    let item = locate(db, actor, reference)?;
     let mut event = item.metadata();
     event["body"] = store::object(db, &item.digest)?;
     if item.kind == "accepted_decision" {
@@ -104,6 +114,8 @@ pub(super) fn read(db: &Connection, actor: Option<&str>, reference: &str) -> Res
         )?;
         event["snapshot"] = json!(format!("object:{snapshot}"));
         event["provider_receipt"] = json!(receipt.map(|d| format!("object:{d}")));
+        event["character_use"] =
+            json!(store::head(db, "character_use", &item.id)?.map(|r| r.reference.handle()));
     }
     Ok(json!({"reference":reference,"record":event}))
 }
