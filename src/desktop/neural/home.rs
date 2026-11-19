@@ -719,7 +719,7 @@ fn row_limit(ui: &Ui, lines: f32) -> usize {
     (ui.available_width() / 8. * lines).clamp(20., 140.) as usize
 }
 
-fn short_text(value: &str, limit: usize) -> String {
+pub(super) fn short_text(value: &str, limit: usize) -> String {
     let mut chars = value
         .split_whitespace()
         .flat_map(|word| std::iter::once(' ').chain(word.chars()))

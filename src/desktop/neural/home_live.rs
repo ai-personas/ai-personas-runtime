@@ -1,3 +1,4 @@
+use super::people::ProfileView;
 use super::*;
 use ai_personas::neural::live::RunnerObservation;
 
@@ -33,7 +34,7 @@ impl<'a> Observation<'a> {
 }
 
 enum Action {
-    Profile(String),
+    Profile(String, ProfileView),
     Activity(String),
     Message { work: String, person: String },
     Resource { work: String, reference: String },
@@ -42,7 +43,7 @@ enum Action {
 #[derive(Default)]
 struct Person<'a> {
     name: &'a str,
-    registered: bool,
+    profile: Option<&'a Value>,
     work: BTreeMap<&'a str, Vec<Observation<'a>>>,
 }
 
@@ -60,8 +61,8 @@ fn membership_state(part: &Value, ended: bool) -> &'static str {
         return "Invited";
     }
     match s(&part["continuation"], "kind") {
-        "ready" => "Chose to continue",
-        "wait" | "waiting" => "Chose to wait",
+        "ready" => "Ready to continue",
+        "wait" | "waiting" => "Waiting",
         "stop" | "stopped" => "Stopped",
         _ => "Participating",
     }
@@ -85,7 +86,7 @@ impl App {
                 id,
                 Person {
                     name,
-                    registered: true,
+                    profile: Some(person),
                     ..Person::default()
                 },
             );
@@ -241,13 +242,16 @@ impl App {
                 summary.push(counted(n as u64, singular, plural));
             }
         }
-        let summary = if summary.is_empty() {
-            "Model calls and tools are idle".into()
-        } else {
-            summary.join("  ·  ")
-        };
-        ui.label(RichText::new(summary).small().color(p.muted));
-        ui.add_space(4.);
+        if matches!(
+            self.runner_observation,
+            RunnerObservation::Unavailable { .. }
+        ) {
+            summary.insert(0, "Runner status unavailable".into());
+        } else if summary.is_empty() {
+            summary.push("No live calls or tools".into());
+        }
+        ui.label(RichText::new(summary.join("  ·  ")).small().color(p.muted));
+        ui.add_space(5.);
         let width = ui.available_width();
         let columns = if width >= 970. {
             3
@@ -262,14 +266,21 @@ impl App {
         for group in people.chunks(columns) {
             ui.columns(columns, |cells| {
                 for (cell, (id, person)) in cells.iter_mut().zip(group) {
-                    cell.scope_builder(egui::UiBuilder::new().id(("home-person", id)), |ui| {
-                        self.home_person(ui, id, person, now, &mut action);
-                    });
+                    // Columns fill their cells, but prose should keep natural
+                    // word spacing even when it wraps a long activity brief.
+                    let layout = egui::Layout::top_down(egui::Align::Min);
+                    cell.scope_builder(
+                        egui::UiBuilder::new().id(("home-person", id)).layout(layout),
+                        |ui| self.home_person(ui, id, person, now, &mut action),
+                    );
                 }
             });
         }
         match action {
-            Some(Action::Profile(id)) => self.show_person(&id),
+            Some(Action::Profile(id, view)) => {
+                self.show_person(&id);
+                self.profile_view = view;
+            }
             Some(Action::Activity(work)) => self.open_home_activity(&work),
             Some(Action::Message { work, person }) => self.address_on_overview(work, &person),
             Some(Action::Resource { work, reference }) => {
@@ -296,66 +307,45 @@ impl App {
             .get(id)
             .map(Vec::as_slice)
             .unwrap_or_default();
-        let member_rows = || memberships.iter().map(|i| &records[*i]["body"]);
+        let member_rows = || memberships.iter().map(|i| &records[*i]);
         let mut shown = 0;
-        let admitted = person.work.keys().any(|work| self.runner_observation.has_worker(work, id));
-        let outline = if admitted { p.ink(self.color(id)) } else { p.border };
+        let admitted = person
+            .work
+            .keys()
+            .any(|work| self.runner_observation.has_worker(work, id));
+        let outline = if admitted {
+            p.ink(self.color(id))
+        } else {
+            p.border
+        };
         let frame = egui::Frame::new()
             .fill(p.panel)
             .stroke(Stroke::new(if admitted { 1.6 } else { 1. }, outline))
-            .corner_radius(7)
-            .inner_margin(10);
+            .corner_radius(9)
+            .inner_margin(13);
         frame.show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            ui.horizontal(|ui| {
-                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-                let name = RichText::new(person.name).size(16.).strong();
-                if person.registered {
-                    let label = format!("Open {}’s profile", person.name);
-                    let mark = avatar(ui, person.name, p.ink(self.color(id)), 28.);
-                    mark.widget_info(|| {
-                        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &label)
-                    });
-                    if mark.has_focus() {
-                        ui.painter().circle_stroke(
-                            mark.rect.center(),
-                            15.,
-                            Stroke::new(2., p.accent),
-                        );
-                    }
-                    let pointer_click =
-                        egui::Sense::click() - egui::Sense::focusable_noninteractive();
-                    let title = ui
-                        .add(egui::Label::new(name).truncate().sense(pointer_click))
-                        .on_hover_cursor(egui::CursorIcon::PointingHand)
-                        .on_hover_text(&label);
-                    if mark.on_hover_text(label).clicked() || title.clicked() {
-                        *action = Some(Action::Profile(id.into()));
-                    }
-                } else {
-                    theme::glyph(ui, Icon::People, p.muted);
-                    ui.label(name);
-                }
-            });
+            self.home_person_identity(ui, id, person, action);
+            ui.add_space(3.);
+            ui.separator();
             let mut projects: Vec<_> = person.work.iter().collect();
-            if projects.len() > 8 {
-                projects.sort_by_key(|(_, observations)| {
+            projects.sort_by_key(|(work, observations)| {
+                if self.runner_observation.has_worker(work, id) {
+                    0
+                } else {
                     observations
                         .iter()
                         .map(|o| o.display_order(&self.runner_observation))
                         .min()
-                });
-            }
+                        .unwrap_or(4)
+                }
+            });
             for (index, (work, observations)) in projects.into_iter().enumerate() {
                 if index > 0 {
                     ui.separator();
                 }
-                let member = self
-                    .home_index
-                    .activity(work)
-                    .is_some_and(|a| a.members.iter().any(|other| other == id));
+                let member = self.home_activity_line(ui, work, id, person.name, None, action);
                 shown += usize::from(member);
-                self.home_activity_line(ui, work, id, person.name, member, action);
                 let observation = self.work_observations(ui, id, work, observations, now);
                 let latest = if self.runner_observation.has_worker(work, id) {
                     self.overview_tool_result(ui, work, id)
@@ -376,12 +366,13 @@ impl App {
                 primary = member_rows()
                     .find(|part| {
                         matches!(
-                            self.home_membership_state(part),
-                            "Invited" | "Chose to wait" | "Chose to continue" | "Participating"
+                            self.home_membership_state(&part["body"]),
+                            "Invited" | "Waiting" | "Ready to continue" | "Participating"
                         )
                     })
                     .or_else(|| {
-                        member_rows().find(|part| self.home_membership_state(part) == "Stopped")
+                        member_rows()
+                            .find(|part| self.home_membership_state(&part["body"]) == "Stopped")
                     })
                     .or_else(|| member_rows().next());
                 if let Some(first) = primary {
@@ -389,7 +380,7 @@ impl App {
                     self.home_membership(ui, first, id, person.name, action);
                 } else {
                     ui.label(
-                        RichText::new("Idle · No activity participation")
+                        RichText::new("No activity invitations yet.")
                             .small()
                             .color(p.muted),
                     );
@@ -401,9 +392,9 @@ impl App {
                 egui::CollapsingHeader::new(RichText::new(label).small())
                     .id_salt("other-activities")
                     .show(ui, |ui| {
-                        let primary_work = primary.map(|part| s(part, "work"));
+                        let primary_work = primary.map(|part| s(&part["body"], "work"));
                         let remaining = member_rows().filter(|part| {
-                            let work = s(part, "work");
+                            let work = s(&part["body"], "work");
                             !person.work.contains_key(work) && Some(work) != primary_work
                         });
                         for (i, part) in remaining.enumerate() {
@@ -415,6 +406,64 @@ impl App {
                     });
             }
         });
+    }
+
+    fn home_person_identity(
+        &self,
+        ui: &mut Ui,
+        id: &str,
+        person: &Person<'_>,
+        action: &mut Option<Action>,
+    ) {
+        let p = theme::palette(ui);
+        let name = RichText::new(person.name).size(20.).strong();
+        let Some(profile) = person.profile else {
+            ui.horizontal(|ui| {
+                theme::glyph(ui, Icon::People, p.muted);
+                ui.add(egui::Label::new(name).truncate())
+                    .on_hover_text(person.name);
+            });
+            return;
+        };
+        ui.horizontal(|ui| {
+            let label = format!("Open {}’s profile", person.name);
+            let mark = avatar(ui, person.name, p.ink(self.color(id)), 38.);
+            mark.widget_info(|| {
+                egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &label)
+            });
+            if mark.has_focus() {
+                ui.painter()
+                    .circle_stroke(mark.rect.center(), 20., Stroke::new(2., p.accent));
+            }
+            if mark.on_hover_text(&label).clicked() {
+                *action = Some(Action::Profile(id.into(), ProfileView::Overview));
+            }
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = 1.;
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                let pointer = egui::Sense::click() - egui::Sense::focusable_noninteractive();
+                if ui
+                    .add(egui::Label::new(name).truncate().sense(pointer))
+                    .on_hover_cursor(egui::CursorIcon::PointingHand)
+                    .on_hover_text(label)
+                    .clicked()
+                {
+                    *action = Some(Action::Profile(id.into(), ProfileView::Overview));
+                }
+                let credit = people::starting_profile_credit(profile);
+                if ui
+                    .link(RichText::new(&credit).small())
+                    .on_hover_ui(|ui| {
+                        ui.label(&credit);
+                        ui.small("Open the full starting profile");
+                    })
+                    .clicked()
+                {
+                    *action = Some(Action::Profile(id.into(), ProfileView::Origin));
+                }
+            });
+        });
+        people::starting_description(ui, profile);
     }
 
     pub(super) fn work_observations(
@@ -452,18 +501,60 @@ impl App {
     fn home_membership(
         &self,
         ui: &mut Ui,
-        part: &Value,
+        record: &Value,
         id: &str,
         name: &str,
         action: &mut Option<Action>,
     ) {
+        let part = &record["body"];
         let work = s(part, "work");
-        self.home_activity_line(ui, work, id, name, true, action);
-        ui.label(
-            RichText::new(self.membership_summary(part))
-                .small()
-                .color(theme::palette(ui).muted),
+        self.home_activity_line(
+            ui,
+            work,
+            id,
+            name,
+            Some(&self.membership_summary(part)),
+            action,
         );
+        // A ready purpose may come from an operator's explicit resume. Keep
+        // both the wording and the source of the participation record intact.
+        let (label, field) = match self.home_membership_state(part) {
+            "Ready to continue" => ("Recorded purpose", "purpose"),
+            "Waiting" | "Stopped" => ("Recorded reason", "reason"),
+            _ => return,
+        };
+        let note = s(&part["continuation"], field).trim();
+        if note.is_empty() {
+            return;
+        }
+        let p = theme::palette(ui);
+        let mut copy = egui::text::LayoutJob::default();
+        let small = egui::TextStyle::Small.resolve(ui.style());
+        copy.append(
+            &format!("{label}  "),
+            0.,
+            egui::TextFormat::simple(small.clone(), p.accent),
+        );
+        copy.append(
+            &home::short_text(note, 320),
+            0.,
+            egui::TextFormat::simple(small, p.muted),
+        );
+        copy.wrap.max_rows = 2;
+        if ui
+            .link(copy)
+            .on_hover_ui(|ui| {
+                ui.strong(label);
+                ui.label(note);
+                ui.small("Open the participation record");
+            })
+            .clicked()
+        {
+            *action = Some(Action::Resource {
+                work: work.into(),
+                reference: inbox::handle(record),
+            });
+        }
     }
 
     pub(super) fn membership_summary(&self, part: &Value) -> String {
@@ -480,7 +571,7 @@ impl App {
         let mut text = state.to_owned();
         if matches!(
             state,
-            "Chose to wait" | "Chose to continue" | "Invited" | "Participating"
+            "Waiting" | "Ready to continue" | "Invited" | "Participating"
         ) {
             if let Some(control) = control {
                 text.push_str(&format!("  ·  Scheduling {}", s(control, "state")));
@@ -495,23 +586,33 @@ impl App {
         work: &str,
         id: &str,
         name: &str,
-        member: bool,
+        state: Option<&str>,
         action: &mut Option<Action>,
-    ) {
+    ) -> bool {
         let activity = self.home_index.activity(work);
-        let title = activity.map(|a| a.title.as_str()).unwrap_or(work);
-        let title = if title.is_empty() {
-            "Activity unavailable"
-        } else {
-            title
+        let title = activity
+            .map(|a| a.title.as_str())
+            .filter(|title| !title.is_empty())
+            .unwrap_or(if work.is_empty() {
+                "Activity unavailable"
+            } else {
+                work
+            });
+        let (icon, kind) = match activity.map(|a| a.kind.as_str()) {
+            Some("task") => (Icon::Task, "Task"),
+            Some("social") => (Icon::Conversation, "Conversation"),
+            _ => (Icon::Activity, "Activity"),
         };
+        let member = activity.is_some_and(|a| a.members.iter().any(|other| other == id));
+        let p = theme::palette(ui);
         ui.push_id(work, |ui| {
             ui.allocate_ui_with_layout(
-                egui::vec2(ui.available_width(), 20.),
+                egui::vec2(ui.available_width(), 32.),
                 egui::Layout::right_to_left(egui::Align::Center),
                 |ui| {
-                    if member && activity.is_some() {
-                        let button = ui.small_button("Message");
+                    if member {
+                        let button =
+                            ui.add(egui::Button::new("Message").min_size(egui::vec2(74., 32.)));
                         button.widget_info(|| {
                             egui::WidgetInfo::labeled(
                                 egui::WidgetType::Button,
@@ -520,7 +621,10 @@ impl App {
                             )
                         });
                         if button
-                            .on_hover_text(format!("Write to {name} here while following the workspace\n{title}"))
+                            .on_hover_ui(|ui| {
+                                ui.label(format!("Message {name} on this activity"));
+                                ui.small(title);
+                            })
                             .clicked()
                         {
                             *action = Some(Action::Message {
@@ -530,26 +634,50 @@ impl App {
                         }
                     }
                     ui.allocate_ui_with_layout(
-                        egui::vec2(ui.available_width().max(1.), 20.),
-                        egui::Layout::left_to_right(egui::Align::Center),
+                        egui::vec2(ui.available_width().max(1.), 32.),
+                        egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(true),
                         |ui| {
-                            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-                            if activity.is_some() {
-                                if ui
-                                    .link(title)
-                                    .on_hover_text(format!("{title}\n{work}"))
-                                    .clicked()
-                                {
-                                    *action = Some(Action::Activity(work.into()));
-                                }
-                            } else {
-                                ui.weak(title);
+                            theme::glyph(ui, icon, p.muted);
+                            ui.label(RichText::new(kind).small().strong().color(p.muted));
+                            if let Some(state) = state {
+                                ui.label(
+                                    RichText::new(format!("·  {state}")).small().color(p.muted),
+                                );
                             }
                         },
                     );
                 },
             );
+            let copy = RichText::new(home::short_text(title, 480))
+                .size(16.)
+                .strong()
+                .color(if activity.is_some() {
+                    p.accent
+                } else {
+                    p.muted
+                });
+            let mut text = egui::WidgetText::from(copy).into_layout_job(
+                ui.style(),
+                egui::FontSelection::Default,
+                egui::Align::Center,
+            );
+            Arc::make_mut(&mut text).wrap.max_rows = 3;
+            if activity.is_some() {
+                if ui
+                    .link(text)
+                    .on_hover_ui(|ui| {
+                        ui.label(title);
+                        ui.small(work);
+                    })
+                    .clicked()
+                {
+                    *action = Some(Action::Activity(work.into()));
+                }
+            } else {
+                ui.add(egui::Label::new(text).wrap()).on_hover_text(title);
+            }
         });
+        member
     }
 }
 

@@ -13,6 +13,29 @@ pub(super) enum ProfileView {
     Origin,
 }
 
+pub(super) fn starting_profile_credit(person: &Value) -> String {
+    match s(person, "seed_author").trim() {
+        "" => "Starting profile".into(),
+        author => format!("Starting profile by {author}"),
+    }
+}
+
+pub(super) fn starting_description(ui: &mut Ui, person: &Value) {
+    let seed = s(person, "seed").trim();
+    if !seed.is_empty() {
+        let copy = RichText::new(home::short_text(seed, 320)).size(15.);
+        let mut job = egui::WidgetText::from(copy).into_layout_job(
+            ui.style(),
+            egui::FontSelection::Default,
+            egui::Align::Center,
+        );
+        Arc::make_mut(&mut job).wrap.max_rows = 2;
+        ui.add(egui::Label::new(job).wrap()).on_hover_ui(|ui| {
+            ui.label(seed);
+        });
+    }
+}
+
 impl App {
     pub(super) fn show_person(&mut self, id: &str) {
         self.compact_browser = false;
@@ -74,7 +97,19 @@ impl App {
         let mut contents = |ui: &mut Ui| {
             ui.add_space(6.);
             match view {
-                ProfileView::Overview => self.profile_overview(ui, &person),
+                ProfileView::Overview => {
+                    if !s(&person, "seed").trim().is_empty() {
+                        if ui
+                            .link(RichText::new(starting_profile_credit(&person)).small())
+                            .clicked()
+                        {
+                            self.profile_view = ProfileView::Origin;
+                        }
+                        starting_description(ui, &person);
+                        ui.add_space(10.);
+                    }
+                    self.profile_overview(ui, &person);
+                }
                 ProfileView::Origin => self.profile_origin(ui, &person),
                 ProfileView::Packages => {
                     if packages == 0 {
@@ -180,10 +215,7 @@ impl App {
             ui.set_min_width(ui.available_width());
             let mut identity = |ui: &mut Ui| {
                 ui.strong("Origin");
-                ui.small(format!(
-                    "Introduced by {}",
-                    self.label(s(person, "seed_author"))
-                ));
+                ui.small(starting_profile_credit(person));
                 ui.label(s(person, "seed"));
                 ui.add_space(8.);
                 if ui.button("Open Character Lab →").clicked() {
