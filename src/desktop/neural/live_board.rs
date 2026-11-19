@@ -175,6 +175,15 @@ impl Board {
         self.view = View::Live;
     }
 
+    pub(super) fn show_person_timeline(&mut self, work: &str, person: &str) {
+        self.show_activity(work);
+        self.pane = Pane::Timeline;
+        self.filter = Filter::All;
+        self.person = person.to_owned();
+        self.paused_at = None;
+        self.reset_filter();
+    }
+
     pub(super) fn show_event(&mut self, work: &str, sequence: i64) {
         self.show_activity(work);
         self.pane = Pane::Timeline;

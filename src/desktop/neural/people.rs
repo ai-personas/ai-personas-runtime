@@ -1,4 +1,5 @@
 use super::*;
+mod work;
 
 #[derive(Clone, Copy, Default, Hash, PartialEq, Eq)]
 pub(super) enum ProfileView {
@@ -7,6 +8,7 @@ pub(super) enum ProfileView {
     Packages,
     Files,
     Requests,
+    Origin,
 }
 
 impl App {
@@ -25,30 +27,7 @@ impl App {
             ui.label("Create a persona to see their identity and work here.");
             return;
         }
-        ui.horizontal_wrapped(|ui| {
-            let current = self.label(&self.persona);
-            avatar(ui, current, self.color(&self.persona), 46.);
-            ui.vertical(|ui| {
-                eyebrow(ui, "Persona");
-                ui.label(RichText::new(current).strong().size(26.));
-            });
-            if self.records("personas").len() > 1 {
-                ui.menu_button("Switch persona", |ui| {
-                    for record in self.records("personas").to_vec() {
-                        if ui
-                            .selectable_value(
-                                &mut self.persona,
-                                s(&record["body"], "id").into(),
-                                s(&record["body"], "label"),
-                            )
-                            .clicked()
-                        {
-                            ui.close();
-                        }
-                    }
-                });
-            }
-        });
+        self.profile_heading(ui);
         let person = self.selected_person();
         let id = s(&person, "id");
         let packages = self
@@ -85,6 +64,7 @@ impl App {
                 format!("Authored files  {files}"),
             );
             ui.selectable_value(&mut self.profile_view, ProfileView::Requests, request_label);
+            ui.selectable_value(&mut self.profile_view, ProfileView::Origin, "Origin");
         });
         ui.separator();
         let view = self.profile_view;
@@ -95,6 +75,7 @@ impl App {
                 ui.add_space(6.);
                 match view {
                     ProfileView::Overview => self.profile_overview(ui, &person),
+                    ProfileView::Origin => self.profile_origin(ui, &person),
                     ProfileView::Packages => {
                         if packages == 0 {
                             ui.weak("This persona has not issued a package yet.");
@@ -151,7 +132,56 @@ impl App {
             });
     }
 
-    fn profile_overview(&mut self, ui: &mut Ui, person: &Value) {
+    fn profile_heading(&mut self, ui: &mut Ui) {
+        let current = self.label(&self.persona);
+        let color = theme::palette(ui).ink(self.color(&self.persona));
+        let mut selected = None;
+        ui.horizontal(|ui| {
+            avatar(ui, current, color, 44.);
+            ui.allocate_ui_with_layout(
+                egui::vec2(ui.available_width(), 44.),
+                egui::Layout::right_to_left(egui::Align::Center),
+                |ui| {
+                    if self.records("personas").len() > 1 {
+                        ui.menu_button("Switch persona", |ui| {
+                            ui.set_max_width(
+                                (ui.ctx().content_rect().width() - 40.).clamp(180., 420.),
+                            );
+                            for record in self.records("personas") {
+                                let body = &record["body"];
+                                let id = s(body, "id");
+                                let name = body["label"].as_str().unwrap_or(id);
+                                let row = egui::Button::selectable(id == self.persona, name).wrap();
+                                if ui.add(row).on_hover_text(id).clicked() {
+                                    selected = Some(id.to_owned());
+                                    ui.close();
+                                }
+                            }
+                        });
+                    }
+                    let width = ui.available_width().max(1.);
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(width, 44.),
+                        egui::Layout::top_down(egui::Align::Min),
+                        |ui| {
+                            ui.set_min_width(width);
+                            eyebrow(ui, "Persona");
+                            ui.add(
+                                egui::Label::new(RichText::new(current).strong().size(26.))
+                                    .truncate(),
+                            )
+                            .on_hover_text(format!("{current}\n{}", self.persona));
+                        },
+                    );
+                },
+            );
+        });
+        if let Some(id) = selected {
+            self.persona = id;
+        }
+    }
+
+    fn profile_origin(&mut self, ui: &mut Ui, person: &Value) {
         let id = s(person, "id");
         let color = self.color(id);
         let model = self
@@ -189,91 +219,6 @@ impl App {
                 identity(ui);
             }
         });
-        ui.add_space(14.);
-        let mut activities: Vec<_> = self
-            .records("participation")
-            .iter()
-            .filter(|r| r["body"]["persona"] == id)
-            .map(|r| {
-                let b = &r["body"];
-                let work = s(b, "work");
-                let occupied = self
-                    .snapshot
-                    .active
-                    .iter()
-                    .chain(&self.snapshot.active_effects)
-                    .any(|r| r["actor"] == id && r["work"] == work);
-                (
-                    b.clone(),
-                    self.work_name(work),
-                    self.persona_state_in(id, work),
-                    occupied,
-                )
-            })
-            .collect();
-        activities.sort_by_cached_key(|(b, name, _, occupied)| {
-            (!*occupied, b["work"] != self.work, name.to_lowercase())
-        });
-        section(ui, "Activities", &activities.len().to_string());
-        if activities.is_empty() {
-            ui.weak("This persona has no activity invitations yet.");
-        }
-        for (member, name, state, occupied) in activities {
-            let work = s(&member, "work");
-            ui.push_id(work, |ui| {
-                card(ui).show(ui, |ui| {
-                    ui.set_min_width(ui.available_width());
-                    ui.horizontal_wrapped(|ui| {
-                        theme::badge(
-                            ui,
-                            &state,
-                            if occupied {
-                                TEAL
-                            } else {
-                                theme::palette(ui).muted
-                            },
-                        );
-                        if ui
-                            .link(RichText::new(excerpt(&name, 90)).strong())
-                            .on_hover_text(&name)
-                            .clicked()
-                        {
-                            self.profile_activity(work);
-                        }
-                    });
-                    if let Some(reason) = member["continuation"]["reason"]
-                        .as_str()
-                        .or(member["continuation"]["purpose"].as_str())
-                    {
-                        ui.label(excerpt(reason, 225)).on_hover_text(reason);
-                    }
-                    ui.horizontal_wrapped(|ui| {
-                        if ui
-                            .small_button(format!("Message {}", self.label(id)))
-                            .clicked()
-                        {
-                            self.profile_activity(work);
-                            self.address_in_live(id);
-                        }
-                        if ui
-                            .small_button("Earlier work")
-                            .on_hover_text("Files from other activities used here")
-                            .clicked()
-                        {
-                            self.open_sources(ui.ctx(), work, Some(id));
-                        }
-                    });
-                });
-            });
-            ui.add_space(6.);
-        }
-    }
-
-    fn profile_activity(&mut self, work: &str) {
-        self.work = work.into();
-        self.conversation_page = 0;
-        self.live_board.show_activity(work);
-        self.layout.editor = Editor::Studio;
     }
 }
 

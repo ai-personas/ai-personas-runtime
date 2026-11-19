@@ -2,7 +2,7 @@ use super::*;
 use ai_personas::neural::live::RunnerObservation;
 
 #[derive(Clone, Copy)]
-enum Observation<'a> {
+pub(super) enum Observation<'a> {
     Call(&'a Value),
     UnresolvedCall(&'a Value),
     Tool(&'a Value),
@@ -68,11 +68,15 @@ fn membership_state(part: &Value, ended: bool) -> &'static str {
 }
 
 impl App {
-    pub(super) fn workspace_live_people(&mut self, ui: &mut Ui) {
+    fn observed_people(&self, selected: Option<&str>) -> (BTreeMap<&str, Person<'_>>, usize) {
+        let includes = |actor: &str| selected.is_none_or(|id| actor == id);
         let mut people = BTreeMap::new();
         for record in self.records("personas") {
             let person = &record["body"];
             let id = s(person, "id");
+            if !includes(id) {
+                continue;
+            }
             let name = person["label"]
                 .as_str()
                 .filter(|s| !s.is_empty())
@@ -101,6 +105,9 @@ impl App {
         {
             let record = observation.record();
             let actor = s(record, "actor");
+            if !includes(actor) {
+                continue;
+            }
             let person = people.entry(actor).or_insert_with(|| Person {
                 name: actor,
                 ..Person::default()
@@ -115,6 +122,9 @@ impl App {
         let mut admissions = 0;
         if let RunnerObservation::Observed { workers, .. } = &self.runner_observation {
             for (id, work) in workers {
+                if !includes(id) {
+                    continue;
+                }
                 let person = people.entry(id.as_str()).or_insert_with(|| Person {
                     name: id,
                     ..Person::default()
@@ -130,6 +140,19 @@ impl App {
                 }
             }
         }
+        (people, admissions)
+    }
+
+    pub(super) fn observed_projects(&self, actor: &str) -> BTreeMap<&str, Vec<Observation<'_>>> {
+        self.observed_people(Some(actor))
+            .0
+            .remove(actor)
+            .map(|person| person.work)
+            .unwrap_or_default()
+    }
+
+    pub(super) fn workspace_live_people(&mut self, ui: &mut Ui) {
+        let (people, admissions) = self.observed_people(None);
         let mut people: Vec<_> = people.into_iter().collect();
         // Keep a small team's profile and message targets in a stable place as
         // calls begin and end. Surface current work first in a longer directory.
@@ -331,16 +354,10 @@ impl App {
                     .is_some_and(|a| a.members.iter().any(|other| other == id));
                 shown += usize::from(member);
                 self.home_activity_line(ui, work, id, person.name, member, action);
-                let worker = self.runner_observation.has_worker(work, id);
-                if worker && observations.iter().all(|o| o.unresolved()) {
-                    ui.horizontal(|ui| theme::badge(ui, "Admitted by runner", TEAL));
-                }
-                for (n, observation) in observations.iter().enumerate() {
-                    if n > 0 {
-                        ui.add_space(4.);
-                    }
-                    ui.push_id(("observation", s(observation.record(), "id")), |ui| {
-                        observation_line(ui, *observation, now, worker, action);
+                if let Some(reference) = self.work_observations(ui, id, work, observations, now) {
+                    *action = Some(Action::Resource {
+                        work: (*work).into(),
+                        reference,
                     });
                 }
             }
@@ -392,6 +409,30 @@ impl App {
         });
     }
 
+    pub(super) fn work_observations(
+        &self,
+        ui: &mut Ui,
+        actor: &str,
+        work: &str,
+        observations: &[Observation<'_>],
+        now: i64,
+    ) -> Option<String> {
+        let worker = self.runner_observation.has_worker(work, actor);
+        if worker && observations.iter().all(|o| o.unresolved()) {
+            ui.horizontal(|ui| theme::badge(ui, "Admitted by runner", TEAL));
+        }
+        let mut resource = None;
+        for (n, observation) in observations.iter().enumerate() {
+            if n > 0 {
+                ui.add_space(4.);
+            }
+            ui.push_id(("observation", s(observation.record(), "id")), |ui| {
+                observation_line(ui, *observation, now, worker, &mut resource);
+            });
+        }
+        resource
+    }
+
     fn home_membership_state(&self, part: &Value) -> &'static str {
         let ended = self
             .home_index
@@ -409,8 +450,18 @@ impl App {
         action: &mut Option<Action>,
     ) {
         let work = s(part, "work");
-        let state = self.home_membership_state(part);
         self.home_activity_line(ui, work, id, name, true, action);
+        ui.label(
+            RichText::new(self.membership_summary(part))
+                .small()
+                .color(theme::palette(ui).muted),
+        );
+    }
+
+    pub(super) fn membership_summary(&self, part: &Value) -> String {
+        let work = s(part, "work");
+        let id = s(part, "persona");
+        let state = self.home_membership_state(part);
         let control = self.records("controls").iter().find(|control| {
             let scope = s(control, "scope");
             control["state"] != "running"
@@ -427,7 +478,7 @@ impl App {
                 text.push_str(&format!("  ·  Scheduling {}", s(control, "state")));
             }
         }
-        ui.label(RichText::new(text).small().color(theme::palette(ui).muted));
+        text
     }
 
     fn home_activity_line(
@@ -499,7 +550,7 @@ fn observation_line(
     observation: Observation<'_>,
     now: i64,
     worker: bool,
-    action: &mut Option<Action>,
+    resource: &mut Option<String>,
 ) {
     let p = theme::palette(ui);
     let muted = |ui: &mut Ui, text: String| ui.label(RichText::new(text).small().color(p.muted));
@@ -573,10 +624,7 @@ fn observation_line(
                         .on_hover_text(reference)
                         .clicked()
                     {
-                        *action = Some(Action::Resource {
-                            work: s(tool, "work").into(),
-                            reference: reference.into(),
-                        });
+                        *resource = Some(reference.into());
                     }
                 } else {
                     muted(ui, s(tool, "tool").into());
