@@ -229,6 +229,7 @@ pub fn save_asset(
     db: &Connection,
     actor: &str,
     invocation: &str,
+    operation: &str,
     path: &str,
     base: Option<&str>,
     blob: &str,
@@ -261,7 +262,7 @@ pub fn save_asset(
         "asset",
         &asset_id,
         revision,
-        &json!({"path":path,"owner":actor,"created_by":creator,"last_content_author":actor,"work":work,"origin_decision":invocation,
+        &json!({"path":path,"owner":actor,"created_by":creator,"last_content_author":actor,"work":work,"origin_decision":invocation,"origin_operation":operation,
             "previous_revision":base,"resource":description,"blob":blob,"cues":cues,"qualifications":qualifications,"retired":false}),
         Some(invocation),
     )?;
@@ -421,6 +422,7 @@ fn internal(
                 db,
                 actor,
                 call,
+                &operation.id,
                 &x.path,
                 x.base.as_deref(),
                 &blob,
@@ -439,7 +441,7 @@ fn internal(
                 return Err(failure("Read or select the receipt containing this object before registering its bytes"));
             }
             let size = super::provider_evidence::resource_bytes(db,digest)?.len();
-            let asset = save_asset(db,actor,call,&x.path,x.base.as_deref(),digest,&x.cues,&x.qualifications,x.resource.as_ref())?;
+            let asset = save_asset(db,actor,call,&operation.id,&x.path,x.base.as_deref(),digest,&x.cues,&x.qualifications,x.resource.as_ref())?;
             Ok(json!({"reference":asset.handle(),"blob":digest,"bytes":size,"registered_from":x.reference}))
         }
         "asset.feedback" => super::asset_feedback::publish(db, work, actor, Some(call), &decode(input)?),
@@ -742,7 +744,8 @@ fn internal(
         "work.respond" => super::activity_requests::respond(db,snapshot,decode(input)?),
         "work.request" => {
             let x: tools::RequestWork = decode(input)?;
-            let mut result = create_activity(db, x.kind, x.need, &x.invitees, actor, Some(call))?;
+            let materials = x.retained_materials(db)?;
+            let mut result = create_activity(db, x.kind, x.need, &x.invitees, actor, Some(call), materials)?;
             result["returns"] = json!({"activity":work,"recipient":actor,"on_events":["request_return"],
                 "correspond":"work.respond","history":"work.requests"});
             Ok(result)
@@ -758,6 +761,7 @@ pub(super) fn create_activity(
     invitees: &[String],
     requester: &str,
     invocation: Option<&str>,
+    materials: Vec<super::input_files::Material>,
 ) -> Result<Value> {
     if kind == ActivityKind::Task && need.trim().is_empty() {
         return Err(failure("Describe what you would like the task to accomplish"));
@@ -770,12 +774,14 @@ pub(super) fn create_activity(
         ActivityKind::Social => "An open social invitation. Choose whether to join, what to discuss and when to leave",
     };
     let activity = Work { id: id("work")?, kind, original_need: need, requester: requester.into(),
-        phase: "open".into(), last_dissolution:None, amendments: Vec::new() };
+        phase: "open".into(), last_dissolution:None, amendments: Vec::new(), materials };
     let reference = store::write(db, "work", &activity.id, 0, &activity, invocation)?;
     for actor in invitees {
         invite(db, &activity.id, actor, requester, invitation, invocation)?;
     }
-    Ok(json!({"work":activity.id,"kind":kind,"reference":reference.handle(),"invited":invitees,"need":activity.original_need}))
+    let mut result=json!({"work":activity.id,"kind":kind,"reference":reference.handle(),"invited":invitees,"need":activity.original_need});
+    if !activity.materials.is_empty() {result["materials"]=json!(activity.materials);}
+    Ok(result)
 }
 
 pub fn invite(

@@ -591,6 +591,9 @@ fn prepare_with_projection(
         };
         let mut scenario = json!({"activity":brief["kind"],"original_need":brief["original_need"],"amendments":brief["amendments"],
             "incoming_exchanges":events});
+        if let Some(materials) = brief.get("materials") {
+            scenario["materials"] = materials.clone();
+        }
         let preceding = &data["decision_continuity"]["previous_work_decision"];
         if let (Some(invocation), Some(note)) = (
             preceding["invocation"].as_str(),

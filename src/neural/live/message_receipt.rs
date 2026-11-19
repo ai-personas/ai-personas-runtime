@@ -1,4 +1,4 @@
-//! A returned file's name and content address arrive with the human's report.
+//! A file's name and content address arrive with the human's message or report.
 //! Subsequent frozen inputs can separately establish receipt of its exact bytes.
 use crate::neural::{context, failure, provider_evidence, store, Result};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -163,47 +163,19 @@ impl Event {
     }
 }
 
-struct Attachment {
-    name: String,
-    reference: String,
-    size: u64,
-}
-
-fn attachments(db: &Connection, body: &Value) -> Result<Vec<Attachment>> {
-    let mut files = Vec::new();
-    for file in body["attachments"].as_array().into_iter().flatten() {
-        let (Some(name), Some(reference), Some(digest), Some(size)) = (
-            file["name"].as_str(),
-            file["reference"].as_str(),
-            file["sha256"].as_str(),
-            file["bytes"].as_u64(),
-        ) else {
-            return Err(failure("Returned file metadata is incomplete"));
-        };
-        let retained_size: Option<i64> = db
-            .query_row(
-                "SELECT length(bytes) FROM objects WHERE digest=?1",
-                [digest],
-                |r| r.get(0),
-            )
-            .optional()?;
-        if reference != format!("object:{digest}")
-            || digest.len() != 64
-            || !digest
-                .bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-            || retained_size != i64::try_from(size).ok()
-            || retained_size.is_none()
-        {
-            return Err(failure(
-                "Returned file differs from its retained content address or size",
-            ));
+fn attachments(db: &Connection, body: &Value) -> Result<Vec<crate::neural::input_files::Material>> {
+    let Some(manifest) = body.get("attachments") else { return Ok(Vec::new()); };
+    let files: Vec<crate::neural::input_files::Material> = serde_json::from_value(manifest.clone())?;
+    let mut verified = BTreeMap::new();
+    for file in &files {
+        if file.name.is_empty() || file.reference != format!("object:{}", file.sha256) {
+            return Err(failure("Attachment has an invalid name or content address"));
         }
-        files.push(Attachment {
-            name: name.into(),
-            reference: reference.into(),
-            size,
-        });
+        let len = match verified.entry(&file.sha256) {
+            std::collections::btree_map::Entry::Occupied(entry) => *entry.get(),
+            std::collections::btree_map::Entry::Vacant(entry) => *entry.insert(store::bytes(db, &file.sha256)?.len() as u64),
+        };
+        if len != file.bytes { return Err(failure("Attachment differs from its retained size")); }
     }
     Ok(files)
 }
@@ -321,11 +293,7 @@ pub fn inspect(db: &Connection, event: i64) -> Result<Value> {
         .as_str()
         .ok_or_else(|| failure("Incoming update lacks retained text"))?;
     let request = update.request(db)?;
-    let files = if request.is_some() {
-        attachments(db, &update.body)?
-    } else {
-        Vec::new()
-    };
+    let files = attachments(db, &update.body)?;
     let addresses: BTreeSet<_> = files.iter().map(|f| f.reference.as_str()).collect();
     let handle = update.reference();
     let mut wanted = addresses.clone();
@@ -412,7 +380,7 @@ pub fn inspect(db: &Connection, event: i64) -> Result<Value> {
     let files = files
         .iter()
         .map(|file| {
-            json!({"name":file.name,"reference":file.reference,"bytes":file.size,
+            json!({"name":file.name,"reference":file.reference,"bytes":file.bytes,
         "supplied":bodies.get(&file.reference),"whole":whole.get(&file.reference)})
         })
         .collect::<Vec<_>>();

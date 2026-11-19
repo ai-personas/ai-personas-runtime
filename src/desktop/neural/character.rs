@@ -237,7 +237,7 @@ impl App {
         } else {
             path.rsplit('/').next().unwrap_or(path)
         }).size(18.).strong()).wrap());
-        if !path.is_empty() {
+        if !path.is_empty() && metadata["source_record"].is_null() {
             ui.add(egui::Label::new(RichText::new(path).small().weak()).wrap());
         }
         ui.add_space(12.);
@@ -306,6 +306,24 @@ impl App {
             if ui.add_enabled(!self.busy,egui::Button::new("Open execution receipt")).clicked() {
                 let command=self.command_bench.locate(receipt.into());
                 self.command(ui.ctx(),command);
+            }
+            return;
+        }
+        if let Some(source) = metadata["source_record"].as_str() {
+            ui.add_space(12.);
+            section(ui, "Attached to", "");
+            let label = if source.starts_with("work:") {
+                format!("Brief revision {}", source.rsplit_once('@').map_or("", |(_, rev)| rev))
+            } else if source.starts_with("human_request:") {
+                "Human request report".to_owned()
+            } else {
+                "Recorded exchange".to_owned()
+            };
+            if ui.link(label).on_hover_text(source).clicked() {
+                self.open_resource(ui.ctx(), source.to_owned());
+            }
+            if let Some(bytes) = metadata["bytes"].as_u64() {
+                ui.small(format!("{} bytes", number(bytes)));
             }
             return;
         }

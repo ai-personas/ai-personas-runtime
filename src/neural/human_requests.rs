@@ -5,7 +5,7 @@ use rusqlite::Connection;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{collections::BTreeSet, path::PathBuf};
+use std::collections::BTreeSet;
 
 mod package;
 pub use package::{export_handoff, export_package};
@@ -213,7 +213,7 @@ pub(super) fn respond(
     reference: &str,
     response: Response,
     note: &str,
-    paths: &[PathBuf],
+    files: &super::input_files::InputFiles,
 ) -> Result<Value> {
     let record = exact(db, reference)?;
     let mut body = record.body;
@@ -252,19 +252,7 @@ pub(super) fn respond(
             ))
         }
     };
-    let mut attachments = Vec::new();
-    for path in paths {
-        if !path.is_file() {
-            return Err(failure("Choose a regular file to return"));
-        }
-        let name = path
-            .file_name()
-            .and_then(|p| p.to_str())
-            .ok_or_else(|| failure("Invalid attachment filename"))?;
-        let bytes = std::fs::read(path)?;
-        let digest = store::put_bytes(db, "application/octet-stream", &bytes)?;
-        attachments.push(json!({"name":name,"reference":format!("object:{digest}"),"bytes":bytes.len(),"sha256":digest}));
-    }
+    let attachments = files.retain(db)?;
     let text = if note.trim().is_empty() {
         default_note
     } else {
@@ -305,7 +293,7 @@ pub(super) fn respond(
         requester,
         if matches!(response, Response::Take | Response::Release)
             && note.trim().is_empty()
-            && paths.is_empty()
+            && attachments.is_empty()
         {
             "human_request_progress"
         } else {

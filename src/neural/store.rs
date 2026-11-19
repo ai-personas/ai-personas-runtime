@@ -198,11 +198,15 @@ pub(super) fn operator_review_history(db:&Connection,deliveries:&std::collection
 
 pub fn put_bytes(db: &Connection, media: &str, bytes: &[u8]) -> Result<String> {
     let digest = crate::store::sha256_bytes(bytes);
-    db.execute(
-        "INSERT OR IGNORE INTO objects VALUES(?1,?2,?3)",
-        params![digest, media, bytes],
-    )?;
+    insert_bytes(db, &digest, media, bytes)?;
     Ok(digest)
+}
+
+pub(super) fn insert_bytes(db: &Connection, digest: &str, media: &str, bytes: &[u8]) -> Result<bool> {
+    Ok(db.execute(
+        "INSERT INTO objects(digest,media,bytes) VALUES(?1,?2,?3) ON CONFLICT(digest) DO NOTHING",
+        params![digest, media, bytes],
+    )? == 1)
 }
 pub fn put<T: Serialize>(db: &Connection, value: &T) -> Result<String> {
     put_bytes(db, "application/json", &serde_json::to_vec(value)?)
@@ -289,6 +293,12 @@ pub fn exact(db: &Connection, handle: &str) -> Result<Record> {
         },
     })
 }
+pub(super) fn written_by(db: &Connection, record: &Record, call: &str) -> Result<bool> {
+    let r = &record.reference;
+    Ok(db.query_row("SELECT EXISTS(SELECT 1 FROM versions WHERE kind=?1 AND id=?2 AND revision=?3 AND digest=?4 AND invocation=?5)",
+        params![r.kind,r.id,r.revision,r.digest,call],|row| row.get(0))?)
+}
+
 pub fn list(db: &Connection, kind: &str) -> Result<Vec<Record>> {
     let mut statement =
         db.prepare("SELECT id,revision,digest FROM heads WHERE kind=?1 ORDER BY id")?;

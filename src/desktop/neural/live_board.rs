@@ -19,6 +19,11 @@ enum Pane {
     People,
 }
 
+enum WorkSection {
+    Deliveries,
+    BriefFiles,
+}
+
 #[derive(Clone, Copy, Default, PartialEq)]
 enum Filter {
     #[default]
@@ -106,15 +111,12 @@ impl Filter {
                     || event["body"]["recipient_kind"] == "operator"
             }
             Self::Files => {
-                file || matches!(
-                    kind,
-                    "delivery"
-                        | "request_delivery"
-                        | "package_review"
-                        | "user_acceptance"
-                        | "asset_feedback"
-                ) || (is_tool
-                    && matches!(
+                file || human_file_count(event) > 0
+                    || matches!(
+                        kind,
+                        "delivery" | "request_delivery" | "package_review" | "user_acceptance" | "asset_feedback"
+                    )
+                    || (is_tool && matches!(
                         tool,
                         "asset.save" | "asset.register" | "asset.retire" | "geometry.render"
                     ))
@@ -136,7 +138,7 @@ pub(super) struct Board {
     paused_at: Option<i64>,
     limit: usize,
     jump_to_latest: bool,
-    delivery_focus: bool,
+    work_focus: Option<WorkSection>,
     expanded: Option<i64>,
     traces: BTreeMap<String, VecDeque<(i64, u64)>>,
 }
@@ -154,7 +156,7 @@ impl Default for Board {
             paused_at: None,
             limit: PAGE,
             jump_to_latest: true,
-            delivery_focus: false,
+            work_focus: None,
             expanded: None,
             traces: BTreeMap::new(),
         }
@@ -168,7 +170,15 @@ impl Board {
     }
 
     pub(super) fn take_delivery_focus(&mut self) -> bool {
-        std::mem::take(&mut self.delivery_focus)
+        self.work_focus
+            .take_if(|focus| matches!(focus, WorkSection::Deliveries))
+            .is_some()
+    }
+
+    pub(super) fn take_files_focus(&mut self) -> bool {
+        self.work_focus
+            .take_if(|focus| matches!(focus, WorkSection::BriefFiles))
+            .is_some()
     }
 
     fn select_scope(&mut self, work: &str) {
@@ -304,6 +314,16 @@ fn recipient(event: &Value) -> &str {
         s(&event["body"], "to")
     } else {
         s(event, "target")
+    }
+}
+
+fn human_file_count(event: &Value) -> usize {
+    if event["invocation"].is_null()
+        && matches!(s(event, "kind"), "user_message" | "requirements_amended")
+    {
+        event["body"]["attachments"].as_array().map_or(0, Vec::len)
+    } else {
+        0
     }
 }
 
@@ -614,7 +634,31 @@ impl App {
             .clicked()
         {
             self.live_board.view = View::Work;
-            self.live_board.delivery_focus = true;
+            self.live_board.work_focus = Some(WorkSection::Deliveries);
+        }
+        let files = self
+            .records("work")
+            .iter()
+            .map(|record| &record["body"])
+            .find(|work| work["id"] == self.work)
+            .map_or(0, |work| {
+                let original = work["materials"].as_array().map_or(0, Vec::len);
+                let added: usize = work["amendments"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|amendment| amendment["attachments"].as_array())
+                    .map(Vec::len)
+                    .sum();
+                original + added
+            });
+        if files > 0
+            && ui.small_button(format!("Brief files · {files}"))
+                .on_hover_text("Open the files supplied with this brief and its amendments")
+                .clicked()
+        {
+            self.live_board.view = View::Work;
+            self.live_board.work_focus = Some(WorkSection::BriefFiles);
         }
     }
 
@@ -948,6 +992,11 @@ fn preview_text(source: &str, limit: usize) -> String {
 
 enum EventAction {
     Open(String),
+    SourceFile {
+        source: String,
+        object: String,
+        name: String,
+    },
     Profile(String),
     Address(String),
     Reply(String, String, String),
@@ -1066,6 +1115,9 @@ impl App {
                 }
                 match action {
                     Some(EventAction::Open(reference)) => self.open_resource(ui.ctx(), reference),
+                    Some(EventAction::SourceFile { source, object, name }) => {
+                        self.open_named_resource(ui.ctx(), object, Some((source, name)))
+                    }
                     Some(EventAction::Profile(person)) => self.show_person(&person),
                     Some(EventAction::Address(person)) => self.address_in_live(&person),
                     Some(EventAction::Reply(person, reference, quote)) => {
@@ -1210,6 +1262,14 @@ impl App {
                         }
                     });
                 }
+                if human_file_count(event) > 0 {
+                    let source = reference();
+                    if let Some((object, name)) =
+                        super::overview::source_file_links(ui, &body["attachments"], &source)
+                    {
+                        action = Some(EventAction::SourceFile { source, object, name });
+                    }
+                }
                 ui.horizontal_wrapped(|ui| {
                     if full_text
                         && text_action(ui, if expanded { "Show less" } else { "Read more" })
@@ -1300,6 +1360,12 @@ impl App {
             "*" => "everyone",
             who => self.label(who),
         };
+        if kind == "user_message" && s(body, "text").trim().is_empty() {
+            let files = human_file_count(event);
+            if files > 0 {
+                return format!("sent {} to {target}", counted(files as u64, "file", "files"));
+            }
+        }
         match kind {
             "message" | "user_message" | "requester_message" | "request_message_sent" => {
                 format!("sent a message to {target}")

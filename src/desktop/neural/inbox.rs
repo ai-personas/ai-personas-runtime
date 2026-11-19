@@ -12,8 +12,8 @@ pub(super) struct Inbox {
 struct Draft {
     basis: String,
     note: String,
-    path: String,
-    attachments: Vec<PathBuf>,
+    picker: super::input_files::Picker,
+    attachments: Vec<ai_personas::neural::input_files::CapturedFile>,
 }
 
 impl Inbox {
@@ -139,6 +139,7 @@ impl App {
                             if ui.small_button("Reply…").clicked() {
                                 self.dialog=Some(Dialog::Participation{work:s(&e,"work").into(),title:self.work_name(s(&e,"work")),
                                     action:dialogs::Action::Message,person:s(&e,"actor").into(),text:String::new(),
+                                    sources:Default::default(),
                                     reply_to:Some((format!("experience:event-{}@1",e["event"]),excerpt(s(b,"text"),180)))});
                             }
                         });
@@ -386,9 +387,10 @@ impl App {
             ..Default::default()
         });
         let mut response = None;
+        draft.picker.poll(&mut draft.attachments);
         if draft.basis != reference
             && draft.note.is_empty()
-            && draft.path.is_empty()
+            && !draft.picker.busy()
             && draft.attachments.is_empty()
         {
             draft.basis = reference.into();
@@ -408,43 +410,8 @@ impl App {
                     .desired_rows(3)
                     .desired_width(f32::INFINITY),
             );
-            egui::CollapsingHeader::new(format!("Attach evidence  ·  {}", draft.attachments.len()))
-                .id_salt(("human-response-attachments", reference))
-                .show(ui, |ui| {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.add(
-                            egui::TextEdit::singleline(&mut draft.path)
-                                .desired_width(180.)
-                                .hint_text("Local file path"),
-                        );
-                        if ui
-                            .add_enabled(!draft.path.trim().is_empty(), egui::Button::new("Add"))
-                            .clicked()
-                        {
-                            let path = PathBuf::from(draft.path.trim());
-                            if !draft.attachments.contains(&path) {
-                                draft.attachments.push(path);
-                            }
-                            draft.path.clear();
-                        }
-                        if ui.button("Choose files…").clicked() {
-                            for p in rfd::FileDialog::new().pick_files().unwrap_or_default() {
-                                if !draft.attachments.contains(&p) {
-                                    draft.attachments.push(p);
-                                }
-                            }
-                        }
-                    });
-                    draft.attachments.retain(|p| {
-                        let mut keep = true;
-                        ui.horizontal_wrapped(|ui| {
-                            ui.label(p.display().to_string());
-                            keep = !ui.small_button("Remove").clicked();
-                        });
-                        keep
-                    });
-                });
-            ui.horizontal_wrapped(|ui| {
+            draft.picker.show(ui, &mut draft.attachments);
+            ui.add_enabled_ui(!draft.picker.busy(), |ui| ui.horizontal_wrapped(|ui| {
                 if b["state"] == "open" && ui.add(theme::primary("Take request")).clicked() {
                     response = Some(Response::Take);
                 }
@@ -479,14 +446,14 @@ impl App {
                 if b["state"] == "in_progress" && ui.button("Release request").clicked() {
                     response = Some(Response::Release);
                 }
-            });
+            }));
         });
         if let Some(response) = response {
             let cmd = Command::HumanRespond {
                 request: draft.basis.clone(),
                 response,
                 note: draft.note.clone(),
-                attach: draft.attachments.clone(),
+                files: draft.attachments.clone().into(),
             };
             self.command(ui.ctx(), cmd);
         }

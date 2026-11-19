@@ -46,6 +46,7 @@ impl App {
         }
         let mut visible = true;
         let mut inspect = None;
+        let mut open_file = None;
         let mut refresh = false;
         egui::Window::new("Delivery status").id(egui::Id::new("live-message-receipt")).open(&mut visible)
             .default_width(425.).resizable(true).vscroll(true).show(ctx, |ui| {
@@ -61,7 +62,9 @@ impl App {
                 ui.label(RichText::new(format!("{heading} to {recipient}")).strong().size(19.));
                 ui.weak(format!("Sent by {} · {}", self.label(s(report,"sender")), time_label(report["sent_at"].as_i64().unwrap_or(0))));
                 ui.add_space(6.);
-                ui.label(excerpt(s(report, "text"), 360));
+                if let Some(text) = report["text"].as_str().filter(|text| !text.trim().is_empty()) {
+                    ui.label(excerpt(text, 360));
+                }
                 ui.add_space(8.);
                 ui.separator();
                 if let Some(call) = report["received"]["decision"].as_str() {
@@ -74,18 +77,19 @@ impl App {
                     ui.label(format!("Studio will show a receipt when it verifies this {noun} in an accepted decision."));
                 }
                 let files=report["attachments"].as_array().map(Vec::as_slice).unwrap_or_default();
+                let source = format!("experience:event-{event}@1");
+                let repeated = overview::repeated_file_names(files);
                 if !files.is_empty() {
                     ui.add_space(8.);
                     ui.separator();
-                    ui.strong("Returned files");
+                    ui.strong(if report["request"].is_string() { "Returned files" } else { "Attached files" });
                 }
                 for (index,file) in files.iter().enumerate() {
                     ui.push_id(index, |ui| {
                         let size=file["bytes"].as_u64().unwrap_or(0);
-                        ui.horizontal_wrapped(|ui| {
-                            if ui.link(s(file,"name")).clicked() {inspect=Some(s(file,"reference").to_owned());}
-                            ui.weak(format!("{size} bytes"));
-                        });
+                        if let Some(selected) = overview::source_file_link(ui, file, &source, &repeated) {
+                            open_file = Some(selected);
+                        }
                         let supplied=&file["supplied"];
                         if let Some(call)=supplied["decision"].as_str() {
                             let start=supplied["range"][0].as_u64().unwrap_or(0);
@@ -117,6 +121,9 @@ impl App {
         if let Some(reference) = inspect {
             self.message_receipt = Default::default();
             self.open_resource(ctx, reference);
+        } else if let Some((reference, name)) = open_file {
+            self.message_receipt = Default::default();
+            self.open_named_resource(ctx, reference, Some((format!("experience:event-{event}@1"), name)));
         }
     }
 }

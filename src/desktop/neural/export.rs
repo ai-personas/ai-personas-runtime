@@ -5,7 +5,7 @@ use std::io::Write;
 
 #[derive(Clone)]
 enum Contents {
-    Artifact { reference: String, metadata_view: bool },
+    Artifact { reference: String, metadata_view: bool, source: Option<(String, String)> },
     Deliveries(String),
     Package(String),
     Handoff { reference: String, files: usize },
@@ -58,10 +58,12 @@ impl App {
         ));
     }
     pub(super) fn save_artifact(&mut self, _ctx: &egui::Context) {
-        if self.selected_reference.is_empty() {
+        if self.selected_reference.is_empty() || self.preview_metadata.is_null() {
             return;
         }
         let path = s(&self.preview_metadata, "path");
+        let source = self.preview_metadata["source_record"].as_str()
+            .map(|record| (record.to_owned(), path.to_owned()));
         let metadata_view = self.preview_metadata["view"] == "provider_receipt_metadata";
         let name = if metadata_view {
             "provider-receipt-metadata.json".to_owned()
@@ -76,7 +78,7 @@ impl App {
         self.export_generation += 1;
         self.export_dialog = Some(Dialog::new(
             self.export_generation,
-            Contents::Artifact { reference: self.selected_reference.clone(), metadata_view },
+            Contents::Artifact { reference: self.selected_reference.clone(), metadata_view, source },
             name,
         ));
     }
@@ -183,9 +185,9 @@ impl App {
                         ai_personas::neural::human_requests::export_handoff(&db, &reference, &path)
                             .map_err(|e| e.to_string())?;
                     }
-                    Contents::Artifact { reference, .. } => {
-                        let preview =
-                            data::preview(&root, &reference).map_err(|e| e.to_string())?;
+                    Contents::Artifact { reference, source, .. } => {
+                        let preview = data::preview_output(&root, &reference, source.as_ref())
+                            .map_err(|e| e.to_string())?;
                         let bytes = std::fs::read(&preview.path).map_err(|e| e.to_string())?;
                         let mut file = tempfile::NamedTempFile::new_in(path.parent().unwrap())
                             .map_err(|e| e.to_string())?;

@@ -22,6 +22,7 @@ mod platform_key;
 mod experience;
 mod handoff;
 pub mod human_requests;
+pub mod input_files;
 pub mod membership;
 pub mod development;
 pub mod question_history;

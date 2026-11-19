@@ -239,6 +239,13 @@ pub struct CreatePersona {
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct SourceFile {
+    pub name: String,
+    /// An exact asset revision or byte object to supply under this filename.
+    pub reference: String,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct RequestWork {
     /// A social invitation has no assigned task and may have no opening topic.
     #[serde(default)]
@@ -246,6 +253,13 @@ pub struct RequestWork {
     #[serde(default)]
     pub need: String,
     pub invitees: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub materials: Vec<SourceFile>,
+}
+impl RequestWork {
+    pub(super) fn retained_materials(&self, db: &rusqlite::Connection) -> super::Result<Vec<super::input_files::Material>> {
+        self.materials.iter().map(|file| super::input_files::Material::selected(db, &file.name, &file.reference)).collect()
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

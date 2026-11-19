@@ -1,5 +1,6 @@
 //! Human messages use the same attributed, idempotent write as the operator CLI.
-use super::{excerpt, operator_call, s, theme, App, Command, Icon, Update};
+use super::{excerpt, input_files::Picker, operator_call, s, theme, App, Command, Icon, Update};
+use ai_personas::neural::input_files::{CapturedFile, InputFiles};
 use eframe::egui::{self, RichText, Ui};
 use std::collections::BTreeMap;
 
@@ -17,6 +18,7 @@ struct Activity {
 #[derive(Default)]
 struct Draft {
     input: Message,
+    picker: Picker,
     focus: bool,
     pending: Option<Attempt>,
     failed: Vec<(Attempt, String)>,
@@ -28,6 +30,7 @@ struct Draft {
 struct Message {
     text: String,
     reply: Option<(String, String)>,
+    files: Vec<CapturedFile>,
 }
 
 impl Message {
@@ -36,7 +39,18 @@ impl Message {
     }
 
     fn same_content(&self, other: &Self) -> bool {
-        self.text == other.text && self.parent() == other.parent()
+        self.text == other.text
+            && self.parent() == other.parent()
+            && self.files.len() == other.files.len()
+            && self
+                .files
+                .iter()
+                .zip(&other.files)
+                .all(|(a, b)| a.name() == b.name() && a.sha256() == b.sha256())
+    }
+
+    fn can_send(&self) -> bool {
+        !self.text.trim().is_empty() || !self.files.is_empty()
     }
 }
 
@@ -90,7 +104,11 @@ impl Composer {
             }
             Err(reason) => {
                 // A new message may already be in the editor. Keep both in that case.
-                if draft.input.text.is_empty() && draft.input.reply.is_none() {
+                if draft.input.text.is_empty()
+                    && draft.input.reply.is_none()
+                    && draft.input.files.is_empty()
+                    && !draft.picker.busy()
+                {
                     draft.input = sent.message.clone();
                 }
                 draft.failed.push((sent, reason));
@@ -104,9 +122,14 @@ impl Draft {
     fn status(&self) -> Option<&'static str> {
         if self.pending.is_some() {
             Some("saving")
+        } else if self.picker.busy() {
+            Some("adding files")
         } else if !self.failed.is_empty() {
             Some("send unconfirmed")
-        } else if !self.input.text.is_empty() || self.input.reply.is_some() {
+        } else if !self.input.text.is_empty()
+            || self.input.reply.is_some()
+            || !self.input.files.is_empty()
+        {
             Some("draft")
         } else {
             None
@@ -114,7 +137,7 @@ impl Draft {
     }
 
     fn prepare(&mut self, operator: &str, retry: Option<usize>) -> Option<Attempt> {
-        if self.pending.is_some() || operator.is_empty() {
+        if self.pending.is_some() || operator.is_empty() || self.picker.busy() {
             return None;
         }
         let retry = retry.or_else(|| {
@@ -129,10 +152,11 @@ impl Draft {
             let (sent, _) = self.failed.remove(index);
             if sent.message.same_content(&self.input) {
                 self.input = Message::default();
+                self.picker = Picker::default();
             }
             sent
         } else {
-            if self.input.text.trim().is_empty() {
+            if !self.input.can_send() {
                 return None;
             }
             let request = match ai_personas::neural::id("studio-message") {
@@ -142,6 +166,7 @@ impl Draft {
                     return None;
                 }
             };
+            self.picker = Picker::default();
             Attempt {
                 request,
                 operator: operator.to_owned(),
@@ -163,6 +188,9 @@ impl Draft {
         operator: &str,
     ) -> Option<Attempt> {
         let p = theme::palette(ui);
+        ui.push_id(("message-files", work, &person.id), |ui| {
+            self.picker.details(ui, &mut self.input.files);
+        });
         if let Some((reference, quote)) = &self.input.reply {
             let clear = ui
                 .allocate_ui_with_layout(
@@ -226,7 +254,11 @@ impl Draft {
                                 ui.add(
                                     egui::TextEdit::multiline(&mut self.input.text)
                                         .id(id)
-                                        .hint_text(format!("Write to {}…", person.name))
+                                        .hint_text(if self.input.files.is_empty() {
+                                            format!("Write to {}…", person.name)
+                                        } else {
+                                            "Add a message (optional)…".into()
+                                        })
                                         .margin(egui::Margin::symmetric(9, 6))
                                         .desired_rows(2)
                                         .desired_width(f32::INFINITY),
@@ -236,7 +268,8 @@ impl Draft {
                 );
                 let enabled = !operator.is_empty()
                     && self.pending.is_none()
-                    && !self.input.text.trim().is_empty();
+                    && !self.picker.busy()
+                    && self.input.can_send();
                 let retry = self.failed.iter().any(|(sent, _)| {
                     sent.operator == operator && sent.message.same_content(&self.input)
                 });
@@ -274,15 +307,37 @@ impl Draft {
                             ui.label(RichText::new(reason).small());
                             if !sent.message.same_content(&self.input) || sent.operator != operator
                             {
-                                ui.label(
-                                    RichText::new(excerpt(&sent.message.text, 54))
-                                        .small()
-                                        .italics(),
-                                )
-                                .on_hover_text(&sent.message.text);
+                                if !sent.message.text.is_empty() {
+                                    ui.label(
+                                        RichText::new(excerpt(&sent.message.text, 54))
+                                            .small()
+                                            .italics(),
+                                    )
+                                    .on_hover_text(&sent.message.text);
+                                }
+                                if let Some(first) = sent.message.files.first() {
+                                    let label = match sent.message.files.len() {
+                                        1 => first.name().to_owned(),
+                                        count => format!("{} + {}", first.name(), count - 1),
+                                    };
+                                    ui.add(
+                                        egui::Label::new(RichText::new(label).small()).truncate(),
+                                    )
+                                    .on_hover_ui(|ui| {
+                                        for file in &sent.message.files {
+                                            ui.label(format!(
+                                                "{} · {}",
+                                                file.name(),
+                                                super::size(file.len() as u64)
+                                            ));
+                                        }
+                                    });
+                                }
                                 if ui
                                     .add_enabled(
-                                        self.pending.is_none() && operator == sent.operator,
+                                        self.pending.is_none()
+                                            && !self.picker.busy()
+                                            && operator == sent.operator,
                                         egui::Button::new("Retry").small(),
                                     )
                                     .clicked()
@@ -359,6 +414,9 @@ impl App {
             .activities
             .entry(self.work.clone())
             .or_default();
+        for draft in activity.drafts.values_mut() {
+            draft.picker.poll(&mut draft.input.files);
+        }
         if activity.recipient.is_empty() {
             if let Some(person) = members
                 .iter()
@@ -441,6 +499,12 @@ impl App {
                     let selected = members
                         .iter()
                         .find(|person| person.id == activity.recipient);
+                    if let Some(person) = selected {
+                        let draft = activity.drafts.entry(person.id.clone()).or_default();
+                        ui.push_id(("attach-to", &self.work, &person.id), |ui| {
+                            draft.picker.button(ui, draft.input.files.len())
+                        });
+                    }
                     if let Some(status) = selected.and_then(|person| person.status) {
                         ui.label(RichText::new(status).small().color(p.muted))
                             .on_hover_text("You can still record a message for this participant.");
@@ -507,6 +571,7 @@ impl App {
                 persona: person.clone(),
                 reply_to: attempt.message.parent().map(str::to_owned),
                 text: attempt.message.text,
+                files: InputFiles::from(attempt.message.files),
             };
             let event = operator_call(&root, &attempt.operator, command, Some(&attempt.request)).and_then(|receipt| {
                 receipt["event"].as_i64().filter(|event| *event > 0)

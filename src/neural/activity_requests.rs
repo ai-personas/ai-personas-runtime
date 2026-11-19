@@ -21,7 +21,47 @@ pub(super) struct Origin {
     pub decision: String,
     pub operation: String,
     pub need: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub materials: Vec<super::input_files::Material>,
     pub invited: Vec<String>,
+}
+
+/// Bind a same-decision material to the actual asset version issued by the
+/// accepted operation. Equal file contents can belong to different assets.
+fn verify_material_alias(
+    db: &Connection,
+    snapshot: &Snapshot,
+    op: &protocol::Operation,
+    result: &Value,
+    reference: &str,
+) -> Result<()> {
+    let asset = store::exact(db, reference)?;
+    let input = &op.input;
+    let digest = match op.tool.as_str() {
+        "asset.save" => crate::store::sha256_bytes(input["text"].as_str().ok_or_else(|| failure("Missing saved text"))?.as_bytes()),
+        "asset.register" => {
+            let source = input["reference"].as_str().ok_or_else(|| failure("Missing registered object"))?;
+            if result["registered_from"] != source || !snapshot.supplied_references.iter().any(|r| r == source) {
+                return Err(failure("Registered material differs from the supplied object"));
+            }
+            source.strip_prefix("object:").ok_or_else(|| failure("Registered material requires a byte object"))?.into()
+        }
+        _ => return Err(failure("This operation did not issue a source file")),
+    };
+    let size: i64 = db.query_row("SELECT length(bytes) FROM objects WHERE digest=?1", [&digest], |row| row.get(0))?;
+    if asset.reference.kind != "asset" || asset.reference.handle() != reference
+        || !store::written_by(db, &asset, &snapshot.invocation)?
+        || asset.body["owner"] != snapshot.actor || asset.body["work"] != snapshot.work
+        || asset.body["origin_decision"] != snapshot.invocation || asset.body["origin_operation"] != op.id
+        || asset.body["blob"] != digest
+        || result["blob"] != digest || result["bytes"].as_i64() != Some(size) || asset.body["path"] != input["path"]
+        || asset.body["previous_revision"] != input["base"] || asset.body["cues"] != input["cues"]
+        || asset.body["qualifications"] != input["qualifications"]
+        || (!input["resource"].is_null() && asset.body["resource"] != input["resource"])
+    {
+        return Err(failure("Requested material differs from the asset issued by its earlier operation"));
+    }
+    Ok(())
 }
 
 pub(super) fn origin(db: &Connection, child: &str) -> Result<Option<Origin>> {
@@ -75,31 +115,54 @@ pub(super) fn origin(db: &Connection, child: &str) -> Result<Option<Origin>> {
     }
     let mut receipts = db.prepare("SELECT digest FROM events WHERE invocation=?1 AND work=?2 AND actor=?3 AND target=?3 AND kind='tool_result' ORDER BY seq")?;
     let mut rows = receipts.query(params![call, parent, requester])?;
+    let mut aliases = std::collections::BTreeMap::new();
+    let operations = decision["operations"].as_array().ok_or_else(|| failure("Missing requesting operations"))?;
+    let material_aliases: std::collections::BTreeSet<_> = operations.iter().filter(|op| op["tool"] == "work.request")
+        .flat_map(|op| op["input"]["materials"].as_array().into_iter().flatten())
+        .filter_map(|file| file["reference"].as_str()?.strip_prefix('$')).collect();
+    let mut previous_ordinal = None;
     while let Some(row) = rows.next()? {
         let event: Value = store::object(db, &row.get::<_, String>(0)?)?;
-        if event["tool"] != "work.request" {
+        let Some(tool) = event["tool"].as_str() else { continue; };
+        if tool != "work.request" && !operations::returns_alias(tool) {
             continue;
         }
-        let op = decision["operations"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|op| {
-                op["tool"] == "work.request"
+        let (ordinal, raw) = operations.iter().enumerate()
+            .find(|(_, op)| {
+                op["tool"] == tool
                     && event["operation"].is_string()
                     && op["id"] == event["operation"]
             })
-            .ok_or_else(|| failure("Activity receipt lacks its accepted work.request operation"))?;
+            .ok_or_else(|| failure("Activity receipt lacks its accepted operation"))?;
+        if previous_ordinal.is_some_and(|prior| prior >= ordinal) {
+            return Err(failure("Activity receipts differ from the accepted operation order"));
+        }
+        previous_ordinal = Some(ordinal);
         let address = event["result"]
             .as_str()
             .and_then(|r| r.strip_prefix("object:"))
             .ok_or_else(|| failure("Activity request receipt lacks its result"))?;
         let result: Value = store::object(db, address)?;
+        if operations::returns_alias(tool) {
+            if let Some(reference) = result["reference"].as_str() {
+                let id = raw["id"].as_str().ok_or_else(|| failure("Missing requesting operation ID"))?;
+                if material_aliases.contains(id) {
+                    let mut op: protocol::Operation = serde_json::from_value(raw.clone())?;
+                    operations::resolve_operation(&mut op, &aliases)?;
+                    verify_material_alias(db, &snapshot, &op, &result, reference)?;
+                }
+                aliases.insert(id.to_owned(), reference.to_owned());
+            }
+            continue;
+        }
         if result["reference"] != request {
             continue;
         }
-        let asked: tools::RequestWork = serde_json::from_value(op["input"].clone())?;
+        let mut op: protocol::Operation = serde_json::from_value(raw.clone())?;
+        operations::resolve_operation(&mut op, &aliases)?;
+        let asked: tools::RequestWork = serde_json::from_value(op.input)?;
         let activity: protocol::Work = serde_json::from_value(record.body.clone())?;
+        let supplied = asked.retained_materials(db)?;
         let mut invitations=db.prepare("SELECT target FROM events WHERE work=?1 AND invocation=?2 AND actor=?3 AND kind='invitation' ORDER BY seq")?;
         let invited = invitations
             .query_map(params![child, call, requester], |r| r.get::<_, String>(0))?
@@ -109,7 +172,9 @@ pub(super) fn origin(db: &Connection, child: &str) -> Result<Option<Origin>> {
         if result["work"] != child
             || asked.kind != activity.kind
             || invited != asked.invitees
-            || (!asked.need.starts_with('$') && asked.need != activity.original_need)
+            || asked.need != activity.original_need
+            || supplied != activity.materials
+            || result.get("materials") != (!supplied.is_empty()).then(|| json!(supplied)).as_ref()
             || result
                 .get("need")
                 .is_some_and(|v| v != &activity.original_need)
@@ -131,6 +196,7 @@ pub(super) fn origin(db: &Connection, child: &str) -> Result<Option<Origin>> {
             decision: format!("experience:{call}@1"),
             operation: event["operation"].as_str().unwrap().to_owned(),
             need: activity.original_need,
+            materials: activity.materials,
             invited,
         }));
     }

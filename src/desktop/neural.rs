@@ -33,6 +33,7 @@ mod asset_feedback;
 mod package_reviews;
 mod requested_activities;
 mod inbox;
+mod input_files;
 mod overview;
 mod live_board;
 mod live_composer;
@@ -649,9 +650,9 @@ impl eframe::App for App {
                             work:self.work.clone(),expected:brief,reopen,reason:String::new()}),
                         Some(responsibilities::Action::Inspect(reference))=>self.open_resource(ctx,reference),
                         Some(responsibilities::Action::Message{person,text})=>self.dialog=Some(Dialog::Participation{
-                            work:self.work.clone(),title:self.task_title().into(),action:dialogs::Action::Message,person,text,reply_to:None}),
+                            work:self.work.clone(),title:self.task_title().into(),action:dialogs::Action::Message,person,text,reply_to:None,sources:Default::default()}),
                         Some(responsibilities::Action::Invite(person))=>self.dialog=Some(Dialog::Participation{
-                            work:self.work.clone(),title:self.task_title().into(),action:dialogs::Action::Invite,person,text:String::new(),reply_to:None}),
+                            work:self.work.clone(),title:self.task_title().into(),action:dialogs::Action::Invite,person,text:String::new(),reply_to:None,sources:Default::default()}),
                         None=>{}
                     }
                 },

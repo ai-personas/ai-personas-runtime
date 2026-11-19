@@ -987,12 +987,19 @@ impl App {
                             }
                             ui.add_space(9.);
                             if let Some(text) = event["body"]["text"].as_str().or_else(|| event["body"]["contribution"].as_str()).or_else(||event["body"]["reason"].as_str()) {
-                                document::message_markdown(ui, text);
+                                if !text.trim().is_empty() {
+                                    document::message_markdown(ui, text);
+                                }
+                                if event["kind"] == "user_message" && event["invocation"].is_null() {
+                                    if let Some(sequence) = event["event"].as_i64() {
+                                        self.source_file_links(ui, &event["body"]["attachments"], &format!("experience:event-{sequence}@1"));
+                                    }
+                                }
                                 ui.horizontal_wrapped(|ui| {
                                 if event["kind"]=="asset_feedback" && ui.small_button("View revision feedback…").clicked() {
                                     self.asset_feedback.open(ui.ctx(), &self.root, s(&event["body"],"asset"), &self.work);
                                 }
-                                if ui.small_button("Copy message").clicked() {
+                                if !text.is_empty() && ui.small_button("Copy message").clicked() {
                                     ui.ctx().copy_text(text.to_owned());
                                     self.notice="Original message copied".into();
                                 }
@@ -1005,6 +1012,7 @@ impl App {
                                     self.dialog=Some(dialogs::Dialog::Participation {
                                         work:self.work.clone(),title:self.task_title().into(),action:dialogs::Action::Message,
                                         person:s(event,"actor").into(),text:String::new(),
+                                        sources:Default::default(),
                                         reply_to:Some((format!("experience:event-{}@1",event["event"]),excerpt(text,180))),
                                     });
                                 }
@@ -1276,7 +1284,7 @@ impl App {
                 } else {
                     ui.horizontal_wrapped(|ui| {
                         let projected=self.preview_metadata["view"]=="provider_receipt_metadata";
-                        if ui.add_enabled(!self.preview_pending, egui::Button::new(if projected {"Save metadata…"} else {"Save file…"})).clicked() {
+                        if ui.add_enabled(!self.preview_metadata.is_null(), egui::Button::new(if projected {"Save metadata…"} else {"Save file…"})).clicked() {
                             self.save_artifact(ui.ctx());
                         }
                         if ui.small_button("Copy reference").clicked() {

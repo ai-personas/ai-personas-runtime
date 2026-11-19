@@ -462,9 +462,6 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
     }
     Ok(projection)
 }
-pub(super) fn preview(root: &Path, reference: &str) -> neural::Result<Preview> {
-    preview_output(root, reference, None)
-}
 fn preview_bytes(db:&Connection,digest:&str)->neural::Result<(Vec<u8>,bool)> {
     let bytes=store::bytes(db,digest)?;
     match neural::provider_evidence::historical_view(db,digest,&bytes)? {
@@ -472,6 +469,36 @@ fn preview_bytes(db:&Connection,digest:&str)->neural::Result<(Vec<u8>,bool)> {
         None=>Ok((bytes,false)),
     }
 }
+
+fn verify_source_file(db: &Connection, source: &str, name: &str, object: &str, length: usize) -> neural::Result<()> {
+    let digest = object.strip_prefix("object:").ok_or_else(|| neural::failure("Expected an exact file object"))?;
+    let contains = |files: &Value| {
+        files.as_array().into_iter().flatten()
+            .any(|file| file["name"] == name && file["reference"] == object
+                && file["sha256"] == digest && file["bytes"].as_u64() == Some(length as u64))
+    };
+    let found = if source.starts_with("experience:") {
+        let record = neural::context::read(db, source, None, None)?;
+        let event = &record["record"];
+        event["reference"] == source && event["invocation"].is_null()
+            && matches!(event["kind"].as_str(), Some("user_message" | "requirements_amended"))
+            && contains(&event["body"]["attachments"])
+    } else {
+        let record = store::exact(db, source)?;
+        record.reference.handle() == source && match record.reference.kind.as_str() {
+            "work" => contains(&record.body["materials"]) ||
+                record.body["amendments"].as_array().into_iter().flatten()
+                    .any(|change| contains(&change["attachments"])),
+            "human_request" => contains(&record.body["last_report"]["attachments"]),
+            _ => false,
+        }
+    };
+    if !found {
+        return Err(neural::failure("This revision does not contain the selected file under that name"));
+    }
+    Ok(())
+}
+
 pub(super) fn preview_output(root: &Path, reference: &str, output: Option<&(String,String)>) -> neural::Result<Preview> {
     let db = open(root)?;
     let (bytes, name, metadata) = if let Some(digest) = reference.strip_prefix("object:") {
@@ -491,14 +518,24 @@ pub(super) fn preview_output(root: &Path, reference: &str, output: Option<&(Stri
         };
         let mut metadata=json!({"reference":reference,"media":media,"format":suffix});
         if projected {metadata["view"]=json!("provider_receipt_metadata");}
-        let name=if let Some((receipt,path))=output.filter(|(r,_)|r.starts_with("human_request:")) {
-            let request=store::exact(&db,receipt)?;
-            if request.reference.handle()!=*receipt || projected || !request.body["last_report"]["attachments"].as_array().into_iter().flatten()
-                .any(|a|a["reference"]==reference && a["name"]==*path) {
-                return Err(neural::failure("This human report does not contain those bytes under that filename"));
+        let name=if let Some((source,path))=output.filter(|(r,_)|
+            r.starts_with("work:") || r.starts_with("experience:") || r.starts_with("human_request:")) {
+            if projected {
+                return Err(neural::failure("This file is available only as a provider receipt metadata view"));
             }
+            verify_source_file(&db, source, path, reference, bytes.len())?;
             metadata["path"]=json!(path);
-            metadata["human_request"]=json!(receipt);
+            metadata["source_record"]=json!(source);
+            metadata["bytes"]=json!(bytes.len());
+            if source.starts_with("human_request:") {
+                metadata["human_request"]=json!(source);
+            }
+            if let Some(media) = neural::context::image_media(&bytes) {
+                metadata["media"]=json!(media);
+                metadata["format"]=json!(media.trim_start_matches("image/"));
+            } else if let Some(extension) = Path::new(path).extension().and_then(|ext| ext.to_str()) {
+                metadata["format"]=json!(extension.to_ascii_lowercase());
+            }
             Path::new(path).file_name().and_then(|part|part.to_str()).ok_or_else(||neural::failure("Missing attachment filename"))?.to_owned()
         } else if let Some((receipt,path))=output {
             let run=store::exact(&db,receipt)?;

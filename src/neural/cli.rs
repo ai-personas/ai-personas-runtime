@@ -1,5 +1,5 @@
 use super::{
-    context, failure, id, now, operations,
+    context, failure, id, input_files::InputFiles, now, operations,
     protocol::*,
     runner::{self, AuthRoute, Config},
     store::{self, Store},
@@ -50,6 +50,9 @@ pub enum Command {
         need: String,
         #[arg(long, required = true, value_delimiter = ',')]
         invite: Vec<String>,
+        #[command(flatten)]
+        #[serde(flatten, skip_serializing_if = "InputFiles::is_empty")]
+        files: InputFiles,
     },
     /// Invite personas to an open social conversation without assigning work.
     Social {
@@ -57,6 +60,9 @@ pub enum Command {
         topic: String,
         #[arg(long, required = true, value_delimiter = ',')]
         invite: Vec<String>,
+        #[command(flatten)]
+        #[serde(flatten, skip_serializing_if = "InputFiles::is_empty")]
+        files: InputFiles,
     },
     /// Create a fresh identity with an attributed seed and an existing inference configuration.
     AddPersona {
@@ -103,8 +109,10 @@ pub enum Command {
     },
     /// Inspect a selected activity, its requested activities and their participants.
     ActivityTree { work: String },
-    /// Check when the text of a human message reached an accepted ordinary decision.
+    /// Check when a human message and its attached material reached an accepted ordinary decision.
     MessageReceipt { event: i64 },
+    /// Recover your previously committed operator result without reopening any local files.
+    OperatorReceipt { #[arg(value_name = "REQUEST_ID")] key: String },
     /// Inspect earlier activities' exact assets in accepted inputs, executions and issued packages.
     ActivitySources {
         work: String,
@@ -121,9 +129,9 @@ pub enum Command {
         response: super::human_requests::Response,
         #[arg(long, default_value = "")]
         note: String,
-        /// Local file to return to the requester. Repeat for multiple files.
-        #[arg(long)]
-        attach: Vec<PathBuf>,
+        #[command(flatten)]
+        #[serde(flatten)]
+        files: InputFiles,
     },
     /// Save the exact files of one delivery or human request as a portable ZIP.
     ExportPackage { reference: String, destination: PathBuf },
@@ -256,7 +264,11 @@ pub enum Command {
     Message {
         work: String,
         persona: String,
+        #[arg(default_value = "")]
         text: String,
+        #[command(flatten)]
+        #[serde(flatten, skip_serializing_if = "InputFiles::is_empty")]
+        files: InputFiles,
         /// Respond to this exact message from the recipient in this activity.
         #[arg(long)]
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -266,6 +278,9 @@ pub enum Command {
     Amend {
         work: String,
         text: String,
+        #[command(flatten)]
+        #[serde(flatten, skip_serializing_if = "InputFiles::is_empty")]
+        files: InputFiles,
     },
     /// End this activity, preserve outstanding duties and record who ended it.
     Dissolve {
@@ -356,8 +371,18 @@ pub async fn execute(root: &Path, operator: &str, command: Command) -> Result<Va
     execute_with_request(root, operator, command, None).await
 }
 
-pub async fn execute_with_request(root: &Path, operator: &str, command: Command, request_id: Option<&str>) -> Result<Value> {
+fn operator_request_address(operator: &str, key: &str) -> Result<String> {
+    if key.trim().is_empty() { return Err(failure("Supply a nonblank operator request ID")); }
+    Ok(crate::store::sha256_bytes(&serde_json::to_vec(&(operator, key))?))
+}
+
+pub async fn execute_with_request(root: &Path, operator: &str, mut command: Command, request_id: Option<&str>) -> Result<Value> {
     if operator.trim().is_empty() { return Err(failure("An operator name is required for attribution")); }
+    match &mut command {
+        Command::Request { files, .. } | Command::Social { files, .. } | Command::Amend { files, .. }
+        | Command::Message { files, .. } | Command::HumanRespond { files, .. } => files.capture_paths()?,
+        _ => {}
+    }
     let mutation = matches!(&command, Command::Request { .. } | Command::Social { .. } | Command::AddPersona { .. }
         | Command::Invite { .. } | Command::Resume { .. } | Command::Message { .. } | Command::Amend { .. }
         | Command::PackageReview { .. } | Command::AssetFeedback { .. } | Command::Accept { .. } | Command::Control { .. } | Command::Configure { .. }
@@ -366,8 +391,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
         let mut store = Store::open(root)?;
         return store.transaction(|db| {
             let Some(key) = request_id else { return operator_action(db, operator, command); };
-            if key.trim().is_empty() { return Err(failure("Supply a nonblank operator request ID")); }
-            let id = crate::store::sha256_bytes(&serde_json::to_vec(&(operator, key))?);
+            let id = operator_request_address(operator, key)?;
             let intent = serde_json::to_value(&command)?;
             if let Some(previous) = store::head(db, "operator_request", &id)? {
                 if previous.body["operator"] != operator || previous.body["request_id"] != key || previous.body["command"] != intent {
@@ -492,6 +516,12 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
                 Command::Status=>store.status(),
                 Command::ActivityTree{work}=>store.snapshot(|db|super::activity_tree::describe(db,&work)),
                 Command::MessageReceipt{event}=>store.snapshot(|db|super::live::message_receipt(db,event)),
+                Command::OperatorReceipt{key}=>store.snapshot(|db|{
+                    let address=operator_request_address(operator,&key)?;
+                    let receipt=store::head(db,"operator_request",&address)?.ok_or_else(||failure("No committed request with this ID for this operator"))?;
+                    if receipt.body["operator"] != operator || receipt.body["request_id"] != key { return Err(failure("Operator receipt attribution differs")); }
+                    Ok(receipt.body["result"].clone())
+                }),
                 Command::ActivitySources{work,persona,query}=>store.snapshot(|db|super::activity_sources::inspect(db,&work,persona.as_deref(),&query)),
                 Command::ExportPackage{reference,destination}=>store.snapshot(|db|super::human_requests::export_package(db,&reference,&destination)),
                 Command::ExportHandoff{reference,directory}=>store.snapshot(|db|super::human_requests::export_handoff(db,&reference,&directory)),
@@ -565,9 +595,9 @@ fn operator_action(db: &rusqlite::Connection, operator: &str, command: Command) 
             }
             Ok(record)
         }
-        Command::Request{need,invite}=>operations::create_activity(db,ActivityKind::Task,need,&invite,operator,None),
-        Command::HumanRespond{request,response,note,attach}=>super::human_requests::respond(db,operator,&request,response,&note,&attach),
-        Command::Social{topic,invite}=>operations::create_activity(db,ActivityKind::Social,topic,&invite,operator,None),
+        Command::Request{need,invite,files}=>operations::create_activity(db,ActivityKind::Task,need,&invite,operator,None,files.retain(db)?),
+        Command::HumanRespond{request,response,note,files}=>super::human_requests::respond(db,operator,&request,response,&note,&files),
+        Command::Social{topic,invite,files}=>operations::create_activity(db,ActivityKind::Social,topic,&invite,operator,None,files.retain(db)?),
         Command::AddPersona{id: requested,label,seed,provider_from}=>{
             let source:Persona=serde_json::from_value(store::required(db,"persona",&provider_from)?.body)?;
             let seed=Seed{id:match requested{Some(id)=>id,None=>id("persona")?},label,seed};
@@ -597,10 +627,11 @@ fn operator_action(db: &rusqlite::Connection, operator: &str, command: Command) 
             store::event(db,&work,operator,&persona,"explicit_resume",&json!({"reason":reason}),None)?;
             Ok(json!({"resumed":persona,"work":work,"scheduling_controls":super::controls::relevant(db,&work,&persona)?}))
         },
-        Command::Message{work,persona,text,reply_to}=>{
-            if text.trim().is_empty(){return Err(failure("Write a message before sending"));}
+        Command::Message{work,persona,text,reply_to,files}=>{
+            if text.trim().is_empty() && files.is_empty(){return Err(failure("Write a message or attach a file before sending"));}
             store::required(db,"participation",&format!("{work}/{persona}"))?;
             let mut body=json!({"text":text});
+            if !files.is_empty() { body["attachments"]=json!(files.retain(db)?); }
             if let Some(parent)=reply_to {
                 super::experience::check_reply(db,&work,None,&persona,&parent)?;
                 body["reply_to"]=json!(parent);
@@ -608,12 +639,20 @@ fn operator_action(db: &rusqlite::Connection, operator: &str, command: Command) 
             let event=store::event(db,&work,operator,&persona,"user_message",&body,None)?;
             Ok(json!({"event":event,"stopped_participation_resumed":false}))
         },
-        Command::Amend{work,text}=>{
+        Command::Amend{work,text,files}=>{
             if text.trim().is_empty(){return Err(failure("Describe the amended requirement"));}
             let record=store::open_activity(db,&work)?;let mut body:Work=serde_json::from_value(record.body)?;
-            body.amendments.push(json!({"author":operator,"text":text,"time":now()}));
+            let mut amendment=json!({"author":operator,"text":text,"time":now()});
+            let mut notice=json!({"text":text});
+            if !files.is_empty() {
+                let attached=json!(files.retain(db)?);
+                amendment["attachments"]=attached.clone();
+                notice["attachments"]=attached;
+            }
+            body.amendments.push(amendment);
             let r=store::write(db,"work",&work,record.reference.revision,&body,None)?;
-            store::event(db,&work,operator,"*","requirements_amended",&json!({"reference":r.handle(),"text":text}),None)?;
+            notice["reference"]=json!(r.handle());
+            store::event(db,&work,operator,"*","requirements_amended",&notice,None)?;
             Ok(json!({"reference":r.handle(),"original_need":body.original_need}))
         },
         Command::Dissolve{work,reason,expected}=>super::membership::change_activity(db,&work,operator,&reason,expected.as_deref(),false),

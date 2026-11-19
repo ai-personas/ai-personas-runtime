@@ -163,12 +163,6 @@ pub(super) fn observe(
     Ok(())
 }
 
-fn written_by(db: &Connection, record: &store::Record, call: &str) -> Result<bool> {
-    let r = &record.reference;
-    Ok(db.query_row("SELECT EXISTS(SELECT 1 FROM versions WHERE kind=?1 AND id=?2 AND revision=?3 AND digest=?4 AND invocation=?5)",
-        params![r.kind,r.id,r.revision,r.digest,call],|row| row.get(0))?)
-}
-
 fn package(
     catalog: &mut Catalog<'_>,
     time: &Moment<'_>,
@@ -191,7 +185,7 @@ fn package(
         || package.body[author_key] != time.snapshot.actor
         || package.body["work"] != time.snapshot.work
         || package.body["title"] != op.input["title"]
-        || !written_by(catalog.db, &package, &time.snapshot.invocation)?
+        || !store::written_by(catalog.db, &package, &time.snapshot.invocation)?
     {
         return Err(failure(
             "Package identity differs from the accepted operation",
@@ -415,7 +409,7 @@ fn command(
     let input: commands::Run = serde_json::from_value(op.input.clone())?;
     if receipt.reference.kind != "command_run"
         || receipt.reference.handle() != reference
-        || !written_by(catalog.db, &receipt, &time.snapshot.invocation)?
+        || !store::written_by(catalog.db, &receipt, &time.snapshot.invocation)?
         || r != &result["result"]
         || r["format"] != "portable-command-run-v1"
         || r["origin"] != "persona"

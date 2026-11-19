@@ -341,7 +341,13 @@ pub(super) fn decode(source: &Source, cancel: &native_preview::Cancellation) -> 
         return Ok(Decoded {body:Body::Wasm(interface,bytes.len()),note:String::new()});
     }
     let mut note = String::new();
-    let body = match ext.as_str() {
+    let image_type = if matches!(source, Source::Snapshot { .. }) {
+        ai_personas::neural::context::image_media(&bytes).and_then(|media| media.strip_prefix("image/"))
+    } else {
+        None
+    };
+    let format = image_type.unwrap_or(&ext);
+    let body = match format {
         "svg" => svg(source, &bytes, 2.0)?,
         "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tif" | "tiff" | "ico" => {
             let mut reader = image::ImageReader::new(Cursor::new(&bytes))
@@ -350,7 +356,7 @@ pub(super) fn decode(source: &Source, cancel: &native_preview::Cancellation) -> 
             reader.no_limits();
             let image = reader.decode().map_err(|e| e.to_string())?;
             let info = format!("{} × {} px", image.width(), image.height());
-            if ext == "gif" {
+            if format == "gif" {
                 note = "First frame of the animation.".into();
             }
             let rgba = image.to_rgba8();

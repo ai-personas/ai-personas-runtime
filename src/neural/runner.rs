@@ -539,7 +539,7 @@ async fn external(
             store.transaction(|db|{
                 let blob=store::put_bytes(db,"application/octet-stream",&bytes)?;
                 db.execute_batch("SAVEPOINT import_metadata")?;
-                let saved=operations::save_asset(db,actor,invocation,&input.path,input.base.as_deref(),&blob,&input.cues,&input.qualifications,input.resource.as_ref());
+                let saved=operations::save_asset(db,actor,invocation,&op.id,&input.path,input.base.as_deref(),&blob,&input.cues,&input.qualifications,input.resource.as_ref());
                 if saved.is_err(){db.execute_batch("ROLLBACK TO import_metadata")?;}
                 db.execute_batch("RELEASE import_metadata")?;
                 // A stale metadata base cannot erase the already observed read.

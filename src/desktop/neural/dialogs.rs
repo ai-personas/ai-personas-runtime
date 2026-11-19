@@ -1,4 +1,11 @@
 use super::*;
+use ai_personas::neural::input_files::{CapturedFile, InputFiles};
+
+#[derive(Default)]
+pub(super) struct SourceFiles {
+    picker: super::input_files::Picker,
+    files: Vec<CapturedFile>,
+}
 
 #[derive(Clone, Copy, PartialEq)]
 pub(super) enum Action {
@@ -25,6 +32,7 @@ pub(super) enum Dialog {
         social: bool,
         text: String,
         invitees: BTreeSet<String>,
+        sources: SourceFiles,
     },
     Participation {
         work: String,
@@ -33,6 +41,7 @@ pub(super) enum Dialog {
         person: String,
         text: String,
         reply_to: Option<(String, String)>,
+        sources: SourceFiles,
     },
     Persona {
         name: String,
@@ -60,6 +69,7 @@ impl Dialog {
             social,
             text: String::new(),
             invitees: BTreeSet::new(),
+            sources: SourceFiles::default(),
         }
     }
     pub(super) fn persona(provider: &str) -> Self {
@@ -94,6 +104,17 @@ fn multiline(ui: &mut Ui, value: &mut String, hint: &str) {
     );
 }
 
+fn dialog_contents(ui: &mut Ui, scroll: bool, show: impl FnOnce(&mut Ui)) {
+    if scroll {
+        egui::ScrollArea::vertical()
+            .max_height((ui.ctx().content_rect().height() - 100.).max(80.))
+            .auto_shrink([false, true])
+            .show(ui, show);
+    } else {
+        show(ui);
+    }
+}
+
 impl App {
     pub(super) fn participation_dialog(&self, action: Action) -> Dialog {
         Dialog::Participation {
@@ -103,6 +124,7 @@ impl App {
             person: self.persona.clone(),
             text: String::new(),
             reply_to: None,
+            sources: SourceFiles::default(),
         }
     }
 
@@ -155,17 +177,19 @@ impl App {
         };
         let mut open = true;
         let mut command = None;
+        let scroll = matches!(&draft, Dialog::Activity { .. } | Dialog::Participation { .. });
         egui::Window::new(draft.title())
             .id(egui::Id::new("studio-dialog"))
             .open(&mut open)
             .default_width(510.)
             .resizable(true)
-            .show(ctx, |ui| {
+            .show(ctx, |ui| dialog_contents(ui, scroll, |ui| {
                 ui.add_enabled_ui(!self.busy, |ui| match &mut draft {
                     Dialog::Activity {
                         social,
                         text,
                         invitees,
+                        sources,
                     } => {
                         ui.strong(if *social {
                             "Opening topic (optional)"
@@ -182,6 +206,8 @@ impl App {
                             },
                         );
                         ui.add_space(8.);
+                        sources.picker.show(ui, &mut sources.files);
+                        ui.add_space(8.);
                         ui.strong("Invite personas");
                         for p in self.records("personas") {
                             let id = s(&p["body"], "id");
@@ -194,7 +220,9 @@ impl App {
                                 }
                             }
                         }
-                        let enabled = !invitees.is_empty() && (*social || !text.trim().is_empty());
+                        let enabled = !sources.picker.busy()
+                            && !invitees.is_empty()
+                            && (*social || !text.trim().is_empty());
                         if ui
                             .add_enabled(
                                 enabled,
@@ -211,11 +239,13 @@ impl App {
                                 Command::Social {
                                     topic: text.clone(),
                                     invite,
+                                    files: InputFiles::from(sources.files.clone()),
                                 }
                             } else {
                                 Command::Request {
                                     need: text.clone(),
                                     invite,
+                                    files: InputFiles::from(sources.files.clone()),
                                 }
                             });
                         }
@@ -287,6 +317,7 @@ impl App {
                         person,
                         text,
                         reply_to,
+                        sources,
                     } => {
                         ui.strong(title.as_str());
                         if let Some((_,quote))=reply_to.as_ref() {
@@ -311,7 +342,7 @@ impl App {
                             });
                         }
                         let (hint, label) = match action {
-                            Action::Message => ("Message or feedback…", "Send message"),
+                            Action::Message => ("Write a message or attach a file…", "Send message"),
                             Action::Amend => (
                                 "Describe the change to the original brief…",
                                 "Save amendment",
@@ -326,7 +357,11 @@ impl App {
                             ),
                         };
                         multiline(ui, text, hint);
-                        let enabled = !text.trim().is_empty()
+                        if matches!(action, Action::Message | Action::Amend) {
+                            sources.picker.show(ui, &mut sources.files);
+                        }
+                        let enabled = !sources.picker.busy()
+                            && (!text.trim().is_empty() || (*action == Action::Message && !sources.files.is_empty()))
                             && (*action == Action::Amend || !person.is_empty());
                         if ui.add_enabled(enabled, theme::primary(label)).clicked() {
                             command = Some(match action {
@@ -335,10 +370,12 @@ impl App {
                                     persona: person.clone(),
                                     text: text.clone(),
                                     reply_to: reply_to.as_ref().map(|(reference,_)|reference.clone()),
+                                    files: InputFiles::from(sources.files.clone()),
                                 },
                                 Action::Amend => Command::Amend {
                                     work: work.clone(),
                                     text: text.clone(),
+                                    files: InputFiles::from(sources.files.clone()),
                                 },
                                 Action::Invite => Command::Invite {
                                     work: work.clone(),
@@ -403,7 +440,7 @@ impl App {
                 if let Some(error) = &self.error {
                     ui.colored_label(Color32::LIGHT_RED, error);
                 }
-            });
+            }));
         if open {
             self.dialog = Some(draft);
             if let Some(command) = command {
