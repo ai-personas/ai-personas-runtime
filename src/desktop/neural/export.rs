@@ -169,6 +169,7 @@ impl App {
         let mut cancel = false;
         egui::Window::new(heading)
         .id(egui::Id::new("studio-export"))
+        .order(egui::Order::Foreground)
         .open(&mut open)
         .default_width(560.)
         .max_width((ctx.content_rect().width() - 32.).max(160.))
