@@ -365,7 +365,7 @@ impl App {
         });
         ui.add_space(12.);
         ui.horizontal_wrapped(|ui| {
-            for (i, label) in ["Characteristics", "Network", "Parameters", "Revisions", "Development", "What if…", "Life history"]
+            for (i, label) in ["Characteristics", "Network", "Parameters", "Revisions", "Development", "What if…", "Life history", "Comparisons"]
                 .iter()
                 .enumerate()
             {
@@ -412,6 +412,7 @@ impl App {
             2 => self.parameter_table(ui, &character),
             4 => self.character_development(ui),
             6 => self.life_history(ui),
+            7 => self.comparisons(ui),
             5 => egui::ScrollArea::vertical().id_salt("character-explorer").show(ui,|ui| {
                 self.explorer.show(ui,&character);
             }).inner,
@@ -454,7 +455,9 @@ impl App {
             let reference=format!("development:{id}@{}",question["reference"]["revision"]);
             let applications:Vec<_>=self.records("question_applications").iter().filter(|r|r["question_id"]==id).cloned().collect();
             ui.push_id(&reference,|ui|{
-                ui.collapsing(s(detail,"question"),|ui|{
+                let text=s(detail,"question");
+                ui.collapsing(excerpt(text,68),|ui|{
+                    ui.add(egui::Label::new(RichText::new(text).strong()).wrap());
                     if let Some(text)=detail["interpretation"].as_str(){ui.label(text);}
                     if let Some(text)=detail["prediction"].as_str(){ui.small(format!("Prediction · {text}"));}
                     if let Some(text)=detail["alternatives"].as_str(){ui.small(format!("Other possible causes · {text}"));}

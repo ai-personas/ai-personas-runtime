@@ -847,7 +847,8 @@ async fn run(cli: Cli) -> runtime::Result<()> {
             let inspect = |model: &ModelPackage| -> runtime::Result<_> {
                 let evaluation = model.evaluate(&contract, &appraisal).map_err(runtime::RuntimeError::Invalid)?;
                 let numerical = model.numerical_digest(&contract).map_err(runtime::RuntimeError::Invalid)?;
-                Ok(serde_json::json!({"owner":model.persona, "package":evaluation.model,
+                let connections=model.appraisal_connections(&contract).map_err(runtime::RuntimeError::Invalid)?;
+                Ok(serde_json::json!({"owner":model.persona, "package":evaluation.model,"appraisal_connections":connections,
                     "numerical":numerical, "evaluation":evaluation}))
             };
             let inspected = inspect(&model)?;

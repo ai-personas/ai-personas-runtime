@@ -679,6 +679,14 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
         let tool_schemas=tool_names.iter().map(|name|tools::describe(name)).collect::<Result<Vec<_>>>()?;
         let active=persona.model.as_ref().map(|_| model(db, &persona)).transpose()?;
         let numerical=active.as_ref().map(|m|m.numerical_digest(&contract).map_err(failure)).transpose()?;
+        let structure=active.as_ref().map(|m|->Result<Value>{
+            let routes=m.appraisal_connections(&contract).map_err(failure)?;
+            let detail=json!({"owner":persona.id,"package":persona.model,"input_to_outputs":routes,
+                "meaning":"Nonzero direct or hidden parameter paths. A path may be inactive or cancel for a particular appraisal."});
+            let compact=json!({"package_object":format!("object:{}",m.digest().map_err(failure)?),
+                "connections":format!("object:{}",store::put(db,&detail)?),"connected_inputs":routes.keys().collect::<Vec<_>>()});
+            Ok(compact)
+        }).transpose()?;
         let baseline=active.as_ref().map(|m|{
             let evaluation=m.evaluate(&contract,&Appraisal::default()).map_err(failure)?;
             evaluation_view(db,&format!("object:{}",store::put(db,&evaluation)?))
@@ -750,6 +758,7 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
             "current_controls":if bootstrap{vec![]}else{super::controls::relevant(db,work_id,actor)?},
             "peers":if bootstrap{vec![]}else{peers},"participants":if bootstrap{vec![]}else{participants},"outcomes":if bootstrap{vec![]}else{outcomes},"deliveries":if bootstrap{vec![]}else{deliveries},"new_events":supplied_events,
             "selected_resources":selected,"previously_selected_tools_unavailable":unavailable_tools,"available_tools":tool_schemas,"host_working_directory":if bootstrap{Value::Null}else{config.body["working_directory"].clone()}});
+        if let Some(structure)=structure {data["identity"]["appraisal_structure"]=structure;}
         if !bootstrap {
             data["lifetime_experience"]=super::experience::availability(db,actor,work_id)?;
             let questions = super::development::index(db, actor)?;
@@ -797,8 +806,14 @@ pub(super) fn image_inputs(
     db: &rusqlite::Connection,
     snapshot: &Snapshot,
 ) -> Result<Vec<provider::ImageInput>> {
+    retained_images(db,&snapshot.image_blobs)
+}
+
+pub(super) fn retained_images(
+    db:&rusqlite::Connection, blobs:&[(String,String)],
+) -> Result<Vec<provider::ImageInput>> {
     let mut images = Vec::new();
-    for (blob, mime) in &snapshot.image_blobs {
+    for (blob, mime) in blobs {
         images.push(provider::ImageInput {
             image_url: format!(
                 "data:{mime};base64,{}",

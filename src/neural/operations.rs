@@ -23,7 +23,7 @@ pub fn check_references(db: &Connection, refs: &[String]) -> Result<()> {
     }
     Ok(())
 }
-fn check_appraisal(db: &Connection, a: &Appraisal) -> Result<()> {
+pub(super) fn check_appraisal(db: &Connection, a: &Appraisal) -> Result<()> {
     a.validate(&FeatureContract::standard()).map_err(failure)?;
     for f in a.features.values() {
         check_references(db, &f.evidence)?;
@@ -781,8 +781,8 @@ fn switch_model(
                 for r in store::list(db,"assessment")? {
                     if r.body["candidate"]==*candidate && r.body["completed"]==true && r.body["owner"]==persona.id
                         && r.body["predecessor"]==json!(persona.model) {
-                        assessment=super::character::observed_input(db,snapshot,&r.reference.handle(),"assessment")?;
-                        if assessment.is_some(){break;}
+                        let observed=super::character::observed_input(db,snapshot,&r.reference.handle(),"assessment")?;
+                        if observed.is_some() && super::assessment::verify(db,&r).is_ok(){assessment=observed;break;}
                     }
                 }
                 if assessment.is_none() {
@@ -1092,12 +1092,8 @@ pub fn validate_external(db: &Connection, persona: &Persona, op: &Operation) -> 
                     "assessment candidate has stale predecessor or wrong owner",
                 ));
             }
-            for p in x.probes {
-                if p.situation.trim().is_empty() {
-                    return Err(failure("probe situation empty"));
-                }
-                check_appraisal(db, &p.appraisal)?;
-                check_references(db, &p.references)?;
+            for p in &x.probes {
+                super::assessment::prepare(db,&persona.id,p)?;
             }
         }
         _ => return Err(failure("unknown external tool")),

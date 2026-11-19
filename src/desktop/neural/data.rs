@@ -29,6 +29,7 @@ pub(super) struct Snapshot {
     pub evaluations: BTreeMap<String, Evaluation>,
     pub appraisal_provenance: BTreeMap<(String, String), Value>,
     pub candidates: Vec<Value>,
+    pub assessments: Vec<Value>,
     pub character_decisions: Vec<Value>,
     pub active: Vec<Value>,
     pub inference_recovery: BTreeMap<String, Value>,
@@ -179,6 +180,23 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
         .into_iter()
         .map(|r| json!({"reference":r.reference.handle(),"body":r.body}))
         .collect();
+    let mut assessments=Vec::new();
+    for record in store::list(&db,"assessment")? {
+        let mut cases=Vec::new();
+        for case in record.body["observations"].as_array().into_iter().flatten() {
+            let arms=case["arms"].as_array().into_iter().flatten().map(|arm|{
+                let outputs=arm["evaluation"]["outputs"].as_object().map(|axes|axes.iter()
+                    .map(|(name,axis)|(name.clone(),axis["value"].clone())).collect::<serde_json::Map<_,_>>());
+                json!({"arm":arm["arm"],"response":arm["response"],"state":arm["state"],"error":arm["error"],
+                    "outputs":outputs,"receipt":arm["receipt"]})
+            }).collect::<Vec<_>>();
+            cases.push(json!({"origin":case["origin"],"situation":case["probe"]["situation"],"matched_input":case["matched_input"],
+                "image_count":case["image_count"],"arms":arms}));
+        }
+        assessments.push(json!({"reference":record.reference.handle(),"owner":record.body["owner"],
+            "candidate":record.body["candidate"],"completed":record.body["completed"],"interruption":record.body["interruption"],
+            "cases":cases}));
+    }
     // Completion can arrive out of dispatch order, including decisions that
     // emit no events. Inspect accepted headers and project each unseen response
     // once; an event or dispatch cursor would lose late/tool-free decisions.
@@ -252,6 +270,7 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
         evaluations,
         appraisal_provenance,
         candidates,
+        assessments,
         character_decisions,
         active,
         inference_recovery,

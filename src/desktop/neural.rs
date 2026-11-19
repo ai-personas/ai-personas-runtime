@@ -18,6 +18,7 @@ use std::{
     time::{Duration, Instant},
 };
 mod character;
+mod comparisons;
 mod explorer;
 mod data;
 mod dialogs;

@@ -283,6 +283,44 @@ impl ModelPackage {
         digest(&("persona-numerics-v1", &self.contract, self.hidden_units, coordinates))
     }
 
+    /// Nonzero parameter paths from appraisal value or known-mask columns to
+    /// output axes. A path can be inactive or cancel out at a particular input.
+    pub fn appraisal_connections(
+        &self,
+        contract: &FeatureContract,
+    ) -> Result<BTreeMap<String, BTreeSet<String>>> {
+        self.validate(contract)?;
+        let mut hidden_outputs: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
+        for p in self
+            .parameters
+            .iter()
+            .filter(|p| p.tensor == Tensor::Output && p.value != 0.)
+        {
+            hidden_outputs.entry(p.column).or_default().insert(p.row);
+        }
+        let mut connections: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        for p in self.parameters.iter().filter(|p| p.value != 0.) {
+            let mut connect = |output: usize| {
+                connections
+                    .entry(contract.inputs[p.column / 2].id.clone())
+                    .or_default()
+                    .insert(contract.outputs[output].id.clone());
+            };
+            match p.tensor {
+                Tensor::Direct => connect(p.row),
+                Tensor::Hidden => {
+                    if let Some(rows) = hidden_outputs.get(&p.row) {
+                        for row in rows {
+                            connect(*row);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(connections)
+    }
+
     pub fn evaluate(
         &self,
         contract: &FeatureContract,

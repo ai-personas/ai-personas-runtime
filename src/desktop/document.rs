@@ -48,6 +48,14 @@ pub fn markdown(ui: &mut Ui, text: &str) {
 }
 
 pub fn markdown_at(ui: &mut Ui, text: &str, base: Option<&std::path::Path>) {
+    render_markdown(ui,text,base,false);
+}
+
+pub fn message_markdown(ui:&mut Ui,text:&str){
+    render_markdown(ui,text,None,true);
+}
+
+fn render_markdown(ui: &mut Ui, text: &str, base: Option<&std::path::Path>, preserve_lines:bool) {
     let p = theme::palette(ui);
     let link_color = ui.visuals().hyperlink_color;
     let mut job = egui::text::LayoutJob::default();
@@ -287,7 +295,7 @@ pub fn markdown_at(ui: &mut Ui, text: &str, base: Option<&std::path::Path>) {
             Event::Code(t) => {
                 job.append(&t, 0.0, format(true));
             }
-            Event::SoftBreak => job.append(" ", 0.0, format(false)),
+            Event::SoftBreak => job.append(if preserve_lines {"\n"} else {" "}, 0.0, format(false)),
             Event::HardBreak => job.append("\n", 0.0, format(false)),
             Event::TaskListMarker(done) => {
                 job.append(if done { "[x] " } else { "[ ] " }, 0.0, format(true))

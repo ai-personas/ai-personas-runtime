@@ -95,6 +95,16 @@ pub enum Command {
         #[arg(long)]
         end: Option<usize>,
     },
+    /// Inspect the frozen inputs available for a matched replay. No provider call.
+    ReplayInput {
+        /// The experience:call-ID@1 of an accepted ordinary decision.
+        decision: String,
+        /// Exact resource bodies to reuse from that specific input.
+        #[arg(long="resource")]
+        resources:Vec<String>,
+    },
+    /// Check a completed comparison against its original provider calls, offline.
+    VerifyAssessment { reference:String },
     /// Controls: global/work:<id>/persona:<id> cancel active calls; admission drains them.
     Control {
         scope: String,
@@ -296,6 +306,16 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
             match command {
                 Command::Status=>store.status(),
                 Command::Read{reference,start,end}=>context::read(&store.db,&reference,start,end),
+                Command::VerifyAssessment{reference}=>store.snapshot(|db|super::assessment::verify(db,&store::exact(db,&reference)?)),
+                Command::ReplayInput{decision,resources}=>store.snapshot(|db|{
+                    let original=super::experience::metadata(db,None,&decision)?;
+                    let actor=original["actor"].as_str().ok_or_else(||failure("Missing original actor"))?;
+                    let probe=super::tools::Probe{situation:String::new(),appraisal:None,references:resources,
+                        replay_decision:Some(decision),include_no_character:false};
+                    let case=super::assessment::prepare(db,actor,&probe)?;
+                    Ok(json!({"origin":case.origin,"situation":case.scenario,"resources":case.resources,
+                        "appraisal":case.appraisal,"ordered_image_blobs":case.images}))
+                }),
                 Command::Export{directory,work}=>export(&mut store,&directory,work.as_deref()),
                 Command::Audit=>audit(&mut store),
                 Command::Backup{archive}=>super::archive::backup(&store,&archive),

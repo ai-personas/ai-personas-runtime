@@ -935,7 +935,12 @@ impl App {
                             }
                             ui.add_space(9.);
                             if let Some(text) = event["body"]["text"].as_str() {
-                                document::markdown(ui, text);
+                                document::message_markdown(ui, text);
+                                ui.horizontal_wrapped(|ui| {
+                                if ui.small_button("Copy message").clicked() {
+                                    ui.ctx().copy_text(text.to_owned());
+                                    self.notice="Original message copied".into();
+                                }
                                 if event["target"]=="user" && matches!(event["kind"].as_str(),Some("reply"|"message"))
                                     && ui.small_button("Reply to this message").clicked() {
                                     self.dialog=Some(dialogs::Dialog::Participation {
@@ -944,6 +949,7 @@ impl App {
                                         reply_to:Some((format!("experience:event-{}@1",event["event"]),excerpt(text,180))),
                                     });
                                 }
+                                });
                             } else if event["kind"] == "delivery" {
                                 let body = &event["body"]["record"];
                                 ui.heading(s(body, "title"));

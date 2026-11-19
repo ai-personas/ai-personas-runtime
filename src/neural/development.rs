@@ -399,6 +399,7 @@ pub(super) fn update(db: &Connection, snapshot: &Snapshot, update: Update) -> Re
                     "Read the completed comparison for this exact candidate",
                 ));
             }
+            super::assessment::verify(db,&assessment)?;
         }
         if !body["candidate_reviews"].is_array() {
             body["candidate_reviews"] = json!([]);

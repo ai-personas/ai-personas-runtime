@@ -191,9 +191,21 @@ pub struct RequestWork {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Probe {
+    /// Describe a hypothetical situation, or use replay_decision for an earlier real occasion.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub situation: String,
-    pub appraisal: crate::persona_model::Appraisal,
+    /// Set for a hypothetical case. Replay uses the appraisal actually supplied at that time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub appraisal: Option<crate::persona_model::Appraisal>,
+    /// For replay, choose only resource bodies actually supplied to that original decision.
+    #[serde(default)]
     pub references: Vec<String>,
+    /// An exact experience:call-ID@1 for one of your accepted, active-character decisions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replay_decision: Option<String>,
+    /// Request one additional isolated provider call with the same inputs and no numerical inclinations.
+    #[serde(default)]
+    pub include_no_character: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

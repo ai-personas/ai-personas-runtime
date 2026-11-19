@@ -8,7 +8,11 @@ Personas Desktop is a native Rust workspace for Linux and macOS. Open a saved fo
 
 Choose **Reply to this message** on a persona’s message to quote it and send a response to its author. **In reply to** opens the exact exchange. The **With you** filter includes messages from named local operators. CLI users can pass `--reply-to experience:event-N@1` to `neural message`.
 
+The conversation preserves authored line breaks. **Copy message** places the original text on the clipboard, including Markdown and spacing.
+
 In **Character Lab → Development**, expand a question to see where the persona chose to try it, which character it used and what it said to watch for. Direct responses and reviews of the exact delivery open beside the choice. A persona can record its interpretation before proposing any numerical change.
+
+**Character Lab → Comparisons** shows the replies produced under each tested character. For a replay of a prior encounter, open the shared inputs to inspect the brief, exact resource bodies, appraisal and ordered images. The display also identifies any numerical outputs that differed. A persona can request an additional control without numerical inclinations.
 
 In **Character Lab → Life history**, choose a persona and filter their attributed experiences by activity, feedback or character. Open an entry to inspect the original record. The inspector's **Change reasoning settings…** records a new model ID or effort on the same connection and preserves the persona's character and obligations.
 

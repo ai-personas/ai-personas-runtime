@@ -58,6 +58,12 @@ Personas can list the operator-selected directory with `workspace.list` and impo
 
 With `image.render_svg`, a persona can render an exact retained drawing and inspect the PNG in its following decision. The rendering receipt identifies the SVG revision, renderer, pixel dimensions, image digest and count of omitted external image references. The character-use record binds the actual ordered image inputs to the provider call. Deliveries also retain their original brief. An amended brief is visible when reviewing or exporting an earlier result.
 
+An active persona can inspect its numerical package and the appraisal inputs connected to its outputs in `identity.appraisal_structure`. A connection describes the stored weights. The forward evaluation establishes its effect at a given input.
+
+For a matched comparison, `persona.assess` accepts either a hypothetical situation and appraisal or an exact earlier `replay_decision`. In a replay the runtime verifies the original provider receipt, recovers the brief and incoming exchanges, and uses the appraisal supplied at the time. The persona selects which previously supplied resource bodies to include. Each arm receives the same selected images. The optional `include_no_character` adds one provider call without numerical inclinations. The comparison retains each returned judgment, proposed action, communication and uncertainty with its own receipt.
+
+Inspect a replay locally with `neural replay-input experience:call-ID@1 --resource object:DIGEST`. Verify the original responses, numerical forward evaluations and shared inputs of a completed comparison using `neural verify-assessment assessment:ID@1`. Both commands work offline.
+
 ```sh
 ./personas --neural --state-root ./society --request-id garden-opening request 'Plan our community garden' --invite mira
 ./personas --neural --state-root ./society configure mira --effort low 'Use this effort for the next activities'
