@@ -1,11 +1,13 @@
-//! Export one recorded request and its exact attachments for a person to take away.
-use super::{attachments, exact, files, SheetDelivery};
-use crate::neural::{archive, failure, store, Result};
+//! Export exact issued files with a recipient-facing delivery or request sheet.
+use super::{attachments, files, SheetDelivery};
+use crate::neural::{archive, delivery_feedback, failure, store, Result};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{fs::File, io::Write, path::Path};
 
+#[path = "delivery_sheet.rs"]
+mod delivery_sheet;
 #[path = "sheet.rs"]
 mod sheet;
 
@@ -31,7 +33,7 @@ struct RequestSheet<'a> {
     current: Option<(&'a str, &'a str)>,
     activity: &'a str,
     claimed_by: Option<&'a str>,
-    files: Vec<SheetFile>,
+    files: &'a [SheetFile],
     deliveries: Vec<SheetDelivery>,
 }
 
@@ -121,11 +123,12 @@ pub fn export_package(db: &Connection, reference: &str, destination: &Path) -> R
     Ok(json!({"package":reference,"file":destination,"artifacts":entries}))
 }
 
-/// Export a static request sheet and, when attached, its file-only ZIP in one
-/// new folder. Both the desktop and CLI read the selected and current revisions
-/// from one database snapshot. Publishing this folder performs no workspace action.
-pub fn export_handoff(db: &Connection, reference: &str, destination: &Path) -> Result<Value> {
-    let record = exact(db, reference)?;
+fn request_sheet(
+    db: &Connection,
+    record: store::Record,
+    files: &[SheetFile],
+) -> Result<(String, Value)> {
+    let reference = record.reference.handle();
     let latest = store::required(db, "human_request", &record.reference.id)?;
     let latest_reference = latest.reference.handle();
     let latest_state = latest.body["state"]
@@ -148,25 +151,12 @@ pub fn export_handoff(db: &Connection, reference: &str, destination: &Path) -> R
         Some(name) => format!("{name} ({})", request.requester),
         None => request.requester,
     };
-    let parent = archive::parent(destination);
-    let stage = tempfile::Builder::new()
-        .prefix(".personas-handoff-")
-        .tempdir_in(parent)?;
-    let mut files = Vec::new();
-    let mut attachments = None;
-    if !request.artifacts.is_empty() {
-        let mut zip = File::create_new(stage.path().join("Files.zip"))?;
-        files = package_files(db, &request.artifacts, &mut zip)?;
-        zip.sync_all()?;
-        attachments = Some("Files.zip");
-    }
-    let file_count = files.len();
     let sheet = RequestSheet {
         title: &request.title,
         requester: &requester,
         action: &request.action,
         return_requested: request.return_requested.as_deref(),
-        reference,
+        reference: &reference,
         state: state_label(&request.state),
         current: (latest_reference != reference)
             .then(|| (latest_reference.as_str(), state_label(latest_state))),
@@ -175,8 +165,54 @@ pub fn export_handoff(db: &Connection, reference: &str, destination: &Path) -> R
         files,
         deliveries,
     };
-    let mut document = File::create_new(stage.path().join("Request.html"))?;
-    document.write_all(sheet::render(&sheet).as_bytes())?;
+    Ok((
+        sheet::render(&sheet),
+        json!({"request":reference,"latest":latest_reference,"state":request.state}),
+    ))
+}
+
+/// Publish both files together from a single database snapshot. The folder is
+/// visible only after the sheet and every exact member are written successfully.
+pub fn export_handoff(db: &Connection, reference: &str, destination: &Path) -> Result<Value> {
+    enum Handoff {
+        Delivery(delivery_feedback::Issued),
+        Request(store::Record),
+    }
+    let selected = match reference.split_once(':').map(|(kind, _)| kind) {
+        Some("delivery") => Handoff::Delivery(delivery_feedback::issued(db, reference)?),
+        Some("human_request") => Handoff::Request(super::exact(db, reference)?),
+        _ => {
+            return Err(failure(
+                "Select an exact issued delivery or human request revision",
+            ))
+        }
+    };
+    let record = match &selected {
+        Handoff::Delivery(issued) => &issued.record,
+        Handoff::Request(request) => request,
+    };
+    let refs: Vec<String> = serde_json::from_value(record.body["artifacts"].clone())?;
+    let parent = archive::parent(destination);
+    let stage = tempfile::Builder::new()
+        .prefix(".personas-handoff-")
+        .tempdir_in(parent)?;
+    let mut files = Vec::new();
+    let mut archive = None;
+    if !refs.is_empty() {
+        let mut zip = File::create_new(stage.path().join("Files.zip"))?;
+        files = package_files(db, &refs, &mut zip)?;
+        zip.sync_all()?;
+        archive = Some("Files.zip");
+    }
+    let (name, (html, mut receipt)) = match selected {
+        Handoff::Delivery(issued) => (
+            "Delivery.html",
+            delivery_sheet::render(db, &issued, &files)?,
+        ),
+        Handoff::Request(request) => ("Request.html", request_sheet(db, request, &files)?),
+    };
+    let mut document = File::create_new(stage.path().join(name))?;
+    document.write_all(html.as_bytes())?;
     document.sync_all()?;
     drop(document);
     #[cfg(unix)]
@@ -184,8 +220,9 @@ pub fn export_handoff(db: &Connection, reference: &str, destination: &Path) -> R
     archive::publish_directory(stage.path(), destination)?;
     #[cfg(unix)]
     File::open(parent)?.sync_all()?;
-    Ok(
-        json!({"directory":destination,"request":reference,"latest":latest_reference,
-        "state":request.state,"sheet":"Request.html","archive":attachments,"file_count":file_count}),
-    )
+    receipt["directory"] = json!(destination);
+    receipt["sheet"] = json!(name);
+    receipt["archive"] = json!(archive);
+    receipt["file_count"] = json!(files.len());
+    Ok(receipt)
 }

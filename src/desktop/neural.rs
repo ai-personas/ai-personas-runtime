@@ -28,6 +28,8 @@ mod home_index;
 mod home_live;
 mod home_navigation;
 mod home_updates;
+mod delivery_desk;
+mod delivery_followups;
 mod dialogs;
 mod export;
 mod life;
@@ -120,6 +122,8 @@ pub struct App {
     home_index: home_index::Index,
     home: home::Home,
     home_updates: home_updates::Updates,
+    delivery_desk: delivery_desk::Desk,
+    delivery_followups: delivery_followups::Panel,
     runner_observation: ai_personas::neural::live::RunnerObservation,
     character_decisions: Vec<Value>,
     known_decisions: Arc<BTreeSet<String>>,
@@ -222,6 +226,8 @@ impl App {
             home_index: Default::default(),
             home: Default::default(),
             home_updates: Default::default(),
+            delivery_desk: Default::default(),
+            delivery_followups: Default::default(),
             runner_observation: Default::default(),
             character_decisions: vec![],
             known_decisions: Default::default(),
@@ -365,6 +371,7 @@ impl App {
         self.open_named_resource(ctx, reference, None);
     }
     fn open_named_resource(&mut self, ctx: &egui::Context, reference: String, output: Option<(String,String)>) {
+        self.delivery_desk.record_origin(self.layout.editor == Editor::Delivery, &self.layout.delivery, &self.work, &reference);
         self.selected_reference = reference.clone();
         self.reference_input = reference.clone();
         self.layout.editor = Editor::Artifacts;
@@ -714,6 +721,7 @@ impl eframe::App for App {
         self.export_window(ctx);
         if let Some(action)=self.requested_activities.show(ctx,&self.root,&self.snapshot.status,self.cursor) {
             match action {
+                requested_activities::Action::Inspect(r) if r.starts_with("delivery:")=>self.open_issued_package(ctx,&r),
                 requested_activities::Action::Inspect(r)=>self.open_resource(ctx,r),
                 requested_activities::Action::OpenWork(id)=>{self.work=id;self.conversation_page=0;self.layout.editor=Editor::Studio;}
             }

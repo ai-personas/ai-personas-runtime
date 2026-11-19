@@ -136,8 +136,15 @@ pub(super) fn reply_targets_since(db: &Connection, actor: &str, work: &str, afte
                 format!("{}/{}",body["request"].as_str().unwrap_or(""),exchange.kind)
             } else { String::new() };
             if seen.insert((exchange.actor.clone(), recipient.to_owned(), route)) {
-                targets.push(json!({"experience":format!("experience:{}@1",exchange.id),"author":exchange.actor,
-                    "recipient_for_reply":recipient,"kind":exchange.kind,"received_at":exchange.created}));
+                let mut target = json!({"experience":format!("experience:{}@1",exchange.id),"author":exchange.actor,
+                    "recipient_for_reply":recipient,"kind":exchange.kind,"received_at":exchange.created});
+                if exchange.kind == "user_message" {
+                    let body: Value = store::object(db, &exchange.digest)?;
+                    if let Some(reference) = body.get("delivery") {
+                        target["delivery"] = reference.clone();
+                    }
+                }
+                targets.push(target);
             }
         }
     }
@@ -183,6 +190,9 @@ pub(super) fn responses_to_call(
           (e.kind IN ('message','reply','user_message','request_reply','requester_message','requester_review') AND EXISTS (
             SELECT 1 FROM events parent WHERE parent.work=e.work AND parent.invocation=?3
             AND 'experience:event-'||parent.seq||'@1'=json_extract(CAST(b.bytes AS TEXT),'$.reply_to')))
+          OR (e.kind='user_message' AND e.invocation IS NULL AND e.target=?1 AND EXISTS (
+            SELECT 1 FROM versions v WHERE v.kind='delivery' AND v.invocation=?3
+            AND 'delivery:'||v.id||'@'||v.revision=json_extract(CAST(b.bytes AS TEXT),'$.delivery')))
           OR (e.kind='user_acceptance' AND EXISTS (
             SELECT 1 FROM versions v WHERE v.kind='delivery' AND v.invocation=?3
             AND 'delivery:'||v.id||'@'||v.revision=json_extract(CAST(b.bytes AS TEXT),'$.decision.delivery'))))
@@ -192,7 +202,13 @@ pub(super) fn responses_to_call(
     for row in statement.query_map(params![actor, work, call], Experience::row)? {
         let e = row?;
         let body: Value = store::object(db, &e.digest)?;
-        let (relation, target) = if e.kind == "user_acceptance" {
+        let package = if e.kind=="user_message" && e.invocation.is_none() {
+            body["delivery"].as_str().map(|r| super::delivery_feedback::issued(db,r)).transpose()?
+        } else { None };
+        let (relation, target) = if let Some(issue)=package.filter(|d| d.invocation == call) {
+            issue.check_message(&body,work,actor,e.id.trim_start_matches("event-").parse()?)?;
+            ("delivery_feedback",&body["delivery"])
+        } else if e.kind == "user_acceptance" {
             ("delivery_review", &body["decision"]["delivery"])
         } else if e.kind == "requester_review" {
             ("requester_review", &body["review"]["delivery"])
@@ -223,6 +239,9 @@ pub(super) fn availability(db: &Connection, actor: &str, work: &str) -> Result<V
         "discovery":"experience.search finds your earlier choices and exchanges. Select an exact experience to inspect it. Other activities have their own briefs."});
     if let Some(report) = super::asset_feedback::latest_received(db, actor, work)? {
         available["latest_resource_feedback_elsewhere"] = report;
+    }
+    if let Some(feedback) = super::delivery_feedback::latest_elsewhere(db, actor, work)? {
+        available["latest_delivery_feedback_elsewhere"] = feedback;
     }
     Ok(available)
 }

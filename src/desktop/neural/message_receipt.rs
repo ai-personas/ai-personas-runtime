@@ -47,8 +47,13 @@ impl App {
         let mut visible = true;
         let mut inspect = None;
         let mut open_file = None;
+        let mut open_package = None;
         let mut refresh = false;
-        egui::Window::new("Delivery status").id(egui::Id::new("live-message-receipt")).open(&mut visible)
+        let feedback = self.message_receipt.report.as_ref()
+            .and_then(|r| r.as_ref().ok())
+            .is_some_and(|r| r["delivery"].is_string());
+        let title = if feedback { "Feedback receipt" } else { "Delivery status" };
+        egui::Window::new(title).id(egui::Id::new("live-message-receipt")).open(&mut visible)
             .default_width(425.).resizable(true).vscroll(true).show(ctx, |ui| {
                 let report = match &self.message_receipt.report {
                     Some(Ok(report)) => report,
@@ -56,11 +61,20 @@ impl App {
                     None => {ui.spinner(); return;}
                 };
                 let recipient = self.label(s(report, "recipient"));
-                let (heading, noun) = if report["kind"] == "human_request_progress" {
+                let delivery = report["delivery"].as_str();
+                let (heading, noun) = if delivery.is_some() {
+                    ("Package feedback", "feedback")
+                } else if report["kind"] == "human_request_progress" {
                     if report["state"] == "in_progress" {("Request claim","claim")} else {("Request release","release")}
                 } else if report["request"].is_string() {("Human report","report")} else {("Message","message")};
                 ui.label(RichText::new(format!("{heading} to {recipient}")).strong().size(19.));
-                ui.weak(format!("Sent by {} · {}", self.label(s(report,"sender")), time_label(report["sent_at"].as_i64().unwrap_or(0))));
+                let action = if delivery.is_some() { "Recorded" } else { "Sent" };
+                ui.weak(format!("{action} by {} · {}", self.label(s(report,"sender")), time_label(report["sent_at"].as_i64().unwrap_or(0))));
+                if let Some(reference) = delivery {
+                    if live_composer::feedback_link(ui, s(report, "delivery_title"), reference, egui::TextWrapMode::Wrap).clicked() {
+                        open_package = Some((reference.to_owned(), s(report, "work").to_owned()));
+                    }
+                }
                 ui.add_space(6.);
                 if let Some(text) = report["text"].as_str().filter(|text| !text.trim().is_empty()) {
                     ui.label(excerpt(text, 360));
@@ -74,7 +88,11 @@ impl App {
                     if ui.button("Inspect decision").clicked() {inspect=Some(call.to_owned());}
                 } else {
                     theme::badge(ui, &format!("{heading} recorded"), PURPLE);
-                    ui.label(format!("Studio will show a receipt when it verifies this {noun} in an accepted decision."));
+                    if delivery.is_some() {
+                        ui.label(format!("Studio has yet to verify this feedback in one of {recipient}’s accepted decisions."));
+                    } else {
+                        ui.label(format!("Studio will show a receipt when it verifies this {noun} in an accepted decision."));
+                    }
                 }
                 let files=report["attachments"].as_array().map(Vec::as_slice).unwrap_or_default();
                 let source = format!("experience:event-{event}@1");
@@ -118,7 +136,10 @@ impl App {
         } else if refresh {
             self.open_message_receipt(ctx, event);
         }
-        if let Some(reference) = inspect {
+        if let Some((reference, work)) = open_package {
+            self.message_receipt = Default::default();
+            self.open_home_delivery(&reference, &work);
+        } else if let Some(reference) = inspect {
             self.message_receipt = Default::default();
             self.open_resource(ctx, reference);
         } else if let Some((reference, name)) = open_file {

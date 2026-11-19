@@ -27,6 +27,14 @@ pub(super) struct Index {
 }
 
 impl Index {
+    pub(super) fn delivery_issue(&self, reference: &str) -> Option<i64> {
+        self.issued.get(reference).copied()
+    }
+
+    pub(super) fn latest_event(&self, work: &str) -> Option<i64> {
+        self.last_event.get(work).map(|(seq, _)| *seq)
+    }
+
     pub fn activity(&self, id: &str) -> Option<&Activity> {
         self.activities.get(*self.positions.get(id)?)
     }

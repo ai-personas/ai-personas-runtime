@@ -11,12 +11,107 @@ pub(super) struct Composer {
 
 #[derive(Default)]
 struct Activity {
-    recipient: String,
-    drafts: BTreeMap<String, Draft>,
+    selected: Destination,
+    drafts: BTreeMap<Destination, Draft>,
+}
+
+#[derive(Clone, Default, Eq, PartialEq, Ord, PartialOrd)]
+struct Destination {
+    person: String,
+    delivery: Option<String>,
+}
+
+impl Destination {
+    fn conversation(person: &str) -> Self {
+        Self {
+            person: person.into(),
+            delivery: None,
+        }
+    }
+}
+
+impl Activity {
+    fn select(&mut self, destination: Destination) -> &mut Draft {
+        self.selected.clone_from(&destination);
+        let draft = self.drafts.entry(destination).or_default();
+        draft.focus = true;
+        draft
+    }
+
+    fn feedback_drafts(&mut self, ui: &mut Ui) {
+        let person = &self.selected.person;
+        let mut drafts = self
+            .drafts
+            .iter()
+            .filter(|(to, _)| to.person == *person && to.delivery.is_some())
+            .filter_map(|(to, draft)| {
+                let status = draft
+                    .status()
+                    .or_else(|| draft.saved_event.map(|_| "recorded"))?;
+                Some((to, draft, status))
+            })
+            .peekable();
+        if drafts.peek().is_none() {
+            return;
+        }
+        let mut selected = None;
+        ui.menu_button("Package feedback", |ui| {
+            ui.set_max_width((ui.ctx().content_rect().width().min(340.) - 30.).max(1.));
+            egui::ScrollArea::vertical()
+                .max_height(220.)
+                .show(ui, |ui| {
+                    for (to, draft, status) in drafts {
+                        let reference = to.delivery.as_deref().unwrap_or_default();
+                        let label = format!(
+                            "{} · {status}",
+                            package_title(&draft.delivery_title, reference)
+                        );
+                        if ui.button(label).on_hover_text(reference).clicked() {
+                            selected = Some(to.clone());
+                            ui.close();
+                        }
+                    }
+                });
+        });
+        if let Some(to) = selected {
+            self.select(to);
+        }
+    }
+}
+
+fn package_title(title: &str, reference: &str) -> String {
+    let title = if title.trim().is_empty() {
+        "Issued package"
+    } else {
+        title
+    };
+    let revision = reference
+        .rsplit_once('@')
+        .and_then(|(_, r)| r.parse::<u64>().ok());
+    match revision {
+        Some(revision) => format!("{title} · revision {revision}"),
+        None => title.into(),
+    }
+}
+
+pub(super) fn feedback_link(
+    ui: &mut Ui,
+    title: &str,
+    reference: &str,
+    wrap: egui::TextWrapMode,
+) -> egui::Response {
+    let title = package_title(title, reference);
+    ui.scope(|ui| {
+        ui.style_mut().wrap_mode = Some(wrap);
+        ui.link(format!("Feedback on {}", excerpt(&title, 180)))
+            .on_hover_text(format!("{title}\n{reference}"))
+    })
+    .inner
 }
 
 #[derive(Default)]
 struct Draft {
+    delivery_title: String,
     input: Message,
     picker: Picker,
     focus: bool,
@@ -56,6 +151,8 @@ impl Message {
 
 #[derive(Clone)]
 struct Attempt {
+    work: String,
+    destination: Destination,
     request: String,
     operator: String,
     message: Message,
@@ -63,7 +160,7 @@ struct Attempt {
 
 pub(super) struct SubmissionResult {
     work: String,
-    person: String,
+    destination: Destination,
     request: String,
     event: Result<i64, String>,
 }
@@ -75,22 +172,19 @@ struct Recipient {
 }
 
 impl Composer {
-    fn address(&mut self, work: &str, person: &str) -> Option<&mut Draft> {
-        if work.is_empty() || person.is_empty() {
+    fn address(&mut self, work: &str, destination: Destination) -> Option<&mut Draft> {
+        if work.is_empty() || destination.person.is_empty() {
             return None;
         }
         let activity = self.activities.entry(work.to_owned()).or_default();
-        person.clone_into(&mut activity.recipient);
-        let draft = activity.drafts.entry(person.to_owned()).or_default();
-        draft.focus = true;
-        Some(draft)
+        Some(activity.select(destination))
     }
 
     pub(super) fn receive(&mut self, result: SubmissionResult) -> bool {
         let Some(draft) = self
             .activities
             .get_mut(&result.work)
-            .and_then(|activity| activity.drafts.get_mut(&result.person))
+            .and_then(|activity| activity.drafts.get_mut(&result.destination))
         else {
             return false;
         };
@@ -136,7 +230,13 @@ impl Draft {
         }
     }
 
-    fn prepare(&mut self, operator: &str, retry: Option<usize>) -> Option<Attempt> {
+    fn prepare(
+        &mut self,
+        work: &str,
+        destination: &Destination,
+        operator: &str,
+        retry: Option<usize>,
+    ) -> Option<Attempt> {
         if self.pending.is_some() || operator.is_empty() || self.picker.busy() {
             return None;
         }
@@ -168,6 +268,8 @@ impl Draft {
             };
             self.picker = Picker::default();
             Attempt {
+                work: work.to_owned(),
+                destination: destination.clone(),
                 request,
                 operator: operator.to_owned(),
                 message: std::mem::take(&mut self.input),
@@ -184,13 +286,17 @@ impl Draft {
         &mut self,
         ui: &mut Ui,
         work: &str,
+        destination: &Destination,
         person: &Recipient,
         operator: &str,
     ) -> Option<Attempt> {
         let p = theme::palette(ui);
-        ui.push_id(("message-files", work, &person.id), |ui| {
-            self.picker.details(ui, &mut self.input.files);
-        });
+        ui.push_id(
+            ("message-files", work, &person.id, &destination.delivery),
+            |ui| {
+                self.picker.details(ui, &mut self.input.files);
+            },
+        );
         if let Some((reference, quote)) = &self.input.reply {
             let clear = ui
                 .allocate_ui_with_layout(
@@ -222,10 +328,9 @@ impl Draft {
                 self.focus = true;
             }
         }
-        let id = ui.make_persistent_id(("operator-message", work, &person.id));
-        if std::mem::take(&mut self.focus) {
-            ui.memory_mut(|memory| memory.request_focus(id));
-        }
+        let id =
+            ui.make_persistent_id(("operator-message", work, &person.id, &destination.delivery));
+        let focus = std::mem::take(&mut self.focus);
         let shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Enter);
         let enter = ui.memory(|memory| memory.has_focus(id))
             && ui.input_mut(|input| input.consume_shortcut(&shortcut));
@@ -251,18 +356,29 @@ impl Draft {
                             .max_height(66.)
                             .auto_shrink([false, true])
                             .show(ui, |ui| {
-                                ui.add(
+                                let editor = ui.add(
                                     egui::TextEdit::multiline(&mut self.input.text)
                                         .id(id)
-                                        .hint_text(if self.input.files.is_empty() {
-                                            format!("Write to {}…", person.name)
-                                        } else {
+                                        .hint_text(if !self.input.files.is_empty() {
                                             "Add a message (optional)…".into()
+                                        } else if destination.delivery.is_some() {
+                                            format!("Write feedback to {}…", person.name)
+                                        } else {
+                                            format!("Write to {}…", person.name)
                                         })
                                         .margin(egui::Margin::symmetric(9, 6))
                                         .desired_rows(2)
                                         .desired_width(f32::INFINITY),
                                 );
+                                if focus {
+                                    editor.request_focus();
+                                    // A menu or Conversation button can still own this click.
+                                    // Apply the request once more after its popup has closed.
+                                    if ui.input(|input| input.pointer.any_click()) {
+                                        self.focus = true;
+                                        ui.ctx().request_repaint();
+                                    }
+                                }
                             });
                     },
                 );
@@ -357,7 +473,7 @@ impl Draft {
             return None;
         }
         if send || retry.is_some() {
-            return self.prepare(operator, retry);
+            return self.prepare(work, destination, operator, retry);
         }
         None
     }
@@ -365,11 +481,42 @@ impl Draft {
 
 impl App {
     pub(super) fn address_in_live(&mut self, person: &str) {
-        self.live_composer.address(&self.work, person);
+        self.live_composer
+            .address(&self.work, Destination::conversation(person));
+    }
+
+    pub(super) fn open_delivery_feedback(
+        &mut self,
+        reference: &str,
+        work: &str,
+        owner: &str,
+        title: &str,
+    ) {
+        if reference.is_empty() || work.is_empty() || owner.is_empty() {
+            return;
+        }
+        self.open_home_activity(work);
+        owner.clone_into(&mut self.persona);
+        let to = Destination {
+            person: owner.into(),
+            delivery: Some(reference.into()),
+        };
+        if let Some(draft) = self.live_composer.address(work, to) {
+            title.clone_into(&mut draft.delivery_title);
+        }
     }
 
     pub(super) fn reply_in_live(&mut self, person: &str, reference: &str, quote: &str) {
-        if let Some(draft) = self.live_composer.address(&self.work, person) {
+        let to = self
+            .live_composer
+            .activities
+            .get(&self.work)
+            .filter(|activity| activity.selected.person == person)
+            .map_or_else(
+                || Destination::conversation(person),
+                |activity| activity.selected.clone(),
+            );
+        if let Some(draft) = self.live_composer.address(&self.work, to) {
             draft.input.reply = Some((reference.to_owned(), excerpt(quote, 180)));
         }
     }
@@ -417,18 +564,19 @@ impl App {
         for draft in activity.drafts.values_mut() {
             draft.picker.poll(&mut draft.input.files);
         }
-        if activity.recipient.is_empty() {
+        if activity.selected.person.is_empty() {
             if let Some(person) = members
                 .iter()
                 .find(|person| person.id == self.persona)
                 .or(members.first())
             {
-                activity.recipient.clone_from(&person.id);
+                activity.selected.person.clone_from(&person.id);
             }
         }
         let p = theme::palette(ui);
         let operator = self.operator.trim();
         let mut receipt = None;
+        let mut open_package = None;
         let mut invite = false;
         let sent = egui::Frame::new()
             .fill(p.panel)
@@ -438,11 +586,32 @@ impl App {
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
                 let width = ui.available_width();
+                if let Some(reference) = &activity.selected.delivery {
+                    let title = activity.drafts.get(&activity.selected)
+                        .map_or("", |draft| draft.delivery_title.as_str());
+                    let mut conversation = false;
+                    ui.allocate_ui_with_layout(egui::vec2(width, 22.), egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        conversation = ui.small_button("Conversation")
+                            .on_hover_text("Return to the regular conversation and keep this feedback draft.")
+                            .clicked();
+                        ui.allocate_ui_with_layout(egui::vec2(ui.available_width().max(1.), 22.), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                                    if feedback_link(ui, title, reference, egui::TextWrapMode::Truncate).clicked() {
+                                open_package = Some(reference.clone());
+                            }
+                        });
+                    });
+                    if conversation {
+                        activity.select(Destination::conversation(&activity.selected.person));
+                    }
+                }
+                let bound = activity.selected.delivery.is_some();
                 ui.horizontal_wrapped(|ui| {
                     if width >= 245. {
                         theme::glyph(ui, Icon::Conversation, p.accent);
                     }
-                    if members.is_empty() || width >= 330. {
+                    if bound {
+                        ui.strong("To");
+                    } else if members.is_empty() || width >= 330. {
                         ui.strong("Your message");
                         if members.is_empty() {
                             return;
@@ -454,13 +623,15 @@ impl App {
                     }
                     let selected = members
                         .iter()
-                        .find(|person| person.id == activity.recipient);
-                    if members.len() == 1 && selected.is_some() {
+                        .find(|person| person.id == activity.selected.person);
+                    if let Some(person) = selected.filter(|_| bound || members.len() == 1) {
                         ui.add(
-                            egui::Label::new(RichText::new(&members[0].name).color(p.text))
+                            egui::Label::new(RichText::new(&person.name).color(p.text))
                                 .truncate(),
                         )
-                        .on_hover_text(&members[0].id);
+                        .on_hover_text(&person.id);
+                    } else if bound {
+                        ui.weak("Issuer unavailable");
                     } else {
                         egui::ComboBox::from_id_salt(("message-to", &self.work))
                             .width(75.)
@@ -473,43 +644,47 @@ impl App {
                                 ui.set_max_width(width.min(320.));
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 for person in &members {
+                                    let to = Destination::conversation(&person.id);
                                     let label = activity
                                         .drafts
-                                        .get(&person.id)
+                                        .get(&to)
                                         .and_then(Draft::status)
                                         .map(|status| format!("{} · {status}", person.name));
                                     if ui
-                                        .selectable_value(
-                                            &mut activity.recipient,
-                                            person.id.clone(),
+                                        .selectable_label(
+                                            activity.selected == to,
                                             label.as_deref().unwrap_or(&person.name),
                                         )
                                         .on_hover_text(&person.id)
                                         .clicked()
                                     {
-                                        activity
-                                            .drafts
-                                            .entry(person.id.clone())
-                                            .or_default()
-                                            .focus = true;
+                                        activity.select(to);
+                                        ui.close();
                                     }
                                 }
                             });
                     }
                     let selected = members
                         .iter()
-                        .find(|person| person.id == activity.recipient);
+                        .find(|person| person.id == activity.selected.person);
                     if let Some(person) = selected {
-                        let draft = activity.drafts.entry(person.id.clone()).or_default();
-                        ui.push_id(("attach-to", &self.work, &person.id), |ui| {
+                        let draft = activity.drafts.entry(activity.selected.clone()).or_default();
+                        ui.push_id(("attach-to", &self.work, &person.id, &activity.selected.delivery), |ui| {
                             draft.picker.button(ui, draft.input.files.len())
                         });
                     }
+                    if !bound {
+                        activity.feedback_drafts(ui);
+                    }
                     if let Some(status) = selected.and_then(|person| person.status) {
                         ui.label(RichText::new(status).small().color(p.muted))
-                            .on_hover_text("You can still record a message for this participant.");
+                            .on_hover_text(if status == "Stopped on this activity" {
+                                "Recording a message leaves this participant stopped."
+                            } else {
+                                "You can still record a message for this participant."
+                            });
                     }
-                    if let Some(draft) = activity.drafts.get(&activity.recipient) {
+                    if let Some(draft) = activity.drafts.get(&activity.selected) {
                         if draft.pending.is_some() {
                             ui.add(egui::Spinner::new().size(13.));
                             ui.small("Saving…");
@@ -540,46 +715,48 @@ impl App {
                 }
                 let person = members
                     .iter()
-                    .find(|person| person.id == activity.recipient)?;
+                    .find(|person| person.id == activity.selected.person)?;
                 if operator.is_empty() {
                     ui.weak("Set your operator name in Workspace settings to send.");
                 }
-                let draft = activity.drafts.entry(person.id.clone()).or_default();
-                draft
-                    .editor(ui, &self.work, person, operator)
-                    .map(|attempt| (person.id.clone(), attempt))
+                let draft = activity.drafts.entry(activity.selected.clone()).or_default();
+                draft.editor(ui, &self.work, &activity.selected, person, operator)
             })
             .inner;
+        if let Some(reference) = open_package {
+            self.open_home_delivery(&reference, &self.work.clone());
+        }
         if let Some(event) = receipt {
             self.open_message_receipt(ui.ctx(), event);
         }
         if invite {
             self.dialog = Some(self.participation_dialog(super::dialogs::Action::Invite));
         }
-        let Some((person, attempt)) = sent else {
+        let Some(attempt) = sent else {
             return;
         };
-        let (work, root, tx, ctx) = (
-            self.work.clone(),
-            self.root.clone(),
-            self.tx.clone(),
-            ui.ctx().clone(),
-        );
+        let (root, tx, ctx) = (self.root.clone(), self.tx.clone(), ui.ctx().clone());
         std::thread::spawn(move || {
+            let work = attempt.work;
+            let destination = attempt.destination;
             let command = Command::Message {
                 work: work.clone(),
-                persona: person.clone(),
+                persona: destination.person.clone(),
+                delivery: destination.delivery.clone(),
                 reply_to: attempt.message.parent().map(str::to_owned),
                 text: attempt.message.text,
                 files: InputFiles::from(attempt.message.files),
             };
             let event = operator_call(&root, &attempt.operator, command, Some(&attempt.request)).and_then(|receipt| {
+                if receipt["delivery"].as_str() != destination.delivery.as_deref() {
+                    return Err("The workspace did not confirm this package reference. Retry to check this submission.".into());
+                }
                 receipt["event"].as_i64().filter(|event| *event > 0)
                     .ok_or_else(|| "The workspace returned no message event. Retry to check this submission.".to_owned())
             });
             let _ = tx.send(Update::LiveMessage(SubmissionResult {
                 work,
-                person,
+                destination,
                 request: attempt.request,
                 event,
             }));

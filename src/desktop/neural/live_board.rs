@@ -112,7 +112,7 @@ impl Filter {
                     || event["body"]["recipient_kind"] == "operator"
             }
             Self::Files => {
-                file || human_file_count(event) > 0
+                file || human_file_count(event) > 0 || feedback_reference(event).is_some()
                     || matches!(
                         kind,
                         "delivery" | "request_delivery" | "package_review" | "user_acceptance" | "asset_feedback"
@@ -336,6 +336,16 @@ fn human_file_count(event: &Value) -> usize {
         event["body"]["attachments"].as_array().map_or(0, Vec::len)
     } else {
         0
+    }
+}
+
+fn feedback_reference(event: &Value) -> Option<&str> {
+    if event["kind"] == "user_message" && event["invocation"].is_null() {
+        event["body"]["delivery"]
+            .as_str()
+            .filter(|r| r.starts_with("delivery:"))
+    } else {
+        None
     }
 }
 
@@ -1062,6 +1072,7 @@ fn preview_text(source: &str, limit: usize) -> String {
 
 enum EventAction {
     Open(String),
+    Package { reference: String, work: String },
     SourceFile {
         source: String,
         object: String,
@@ -1185,6 +1196,9 @@ impl App {
                 }
                 match action {
                     Some(EventAction::Open(reference)) => self.open_resource(ui.ctx(), reference),
+                    Some(EventAction::Package { reference, work }) => {
+                        self.open_home_delivery(&reference, &work)
+                    }
                     Some(EventAction::SourceFile { source, object, name }) => {
                         self.open_named_resource(ui.ctx(), object, Some((source, name)))
                     }
@@ -1204,6 +1218,30 @@ impl App {
                     None => {}
                 }
             });
+    }
+
+    fn feedback_title<'a>(&'a self, event: &'a Value, reference: &str) -> &'a str {
+        if let Some(title) = event["body"]["delivery_title"]
+            .as_str()
+            .filter(|s| !s.trim().is_empty())
+        {
+            return title;
+        }
+        let issue = self.home_index.delivery_issue(reference).and_then(|seq| {
+            self.events
+                .binary_search_by_key(&seq, |row| row["event"].as_i64().unwrap_or(0))
+                .ok()
+        });
+        if let Some(title) = issue
+            .and_then(|i| self.events[i]["body"]["record"]["title"].as_str())
+            .filter(|s| !s.trim().is_empty())
+        {
+            return title;
+        }
+        self.records("deliveries")
+            .iter()
+            .find(|d| inbox::handle(d) == reference)
+            .map_or("", |d| s(&d["body"], "title"))
     }
 
     fn timeline_event(&self, ui: &mut Ui, event: &Value) -> Option<EventAction> {
@@ -1293,6 +1331,15 @@ impl App {
                         action = Some(EventAction::Open(reference()));
                     }
                 });
+                if let Some(package) = feedback_reference(event) {
+                    let title = self.feedback_title(event, package);
+                    if live_composer::feedback_link(ui, title, package, egui::TextWrapMode::Wrap).clicked() {
+                        action = Some(EventAction::Package {
+                            reference: package.into(),
+                            work: s(event, "work").into(),
+                        });
+                    }
+                }
                 let text = event_text(event);
                 let expanded = self.live_board.expanded == Some(seq);
                 let limit = if ui.available_width() < 400. {
@@ -1367,11 +1414,15 @@ impl App {
                     {
                         action = Some(EventAction::Address(actor.into()));
                     }
-                    if kind == "user_message"
-                        && event["invocation"].is_null()
-                        && text_action(ui, "Delivery status").clicked()
-                    {
-                        action = Some(EventAction::Receipt(seq));
+                    if kind == "user_message" && event["invocation"].is_null() {
+                        let label = if feedback_reference(event).is_some() {
+                            "Feedback receipt"
+                        } else {
+                            "Delivery status"
+                        };
+                        if text_action(ui, label).clicked() {
+                            action = Some(EventAction::Receipt(seq));
+                        }
                     }
                     if let Some(parent) = body["reply_to"].as_str() {
                         if text_action(ui, "In reply to")
@@ -1430,6 +1481,9 @@ impl App {
             "*" => "everyone",
             who => self.label(who),
         };
+        if feedback_reference(event).is_some() {
+            return format!("left package feedback for {target}");
+        }
         if kind == "user_message" && s(body, "text").trim().is_empty() {
             let files = human_file_count(event);
             if files > 0 {

@@ -54,42 +54,21 @@ impl App {
         self.layout.editor = Editor::Delivery;
     }
 
+    pub(super) fn open_issued_package(&mut self, ctx: &egui::Context, reference: &str) {
+        let work = self.records("deliveries").iter()
+            .find(|record| inbox::handle(record) == reference)
+            .and_then(|record| record["body"]["work"].as_str()).map(str::to_owned);
+        if let Some(work) = work {
+            self.open_home_delivery(reference, &work);
+        } else {
+            self.open_resource(ctx, reference.into());
+        }
+    }
+
     pub(super) fn selected_home_package(&self) -> Option<&Value> {
         self.records("deliveries")
             .iter()
             .find(|d| inbox::handle(d) == self.layout.delivery)
-    }
-
-    pub(super) fn home_package_page(&mut self, ui: &mut Ui) {
-        let package = self.selected_home_package().cloned();
-        ui.horizontal_wrapped(|ui| {
-            if ui.link("← Overview").clicked() {
-                self.layout.editor = Editor::Home;
-            }
-            if let Some(package) = &package {
-                ui.weak("/");
-                let work = s(&package["body"], "work");
-                if ui.link(self.work_name(work)).clicked() {
-                    self.open_home_activity(work);
-                }
-            }
-        });
-        ui.add_space(14.);
-        ui.heading("Delivery package");
-        ui.add_space(10.);
-        if let Some(package) = package {
-            let reference = inbox::handle(&package);
-            egui::ScrollArea::vertical()
-                .id_salt(("package", &reference))
-                .show(ui, |ui| {
-                    self.delivery_card(ui, &package);
-                    ui.add_space(12.);
-                    ui.strong("Your review");
-                    self.review_controls(ui, &reference, s(&package["body"], "title"));
-                });
-        } else if !self.snapshot.status.is_null() {
-            ui.weak("This delivery is unavailable in the current workspace.");
-        }
     }
 
     pub(super) fn can_start_run(&self) -> bool {

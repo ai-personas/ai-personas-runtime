@@ -2,7 +2,7 @@
 use super::{RequestSheet, SheetDelivery, SheetFile};
 
 /// All workspace strings are text, including filenames, references and quoted markup.
-fn append_text(html: &mut String, text: &str) {
+pub(super) fn append_text(html: &mut String, text: &str) {
     for character in text.chars() {
         match character {
             '&' => html.push_str("&amp;"),
@@ -15,7 +15,7 @@ fn append_text(html: &mut String, text: &str) {
     }
 }
 
-fn field(html: &mut String, label: &'static str, value: &str) {
+pub(super) fn field(html: &mut String, label: &'static str, value: &str) {
     html.push_str("<div><dt>");
     html.push_str(label);
     html.push_str("</dt><dd dir=\"auto\">");
@@ -23,7 +23,7 @@ fn field(html: &mut String, label: &'static str, value: &str) {
     html.push_str("</dd></div>");
 }
 
-fn prose_section(html: &mut String, heading: &'static str, value: &str) {
+pub(super) fn prose_section(html: &mut String, heading: &'static str, value: &str) {
     html.push_str("<section><h2>");
     html.push_str(heading);
     html.push_str("</h2><p class=\"verbatim\" dir=\"auto\">");
@@ -44,7 +44,7 @@ fn byte_count(bytes: u64) -> String {
     count
 }
 
-fn listed_values(html: &mut String, list: &[String], empty: &'static str) {
+pub(super) fn listed_values(html: &mut String, list: &[String], empty: &'static str) {
     match list {
         [] => html.push_str(empty),
         [only] => {
@@ -111,19 +111,47 @@ fn attachment(html: &mut String, file: &SheetFile) {
     html.push_str("</dl></details></li>");
 }
 
-pub(super) fn render(request: &RequestSheet<'_>) -> String {
+pub(super) fn header(title: &str, kind: &'static str) -> String {
     let mut html = String::from(
         r#"<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>"#,
     );
-    append_text(&mut html, request.title);
+    append_text(&mut html, title);
     html.push_str(" · Persona Studio</title><style>");
     html.push_str(include_str!("sheet.css"));
-    html.push_str(r#"</style></head><body><main class="sheet">
-<header><div class="masthead"><span class="brand">Persona Studio</span><span>Human request</span></div>
-<h1 dir="auto">"#);
-    append_text(&mut html, request.title);
+    html.push_str(
+        r#"</style></head><body><main class="sheet">
+<header><div class="masthead"><span class="brand">Persona Studio</span><span>"#,
+    );
+    html.push_str(kind);
+    html.push_str(
+        r#"</span></div>
+<h1 dir="auto">"#,
+    );
+    append_text(&mut html, title);
     html.push_str("</h1><dl class=\"request-facts\">");
+    html
+}
+
+pub(super) fn file_section(html: &mut String, heading: &'static str, files: &[SheetFile]) {
+    html.push_str("<section><div class=\"attachments-heading\"><h2>");
+    html.push_str(heading);
+    if files.is_empty() {
+        html.push_str("</h2></div><p class=\"empty\">None attached.</p>");
+    } else {
+        html.push_str(" <span class=\"count\">(");
+        append_text(html, &files.len().to_string());
+        html.push_str(r#")</span></h2><a class="archive" href="Files.zip" download="Files.zip"><span>Download </span>Files.zip</a></div><ul class="entries">"#);
+        for file in files {
+            attachment(html, file);
+        }
+        html.push_str("</ul>");
+    }
+    html.push_str("</section>");
+}
+
+pub(super) fn render(request: &RequestSheet<'_>) -> String {
+    let mut html = header(request.title, "Human request");
     field(&mut html, "Requested by", request.requester);
     field(&mut html, "Recorded status", request.state);
     if let Some(person) = request.claimed_by {
@@ -152,19 +180,8 @@ pub(super) fn render(request: &RequestSheet<'_>) -> String {
         }
         html.push_str("</ul></section>");
     }
-    html.push_str("<section><div class=\"attachments-heading\"><h2>Attached files");
-    if request.files.is_empty() {
-        html.push_str("</h2></div><p class=\"empty\">None attached.</p>");
-    } else {
-        html.push_str(" <span class=\"count\">(");
-        append_text(&mut html, &request.files.len().to_string());
-        html.push_str(r#")</span></h2><a class="archive" href="Files.zip" download="Files.zip"><span>Download </span>Files.zip</a></div><ul class="entries">"#);
-        for file in &request.files {
-            attachment(&mut html, file);
-        }
-        html.push_str("</ul>");
-    }
-    html.push_str("</section><footer><dl class=\"identifiers\">");
+    file_section(&mut html, "Attached files", request.files);
+    html.push_str("<footer><dl class=\"identifiers\">");
     field(&mut html, "Request revision", request.reference);
     field(&mut html, "Activity", request.activity);
     html.push_str("</dl></footer></main></body></html>\n");

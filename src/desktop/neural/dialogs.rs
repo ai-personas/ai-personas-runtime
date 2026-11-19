@@ -370,6 +370,7 @@ impl App {
                                     persona: person.clone(),
                                     text: text.clone(),
                                     reply_to: reply_to.as_ref().map(|(reference,_)|reference.clone()),
+                                    delivery: None,
                                     files: InputFiles::from(sources.files.clone()),
                                 },
                                 Action::Amend => Command::Amend {

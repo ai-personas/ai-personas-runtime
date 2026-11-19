@@ -48,8 +48,14 @@ impl App {
         self.export_dialog = Some(Dialog::new(self.export_generation, Contents::Package(reference.into()), format!("{name}.zip")));
     }
     pub(super) fn save_request_handoff(&mut self, reference: &str, title: &str, files: usize) {
+        self.save_handoff(reference, title, files, "Request");
+    }
+    pub(super) fn save_delivery_handoff(&mut self, reference: &str, title: &str, files: usize) {
+        self.save_handoff(reference, title, files, "Delivery");
+    }
+    fn save_handoff(&mut self, reference: &str, title: &str, files: usize, fallback: &str) {
         let stem = title_stem(title);
-        let folder = if stem.is_empty() { "Request-handoff".into() } else { format!("{stem}-handoff") };
+        let folder = if stem.is_empty() { format!("{fallback}-handoff") } else { format!("{stem}-handoff") };
         self.export_generation += 1;
         self.export_dialog = Some(Dialog::new(
             self.export_generation,
@@ -101,6 +107,10 @@ impl App {
             Contents::Artifact { .. } => ("Save artifact", "Save the exact retained file to your computer.", "Save file"),
             Contents::Deliveries(_) => ("Export deliveries", "Export this task's delivered files with their delivery records.", "Export deliveries"),
             Contents::Package(_) => ("Save file package", "The ZIP contains the selected file revisions with their original names and folders.", "Save file"),
+            Contents::Handoff { reference, .. } if reference.starts_with("delivery:") => (
+                "Save delivery handoff",
+                "The new folder contains a printable Delivery.html with the author’s scope and remaining work, plus Files.zip with the exact issued files.",
+                "Save handoff"),
             Contents::Handoff { files: 0, .. } => ("Save handoff", "Open Request.html in the new folder to read the request offline.", "Save handoff"),
             Contents::Handoff { .. } => ("Save handoff", "The new folder contains Request.html for offline reading and Files.zip with the requester’s attached files.", "Save handoff"),
         };

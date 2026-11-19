@@ -139,8 +139,16 @@ pub enum Command {
     },
     /// Save the exact files of one delivery or human request as a portable ZIP.
     ExportPackage { reference: String, destination: PathBuf },
-    /// Save a printable human request and its attached file package in a new folder.
+    /// Save a printable issued delivery or human request and its files in a new folder.
     ExportHandoff { reference: String, directory: PathBuf },
+    /// Read human feedback and directly addressed replies for one issued delivery.
+    DeliveryFeedback {
+        delivery: String,
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
+        #[arg(long, default_value_t = 8)]
+        limit: usize,
+    },
     Status,
     /// Install a retained WASI command or the published ngspice simulator.
     InstallCommand {
@@ -277,6 +285,10 @@ pub enum Command {
         #[arg(long)]
         #[serde(skip_serializing_if = "Option::is_none")]
         reply_to: Option<String>,
+        /// Attribute the message and attached files to this recipient's exact issued delivery.
+        #[arg(long)]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        delivery: Option<String>,
     },
     /// Amend requirements with attribution while preserving the original need.
     Amend {
@@ -521,6 +533,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
                 Command::RunnerStatus=>store.snapshot(|db|Ok(serde_json::to_value(super::live::observe_runner(root,db))?)),
                 Command::ActivityTree{work}=>store.snapshot(|db|super::activity_tree::describe(db,&work)),
                 Command::MessageReceipt{event}=>store.snapshot(|db|super::live::message_receipt(db,event)),
+                Command::DeliveryFeedback{delivery,offset,limit}=>store.snapshot(|db|super::delivery_feedback::history(db,&delivery,offset,limit)),
                 Command::OperatorReceipt{key}=>store.snapshot(|db|{
                     let address=operator_request_address(operator,&key)?;
                     let receipt=store::head(db,"operator_request",&address)?.ok_or_else(||failure("No committed request with this ID for this operator"))?;
@@ -633,17 +646,25 @@ fn operator_action(root: &Path, db: &rusqlite::Connection, operator: &str, comma
             store::event(db,&work,operator,&persona,"explicit_resume",&json!({"reason":reason}),None)?;
             Ok(json!({"resumed":persona,"work":work,"scheduling_controls":super::controls::relevant(db,&work,&persona)?}))
         },
-        Command::Message{work,persona,text,reply_to,files}=>{
+        Command::Message{work,persona,text,reply_to,delivery,files}=>{
             if text.trim().is_empty() && files.is_empty(){return Err(failure("Write a message or attach a file before sending"));}
             store::required(db,"participation",&format!("{work}/{persona}"))?;
             let mut body=json!({"text":text});
+            if let Some(reference) = &delivery {
+                let issue = super::delivery_feedback::issued(db,reference)?;
+                issue.check_destination(&work,&persona)?;
+                body["delivery"] = json!(reference);
+                body["delivery_title"] = issue.record.body["title"].clone();
+            }
             if !files.is_empty() { body["attachments"]=json!(files.retain(db)?); }
             if let Some(parent)=reply_to {
                 super::experience::check_reply(db,&work,None,&persona,&parent)?;
                 body["reply_to"]=json!(parent);
             }
             let event=store::event(db,&work,operator,&persona,"user_message",&body,None)?;
-            Ok(json!({"event":event,"stopped_participation_resumed":false}))
+            let mut result = json!({"event":event,"stopped_participation_resumed":false});
+            if let Some(reference) = delivery { result["delivery"] = json!(reference); }
+            Ok(result)
         },
         Command::Amend{work,text,files}=>{
             if text.trim().is_empty(){return Err(failure("Describe the amended requirement"));}

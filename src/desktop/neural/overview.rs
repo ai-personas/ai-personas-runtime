@@ -370,8 +370,8 @@ impl App {
                 if ui.button("Save package…").clicked() {
                     self.export_package(&handle, s(b, "title"));
                 }
-                if ui.small_button("Inspect delivery ↗").clicked() {
-                    self.open_resource(ui.ctx(), handle.clone());
+                if ui.small_button("Open delivery ↗").clicked() {
+                    self.open_home_delivery(&handle, s(b, "work"));
                 }
             });
             ui.push_id(&handle, |ui| {

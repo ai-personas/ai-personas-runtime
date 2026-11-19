@@ -1012,13 +1012,14 @@ impl App {
                             } else if event["kind"] == "request_delivery" {
                                 ui.strong(s(&event["body"],"title"));
                                 ui.label(s(&event["body"],"supported_use"));
-                                if ui.small_button("Open exact delivery ↗").clicked(){self.open_resource(ui.ctx(),s(&event["body"],"delivery").into());}
+                                if ui.small_button("Open exact delivery ↗").clicked(){self.open_issued_package(ui.ctx(),s(&event["body"],"delivery"));}
                             } else if event["kind"] == "delivery" {
                                 let body = &event["body"]["record"];
                                 ui.heading(s(body, "title"));
                                 ui.label(s(body, "supported_use"));
                                 theme::badge(ui, s(body, "scope"), theme::ACCENT);
                                 if let Some(reference) = event["body"]["reference"].as_str() {
+                                    if ui.link("Open delivery ↗").clicked() { self.open_issued_package(ui.ctx(), reference); }
                                     self.review_controls(ui, reference, s(body, "title"));
                                 }
                                 for gap in body["remaining"].as_array().into_iter().flatten() {
@@ -1137,6 +1138,7 @@ impl App {
         }
     }
     pub(super) fn artifacts(&mut self, ui: &mut Ui) {
+        self.delivery_return_link(ui);
         ui.horizontal_wrapped(|ui| {
             ui.heading("Artifacts");
             ui.add_space(10.);

@@ -293,6 +293,13 @@ pub fn inspect(db: &Connection, event: i64) -> Result<Value> {
         .as_str()
         .ok_or_else(|| failure("Incoming update lacks retained text"))?;
     let request = update.request(db)?;
+    let delivery = update.body.get("delivery").map(|value| -> Result<_> {
+        let reference = value.as_str().ok_or_else(|| failure("Package feedback lacks an exact edition"))?;
+        if update.kind != "user_message" || request.is_some() { return Err(failure("Package feedback has a conflicting message origin")); }
+        let issue = crate::neural::delivery_feedback::issued(db,reference)?;
+        issue.check_message(&update.body,&update.work,&update.target,update.seq)?;
+        Ok((reference,issue.record.body["title"].clone()))
+    }).transpose()?;
     let files = attachments(db, &update.body)?;
     let addresses: BTreeSet<_> = files.iter().map(|f| f.reference.as_str()).collect();
     let handle = update.reference();
@@ -384,9 +391,12 @@ pub fn inspect(db: &Connection, event: i64) -> Result<Value> {
         "supplied":bodies.get(&file.reference),"whole":whole.get(&file.reference)})
         })
         .collect::<Vec<_>>();
-    Ok(
-        json!({"message":handle,"kind":update.kind,"work":update.work,"sender":update.actor,
+    let mut report = json!({"message":handle,"kind":update.kind,"work":update.work,"sender":update.actor,
         "recipient":update.target,"sent_at":update.created,"text":text,"request":request,"state":update.body["state"],
-        "received":received,"attachments":files,"unverified_candidates":unverified}),
-    )
+        "received":received,"attachments":files,"unverified_candidates":unverified});
+    if let Some((reference,title)) = delivery {
+        report["delivery"] = json!(reference);
+        report["delivery_title"] = title;
+    }
+    Ok(report)
 }
