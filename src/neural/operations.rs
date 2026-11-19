@@ -1045,7 +1045,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
         // Host commands may be read-only; explicit asset mutations must be acknowledged.
         maintenance(&decision.persona_maintenance,&decision.operations,tools::model_mutation,|name|matches!(name,"persona.evaluate"|"persona.assess"|"development.update"),switching)
             .map_err(|e|failure(format!("persona_maintenance: {e}")))?;
-        maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"result.review"|"asset.feedback"|"image.read"|"image.render_svg"|"document.render_pdf"|"command.run"|"geometry.render"|"geometry.inspect_stl"|"geometry.profile_stl"|"work.outcome"|"result.deliver"),false)
+        maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"result.review"|"asset.feedback"|"image.read"|"image.render_svg"|"document.print_html"|"document.render_pdf"|"command.run"|"geometry.render"|"geometry.inspect_stl"|"geometry.profile_stl"|"work.outcome"|"result.deliver"),false)
             .map_err(|e|failure(format!("asset_maintenance: {e}")))?;
         super::development::record_applications(db,snapshot,&decision.examining)?;
         super::development::consider(db,snapshot,decision)?;
@@ -1202,6 +1202,10 @@ pub fn validate_external(db: &Connection, persona: &Persona, op: &Operation) -> 
             let x: tools::RenderPdf = decode(&op.input)?;
             if x.page == 0 { return Err(failure("PDF page numbers start at 1")); }
             super::workspace::byte_digest(db, &x.reference)?;
+        }
+        "document.print_html" => {
+            let x: super::html_print::PrintHtml = decode(&op.input)?;
+            x.validate(db)?;
         }
         "persona.assess" => {
             let x: tools::AssessModel = decode(&op.input)?;

@@ -1,7 +1,7 @@
 //! A page image can be identical for distinct PDFs. Keep the producing effect
 //! and its event attached to the image when checking an accepted provider input.
 use super::{context::Snapshot, provider_evidence, store, Event, Result};
-use crate::neural::{operations, pdf_evidence, protocol::Operation};
+use crate::neural::{accepted_choice, pdf_evidence};
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -73,13 +73,13 @@ impl Pages {
             let ordinal: i64 = row.get(3)?;
             let op: Value = store::object(db, &row.get::<_, String>(4)?)?;
             let result: Value = store::object(db, &row.get::<_, String>(5)?)?;
-            let Some(ops) = accepted.response["operations"].as_array() else {
-                continue;
-            };
             let Ok(ordinal) = usize::try_from(ordinal) else {
                 continue;
             };
-            if !matches_operation(db, &event, ops, ordinal, &op)? {
+            if op["tool"] != "document.render_pdf"
+                || op["id"] != event.body["operation"]
+                || !accepted_choice::matches_document_effect(db, accepted, seq, ordinal, &op)?
+            {
                 continue;
             }
             let Ok(page) = pdf_evidence::verify(db, &op["input"], &result) else {
@@ -225,70 +225,4 @@ impl Render {
         observation["via"] = json!(via);
         self.supplied = Some((order, observation));
     }
-}
-
-fn matches_operation(
-    db: &Connection,
-    event: &Event,
-    ops: &[Value],
-    ordinal: usize,
-    queued: &Value,
-) -> Result<bool> {
-    let Some(raw) = ops.get(ordinal) else {
-        return Ok(false);
-    };
-    if raw["tool"] != "document.render_pdf" || raw["id"] != event.body["operation"] {
-        return Ok(false);
-    }
-    let Ok(mut op) = serde_json::from_value::<Operation>(raw.clone()) else {
-        return Ok(false);
-    };
-    let mut aliases = BTreeMap::new();
-    if let Some(alias) = op.input["reference"]
-        .as_str()
-        .and_then(|r| r.strip_prefix('$'))
-    {
-        let matches: Vec<_> = ops[..ordinal].iter().filter(|o| o["id"] == alias).collect();
-        let [prior] = matches.as_slice() else {
-            return Ok(false);
-        };
-        let Some(tool) = prior["tool"]
-            .as_str()
-            .filter(|t| operations::returns_alias(t))
-        else {
-            return Ok(false);
-        };
-        let mut stmt = db.prepare("SELECT e.digest FROM events e JOIN objects o ON o.digest=e.digest
-            WHERE e.invocation=?1 AND e.work=?2 AND e.actor=?3 AND e.target=e.actor AND e.kind='tool_result'
-              AND e.seq<?4 AND json_extract(CAST(o.bytes AS TEXT),'$.operation')=?5 AND json_extract(CAST(o.bytes AS TEXT),'$.tool')=?6
-              AND json_type(CAST(o.bytes AS TEXT),'$.effect') IS NULL")?;
-        let mut rows = stmt.query(params![
-            event.invocation,
-            event.work,
-            event.actor,
-            event.seq,
-            alias,
-            tool
-        ])?;
-        let Some(row) = rows.next()? else {
-            return Ok(false);
-        };
-        let body: Value = store::object(db, &row.get::<_, String>(0)?)?;
-        if rows.next()?.is_some() {
-            return Ok(false);
-        }
-        let Some(id) = body["result"]
-            .as_str()
-            .and_then(|r| r.strip_prefix("object:"))
-        else {
-            return Ok(false);
-        };
-        let result: Value = store::object(db, id)?;
-        let Some(reference) = result["reference"].as_str() else {
-            return Ok(false);
-        };
-        aliases.insert(alias.to_owned(), reference.to_owned());
-    }
-    Ok(operations::resolve_operation(&mut op, &aliases).is_ok()
-        && serde_json::to_value(op)? == *queued)
 }

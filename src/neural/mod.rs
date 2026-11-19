@@ -6,6 +6,7 @@ pub mod accounting;
 pub mod live;
 pub mod footprint;
 pub mod geometry;
+pub mod html_print;
 mod archive;
 mod assessment;
 pub mod asset_feedback;

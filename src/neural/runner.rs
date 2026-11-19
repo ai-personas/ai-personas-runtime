@@ -654,28 +654,25 @@ async fn effects(root: &Path, actor: &str, selected_work:&str) -> Result<()> {
             Ok(true)
         })?;
         if !dispatched { continue; }
-        let result = if op.tool == "document.render_pdf" {
-            match serde_json::from_value(op.input.clone()) {
-                Ok(input) => pdf::render(root, &work, actor, input).await,
-                Err(error) => Err(error.into()),
-            }
+        let result = if matches!(op.tool.as_str(), "document.print_html" | "document.render_pdf") {
+            pdf::execute(root, &work, actor, op.clone()).await
         } else {
             external(root, &work, actor, &invocation, &op).await.map(|value| (value, None))
         };
-        let (mut value, png) = match result {
+        let (mut value, file) = match result {
             Ok(value) => value,
             Err(error) => {
                 (json!({"error":error.to_string(),"success":false,"automatic_retry":false}), None)
             }
         };
         store.transaction(|db|{
-            if let Some(png) = png {
-                let digest = store::put_bytes(db, "image/png", &png)?;
-                value["reference"] = json!(format!("object:{digest}"));
-                value["image_blob"] = json!(digest);
+            if let Some(file) = file {
+                file.retain(db, &mut value)?;
             }
             let digest=store::put(db,&value)?;
-            db.execute("UPDATE outbox SET state='completed',result=?2 WHERE id=?1 AND state='dispatched'",params![effect,digest])?;
+            if db.execute("UPDATE outbox SET state='completed',result=?2 WHERE id=?1 AND state='dispatched'",params![effect,digest])? != 1 {
+                return Err(failure("Effect completion lost its dispatched outbox entry"));
+            }
             store::event(db,&work,actor,actor,"tool_result",&json!({"operation":op.id,"tool":op.tool,"effect":effect,"result":format!("object:{digest}"),"context":"complete"}),Some(&invocation))?;Ok(())
         })?;
         eprintln!(

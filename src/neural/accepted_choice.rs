@@ -5,6 +5,78 @@ use rusqlite::{params, Connection};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+/// Compare a queued document effect with its exact position in the accepted
+/// response. A source or attached file may name an earlier synchronous result.
+pub(super) fn matches_document_effect(
+    db: &Connection,
+    accepted: &provider_evidence::Accepted,
+    event: i64,
+    ordinal: usize,
+    queued: &Value,
+) -> Result<bool> {
+    let Some(ops) = accepted.response["operations"].as_array() else {
+        return Ok(false);
+    };
+    let Some(raw) = ops.get(ordinal) else {
+        return Ok(false);
+    };
+    let Ok(mut op) = serde_json::from_value::<Operation>(raw.clone()) else {
+        return Ok(false);
+    };
+    if queued["id"] != op.id || queued["tool"] != op.tool {
+        return Ok(false);
+    }
+    let mut aliases = BTreeMap::new();
+    let files = op.input["resources"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|f| &f["reference"]);
+    let references = std::iter::once(&op.input["reference"]).chain(files);
+    for alias in references.filter_map(|r| r.as_str()?.strip_prefix('$')) {
+        if aliases.contains_key(alias) {
+            continue;
+        }
+        let mut earlier = ops[..ordinal].iter().filter(|o| o["id"] == alias);
+        let Some(tool) = earlier
+            .next()
+            .and_then(|o| o["tool"].as_str())
+            .filter(|t| operations::returns_alias(t))
+        else {
+            return Ok(false);
+        };
+        if earlier.next().is_some() {
+            return Ok(false);
+        }
+        let s = &accepted.snapshot;
+        let mut stmt = db.prepare_cached("SELECT e.digest FROM events e JOIN objects o ON o.digest=e.digest
+            WHERE e.invocation=?1 AND e.work=?2 AND e.actor=?3 AND e.target=e.actor AND e.kind='tool_result'
+              AND e.seq<?4 AND json_extract(CAST(o.bytes AS TEXT),'$.operation')=?5 AND json_extract(CAST(o.bytes AS TEXT),'$.tool')=?6
+              AND json_type(CAST(o.bytes AS TEXT),'$.effect') IS NULL")?;
+        let mut rows = stmt.query(params![s.invocation, s.work, s.actor, event, alias, tool])?;
+        let Some(row) = rows.next()? else {
+            return Ok(false);
+        };
+        let body: Value = store::object(db, &row.get::<_, String>(0)?)?;
+        if rows.next()?.is_some() {
+            return Ok(false);
+        }
+        let Some(id) = body["result"]
+            .as_str()
+            .and_then(|r| r.strip_prefix("object:"))
+        else {
+            return Ok(false);
+        };
+        let result: Value = store::object(db, id)?;
+        let Some(reference) = result["reference"].as_str() else {
+            return Ok(false);
+        };
+        aliases.insert(alias.to_owned(), reference.to_owned());
+    }
+    Ok(operations::resolve_operation(&mut op, &aliases).is_ok()
+        && serde_json::to_value(op)? == *queued)
+}
+
 pub(super) struct Choice {
     pub accepted: provider_evidence::Accepted,
     first: i64,

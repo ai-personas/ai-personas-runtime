@@ -1,6 +1,6 @@
 use super::{resources::Catalog, Moment, Page};
 use crate::neural::{
-    commands, context, failure, geometry, operations, protocol::Operation,
+    commands, context, failure, geometry, html_print, operations, protocol::Operation,
     provider_evidence::Accepted, store, workspace, Result,
 };
 use rusqlite::{params, Connection, OptionalExtension};
@@ -20,7 +20,12 @@ pub(super) type Receipts = HashMap<String, Option<Receipt>>;
 fn external(tool: &str) -> bool {
     matches!(
         tool,
-        "compute.run" | "command.run" | "image.render_svg" | "document.render_pdf" | "geometry.render"
+        "compute.run"
+            | "command.run"
+            | "image.render_svg"
+            | "document.print_html"
+            | "document.render_pdf"
+            | "geometry.render"
     )
 }
 
@@ -281,6 +286,43 @@ fn execution(
     op: &Operation,
     result: &Value,
 ) -> Result<Execution> {
+    if op.tool == "document.print_html" {
+        let input: html_print::PrintHtml = serde_json::from_value(op.input.clone())?;
+        html_print::verify(catalog.db, &input, result)?;
+        let success = result["success"] == true;
+        let detail = if success {
+            json!({"source_bytes":result["source_bytes"],"pdf":result["reference"],"page_count":result["page_count"]})
+        } else {
+            json!({"input_bytes_confirmed":result["source_bytes"].is_string()})
+        };
+        let mut files = vec![member(
+            &input.reference,
+            if success {
+                "print_source"
+            } else {
+                "requested_source"
+            },
+            detail,
+        )];
+        for (index, resource) in input.resources.iter().enumerate() {
+            let object = &result["resources"][index]["object"];
+            let detail = if success {
+                json!({"mount":resource.path,"object":object,"pdf":result["reference"],"page_count":result["page_count"]})
+            } else {
+                json!({"mount":resource.path,"input_bytes_confirmed":object.is_string()})
+            };
+            files.push(member(
+                &resource.reference,
+                if success {
+                    "print_resource"
+                } else {
+                    "requested_resource"
+                },
+                detail,
+            ));
+        }
+        return Ok(Execution::new(success, files));
+    }
     if result["success"] == false && result["error"].is_string() {
         // Failure was durably recorded, but the worker did not report mounted
         // bytes. Only the inputs named in the accepted attempt can be attributed.
