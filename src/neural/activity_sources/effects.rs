@@ -197,12 +197,25 @@ fn package(
             "Package identity differs from the accepted operation",
         ));
     }
-    let requested: Vec<String> = op
+    let mut requested: Vec<String> = op
         .input
         .get("artifacts")
         .map(|a| serde_json::from_value(a.clone()))
         .transpose()?
         .unwrap_or_default();
+    if kind == "human_request" {
+        let deliveries: Vec<String> = op.input.get("deliveries")
+            .map(|r| serde_json::from_value(r.clone())).transpose()?.unwrap_or_default();
+        let (files, included) =
+            crate::neural::human_requests::attachments(catalog.db, &requested, &deliveries)?;
+        let handles = included.iter().map(|p| &p.reference).collect::<Vec<_>>();
+        if package.body.get("deliveries").cloned() != (!included.is_empty()).then(|| json!(handles))
+            || package.body.get("delivery_details").cloned() != (!included.is_empty()).then(|| json!(included))
+        {
+            return Err(failure("Included deliveries differ from the accepted human request"));
+        }
+        requested = files;
+    }
     let members: Vec<String> = serde_json::from_value(package.body["artifacts"].clone())?;
     let paths = operations::package_paths(catalog.db, &members)?;
     if paths != operations::package_paths(catalog.db, &requested)? {

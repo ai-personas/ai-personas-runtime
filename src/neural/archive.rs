@@ -9,10 +9,44 @@ use std::{
     time::Duration,
 };
 
-fn parent(path: &Path) -> &Path {
+pub(super) fn parent(path: &Path) -> &Path {
     path.parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(Path::new("."))
+}
+
+pub(super) fn publish_directory(from: &Path, to: &Path) -> Result<()> {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        use std::{ffi::CString, os::unix::ffi::OsStrExt};
+        let from = CString::new(from.as_os_str().as_bytes())?;
+        let to = CString::new(to.as_os_str().as_bytes())?;
+        // Both names are live C strings. Even an empty directory created by
+        // a competing export must retain its original contents and identity.
+        #[cfg(target_os = "linux")]
+        let result = unsafe {
+            libc::renameat2(
+                libc::AT_FDCWD,
+                from.as_ptr(),
+                libc::AT_FDCWD,
+                to.as_ptr(),
+                libc::RENAME_NOREPLACE,
+            )
+        };
+        #[cfg(target_os = "macos")]
+        let result = unsafe { libc::renamex_np(from.as_ptr(), to.as_ptr(), libc::RENAME_EXCL) };
+        if result != 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        if to.try_exists()? {
+            return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists).into());
+        }
+        std::fs::rename(from, to)?;
+    }
+    Ok(())
 }
 
 fn digest(file: &mut File) -> Result<String> {

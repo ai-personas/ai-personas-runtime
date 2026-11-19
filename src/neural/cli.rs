@@ -127,6 +127,8 @@ pub enum Command {
     },
     /// Save the exact files of one delivery or human request as a portable ZIP.
     ExportPackage { reference: String, destination: PathBuf },
+    /// Save a printable human request and its attached file package in a new folder.
+    ExportHandoff { reference: String, directory: PathBuf },
     Status,
     /// Install a retained WASI command or the published ngspice simulator.
     InstallCommand {
@@ -492,6 +494,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
                 Command::MessageReceipt{event}=>store.snapshot(|db|super::live::message_receipt(db,event)),
                 Command::ActivitySources{work,persona,query}=>store.snapshot(|db|super::activity_sources::inspect(db,&work,persona.as_deref(),&query)),
                 Command::ExportPackage{reference,destination}=>store.snapshot(|db|super::human_requests::export_package(db,&reference,&destination)),
+                Command::ExportHandoff{reference,directory}=>store.snapshot(|db|super::human_requests::export_handoff(db,&reference,&directory)),
                 Command::CommandHistory(query)=>store.snapshot(|db|super::commands::history(db,&query)),
                 Command::GeometryHistory{reference,offset,page_size}=>store.snapshot(|db|super::geometry::history::lookup(db,&super::geometry::history::Lookup{reference,offset,page_size})),
                 Command::PackageReviews{work,query}=>store.snapshot(|db|super::package_review::lookup(db,work.as_deref(),&query)),
@@ -660,7 +663,7 @@ pub fn export(store: &mut Store, directory: &Path, work: Option<&str>) -> Result
         let operators=store::operator_review_history(db,&deliveries.iter().map(|d|d.reference.handle()).collect())?;
         Ok((deliveries, artifacts, store::delivery_mandates(db,work)?,reviews,operators))
     })?;
-    let parent=directory.parent().filter(|p|!p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let parent=super::archive::parent(directory);
     let staging=tempfile::Builder::new().prefix(".personas-export-").tempdir_in(parent)?;
     let mut manifest = Vec::new();
     // Each exact delivery preserves its logical file tree. Separate packages
@@ -685,32 +688,10 @@ pub fn export(store: &mut Store, directory: &Path, work: Option<&str>) -> Result
         serde_json::to_vec_pretty(&value)?,
     )?;
     std::fs::File::open(staging.path().join("manifest.json"))?.sync_all()?;
-    publish_directory(staging.path(),directory)?;
+    super::archive::publish_directory(staging.path(),directory)?;
     #[cfg(unix)]
     std::fs::File::open(parent)?.sync_all()?;
     Ok(json!({"directory":directory,"artifact_count":manifest.len(),"manifest":"manifest.json"}))
-}
-
-fn publish_directory(from:&Path,to:&Path)->Result<()> {
-    #[cfg(any(target_os="linux",target_os="macos"))]
-    {
-        use std::{ffi::CString,os::unix::ffi::OsStrExt};
-        let from=CString::new(from.as_os_str().as_bytes())?;
-        let to=CString::new(to.as_os_str().as_bytes())?;
-        // Both names are live C strings. No existing destination, including an
-        // empty directory created by a competing export, can be replaced.
-        #[cfg(target_os="linux")]
-        let result=unsafe{libc::renameat2(libc::AT_FDCWD,from.as_ptr(),libc::AT_FDCWD,to.as_ptr(),libc::RENAME_NOREPLACE)};
-        #[cfg(target_os="macos")]
-        let result=unsafe{libc::renamex_np(from.as_ptr(),to.as_ptr(),libc::RENAME_EXCL)};
-        if result!=0 {return Err(std::io::Error::last_os_error().into());}
-    }
-    #[cfg(not(any(target_os="linux",target_os="macos")))]
-    {
-        if to.try_exists()? {return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists).into());}
-        std::fs::rename(from,to)?;
-    }
-    Ok(())
 }
 
 pub fn audit(store: &mut Store) -> Result<Value> {

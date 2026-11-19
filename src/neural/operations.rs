@@ -142,6 +142,7 @@ fn resolve(value: &mut Value, aliases: &BTreeMap<String, String>) -> Result<()> 
                     "inputs",
                     "review_inputs",
                     "delivery",
+                    "deliveries",
                     "evidence",
                 ]
                 .contains(&key.as_str())

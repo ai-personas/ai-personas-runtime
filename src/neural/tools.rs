@@ -346,7 +346,7 @@ pub const NAMES: &[(&str,&str)] = &[
     ("result.review","Publish your finding on a criterion for an exact issued delivery or proposed set of assets. Choose subject.delivery to assess that delivery under its original brief, or subject.artifacts to assess those files under this activity’s brief."),
     ("result.reviews","Compare published package reviews with subject.delivery or a proposed subject.artifacts set. See matching and changed files, actual brief, evidence and whether each review existed at delivery. Optionally select a particular review."),
     ("result.deliver","Deliver exact retained artifacts with supported use, evidence and remaining gaps; claimed completion is separate from user acceptance."),
-    ("human.request","Ask a human for an action or observation outside the workspace. Name the action, optionally attach exact files they can take together and describe what you need back. Human reports arrive as user_message. Taking or releasing the request without a report produces human_request_progress."),
+    ("human.request","Ask a human for an action or observation outside the workspace. Name the action and what you need back. You can attach exact files or issued deliveries with their files, supported use and remaining work. Human reports arrive as user_message. Taking or releasing the request without a report produces human_request_progress."),
     ("human.withdraw","Withdraw your own open request for human action by its exact current revision. A request already taken by a human must be discussed with that person."),
 ];
 

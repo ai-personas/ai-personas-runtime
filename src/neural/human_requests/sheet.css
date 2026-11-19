@@ -1,0 +1,145 @@
+:root {
+    color-scheme: light;
+    font-family: Inter, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Liberation Sans", sans-serif;
+    color: #1a2939;
+    background: #eef2f5;
+    --muted: #475c6d;
+    --line: #cad4dd;
+    --blue: #215296;
+    --mono: ui-monospace, "DejaVu Sans Mono", Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; padding: clamp(1rem, 4vw, 3rem); }
+.sheet {
+    max-width: 52rem;
+    margin: 0 auto;
+    padding: clamp(1.25rem, 5vw, 3.5rem);
+    background: white;
+    border: 1px solid var(--line);
+    border-top: 3px solid var(--blue);
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+}
+.masthead, .attachments-heading, .file-heading {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: .35rem 1rem;
+}
+.masthead {
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--line);
+    font-size: .9rem;
+    color: var(--muted);
+}
+.brand { color: #243a51; font-weight: 700; }
+h1, h2, h3, p, dl, dd, ul { margin: 0; }
+h1 {
+    margin: 1.5rem 0 1.1rem;
+    font-size: clamp(1.8rem, 4.5vw, 2.65rem);
+    line-height: 1.14;
+    letter-spacing: -.035em;
+    font-weight: 690;
+}
+h2 {
+    margin-bottom: .45rem;
+    font-size: 1.24rem;
+    line-height: 1.35;
+    letter-spacing: -.016em;
+}
+dt { color: var(--muted); font-size: .84rem; }
+dd, .file-heading > *, .request-facts > div { min-width: 0; }
+.request-facts { display: flex; flex-wrap: wrap; gap: .6rem 2.3rem; }
+.request-facts dd { font-weight: 600; }
+section, footer { margin-top: 1.6rem; padding-top: 1.2rem; border-top: 1px solid var(--line); }
+.verbatim, .filename, .delivery-title, h1, dd { white-space: pre-wrap; tab-size: 4; }
+.revision-note {
+    margin-top: 1.25rem;
+    padding: .65rem 1rem;
+    border-left: 3px solid #71869b;
+    background: #f2f5f8;
+}
+.revision-note h2 { font-size: .97rem; }
+.revision-note dl > div, .item-facts > div, .identifiers > div {
+    display: grid;
+    grid-template-columns: minmax(6.8rem, 8.25rem) minmax(0, 1fr);
+    align-items: baseline;
+    column-gap: .8rem;
+}
+.revision-note dl > div + div, .item-facts > div + div, .identifiers > div + div {
+    margin-top: .2rem;
+}
+.revision-note dd, .item-facts dd { font-size: .94rem; }
+.identifiers dd, .revision-note dl > div:last-child dd, .references {
+    font-family: var(--mono);
+    font-size: .81rem;
+}
+.attachments-heading { align-items: center; }
+.attachments-heading h2 { margin-bottom: 0; }
+.count, .size, .empty { color: var(--muted); }
+.count { font-size: .84em; font-weight: 500; }
+.archive {
+    padding: .3rem .65rem;
+    border: 1px solid #8ba5c2;
+    border-radius: .3rem;
+    color: var(--blue);
+    font-size: .9rem;
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: .15em;
+}
+.archive:hover { background: #edf3fa; }
+a:focus-visible, summary:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+.empty { margin-top: .45rem; }
+.entries { list-style: none; padding: 0; }
+.entries > li { padding: 1rem 0; }
+.entries > li + li { border-top: 1px solid var(--line); }
+.entries > li:last-child { padding-bottom: 0; }
+.delivery-title { margin-bottom: .4rem; font-size: 1.02rem; }
+.delivery-id { margin-top: .25rem; }
+.file-heading { margin-bottom: .4rem; }
+.filename {
+    font: 600 .96rem/1.4 var(--mono);
+    flex: 1 1 14rem;
+}
+.size { font-size: .85rem; font-variant-numeric: tabular-nums; }
+.notes, .references { padding-inline-start: 1.15rem; }
+.notes > li + li, .references > li + li { margin-top: .3rem; }
+details { margin-top: .4rem; }
+summary { width: fit-content; color: var(--blue); font-size: .87rem; cursor: pointer; }
+summary:hover { text-decoration: underline; }
+details .identifiers { margin-top: .4rem; }
+footer .identifiers { color: var(--muted); }
+
+@media screen and (max-width: 40rem) {
+    body { padding: 0; }
+    .sheet { border-right: 0; border-left: 0; }
+}
+@media screen and (max-width: 28rem) {
+    .revision-note dl > div, .item-facts > div, .identifiers > div { grid-template-columns: minmax(0, 1fr); }
+    .item-facts > div + div, .identifiers > div + div { margin-top: .45rem; }
+    .file-heading { display: block; }
+}
+
+@page { margin: 15mm 16mm; }
+@media print {
+    :root { background: white; color: #17232e; font-size: 10.5pt; }
+    body, .sheet { margin: 0; padding: 0; }
+    .sheet { max-width: none; border: 0; line-height: 1.42; }
+    .masthead { padding-bottom: .55rem; }
+    h1 { margin: .85rem 0 .6rem; font-size: 21pt; }
+    h2 { font-size: 13pt; }
+    header, .revision-note, .file-heading, .identifiers > div { break-inside: avoid; }
+    h1, h2, h3, dt, .file-heading, .attachments-heading { break-after: avoid; }
+    p, dd, li { orphans: 2; widows: 2; }
+    section, footer { margin-top: 1rem; padding-top: .75rem; }
+    .revision-note { background: white; }
+    .archive { color: inherit; text-decoration: none; padding: 0; border: 0; }
+    .archive::before { content: "Archive · "; }
+    .archive > span, details > summary { display: none; }
+    .entries > li { padding: .65rem 0; }
+    details::details-content { display: block; content-visibility: visible; }
+    .membership > summary { display: block; color: var(--muted); list-style: none; }
+}

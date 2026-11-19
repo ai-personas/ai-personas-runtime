@@ -5,11 +5,10 @@ use rusqlite::Connection;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{
-    collections::BTreeSet,
-    io::Write,
-    path::{Path, PathBuf},
-};
+use std::{collections::BTreeSet, path::PathBuf};
+
+mod package;
+pub use package::{export_handoff, export_package};
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -22,8 +21,10 @@ pub struct Request {
     /// Exact asset revisions the human should take together, retaining their logical file paths.
     #[serde(default)]
     pub artifacts: Vec<String>,
+    /// Exact issued delivery revisions to include with their files, author's supported use and remaining work.
+    #[serde(default)]
+    pub deliveries: Vec<String>,
 }
-
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Withdraw {
@@ -104,18 +105,64 @@ fn files(db: &Connection, refs: &[String]) -> Result<Vec<(String, String)>> {
     Ok(entries)
 }
 
-pub(super) fn create(db: &Connection, snapshot: &Snapshot, mut request: Request) -> Result<Value> {
+#[derive(Deserialize, Serialize)]
+pub(super) struct SheetDelivery {
+    #[serde(default)]
+    pub reference: String,
+    pub title: String,
+    pub owner: String,
+    pub scope: String,
+    pub supported_use: String,
+    pub remaining: Vec<String>,
+    pub artifacts: Vec<String>,
+}
+
+pub fn declared_scope(scope: &str) -> &str {
+    match scope {
+        "partial" => "Partial",
+        "claimed_complete" => "Author claims complete",
+        other => other,
+    }
+}
+
+pub(super) fn attachments(
+    db: &Connection,
+    direct: &[String],
+    deliveries: &[String],
+) -> Result<(Vec<String>, Vec<SheetDelivery>)> {
+    let mut members = direct.to_owned();
+    let mut packages = Vec::new();
+    let mut seen = BTreeSet::new();
+    for reference in deliveries.iter().filter(|r| seen.insert(r.as_str())) {
+        let record = store::exact(db, reference)?;
+        if record.reference.kind != "delivery" || record.reference.handle() != *reference {
+            return Err(failure("Attach an exact issued delivery revision"));
+        }
+        let mut delivery: SheetDelivery = serde_json::from_value(record.body)?;
+        delivery.reference = reference.clone();
+        members.extend_from_slice(&delivery.artifacts);
+        packages.push(delivery);
+    }
+    let mut known = BTreeSet::new();
+    members.retain(|r| known.insert(r.clone()));
+    Ok((members, packages))
+}
+
+pub(super) fn create(db: &Connection, snapshot: &Snapshot, request: Request) -> Result<Value> {
     if request.title.trim().is_empty() || request.action.trim().is_empty() {
         return Err(failure(
             "Give your request a title and describe the action you need",
         ));
     }
-    let mut seen = BTreeSet::new();
-    request.artifacts.retain(|r| seen.insert(r.clone()));
-    files(db, &request.artifacts)?;
-    let body = json!({"work":snapshot.work,"requester":snapshot.actor,"title":request.title,"action":request.action,
-        "return_requested":request.return_requested,"artifacts":request.artifacts,"state":"open","claimed_by":null,
+    let (artifacts, packages) = attachments(db, &request.artifacts, &request.deliveries)?;
+    files(db, &artifacts)?;
+    let mut body = json!({"work":snapshot.work,"requester":snapshot.actor,"title":request.title,"action":request.action,
+        "return_requested":request.return_requested,"artifacts":artifacts,"state":"open","claimed_by":null,
         "created":now(),"updated":now(),"decision":format!("experience:{}@1", snapshot.invocation)});
+    if !packages.is_empty() {
+        body["deliveries"] = json!(packages.iter().map(|p| &p.reference).collect::<Vec<_>>());
+        body["delivery_details"] = json!(packages);
+    }
     let record = store::write(
         db,
         "human_request",
@@ -124,13 +171,17 @@ pub(super) fn create(db: &Connection, snapshot: &Snapshot, mut request: Request)
         &body,
         Some(&snapshot.invocation),
     )?;
+    let mut notice = json!({"reference":record.handle(),"title":request.title,"action":request.action,"artifacts":artifacts});
+    if let Some(deliveries) = body.get("deliveries") {
+        notice["deliveries"] = deliveries.clone();
+    }
     let event = store::event(
         db,
         &snapshot.work,
         &snapshot.actor,
         "user",
         "human_request",
-        &json!({"reference":record.handle(),"title":request.title,"action":request.action,"artifacts":request.artifacts}),
+        &notice,
         Some(&snapshot.invocation),
     )?;
     Ok(
@@ -267,46 +318,4 @@ pub(super) fn respond(
     Ok(
         json!({"reference":updated.handle(),"state":next,"event":event,"stopped_participation_resumed":false}),
     )
-}
-
-pub fn export_package(db: &Connection, reference: &str, destination: &Path) -> Result<Value> {
-    let record = store::exact(db, reference)?;
-    if !matches!(record.reference.kind.as_str(), "human_request" | "delivery")
-        || record.reference.handle() != reference
-    {
-        return Err(failure(
-            "Select an exact delivery or human request to export",
-        ));
-    }
-    let refs: Vec<String> = serde_json::from_value(record.body["artifacts"].clone())?;
-    if refs.is_empty() {
-        return Err(failure("This request has no attached files"));
-    }
-    let parent = destination
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or(Path::new("."));
-    let mut temp = tempfile::NamedTempFile::new_in(parent)?;
-    let mut zip = zip::ZipWriter::new(temp.as_file_mut());
-    let mut manifest = Vec::new();
-    for (path, handle) in files(db, &refs)? {
-        let asset = store::exact(db, &handle)?;
-        let blob = asset.body["blob"]
-            .as_str()
-            .ok_or_else(|| failure("Attachment is missing its bytes"))?;
-        let bytes = store::bytes(db, blob)?;
-        zip.start_file(
-            &path,
-            zip::write::SimpleFileOptions::default()
-                .compression_method(zip::CompressionMethod::Deflated),
-        )?;
-        zip.write_all(&bytes)?;
-        manifest.push(json!({"path":path,"reference":handle,"sha256":blob,"bytes":bytes.len()}));
-    }
-    zip.finish()?;
-    temp.as_file().sync_all()?;
-    temp.persist_noclobber(destination)?;
-    #[cfg(unix)]
-    std::fs::File::open(parent)?.sync_all()?;
-    Ok(json!({"package":reference,"file":destination,"artifacts":manifest}))
 }
