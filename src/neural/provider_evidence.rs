@@ -1,8 +1,72 @@
 //! Keep provider output items available to local verifiers outside the resource catalogue.
-use super::{failure, store, Result};
+use super::{character, context::Snapshot, failure, store, Result};
 use crate::{provider, store::sha256_bytes};
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};
+
+pub(super) struct Accepted {
+    pub snapshot: Snapshot,
+    pub response: Value,
+    pub binding: &'static str,
+}
+
+pub(super) fn accepted(
+    db: &Connection,
+    owner: &str,
+    call: &str,
+    verify_input: bool,
+) -> Result<Accepted> {
+    let (work,source,reply,receipt):(String,String,String,String)=db.query_row(
+        "SELECT work,snapshot,response,receipt FROM invocations WHERE id=?1 AND actor=?2 AND state='accepted'",
+        params![call,owner],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?)))?;
+    let snapshot: Snapshot = store::object(db, &source)?;
+    let bytes = store::bytes(db, &reply)?;
+    let response: Value = serde_json::from_slice(&bytes)?;
+    let attempt: Value = store::object(db, &receipt)?;
+    if snapshot.actor != owner
+        || snapshot.work != work
+        || snapshot.invocation != call
+        || response["invocation"] != call
+        || attempt["audit"]["invocation_id"] != call
+        || attempt["response_completed"] != true
+    {
+        return Err(failure(
+            "Decision identity differs from its completed provider call",
+        ));
+    }
+    if verify_input {
+        character::verify_input(db, &snapshot, call, &attempt)?;
+    }
+    let mut binding = "accepted_record";
+    if snapshot.development_version >= 3 || store::head(db, "provider_completion", call)?.is_some()
+    {
+        store::verify_completion(
+            db,
+            call,
+            owner,
+            &work,
+            &source,
+            &reply,
+            &receipt,
+            "responded",
+        )?;
+        binding = "provider_completion";
+    }
+    match final_matches(db, &receipt, &attempt, &bytes)? {
+        Some(true) => binding = "provider_output",
+        Some(false) => {
+            return Err(failure(
+                "The accepted decision differs from the provider’s retained final output",
+            ))
+        }
+        None => {}
+    }
+    Ok(Accepted {
+        snapshot,
+        response,
+        binding,
+    })
+}
 
 fn take_items(receipt: &mut Value) -> Result<Option<(String, Vec<u8>)>> {
     let Some(items) = receipt

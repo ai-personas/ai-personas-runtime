@@ -908,7 +908,7 @@ impl App {
                 e["work"] == self.work
                     && matches!(
                         kind,
-                        "message" | "reply" | "user_message" | "delivery" | "initialization_note" | "invitation" | "contribution_proposal" | "asset_feedback" | "request_reply" | "request_delivery" | "request_message_sent" | "request_review_sent" | "requester_message" | "requester_review"
+                        "message" | "reply" | "user_message" | "delivery" | "initialization_note" | "invitation" | "contribution_proposal" | "asset_feedback" | "request_reply" | "request_delivery" | "request_message_sent" | "request_review_sent" | "requester_message" | "requester_review" | "request_joined" | "request_declined" | "request_left"
                     )
                     && !(kind == "delivery" && target == "*")
                     && (self.conversation_persona.is_empty()
@@ -981,7 +981,7 @@ impl App {
                                     let (name,color)=requested_activities::label(kind).unwrap();
                                     theme::badge(ui,name,color);
                                     if ui.small_button("Follow requested activity →").clicked(){
-                                        self.requested_activities.open(ui.ctx(),&self.root,&self.work,self.cursor);
+                                        self.requested_activities.open_request(ui.ctx(),&self.root,&self.work,event["body"]["request"].as_str(),self.cursor);
                                     }
                                 }
                                 _ => {}
@@ -992,7 +992,7 @@ impl App {
                                 }
                             }
                             ui.add_space(9.);
-                            if let Some(text) = event["body"]["text"].as_str().or_else(|| event["body"]["contribution"].as_str()) {
+                            if let Some(text) = event["body"]["text"].as_str().or_else(|| event["body"]["contribution"].as_str()).or_else(||event["body"]["reason"].as_str()) {
                                 document::message_markdown(ui, text);
                                 ui.horizontal_wrapped(|ui| {
                                 if event["kind"]=="asset_feedback" && ui.small_button("View revision feedback…").clicked() {

@@ -224,16 +224,10 @@ pub(super) fn leave(
         "reason":action.reason,"commitment_at_departure":commitment,"additional_remaining":action.additional_remaining,
         "released_outcomes":released,"closed_offers":closed,"effect_observations":effects,"at_unix":super::now()});
     store::write(db, "departure", call, 0, &body, Some(call))?;
-    store::event(
-        db,
-        work,
-        actor,
-        "*",
-        "participation_left",
-        &json!({"departure":departure,"actor":actor,"reason":action.reason,
-        "released_outcomes":released,"closed_offers":closed}),
-        Some(call),
-    )?;
+    let notice=json!({"departure":departure,"actor":actor,"reason":action.reason,
+        "released_outcomes":released,"closed_offers":closed});
+    let source=store::event(db,work,actor,"*","participation_left",&notice,Some(call))?;
+    super::activity_requests::return_participation(db,snapshot,source,"request_left",&notice)?;
     part.accepted = false;
     part.departure = Some(departure.clone());
     Ok(

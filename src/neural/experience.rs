@@ -8,7 +8,11 @@ const EVENTS: &str = "SELECT 'event-' || e.seq AS id, e.work,e.actor,e.target,e.
                       e.invocation,e.created FROM events e";
 pub(super) const VISIBLE: &str = "((e.actor=?1 AND e.invocation IS NOT NULL) OR e.target=?1 OR (e.target='*' AND EXISTS
     (SELECT 1 FROM events invitation WHERE invitation.work=e.work AND invitation.target=?1
-     AND invitation.kind='invitation' AND invitation.seq<=e.seq)))";
+     AND invitation.kind='invitation' AND invitation.seq<=e.seq)) OR (e.target='*' AND e.kind IN ('invitation_response','participation_left') AND EXISTS
+    (SELECT 1 FROM events notice JOIN objects body ON body.digest=notice.digest
+     WHERE notice.target=?1 AND notice.actor=e.actor AND notice.invocation=e.invocation
+     AND notice.kind IN ('request_joined','request_declined','request_left')
+     AND json_extract(CAST(body.bytes AS TEXT),'$.source')='experience:event-'||e.seq||'@1')))";
 const DECISIONS: &str =
     "SELECT i.id,i.work,i.actor,i.actor,'accepted_decision',i.response,i.id,i.created
     FROM invocations i WHERE i.state='accepted'";
@@ -105,7 +109,7 @@ fn reply_recipient<'a>(exchange: &'a Experience, actor: &str) -> Option<&'a str>
     match exchange.kind.as_str() {
         "user_message" | "user_acceptance" | "requirements_amended" if addressed || exchange.target == "*" => Some("user"),
         "invitation" if addressed && exchange.invocation.is_none() => Some("user"),
-        "message" | "request_reply" | "request_delivery" | "requester_message" | "requester_review"
+        "message" | "request_reply" | "request_delivery" | "requester_message" | "requester_review" | "request_joined" | "request_declined" | "request_left"
             if addressed && exchange.invocation.is_some() => Some(&exchange.actor),
         "invitation" | "contribution_proposal" if addressed && exchange.actor != "user" && exchange.invocation.is_some() => Some(&exchange.actor),
         _ => None,
@@ -120,7 +124,7 @@ pub(super) fn reply_targets(db: &Connection, actor: &str, work: &str) -> Result<
 
 pub(super) fn reply_targets_since(db: &Connection, actor: &str, work: &str, after:i64) -> Result<Vec<Value>> {
     let sql = format!("{EVENTS} WHERE {VISIBLE} AND e.work=?2 AND e.seq>?3 AND e.kind IN
-        ('user_message','user_acceptance','requirements_amended','invitation','message','contribution_proposal','request_reply','request_delivery','requester_message','requester_review') ORDER BY e.seq DESC");
+        ('user_message','user_acceptance','requirements_amended','invitation','message','contribution_proposal','request_reply','request_delivery','requester_message','requester_review','request_joined','request_declined','request_left') ORDER BY e.seq DESC");
     let mut statement = db.prepare(&sql)?;
     let mut seen = BTreeSet::new();
     let mut targets = Vec::new();

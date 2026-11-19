@@ -23,8 +23,20 @@ const PAGE: usize = 6;
 
 impl Window {
     pub(super) fn open(&mut self, ctx: &egui::Context, root: &Path, work: &str, cursor: i64) {
+        self.open_request(ctx, root, work, None, cursor);
+    }
+
+    pub(super) fn open_request(
+        &mut self,
+        ctx: &egui::Context,
+        root: &Path,
+        work: &str,
+        request: Option<&str>,
+        cursor: i64,
+    ) {
         *self = Self {
             work: Some(work.into()),
+            selected: request.map(str::to_owned),
             ..Self::default()
         };
         self.read(ctx, root, cursor);
@@ -52,12 +64,8 @@ impl Window {
                         page_size: PAGE,
                     },
                 )?;
-                let selected = list["items"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|i| i["request"].as_str())
-                    .find(|r| Some(*r) == requested.as_deref())
+                let selected = requested
+                    .as_deref()
                     .or_else(|| list["items"][0]["request"].as_str());
                 let detail = selected
                     .map(|request| {
@@ -251,6 +259,9 @@ pub(super) fn label(kind: &str) -> Option<(&'static str, Color32)> {
     match kind {
         "request_delivery" => Some(("Delivery returned", TEAL)),
         "request_reply" => Some(("Reply returned", TEAL)),
+        "request_joined" => Some(("Invitation accepted", TEAL)),
+        "request_declined" => Some(("Invitation declined", theme::ACCENT)),
+        "request_left" => Some(("Participant left", theme::ACCENT)),
         "requester_message" | "request_message_sent" => Some(("Requester message", PURPLE)),
         "requester_review" | "request_review_sent" => Some(("Requester review", PURPLE)),
         _ => None,
@@ -273,7 +284,7 @@ fn draw_exchange(ui: &mut Ui, status: &Value, item: &Value, action: &mut Option<
                 RichText::new(if accepted {
                     "Edition accepted"
                 } else {
-                    "Revision requested"
+                    "Edition declined"
                 })
                 .strong()
                 .color(color),
@@ -285,6 +296,7 @@ fn draw_exchange(ui: &mut Ui, status: &Value, item: &Value, action: &mut Option<
         if let Some(text) = body["text"]
             .as_str()
             .or_else(|| body["supported_use"].as_str())
+            .or_else(|| body["reason"].as_str())
         {
             document::message_markdown(ui, text);
         }
@@ -302,15 +314,13 @@ fn draw_exchange(ui: &mut Ui, status: &Value, item: &Value, action: &mut Option<
                 .or_else(|| body["review"]["delivery"].as_str())
                 .unwrap_or("");
             resource(ui, "Open exact delivery ↗", delivery, action);
-            for field in ["artifacts", "references"] {
-                for r in body[field]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Value::as_str)
-                {
-                    resource(ui, &format!("{} ↗", excerpt(r, 26)), r, action);
-                }
+            for file in item["resources"].as_array().into_iter().flatten() {
+                let r = s(file, "reference");
+                let name = file["path"]
+                    .as_str()
+                    .and_then(|path| path.rsplit('/').next())
+                    .unwrap_or(r);
+                resource(ui, &format!("{} ↗", excerpt(name, 40)), r, action);
             }
             let source = body["source"]
                 .as_str()
@@ -319,9 +329,9 @@ fn draw_exchange(ui: &mut Ui, status: &Value, item: &Value, action: &mut Option<
             resource(ui, "Sent exchange ↗", source, action);
             resource(ui, "Inbox event ↗", s(item, "experience"), action);
             if let Some(r) = item["first_supplied"].as_str() {
-                resource(ui, "First supplied decision ↗", r, action);
+                resource(ui, "First decision with this exchange ↗", r, action);
             } else {
-                ui.weak("Awaiting first supply");
+                ui.weak("In inbox only");
             }
         });
     });

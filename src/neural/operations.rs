@@ -525,7 +525,10 @@ fn internal(
             }
             part.accepted = x.accept;
             part.declined = !x.accept;
-            store::event(db, work, actor, "*", "invitation_response", &x, Some(call))?;
+            let body = serde_json::to_value(&x)?;
+            let source=store::event(db, work, actor, "*", "invitation_response", &body, Some(call))?;
+            super::activity_requests::return_participation(db,snapshot,source,
+                if x.accept {"request_joined"} else {"request_declined"},&body)?;
             Ok(json!({"accepted":x.accept,"commitment":x.commitment}))
         }
         "work.commitment" => {
@@ -691,9 +694,7 @@ fn internal(
             let source = store::event(db, work, actor, recipient, "delivery",
                 &json!({"reference":r.handle(),"record":body}), Some(call))?;
             let notice = origin.as_ref().map(|o| super::activity_requests::return_to_parent(
-                db, snapshot, o, source, "request_delivery", &json!({"delivery":r.handle(),
-                "title":body["title"],"scope":body["scope"],"supported_use":body["supported_use"],
-                "remaining":body["remaining"],"artifacts":body["artifacts"]}),
+                db, snapshot, o, source, "request_delivery", &super::activity_requests::delivery_summary(&r.handle(),&body),
             )).transpose()?;
             Ok(json!({"reference":r.handle(),"returned_to_requester":notice,"user_accepted":false}))
         }

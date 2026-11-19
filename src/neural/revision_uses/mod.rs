@@ -8,7 +8,8 @@ use rusqlite::{params, Connection};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use subject::{accepted, Subject};
+use super::provider_evidence::accepted;
+use subject::Subject;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]

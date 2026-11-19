@@ -395,11 +395,12 @@ pub fn has_arrival(db:&Connection, work:&str, actor:&str, after:i64, kinds:&[Str
     while let Some(row)=rows.next()? {
         let kind: String = row.get(0)?;
         // Recording one's own next-context selection introduces no new observation.
-        let returned = matches!(kind.as_str(), "request_reply" | "request_delivery");
-        let incoming_peer_message = matches!(kind.as_str(), "message" | "request_reply" | "request_delivery" | "requester_message" | "requester_review") && row.get::<_,bool>(1)?;
+        let status = matches!(kind.as_str(),"request_joined"|"request_declined"|"request_left");
+        let returned = matches!(kind.as_str(), "request_reply" | "request_delivery" | "request_declined" | "request_left");
+        let incoming_peer_message = matches!(kind.as_str(), "message" | "request_reply" | "request_delivery" | "requester_message" | "requester_review" | "request_declined" | "request_left") && row.get::<_,bool>(1)?;
         if (kinds.is_empty() && kind != "appraisal_selected") || kinds.iter().any(|requested|
             requested == &kind || (requested == "peer_message" && incoming_peer_message)
-            || (requested == "request_return" && returned) || (requested == "delivery" && kind == "request_delivery")) {
+            || (requested == "request_status" && status) || (requested == "request_return" && returned) || (requested == "delivery" && kind == "request_delivery")) {
             return Ok(true);
         }
     }
