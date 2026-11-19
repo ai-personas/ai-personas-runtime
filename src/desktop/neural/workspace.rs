@@ -1289,7 +1289,7 @@ impl App {
                             if print.clicked() {
                                 let path = self.preview_metadata["path"].as_str().unwrap_or("document.html").to_owned();
                                 let reference = self.selected_reference.clone();
-                                let package = self.delivery_desk.print_package(&reference);
+                                let package = self.print_package_for(&reference);
                                 self.open_print_preview(ui.ctx(), &reference, &path, package, Some(print.id));
                             }
                         }

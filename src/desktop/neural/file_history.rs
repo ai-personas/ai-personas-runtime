@@ -331,7 +331,7 @@ impl App {
             Some(Action::Print { reference, path }) => {
                 self.file_history.visible = false;
                 self.open_history_file(ctx, &reference);
-                let package = self.delivery_desk.print_package(&reference);
+                let package = self.print_package_for(&reference);
                 self.open_print_preview(ctx, &reference, &path, package, None);
                 self.file_history.target = Some(Target::File(reference));
             }

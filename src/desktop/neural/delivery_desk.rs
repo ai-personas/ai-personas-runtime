@@ -34,13 +34,6 @@ impl Desk {
         self.model.as_ref()?.files.get(self.selected).map(|f| f.reference.as_str())
     }
 
-    pub(super) fn print_package(&self, inspected: &str) -> Option<String> {
-        let target = self.return_for(inspected)?;
-        let package = self.model.as_ref()?;
-        (package.reference == target.package && package.files.iter().any(|f| f.reference == inspected))
-            .then_some(target.package)
-    }
-
     pub(super) fn record_origin(
         &mut self,
         from_delivery: bool,
@@ -177,6 +170,14 @@ fn revision(reference: &str) -> Option<&str> {
 }
 
 impl App {
+    pub(super) fn print_package_for(&self, inspected: &str) -> Option<String> {
+        let target = self.delivery_desk.return_for(inspected)?;
+        // Overview can open an exact package member directly, before the desk
+        // has ever laid out that package. Use the recorded edition in either route.
+        let edition = self.records("deliveries").iter().find(|d| inbox::handle(d) == target.package)?;
+        strings(&edition["body"]["artifacts"]).any(|r| r == inspected).then_some(target.package)
+    }
+
     pub(super) fn delivery_return_link(&mut self, ui: &mut Ui) {
         let Some(target) = self.delivery_desk.return_for(&self.selected_reference) else {
             return;
