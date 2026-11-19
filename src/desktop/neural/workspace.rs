@@ -793,8 +793,12 @@ impl App {
     fn message_heading(&mut self, ui: &mut Ui, event: &Value) {
         let actor = s(event, "actor");
         let target = s(event, "target");
-        let from = self.label(actor).to_owned();
-        let to = if target == "*" {
+        let published = event["kind"] == "asset_feedback";
+        let operator = published && event["body"]["author_kind"] == "operator";
+        let from = if operator { format!("Operator · {}", s(&event["body"],"author")) } else { self.label(actor).to_owned() };
+        let to = if published && event["body"]["recipient_kind"] == "operator" {
+            s(&event["body"],"recipient")
+        } else if target == "*" {
             "Everyone"
         } else if target == "user" {
             "You"
@@ -803,7 +807,7 @@ impl App {
         }
         .to_owned();
         ui.horizontal_wrapped(|ui| {
-            if avatar(ui, &from, self.color(actor), 24.).clicked() {
+            if avatar(ui, &from, self.color(actor), 24.).clicked() && !operator {
                 self.persona = actor.into();
             }
             ui.label(RichText::new(from).strong().color(self.color(actor)));
@@ -897,7 +901,7 @@ impl App {
                 e["work"] == self.work
                     && matches!(
                         kind,
-                        "message" | "reply" | "user_message" | "delivery" | "initialization_note" | "invitation" | "contribution_proposal"
+                        "message" | "reply" | "user_message" | "delivery" | "initialization_note" | "invitation" | "contribution_proposal" | "asset_feedback"
                     )
                     && !(kind == "delivery" && target == "*")
                     && (self.conversation_persona.is_empty()
@@ -905,8 +909,10 @@ impl App {
                         || target == self.conversation_persona)
                     && match self.conversation_channel {
                         1 => (kind == "message" && target != "user")
+                            || (kind == "asset_feedback" && e["body"]["author_kind"]=="persona" && e["body"]["recipient_kind"]=="persona")
                             || (matches!(kind, "invitation" | "contribution_proposal") && e["invocation"].is_string()),
                         2 => kind == "user_message" || target == "user"
+                            || (kind == "asset_feedback" && (e["body"]["author_kind"]=="operator" || e["body"]["recipient_kind"]=="operator"))
                             || (kind == "invitation" && e["invocation"].is_null()),
                         3 => kind == "delivery",
                         _ => true,
@@ -975,6 +981,9 @@ impl App {
                             if let Some(text) = event["body"]["text"].as_str().or_else(|| event["body"]["contribution"].as_str()) {
                                 document::message_markdown(ui, text);
                                 ui.horizontal_wrapped(|ui| {
+                                if event["kind"]=="asset_feedback" && ui.small_button("View revision feedback…").clicked() {
+                                    self.asset_feedback.open(ui.ctx(), &self.root, s(&event["body"],"asset"), &self.work);
+                                }
                                 if ui.small_button("Copy message").clicked() {
                                     ui.ctx().copy_text(text.to_owned());
                                     self.notice="Original message copied".into();
@@ -1244,6 +1253,9 @@ impl App {
                         }
                         if ui.small_button("Copy reference").clicked() {
                             ui.ctx().copy_text(self.selected_reference.clone());
+                        }
+                        if self.selected_reference.starts_with("asset:") && ui.small_button("Feedback…").clicked() {
+                            self.asset_feedback.open(ui.ctx(), &self.root, &self.selected_reference, &self.work);
                         }
                         let path=s(&self.preview_metadata,"path");
                         if self.selected_reference.starts_with("asset:") && path.to_ascii_lowercase().ends_with(".scad") && ui.button("Render model…").clicked() {

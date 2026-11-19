@@ -27,6 +27,7 @@ mod export;
 mod life;
 mod question_history;
 mod library_search;
+mod asset_feedback;
 mod workspace;
 mod usage;
 mod responsibilities;
@@ -119,6 +120,7 @@ pub struct App {
     selected_reference: String,
     reference_input: String,
     library_search: library_search::Window,
+    asset_feedback: asset_feedback::Window,
     command_bench: command_bench::Bench,
     usage: usage::Panel,
     responsibilities: responsibilities::Board,
@@ -197,6 +199,7 @@ impl App {
             selected_reference: String::new(),
             reference_input: String::new(),
             library_search: Default::default(),
+            asset_feedback: Default::default(),
             command_bench: Default::default(),
             usage: Default::default(),
             responsibilities: Default::default(),
@@ -583,6 +586,9 @@ impl eframe::App for App {
         self.command_bench = bench;
         self.dialogs(ctx);
         self.export_window(ctx);
+        if let Some(reference) = self.asset_feedback.show(ctx, &self.root, &self.operator, &self.snapshot.status) {
+            self.open_resource(ctx, reference);
+        }
         if let Some(reference)=self.library_search.show(ctx,&self.root){
             self.open_resource(ctx,reference);
         }
