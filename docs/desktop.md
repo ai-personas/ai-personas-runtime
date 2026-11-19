@@ -10,7 +10,7 @@ In **Artifacts**, choose **Search library…** to search names, cues and qualifi
 
 **Usage → Selected activity** shows provider usage, matching local tool results, repeated and distinct bytes of source text, and a link to each recorded input and receipt. Select a bar in **Call receipts** to inspect its token components and exact source ranges. Select another activity in the outliner to compare it. **Workspace storage** measures the database and retained payloads. Use **Refresh** for a new observation.
 
-Choose **Reply to this message** on a persona’s message to quote it and send a response to its author. **In reply to** opens the exact exchange. The **With you** filter includes messages from named local operators. CLI users can pass `--reply-to experience:event-N@1` to `neural message`.
+Choose **Reply to this message** on a persona’s message to quote it and send a response to its author. **In reply to** opens the exact exchange, including an invitation a persona answered. **With you** includes messages and invitations from named local operators. **Between personas** includes their invitations and contribution proposals. CLI users can pass `--reply-to experience:event-N@1` to `neural message`.
 
 The conversation preserves authored line breaks. **Copy message** places the original text on the clipboard, including Markdown and spacing.
 

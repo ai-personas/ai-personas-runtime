@@ -119,14 +119,24 @@ pub(super) fn check_reply(
                 && matches!(original.kind.as_str(), "message" | "reply")
         }
         Some(actor) if to == "user" => {
-            (original.target == actor || original.target == "*")
-                && matches!(
-                    original.kind.as_str(),
-                    "user_message" | "user_acceptance" | "requirements_amended"
-                )
+            (original.target == actor
+                && original.kind == "invitation"
+                && original.invocation.is_none())
+                || ((original.target == actor || original.target == "*")
+                    && matches!(
+                        original.kind.as_str(),
+                        "user_message" | "user_acceptance" | "requirements_amended"
+                    ))
         }
         Some(actor) => {
-            original.target == actor && original.actor == to && original.kind == "message"
+            original.target == actor
+                && original.actor == to
+                && (original.kind == "message"
+                    || (original.invocation.is_some()
+                        && matches!(
+                            original.kind.as_str(),
+                            "invitation" | "contribution_proposal"
+                        )))
         }
     };
     if original.work != work || !reciprocal {
@@ -203,13 +213,17 @@ pub(super) fn read(db: &Connection, actor: Option<&str>, reference: &str) -> Res
         event["provider_receipt"] = json!(receipt.map(|d| format!("object:{d}")));
         event["character_use"] =
             json!(store::head(db, "character_use", &item.id)?.map(|r| r.reference.handle()));
-        let mut statement = db.prepare("SELECT seq,kind,target FROM events WHERE work=?1 AND invocation=?2
-            AND kind IN ('reply','message','delivery') ORDER BY seq")?;
-        event["outgoing"] = json!(statement.query_map([&item.work,&item.id], |r| Ok(json!({
+        let mut statement = db.prepare(
+            "SELECT seq,kind,target FROM events WHERE work=?1 AND invocation=?2
+            AND kind IN ('reply','message','delivery') ORDER BY seq",
+        )?;
+        event["outgoing"] = json!(statement
+            .query_map([&item.work, &item.id], |r| Ok(json!({
             "experience":format!("experience:event-{}@1",r.get::<_,i64>(0)?),
             "kind":r.get::<_,String>(1)?,"target":r.get::<_,String>(2)?})))?
             .collect::<rusqlite::Result<Vec<_>>>()?);
-        result["linked_responses_now"] = json!(responses_to_call(db,&item.actor,&item.work,&item.id)?);
+        result["linked_responses_now"] =
+            json!(responses_to_call(db, &item.actor, &item.work, &item.id)?);
     }
     result["record"] = event;
     Ok(result)

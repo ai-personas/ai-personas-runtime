@@ -244,23 +244,59 @@ fn outcome_card(ui: &mut Ui, record: &Value, report: &Value, members: &[Value]) 
     let ownership = &report["ownership"][&reference];
     let owner = s(body, "owner");
     let mut action = None;
-    card(ui).show(ui,|ui|{
-        let status=match s(ownership,"state"){
-            "unowned"=>"Unowned", "follow_through_gap"=>"Owner stopped or unavailable",
-            "waiting_owner"=>"Waiting","ready_owner"=>"Ready","claimed_complete"=>"Claimed complete",_=>"Status unavailable"
-        };
-        ui.strong(s(body,"description"));
-        ui.horizontal_wrapped(|ui|{ui.small(status);if !owner.is_empty(){ui.label(person(members,owner));}});
-        for gap in items(body,"remaining"){if let Some(text)=gap.as_str(){ui.label(format!("• {text}"));}}
-        ui.horizontal_wrapped(|ui|{
-            if ui.small_button("Outcome ↗").clicked(){action=Some(Action::Inspect(reference.clone()));}
-            if let Some(proof)=ownership["accepted_responsibility"].as_str().or_else(||ownership["accepted_handoff"].as_str()){
-                if ui.small_button("Acceptance ↗").clicked(){action=Some(Action::Inspect(proof.into()));}
-            }
-            if ownership["state"]=="unowned" && ui.small_button("Ask a volunteer…").clicked(){
-                let person=members.iter().find(|m|m["state"]=="accepted").map(|m|s(m,"actor")).unwrap_or("");
-                action=Some(Action::Message{person:person.into(),text:format!("Would you like to take responsibility for the remaining work in {reference}?")});
-            }
+    card(ui).show(ui, |ui| {
+        ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+            let status = match s(ownership, "state") {
+                "unowned" => "Unowned",
+                "follow_through_gap" => "Owner stopped or unavailable",
+                "waiting_owner" => "Waiting",
+                "ready_owner" => "Ready",
+                "claimed_complete" => "Claimed complete",
+                _ => "Status unavailable",
+            };
+            let description = s(body, "description");
+            ui.strong(excerpt(description.lines().next().unwrap_or(""), 100));
+            ui.horizontal_wrapped(|ui| {
+                ui.small(status);
+                if !owner.is_empty() { ui.label(person(members, owner)); }
+            });
+            ui.horizontal_wrapped(|ui| {
+                if ui.small_button("Outcome ↗").clicked() {
+                    action = Some(Action::Inspect(reference.clone()));
+                }
+                if let Some(proof) = ownership["accepted_responsibility"].as_str()
+                    .or_else(|| ownership["accepted_handoff"].as_str()) {
+                    if ui.small_button("Acceptance ↗").clicked() {
+                        action = Some(Action::Inspect(proof.into()));
+                    }
+                }
+                if ownership["state"] == "unowned" {
+                    let volunteer = members.iter().find(|m| m["state"] == "accepted")
+                        .or_else(|| members.iter().find(|m| m["state"] == "invited"));
+                    if let Some(member) = volunteer {
+                        if ui.small_button("Ask a volunteer…").clicked() {
+                            action = Some(Action::Message {
+                                person: s(member, "actor").into(),
+                                text: format!("Would you like to take responsibility for the remaining work in {reference}?"),
+                            });
+                        }
+                    } else if ui.small_button("Invite a volunteer…").clicked() {
+                        action = Some(Action::Invite(String::new()));
+                    }
+                }
+            });
+            let remaining = items(body, "remaining");
+            let label = match remaining.len() {
+                0 => "Full scope".to_owned(),
+                1 => "Scope and 1 remaining duty".to_owned(),
+                n => format!("Scope and {n} remaining duties"),
+            };
+            ui.push_id(&reference, |ui| ui.collapsing(label, |ui| {
+                ui.label(description);
+                for duty in remaining.iter().filter_map(Value::as_str) {
+                    ui.label(format!("• {duty}"));
+                }
+            }));
         });
     });
     action

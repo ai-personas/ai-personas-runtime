@@ -894,15 +894,17 @@ impl App {
                 e["work"] == self.work
                     && matches!(
                         kind,
-                        "message" | "reply" | "user_message" | "delivery" | "initialization_note"
+                        "message" | "reply" | "user_message" | "delivery" | "initialization_note" | "invitation" | "contribution_proposal"
                     )
                     && !(kind == "delivery" && target == "*")
                     && (self.conversation_persona.is_empty()
                         || actor == self.conversation_persona
                         || target == self.conversation_persona)
                     && match self.conversation_channel {
-                        1 => kind == "message" && actor != "user" && target != "user",
-                        2 => kind == "user_message" || target == "user",
+                        1 => (kind == "message" && target != "user")
+                            || (matches!(kind, "invitation" | "contribution_proposal") && e["invocation"].is_string()),
+                        2 => kind == "user_message" || target == "user"
+                            || (kind == "invitation" && e["invocation"].is_null()),
                         3 => kind == "delivery",
                         _ => true,
                     }
@@ -956,13 +958,18 @@ impl App {
                         card(ui).show(ui, |ui| {
                             ui.set_width(ui.available_width());
                             self.message_heading(ui, event);
+                            match event["kind"].as_str() {
+                                Some("invitation") => { theme::badge(ui, "Invitation", TEAL); }
+                                Some("contribution_proposal") => { theme::badge(ui, "Contribution proposal", PURPLE); }
+                                _ => {}
+                            }
                             if let Some(parent) = event["body"]["reply_to"].as_str() {
                                 if ui.small_button("In reply to ↗").on_hover_text(parent).clicked() {
                                     self.open_resource(ui.ctx(),parent.into());
                                 }
                             }
                             ui.add_space(9.);
-                            if let Some(text) = event["body"]["text"].as_str() {
+                            if let Some(text) = event["body"]["text"].as_str().or_else(|| event["body"]["contribution"].as_str()) {
                                 document::message_markdown(ui, text);
                                 ui.horizontal_wrapped(|ui| {
                                 if ui.small_button("Copy message").clicked() {
