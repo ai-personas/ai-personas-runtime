@@ -6,6 +6,8 @@ New workspaces open on **Overview**. **Run workspace** listens across existing a
 
 **People & live work** groups calls and tools by persona and activity. **Message** opens the matching conversation with the recipient selected. **Recent contributions** shows committed replies, messages and file revisions from across the workspace. Open a reply to read it in place, including what preceded it. **Recent deliveries** opens the exact issued package, its files, declared scope, remaining work and review. **Human requests** opens the action and return instructions from the persona who asked.
 
+Use **Save package…** directly on a delivery to take its exact files to a fabricator. **Save handoff…** on a human request also gives you a printable offline sheet with the action and return instructions. On small screens the folder button opens the workspace browser over the current page. [Recorded prototype delivery](assets/studio-booklight-live.gif)
+
 An **Activity** opens on **Live activity**. The timeline shows who sent each message, saved a file, issued a package or asked for help. Click a filename to inspect the exact revision. Filter the timeline by person or event type. Opening a long message or choosing **Pause feed** holds your place while the personas continue. The counter shows how many matching events arrived. **Return to latest** brings them into view.
 
 **People & tools** shows which participants have a call in progress and which tools are queued or running. During a response, Studio displays the bytes received from the provider and the time of the last observation. Published messages and files appear after the runtime records them. On a narrow window, use the **Timeline** and **People & tools** tabs.

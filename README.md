@@ -15,9 +15,9 @@ Create a workspace, enter the starting profiles and choose a model connection. U
 
 Open the same workspace with `./personas --terminal --progress DIRECTORY`. Use `./personas --neural --help` for individual commands. [Numerical workspace guide](docs/editable-persona-models.md) · [Implementation and live observations](docs/design-conformance.md) · [November 17 design](https://github.com/ai-personas/ai-personas-design/tree/7d86efb31a0323e03166a5c5212cdcd8b2e32f36)
 
-<img src="docs/assets/studio-library.png" alt="The native Persona Studio workspace library with its illustrated welcome panel and controls to create, open or restore a workspace." width="860">
+<img src="docs/assets/studio-overview.png" alt="Maple Street Studio showing Rowan’s ten-file prototype circuit delivery, five remaining items, both personas and their recent contributions." width="920">
 
-*The workspace library in the Linux desktop build.*
+*Rowan’s prototype package in the Linux desktop. The volunteer can inspect the files, see what still needs checking and save the issued edition.*
 
 ## Earlier fragment-based workspaces
 

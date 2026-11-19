@@ -344,6 +344,8 @@ impl App {
             ui.horizontal_wrapped(|ui| {
                 theme::glyph(ui, Icon::Files, TEAL);
                 ui.strong(s(b, "title"));
+            });
+            ui.horizontal_wrapped(|ui| {
                 let (label, c) = match s(b, "scope") {
                     "partial" => ("Partial delivery", theme::ACCENT),
                     "claimed_complete" => ("Author claims complete", TEAL),
