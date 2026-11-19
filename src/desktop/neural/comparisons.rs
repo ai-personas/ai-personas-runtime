@@ -409,7 +409,9 @@ impl App {
                                         {
                                             ui.columns(arms.len(), |columns| {
                                                 for (column, arm) in columns.iter_mut().zip(arms) {
-                                                    self.comparison_arm(column, arm);
+                                                    column.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                                                        self.comparison_arm(ui, arm);
+                                                    });
                                                 }
                                             });
                                         } else {
