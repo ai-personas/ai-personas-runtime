@@ -536,6 +536,8 @@ fn internal(
             let event = store::event(db, work, actor, &x.to, "message", &x, Some(call))?;
             Ok(json!({"event":event,"delivered_to_inbox":true,"read_or_accepted":false}))
         }
+        "work.leave" => super::membership::leave(db,snapshot,part,decode(input)?),
+        "work.assume" => super::membership::assume(db,snapshot,part,decode(input)?),
         "work.handoff" => super::handoff::execute(db,snapshot,decode(input)?),
         "work.outcome" => {
             let x: tools::Outcome = decode(input)?;
@@ -571,7 +573,10 @@ fn internal(
             body["owner"] = json!(actor);
             body["work"] = json!(work);
             body["original_author"]=prior.as_ref().and_then(|b|b.get("original_author").or(b.get("owner"))).cloned().unwrap_or_else(||json!(actor));
-            if let Some(handoff)=prior.as_ref().and_then(|b|b.get("accepted_handoff")){body["accepted_handoff"]=handoff.clone();}
+            for field in ["accepted_handoff","accepted_responsibility","released_by_departure"] {
+                if let Some(value)=prior.as_ref().and_then(|b|b.get(field)){body[field]=value.clone();}
+            }
+            if prior.is_some() { body["prior_outcome"]=json!(format!("outcome:{key}@{revision}")); }
             let r = store::write(db, "outcome", &key, revision, &body, Some(call))?;
             store::event(
                 db,
@@ -687,40 +692,36 @@ pub fn invite(
 ) -> Result<()> {
     store::required(db, "work", work)?;
     store::required(db, "persona", actor)?;
-    let joined_after = db.query_row("SELECT COALESCE(MAX(seq),0) FROM events", [], |r| r.get(0))?;
-    let part = Participation {
-        persona: actor.into(),
-        work: work.into(),
-        accepted: false,
-        declined: false,
-        continuation: Continuation::Ready {
-            purpose: "Consider the invitation and initialize my character if needed".into(),
-        },
-        cursor: joined_after,
-        turn: 0,
-        context: vec![],
-        tools: vec![],
-        last_judgment: None,
-        last_evaluation: None,
-        appraisal_use: None,
+    if contribution.trim().is_empty() {return Err(failure("Describe the invitation"));}
+    let key=format!("{work}/{actor}");
+    let previous=store::head(db,"participation",&key)?;
+    let (part,expected,prior_reference,prior_departure)=if let Some(existing)=previous {
+        let mut member:Participation=decode(&existing.body)?;
+        if invocation.is_some() || (!member.declined && member.departure.is_none()) {
+            return Err(failure("This invitation already has a participation. Send a contribution proposal, or explicitly resume a stopped member"));
+        }
+        let departure=member.departure.take();
+        member.accepted=false;
+        member.declined=false;
+        member.last_evaluation=None;
+        member.appraisal_use=None;
+        member.continuation=Continuation::Ready{purpose:"Consider the new invitation".into()};
+        (member,existing.reference.revision,Some(existing.reference.handle()),departure)
+    } else {
+        let cursor=db.query_row("SELECT COALESCE(MAX(seq),0) FROM events",[],|r|r.get(0))?;
+        let member=Participation {persona:actor.into(),work:work.into(),accepted:false,declined:false,departure:None,
+            continuation:Continuation::Ready{purpose:"Consider the invitation and initialize my character if needed".into()},
+            cursor,turn:0,context:vec![],tools:vec![],last_judgment:None,last_evaluation:None,appraisal_use:None};
+        (member,0,None,None)
     };
-    store::write(
-        db,
-        "participation",
-        &format!("{work}/{actor}"),
-        0,
-        &part,
-        invocation,
-    )?;
-    store::event(
-        db,
-        work,
-        from,
-        actor,
-        "invitation",
-        &json!({"contribution":contribution}),
-        invocation,
-    )?;
+    store::write(db,"participation",&key,expected,&part,invocation)?;
+    let mut invitation=json!({"contribution":contribution});
+    if let Some(previous)=prior_reference {
+        invitation["previous_participation"]=json!(previous);
+        invitation["previous_departure"]=json!(prior_departure);
+        invitation["previous_responsibilities_reassigned"]=json!(false);
+    }
+    store::event(db,work,from,actor,"invitation",&invitation,invocation)?;
     Ok(())
 }
 
@@ -952,6 +953,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
         let mut aliases=BTreeMap::new();
         for (ordinal,raw) in decision.operations.iter().enumerate() {
             let mut op=raw.clone();resolve(&mut op.input,&aliases)?;
+            if part.departure.is_some(){return Err(failure("work.leave ends your operations in this activity; issue it last and stop"));}
             if persona.model.is_none()&&!matches!(op.tool.as_str(),"persona.initialize"|"persona.read"|"tools.search"|"tools.describe"|"asset.read") {return Err(failure("initialize and activate your character before accepting or doing work"));}
             if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.search"|"asset.find"|"history.search"|"experience.search"|"peer.message") {return Err(failure("accept your invitation before ordinary work"));}
             if part.declined{return Err(failure("declined participation cannot perform operations"));}
@@ -976,6 +978,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
         }
         for name in &decision.next_context.tools{tools::describe(name)?;}
         part.tools=decision.next_context.tools.clone();
+        if part.departure.is_some()&&!matches!(decision.continuation,Continuation::Stop{..}){return Err(failure("Formally leaving requires an explicit stop for this participation"));}
         if part.declined&&!matches!(decision.continuation,Continuation::Stop{..}){return Err(failure("declining requires an explicit stop for this participation"));}
         if let Some(parent)=&decision.reply_to {
             if snapshot.model.is_none() || decision.reply.as_deref().is_none_or(|text|text.trim().is_empty()) {

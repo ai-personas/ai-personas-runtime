@@ -278,6 +278,14 @@ pub fn list(db: &Connection, kind: &str) -> Result<Vec<Record>> {
         .collect()
 }
 
+/// Select current records by their recorded activity, keeping the immutable body verification.
+pub fn in_work(db: &Connection, kind: &str, work: &str) -> Result<Vec<Record>> {
+    let mut query=db.prepare("SELECT h.id,h.revision,h.digest FROM heads h JOIN objects o ON h.digest=o.digest
+        WHERE h.kind=?1 AND json_extract(CAST(o.bytes AS TEXT),'$.work')=?2 ORDER BY h.id")?;
+    let rows=query.query_map(params![kind,work],|row|Ok(Reference{kind:kind.into(),id:row.get(0)?,revision:row.get(1)?,digest:row.get(2)?}))?;
+    rows.map(|row|{let reference=row?;Ok(Record{body:object(db,&reference.digest)?,reference})}).collect()
+}
+
 /// Call only inside the decision transaction. Expected zero means creation.
 pub fn write<T: Serialize>(
     db: &Connection,

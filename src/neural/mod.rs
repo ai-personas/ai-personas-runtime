@@ -9,6 +9,7 @@ mod character;
 mod platform_key;
 mod experience;
 mod handoff;
+pub mod membership;
 pub mod development;
 pub mod discovery;
 pub mod context;

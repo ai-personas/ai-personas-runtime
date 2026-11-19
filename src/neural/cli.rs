@@ -160,6 +160,8 @@ pub enum Command {
     Audit,
     /// Measure every recorded invocation, verified resource input and local search in one activity.
     Usage { work: String },
+    /// Current membership, unowned duties, acceptances and effects awaiting resolution.
+    Responsibilities { work: String },
     /// Measure storage under this workspace and optional explicitly named archive files.
     Footprint {
         #[arg(long = "archive")]
@@ -337,6 +339,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
                 }),
                 Command::Export{directory,work}=>export(&mut store,&directory,work.as_deref()),
                 Command::Audit=>audit(&mut store),
+                Command::Responsibilities{work}=>store.snapshot(|db|super::membership::responsibilities(db,&work)),
                 Command::Usage {work}=>store.snapshot(|db|super::accounting::activity(db,&work)),
                 Command::Footprint {archives}=>store.snapshot(|db|super::footprint::observe(db,root,&archives)),
                 Command::Backup{archive}=>super::archive::backup(&store,&archive),
@@ -399,7 +402,7 @@ fn operator_action(db: &rusqlite::Connection, operator: &str, command: Command) 
         Command::Resume{work,persona,reason}=>{
             if reason.trim().is_empty(){return Err(failure("resume needs an attributed reason"));}
             let record=store::required(db,"participation",&format!("{work}/{persona}"))?;let mut part:Participation=serde_json::from_value(record.body)?;
-            if part.declined{return Err(failure("a declined contribution needs a new work invitation, not implicit acceptance"));}
+            if part.declined || part.departure.is_some(){return Err(failure("Send a fresh invitation after a decline or departure. The persona decides whether to rejoin"));}
             part.continuation=Continuation::Ready{purpose:reason.clone()};
             store::write(db,"participation",&record.reference.id,record.reference.revision,&part,None)?;
             store::event(db,&work,operator,&persona,"explicit_resume",&json!({"reason":reason}),None)?;

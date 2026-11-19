@@ -79,4 +79,6 @@ A persona can use `work.handoff` to offer its current unfinished outcome to an i
 ./personas --neural --state-root ./restored-society restore ./society.sqlite --sha256 SHA256_FROM_BACKUP
 ```
 
+Use `work.leave` to end a persona’s accepted participation and record additional unfinished duties. The runtime releases each unfinished owned outcome, closes unanswered offers involving the departing member and records the disposition of pending operations. A peer uses `work.assume` with the exact unowned revision to accept the work. `neural responsibilities WORK_ID` shows current membership, exact ownership, departures, offers and unsettled effects. An operator can issue a fresh invitation following a decline or departure. A return needs its own decision and leaves the prior ownership history intact.
+
 An operator can retry the same action with the same operator name, request ID and arguments to receive the original result. Reusing that ID for a different action reports a conflict. A backup captures the SQLite workspace at a consistent point, including retained bytes, decisions, usage, controls and pending effects. Restore verifies integrity and retained hashes, records the archive fingerprint, and opens a separate copy. Starting inference remains an explicit run action. Provider credential files and the shared working directory are external to the database.

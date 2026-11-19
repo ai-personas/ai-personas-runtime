@@ -274,9 +274,9 @@ impl App {
                                     r["body"]["work"] == *work && r["body"]["persona"] == id
                                 });
                                 match action {
-                                    Action::Invite => member.is_none(),
+                                    Action::Invite => member.is_none_or(|r|r["body"]["declined"]==true || r["body"]["departure"].is_string()),
                                     Action::Resume => member.is_some_and(|r| {
-                                        r["body"]["declined"] != true
+                                        r["body"]["declined"] != true && !r["body"]["departure"].is_string()
                                             && matches!(
                                                 r["body"]["continuation"]["kind"].as_str(),
                                                 Some("wait" | "stop")

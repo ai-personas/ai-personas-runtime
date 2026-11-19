@@ -38,7 +38,7 @@ fn pending(db: &Connection, reference: &str, work: &str) -> Result<store::Record
     Ok(record)
 }
 
-fn unfinished(body: &Value) -> bool {
+pub(super) fn unfinished(body: &Value) -> bool {
     body["state"] != "claimed_complete"
         || body["remaining"]
             .as_array()
@@ -76,9 +76,9 @@ pub(super) fn execute(db: &Connection, snapshot: &Snapshot, action: Handoff) -> 
             ));
         }
         let member = store::required(db, "participation", &format!("{work}/{to}"))?;
-        if to == actor || member.body["declined"] == true {
+        if to == actor || member.body["declined"] == true || member.body["departure"].is_string() {
             return Err(failure(
-                "Choose another invited participant who has not declined",
+                "Choose another invited participant who has not declined or departed",
             ));
         }
         let body = json!({"work":work,"brief":brief,"state":"offered","outcome":outcome,"outcome_id":record.reference.id,
@@ -133,6 +133,8 @@ pub(super) fn execute(db: &Connection, snapshot: &Snapshot, action: Handoff) -> 
             .unwrap_or(&current.body["owner"])
             .clone();
         transferred["owner"] = json!(actor);
+        transferred["prior_outcome"] = json!(current.reference.handle());
+        transferred.as_object_mut().expect("outcome record").remove("accepted_responsibility");
         transferred["accepted_handoff"] = json!(format!(
             "handoff:{}@{}",
             offer.reference.id,
@@ -206,6 +208,11 @@ pub(super) fn ownership(
     let mut rows = BTreeMap::new();
     for o in outcomes {
         let b = &o.body;
+        if b["owner"].is_null() && b["released_by_departure"].is_string() {
+            rows.insert(o.reference.handle(),json!({"state":"unowned","responsible":null,"original_author":b["original_author"],
+                "departure":b["released_by_departure"],"accepted_handoff":null,"accepted_responsibility":null}));
+            continue;
+        }
         let (Some(work), Some(owner)) = (b["work"].as_str(), b["owner"].as_str()) else {
             return Err(failure("Incomplete outcome ownership"));
         };
@@ -229,7 +236,7 @@ pub(super) fn ownership(
             "follow_through_gap"
         };
         rows.insert(o.reference.handle(),json!({"state":state,"responsible":owner,"continuation":continuation,
-            "original_author":b.get("original_author").unwrap_or(&b["owner"]),"accepted_handoff":b["accepted_handoff"]}));
+            "original_author":b.get("original_author").unwrap_or(&b["owner"]),"accepted_handoff":b["accepted_handoff"],"accepted_responsibility":b["accepted_responsibility"],"departure":b["released_by_departure"]}));
     }
     Ok(rows)
 }

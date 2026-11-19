@@ -22,6 +22,8 @@ In **Character Lab → Life history**, choose a persona and filter their attribu
 
 The workspace lists responsibility handoffs alongside intended outcomes. An offer keeps the current owner in place. An accepted handoff names both participants, the exact transferred revision and the recipient’s decision. A stopped owner with unfinished work appears as a **Follow-through gap**. **Run controls → Continue this activity** schedules eligible decisions and pending effects for the selected activity. **Continue all eligible work** uses the entire workspace.
 
+Open **Workspace → Responsibility board** to see which outcomes need follow-through, which have an active owner and which the owner marked complete. A formal departure releases unfinished outcomes. A volunteer’s recorded acceptance opens from their outcome card. **Invite again…** starts a new invitation after departure. The former participant chooses whether to return.
+
 Use the workspace library button to return to recently opened folders. When a run is active, the library opens in a second window. **Workspace settings → Back up workspace…** saves a consistent archive. **Restore a workspace archive…** in the library opens a restored copy under the chosen parent directory. Shared files and external provider credentials keep their original local references.
 
 The name entered during setup is recorded as the author of the starting profiles. Set **Workspace settings → Operator name** or launch with `./personas --gui --operator NAME` to attribute subsequent messages, invitations and reviews in that window.

@@ -27,6 +27,7 @@ mod life;
 mod library_search;
 mod workspace;
 mod usage;
+mod responsibilities;
 
 const TEAL: Color32 = Color32::from_rgb(103, 198, 185);
 const PURPLE: Color32 = Color32::from_rgb(172, 150, 221);
@@ -34,6 +35,7 @@ const PURPLE: Color32 = Color32::from_rgb(172, 150, 221);
 enum Editor {
     #[default]
     Studio,
+    Responsibilities,
     Conversations,
     Artifacts,
     Character,
@@ -111,6 +113,7 @@ pub struct App {
     reference_input: String,
     library_search: library_search::Window,
     usage: usage::Panel,
+    responsibilities: responsibilities::Board,
     preview_generation: u64,
     preview_pending: bool,
     preview_metadata: Value,
@@ -181,6 +184,7 @@ impl App {
             reference_input: String::new(),
             library_search: Default::default(),
             usage: Default::default(),
+            responsibilities: Default::default(),
             preview_generation: 0,
             preview_pending: false,
             preview_metadata: Value::Null,
@@ -485,6 +489,18 @@ impl eframe::App for App {
             )
             .show(ctx, |ui| match self.layout.editor {
                 Editor::Studio => self.studio(ui),
+                Editor::Responsibilities => {
+                    if ui.small_button("← Activity overview").clicked(){self.layout.editor=Editor::Studio;}
+                    let cursor=self.events.iter().rev().find(|e|e["work"]==self.work).and_then(|e|e["event"].as_i64()).unwrap_or(0);
+                    match self.responsibilities.show(ui,&self.root,&self.work,cursor){
+                        Some(responsibilities::Action::Inspect(reference))=>self.open_resource(ctx,reference),
+                        Some(responsibilities::Action::Message{person,text})=>self.dialog=Some(Dialog::Participation{
+                            work:self.work.clone(),title:self.task_title().into(),action:dialogs::Action::Message,person,text,reply_to:None}),
+                        Some(responsibilities::Action::Invite(person))=>self.dialog=Some(Dialog::Participation{
+                            work:self.work.clone(),title:self.task_title().into(),action:dialogs::Action::Invite,person,text:String::new(),reply_to:None}),
+                        None=>{}
+                    }
+                },
                 Editor::Conversations => self.conversations(ui),
                 Editor::Artifacts => self.artifacts(ui),
                 Editor::Character => self.character(ui),

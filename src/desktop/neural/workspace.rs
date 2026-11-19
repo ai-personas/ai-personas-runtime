@@ -40,7 +40,7 @@ impl App {
                         if ui
                             .add(
                                 egui::Button::new(label)
-                                    .selected(self.layout.editor == editor)
+                                    .selected(self.layout.editor == editor || (editor==Editor::Studio && self.layout.editor==Editor::Responsibilities))
                                     .frame(self.layout.editor == editor),
                             )
                             .clicked()
@@ -162,6 +162,7 @@ impl App {
                         });
                         ui.add_enabled_ui(!self.work.is_empty(), |ui| {
                             ui.menu_button("Participate", |ui| {
+                                if ui.button("Responsibility board").clicked(){self.layout.editor=Editor::Responsibilities;ui.close();}
                                 for (action, label) in [(dialogs::Action::Message, "Write message"),
                                     (dialogs::Action::Amend, "Amend brief"), (dialogs::Action::Invite, "Invite a persona"),
                                     (dialogs::Action::Resume, "Resume participant")] {
@@ -461,6 +462,8 @@ impl App {
         if p.is_null() {
             return "No task participation".into();
         }
+        if p["departure"].is_string(){return "Left this activity".into();}
+        if p["declined"]==true{return "Declined invitation".into();}
         if !matches!(s(&p["continuation"], "kind"), "stop" | "stopped") {
             if let Some(recovery) = self.snapshot.inference_recovery.get(id) {
                 let seconds = recovery["not_before_unix"].as_i64().unwrap_or(0)
@@ -484,6 +487,7 @@ impl App {
                 eyebrow(ui, "Shared workspace");
                 ui.add_space(5.);
                 ui.heading(self.task_title());
+                if !self.work.is_empty() && ui.small_button("Responsibility board →").clicked(){self.layout.editor=Editor::Responsibilities;}
                 ui.add_space(12.);
                 let peers = self
                     .events
@@ -590,15 +594,17 @@ impl App {
                     let reference=format!("outcome:{}@{}",s(&outcome["reference"],"id"),outcome["reference"]["revision"]);
                     let ownership=self.snapshot.status["outcome_ownership"][&reference].clone();
                     let gap=ownership["state"]=="follow_through_gap";
+                    let unowned=ownership["state"]=="unowned";
                     ui.collapsing(
                         format!(
                             "{}{} · {}",
                             if gap{"Follow-through gap · "}else{""},
-                            self.label(s(b, "owner")),
+                            if unowned{"Unowned"}else{self.label(s(b, "owner"))},
                             excerpt(s(b, "description"), 55)
                         ),
                         |ui| {
                             ui.label(s(b, "description"));
+                            if unowned{ui.label("The former participant released this duty. A volunteer can explicitly accept it.");}
                             if gap{ui.label("The named owner stopped or has no accepted participation. This outcome remains unfinished.");}
                             if let Some(accepted)=ownership["accepted_handoff"].as_str(){
                                 if ui.small_button("Accepted handoff ↗").clicked(){self.open_resource(ui.ctx(),accepted.into());}

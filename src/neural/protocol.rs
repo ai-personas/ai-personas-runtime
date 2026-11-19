@@ -253,6 +253,8 @@ pub struct Participation {
     pub work: String,
     pub accepted: bool,
     pub declined: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub departure: Option<String>,
     pub continuation: Continuation,
     pub cursor: i64,
     pub turn: u64,
