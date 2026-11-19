@@ -96,6 +96,7 @@ pub(super) struct Panel {
     revisions: usize,
     trace_reference: Option<String>,
     trace_start: usize,
+    recipient_start: usize,
     exchanges: Vec<String>,
 }
 
@@ -120,6 +121,7 @@ impl Panel {
         self.revisions = 0;
         self.trace_reference = None;
         self.trace_start = 0;
+        self.recipient_start = 0;
         self.filter.clear();
         self.exchanges.clear();
         self.tab = 0;
@@ -192,6 +194,7 @@ impl Panel {
         ui.horizontal_wrapped(|ui| {
             ui.label("Counterpart");
             egui::ComboBox::from_id_salt(("relationship-contact", &self.owner))
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                 .selected_text(
                     selected
                         .map(|p| contact_label(status, p))
@@ -214,6 +217,7 @@ impl Panel {
                             && ui.selectable_label(selected == Some(&p), label).clicked()
                         {
                             action = Some(Action::Select(p));
+                            ui.close();
                         }
                     }
                 });
@@ -399,6 +403,60 @@ impl Panel {
                                     TEAL,
                                 );
                             });
+                            if let Some(reads) = trace["recipient_inputs"]
+                                .as_array()
+                                .filter(|v| !v.is_empty())
+                            {
+                                egui::CollapsingHeader::new(format!(
+                                    "Shared edition received in {} peer {}",
+                                    reads.len(),
+                                    if reads.len() == 1 {
+                                        "decision"
+                                    } else {
+                                        "decisions"
+                                    }
+                                ))
+                                .id_salt(("shared-edition-inputs", s(trace, "reference")))
+                                .show(ui, |ui| {
+                                    for input in reads.iter().skip(self.recipient_start).take(PAGE)
+                                    {
+                                        ui.push_id(s(input, "decision"), |ui| {
+                                            ui.strong(format!(
+                                                "{} · {}",
+                                                name(status, s(input, "reader")),
+                                                s(input, "accepted_utc")
+                                            ));
+                                            let work = work_name(status, s(input, "work"));
+                                            ui.label(excerpt(work, 90)).on_hover_text(work);
+                                            ui.horizontal_wrapped(|ui| {
+                                                link(
+                                                    ui,
+                                                    "Owner’s message ↗",
+                                                    &input["shared_via"],
+                                                    &mut action,
+                                                );
+                                                link(
+                                                    ui,
+                                                    "Recipient input ↗",
+                                                    &input["input"],
+                                                    &mut action,
+                                                );
+                                                link(
+                                                    ui,
+                                                    "Recipient decision ↗",
+                                                    &input["decision"],
+                                                    &mut action,
+                                                );
+                                            });
+                                        });
+                                    }
+                                    if let Some(next) =
+                                        pager(ui, self.recipient_start, reads.len() as u64)
+                                    {
+                                        self.recipient_start = next;
+                                    }
+                                });
+                            }
                             let decisions = trace["decisions"]
                                 .as_array()
                                 .map(Vec::as_slice)
@@ -600,6 +658,7 @@ impl App {
                 self.relationships.tab = 3;
                 self.relationships.trace_reference = Some(reference);
                 self.relationships.trace_start = 0;
+                self.relationships.recipient_start = 0;
             }
             Some(Action::Refresh) => {
                 self.relationships.contacts = None;

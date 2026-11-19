@@ -581,6 +581,9 @@ fn internal(
         "peer.message" => {
             let x: tools::Message = decode(input)?;
             check_references(db, &x.references)?;
+            for reference in x.references.iter().filter(|r|r.starts_with("relationship:")) {
+                super::relationships::attachment(db,actor,&x.to,reference)?;
+            }
             if x.to != "user" {
                 store::required(db, "participation", &format!("{work}/{}", x.to))?;
             }

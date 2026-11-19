@@ -120,6 +120,7 @@ pub struct InspectProgram {
 pub struct Message {
     pub to: String,
     pub text: String,
+    /// Exact references. Attaching your own relationship note grants this recipient access to the exact edition.
     pub references: Vec<String>,
     /// Optional experience:event-N@1 for the received exchange. Use its reply_targets address for this recipient, the incoming event or an exact experience you read.
     #[serde(default, skip_serializing_if = "Option::is_none")]

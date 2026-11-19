@@ -1,12 +1,12 @@
 //! Offline evidence of what reached an observer's accepted decisions for one exact note.
-use super::{own_read, store, Result};
+use super::{read_note, store, Result};
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
 pub fn trace(db: &Connection, reference: &str) -> Result<Value> {
     let note = store::exact(db, reference)?;
-    own_read(db, None, &note, reference)?;
+    read_note(db, None, &note, reference)?;
     let owner = &note.body["owner"];
     let mut calls = db.prepare("SELECT i.id,i.work,i.snapshot,i.response,strftime('%Y-%m-%d %H:%M UTC',i.updated,'unixepoch')
         FROM invocations i JOIN objects s ON i.snapshot=s.digest JOIN objects r ON i.response=r.digest
@@ -101,8 +101,39 @@ pub fn trace(db: &Connection, reference: &str) -> Result<Value> {
             );
         }
     }
+    let mut shared=db.prepare("SELECT i.id,i.actor,i.work,i.snapshot,strftime('%Y-%m-%d %H:%M UTC',i.updated,'unixepoch')
+        FROM invocations i JOIN objects s ON i.snapshot=s.digest WHERE i.state='accepted' AND i.actor<>?1
+        AND instr(s.bytes,CAST(?2 AS BLOB))>0 ORDER BY i.updated DESC,i.rowid DESC")?;
+    let mut other = shared.query(params![owner.as_str(), reference])?;
+    let mut recipient_inputs = Vec::new();
+    while let Some(row) = other.next()? {
+        let (call, reader, work, source, utc): (String, String, String, String, String) = (
+            row.get(0)?,
+            row.get(1)?,
+            row.get(2)?,
+            row.get(3)?,
+            row.get(4)?,
+        );
+        let snapshot: Value = store::object(db, &source)?;
+        if !snapshot["data"]["context_recovery"].is_null() {
+            continue;
+        }
+        if let Some(shared) = super::super::context::supplied_resources(&snapshot["data"])
+            .into_iter()
+            .map(|r| r.value)
+            .find(|v| {
+                v["reference"] == reference
+                    && v["record"] == note.body
+                    && v["shared_by"] == *owner
+                    && v["shared_via"].is_string()
+            })
+        {
+            recipient_inputs.push(json!({"reader":reader,"work":work,"shared_via":shared["shared_via"],"accepted_utc":utc,
+                "input":format!("object:{source}"),"decision":format!("experience:{call}@1")}));
+        }
+    }
     Ok(
         json!({"reference":reference,"owner":owner,"counterpart":note.body["counterpart"],"decisions":decisions,
-        "cue_decisions":cues,"body_decisions":full,"read_request_decisions":read_requests}),
+        "recipient_inputs":recipient_inputs,"cue_decisions":cues,"body_decisions":full,"read_request_decisions":read_requests}),
     )
 }

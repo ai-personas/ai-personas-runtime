@@ -6,7 +6,7 @@ pub use trace::trace;
 use super::{context::Snapshot, development, failure, store, Result};
 use clap::{Args, ValueEnum};
 use encounters::Direction;
-use rusqlite::Connection;
+use rusqlite::{params, Connection, OptionalExtension};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -160,7 +160,7 @@ fn notes(db: &Connection, owner: &str) -> Result<Vec<store::Record>> {
     .collect()
 }
 
-pub(super) fn own_read(
+pub(super) fn read_note(
     db: &Connection,
     reader: Option<&str>,
     record: &store::Record,
@@ -176,8 +176,18 @@ pub(super) fn own_read(
     {
         return Err(failure("Choose an exact relationship revision"));
     }
-    if reader.is_some_and(|id| id != owner) {
-        return Err(failure("Relationship notes belong to their observer"));
+    if let Some(peer) = reader.filter(|id| *id != owner) {
+        let event: Option<i64> = db.query_row(
+            "SELECT e.seq FROM events e JOIN invocations i ON i.id=e.invocation AND i.actor=e.actor AND i.work=e.work
+             JOIN objects o ON o.digest=e.digest WHERE e.kind='message' AND e.actor=?1 AND e.target=?2 AND i.state='accepted'
+             AND EXISTS(SELECT 1 FROM json_each(CAST(o.bytes AS TEXT),'$.references') r WHERE r.type='text' AND r.value=?3)
+             ORDER BY e.seq LIMIT 1",params![owner,peer,handle],|row|row.get(0)).optional()?;
+        let seq = event.ok_or_else(|| {
+            failure("The observer has not shared this exact relationship revision with you")
+        })?;
+        return Ok(
+            json!({"reference":handle,"record":record.body,"shared_by":owner,"shared_via":format!("experience:event-{seq}@1")}),
+        );
     }
     let current = store::required(db, "relationship", &record.reference.id)?;
     Ok(
@@ -185,9 +195,25 @@ pub(super) fn own_read(
     )
 }
 
+/// The observer can share any exact edition. A reader can cite it back to
+/// the author or to a peer already entitled to read that same edition.
+pub(super) fn attachment(db: &Connection, sender: &str, to: &str, reference: &str) -> Result<()> {
+    let note = store::exact(db, reference)?;
+    read_note(db, Some(sender), &note, reference)?;
+    if note.body["owner"] != sender && to != "user" {
+        read_note(db,Some(to),&note,reference).map_err(|_|failure("The recipient needs the observer’s own attachment to read this edition. Send your own account of the exchange instead."))?;
+    }
+    Ok(())
+}
+
 fn observed_base(db: &Connection, snapshot: &Snapshot, base: &str) -> Result<store::Record> {
     let previous = store::exact(db, base)?;
-    let read = own_read(db, Some(&snapshot.actor), &previous, base)?;
+    if previous.body["owner"] != snapshot.actor {
+        return Err(failure(
+            "Only the observer may revise or retire this account",
+        ));
+    }
+    let read = read_note(db, Some(&snapshot.actor), &previous, base)?;
     if read["current_revision"] != base {
         return Err(failure(
             "The relationship has a newer revision. Read the current note before revising it.",
