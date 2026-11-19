@@ -20,6 +20,38 @@ pub struct Search {
 fn page_size() -> usize {
     20
 }
+#[derive(Clone, Debug, clap::Args, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ExperienceQuery {
+    /// Keyword or regular expression. An empty keyword lists matching records.
+    #[arg(default_value = "")]
+    #[serde(default)]
+    pub query: String,
+    #[arg(long)]
+    #[serde(default)]
+    pub regex: bool,
+    /// Exact activity ID.
+    #[arg(long)]
+    pub work: Option<String>,
+    /// Exact recorded author (persona or named operator).
+    #[arg(long)]
+    pub author: Option<String>,
+    /// Exact event kind, such as user_message, message, reply, user_acceptance or accepted_decision.
+    #[arg(long)]
+    pub kind: Option<String>,
+    #[arg(long, default_value_t = 0)]
+    #[serde(default)]
+    pub offset: usize,
+    #[arg(long, default_value_t = page_size())]
+    #[serde(default = "page_size")]
+    pub page_size: usize,
+}
+impl ExperienceQuery {
+    pub(super) fn expression(&self) -> Result<Option<regex::Regex>> {
+        if self.page_size == 0 { return Err(failure("page size must be positive")); }
+        Ok(self.regex.then(|| regex::Regex::new(&self.query)).transpose()?)
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Describe {
@@ -278,7 +310,7 @@ pub const NAMES: &[(&str,&str)] = &[
     ("development.search","Find your development questions across tasks and social activity, including closed items. Read selected exact records with asset.read."),
     ("development.update","Record or revise your own behavior question with observed experience, competing explanations, a prediction, possible harms and a revisit condition. The item remains available across work and social activity."),
     ("development.close","Retire your own question after reading its current full record. Give your reason, including if the issue remains unresolved. Prior evidence and direct replies remain available."),
-    ("experience.search","Search your lifetime of work and social experiences by keyword or regular expression. Matches return exact origin and reference. Read chosen records with asset.read or select them for context."),
+    ("experience.search","Search your lifetime by keyword or regular expression. Filter by exact work, author and event kind. For reader feedback, kind=user_message with the named operator retrieves their messages across activities. Matches return exact origin and reference. Read chosen records with asset.read or select them for context."),
     ("history.search","Rediscover authored/addressed events in this work by literal or regex search, with exact prior request, response, tool-result and provider-receipt references. Returns metadata, not replayed history. Empty query lists events; results are paginated."),
     ("persona.create","Create an attributed pending identity with a fresh own-model initialization. This does not invite or assign responsibility."),
     ("asset.search","Search current shared asset metadata by literal or regex. Set history=true for previous library names. same_content finds registrations of identical retained bytes. Use asset.find for exact text search with optional excerpts, or asset.read for a chosen range."),
@@ -323,7 +355,8 @@ pub fn describe(name: &str) -> Result<Value> {
         .ok_or_else(|| failure(format!("unknown tool {name}")))?
         .1;
     let inputs = match name {
-        "tools.search" | "history.search" | "experience.search" | "development.search" => schema::<Search>()?,
+        "tools.search" | "history.search" | "development.search" => schema::<Search>()?,
+        "experience.search" => schema::<ExperienceQuery>()?,
         "asset.search" => schema::<super::discovery::Catalog>()?,
         "asset.find" => schema::<super::discovery::FindText>()?,
         "asset.feedback" => schema::<super::asset_feedback::Feedback>()?,
@@ -383,7 +416,12 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
         Ok(())
     }
     match name {
-        "tools.search" | "history.search" | "experience.search" | "development.search" => {
+        "experience.search" => {
+            let query: ExperienceQuery = serde_json::from_value(value.clone())?;
+            query.expression()?;
+            Ok(())
+        }
+        "tools.search" | "history.search" | "development.search" => {
             let x: Search = serde_json::from_value(value.clone())?;
             if x.regex {
                 regex::Regex::new(&x.query)?;

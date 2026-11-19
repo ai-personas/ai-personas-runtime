@@ -1,5 +1,5 @@
 //! Deliberate discovery across the work and social life of one continuing identity.
-use super::{failure, store, tools::Search, Result};
+use super::{failure, store, tools::ExperienceQuery, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
@@ -43,19 +43,16 @@ impl Experience {
     }
 }
 
-pub(super) fn search(db: &Connection, actor: &str, query: &Search) -> Result<Value> {
-    let sql =
-        format!("{EVENTS} WHERE {VISIBLE} UNION ALL {DECISIONS} AND i.actor=?1 ORDER BY 8 DESC,1");
-    let regex = if query.regex {
-        Some(regex::Regex::new(&query.query)?)
-    } else {
-        None
-    };
+pub(super) fn search(db: &Connection, actor: &str, query: &ExperienceQuery) -> Result<Value> {
+    let sql = format!("SELECT * FROM ({EVENTS} WHERE {VISIBLE} UNION ALL {DECISIONS} AND i.actor=?1)
+        WHERE (?2 IS NULL OR work=?2) AND (?3 IS NULL OR actor=?3) AND (?4 IS NULL OR kind=?4)
+        ORDER BY 8 DESC,1");
+    let regex = query.expression()?;
     let literal = query.query.to_lowercase();
     let mut statement = db.prepare(&sql)?;
     let mut count = 0;
     let mut items = Vec::new();
-    for row in statement.query_map([actor], Experience::row)? {
+    for row in statement.query_map(params![actor, query.work, query.author, query.kind], Experience::row)? {
         let experience = row?;
         let metadata = experience.metadata();
         let body: Value = store::object(db, &experience.digest)?;
