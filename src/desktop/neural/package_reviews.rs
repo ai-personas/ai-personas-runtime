@@ -129,15 +129,8 @@ impl Desk {
         let work = selected.work.clone();
         self.worker(ctx, move || {
             data::open(&root)
-                .and_then(|mut db| {
-                    let tx = db.transaction()?;
-                    let result = package_review::lookup(
-                        &tx,
-                        (!work.is_empty()).then_some(work.as_str()),
-                        &query,
-                    )?;
-                    tx.commit()?;
-                    Ok(result)
+                .and_then(|db| {
+                    package_review::lookup(&db, (!work.is_empty()).then_some(work.as_str()), &query)
                 })
                 .map(Reply::Page)
                 .map_err(|e| e.to_string())
