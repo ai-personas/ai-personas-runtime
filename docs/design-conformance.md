@@ -2,7 +2,7 @@
 
 The numerical Studio runs continuing personas through direct provider calls. Real participants produced editable designs, exchanged messages, reused other projects’ files and completed a reversible character experiment. **Beneficial self-directed numerical maturation over ordinary work remains unproven.** In the five-person cohort, all five authored and used initial models. Three retained developmental questions after feedback. None proposed a subsequent numerical revision across the eleven main-cohort activities.
 
-The design revision is `7d86efb`, published November 17, 2026. The Linux evaluation used successive runtime revisions from `0345495` through `ad940f8` on November 19. Each saved decision retains the interface and observations supplied by its own build. [Design](https://github.com/ai-personas/ai-personas-design/tree/7d86efb31a0323e03166a5c5212cdcd8b2e32f36) · [Runtime evaluated](https://github.com/ai-personas/ai-personas-runtime/tree/ad940f806e7967bdcacf7aa5ad2d6277e2c63441)
+The design revision is `7d86efb`, published November 17, 2026. The Linux evaluation used successive runtime revisions from `0345495` through `7098a17` on November 19. Each saved decision retains the interface and observations supplied by its own build. [Design](https://github.com/ai-personas/ai-personas-design/tree/7d86efb31a0323e03166a5c5212cdcd8b2e32f36) · [Runtime evaluated](https://github.com/ai-personas/ai-personas-runtime/tree/7098a1731b293dd9ccbb37eb03341ab4e16ba12b)
 
 ## What happened in ordinary work
 
@@ -71,6 +71,8 @@ The new question reached four accepted decisions across two subsequent activitie
 Three completed decisions in the first two activities were rejected for invalid reply addresses. After the interface began supplying the latest exact address for each correspondent, Ren answered the permit and publication invitations directly in its first post-acceptance decision. Both parents matched the original human invitation across the intervening acceptance.
 
 In a separate restored workspace, two new reader messages answered the exact scarf sign. A third message in the same activity had no reply parent. Mira’s next shelf-label activity received both direct-reply references. The previously interpreted reading and the general message were absent from the pending list. In a directed check, Mira judged the reading of the isolated second line inconclusive and described what the missing first line changed. The other direct reply remained pending. Running the stopped scarf activity initiated zero calls.
+
+In a separate handover copy, Mira chose to retire the temporary reading note and the substantive question. It read both current records and explicitly left the longer inquiry unresolved. The retained versions preserved both reader judgments and the remaining response awaiting interpretation. A subsequent bulletin request showed zero open questions, zero routine reminders and the one direct reply still awaiting interpretation. General messages sent to the originating activities after closure stayed out of those cues. All four calls used epoch 1.
 
 ## Controlled lookup and source continuity
 
@@ -160,10 +162,13 @@ The independent evaluator parsed exported SVGs, rendered them with CairoSVG 2.9.
 | Ren’s shift, booking correction, rehearsal permit and publication licence | 13 | 3 | 0 | 154,045 |
 | Two matched signed-shift encounters from different history snapshots | 4 | 0 | 0 | 38,229 |
 | Mira’s shelf label and directed interpretation of one scarf reply | 5 | 0 | 0 | 54,138 |
-| **Total** | **813** | **54** | **13** | **10,373,610** |
+| Mira’s directed archive handover and later bulletin | 4 | 0 | 0 | 43,638 |
+| **Total** | **817** | **54** | **13** | **10,417,248** |
 
-The requested model was `gpt-6.1-sol`, with low effort in the main and character studies. The restored reading-group and collection-desk studies used the same model at medium effort. Some older receipts omitted the returned model name. The provider supplied token counts, including 4,365,448 cached input tokens. Monetary charge and credit balance were unavailable. Restored historical calls are counted once. The membership studies had 32 completed calls with verified inputs. One additional local preparation stopped before provider dispatch because the saved account binding was absent from the process environment. It had no usage receipt.
+The requested model was `gpt-6.1-sol`, with low effort in the main and character studies. The restored reading-group and collection-desk studies used the same model at medium effort. Some older receipts omitted the returned model name. The provider supplied token counts, including 4,388,220 cached input tokens. Monetary charge and credit balance were unavailable. Restored historical calls are counted once. The membership studies had 32 completed calls with verified inputs. One additional local preparation stopped before provider dispatch because the saved account binding was absent from the process environment. It had no usage receipt.
 
 All 25 completed calls in the booking, branch comparison and shelf-label studies had independently verified inputs. The receipt summary for those calls had SHA-256 `499bfda2662c8efc006c4e79230cb08f1f8bdb102c4adb75f3a1990ddb866278`.
+
+The four archive-handover and bulletin inputs also verified. Their independent receipt summary had SHA-256 `d7e70b8fed6c8a896a209af6882a627e93e946042d559ccf87d0b35f9fe5eb41`.
 
 The two compiled-tool result checks had SHA-256 `d57616b308c110bb1a46c7a43ac78920753767502d1ea476855ed7acbc5d8f9b` and `0c38fa6e64eaab0d58f1e2b180c782d90424be015637ca75a25bf7e8ad6cdb02`. The membership receipt audit had SHA-256 `e6df8691c2cef8616d9f96e912f1c40cf7c74e8bcf084927955de3ab3d93d947`. The independent question and replay check had SHA-256 `4c8045beaf90a8c77724a5c8e94e728878c664cd5badc0e12eff60eec806468a`. The handover check had SHA-256 `d9ac6c7c3111784900589ad7a4d550e5235aad2cbecdc8c9629c145deb846dad`.
