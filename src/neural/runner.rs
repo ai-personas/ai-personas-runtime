@@ -163,12 +163,14 @@ pub async fn invoke(
         if changed!=1{return Err(failure("provider dispatch no longer owned"));}Ok(())
     })?;
     let cancellation = provider::Cancellation::default();
+    let mut progress = super::live::Publisher::new(root, &call_id);
     let pending = prepared.dispatch(cancellation.clone());
     tokio::pin!(pending);
     let response = loop {
         tokio::select! {
             value=&mut pending=>break value.and_then(|value|value.bound_to(&audit,&intent)),
             _=tokio::time::sleep(std::time::Duration::from_millis(100))=>{
+                progress.observe(cancellation.stream_bytes());
                 if control_observation(&store,work,actor).is_some(){cancellation.cancel();}
             }
         }

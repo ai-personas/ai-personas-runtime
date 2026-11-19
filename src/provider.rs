@@ -914,14 +914,20 @@ pub trait PreparedCall: Send {
 #[derive(Clone, Debug)]
 pub struct Cancellation {
     sender: watch::Sender<bool>,
+    stream_bytes: Arc<std::sync::atomic::AtomicU64>,
 }
 impl Default for Cancellation {
     fn default() -> Self {
         let (sender, _) = watch::channel(false);
-        Self { sender }
+        Self { sender, stream_bytes: Default::default() }
     }
 }
 impl Cancellation {
+    /// Response-stream bytes received so far. No output or provisional decisions are exposed.
+    pub fn stream_bytes(&self) -> u64 {
+        self.stream_bytes.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     pub fn cancel(&self) {
         self.sender.send_replace(true);
     }
@@ -1557,6 +1563,7 @@ impl DirectCall {
                         tokio::task::yield_now().await;
                         match body.read().await? {
                             Some(bytes) => {
+                                cancellation.stream_bytes.fetch_add(bytes.len() as u64, std::sync::atomic::Ordering::Relaxed);
                                 collector.push(&bytes)?;
                             }
                             None => {

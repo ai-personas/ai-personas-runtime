@@ -3,6 +3,7 @@
 pub mod cli;
 pub mod commands;
 pub mod accounting;
+pub mod live;
 pub mod footprint;
 pub mod geometry;
 mod archive;
