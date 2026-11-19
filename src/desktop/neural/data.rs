@@ -394,10 +394,17 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
 pub(super) fn preview(root: &Path, reference: &str) -> neural::Result<Preview> {
     preview_output(root, reference, None)
 }
+fn preview_bytes(db:&Connection,digest:&str)->neural::Result<(Vec<u8>,bool)> {
+    let bytes=store::bytes(db,digest)?;
+    match neural::provider_evidence::historical_view(db,digest,&bytes)? {
+        Some(metadata)=>Ok((serde_json::to_vec_pretty(&metadata)?,true)),
+        None=>Ok((bytes,false)),
+    }
+}
 pub(super) fn preview_output(root: &Path, reference: &str, output: Option<&(String,String)>) -> neural::Result<Preview> {
     let db = open(root)?;
     let (bytes, name, metadata) = if let Some(digest) = reference.strip_prefix("object:") {
-        let bytes = store::bytes(&db, digest)?;
+        let (bytes, projected) = preview_bytes(&db, digest)?;
         let media:String=db.query_row("SELECT media FROM objects WHERE digest=?1",[digest],|row|row.get(0))?;
         let suffix = match media.split(';').next().unwrap_or_default() {
             "application/json"=>"json",
@@ -412,6 +419,7 @@ pub(super) fn preview_output(root: &Path, reference: &str, output: Option<&(Stri
             _=>"bin",
         };
         let mut metadata=json!({"reference":reference,"media":media,"format":suffix});
+        if projected {metadata["view"]=json!("provider_receipt_metadata");}
         let name=if let Some((receipt,path))=output {
             let run=store::exact(&db,receipt)?;
             let role=["outputs","files_supplied"].into_iter().find(|&key|
@@ -446,7 +454,10 @@ pub(super) fn preview_output(root: &Path, reference: &str, output: Option<&(Stri
                 .unwrap_or_default()
                 .to_string_lossy()
                 .into_owned();
-            (store::bytes(&db, digest)?, name, record.body)
+            let (bytes, projected) = preview_bytes(&db, digest)?;
+            let mut metadata=record.body;
+            if projected { metadata["view"]=json!("provider_receipt_metadata"); }
+            (bytes, name, metadata)
         } else {
             let mut metadata = json!({"reference":reference,"kind":record.reference.kind,
                 "version":record.reference.revision,"record_digest":record.reference.digest,

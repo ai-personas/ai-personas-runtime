@@ -250,7 +250,7 @@ pub fn find(db: &Connection, search: &FindText) -> Result<Value> {
             json!({"path":record.body["path"],"qualifications":record.body["qualifications"],"retired":record.body["retired"]}),
         )
     };
-    let bytes = store::bytes(db, &blob)?;
+    let bytes = super::provider_evidence::resource_bytes(db, &blob)?;
     let mut report = json!({"reference":search.reference,"blob":format!("object:{blob}"),"source_bytes":bytes.len(),
         "metadata":metadata,"body_supplied":false,"offset":search.offset,"page_size":search.page_size});
     let text = match std::str::from_utf8(&bytes) {

@@ -380,7 +380,7 @@ pub struct Origin<'a> {
 
 fn content(db: &Connection, reference: &str) -> Result<(String, Vec<u8>)> {
     let digest = workspace::byte_digest(db, reference)?;
-    let bytes = store::bytes(db, &digest)?;
+    let bytes = super::provider_evidence::resource_bytes(db, &digest)?;
     Ok((digest, bytes))
 }
 

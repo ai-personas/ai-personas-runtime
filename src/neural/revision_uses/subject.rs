@@ -62,19 +62,14 @@ pub(super) fn accepted(
         )?;
         binding = "provider_completion";
     }
-    if let Some(items) = attempt.get("private_output_items").filter(|v| !v.is_null()) {
-        let profile = attempt["audit"]["transport_profile"]
-            .as_str()
-            .unwrap_or_default();
-        match crate::provider::retained_decision_matches(items, &bytes, profile) {
-            Some(true) => binding = "provider_output",
-            Some(false) => {
-                return Err(failure(
-                    "The accepted decision differs from the provider’s retained final output",
-                ))
-            }
-            None => {}
+    match crate::neural::provider_evidence::final_matches(db, &receipt, &attempt, &bytes)? {
+        Some(true) => binding = "provider_output",
+        Some(false) => {
+            return Err(failure(
+                "The accepted decision differs from the provider’s retained final output",
+            ))
         }
+        None => {}
     }
     Ok(Accepted {
         snapshot,

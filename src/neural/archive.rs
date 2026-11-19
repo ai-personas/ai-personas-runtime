@@ -56,7 +56,7 @@ fn inspect(path: &Path) -> Result<()> {
             return Err(failure("A retained content digest differs in the archive"));
         }
     }
-    Ok(())
+    super::provider_evidence::archive_check(&db)
 }
 
 pub(super) fn backup(store: &Store, path: &Path) -> Result<Value> {

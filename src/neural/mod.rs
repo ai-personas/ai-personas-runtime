@@ -13,6 +13,7 @@ pub mod relationships;
 mod character;
 pub mod character_paths;
 pub mod revision_uses;
+pub mod provider_evidence;
 mod platform_key;
 mod experience;
 mod handoff;

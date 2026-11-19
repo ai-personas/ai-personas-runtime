@@ -125,7 +125,7 @@ pub fn observe(db: &Connection, root: &Path, archives: &[PathBuf]) -> Result<Val
         json!({"observed_at_unix":super::now(),"workspace":root,"database_files_and_observed_staging":files,
         "known_workspace_file_bytes":total,"workspace_files_with_unknown_size":unknown_files,
         "sqlite_page_size":page_size,"sqlite_pages":page_count,"sqlite_free_pages":free_pages,"sqlite_object_page_bytes":internal_pages,
-        "distinct_object_payload":all,"overlapping_payload_roles":roles,"selected_external_files":archives,
+        "distinct_object_payload":all,"private_provider_output":super::provider_evidence::storage(db)?,"overlapping_payload_roles":roles,"selected_external_files":archives,
         "unmeasured":["unlisted backups, exports and other copies","previous peak temporary storage","external working directory and caches","provider-side storage"]}),
     )
 }

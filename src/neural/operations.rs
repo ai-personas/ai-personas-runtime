@@ -421,7 +421,7 @@ fn internal(
             if !snapshot.supplied_references.contains(&x.reference) {
                 return Err(failure("Read or select the receipt containing this object before registering its bytes"));
             }
-            let size = store::bytes(db,digest)?.len();
+            let size = super::provider_evidence::resource_bytes(db,digest)?.len();
             let asset = save_asset(db,actor,call,&x.path,x.base.as_deref(),digest,&x.cues,&x.qualifications,x.resource.as_ref())?;
             Ok(json!({"reference":asset.handle(),"blob":digest,"bytes":size,"registered_from":x.reference}))
         }

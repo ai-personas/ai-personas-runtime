@@ -179,7 +179,7 @@ pub async fn invoke(
             let terminal = store.transaction(|db| {
                 let response =
                     store::put_bytes(db, "application/json", output.response.as_bytes())?;
-                let receipt = store::put(db, &output.attempt)?;
+                let receipt = super::provider_evidence::save(db, &output.attempt)?;
                 let stopped = output.disposition != provider::CompletionDisposition::Ready
                     || store::stopped(db, work, actor)?.is_some() || crate::process_control::signal().is_some();
                 let mut state = match (probe, stopped) {
@@ -223,7 +223,7 @@ pub async fn invoke(
         }
         Err(error) => {
             store.transaction(|db|{
-                let receipt=match &error{provider::ProviderError::Attempt{receipt,..}=>store::put(db,receipt)?,_=>store::put(db,&json!({"error":error.to_string(),"dispatch_observation":"consult prepared receipt; no automatic retry"}))?};
+                let receipt=match &error{provider::ProviderError::Attempt{receipt,..}=>super::provider_evidence::save(db,receipt)?,_=>store::put(db,&json!({"error":error.to_string(),"dispatch_observation":"consult prepared receipt; no automatic retry"}))?};
                 db.execute("UPDATE invocations SET state='provider_failed',receipt=?2,updated=?3 WHERE id=?1",params![call_id,receipt,now()])?;
                 let fresh_inference_scheduled=recovery::schedule(db,work,actor,&call_id,&format!("object:{receipt}"),&error,probe)?;
                 store::event(db,work,"runtime",actor,"provider_failure",&json!({"invocation":call_id,"error":error.to_string(),"receipt":format!("object:{receipt}"),"automatic_retry":fresh_inference_scheduled,"fresh_inference_scheduled":fresh_inference_scheduled}),Some(&call_id))?;Ok(())

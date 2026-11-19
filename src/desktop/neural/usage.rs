@@ -379,12 +379,16 @@ fn storage_view(ui: &mut Ui, report: &Value) {
         );
         fact(
             &mut cols[1],
-            "Retained payload bytes",
+            "Retained object bytes",
             value(&all["payload_bytes"]),
             PURPLE,
         );
     });
     ui.small(format!("{} distinct objects. File sizes include SQLite indexes, journals and observed staging files.",value(&all["distinct_objects"])));
+    let outputs=&report["private_provider_output"];
+    if outputs["receipts"].as_u64().is_some_and(|n|n>0) {
+        ui.small(format!("{} further bytes of private provider output across {} receipts.",value(&outputs["payload_bytes"]),value(&outputs["receipts"])));
+    }
     let unknown = report["workspace_files_with_unknown_size"]
         .as_u64()
         .unwrap_or(0);

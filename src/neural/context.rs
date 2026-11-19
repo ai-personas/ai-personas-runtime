@@ -442,6 +442,10 @@ fn read_resource(
         (record.body, blob)
     };
     let bytes = store::bytes(db, &blob)?;
+    if let Some(public) = super::provider_evidence::historical_view(db, &blob, &bytes)? {
+        if start.is_some() || end.is_some() {return Err(failure("Historical provider receipts are read as whole metadata records"));}
+        return Ok(json!({"reference":reference,"source":format!("object:{blob}"),"view":"provider_receipt_metadata","record":public}));
+    }
     let media: String =
         db.query_row("SELECT media FROM objects WHERE digest=?1", [&blob], |r| {
             r.get(0)
