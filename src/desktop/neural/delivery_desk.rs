@@ -134,7 +134,7 @@ fn revision(reference: &str) -> Option<&str> {
 
 impl App {
     pub(super) fn delivery_return_link(&mut self, ui: &mut Ui) {
-        let Some((package, work, _)) = self
+        let Some((package, work, file)) = self
             .delivery_desk
             .origin
             .as_ref()
@@ -147,12 +147,22 @@ impl App {
             .on_hover_text(package)
             .clicked()
         {
-            let (package, work) = (package.clone(), work.clone());
+            let (package, work, file) = (package.clone(), work.clone(), file.clone());
             self.open_home_delivery(&package, &work);
+            self.refresh_delivery_model();
+            let desk = &mut self.delivery_desk;
+            if let Some(index) = desk
+                .model
+                .as_ref()
+                .and_then(|p| p.files.iter().position(|f| f.reference == file))
+            {
+                desk.focus_preview |= desk.selected != index;
+                desk.selected = index;
+            }
         }
     }
 
-    pub(super) fn home_package_page(&mut self, ui: &mut Ui) {
+    fn refresh_delivery_model(&mut self) {
         if self.delivery_desk.package != self.layout.delivery
             || self.delivery_desk.generation != Some(self.home_index.generation)
         {
@@ -171,6 +181,10 @@ impl App {
             desk.generation = Some(self.home_index.generation);
             desk.model = model;
         }
+    }
+
+    pub(super) fn home_package_page(&mut self, ui: &mut Ui) {
+        self.refresh_delivery_model();
         let package = self.delivery_desk.model.clone();
         ui.horizontal_wrapped(|ui| {
             if ui.link("← Workspace overview").clicked() {
