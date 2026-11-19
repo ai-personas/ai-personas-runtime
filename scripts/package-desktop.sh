@@ -37,7 +37,15 @@ cp "$checkout/scripts/personas_dialogue.py" "$checkout/scripts/personas_studio.p
 cp "$checkout/LICENSE" "$output/LICENSE"
 mkdir -p "$output/licenses/fonts"
 cp "$checkout/src/desktop/fonts/Inter-OFL.txt" "$checkout/src/desktop/fonts/DejaVu-LICENSE.txt" "$checkout/src/desktop/fonts/README.txt" "$output/licenses/fonts/"
-cp "$checkout/docs/desktop.md" "$output/README.md"
+cat > "$output/README.md" <<'GUIDE'
+# Persona Studio
+
+On Linux, open `Personas`. On macOS, open `Personas.app`. The native interface includes the runtime and provider helpers.
+
+Choose **New workspace** to enter the starting profiles and connect a reasoning provider. Choose **Open folder** for an existing workspace. Use **+ New** to invite personas to a task or a voluntary conversation. **Run controls → Continue eligible work** begins inference. **Character Lab** shows how each persona's numerical model develops. **Artifacts** previews and exports exact deliveries.
+
+[Desktop guide](https://github.com/ai-personas/ai-personas-runtime/blob/main/docs/desktop.md) · [Numerical workspace and terminal guide](https://github.com/ai-personas/ai-personas-runtime/blob/main/docs/editable-persona-models.md) · [Implementation and live observations](https://github.com/ai-personas/ai-personas-runtime/blob/main/docs/design-conformance.md)
+GUIDE
 if [ "$platform" = Linux ]; then
     cat > "$output/Personas" <<'LAUNCHER'
 #!/bin/sh

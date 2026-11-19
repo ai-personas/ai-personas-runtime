@@ -36,6 +36,7 @@ pub struct App {
     state_root: String,
     working_directory: String,
     existing_root: String,
+    operator: String,
     saved: Vec<PathBuf>,
     codex: journal::CodexPaths,
     models: Value,
@@ -103,7 +104,7 @@ fn saved_workspaces() -> Vec<PathBuf> {
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>, requested: Option<PathBuf>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, requested: Option<PathBuf>, operator: String) -> Self {
         let ctx = &cc.egui_ctx;
         theme::install_fonts(ctx);
         egui_extras::install_image_loaders(ctx);
@@ -134,6 +135,7 @@ impl App {
             tx,
             rx,
             busy: false,
+            operator,
             cancellable: false,
             error: name.err(),
             account: Value::Null,
@@ -248,6 +250,7 @@ impl App {
         self.busy = true;
         self.cancellable = false;
         self.error = None;
+        let operator = self.operator.trim().to_owned();
         let root = journal::expand(&PathBuf::from(&self.state_root));
         let directory = journal::expand(&PathBuf::from(&self.working_directory));
         let seeds = json!({"personas":self.personas.iter().enumerate().map(|(i,p)| {
@@ -294,7 +297,7 @@ impl App {
                 };
                 tokio::runtime::Runtime::new()
                     .map_err(|e| e.to_string())?
-                    .block_on(cli::execute(&root, "user", command))
+                    .block_on(cli::execute(&root, &operator, command))
                     .map_err(|e| e.to_string())?;
                 root.canonicalize().map_err(|e| e.to_string())
             })();
@@ -312,7 +315,7 @@ impl App {
                     match result {
                         Ok(root) => {
                             let _=remember_workspace(&root);
-                            self.workspace = Some(neural::App::new(ctx, root, self.gl.as_ref()))
+                            self.workspace = Some(neural::App::new(ctx, root, self.gl.as_ref(), self.operator.clone()))
                         }
                         Err(error) => self.error = Some(error),
                     }
@@ -339,6 +342,7 @@ impl App {
     fn setup(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.heading("Starting personas");
         ui.weak("Give each persona a name and the character profile it should start from.");
+        field(ui, "Your name on these profiles", &mut self.operator);
         let mut remove = None;
         for (i, persona) in self.personas.iter_mut().enumerate() {
             ui.push_id(i, |ui| ui.group(|ui| {
@@ -465,7 +469,7 @@ impl App {
         ui.label(
             "Creating a workspace makes no reasoning calls. Add a task and start work when ready.",
         );
-        let valid = !self.personas.is_empty()
+        let valid = !self.operator.trim().is_empty() && !self.personas.is_empty()
             && self
                 .personas
                 .iter()
@@ -509,6 +513,7 @@ impl eframe::App for App {
         if let Some(workspace) = &mut self.workspace {
             workspace.update(ctx, frame);
             if workspace.show_library {
+                self.operator.clone_from(&workspace.operator);
                 workspace.on_exit(self.gl.as_deref());
                 self.workspace=None;
                 self.saved=saved_workspaces();
@@ -739,11 +744,11 @@ impl App {
                         self.busy = true;
                         self.cancellable = false;
                         self.error = None;
-                        let (tx, ctx) = (self.tx.clone(), ctx.clone());
+                        let (tx, ctx, operator) = (self.tx.clone(), ctx.clone(), self.operator.clone());
                         std::thread::spawn(move || {
                             let result = (|| {
                                 tokio::runtime::Runtime::new().map_err(|e|e.to_string())?
-                                    .block_on(cli::execute(&root, "user", cli::Command::Restore { archive, sha256: None }))
+                                    .block_on(cli::execute(&root, &operator, cli::Command::Restore { archive, sha256: None }))
                                     .map_err(|e|e.to_string())?;
                                 root.canonicalize().map_err(|e|e.to_string())
                             })();

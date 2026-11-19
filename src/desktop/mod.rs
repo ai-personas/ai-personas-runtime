@@ -24,6 +24,9 @@ struct Options {
     /// Use this saved-progress folder instead of the discovered default.
     #[arg(long)]
     progress: Option<PathBuf>,
+    /// Local author name for numerical workspace actions in this window.
+    #[arg(long, default_value = "user")]
+    operator: String,
     /// Directory containing the four matching native runtime helpers.
     #[arg(long)]
     helpers: Option<PathBuf>,
@@ -48,7 +51,7 @@ pub fn run() -> eframe::Result {
             if options.progress.as_ref().is_some_and(|root|!root.join("neural.sqlite").is_file() && root.join("progress.json").is_file()) {
                 return Ok(Box::new(ui::App::new(cc,options.progress,options.helpers)));
             }
-            Ok(Box::new(start::App::new(cc,options.progress)))
+            Ok(Box::new(start::App::new(cc,options.progress,options.operator)))
         }),
     )
 }

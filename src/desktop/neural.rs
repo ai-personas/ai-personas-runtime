@@ -73,6 +73,7 @@ enum Update {
 }
 pub struct App {
     pub(super) show_library: bool,
+    pub(super) operator: String,
     root: PathBuf,
     snapshot: data::Snapshot,
     events: Vec<Value>,
@@ -128,6 +129,7 @@ impl App {
         ctx: &egui::Context,
         root: PathBuf,
         gl: Option<&Arc<eframe::glow::Context>>,
+        operator: String,
     ) -> Self {
         theme::install_fonts(ctx);
         egui_extras::install_image_loaders(ctx);
@@ -139,6 +141,7 @@ impl App {
         let (tx, rx) = mpsc::channel();
         Self {
             show_library: false,
+            operator,
             root,
             snapshot: Default::default(),
             events: vec![],
@@ -205,6 +208,7 @@ impl App {
         });
     }
     fn command(&mut self, ctx: &egui::Context, command: Command) {
+        let operator = self.operator.trim().to_owned();
         let run = matches!(command, Command::Run { .. });
         if run {
             self.running = true
@@ -217,7 +221,7 @@ impl App {
             let result = tokio::runtime::Runtime::new()
                 .map_err(|e| e.to_string())
                 .and_then(|rt| {
-                    rt.block_on(cli::execute(&root, "user", command))
+                    rt.block_on(cli::execute(&root, &operator, command))
                         .map_err(|e| e.to_string())
                 });
             let _ = tx.send(if run {

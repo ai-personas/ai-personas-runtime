@@ -405,6 +405,10 @@ impl App {
     }
 
     fn workspace_settings(&mut self, ui: &mut Ui, ctx: &egui::Context) {
+        ui.strong("Operator name");
+        ui.text_edit_singleline(&mut self.operator);
+        ui.small("Used for new messages, invitations, reviews and settings changes in this window.");
+        ui.separator();
         ui.strong("Appearance");
         let dark = ui
             .checkbox(&mut self.layout.dark, "Dark workspace")

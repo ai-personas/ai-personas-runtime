@@ -15,7 +15,7 @@ impl App {
                 ui.horizontal_wrapped(|ui| {
                     if theme::icon_button(ui,Icon::Workspaces,"Open workspace library").clicked() {
                         if self.running {
-                            if let Err(error)=std::env::current_exe().and_then(|exe|std::process::Command::new(exe).spawn()) {
+                            if let Err(error)=std::env::current_exe().and_then(|exe|std::process::Command::new(exe).arg("--operator").arg(&self.operator).spawn()) {
                                 self.error=Some(error.to_string());
                             }
                         } else if !self.busy {
