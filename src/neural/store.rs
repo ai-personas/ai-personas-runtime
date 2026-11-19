@@ -389,13 +389,17 @@ pub fn events(db: &Connection, work: &str, actor: &str, after: i64) -> Result<Ve
 }
 
 pub fn has_arrival(db:&Connection, work:&str, actor:&str, after:i64, kinds:&[String])->Result<bool> {
-    let mut query=db.prepare("SELECT e.kind FROM events e WHERE work=?1 AND seq>?2 AND
+    let mut query=db.prepare("SELECT e.kind, e.invocation IS NOT NULL AND e.target=?3 AND e.actor<>?3 FROM events e WHERE work=?1 AND seq>?2 AND
         (target=?3 OR (target='*' AND EXISTS(SELECT 1 FROM events j WHERE j.work=e.work AND j.target=?3 AND j.kind='invitation' AND j.seq<=e.seq)))")?;
     let mut rows=query.query(params![work,after,actor])?;
     while let Some(row)=rows.next()? {
         let kind: String = row.get(0)?;
         // Recording one's own next-context selection introduces no new observation.
-        if (kinds.is_empty() && kind != "appraisal_selected") || kinds.contains(&kind) {return Ok(true);}
+        let incoming_peer_message = kind == "message" && row.get::<_,bool>(1)?;
+        if (kinds.is_empty() && kind != "appraisal_selected") || kinds.iter().any(|requested|
+            requested == &kind || (requested == "peer_message" && incoming_peer_message)) {
+            return Ok(true);
+        }
     }
     Ok(false)
 }

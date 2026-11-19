@@ -269,6 +269,10 @@ pub const NAMES: &[(&str,&str)] = &[
     ("persona.paths","Trace an accepted choice of your own to the actual appraisal, output weights and active or inactive hidden paths. Optionally compare a retained package on that exact input, offline."),
     ("persona.patch","Directly replace literal parameters against an exact predecessor and return forward-only before/after probes. Does not activate."),
     ("persona.assess","Compare your exact active_model with its numerical inclinations omitted, or a candidate with its active predecessor. Use matched, tool-free provider calls on prior encounters or hypothetical choices."),
+    ("relationship.contacts","Discover named peers and human operators from your own exchanges, plus addresses of your own relationship notes. Counts describe recorded contact."),
+    ("relationship.history","Find exact direct exchanges, witnessed contributions and earlier revisions of your own note on a named persona or operator. Returns addresses; read selected experiences with asset.read."),
+    ("relationship.record","Create, revise or reopen your own scoped interpretation of a counterpart. Cite exact experiences whose bodies you observed, including an exchange with this counterpart. A supporting resource change belongs in asset_maintenance."),
+    ("relationship.retire","Retire your own current relationship note after reading it. Earlier revisions and actual exchanges remain available."),
     ("development.search","Find your development questions across tasks and social activity, including closed items. Read selected exact records with asset.read."),
     ("development.update","Record or revise your own behavior question with observed experience, competing explanations, a prediction, possible harms and a revisit condition. The item remains available across work and social activity."),
     ("development.close","Retire your own question after reading its current full record. Give your reason, including if the issue remains unresolved. Prior evidence and direct replies remain available."),
@@ -323,6 +327,10 @@ pub fn describe(name: &str) -> Result<Value> {
         "asset.feedback" => schema::<super::asset_feedback::Feedback>()?,
         "asset.feedback_history" => schema::<super::asset_feedback::History>()?,
         "tools.describe" => schema::<Describe>()?,
+        "relationship.contacts" => schema::<super::relationships::Page>()?,
+        "relationship.history" => schema::<super::relationships::History>()?,
+        "relationship.record" => schema::<super::relationships::Note>()?,
+        "relationship.retire" => schema::<super::relationships::Retire>()?,
         "development.update" => schema::<super::development::Update>()?,
         "development.close" => schema::<super::development::Close>()?,
         "persona.initialize" => schema::<protocol::InitializeModel>()?,
@@ -393,6 +401,10 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
         "asset.find" => parse::<super::discovery::FindText>(value),
         "asset.feedback" => parse::<super::asset_feedback::Feedback>(value),
         "asset.feedback_history" => parse::<super::asset_feedback::History>(value),
+        "relationship.contacts" => parse::<super::relationships::Page>(value),
+        "relationship.history" => parse::<super::relationships::History>(value),
+        "relationship.record" => parse::<super::relationships::Note>(value),
+        "relationship.retire" => parse::<super::relationships::Retire>(value),
         "development.update" => parse::<super::development::Update>(value),
         "development.close" => parse::<super::development::Close>(value),
         "persona.initialize" => parse::<protocol::InitializeModel>(value),
@@ -446,7 +458,7 @@ pub fn is_external(name: &str) -> bool {
     )
 }
 pub fn asset_mutation(name: &str) -> bool {
-    matches!(name, "asset.save" | "asset.import" | "asset.organize" | "asset.register" | "geometry.install" | "command.install")
+    matches!(name, "relationship.record" | "relationship.retire" | "asset.save" | "asset.import" | "asset.organize" | "asset.register" | "geometry.install" | "command.install")
 }
 pub fn model_mutation(name: &str) -> bool {
     matches!(name, "persona.initialize" | "persona.patch" | "development.update" | "development.close")

@@ -119,7 +119,7 @@ pub fn package_paths(
 fn resolve(value: &mut Value, aliases: &BTreeMap<String, String>) -> Result<()> {
     match value {
         Value::String(s) if s.starts_with('$') => {
-            *s=aliases.get(&s[1..]).ok_or_else(||failure(format!("unavailable local reference {s}; use an earlier asset.save, asset.register, result.review or result.deliver operation")))?.clone();
+            *s=aliases.get(&s[1..]).ok_or_else(||failure(format!("unavailable local reference {s}; use the ID of an earlier operation that returned a reusable reference")))?.clone();
         }
         Value::Array(a) => {
             for v in a {
@@ -430,6 +430,10 @@ fn internal(
         "geometry.history" => super::geometry::history::lookup(db,&decode(input)?),
         "command.history" => super::commands::history(db,&decode(input)?),
         "persona.paths" => super::character_paths::inspect(db, Some(actor), &decode(input)?),
+        "relationship.contacts" => super::relationships::contacts(db, actor, &decode(input)?),
+        "relationship.history" => super::relationships::history(db, actor, &decode(input)?),
+        "relationship.record" => super::relationships::record(db, snapshot, decode(input)?),
+        "relationship.retire" => super::relationships::retire(db, snapshot, decode(input)?),
         "asset.organize" => {
             let x: tools::AssetMetadata = decode(input)?;
             let record = store::exact(db, &x.reference)?;
@@ -1019,7 +1023,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
             }
             if part.departure.is_some(){return Err(failure("work.leave ends your operations in this activity; issue it last and stop"));}
             if persona.model.is_none()&&!matches!(op.tool.as_str(),"persona.initialize"|"persona.read"|"tools.search"|"tools.describe"|"asset.read") {return Err(failure("initialize and activate your character before accepting or doing work"));}
-            if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.search"|"asset.find"|"history.search"|"experience.search"|"peer.message") {return Err(failure("accept your invitation before ordinary work"));}
+            if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.search"|"asset.find"|"history.search"|"experience.search"|"relationship.contacts"|"relationship.history"|"peer.message") {return Err(failure("accept your invitation before ordinary work"));}
             if part.declined{return Err(failure("declined participation cannot perform operations"));}
             if tools::is_external(&op.tool) {
                 validate_external(db,&persona,&op)?;
@@ -1028,7 +1032,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
             }else{
                 let result=internal(db,snapshot,&mut persona,&mut part,&op)
                     .map_err(|error|failure(format!("Operation {} ({}): {error}",op.id,op.tool)))?;
-                if matches!(op.tool.as_str(),"asset.save"|"asset.register"|"result.review"|"result.deliver") {if let Some(r)=result["reference"].as_str(){aliases.insert(op.id.clone(),r.to_owned());}}
+                if matches!(op.tool.as_str(),"asset.save"|"asset.register"|"relationship.record"|"relationship.retire"|"result.review"|"result.deliver") {if let Some(r)=result["reference"].as_str(){aliases.insert(op.id.clone(),r.to_owned());}}
                 let digest=store::put(db,&result)?;
                 store::event(db,&snapshot.work,&snapshot.actor,&snapshot.actor,"tool_result",&json!({"operation":op.id,"tool":op.tool,"result":format!("object:{digest}"),"context":"complete","bootstrap":snapshot.model.is_none()}),Some(&snapshot.invocation))?;
             }

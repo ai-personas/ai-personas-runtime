@@ -196,7 +196,7 @@ pub enum Continuation {
     Wait {
         reason: String,
         wake_at_unix: Option<i64>,
-        /// Optional exact incoming event kinds that should wake this participation.
+        /// Incoming event kinds that should wake this participation. Use peer_message for a message addressed to you from another persona, or user_message for a human message.
         /// Empty receives any new event. A chosen wake time is an independent trigger.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         on_events: Vec<String>,

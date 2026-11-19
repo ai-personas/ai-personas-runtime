@@ -9,6 +9,7 @@ mod archive;
 mod assessment;
 pub mod asset_feedback;
 pub mod package_review;
+pub mod relationships;
 mod character;
 pub mod character_paths;
 mod platform_key;

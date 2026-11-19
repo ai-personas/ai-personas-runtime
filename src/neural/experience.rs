@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 
 const EVENTS: &str = "SELECT 'event-' || e.seq AS id, e.work,e.actor,e.target,e.kind,e.digest,
                       e.invocation,e.created FROM events e";
-const VISIBLE: &str = "(e.actor=?1 OR e.target=?1 OR (e.target='*' AND EXISTS
+pub(super) const VISIBLE: &str = "((e.actor=?1 AND e.invocation IS NOT NULL) OR e.target=?1 OR (e.target='*' AND EXISTS
     (SELECT 1 FROM events invitation WHERE invitation.work=e.work AND invitation.target=?1
      AND invitation.kind='invitation' AND invitation.seq<=e.seq)))";
 const DECISIONS: &str =
@@ -173,7 +173,7 @@ pub(super) fn responses_to_call(
     call: &str,
 ) -> Result<Vec<Value>> {
     let sql = format!("{EVENTS} JOIN objects b ON b.digest=e.digest
-        WHERE {VISIBLE} AND e.work=?2 AND e.actor<>?1 AND (
+        WHERE {VISIBLE} AND e.work=?2 AND (e.actor<>?1 OR e.invocation IS NULL) AND (
           (e.kind IN ('message','reply','user_message') AND EXISTS (
             SELECT 1 FROM events parent WHERE parent.work=e.work AND parent.invocation=?3
             AND 'experience:event-'||parent.seq||'@1'=json_extract(CAST(b.bytes AS TEXT),'$.reply_to')))
