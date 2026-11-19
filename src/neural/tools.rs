@@ -345,6 +345,7 @@ pub const NAMES: &[(&str,&str)] = &[
     ("result.review","Publish your finding on a criterion for an exact issued delivery or proposed set of assets. Choose subject.delivery to assess that delivery under its original brief, or subject.artifacts to assess those files under this activity’s brief."),
     ("result.reviews","Compare published package reviews with subject.delivery or a proposed subject.artifacts set. See matching and changed files, actual brief, evidence and whether each review existed at delivery. Optionally select a particular review."),
     ("result.deliver","Deliver exact retained artifacts with supported use, evidence and remaining gaps; claimed completion is separate from user acceptance."),
+    ("human.request","Ask a human for an action or observation outside the workspace. Name the action, optionally attach exact files they can take together and describe what you need back. Human updates arrive as user_message."),
 ];
 
 fn schema<T: JsonSchema>() -> Result<Value> {
@@ -409,6 +410,7 @@ pub fn describe(name: &str) -> Result<Value> {
         "result.review" => schema::<super::package_review::Review>()?,
         "result.reviews" => schema::<super::package_review::Lookup>()?,
         "result.deliver" => schema::<Deliver>()?,
+        "human.request" => schema::<super::human_requests::Request>()?,
         _ => return Err(failure("missing tool schema")),
     };
     Ok(json!({"name":name,"purpose":purpose,"inputs":inputs}))
@@ -495,6 +497,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
         "result.review" => parse::<super::package_review::Review>(value),
         "result.reviews" => parse::<super::package_review::Lookup>(value),
         "result.deliver" => parse::<Deliver>(value),
+        "human.request" => parse::<super::human_requests::Request>(value),
         _ => Err(failure(format!("unknown tool {name}"))),
     }
 }

@@ -96,7 +96,7 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
         heads.iter().map(|a| a.reference.handle()).collect();
     let mut retained = heads;
     let mut included = current.clone();
-    for delivery in status["deliveries"].as_array().into_iter().flatten() {
+    for delivery in ["deliveries", "human_requests"].iter().flat_map(|key| status[*key].as_array().into_iter().flatten()) {
         for reference in delivery["body"]["artifacts"]
             .as_array()
             .into_iter()
@@ -420,7 +420,16 @@ pub(super) fn preview_output(root: &Path, reference: &str, output: Option<&(Stri
         };
         let mut metadata=json!({"reference":reference,"media":media,"format":suffix});
         if projected {metadata["view"]=json!("provider_receipt_metadata");}
-        let name=if let Some((receipt,path))=output {
+        let name=if let Some((receipt,path))=output.filter(|(r,_)|r.starts_with("human_request:")) {
+            let request=store::exact(&db,receipt)?;
+            if request.reference.handle()!=*receipt || projected || !request.body["last_report"]["attachments"].as_array().into_iter().flatten()
+                .any(|a|a["reference"]==reference && a["name"]==*path) {
+                return Err(neural::failure("This human report does not contain those bytes under that filename"));
+            }
+            metadata["path"]=json!(path);
+            metadata["human_request"]=json!(receipt);
+            Path::new(path).file_name().and_then(|part|part.to_str()).ok_or_else(||neural::failure("Missing attachment filename"))?.to_owned()
+        } else if let Some((receipt,path))=output {
             let run=store::exact(&db,receipt)?;
             let role=["outputs","files_supplied"].into_iter().find(|&key|
                 run.body[key].get(path).and_then(|file|file["object"].as_str())==Some(reference));

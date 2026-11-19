@@ -655,6 +655,7 @@ fn internal(
             )?;
             Ok(json!({"reference":r.handle()}))
         }
+        "human.request" => super::human_requests::create(db,snapshot,decode(input)?),
         "result.review" => super::package_review::publish(db,work,actor,Some(call),&decode(input)?),
         "result.reviews" => super::package_review::lookup_for(db,Some(work),Some(actor),&decode(input)?),
         "result.deliver" => {
@@ -1047,7 +1048,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
             }else{
                 let result=internal(db,snapshot,&mut persona,&mut part,&op)
                     .map_err(|error|failure(format!("Operation {} ({}): {error}",op.id,op.tool)))?;
-                if matches!(op.tool.as_str(),"asset.save"|"asset.register"|"relationship.record"|"relationship.retire"|"result.review"|"result.deliver") {if let Some(r)=result["reference"].as_str(){aliases.insert(op.id.clone(),r.to_owned());}}
+                if matches!(op.tool.as_str(),"asset.save"|"asset.register"|"relationship.record"|"relationship.retire"|"result.review"|"result.deliver"|"human.request") {if let Some(r)=result["reference"].as_str(){aliases.insert(op.id.clone(),r.to_owned());}}
                 let digest=store::put(db,&result)?;
                 store::event(db,&snapshot.work,&snapshot.actor,&snapshot.actor,"tool_result",&json!({"operation":op.id,"tool":op.tool,"result":format!("object:{digest}"),"context":"complete","bootstrap":snapshot.model.is_none()}),Some(&snapshot.invocation))?;
             }

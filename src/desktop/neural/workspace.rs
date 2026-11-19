@@ -30,8 +30,11 @@ impl App {
                     );
                     ui.label(RichText::new("STUDIO").size(11.).color(p.muted));
                     ui.add_space(20.);
+                    let waiting = self.open_human_requests(None);
+                    let inbox_label = if waiting == 0 {"Needs you".to_string()} else {format!("Needs you · {waiting}")};
                     for (editor, label) in [
                         (Editor::Studio, "Workspace"),
+                        (Editor::Inbox, inbox_label.as_str()),
                         (Editor::Conversations, "Conversations"),
                         (Editor::Artifacts, "Artifacts"),
                         (Editor::Character, "Character Lab"),
@@ -116,9 +119,9 @@ impl App {
                                 );
                                 ui.close();
                             }
-                            if !self.work.is_empty() && ui.add_enabled(!ended && !self.running && !self.busy && self.snapshot.active.is_empty(),
-                                egui::Button::new("Continue this activity")).clicked(){
-                                self.command(ctx,Command::Run{watch:false,work:Some(self.work.clone()),persona:None});
+                            if !self.work.is_empty() && ui.add_enabled(!self.running && !self.busy && self.snapshot.active.is_empty(),
+                                egui::Button::new("Run activity and its requests")).clicked(){
+                                self.command(ctx,Command::Run{watch:false,work:None,persona:None,from_activity:Some(self.work.clone())});
                                 ui.close();
                             }
                             if ui
@@ -128,7 +131,7 @@ impl App {
                                 )
                                 .clicked()
                             {
-                                self.command(ctx, Command::Run { watch: false,work:None,persona:None });
+                                self.command(ctx, Command::Run { watch: false,work:None,persona:None,from_activity:None });
                                 ui.close();
                             }
                             if ui
@@ -298,29 +301,30 @@ impl App {
             .width_range(170.0..=360.0)
             .frame(egui::Frame::new().fill(p.panel).inner_margin(12))
             .show(ctx, |ui| {
-                eyebrow(ui, "Outliner");
+                eyebrow(ui, "Workspace browser");
                 ui.add_space(12.);
                 egui::ScrollArea::vertical()
                     .id_salt("outliner-scroll")
                     .show(ui, |ui| {
                         section(ui, "Activities", &self.records("work").len().to_string());
-                        for task in self.records("work").to_vec() {
-                            let b = &task["body"];
-                            let id = s(b, "id");
-                            if ui
-                                .add_sized(
-                                    [ui.available_width(), 32.],
-                                    egui::Button::new(excerpt(activity_title(b), 32))
-                                        .selected(id == self.work)
-                                        .truncate(),
-                                )
-                                .on_hover_text(activity_title(b))
-                                .clicked()
-                            {
-                                self.work = id.into();
-                                self.conversation_page = 0;
+                        ui.add(egui::TextEdit::singleline(&mut self.activity_filter_text).hint_text("Find an activity…").desired_width(f32::INFINITY));
+                        let query=self.activity_filter_text.to_lowercase();
+                        let mut tasks:Vec<_>=self.records("work").iter().filter(|t|activity_title(&t["body"]).to_lowercase().contains(&query)).cloned().collect();
+                        let order:BTreeMap<_,_>=self.events.iter().filter_map(|e|Some((e["work"].as_str()?,e["event"].as_i64()?))).collect();
+                        tasks.sort_by_key(|t|std::cmp::Reverse(order.get(s(&t["body"],"id")).copied()));
+                        egui::ScrollArea::vertical().id_salt("browser-activities").max_height(176.).auto_shrink([false,true]).show(ui,|ui|{
+                            for task in tasks {
+                                let b=&task["body"];let id=s(b,"id");
+                                if ui.add_sized([ui.available_width(),28.],egui::Button::new(excerpt(activity_title(b),36)).selected(id==self.work).truncate())
+                                    .on_hover_text(activity_title(b)).clicked() {
+                                    self.work=id.into();self.conversation_page=0;
+                                    if self.layout.editor==Editor::Inbox{self.layout.editor=Editor::Studio;}
+                                    if self.participation(&self.persona).is_null(){
+                                        if let Some(p)=self.records("participation").iter().find(|r|r["body"]["work"]==id){self.persona=s(&p["body"],"persona").into();}
+                                    }
+                                }
                             }
-                        }
+                        });
                         if self.records("work").is_empty() {
                             ui.weak("Create a task to begin.");
                         }
@@ -471,6 +475,7 @@ impl App {
         if p["closed_by_activity"].is_string(){return "Activity ended".into();}
         if p["departure"].is_string(){return "Left this activity".into();}
         if p["declined"]==true{return "Declined invitation".into();}
+        if p["accepted"]!=true{return "Invited".into();}
         if !matches!(s(&p["continuation"], "kind"), "stop" | "stopped") {
             if let Some(recovery) = self.snapshot.inference_recovery.get(id) {
                 let seconds = recovery["not_before_unix"].as_i64().unwrap_or(0)
@@ -503,61 +508,11 @@ impl App {
         egui::ScrollArea::vertical()
             .id_salt(("studio-overview",self.work.clone()))
             .show(ui, |ui| {
-                eyebrow(ui, "Shared workspace");
-                ui.add_space(5.);
-                ui.heading(self.task_title());
-                if !self.work.is_empty() {
-                    ui.horizontal_wrapped(|ui|{
-                        if ui.small_button("Responsibility board →").clicked(){self.layout.editor=Editor::Responsibilities;}
-                        if ui.small_button("Requested activities →").clicked(){
-                            self.requested_activities.open(ui.ctx(),&self.root,&self.work,self.cursor);
-                        }
-                    });
-                }
+                self.activity_overview(ui);
+                if self.work.is_empty() { return; }
                 ui.add_space(12.);
-                let peers = self
-                    .events
-                    .iter()
-                    .filter(|e| {
-                        e["work"] == self.work && Self::peer_exchange(e)
-                    })
-                    .count();
-                ui.horizontal_wrapped(|ui| {
-                    for (value, label, color) in [
-                        (self.snapshot.active.iter().filter(|c| c["work"] == self.work).count(), "active calls", TEAL),
-                        (
-                            self.snapshot.assets.len(),
-                            "library artifacts",
-                            theme::ACCENT,
-                        ),
-                        (peers, "peer exchanges", PURPLE),
-                        (
-                            self.records("deliveries")
-                                .iter()
-                                .filter(|d| d["body"]["work"] == self.work)
-                                .count(),
-                            "deliveries",
-                            Color32::from_rgb(121, 166, 230),
-                        ),
-                    ] {
-                        egui::Frame::new()
-                            .fill(theme::palette(ui).header)
-                            .corner_radius(5)
-                            .inner_margin(egui::Margin::symmetric(12, 7))
-                            .show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    ui.label(
-                                        RichText::new(value.to_string()).size(22.).color(color),
-                                    );
-                                    ui.small(label);
-                                });
-                            });
-                    }
-                });
-                ui.add_space(18.);
-                section(ui, "Collaboration", "Select a persona to inspect");
-                self.collaboration_map(ui);
-                ui.add_space(16.);
+                ui.collapsing("Collaboration map",|ui| self.collaboration_map(ui));
+                ui.add_space(14.);
                 let messages: Vec<Value> = self
                     .events
                     .iter()
@@ -572,14 +527,14 @@ impl App {
                     .snapshot
                     .assets
                     .iter()
-                    .filter(|a| a["body"]["retired"] != true && a["current"] != false)
+                    .filter(|a| a["body"]["work"] == self.work && a["body"]["retired"] != true && a["current"] != false)
                     .take(6)
                     .cloned()
                     .collect();
                 let column_gap = ui.spacing().item_spacing.x;
                 ui.spacing_mut().item_spacing.x = 18.;
                 ui.columns(2, |cols| {
-                    section(&mut cols[0], "Recent conversations", "Live exchanges");
+                    section(&mut cols[0], "Recent conversations", "");
                     for message in &messages {
                         card(&cols[0]).show(&mut cols[0], |ui| {
                             self.message_heading(ui, message);
@@ -599,7 +554,8 @@ impl App {
                         cols[0]
                             .weak("Messages will appear as personas exchange ideas and results.");
                     }
-                    section(&mut cols[1], "Workspace library", "Recent files");
+                    section(&mut cols[1], "Created here", "Recent files");
+                    if assets.is_empty(){cols[1].weak("Files created in this activity will appear here.");}
                     for asset in &assets {
                         self.artifact_row(&mut cols[1], asset, false);
                         cols[1].add_space(5.);
@@ -811,7 +767,7 @@ impl App {
             ));
         }
     }
-    fn message_heading(&mut self, ui: &mut Ui, event: &Value) {
+    pub(super) fn message_heading(&mut self, ui: &mut Ui, event: &Value) {
         let actor = s(event, "actor");
         let target = if matches!(s(event,"kind"),"request_message_sent"|"request_review_sent"){s(&event["body"],"to")}else{s(event,"target")};
         let published = event["kind"] == "asset_feedback";

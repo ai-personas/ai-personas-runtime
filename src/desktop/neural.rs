@@ -32,6 +32,8 @@ mod library_search;
 mod asset_feedback;
 mod package_reviews;
 mod requested_activities;
+mod inbox;
+mod overview;
 mod mesh_profile;
 mod workspace;
 mod usage;
@@ -45,6 +47,7 @@ const PURPLE: Color32 = Color32::from_rgb(172, 150, 221);
 enum Editor {
     #[default]
     Studio,
+    Inbox,
     Responsibilities,
     Conversations,
     Artifacts,
@@ -69,7 +72,7 @@ impl Default for Layout {
         Self {
             editor: Editor::Studio,
             outliner: true,
-            inspector: true,
+            inspector: false,
             activity: false,
             left_width: 210.,
             right_width: 310.,
@@ -111,6 +114,8 @@ pub struct App {
     layout: Layout,
     work: String,
     persona: String,
+    inbox: inbox::Inbox,
+    activity_filter_text: String,
     dialog: Option<Dialog>,
     submitting_dialog: bool,
     conversation_filter: String,
@@ -199,6 +204,8 @@ impl App {
             layout,
             work: String::new(),
             persona: String::new(),
+            inbox: Default::default(),
+            activity_filter_text: String::new(),
             dialog: None,
             submitting_dialog: false,
             conversation_filter: String::new(),
@@ -337,17 +344,15 @@ impl App {
                             self.character_decisions.sort_by_key(|d| (d["accepted"].as_i64().unwrap_or(0), d["order"].as_i64().unwrap_or(0)));
                             self.snapshot = snapshot;
                             if self.work.is_empty() {
-                                self.work = self
-                                    .records("work")
-                                    .first()
+                                self.work = self.events.iter().rev().find_map(|e|e["work"].as_str().filter(|w|self.records("work").iter().any(|r|r["body"]["id"]==*w)))
+                                    .map(str::to_owned).or_else(||self.records("work").first()
                                     .map(|r| s(&r["body"], "id").into())
+                                    )
                                     .unwrap_or_default();
                             }
                             if self.persona.is_empty() {
-                                self.persona = self
-                                    .records("personas")
-                                    .first()
-                                    .map(|r| s(&r["body"], "id").into())
+                                self.persona = self.records("participation").iter().find(|r|r["body"]["work"]==self.work)
+                                    .map(|r|s(&r["body"],"persona").into()).or_else(||self.records("personas").first().map(|r|s(&r["body"],"id").into()))
                                     .unwrap_or_default();
                             }
                         }
@@ -440,6 +445,9 @@ impl App {
                     format!("Workspace compiler available · {}",s(&v["record"],"compiler_version"))
                 } else if let Some(archive) = v["archive"].as_str() {
                     format!("Backup saved to {archive}")
+                } else if v["reference"].as_str().is_some_and(|r|r.starts_with("human_request:")) {
+                    self.inbox.response_saved(v["reference"].as_str().unwrap());
+                    "Update sent to the requesting persona".into()
                 } else if let Some(state) = v["state"].as_str() {
                     format!("Scheduling {state}")
                 } else {
@@ -562,6 +570,7 @@ impl eframe::App for App {
             )
             .show(ctx, |ui| match self.layout.editor {
                 Editor::Studio => self.studio(ui),
+                Editor::Inbox => self.human_inbox(ui),
                 Editor::Responsibilities => {
                     if ui.small_button("← Activity overview").clicked(){self.layout.editor=Editor::Studio;}
                     let cursor=self.events.iter().rev().find(|e|e["work"]==self.work).and_then(|e|e["event"].as_i64()).unwrap_or(0);

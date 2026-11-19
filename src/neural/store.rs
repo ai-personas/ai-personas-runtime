@@ -136,7 +136,7 @@ pub fn status(db: &Connection) -> Result<Value> {
         "installations":list(db,"installation")?,
         "development":list(db,"development")?,"question_applications":super::development::applications(db,None,None)?,
         "acceptances":list(db,"acceptance")?,"delivery_reviews":delivery_reviews(db)?,"delivery_mandates":delivery_mandates(db,None)?,
-        "outcomes":outcomes,"outcome_ownership":ownership,"handoffs":super::handoff::offers(db,None)?,"deliveries":list(db,"delivery")?,
+        "outcomes":outcomes,"outcome_ownership":ownership,"handoffs":super::handoff::offers(db,None)?,"deliveries":list(db,"delivery")?,"human_requests":list(db,"human_request")?,
         "jobs":job_index(db,false)?,
         "invocations":counts,"operations":effect_counts,"controls":controls,
         "meaning":"Stored activity, authored judgments and retained deliveries; not an independent quality verdict."}))

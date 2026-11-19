@@ -651,16 +651,16 @@ async fn effects(root: &Path, actor: &str, selected_work:&str) -> Result<()> {
 
 fn recover(store: &mut Store,work:Option<&str>,actor:Option<&str>) -> Result<()> {
     store.transaction(|db|{
-        let mut statement=db.prepare("SELECT id,work,actor,state FROM invocations WHERE state IN ('prepared','dispatched','probe_prepared','probe_dispatched')")?;
-        let rows=statement.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?)))?.collect::<std::result::Result<Vec<_>,_>>()?;
+        let mut statement=db.prepare("SELECT id,work,actor,state FROM invocations WHERE state IN ('prepared','dispatched','probe_prepared','probe_dispatched') AND (?1 IS NULL OR work=?1) AND (?2 IS NULL OR actor=?2)")?;
+        let rows=statement.query_map(params![work,actor],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?)))?.collect::<std::result::Result<Vec<_>,_>>()?;
         for (call,work,actor,state) in rows {
             let uncertain=state.ends_with("dispatched");
             db.execute("UPDATE invocations SET state=?2,updated=?3 WHERE id=?1",params![call,if uncertain{"uncertain"}else{"abandoned_preparation"},now()])?;
             store::event(db,&work,"runtime",&actor,"recovered_invocation",&json!({"invocation":call,"prior_state":state,"remote_result_unknown":uncertain,"automatic_retry":false}),Some(&call))?;
             if uncertain{pause(db,&actor,"Interrupted provider dispatch requires explicit review/resume; remote effects or charges may remain",Some(&call))?;}
         }
-        let mut statement=db.prepare("SELECT id,work,actor,invocation FROM outbox WHERE state='dispatched'")?;
-        let rows=statement.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?)))?.collect::<std::result::Result<Vec<_>,_>>()?;
+        let mut statement=db.prepare("SELECT id,work,actor,invocation FROM outbox WHERE state='dispatched' AND (?1 IS NULL OR work=?1) AND (?2 IS NULL OR actor=?2)")?;
+        let rows=statement.query_map(params![work,actor],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?)))?.collect::<std::result::Result<Vec<_>,_>>()?;
         for (effect,work,actor,call) in rows {
             db.execute("UPDATE outbox SET state='uncertain' WHERE id=?1",[&effect])?;
             store::event(db,&work,"runtime",&actor,"uncertain_effect",&json!({"effect":effect,"automatic_retry":false,"action":"Inspect the actual host state before deciding any new action"}),Some(&call))?;
@@ -691,16 +691,20 @@ fn pause(db: &rusqlite::Connection, actor: &str, reason: &str, invocation: Optio
 }
 
 pub async fn run(root: &Path, watch: bool) -> Result<Value> {
-    run_selected(root,watch,None,None).await
+    run_selected(root,watch,None,None,None).await
 }
 
-pub async fn run_selected(root:&Path,watch:bool,work:Option<&str>,actor:Option<&str>)->Result<Value> {
+pub async fn run_selected(root:&Path,watch:bool,work:Option<&str>,actor:Option<&str>,from_activity:Option<&str>)->Result<Value> {
     let mut store = Store::open(root)?;
     let _lock = RunnerLock::acquire(&store.root)?;
-    if let Some(id)=work{store::required(&store.db,"work",id)?;}
+    if from_activity.is_some() && (work.is_some() || actor.is_some()) {
+        return Err(failure("Choose an activity tree or an exact work/persona filter"));
+    }
+    if let Some(id)=work.or(from_activity){store::required(&store.db,"work",id)?;}
     if let Some(id)=actor{store::required(&store.db,"persona",id)?;}
     if let (Some(work),Some(actor))=(work,actor){store::required(&store.db,"participation",&format!("{work}/{actor}"))?;}
-    recover(&mut store,work,actor)?;
+    recover(&mut store,work.or(from_activity),actor)?;
+    let mut tree = from_activity.map(super::activity_tree::Tree::new);
     let root = store.root.clone();
     let mut busy = BTreeSet::new();
     let mut tasks = tokio::task::JoinSet::new();
@@ -708,6 +712,22 @@ pub async fn run_selected(root:&Path,watch:bool,work:Option<&str>,actor:Option<&
     let mut scheduling_order = 0u64;
     let mut observed_signal = None;
     loop {
+        if let Some(tree) = &mut tree {
+            loop {
+                let added = tree.refresh(&store.db)?;
+                if added.is_empty() { break; }
+                for child in added {
+                    recover(&mut store,Some(&child),None)?;
+                }
+            }
+        }
+        // A narrow run leaves other activities' interrupted dispatches and
+        // retained responses intact. Those actors still have outstanding authority.
+        let occupied = {
+            let mut q = store.db.prepare("SELECT actor FROM invocations WHERE state IN ('prepared','dispatched','responded','probe_prepared','probe_dispatched') UNION SELECT actor FROM outbox WHERE state='dispatched'")?;
+            let rows = q.query_map([], |r| r.get::<_,String>(0))?;
+            rows.collect::<rusqlite::Result<BTreeSet<_>>>()?
+        };
         if let Some(signal) = crate::process_control::signal() {
             if observed_signal != Some(signal) {
                 store.control("global", "paused", signal, super::controls::Origin::Runtime)?;
@@ -728,7 +748,8 @@ pub async fn run_selected(root:&Path,watch:bool,work:Option<&str>,actor:Option<&
         let mut future_wake = false;
         for record in store::list(&store.db, "participation")? {
             let part: Participation = serde_json::from_value(record.body)?;
-            if work.is_some_and(|w|w!=part.work) || actor.is_some_and(|a|a!=part.persona) || busy.contains(&part.persona)
+            if work.is_some_and(|w|w!=part.work) || tree.as_ref().is_some_and(|t|!t.contains(&part.work))
+                || actor.is_some_and(|a|a!=part.persona) || busy.contains(&part.persona) || occupied.contains(&part.persona)
                 || store::stopped(&store.db, &part.work, &part.persona)?.is_some()
             {
                 continue;

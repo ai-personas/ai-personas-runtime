@@ -54,7 +54,7 @@ impl Window {
         let (root, ctx) = (root.to_owned(), ctx.clone());
         std::thread::spawn(move || {
             let result = data::open(&root).and_then(|db| {
-                let list = history(
+                let mut list = history(
                     &db,
                     &work,
                     None,
@@ -64,6 +64,7 @@ impl Window {
                         page_size: PAGE,
                     },
                 )?;
+                list["tree"] = ai_personas::neural::activity_tree::describe(&db,&work)?;
                 let selected = requested
                     .as_deref()
                     .or_else(|| list["items"][0]["request"].as_str());
@@ -122,6 +123,25 @@ impl Window {
                     Err(problem)=>{ui.colored_label(theme::ACCENT,problem);reload|=ui.button("Try again").clicked();return;}
                 };
                 let count=list["total"].as_u64().unwrap_or(0) as usize;
+                if let Some(activities)=list["tree"]["activities"].as_array() {
+                    ui.collapsing(format!("Run scope  ·  {} activities",activities.len()),|ui|{
+                        egui::ScrollArea::vertical().id_salt("run-scope").max_height(205.).show(ui,|ui|{
+                            for node in activities {
+                                ui.push_id(s(node,"work"),|ui|{
+                                    ui.horizontal_wrapped(|ui|{
+                                        ui.add_space((node["depth"].as_u64().unwrap_or(0) as f32*12.).min(60.));
+                                        theme::glyph(ui,Icon::Task,TEAL);
+                                        if ui.link(excerpt(s(node,"need"),70)).on_hover_text(s(node,"need")).clicked(){action=Some(Action::OpenWork(s(node,"work").into()));}
+                                        for p in node["participants"].as_array().into_iter().flatten(){
+                                            ui.weak(format!("{} · {}",person(status,s(p,"persona")),s(&p["continuation"],"kind")));
+                                        }
+                                    });
+                                });
+                            }
+                        });
+                    });
+                    ui.separator();
+                }
                 if count==0 {
                     ui.heading("No requests in this activity");
                     ui.weak("A separate activity opened by a persona will appear here with its replies and deliveries.");

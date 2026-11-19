@@ -97,7 +97,25 @@ pub enum Command {
         /// Schedule only this persona, optionally within the selected activity.
         #[arg(long)]
         persona:Option<String>,
+        /// Follow this activity and the activities its participants originate, recursively.
+        #[arg(long, conflicts_with_all = ["work", "persona"])]
+        from_activity: Option<String>,
     },
+    /// Inspect a selected activity, its requested activities and their participants.
+    ActivityTree { work: String },
+    /// Respond to an exact request for human action. Only a reported completion closes it as completed.
+    HumanRespond {
+        request: String,
+        #[arg(value_enum)]
+        response: super::human_requests::Response,
+        #[arg(long, default_value = "")]
+        note: String,
+        /// Local file to return to the requester. Repeat for multiple files.
+        #[arg(long)]
+        attach: Vec<PathBuf>,
+    },
+    /// Save the exact files of one delivery or human request as a portable ZIP.
+    ExportPackage { reference: String, destination: PathBuf },
     Status,
     /// Install a retained WASI command or the published ngspice simulator.
     InstallCommand {
@@ -330,7 +348,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
     let mutation = matches!(&command, Command::Request { .. } | Command::Social { .. } | Command::AddPersona { .. }
         | Command::Invite { .. } | Command::Resume { .. } | Command::Message { .. } | Command::Amend { .. }
         | Command::PackageReview { .. } | Command::AssetFeedback { .. } | Command::Accept { .. } | Command::Control { .. } | Command::Configure { .. }
-        | Command::Dissolve { .. } | Command::Reopen { .. });
+        | Command::Dissolve { .. } | Command::Reopen { .. } | Command::HumanRespond { .. });
     if mutation {
         let mut store = Store::open(root)?;
         return store.transaction(|db| {
@@ -453,11 +471,14 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
             let control = Store::open(root)?;
             super::commands::run(root,origin,&input,|| workspace_command_paused(&control)).await
         }
-        Command::Run { watch,work,persona } => runner::run_selected(root, watch,work.as_deref(),persona.as_deref()).await,
+        Command::Run { watch,work,persona,from_activity } => runner::run_selected(root, watch,
+            work.as_deref(),persona.as_deref(),from_activity.as_deref()).await,
         command => {
             let mut store = Store::open(root)?;
             match command {
                 Command::Status=>store.status(),
+                Command::ActivityTree{work}=>store.snapshot(|db|super::activity_tree::describe(db,&work)),
+                Command::ExportPackage{reference,destination}=>store.snapshot(|db|super::human_requests::export_package(db,&reference,&destination)),
                 Command::CommandHistory(query)=>store.snapshot(|db|super::commands::history(db,&query)),
                 Command::GeometryHistory{reference,offset,page_size}=>store.snapshot(|db|super::geometry::history::lookup(db,&super::geometry::history::Lookup{reference,offset,page_size})),
                 Command::PackageReviews{work,query}=>store.snapshot(|db|super::package_review::lookup(db,work.as_deref(),&query)),
@@ -529,6 +550,7 @@ fn operator_action(db: &rusqlite::Connection, operator: &str, command: Command) 
             Ok(record)
         }
         Command::Request{need,invite}=>operations::create_activity(db,ActivityKind::Task,need,&invite,operator,None),
+        Command::HumanRespond{request,response,note,attach}=>super::human_requests::respond(db,operator,&request,response,&note,&attach),
         Command::Social{topic,invite}=>operations::create_activity(db,ActivityKind::Social,topic,&invite,operator,None),
         Command::AddPersona{id: requested,label,seed,provider_from}=>{
             let source:Persona=serde_json::from_value(store::required(db,"persona",&provider_from)?.body)?;

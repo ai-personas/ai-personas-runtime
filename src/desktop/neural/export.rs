@@ -7,6 +7,7 @@ use std::io::Write;
 enum Contents {
     Artifact { reference: String, metadata_view: bool },
     Deliveries(String),
+    Package(String),
 }
 pub(super) struct Dialog {
     pub serial: u64,
@@ -35,6 +36,12 @@ impl Dialog {
     }
 }
 impl App {
+    pub(super) fn export_package(&mut self, reference: &str, title: &str) {
+        self.export_generation += 1;
+        let name: String = title.split_whitespace().collect::<Vec<_>>().join("-").chars()
+            .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '_' }).take(72).collect();
+        self.export_dialog = Some(Dialog::new(self.export_generation, Contents::Package(reference.into()), format!("{name}.zip")));
+    }
     pub(super) fn save_artifact(&mut self, _ctx: &egui::Context) {
         if self.selected_reference.is_empty() {
             return;
@@ -70,12 +77,13 @@ impl App {
         let Some(dialog) = &mut self.export_dialog else {
             return;
         };
-        let artifact = matches!(dialog.contents, Contents::Artifact { .. });
+        let file = !matches!(dialog.contents, Contents::Deliveries(_));
         let (heading, description) = match &dialog.contents {
             Contents::Artifact { metadata_view: true, .. } => (
                 "Save receipt metadata", "Save the public receipt view, including its audit and usage."),
             Contents::Artifact { .. } => ("Save artifact", "Save the exact retained file to your computer."),
             Contents::Deliveries(_) => ("Export deliveries", "Export this task's delivered files with their delivery records."),
+            Contents::Package(_) => ("Save file package", "The ZIP contains the selected file revisions with their original names and folders."),
         };
         let mut open = true;
         let mut save = false;
@@ -94,7 +102,7 @@ impl App {
                     egui::TextEdit::singleline(&mut dialog.directory).desired_width(f32::INFINITY),
                 );
                 ui.add_space(8.);
-                ui.strong(if artifact {
+                ui.strong(if file {
                     "File name"
                 } else {
                     "New folder name"
@@ -106,7 +114,7 @@ impl App {
                     save = ui
                         .add_enabled(
                             !dialog.directory.trim().is_empty() && !dialog.name.trim().is_empty(),
-                            theme::primary(if artifact {
+                            theme::primary(if file {
                                 "Save file"
                             } else {
                                 "Export deliveries"
@@ -152,6 +160,10 @@ impl App {
                     return Err("The destination folder does not exist.".into());
                 }
                 match contents {
+                    Contents::Package(reference) => {
+                        let db = data::open(&root).map_err(|e|e.to_string())?;
+                        ai_personas::neural::human_requests::export_package(&db, &reference, &path).map_err(|e|e.to_string())?;
+                    }
                     Contents::Artifact { reference, .. } => {
                         let preview =
                             data::preview(&root, &reference).map_err(|e| e.to_string())?;
