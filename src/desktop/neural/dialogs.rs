@@ -20,6 +20,7 @@ impl Action {
 }
 
 pub(super) enum Dialog {
+    ActivityState { work: String, expected: String, reopen: bool, reason: String },
     Activity {
         social: bool,
         text: String,
@@ -69,6 +70,8 @@ impl Dialog {
     }
     fn title(&self) -> &str {
         match self {
+            Self::ActivityState {reopen:true,..} => "Reopen activity",
+            Self::ActivityState {..} => "End activity",
             Self::Activity { social: true, .. } => "New conversation",
             Self::Activity { .. } => "New task",
             Self::Participation { action, .. } => action.title(),
@@ -256,6 +259,22 @@ impl App {
                             });
                         }
                     }
+                    Dialog::ActivityState { work, expected, reopen, reason } => {
+                        ui.label(if *reopen {
+                            "Reopening allows fresh invitations. Each participant chooses whether to return."
+                        } else {
+                            "Ending this activity closes participation and releases unfinished outcomes. The closure records remaining duties and outstanding effects."
+                        });
+                        ui.small(expected.as_str());
+                        multiline(ui,reason,"Reason for this change…");
+                        if ui.add_enabled(!reason.trim().is_empty(),theme::primary(if *reopen {"Reopen activity"} else {"End activity"})).clicked() {
+                            command=Some(if *reopen {
+                                Command::Reopen { work:work.clone(),reason:reason.clone(),expected:Some(expected.clone()) }
+                            } else {
+                                Command::Dissolve { work:work.clone(),reason:reason.clone(),expected:Some(expected.clone()) }
+                            });
+                        }
+                    }
                     Dialog::Participation {
                         work,
                         title,
@@ -274,9 +293,9 @@ impl App {
                                     r["body"]["work"] == *work && r["body"]["persona"] == id
                                 });
                                 match action {
-                                    Action::Invite => member.is_none_or(|r|r["body"]["declined"]==true || r["body"]["departure"].is_string()),
+                                    Action::Invite => member.is_none_or(|r|r["body"]["declined"]==true || r["body"]["departure"].is_string() || r["body"]["closed_by_activity"].is_string()),
                                     Action::Resume => member.is_some_and(|r| {
-                                        r["body"]["declined"] != true && !r["body"]["departure"].is_string()
+                                        r["body"]["declined"] != true && !r["body"]["departure"].is_string() && !r["body"]["closed_by_activity"].is_string()
                                             && matches!(
                                                 r["body"]["continuation"]["kind"].as_str(),
                                                 Some("wait" | "stop")

@@ -255,6 +255,8 @@ pub struct Participation {
     pub declined: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub departure: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closed_by_activity: Option<String>,
     pub continuation: Continuation,
     pub cursor: i64,
     pub turn: u64,
@@ -273,6 +275,8 @@ pub struct Work {
     pub original_need: String,
     pub requester: String,
     pub phase: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_dissolution: Option<String>,
     pub amendments: Vec<Value>,
 }
 

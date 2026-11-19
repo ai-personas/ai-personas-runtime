@@ -508,6 +508,10 @@ fn internal(
             let key = format!("{work}/{}", x.persona);
             if let Some(existing) = store::head(db, "participation", &key)? {
                 let part: Participation = decode(&existing.body)?;
+                if part.declined || part.departure.is_some() || part.closed_by_activity.is_some() {
+                    invite(db,work,&x.persona,actor,&x.contribution,Some(call))?;
+                    return Ok(json!({"invited":x.persona,"accepted":false,"previous_participation":existing.reference.handle()}));
+                }
                 store::event(
                     db,
                     work,
@@ -573,7 +577,7 @@ fn internal(
             body["owner"] = json!(actor);
             body["work"] = json!(work);
             body["original_author"]=prior.as_ref().and_then(|b|b.get("original_author").or(b.get("owner"))).cloned().unwrap_or_else(||json!(actor));
-            for field in ["accepted_handoff","accepted_responsibility","released_by_departure"] {
+            for field in ["accepted_handoff","accepted_responsibility","released_by_departure","released_by_dissolution"] {
                 if let Some(value)=prior.as_ref().and_then(|b|b.get(field)){body[field]=value.clone();}
             }
             if prior.is_some() { body["prior_outcome"]=json!(format!("outcome:{key}@{revision}")); }
@@ -674,7 +678,7 @@ pub(super) fn create_activity(
         ActivityKind::Social => "An open social invitation. Choose whether to join, what to discuss and when to leave",
     };
     let activity = Work { id: id("work")?, kind, original_need: need, requester: requester.into(),
-        phase: "open".into(), amendments: Vec::new() };
+        phase: "open".into(), last_dissolution:None, amendments: Vec::new() };
     let reference = store::write(db, "work", &activity.id, 0, &activity, invocation)?;
     for actor in invitees {
         invite(db, &activity.id, actor, requester, invitation, invocation)?;
@@ -690,35 +694,37 @@ pub fn invite(
     contribution: &str,
     invocation: Option<&str>,
 ) -> Result<()> {
-    store::required(db, "work", work)?;
+    store::open_activity(db, work)?;
     store::required(db, "persona", actor)?;
     if contribution.trim().is_empty() {return Err(failure("Describe the invitation"));}
     let key=format!("{work}/{actor}");
     let previous=store::head(db,"participation",&key)?;
-    let (part,expected,prior_reference,prior_departure)=if let Some(existing)=previous {
+    let (part,expected,prior_reference,prior_departure,prior_closure)=if let Some(existing)=previous {
         let mut member:Participation=decode(&existing.body)?;
-        if invocation.is_some() || (!member.declined && member.departure.is_none()) {
+        if !member.declined && member.departure.is_none() && member.closed_by_activity.is_none() {
             return Err(failure("This invitation already has a participation. Send a contribution proposal, or explicitly resume a stopped member"));
         }
         let departure=member.departure.take();
+        let closure=member.closed_by_activity.take();
         member.accepted=false;
         member.declined=false;
         member.last_evaluation=None;
         member.appraisal_use=None;
         member.continuation=Continuation::Ready{purpose:"Consider the new invitation".into()};
-        (member,existing.reference.revision,Some(existing.reference.handle()),departure)
+        (member,existing.reference.revision,Some(existing.reference.handle()),departure,closure)
     } else {
         let cursor=db.query_row("SELECT COALESCE(MAX(seq),0) FROM events",[],|r|r.get(0))?;
-        let member=Participation {persona:actor.into(),work:work.into(),accepted:false,declined:false,departure:None,
+        let member=Participation {persona:actor.into(),work:work.into(),accepted:false,declined:false,departure:None,closed_by_activity:None,
             continuation:Continuation::Ready{purpose:"Consider the invitation and initialize my character if needed".into()},
             cursor,turn:0,context:vec![],tools:vec![],last_judgment:None,last_evaluation:None,appraisal_use:None};
-        (member,0,None,None)
+        (member,0,None,None,None)
     };
     store::write(db,"participation",&key,expected,&part,invocation)?;
     let mut invitation=json!({"contribution":contribution});
     if let Some(previous)=prior_reference {
         invitation["previous_participation"]=json!(previous);
         invitation["previous_departure"]=json!(prior_departure);
+        invitation["previous_dissolution"]=json!(prior_closure);
         invitation["previous_responsibilities_reassigned"]=json!(false);
     }
     store::event(db,work,from,actor,"invitation",&invitation,invocation)?;

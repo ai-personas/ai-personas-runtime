@@ -208,9 +208,9 @@ pub(super) fn ownership(
     let mut rows = BTreeMap::new();
     for o in outcomes {
         let b = &o.body;
-        if b["owner"].is_null() && b["released_by_departure"].is_string() {
+        if b["owner"].is_null() && (b["released_by_departure"].is_string() || b["released_by_dissolution"].is_string()) {
             rows.insert(o.reference.handle(),json!({"state":"unowned","responsible":null,"original_author":b["original_author"],
-                "departure":b["released_by_departure"],"accepted_handoff":null,"accepted_responsibility":null}));
+                "departure":b["released_by_departure"],"dissolution":b["released_by_dissolution"],"accepted_handoff":null,"accepted_responsibility":null}));
             continue;
         }
         let (Some(work), Some(owner)) = (b["work"].as_str(), b["owner"].as_str()) else {
@@ -236,7 +236,7 @@ pub(super) fn ownership(
             "follow_through_gap"
         };
         rows.insert(o.reference.handle(),json!({"state":state,"responsible":owner,"continuation":continuation,
-            "original_author":b.get("original_author").unwrap_or(&b["owner"]),"accepted_handoff":b["accepted_handoff"],"accepted_responsibility":b["accepted_responsibility"],"departure":b["released_by_departure"]}));
+            "original_author":b.get("original_author").unwrap_or(&b["owner"]),"accepted_handoff":b["accepted_handoff"],"accepted_responsibility":b["accepted_responsibility"],"departure":b["released_by_departure"],"dissolution":b["released_by_dissolution"]}));
     }
     Ok(rows)
 }

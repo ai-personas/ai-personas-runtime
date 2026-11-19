@@ -148,6 +148,15 @@ pub async fn invoke(
             let prepared:Value=store::object(db,&object)?;
             let original=prepared["source_invocation"].as_str().ok_or_else(||failure("Comparison lacks its authorizing decision"))?;
             assessment_authority(db,&source_snapshot(db,original)?)?;
+        } else {
+            let current = store::required(db,"work",work)?;
+            if current.body["last_dissolution"].is_string() {
+                let source = source_snapshot(db,&call_id)?;
+                let prior = source.data["work"]["reference"].as_str().ok_or_else(||failure("Missing prepared activity revision"))?;
+                if store::exact(db,prior)?.body["last_dissolution"] != current.body["last_dissolution"] {
+                    return Err(failure("The activity ended after this decision was prepared"));
+                }
+            }
         }
         let digest=store::put(db,&audit)?;
         let changed=db.execute("UPDATE invocations SET state=?2,receipt=?3,updated=?4 WHERE id=?1 AND state IN ('prepared','probe_prepared')",params![call_id,if probe{"probe_dispatched"}else{"dispatched"},digest,now()])?;
@@ -719,6 +728,7 @@ pub async fn run_selected(root:&Path,watch:bool,work:Option<&str>,actor:Option<&
                 .checked_add(1)
                 .ok_or_else(|| failure("scheduler order overflow"))?;
             served.insert((actor.clone(), work.clone()), scheduling_order);
+            let prior_closure = store::required(&store.db, "work", &work)?.body["last_dissolution"].clone();
             let root = root.clone();
             tasks.spawn(async move {
                 let result = async {
@@ -730,7 +740,7 @@ pub async fn run_selected(root:&Path,watch:bool,work:Option<&str>,actor:Option<&
                     Ok::<(), super::Error>(())
                 }
                 .await;
-                (actor, work, result)
+                (actor, work, prior_closure, result)
             });
         }
         if tasks.is_empty()
@@ -740,14 +750,20 @@ pub async fn run_selected(root:&Path,watch:bool,work:Option<&str>,actor:Option<&
         }
         tokio::select! {
             Some(joined)=tasks.join_next(),if !tasks.is_empty()=>{
-                let (actor,work,result)=joined?;busy.remove(&actor);
+                let (actor,work,prior_closure,result)=joined?;busy.remove(&actor);
                 if let Err(error)=result {
-                    store.transaction(|db|{
-                        pause(db,&actor,&error.to_string(),None)?;
-                        db.execute("UPDATE invocations SET state='interrupted',updated=?2 WHERE actor=?1 AND state IN ('prepared','dispatched','responded')",params![actor,now()])?;
-                        store::event(db,&work,"runtime",&actor,"runner_failure",&json!({"error":error.to_string(),"automatic_retry":false}),None)?;Ok(())
+                    let event=store.transaction(|db|{
+                        let activity=store::required(db,"work",&work)?;
+                        let ended=activity.body["phase"]=="dissolved" || activity.body["last_dissolution"]!=prior_closure;
+                        let event=if ended {"activity_execution_ended"} else {
+                            pause(db,&actor,&error.to_string(),None)?;
+                            "runner_failure"
+                        };
+                        db.execute("UPDATE invocations SET state='interrupted',updated=?2 WHERE actor=?1 AND work=?3 AND state IN ('prepared','dispatched','responded')",params![actor,now(),work])?;
+                        store::event(db,&work,"runtime",&actor,event,&json!({"error":error.to_string(),"automatic_retry":false,"dissolution":activity.body["last_dissolution"]}),None)?;
+                        Ok(event)
                     })?;
-                    eprintln!("{}",json!({"event":"persona_paused","actor":actor,"reason":error.to_string()}));
+                    eprintln!("{}",json!({"event":if event=="runner_failure" {"persona_paused"} else {event},"work":work,"actor":actor,"reason":error.to_string()}));
                 }
             },
             _=tokio::time::sleep(std::time::Duration::from_millis(200))=>{},

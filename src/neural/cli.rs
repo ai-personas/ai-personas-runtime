@@ -143,6 +143,20 @@ pub enum Command {
         work: String,
         text: String,
     },
+    /// End this activity, preserve outstanding duties and record who ended it.
+    Dissolve {
+        work: String,
+        reason: String,
+        #[arg(long)]
+        expected: Option<String>,
+    },
+    /// Reopen an ended activity so participants can receive fresh invitations.
+    Reopen {
+        work: String,
+        reason: String,
+        #[arg(long)]
+        expected: Option<String>,
+    },
     /// Explicit user acceptance/rejection of an exact delivery.
     Accept {
         delivery: String,
@@ -222,7 +236,8 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
     if operator.trim().is_empty() { return Err(failure("An operator name is required for attribution")); }
     let mutation = matches!(&command, Command::Request { .. } | Command::Social { .. } | Command::AddPersona { .. }
         | Command::Invite { .. } | Command::Resume { .. } | Command::Message { .. } | Command::Amend { .. }
-        | Command::Accept { .. } | Command::Control { .. } | Command::Configure { .. });
+        | Command::Accept { .. } | Command::Control { .. } | Command::Configure { .. }
+        | Command::Dissolve { .. } | Command::Reopen { .. });
     if mutation {
         let mut store = Store::open(root)?;
         return store.transaction(|db| {
@@ -400,9 +415,10 @@ fn operator_action(db: &rusqlite::Connection, operator: &str, command: Command) 
             let record=super::controls::change(db,&scope,&state,&reason,super::controls::Origin::Operator(operator),None)?;Ok(json!({"scope":scope,"state":state,"reason":reason,"record":record.handle(),"stopped_participations_resumed":false}))
         },
         Command::Resume{work,persona,reason}=>{
+            store::open_activity(db,&work)?;
             if reason.trim().is_empty(){return Err(failure("resume needs an attributed reason"));}
             let record=store::required(db,"participation",&format!("{work}/{persona}"))?;let mut part:Participation=serde_json::from_value(record.body)?;
-            if part.declined || part.departure.is_some(){return Err(failure("Send a fresh invitation after a decline or departure. The persona decides whether to rejoin"));}
+            if part.declined || part.departure.is_some() || part.closed_by_activity.is_some(){return Err(failure("Send a fresh invitation after a decline, departure or dissolution. The persona decides whether to rejoin"));}
             part.continuation=Continuation::Ready{purpose:reason.clone()};
             store::write(db,"participation",&record.reference.id,record.reference.revision,&part,None)?;
             store::event(db,&work,operator,&persona,"explicit_resume",&json!({"reason":reason}),None)?;
@@ -421,12 +437,14 @@ fn operator_action(db: &rusqlite::Connection, operator: &str, command: Command) 
         },
         Command::Amend{work,text}=>{
             if text.trim().is_empty(){return Err(failure("Describe the amended requirement"));}
-            let record=store::required(db,"work",&work)?;let mut body:Work=serde_json::from_value(record.body)?;
+            let record=store::open_activity(db,&work)?;let mut body:Work=serde_json::from_value(record.body)?;
             body.amendments.push(json!({"author":operator,"text":text,"time":now()}));
             let r=store::write(db,"work",&work,record.reference.revision,&body,None)?;
             store::event(db,&work,operator,"*","requirements_amended",&json!({"reference":r.handle(),"text":text}),None)?;
             Ok(json!({"reference":r.handle(),"original_need":body.original_need}))
         },
+        Command::Dissolve{work,reason,expected}=>super::membership::change_activity(db,&work,operator,&reason,expected.as_deref(),false),
+        Command::Reopen{work,reason,expected}=>super::membership::change_activity(db,&work,operator,&reason,expected.as_deref(),true),
         Command::Accept{delivery,reject,reason}=>{
             if reason.trim().is_empty(){return Err(failure("Explain the delivery review"));}
             let record=store::exact(db,&delivery)?;

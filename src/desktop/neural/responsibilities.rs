@@ -9,6 +9,7 @@ pub(super) enum Action {
     Inspect(String),
     Message { person: String, text: String },
     Invite(String),
+    ChangeActivity { reopen: bool, brief: String },
 }
 
 #[derive(Default)]
@@ -89,6 +90,13 @@ impl Board {
             .id_salt(("responsibility-board", work))
             .show(ui, |ui| {
                 let members = items(report, "members");
+                let ended = report["phase"] == "dissolved";
+                ui.horizontal_wrapped(|ui| {
+                    if ended { theme::badge(ui,"Activity ended",theme::ACCENT); }
+                    if ui.small_button(if ended { "Reopen activity…" } else { "End activity…" }).clicked() {
+                        action = Some(Action::ChangeActivity { reopen: ended, brief: s(report,"brief").into() });
+                    }
+                });
                 ui.add_space(3.);
                 ui.horizontal_wrapped(|ui| {
                     for member in members {
@@ -148,6 +156,26 @@ impl Board {
                     }
                 }
                 ui.add_space(10.);
+                for closure in items(report,"dissolutions").iter().rev() {
+                    let body=&closure["body"];
+                    ui.group(|ui| {
+                        ui.horizontal_wrapped(|ui|{
+                            ui.strong(format!("Activity ended by {}",s(body,"operator")));
+                            if ui.small_button("Closure record ↗").clicked() { action=Some(Action::Inspect(handle(closure))); }
+                        });
+                        ui.label(s(body,"reason"));
+                        ui.small(format!("At closure · Unfinished outcomes {} · Effects observed {} · Open jobs {} · Outstanding calls {}",
+                            items(body,"unfinished_outcomes").len(),items(body,"effect_observations").len(),items(body,"open_jobs_observed").len(),items(body,"inference_observations").len()));
+                        ui.push_id(handle(closure), |ui| ui.collapsing("Participation at closure", |ui| {
+                            for member in items(body,"members") {
+                                let name=person(members,s(member,"actor"));
+                                if let Some(commitment)=member["commitment"]["record"]["commitment"].as_str() {
+                                    ui.label(format!("{name} · {commitment}"));
+                                } else { ui.small(format!("{name} · No current commitment")); }
+                            }
+                        }));
+                    });
+                }
                 for departure in items(report, "departures").iter().rev() {
                     let body = &departure["body"];
                     let who = s(body, "actor");
@@ -157,7 +185,7 @@ impl Board {
                             if ui.small_button("Departure ↗").clicked() {
                                 action = Some(Action::Inspect(handle(departure)));
                             }
-                            if members
+                            if !ended && members
                                 .iter()
                                 .any(|m| m["actor"] == who && m["departure"] == handle(departure))
                                 && ui.small_button("Invite again…").clicked()
@@ -220,6 +248,21 @@ impl Board {
                         ));
                     }
                 }
+                for (field, heading) in [("unsettled_inference","Outstanding provider calls"),("open_jobs","Open jobs")] {
+                    let rows=items(report,field);
+                    if rows.is_empty() {continue;}
+                    section(ui,heading,&rows.len().to_string());
+                    for row in rows {
+                        ui.horizontal_wrapped(|ui|{
+                            let who=row["actor"].as_str().or(row["owner"].as_str()).unwrap_or("");
+                            ui.label(person(members,who));
+                            ui.small(s(row,"state"));
+                            if let Some(reference)=row["reference"].as_str().or(row["receipt"].as_str()) {
+                                if ui.small_button("Record ↗").clicked() {action=Some(Action::Inspect(reference.into()));}
+                            } else { ui.small(s(row,"invocation")); }
+                        });
+                    }
+                }
             });
         action
     }
@@ -270,7 +313,7 @@ fn outcome_card(ui: &mut Ui, record: &Value, report: &Value, members: &[Value]) 
                         action = Some(Action::Inspect(proof.into()));
                     }
                 }
-                if ownership["state"] == "unowned" {
+                if ownership["state"] == "unowned" && report["phase"] != "dissolved" {
                     let volunteer = members.iter().find(|m| m["state"] == "accepted")
                         .or_else(|| members.iter().find(|m| m["state"] == "invited"));
                     if let Some(member) = volunteer {

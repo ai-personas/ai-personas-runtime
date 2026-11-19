@@ -51,47 +51,133 @@ fn unsettled(db: &Connection, work: &str, actor: Option<&str>) -> Result<Vec<Val
     }).collect()
 }
 
-fn release_effects(
+struct Released {
+    outcomes: Vec<Value>,
+    offers: Vec<Value>,
+    effects: Vec<Value>,
+}
+
+/// A voluntary departure releases one participant. Ending the activity releases
+/// every unfinished owned outcome. The original owner and mandate remain readable.
+fn release_work(
     db: &Connection,
     work: &str,
-    actor: &str,
-    departure: &str,
-) -> Result<Vec<Value>> {
-    let mut effects = unsettled(db, work, Some(actor))?;
+    actor: Option<&str>,
+    proof: &str,
+    call: Option<&str>,
+) -> Result<Released> {
+    let (cause, field, offer_state, reason) = match actor {
+        Some(_) => (
+            "departure",
+            "released_by_departure",
+            "closed_on_departure",
+            "The participant left before dispatch",
+        ),
+        None => (
+            "dissolution",
+            "released_by_dissolution",
+            "closed_on_dissolution",
+            "The activity ended before dispatch",
+        ),
+    };
+    let mut outcomes = Vec::new();
+    for outcome in store::in_work(db, "outcome", work)? {
+        let Some(owner) = outcome.body["owner"].as_str() else {
+            continue;
+        };
+        if actor.is_some_and(|member| member != owner) || !handoff::unfinished(&outcome.body) {
+            continue;
+        }
+        let prior = outcome.reference.handle();
+        let mut body = outcome.body;
+        body["original_author"] = body
+            .get("original_author")
+            .unwrap_or(&body["owner"])
+            .clone();
+        body["owner"] = Value::Null;
+        // Prior versions retain earlier releases and acceptances.
+        let fields = body
+            .as_object_mut()
+            .ok_or_else(|| failure("Invalid outcome body"))?;
+        fields.remove("released_by_departure");
+        fields.remove("released_by_dissolution");
+        fields.remove("accepted_responsibility");
+        fields.remove("accepted_handoff");
+        body[field] = json!(proof);
+        body["prior_outcome"] = json!(prior);
+        let next = store::write(
+            db,
+            "outcome",
+            &outcome.reference.id,
+            outcome.reference.revision,
+            &body,
+            call,
+        )?;
+        outcomes.push(json!({"prior_outcome":prior,"outcome":next.handle()}));
+    }
+    let mut offers = Vec::new();
+    for mut offer in store::in_work(db, "handoff", work)? {
+        if offer.body["state"] != "offered"
+            || actor
+                .is_some_and(|member| offer.body["from"] != member && offer.body["to"] != member)
+        {
+            continue;
+        }
+        let prior = offer.reference.handle();
+        offer.body["state"] = json!(offer_state);
+        offer.body[cause] = json!(proof);
+        let next = store::write(
+            db,
+            "handoff",
+            &offer.reference.id,
+            offer.reference.revision,
+            &offer.body,
+            call,
+        )?;
+        offers.push(json!({"prior_offer":prior,"reference":next.handle()}));
+    }
+    let mut effects = unsettled(db, work, actor)?;
     for effect in &mut effects {
         if effect["state"] != "pending" {
             continue;
         }
-        let id = effect["id"]
+        let effect_id = effect["id"]
             .as_str()
             .ok_or_else(|| failure("Missing pending effect ID"))?;
         let receipt = store::put(
             db,
-            &json!({"departure":departure,"effect":id,"dispatched":false,
-            "success":false,"reason":"The participant left before dispatch"}),
+            &json!({(cause):proof,"effect":effect_id,"dispatched":false,
+            "success":false,"reason":reason}),
         )?;
         if db.execute(
             "UPDATE outbox SET state='superseded',result=?2 WHERE id=?1 AND state='pending'",
-            params![id, receipt],
+            params![effect_id, receipt],
         )? != 1
         {
-            return Err(failure("Pending effect changed during departure"));
+            return Err(failure("Pending effect changed during release"));
         }
         let result = format!("object:{receipt}");
+        let who = effect["actor"]
+            .as_str()
+            .ok_or_else(|| failure("Missing effect author"))?;
         store::event(
             db,
             work,
-            actor,
-            actor,
+            who,
+            who,
             "tool_result",
-            &json!({"effect":id,"operation":effect["operation"],"tool":effect["tool"],
-            "result":result,"context":"complete","departure":departure}),
+            &json!({"effect":effect_id,"operation":effect["operation"],
+            "tool":effect["tool"],"result":result,"context":"complete",(cause):proof}),
             effect["invocation"].as_str(),
         )?;
         effect["state"] = json!("superseded");
         effect["result"] = json!(result);
     }
-    Ok(effects)
+    Ok(Released {
+        outcomes,
+        offers,
+        effects,
+    })
 }
 
 pub(super) fn leave(
@@ -117,30 +203,11 @@ pub(super) fn leave(
     }
     let departure = format!("departure:{call}@1");
     let commitment = context::commitment(db, work, actor)?;
-    let mut released = Vec::new();
-    for outcome in store::in_work(db, "outcome", work)? {
-        if outcome.body["owner"] != *actor || !handoff::unfinished(&outcome.body) {
-            continue;
-        }
-        let prior = outcome.reference.handle();
-        let mut body = outcome.body;
-        body["original_author"] = body
-            .get("original_author")
-            .unwrap_or(&body["owner"])
-            .clone();
-        body["owner"] = Value::Null;
-        body["released_by_departure"] = json!(departure);
-        body["prior_outcome"] = json!(prior);
-        let next = store::write(
-            db,
-            "outcome",
-            &outcome.reference.id,
-            outcome.reference.revision,
-            &body,
-            Some(call),
-        )?;
-        released.push(json!({"prior_outcome":prior,"outcome":next.handle()}));
-    }
+    let Released {
+        outcomes: mut released,
+        offers: closed,
+        effects,
+    } = release_work(db, work, Some(actor), &departure, Some(call))?;
     if !action.additional_remaining.is_empty() {
         let description = commitment
             .as_ref()
@@ -152,27 +219,6 @@ pub(super) fn leave(
         let outcome = store::write(db, "outcome", &id("outcome")?, 0, &body, Some(call))?;
         released.push(json!({"prior_outcome":null,"outcome":outcome.handle()}));
     }
-    let mut closed = Vec::new();
-    for mut offer in store::in_work(db, "handoff", work)? {
-        if offer.body["state"] != "offered"
-            || (offer.body["from"] != *actor && offer.body["to"] != *actor)
-        {
-            continue;
-        }
-        let previous = offer.reference.handle();
-        offer.body["state"] = json!("closed_on_departure");
-        offer.body["departure"] = json!(departure);
-        let next = store::write(
-            db,
-            "handoff",
-            &offer.reference.id,
-            offer.reference.revision,
-            &offer.body,
-            Some(call),
-        )?;
-        closed.push(json!({"prior_offer":previous,"reference":next.handle()}));
-    }
-    let effects = release_effects(db, work, actor, &departure)?;
     let body = json!({"actor":actor,"work":work,"decision":call,"brief":snapshot.data["work"]["reference"],
         "prior_participation":format!("participation:{work}/{actor}@{}",snapshot.participation_revision),
         "reason":action.reason,"commitment_at_departure":commitment,"additional_remaining":action.additional_remaining,
@@ -214,7 +260,8 @@ pub(super) fn assume(
     if record.reference.kind != "outcome"
         || record.body["work"] != snapshot.work
         || !record.body["owner"].is_null()
-        || !record.body["released_by_departure"].is_string()
+        || !(record.body["released_by_departure"].is_string()
+            || record.body["released_by_dissolution"].is_string())
         || !handoff::unfinished(&record.body)
         || store::required(db, "outcome", &record.reference.id)?.reference != record.reference
     {
@@ -240,7 +287,7 @@ pub(super) fn assume(
         Some(&snapshot.invocation),
     )?;
     let evidence = json!({"work":snapshot.work,"actor":snapshot.actor,"decision":snapshot.invocation,"reason":action.reason,
-        "brief":snapshot.data["work"]["reference"],"release":body["released_by_departure"],"unowned_outcome":action.outcome,"accepted_outcome":next.handle()});
+        "brief":snapshot.data["work"]["reference"],"release":body["released_by_dissolution"].as_str().or(body["released_by_departure"].as_str()),"unowned_outcome":action.outcome,"accepted_outcome":next.handle()});
     store::write(
         db,
         "responsibility_acceptance",
@@ -262,17 +309,143 @@ pub(super) fn assume(
     Ok(json!({"reference":proof,"outcome":next.handle(),"responsible":snapshot.actor}))
 }
 
+fn open_jobs(db: &Connection, work: &str) -> Result<Vec<Value>> {
+    Ok(store::job_index(db, true)?
+        .into_iter()
+        .filter(|job| job["work"] == work)
+        .collect())
+}
+
+fn unsettled_inference(db: &Connection, work: &str) -> Result<Vec<Value>> {
+    let mut query=db.prepare("SELECT id,actor,state,receipt FROM invocations WHERE work=?1 AND state IN
+        ('prepared','dispatched','responded','probe_prepared','probe_dispatched','uncertain') ORDER BY rowid")?;
+    let rows=query.query_map([work], |r| Ok(json!({"invocation":r.get::<_,String>(0)?,
+        "actor":r.get::<_,String>(1)?,"state":r.get::<_,String>(2)?,"receipt":r.get::<_,Option<String>>(3)?.map(|digest|format!("object:{digest}"))})))?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+/// End or reopen the local activity as its named operator. A closure records
+/// the prior commitments and outside state before releasing anything.
+pub(super) fn change_activity(
+    db: &Connection,
+    work: &str,
+    operator: &str,
+    reason: &str,
+    expected: Option<&str>,
+    reopen: bool,
+) -> Result<Value> {
+    let mut activity = store::required(db, "work", work)?;
+    let prior = activity.reference.handle();
+    if expected.is_some_and(|seen| seen != prior) {
+        return Err(failure(
+            "The activity changed. Inspect its current revision first",
+        ));
+    }
+    if reason.trim().is_empty() {
+        return Err(failure("Give a reason for changing this activity"));
+    }
+    let dissolved = activity.body["phase"] == "dissolved";
+    if dissolved != reopen {
+        return Err(failure(if dissolved {
+            "This activity has already ended"
+        } else {
+            "This activity is already open"
+        }));
+    }
+    if reopen {
+        let dissolution = activity.body["last_dissolution"].clone();
+        activity.body["phase"] = json!("open");
+        let next = store::write(
+            db,
+            "work",
+            work,
+            activity.reference.revision,
+            &activity.body,
+            None,
+        )?;
+        let change = json!({"work":work,"operator":operator,"reason":reason,"prior_brief":prior,
+            "brief":next.handle(),"dissolution":dissolution,"participations_resumed":false});
+        store::event(db, work, operator, "*", "activity_reopened", &change, None)?;
+        return Ok(change);
+    }
+    let key = id("dissolution")?;
+    let proof = format!("dissolution:{key}@1");
+    let mut members = Vec::new();
+    for row in store::in_work(db, "participation", work)? {
+        let mut part: Participation = serde_json::from_value(row.body)?;
+        let prior = row.reference.handle();
+        let commitment = context::commitment(db, work, &part.persona)?;
+        let mut member = json!({"actor":part.persona,"participation":prior,"accepted":part.accepted,
+            "commitment":commitment,"last_judgment":part.last_judgment,"continuation":part.continuation});
+        if !part.declined && part.departure.is_none() && part.closed_by_activity.is_none() {
+            part.accepted = false;
+            part.closed_by_activity = Some(proof.clone());
+            part.continuation = super::protocol::Continuation::Stop {
+                reason: format!("Activity ended by {operator}: {reason}"),
+            };
+            let next = store::write(
+                db,
+                "participation",
+                &row.reference.id,
+                row.reference.revision,
+                &part,
+                None,
+            )?;
+            member["closed_participation"] = json!(next.handle());
+        }
+        members.push(member);
+    }
+    let Released {
+        outcomes,
+        offers,
+        effects,
+    } = release_work(db, work, None, &proof, None)?;
+    let unfinished: Vec<_> = store::in_work(db, "outcome", work)?
+        .into_iter()
+        .filter(|o| handoff::unfinished(&o.body))
+        .map(|o| o.reference.handle())
+        .collect();
+    activity.body["phase"] = json!("dissolved");
+    activity.body["last_dissolution"] = json!(proof);
+    let next = store::write(
+        db,
+        "work",
+        work,
+        activity.reference.revision,
+        &activity.body,
+        None,
+    )?;
+    let body = json!({"work":work,"operator":operator,"reason":reason,"at_unix":super::now(),"prior_brief":prior,
+        "brief":next.handle(),"members":members,"released_outcomes":outcomes,"unfinished_outcomes":unfinished,
+        "closed_offers":offers,"effect_observations":effects,"open_jobs_observed":open_jobs(db,work)?,"inference_observations":unsettled_inference(db,work)?});
+    store::write(db, "dissolution", &key, 0, &body, None)?;
+    let change = json!({"work":work,"dissolution":proof,"operator":operator,"reason":reason,"brief":next.handle(),
+        "unfinished_outcomes":unfinished});
+    store::event(db, work, operator, "*", "activity_dissolved", &change, None)?;
+    Ok(change)
+}
+
 /// Current membership and exact transitions in a single operator-selected activity.
 pub fn responsibilities(db: &Connection, work: &str) -> Result<Value> {
     let activity = store::required(db, "work", work)?;
     let outcomes = store::in_work(db, "outcome", work)?;
     let ownership = handoff::ownership(db, &outcomes)?;
+    let mut closures = store::in_work(db, "dissolution", work)?;
+    closures.sort_by_key(|c| {
+        c.body["brief"]
+            .as_str()
+            .and_then(|b| b.rsplit_once('@'))
+            .and_then(|(_, rev)| rev.parse::<i64>().ok())
+            .unwrap_or(0)
+    });
     let mut members = Vec::new();
     for p in store::in_work(db, "participation", work)? {
         let actor = p.body["persona"]
             .as_str()
             .ok_or_else(|| failure("Missing participant"))?;
-        let state = if p.body["departure"].is_string() {
+        let state = if p.body["closed_by_activity"].is_string() {
+            "activity ended"
+        } else if p.body["departure"].is_string() {
             "departed"
         } else if p.body["declined"] == true {
             "declined"
@@ -282,12 +455,13 @@ pub fn responsibilities(db: &Connection, work: &str) -> Result<Value> {
             "invited"
         };
         members.push(json!({"actor":actor,"label":store::required(db,"persona",actor)?.body["label"],"state":state,"participation":p.reference.handle(),"continuation":p.body["continuation"],
-            "current_commitment":context::commitment(db,work,actor)?,"departure":p.body["departure"]}));
+            "current_commitment":context::commitment(db,work,actor)?,"departure":p.body["departure"],"closed_by_activity":p.body["closed_by_activity"]}));
     }
     Ok(
-        json!({"work":work,"brief":activity.reference.handle(),"members":members,"outcomes":outcomes,"ownership":ownership,
+        json!({"work":work,"brief":activity.reference.handle(),"phase":activity.body["phase"],
+        "dissolutions":closures,"members":members,"outcomes":outcomes,"ownership":ownership,
         "offers":handoff::offers(db,Some(work))?,"departures":store::in_work(db,"departure",work)?,
         "responsibility_acceptances":store::in_work(db,"responsibility_acceptance",work)?,
-        "unsettled_effects":unsettled(db,work,None)?}),
+        "unsettled_effects":unsettled(db,work,None)?,"open_jobs":open_jobs(db,work)?,"unsettled_inference":unsettled_inference(db,work)?}),
     )
 }

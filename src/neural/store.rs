@@ -228,6 +228,13 @@ pub fn head(db: &Connection, kind: &str, id: &str) -> Result<Option<Record>> {
 pub fn required(db: &Connection, kind: &str, id: &str) -> Result<Record> {
     head(db, kind, id)?.ok_or_else(|| failure(format!("missing {kind}:{id}")))
 }
+pub(super) fn open_activity(db: &Connection, work: &str) -> Result<Record> {
+    let activity = required(db, "work", work)?;
+    if activity.body["phase"] == "dissolved" {
+        return Err(failure("This activity has ended. Reopen it before starting new work"));
+    }
+    Ok(activity)
+}
 pub fn exact(db: &Connection, handle: &str) -> Result<Record> {
     let (kind, rest) = handle
         .split_once(':')
@@ -362,6 +369,15 @@ pub fn has_arrival(db:&Connection, work:&str, actor:&str, after:i64, kinds:&[Str
     Ok(false)
 }
 pub fn stopped(db: &Connection, work: &str, actor: &str) -> Result<Option<Value>> {
+    let ended: Option<(i64, String)> = db.query_row(
+        "SELECT h.revision,json_extract(CAST(o.bytes AS TEXT),'$.last_dissolution')
+         FROM heads h JOIN objects o ON o.digest=h.digest WHERE h.kind='work' AND h.id=?1
+         AND json_extract(CAST(o.bytes AS TEXT),'$.phase')='dissolved'",
+        [work], |r| Ok((r.get(0)?, r.get(1)?)),
+    ).optional()?;
+    if let Some((revision, dissolution)) = ended {
+        return Ok(Some(json!({"scope":format!("work:{work}"),"state":"dissolved","revision":revision,"dissolution":dissolution})));
+    }
     for scope in [
         "global".to_string(),
         format!("work:{work}"),

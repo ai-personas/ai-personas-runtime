@@ -115,7 +115,8 @@ pub fn commitment(db: &rusqlite::Connection, work: &str, actor: &str) -> Result<
     let row: Option<(String,String)> = db.query_row(
         "SELECT kind,digest FROM events WHERE work=?1 AND actor=?2
         AND kind IN ('invitation_response','commitment_changed','participation_left')
-        AND seq>(SELECT COALESCE(MAX(seq),0) FROM events WHERE work=?1 AND target=?2 AND kind='invitation')
+        AND seq>(SELECT COALESCE(MAX(seq),0) FROM events WHERE work=?1
+            AND ((target=?2 AND kind='invitation') OR kind='activity_dissolved'))
         ORDER BY seq DESC LIMIT 1",params![work,actor],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
     let Some((kind,digest))=row else{return Ok(None)};
     if kind=="participation_left" {return Ok(None);}
@@ -636,6 +637,9 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
         let bootstrap=persona.model.is_none();
         let part=store::required(db,"participation",&format!("{work_id}/{actor}"))?;
         let participation:Participation=serde_json::from_value(part.body.clone())?;
+        if participation.departure.is_some() || participation.closed_by_activity.is_some() || participation.declined {
+            return Err(failure("A fresh invitation is required for this participation"));
+        }
         let work=store::required(db,"work",work_id)?;
         let contract=FeatureContract::standard();
         let recovery=pending_context_recovery(db,work_id,actor)?;
@@ -741,14 +745,14 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
                 }
             }
         }
-        let participation_view=json!({"accepted":participation.accepted,"declined":participation.declined,"departure":participation.departure,"commitment":commitment(db,work_id,actor)?,"continuation":participation.continuation,"selection":{"references":participation.context,"tools":participation.tools}});
+        let participation_view=json!({"accepted":participation.accepted,"declined":participation.declined,"departure":participation.departure,"closed_by_activity":participation.closed_by_activity,"commitment":commitment(db,work_id,actor)?,"continuation":participation.continuation,"selection":{"references":participation.context,"tools":participation.tools}});
         let background_jobs=if bootstrap{vec![]}else{store::job_index(db,true)?};
         let peers=store::list(db,"persona")?.into_iter().map(|r|json!({"id":r.body["id"],"label":r.body["label"],"lifecycle":r.body["lifecycle"],"model":r.body["model"]})).collect::<Vec<_>>();
         let participants=store::list(db,"participation")?.into_iter().filter(|r|r.body["work"]==work_id).map(|r|{
             let peer=r.body["persona"].as_str().ok_or_else(||failure("participation has no persona"))?;
             let current=if peer==actor {Some(json!({"supplied_in":"participation.commitment"}))}else{commitment(db,work_id,peer)?};
             let communication=if peer==actor{Some(json!({"supplied_in":"latest_user_communication"}))}else{latest_user_communication(db,work_id,peer)?};
-            Ok(json!({"reference":r.reference.handle(),"persona":peer,"accepted":r.body["accepted"],"declined":r.body["declined"],"departure":r.body["departure"],"commitment":current,"latest_user_communication":communication,"continuation":r.body["continuation"],"judgment":r.body["last_judgment"]["status"],"execution":if bootstrap{Value::Null}else{execution_status(db,work_id,peer,&background_jobs)?}}))
+            Ok(json!({"reference":r.reference.handle(),"persona":peer,"accepted":r.body["accepted"],"declined":r.body["declined"],"departure":r.body["departure"],"closed_by_activity":r.body["closed_by_activity"],"commitment":current,"latest_user_communication":communication,"continuation":r.body["continuation"],"judgment":r.body["last_judgment"]["status"],"execution":if bootstrap{Value::Null}else{execution_status(db,work_id,peer,&background_jobs)?}}))
         }).collect::<Result<Vec<_>>>()?;
         let work_outcomes=store::in_work(db,"outcome",work_id)?;
         let ownership=super::handoff::ownership(db,&work_outcomes)?;

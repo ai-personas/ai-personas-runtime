@@ -493,6 +493,8 @@ impl eframe::App for App {
                     if ui.small_button("← Activity overview").clicked(){self.layout.editor=Editor::Studio;}
                     let cursor=self.events.iter().rev().find(|e|e["work"]==self.work).and_then(|e|e["event"].as_i64()).unwrap_or(0);
                     match self.responsibilities.show(ui,&self.root,&self.work,cursor){
+                        Some(responsibilities::Action::ChangeActivity{reopen,brief})=>self.dialog=Some(Dialog::ActivityState{
+                            work:self.work.clone(),expected:brief,reopen,reason:String::new()}),
                         Some(responsibilities::Action::Inspect(reference))=>self.open_resource(ctx,reference),
                         Some(responsibilities::Action::Message{person,text})=>self.dialog=Some(Dialog::Participation{
                             work:self.work.clone(),title:self.task_title().into(),action:dialogs::Action::Message,person,text,reply_to:None}),

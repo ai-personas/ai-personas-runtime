@@ -80,6 +80,8 @@ impl App {
                         egui::Label::new(RichText::new(excerpt(self.task_title(), 65)).strong())
                             .truncate(),
                     );
+                    let ended = self.records("work").iter().any(|r| r["body"]["id"]==self.work && r["body"]["phase"]=="dissolved");
+                    if ended { theme::badge(ui,"Activity ended",theme::ACCENT); }
                     let active = self.snapshot.active.iter().filter(|call| call["work"] == self.work).count();
                     if active > 0 {
                         theme::badge(ui, &format!("{active} active"), TEAL);
@@ -114,7 +116,7 @@ impl App {
                                 );
                                 ui.close();
                             }
-                            if !self.work.is_empty() && ui.add_enabled(!self.running && !self.busy && self.snapshot.active.is_empty(),
+                            if !self.work.is_empty() && ui.add_enabled(!ended && !self.running && !self.busy && self.snapshot.active.is_empty(),
                                 egui::Button::new("Continue this activity")).clicked(){
                                 self.command(ctx,Command::Run{watch:false,work:Some(self.work.clone()),persona:None});
                                 ui.close();
@@ -166,7 +168,7 @@ impl App {
                                 for (action, label) in [(dialogs::Action::Message, "Write message"),
                                     (dialogs::Action::Amend, "Amend brief"), (dialogs::Action::Invite, "Invite a persona"),
                                     (dialogs::Action::Resume, "Resume participant")] {
-                                    if ui.button(label).clicked() {
+                                    if ui.add_enabled(!ended || action==dialogs::Action::Message, egui::Button::new(label)).clicked() {
                                         self.dialog = Some(self.participation_dialog(action));
                                         ui.close();
                                     }
@@ -462,6 +464,7 @@ impl App {
         if p.is_null() {
             return "No task participation".into();
         }
+        if p["closed_by_activity"].is_string(){return "Activity ended".into();}
         if p["departure"].is_string(){return "Left this activity".into();}
         if p["declined"]==true{return "Declined invitation".into();}
         if !matches!(s(&p["continuation"], "kind"), "stop" | "stopped") {
