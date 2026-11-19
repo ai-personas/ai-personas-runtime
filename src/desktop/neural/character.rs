@@ -486,7 +486,12 @@ impl App {
                     for r in detail["evidence"].as_array().into_iter().flatten().filter_map(Value::as_str) {
                         if ui.small_button(r).clicked(){self.open_resource(ui.ctx(),r.into());}
                     }
-                    if ui.small_button("Open full question").clicked(){self.open_resource(ui.ctx(),reference.clone());}
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.small_button("Open full question").clicked(){self.open_resource(ui.ctx(),reference.clone());}
+                        if ui.small_button("Trace question history…").clicked(){
+                            self.question_history.open(ui.ctx(),&self.root,reference.clone(),text.to_owned());
+                        }
+                    });
                     for application in &applications {
                         ui.separator();
                         let work=self.records("work").iter().find(|w|w["body"]["id"]==application["work"])

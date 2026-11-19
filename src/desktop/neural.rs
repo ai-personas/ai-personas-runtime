@@ -24,6 +24,7 @@ mod data;
 mod dialogs;
 mod export;
 mod life;
+mod question_history;
 mod library_search;
 mod workspace;
 mod usage;
@@ -127,6 +128,7 @@ pub struct App {
     development_filter: usize,
     development_all_work: bool,
     development_scope: (String, String),
+    question_history: question_history::History,
     contextual: bool,
     parameter_filter: String,
     tensor_filter: String,
@@ -199,6 +201,7 @@ impl App {
             development_filter: 0,
             development_all_work: false,
             development_scope: (String::new(), String::new()),
+            question_history: Default::default(),
             contextual: true,
             parameter_filter: String::new(),
             tensor_filter: String::new(),
@@ -535,6 +538,9 @@ impl eframe::App for App {
         self.export_window(ctx);
         if let Some(reference)=self.library_search.show(ctx,&self.root){
             self.open_resource(ctx,reference);
+        }
+        if let Some(reference) = self.question_history.show(ctx, &self.root, &self.snapshot.status) {
+            self.open_resource(ctx, reference);
         }
     }
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {

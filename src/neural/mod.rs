@@ -11,6 +11,7 @@ mod experience;
 mod handoff;
 pub mod membership;
 pub mod development;
+pub mod question_history;
 pub mod discovery;
 pub mod context;
 pub mod controls;
