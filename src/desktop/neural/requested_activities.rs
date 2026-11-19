@@ -165,7 +165,9 @@ impl Window {
                                 ui.set_max_width((col_width-22.).max(60.));
                                 ui.label(RichText::new(name).strong().color(color));
                                 let title=work_name(status,id);
-                                ui.add(egui::Label::new(excerpt(title,92)).wrap()).on_hover_text(title);
+                                ui.with_layout(egui::Layout::top_down(egui::Align::Min),|ui|{
+                                    ui.add(egui::Label::new(excerpt(title,92)).wrap()).on_hover_text(title);
+                                });
                                 ui.horizontal_wrapped(|ui|{
                                     if id==work {ui.weak("Current workspace");}
                                     else if ui.small_button("Open activity →").clicked(){action=Some(Action::OpenWork(id.into()));}

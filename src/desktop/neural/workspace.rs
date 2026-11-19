@@ -165,6 +165,10 @@ impl App {
                         ui.add_enabled_ui(!self.work.is_empty(), |ui| {
                             ui.menu_button("Participate", |ui| {
                                 if ui.button("Responsibility board").clicked(){self.layout.editor=Editor::Responsibilities;ui.close();}
+                                if ui.button("Requested activities").clicked(){
+                                    self.requested_activities.open(ui.ctx(),&self.root,&self.work,self.cursor);
+                                    ui.close();
+                                }
                                 for (action, label) in [(dialogs::Action::Message, "Write message"),
                                     (dialogs::Action::Amend, "Amend brief"), (dialogs::Action::Invite, "Invite a persona"),
                                     (dialogs::Action::Resume, "Resume participant")] {
@@ -485,7 +489,7 @@ impl App {
     }
     pub(super) fn studio(&mut self, ui: &mut Ui) {
         egui::ScrollArea::vertical()
-            .id_salt("studio-overview")
+            .id_salt(("studio-overview",self.work.clone()))
             .show(ui, |ui| {
                 eyebrow(ui, "Shared workspace");
                 ui.add_space(5.);
@@ -568,11 +572,9 @@ impl App {
                         card(&cols[0]).show(&mut cols[0], |ui| {
                             self.message_heading(ui, message);
                             ui.add_space(6.);
-                            ui.add(
-                                egui::Label::new(excerpt(s(&message["body"], "text"), 230))
-                                    .wrap()
-                                    .halign(egui::Align::Min),
-                            );
+                            ui.with_layout(egui::Layout::top_down(egui::Align::Min),|ui|{
+                                ui.add(egui::Label::new(excerpt(s(&message["body"], "text"), 230)).wrap());
+                            });
                             if ui.small_button("Open conversation →").clicked() {
                                 self.layout.editor = Editor::Conversations;
                                 self.conversation_persona = s(message, "actor").into();
