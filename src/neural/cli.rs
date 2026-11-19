@@ -103,6 +103,17 @@ pub enum Command {
     },
     /// Inspect a selected activity, its requested activities and their participants.
     ActivityTree { work: String },
+    /// Check when the text of a human message reached an accepted ordinary decision.
+    MessageReceipt { event: i64 },
+    /// Inspect earlier activities' exact assets in accepted inputs, executions and issued packages.
+    ActivitySources {
+        work: String,
+        #[arg(long)]
+        persona: Option<String>,
+        #[command(flatten)]
+        #[serde(flatten)]
+        query: super::activity_sources::Query,
+    },
     /// Respond to an exact request for human action. Only a reported completion closes it as completed.
     HumanRespond {
         request: String,
@@ -478,6 +489,8 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
             match command {
                 Command::Status=>store.status(),
                 Command::ActivityTree{work}=>store.snapshot(|db|super::activity_tree::describe(db,&work)),
+                Command::MessageReceipt{event}=>store.snapshot(|db|super::live::message_receipt(db,event)),
+                Command::ActivitySources{work,persona,query}=>store.snapshot(|db|super::activity_sources::inspect(db,&work,persona.as_deref(),&query)),
                 Command::ExportPackage{reference,destination}=>store.snapshot(|db|super::human_requests::export_package(db,&reference,&destination)),
                 Command::CommandHistory(query)=>store.snapshot(|db|super::commands::history(db,&query)),
                 Command::GeometryHistory{reference,offset,page_size}=>store.snapshot(|db|super::geometry::history::lookup(db,&super::geometry::history::Lookup{reference,offset,page_size})),

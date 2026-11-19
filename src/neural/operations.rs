@@ -160,6 +160,22 @@ fn resolve(value: &mut Value, aliases: &BTreeMap<String, String>) -> Result<()> 
     }
     Ok(())
 }
+pub(super) fn resolve_operation(op: &mut Operation, aliases: &BTreeMap<String, String>) -> Result<()> {
+    if op.tool == "command.run" {
+        if let Some(files) = op.input.get_mut("files").and_then(Value::as_object_mut) {
+            for reference in files.values_mut() { resolve(reference, aliases)?; }
+        }
+        if let Some(stdin) = op.input.get_mut("stdin") { resolve(stdin, aliases)?; }
+    } else if op.tool == "command.install" {
+        if let Some(source) = op.input.get_mut("source") { resolve(source, aliases)?; }
+    } else {
+        resolve(&mut op.input, aliases)?;
+    }
+    Ok(())
+}
+pub(super) fn returns_alias(tool: &str) -> bool {
+    matches!(tool, "asset.save" | "asset.register" | "relationship.record" | "relationship.retire" | "result.review" | "result.deliver" | "human.request" | "human.withdraw")
+}
 fn maintenance(
     value: &Maintenance,
     operations: &[Operation],
@@ -721,6 +737,7 @@ fn internal(
             Ok(json!({"persona":new.id,"reference":r.handle(),"invited":false}))
         }
         "work.requests" => super::activity_requests::history(db,work,Some(actor),&decode(input)?),
+        "work.sources" => super::activity_sources::own(db,work,actor,&decode(input)?),
         "work.respond" => super::activity_requests::respond(db,snapshot,decode(input)?),
         "work.request" => {
             let x: tools::RequestWork = decode(input)?;
@@ -1028,19 +1045,10 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
         let mut aliases=BTreeMap::new();
         for (ordinal,raw) in decision.operations.iter().enumerate() {
             let mut op=raw.clone();
-            if op.tool == "command.run" {
-                if let Some(files) = op.input.get_mut("files").and_then(Value::as_object_mut) {
-                    for reference in files.values_mut() { resolve(reference,&aliases)?; }
-                }
-                if let Some(stdin) = op.input.get_mut("stdin") { resolve(stdin,&aliases)?; }
-            } else if op.tool == "command.install" {
-                if let Some(source) = op.input.get_mut("source") { resolve(source,&aliases)?; }
-            } else {
-                resolve(&mut op.input,&aliases)?;
-            }
+            resolve_operation(&mut op,&aliases)?;
             if part.departure.is_some(){return Err(failure("work.leave ends your operations in this activity; issue it last and stop"));}
             if persona.model.is_none()&&!matches!(op.tool.as_str(),"persona.initialize"|"persona.read"|"tools.search"|"tools.describe"|"asset.read") {return Err(failure("initialize and activate your character before accepting or doing work"));}
-            if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.search"|"asset.find"|"history.search"|"experience.search"|"relationship.contacts"|"relationship.history"|"persona.revision_uses"|"persona.paths"|"peer.message"|"work.requests") {return Err(failure("accept your invitation before ordinary work"));}
+            if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.search"|"asset.find"|"history.search"|"experience.search"|"relationship.contacts"|"relationship.history"|"persona.revision_uses"|"persona.paths"|"peer.message"|"work.requests"|"work.sources") {return Err(failure("accept your invitation before ordinary work"));}
             if part.declined{return Err(failure("declined participation cannot perform operations"));}
             if tools::is_external(&op.tool) {
                 validate_external(db,&persona,&op)?;
@@ -1049,7 +1057,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
             }else{
                 let result=internal(db,snapshot,&mut persona,&mut part,&op)
                     .map_err(|error|failure(format!("Operation {} ({}): {error}",op.id,op.tool)))?;
-                if matches!(op.tool.as_str(),"asset.save"|"asset.register"|"relationship.record"|"relationship.retire"|"result.review"|"result.deliver"|"human.request"|"human.withdraw") {if let Some(r)=result["reference"].as_str(){aliases.insert(op.id.clone(),r.to_owned());}}
+                if returns_alias(&op.tool) {if let Some(r)=result["reference"].as_str(){aliases.insert(op.id.clone(),r.to_owned());}}
                 let digest=store::put(db,&result)?;
                 store::event(db,&snapshot.work,&snapshot.actor,&snapshot.actor,"tool_result",&json!({"operation":op.id,"tool":op.tool,"result":format!("object:{digest}"),"context":"complete","bootstrap":snapshot.model.is_none()}),Some(&snapshot.invocation))?;
             }
