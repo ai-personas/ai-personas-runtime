@@ -93,6 +93,23 @@ pub enum Command {
         persona:Option<String>,
     },
     Status,
+    /// Install the pinned OpenSCAD compiler into this workspace.
+    InstallOpenscad {
+        /// Exact asset or object containing the released compiler for offline installation.
+        #[arg(long)]
+        source: Option<String>,
+    },
+    /// Render a retained OpenSCAD project to a measured STL mesh and retain the operator receipt.
+    RenderScad {
+        reference: String,
+        #[arg(long="companion")]
+        companions: Vec<String>,
+        /// JSON object of OpenSCAD variable overrides.
+        #[arg(long,default_value="{}")]
+        parameters: String,
+    },
+    /// Measure the triangles and coordinates of a retained STL asset or byte object.
+    InspectStl { reference:String },
     /// Search shared catalogue metadata and optionally retained earlier revisions.
     Catalog(super::discovery::Catalog),
     /// Locate byte ranges in an exact retained UTF-8 asset or object without printing its body.
@@ -336,6 +353,19 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
                 json!({"created":store.root,"personas":seen.len(),"model":provider.model,"effort":provider.effort,"inference_performed":false}),
             )
         }
+        Command::InstallOpenscad{source}=>super::geometry::install(root,operator,None,&super::geometry::Install{source},||false).await,
+        Command::RenderScad{reference,companions,parameters}=>{
+            let input=super::geometry::Render{reference,companions,parameters:serde_json::from_str(&parameters)?};
+            let result=super::geometry::render(root,&input,||false).await?;
+            let mut store=Store::open(root)?;
+            store.transaction(|db|{
+                let receipt=store::put(db,&json!({"operator":operator,"at":now(),"tool":"geometry.render","input":input,"result":result}))?;
+                let mut result=result;
+                result["operator_receipt"]=json!(format!("object:{receipt}"));
+                Ok(result)
+            })
+        }
+        Command::InspectStl{reference}=>super::geometry::inspect(root,&reference).await,
         Command::Run { watch,work,persona } => runner::run_selected(root, watch,work.as_deref(),persona.as_deref()).await,
         command => {
             let mut store = Store::open(root)?;

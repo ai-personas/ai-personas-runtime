@@ -133,6 +133,7 @@ pub fn status(db: &Connection) -> Result<Value> {
     let ownership=super::handoff::ownership(db,&outcomes)?;
     Ok(json!({"format":"neural-runtime-v2","personas":list(db,"persona")?,
         "work":list(db,"work")?,"participation":list(db,"participation")?,
+        "installations":list(db,"installation")?,
         "development":list(db,"development")?,"question_applications":super::development::applications(db,None,None)?,
         "acceptances":list(db,"acceptance")?,"delivery_reviews":delivery_reviews(db)?,"delivery_mandates":delivery_mandates(db,None)?,
         "outcomes":outcomes,"outcome_ownership":ownership,"handoffs":super::handoff::offers(db,None)?,"deliveries":list(db,"delivery")?,

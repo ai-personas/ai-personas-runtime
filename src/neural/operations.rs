@@ -103,7 +103,7 @@ pub fn package_paths(
 fn resolve(value: &mut Value, aliases: &BTreeMap<String, String>) -> Result<()> {
     match value {
         Value::String(s) if s.starts_with('$') => {
-            *s=aliases.get(&s[1..]).ok_or_else(||failure(format!("unavailable local reference {s}; only earlier asset.save results can be referenced")))?.clone();
+            *s=aliases.get(&s[1..]).ok_or_else(||failure(format!("unavailable local reference {s}; use an earlier asset.save or asset.register operation")) )?.clone();
         }
         Value::Array(a) => {
             for v in a {
@@ -115,6 +115,8 @@ fn resolve(value: &mut Value, aliases: &BTreeMap<String, String>) -> Result<()> 
                 if [
                     "reference",
                     "references",
+                    "companions",
+                    "sources",
                     "context_sources",
                     "base",
                     "artifacts",
@@ -384,6 +386,16 @@ fn internal(
             Ok(
                 json!({"reference":r.handle(),"blob":blob,"bytes":x.text.len(),"host_file_written":false}),
             )
+        }
+        "asset.register" => {
+            let x: tools::Register = decode(input)?;
+            let digest = x.reference.strip_prefix("object:").ok_or_else(||failure("Register the exact object reference returned with the retained bytes"))?;
+            if !snapshot.supplied_references.contains(&x.reference) {
+                return Err(failure("Read or select the receipt containing this object before registering its bytes"));
+            }
+            let size = store::bytes(db,digest)?.len();
+            let asset = save_asset(db,actor,call,&x.path,x.base.as_deref(),digest,&x.cues,&x.qualifications,x.resource.as_ref())?;
+            Ok(json!({"reference":asset.handle(),"blob":digest,"bytes":size,"registered_from":x.reference}))
         }
         "asset.organize" => {
             let x: tools::AssetMetadata = decode(input)?;
@@ -948,7 +960,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
         // Host commands may be read-only; explicit asset mutations must be acknowledged.
         maintenance(&decision.persona_maintenance,&decision.operations,tools::model_mutation,|name|matches!(name,"persona.evaluate"|"persona.assess"|"development.update"),switching)
             .map_err(|e|failure(format!("persona_maintenance: {e}")))?;
-        maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"image.read"|"image.render_svg"|"work.outcome"|"result.deliver"),false)
+        maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"image.read"|"image.render_svg"|"geometry.render"|"geometry.inspect_stl"|"work.outcome"|"result.deliver"),false)
             .map_err(|e|failure(format!("asset_maintenance: {e}")))?;
         super::development::record_applications(db,snapshot,&decision.examining)?;
         super::development::consider(db,snapshot,decision)?;
@@ -971,7 +983,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
             }else{
                 let result=internal(db,snapshot,&mut persona,&mut part,&op)
                     .map_err(|error|failure(format!("Operation {} ({}): {error}",op.id,op.tool)))?;
-                if op.tool=="asset.save" {if let Some(r)=result["reference"].as_str(){aliases.insert(op.id.clone(),r.to_owned());}}
+                if matches!(op.tool.as_str(),"asset.save"|"asset.register") {if let Some(r)=result["reference"].as_str(){aliases.insert(op.id.clone(),r.to_owned());}}
                 let digest=store::put(db,&result)?;
                 store::event(db,&snapshot.work,&snapshot.actor,&snapshot.actor,"tool_result",&json!({"operation":op.id,"tool":op.tool,"result":format!("object:{digest}"),"context":"complete","bootstrap":snapshot.model.is_none()}),Some(&snapshot.invocation))?;
             }
@@ -1037,6 +1049,15 @@ fn check_observed_reply(
 
 pub fn validate_external(db: &Connection, persona: &Persona, op: &Operation) -> Result<()> {
     match op.tool.as_str() {
+        "geometry.install" => {
+            let input: super::geometry::Install = decode(&op.input)?;
+            super::geometry::validate_install(db,&input)?;
+        }
+        "geometry.render" => super::geometry::validate_render(db,&decode(&op.input)?)?,
+        "geometry.inspect_stl" => {
+            let input: super::geometry::Inspect = decode(&op.input)?;
+            super::geometry::blob(db,&input.reference)?;
+        }
         "compute.inspect" => {
             let query: tools::InspectProgram = decode(&op.input)?;
             let _ = super::workspace::program(db,&query.program)?;

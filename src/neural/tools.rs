@@ -57,6 +57,19 @@ pub struct Resource {
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct Register {
+    /// Exact object:<digest> supplied in a result or selected context.
+    pub reference: String,
+    pub path: String,
+    /// An exact asset revision to update, or null to create a new library entry.
+    pub base: Option<String>,
+    pub cues: Vec<String>,
+    pub qualifications: Vec<String>,
+    #[serde(default)]
+    pub resource: Option<Resource>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct Import {
     pub host_path: String,
     pub path: String,
@@ -248,6 +261,10 @@ pub const NAMES: &[(&str,&str)] = &[
     ("asset.find","Locate literal or regex matches in one exact retained UTF-8 asset or object. Returns byte and line ranges. Set excerpts=true to receive the matched lines directly. before and after choose surrounding lines. You can also select a range later."),
     ("asset.read","Read exact retained text or record, optionally a measured UTF-8 byte range. A read does not rerun a tool."),
     ("asset.save","Save UTF-8 supporting content with path/cues and exact base. New identity/receipt is returned by the host. Does not write a host file."),
+    ("asset.register","Give a retained byte object from a tool result a library path and metadata. Register a generated binary, STL mesh, or image as a shareable and deliverable asset. Later operations in the same response can use $operation_id for the resulting asset."),
+    ("geometry.install","Install the pinned public OpenSCAD compiler, openscad-wasm 0.0.4, into this workspace for CAD rendering with geometry.render. Reuses an existing installation. Optionally supply matching retained compiler bytes for offline installation. Declare the operation under asset maintenance."),
+    ("geometry.render","Compile a retained OpenSCAD CAD project to a binary STL mesh using the installed workspace compiler. Supply the exact source, companion files and optional parameter overrides. Returns the mesh object, measured bounds, triangle count, diagnostics and dependencies."),
+    ("geometry.inspect_stl","Measure a retained STL mesh object or exact asset. Returns bounds, axis spans, triangles, distinct vertices and a mesh validation result."),
     ("asset.import","Retain exact bytes read from a host file after dispatch; metadata is not prior body supply. The exact asset reference arrives in a later tool receipt. Same-response $operation_id references cannot name this import; read its result before selecting or citing the resulting asset."),
     ("asset.organize","Move/update discovery metadata or retire a resource while preserving exact prior bytes and history."),
     ("image.read","Capture a host image and supply its exact bytes as image input in the next decision."),
@@ -289,6 +306,10 @@ pub fn describe(name: &str) -> Result<Value> {
         "persona.assess" => schema::<AssessModel>()?,
         "persona.create" => schema::<CreatePersona>()?,
         "asset.save" => schema::<Save>()?,
+        "asset.register" => schema::<Register>()?,
+        "geometry.install" => schema::<super::geometry::Install>()?,
+        "geometry.render" => schema::<super::geometry::Render>()?,
+        "geometry.inspect_stl" => schema::<super::geometry::Inspect>()?,
         "asset.import" => schema::<Import>()?,
         "asset.organize" => schema::<AssetMetadata>()?,
         "image.read" => schema::<ImageRead>()?,
@@ -345,6 +366,10 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
         "persona.assess" => parse::<AssessModel>(value),
         "persona.create" => parse::<CreatePersona>(value),
         "asset.save" => parse::<Save>(value),
+        "asset.register" => parse::<Register>(value),
+        "geometry.install" => parse::<super::geometry::Install>(value),
+        "geometry.render" => parse::<super::geometry::Render>(value),
+        "geometry.inspect_stl" => parse::<super::geometry::Inspect>(value),
         "asset.import" => parse::<Import>(value),
         "asset.organize" => parse::<AssetMetadata>(value),
         "image.read" => parse::<ImageRead>(value),
@@ -373,11 +398,11 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
 pub fn is_external(name: &str) -> bool {
     matches!(
         name,
-        "compute.inspect" | "compute.run" | "workspace.list" | "asset.import" | "image.read" | "image.render_svg" | "persona.assess"
+        "compute.inspect" | "compute.run" | "geometry.install" | "geometry.render" | "geometry.inspect_stl" | "workspace.list" | "asset.import" | "image.read" | "image.render_svg" | "persona.assess"
     )
 }
 pub fn asset_mutation(name: &str) -> bool {
-    matches!(name, "asset.save" | "asset.import" | "asset.organize")
+    matches!(name, "asset.save" | "asset.import" | "asset.organize" | "asset.register" | "geometry.install")
 }
 pub fn model_mutation(name: &str) -> bool {
     matches!(name, "persona.initialize" | "persona.patch" | "development.update" | "development.close")

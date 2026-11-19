@@ -470,6 +470,21 @@ async fn external(
     let mut store = Store::open(root)?;
     let cfg = config(&store)?;
     match op.tool.as_str() {
+        "geometry.install" => {
+            let input = serde_json::from_value(op.input.clone())?;
+            super::geometry::install(root,actor,Some(invocation),&input,move ||control_observation(&store,work,actor).is_some()).await
+        }
+        "geometry.render" => {
+            let input = serde_json::from_value(op.input.clone())?;
+            match super::geometry::render(root,&input,move ||control_observation(&store,work,actor).is_some()).await {
+                Ok(result)=>Ok(result),
+                Err(error)=>Ok(json!({"success":false,"source":input.reference,"companions":input.companions,"parameters":input.parameters,"error":error.to_string()})),
+            }
+        }
+        "geometry.inspect_stl" => {
+            let input:super::geometry::Inspect=serde_json::from_value(op.input.clone())?;
+            super::geometry::inspect(root,&input.reference).await
+        }
         "workspace.list" => {
             let page:tools::ListDirectory=serde_json::from_value(op.input.clone())?;
             super::workspace::list(&cfg.working_directory,&page)

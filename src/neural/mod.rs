@@ -3,6 +3,7 @@
 pub mod cli;
 pub mod accounting;
 pub mod footprint;
+pub mod geometry;
 mod archive;
 mod assessment;
 mod character;
