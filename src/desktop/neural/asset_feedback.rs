@@ -4,7 +4,7 @@ use super::{activity_title, card, data, excerpt, s, theme, time_label, TEAL};
 use ai_personas::neural::{
     self,
     asset_feedback::{self, Feedback, History},
-    cli::{self, Command},
+    cli::Command,
     store,
 };
 use eframe::egui::{self, RichText, Ui};
@@ -114,15 +114,7 @@ impl Window {
         self.publishing = true;
         self.posted = None;
         self.worker(ctx, move || {
-            let runtime = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-            runtime
-                .block_on(cli::execute_with_request(
-                    &root,
-                    &operator,
-                    command,
-                    Some(&request),
-                ))
-                .map_err(|e| e.to_string())
+            super::operator_call(&root,&operator,command,Some(&request))
         });
         Ok(())
     }

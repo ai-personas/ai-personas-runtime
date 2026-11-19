@@ -28,6 +28,8 @@ mod life;
 mod question_history;
 mod library_search;
 mod asset_feedback;
+mod package_reviews;
+mod mesh_profile;
 mod workspace;
 mod usage;
 mod responsibilities;
@@ -121,6 +123,8 @@ pub struct App {
     reference_input: String,
     library_search: library_search::Window,
     asset_feedback: asset_feedback::Window,
+    package_reviews: package_reviews::Desk,
+    mesh_profile: mesh_profile::Window,
     command_bench: command_bench::Bench,
     usage: usage::Panel,
     responsibilities: responsibilities::Board,
@@ -146,6 +150,10 @@ pub struct App {
     inspector_window: bool,
     export_dialog: Option<export::Dialog>,
     export_generation: u64,
+}
+fn operator_call(root:&std::path::Path,operator:&str,command:Command,request:Option<&str>)->Result<Value,String>{
+    let runtime=tokio::runtime::Runtime::new().map_err(|e|e.to_string())?;
+    runtime.block_on(cli::execute_with_request(root,operator,command,request)).map_err(|e|e.to_string())
 }
 impl App {
     pub fn new(
@@ -200,6 +208,8 @@ impl App {
             reference_input: String::new(),
             library_search: Default::default(),
             asset_feedback: Default::default(),
+            package_reviews: Default::default(),
+            mesh_profile: Default::default(),
             command_bench: Default::default(),
             usage: Default::default(),
             responsibilities: Default::default(),
@@ -253,12 +263,7 @@ impl App {
         self.error = None;
         let (root, tx, ctx) = (self.root.clone(), self.tx.clone(), ctx.clone());
         std::thread::spawn(move || {
-            let result = tokio::runtime::Runtime::new()
-                .map_err(|e| e.to_string())
-                .and_then(|rt| {
-                    rt.block_on(cli::execute(&root, &operator, command))
-                        .map_err(|e| e.to_string())
-                });
+            let result=operator_call(&root,&operator,command,None);
             let _ = tx.send(if run {
                 Update::RunDone(result)
             } else if bench {
@@ -586,6 +591,10 @@ impl eframe::App for App {
         self.command_bench = bench;
         self.dialogs(ctx);
         self.export_window(ctx);
+        if let Some(reference)=self.mesh_profile.show(ctx,&self.root,&self.operator){self.open_resource(ctx,reference);}
+        if let Some(reference)=self.package_reviews.show(ctx,&self.root,&self.operator,&self.snapshot.status) {
+            self.open_resource(ctx,reference);
+        }
         if let Some(reference) = self.asset_feedback.show(ctx, &self.root, &self.operator, &self.snapshot.status) {
             self.open_resource(ctx, reference);
         }

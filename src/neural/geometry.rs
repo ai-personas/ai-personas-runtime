@@ -1,5 +1,6 @@
 //! Install and run the published OpenSCAD compiler against exact project files.
 pub mod history;
+pub mod profile;
 use super::{failure, operations, store, workspace::{byte_digest, controlled}, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use rusqlite::Connection;
@@ -208,7 +209,7 @@ pub async fn install(
     })
 }
 
-pub fn measure(bytes: &[u8]) -> Result<Value> {
+fn read_mesh(bytes: &[u8]) -> Result<(stl_io::IndexedMesh,[f64;3],[f64;3])> {
     let mesh = stl_io::read_stl(&mut Cursor::new(bytes))?;
     if mesh.faces.is_empty() {
         return Err(failure("STL contains no triangles"));
@@ -225,6 +226,11 @@ pub fn measure(bytes: &[u8]) -> Result<Value> {
             max[axis] = max[axis].max(v);
         }
     }
+    Ok((mesh,min,max))
+}
+
+pub fn measure(bytes: &[u8]) -> Result<Value> {
+    let (mesh,min,max)=read_mesh(bytes)?;
     let span: [f64; 3] = std::array::from_fn(|axis| max[axis] - min[axis]);
     let edge_check = mesh.validate();
     Ok(

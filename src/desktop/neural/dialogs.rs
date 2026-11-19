@@ -135,7 +135,10 @@ impl App {
             ));
             ui.label(s(review, "reason"));
         } else {
-            ui.small("Awaiting review");
+            ui.small("Awaiting operator acceptance");
+        }
+        if ui.small_button("Package findings…").clicked() {
+            self.package_reviews.open(ui.ctx(),&self.root,&self.work,Some(reference));
         }
         if ui.small_button("Review delivery…").clicked() {
             self.dialog = Some(Dialog::Review {

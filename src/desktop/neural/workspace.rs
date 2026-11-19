@@ -1124,6 +1124,10 @@ impl App {
             {
                 self.files.workspace_mode();
             }
+            if ui.button("Package reviews…").clicked() {
+                let delivery=self.selected_reference.starts_with("delivery:").then_some(self.selected_reference.as_str());
+                self.package_reviews.open(ui.ctx(),&self.root,&self.work,delivery);
+            }
             if ui.button("Search library…").clicked(){
                 self.library_search.catalogue(self.asset_filter.clone());
             }
@@ -1258,6 +1262,9 @@ impl App {
                             self.asset_feedback.open(ui.ctx(), &self.root, &self.selected_reference, &self.work);
                         }
                         let path=s(&self.preview_metadata,"path");
+                        if (path.to_ascii_lowercase().ends_with(".stl") || self.preview_metadata["format"]=="stl") && ui.small_button("Measure mesh…").clicked() {
+                            self.mesh_profile.open(ui.ctx(),&self.root,&self.operator,&self.selected_reference,&self.work);
+                        }
                         if self.selected_reference.starts_with("asset:") && path.to_ascii_lowercase().ends_with(".scad") && ui.button("Render model…").clicked() {
                             self.dialog=Some(Dialog::Render(super::render::RenderDialog::new(path,&self.selected_reference)));
                         }

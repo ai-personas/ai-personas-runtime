@@ -225,7 +225,7 @@ pub(super) fn byte_digest(db: &Connection, reference: &str) -> Result<String> {
         return Err(failure("Unknown byte object"));
     }
     let record = store::exact(db, reference)?;
-    if record.reference.kind != "asset" {
+    if record.reference.kind != "asset" || record.reference.handle() != reference {
         return Err(failure("Use an exact asset revision or byte object"));
     }
     record.body["blob"]

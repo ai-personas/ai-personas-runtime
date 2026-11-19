@@ -29,6 +29,8 @@ pub(super) fn check_shared_evidence(db:&Connection, actor:Option<&str>, referenc
             store::bytes(db, digest)?;
         } else if reference.starts_with("experience:") {
             super::experience::metadata(db, actor, reference)?;
+        } else if reference.starts_with("package_review:") {
+            super::package_review::check_reference(db, reference)?;
         } else if store::exact(db, reference)?.reference.handle() != *reference {
             return Err(failure(
                 "Use the exact supporting reference returned by the workspace",
@@ -82,7 +84,7 @@ pub fn package_paths(
     let mut paths = BTreeMap::<PathBuf, String>::new();
     for reference in references {
         let asset = store::exact(db, reference)?;
-        if asset.reference.kind != "asset" {
+        if asset.reference.kind != "asset" || asset.reference.handle() != *reference {
             return Err(failure("delivery artifacts must be exact retained assets"));
         }
         let path = asset.body["path"]
@@ -651,9 +653,11 @@ fn internal(
             }
             check_references(db, &x.evidence)?;
             package_paths(db, &x.artifacts)?;
-            let mandate=snapshot.data["work"]["reference"].as_str().ok_or_else(||failure("Missing delivery mandate"))?;
             check_shared_evidence(db,Some(actor),&x.review_inputs)?;
-            super::package_review::check_reliance(db,&x.artifacts,mandate,&x.review_inputs,&x.reviews)?;
+            if !x.reviews.is_empty() {
+                let mandate=snapshot.data["work"]["reference"].as_str().ok_or_else(||failure("Missing delivery mandate"))?;
+                super::package_review::check_reliance(db,&x.artifacts,mandate,&x.review_inputs,&x.reviews)?;
+            }
             let mut body = serde_json::to_value(x)?;
             body["work"] = json!(work);
             body["mandate"] = snapshot.data["work"]["reference"].clone();
@@ -991,7 +995,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
         // Host commands may be read-only; explicit asset mutations must be acknowledged.
         maintenance(&decision.persona_maintenance,&decision.operations,tools::model_mutation,|name|matches!(name,"persona.evaluate"|"persona.assess"|"development.update"),switching)
             .map_err(|e|failure(format!("persona_maintenance: {e}")))?;
-        maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"result.review"|"asset.feedback"|"image.read"|"image.render_svg"|"command.run"|"geometry.render"|"geometry.inspect_stl"|"work.outcome"|"result.deliver"),false)
+        maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"result.review"|"asset.feedback"|"image.read"|"image.render_svg"|"command.run"|"geometry.render"|"geometry.inspect_stl"|"geometry.profile_stl"|"work.outcome"|"result.deliver"),false)
             .map_err(|e|failure(format!("asset_maintenance: {e}")))?;
         super::development::record_applications(db,snapshot,&decision.examining)?;
         super::development::consider(db,snapshot,decision)?;
@@ -1097,6 +1101,11 @@ pub fn validate_external(db: &Connection, persona: &Persona, op: &Operation) -> 
             super::geometry::validate_install(db,&input)?;
         }
         "geometry.render" => super::geometry::validate_render(db,&decode(&op.input)?)?,
+        "geometry.profile_stl" => {
+            let query:super::geometry::profile::Profile=decode(&op.input)?;
+            super::workspace::byte_digest(db,&query.reference)?;
+            query.validate()?;
+        }
         "geometry.inspect_stl" => {
             let input: super::geometry::Inspect = decode(&op.input)?;
             super::workspace::byte_digest(db,&input.reference)?;

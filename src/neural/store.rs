@@ -165,20 +165,35 @@ pub fn delivery_mandates(db: &Connection, work: Option<&str>) -> Result<std::col
     Ok(pairs)
 }
 
-pub fn delivery_reviews(db: &Connection) -> Result<std::collections::BTreeMap<String, Value>> {
-    let mut reviews = std::collections::BTreeMap::new();
-    let mut query = db.prepare("SELECT id,revision,digest,created FROM versions WHERE kind='acceptance' ORDER BY rowid")?;
-    let mut rows = query.query([])?;
-    while let Some(row) = rows.next()? {
-        let id: String = row.get(0)?;
-        let revision: i64 = row.get(1)?;
-        let digest: String = row.get(2)?;
-        let review: Value = object(db, &digest)?;
-        let delivery = review["delivery"].as_str().ok_or_else(|| failure("Review is missing its exact delivery"))?;
-        reviews.insert(delivery.to_owned(), json!({"reference":format!("acceptance:{id}@{revision}"),
-            "reviewer":review["user"],"accepted":review["accepted"],"reason":review["reason"],"created":row.get::<_,i64>(3)?}));
+// Keep the latest disposition used in the activity view and the complete
+// history used by the package inspector on the same immutable review records.
+fn visit_delivery_reviews(db:&Connection,mut visit:impl FnMut(&str,Value))->Result<()> {
+    let mut query=db.prepare("SELECT id,revision,digest,created FROM versions WHERE kind='acceptance' ORDER BY rowid")?;
+    let mut rows=query.query([])?;
+    while let Some(row)=rows.next()? {
+        let id:String=row.get(0)?;
+        let revision:i64=row.get(1)?;
+        let review:Value=object(db,&row.get::<_,String>(2)?)?;
+        let delivery=review["delivery"].as_str().ok_or_else(||failure("Review is missing its exact delivery"))?;
+        visit(delivery,json!({"reference":format!("acceptance:{id}@{revision}"),"reviewer":review["user"],
+            "accepted":review["accepted"],"reason":review["reason"],"created":row.get::<_,i64>(3)?,
+            "brief_at_review":review["brief_at_review"]}));
     }
-    Ok(reviews)
+    Ok(())
+}
+
+pub fn delivery_reviews(db:&Connection)->Result<std::collections::BTreeMap<String,Value>> {
+    let mut latest=std::collections::BTreeMap::new();
+    visit_delivery_reviews(db,|delivery,review|{latest.insert(delivery.to_owned(),review);})?;
+    Ok(latest)
+}
+
+pub(super) fn operator_review_history(db:&Connection,deliveries:&std::collections::BTreeSet<String>)->Result<std::collections::BTreeMap<String,Vec<Value>>>{
+    let mut history=std::collections::BTreeMap::new();
+    visit_delivery_reviews(db,|delivery,review|{
+        if deliveries.contains(delivery){history.entry(delivery.to_owned()).or_insert_with(Vec::new).push(review);}
+    })?;
+    Ok(history)
 }
 
 pub fn put_bytes(db: &Connection, media: &str, bytes: &[u8]) -> Result<String> {

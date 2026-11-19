@@ -38,6 +38,10 @@ pub enum Verdict {
 pub struct Review {
     #[command(flatten)]
     pub subject: Subject,
+    /// Exact brief the reviewer saw. Publishing fails if this package now resolves to another brief.
+    #[arg(long)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_mandate: Option<String>,
     /// The particular claim, interface or intended use you assessed.
     #[arg(long)]
     pub criterion: String,
@@ -102,7 +106,14 @@ fn typed(db: &Connection, reference: &str, kind: &str) -> Result<store::Record> 
     if record.reference.kind != kind || record.reference.handle() != reference {
         return Err(failure(format!("Choose an exact {kind} reference")));
     }
+    if kind == "package_review" && record.body["reference"] != reference {
+        return Err(failure("Review identity differs from its retained version"));
+    }
     Ok(record)
+}
+
+pub(super) fn check_reference(db: &Connection, reference: &str) -> Result<()> {
+    typed(db, reference, "package_review").map(|_| ())
 }
 
 fn members(db: &Connection, artifacts: &[String]) -> Result<Members> {
@@ -220,6 +231,13 @@ pub(super) fn publish(
     }
     let reporting = store::required(db, "work", work)?;
     let subject = target(db, &input.subject, Some(work), call.map(|_| author))?.package;
+    if let Some(expected) = &input.expected_mandate {
+        if subject.mandate.as_ref() != Some(expected) {
+            return Err(failure(
+                "The reviewed brief changed. Reload the package before publishing your finding.",
+            ));
+        }
+    }
     operations::check_shared_evidence(db, call.map(|_| author), &input.evidence)?;
     let key = id("review")?;
     let reference = format!("package_review:{key}@1");
@@ -295,9 +313,6 @@ pub(super) fn check_reliance(
     inputs: &[String],
     reviews: &[String],
 ) -> Result<()> {
-    if reviews.is_empty() {
-        return Ok(());
-    }
     let selected = members(db, artifacts)?;
     let inputs: BTreeSet<_> = inputs.iter().cloned().collect();
     for reference in reviews {
@@ -388,7 +403,16 @@ pub(super) fn lookup_for(
             Ok(())
         },
     )?;
-    Ok(json!({"subject":selected.package,"items":items,"total":total,"offset":query.offset}))
+    let operator_reviews = if let Some(reference) = &selected.package.delivery {
+        store::operator_review_history(db, &BTreeSet::from([reference.clone()]))?
+            .remove(reference)
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    Ok(
+        json!({"subject":selected.package,"items":items,"total":total,"offset":query.offset,"operator_review_history":operator_reviews}),
+    )
 }
 
 pub(super) fn exported(

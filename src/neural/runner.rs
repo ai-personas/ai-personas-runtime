@@ -498,6 +498,10 @@ async fn external(
                 Err(error)=>Ok(json!({"success":false,"source":input.reference,"companions":input.companions,"parameters":input.parameters,"error":error.to_string()})),
             }
         }
+        "geometry.profile_stl" => {
+            let input=serde_json::from_value(op.input.clone())?;
+            super::geometry::profile::run(root,input,actor,Some(work),Some(invocation)).await
+        }
         "geometry.inspect_stl" => {
             let input:super::geometry::Inspect=serde_json::from_value(op.input.clone())?;
             super::geometry::inspect(root,&input.reference).await

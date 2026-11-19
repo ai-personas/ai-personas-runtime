@@ -284,6 +284,7 @@ pub const NAMES: &[(&str,&str)] = &[
     ("asset.register","Give a retained byte object from a tool result a library path and metadata. Register a generated binary, STL mesh, or image as a shareable and deliverable asset. Later operations in the same response can use $operation_id for the resulting asset."),
     ("geometry.install","Install the pinned public OpenSCAD compiler, openscad-wasm 0.0.4, into this workspace for CAD rendering with geometry.render. Reuses an existing installation. Optionally supply matching retained compiler bytes for offline installation. Declare the operation under asset maintenance."),
     ("geometry.render","Compile a retained OpenSCAD CAD project to a binary STL mesh using the installed workspace compiler. Supply the exact source, companion files and optional parameter overrides. Returns the mesh object, measured bounds, triangle count, diagnostics and dependencies."),
+    ("geometry.profile_stl","Measure a line through the actual STL mesh along X, Y or Z at two fixed coordinates. Returns surface crossings, intervals in model units, any ambiguity and a receipt. Use this to inspect actual walls, gaps or material thickness at a chosen location."),
     ("geometry.inspect_stl","Measure a retained STL mesh object or exact asset. Returns bounds, axis spans, triangles, distinct vertices, a mesh validation result, and historical render receipts for those exact bytes across activities."),
     ("geometry.history","Look up actual OpenSCAD render receipts, source assets, mesh objects, compiler warnings and attributed origins across activities. Search by exact source revision, STL asset, mesh object or render receipt. Results distinguish persona decisions and operator checks."),
     ("asset.import","Retain exact bytes read from a host file after dispatch; metadata is not prior body supply. The exact asset reference arrives in a later tool receipt. Same-response $operation_id references cannot name this import; read its result before selecting or citing the resulting asset."),
@@ -338,6 +339,7 @@ pub fn describe(name: &str) -> Result<Value> {
         "asset.register" => schema::<Register>()?,
         "geometry.install" => schema::<super::geometry::Install>()?,
         "geometry.render" => schema::<super::geometry::Render>()?,
+        "geometry.profile_stl" => schema::<super::geometry::profile::Profile>()?,
         "geometry.inspect_stl" => schema::<super::geometry::Inspect>()?,
         "geometry.history" => schema::<super::geometry::history::Lookup>()?,
         "asset.import" => schema::<Import>()?,
@@ -407,6 +409,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
         "asset.register" => parse::<Register>(value),
         "geometry.install" => parse::<super::geometry::Install>(value),
         "geometry.render" => parse::<super::geometry::Render>(value),
+        "geometry.profile_stl" => parse::<super::geometry::profile::Profile>(value),
         "geometry.inspect_stl" => parse::<super::geometry::Inspect>(value),
         "geometry.history" => parse::<super::geometry::history::Lookup>(value),
         "asset.import" => parse::<Import>(value),
@@ -439,7 +442,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
 pub fn is_external(name: &str) -> bool {
     matches!(
         name,
-        "command.install" | "command.run" | "compute.inspect" | "compute.run" | "geometry.install" | "geometry.render" | "geometry.inspect_stl" | "workspace.list" | "asset.import" | "image.read" | "image.render_svg" | "persona.assess"
+        "command.install" | "command.run" | "compute.inspect" | "compute.run" | "geometry.install" | "geometry.render" | "geometry.inspect_stl" | "geometry.profile_stl" | "workspace.list" | "asset.import" | "image.read" | "image.render_svg" | "persona.assess"
     )
 }
 pub fn asset_mutation(name: &str) -> bool {

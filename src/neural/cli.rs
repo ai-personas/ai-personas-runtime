@@ -140,6 +140,8 @@ pub enum Command {
     },
     /// Measure the triangles and coordinates of a retained STL asset or byte object.
     InspectStl { reference:String },
+    /// Measure a line of surface crossings and spacings on an exact retained STL.
+    MeshProfile {#[arg(long)] work:Option<String>,#[command(flatten)] profile:super::geometry::profile::Profile},
     /// Find recorded renders of an exact source or mesh across activities.
     GeometryHistory {
         reference:String,
@@ -421,6 +423,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
                 Ok(result)
             })
         }
+        Command::MeshProfile{work,profile}=>super::geometry::profile::run(root,profile,operator,work.as_deref(),None).await,
         Command::InspectStl{reference}=>super::geometry::inspect(root,&reference).await,
         Command::InstallCommand{package,from_file}=>{
             let control = Store::open(root)?;
@@ -595,7 +598,8 @@ pub fn export(store: &mut Store, directory: &Path, work: Option<&str>) -> Result
             }
         }
         let reviews=super::package_review::exported(db,&deliveries)?;
-        Ok((deliveries, artifacts, store::delivery_mandates(db,work)?,reviews))
+        let operators=store::operator_review_history(db,&deliveries.iter().map(|d|d.reference.handle()).collect())?;
+        Ok((deliveries, artifacts, store::delivery_mandates(db,work)?,reviews,operators))
     })?;
     let parent=directory.parent().filter(|p|!p.as_os_str().is_empty()).unwrap_or(Path::new("."));
     let staging=tempfile::Builder::new().prefix(".personas-export-").tempdir_in(parent)?;
@@ -616,7 +620,7 @@ pub fn export(store: &mut Store, directory: &Path, work: Option<&str>) -> Result
         manifest.push(json!({"delivery":delivery,"reference":reference,"export_path":relative,"metadata":metadata,"bytes":bytes.len(),"sha256":crate::store::sha256_bytes(&bytes)}));
     }
     let value =
-        json!({"deliveries":data.0,"delivery_mandates":data.2,"package_reviews":data.3,"artifacts":manifest,"quality_verified_by_export":false});
+        json!({"deliveries":data.0,"delivery_mandates":data.2,"package_reviews":data.3,"operator_review_history":data.4,"artifacts":manifest,"quality_verified_by_export":false});
     std::fs::write(
         staging.path().join("manifest.json"),
         serde_json::to_vec_pretty(&value)?,
