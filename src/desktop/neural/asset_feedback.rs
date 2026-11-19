@@ -5,6 +5,7 @@ use ai_personas::neural::{
     self,
     asset_feedback::{self, Feedback, History},
     cli::{self, Command},
+    store,
 };
 use eframe::egui::{self, RichText, Ui};
 use serde_json::Value;
@@ -76,7 +77,7 @@ impl Window {
         let root = root.to_path_buf();
         self.worker(ctx, move || {
             data::open(&root)
-                .and_then(|db| asset_feedback::history(&db, &query))
+                .and_then(|db| feedback_page(&db, &query))
                 .map_err(|e| e.to_string())
         });
     }
@@ -243,12 +244,24 @@ impl Window {
                         }
                         for entry in page["reports"].as_array().into_iter().flatten() {
                             let report = &entry["report"];
-                            match report_card(ui, report, entry, &work_title(s(report, "work"))) {
+                            match report_card(
+                                ui,
+                                report,
+                                entry,
+                                &work_title(s(report, "work")),
+                                status,
+                                &page["evidence_labels"],
+                            ) {
                                 Some(ReportAction::Inspect(reference)) => inspect = Some(reference),
                                 Some(ReportAction::Reply) => {
                                     draft.reply = Some((
                                         s(report, "reference").into(),
-                                        s(report, "author").into(),
+                                        person_name(
+                                            status,
+                                            s(report, "author"),
+                                            s(report, "author_kind"),
+                                        )
+                                        .into(),
                                     ));
                                     self.composing = true;
                                     ui.scroll_to_cursor(Some(egui::Align::TOP));
@@ -292,7 +305,10 @@ impl Window {
                         let owner = page["content_author"]
                             .as_str()
                             .unwrap_or("the content author");
-                        ui.strong(format!("Report to {owner}"));
+                        ui.strong(format!(
+                            "Report to {}",
+                            person_name(status, owner, "persona")
+                        ));
                     }
                     ui.weak(format!(
                         "Published as {operator} · Visible to this workspace"
@@ -365,14 +381,111 @@ enum ReportAction {
     Reply,
 }
 
-fn report_card(ui: &mut Ui, report: &Value, entry: &Value, activity: &str) -> Option<ReportAction> {
+fn person_name<'a>(status: &'a Value, name: &'a str, kind: &str) -> &'a str {
+    if kind == "persona" {
+        if let Some(label) = status["personas"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|p| p["body"]["id"] == name)
+            .and_then(|p| p["body"]["label"].as_str())
+        {
+            return label;
+        }
+    }
+    name
+}
+
+fn feedback_page(db: &rusqlite::Connection, query: &History) -> neural::Result<Value> {
+    let mut page = asset_feedback::history(db, query)?;
+    let mut labels = BTreeMap::new();
+    for entry in page["reports"].as_array().into_iter().flatten() {
+        for reference in entry["report"]["evidence"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+        {
+            labels
+                .entry(reference)
+                .or_insert_with(|| evidence_label(db, reference));
+        }
+    }
+    page["evidence_labels"] = serde_json::to_value(labels)?;
+    Ok(page)
+}
+
+fn evidence_label(db: &rusqlite::Connection, reference: &str) -> String {
+    let (kind, identity) = reference.split_once(':').unwrap_or(("resource", reference));
+    match kind {
+        "asset" => {
+            if let Ok(asset) = store::exact(db, reference) {
+                let bytes = db
+                    .query_row(
+                        "SELECT length(bytes) FROM objects WHERE digest=?1",
+                        [s(&asset.body, "blob")],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .ok();
+                let size = bytes
+                    .map(|b| format!(" · {}", super::size(b as u64)))
+                    .unwrap_or_default();
+                return format!(
+                    "{} · v{}{size}",
+                    s(&asset.body, "path"),
+                    asset.reference.revision
+                );
+            }
+        }
+        "command_run" => {
+            if let Ok(run) = store::exact(db, reference) {
+                let exit = run.body["exit_code"]
+                    .as_i64()
+                    .map(|v| format!("exit {v}"))
+                    .unwrap_or_else(|| "no exit code".into());
+                let input = run.body["stdin"]["reference"]
+                    .as_str()
+                    .filter(|r| r.starts_with("asset:"))
+                    .and_then(|r| store::exact(db, r).ok())
+                    .and_then(|a| {
+                        Path::new(s(&a.body, "path"))
+                            .file_name()
+                            .map(|f| f.to_string_lossy().into_owned())
+                    });
+                let name = input.as_deref().unwrap_or_else(|| s(&run.body, "argv0"));
+                return format!("Command receipt · {name} · {exit}");
+            }
+        }
+        _ => {}
+    }
+    let n = identity.chars().count();
+    let display = if n > 24 {
+        format!("…{}", identity.chars().skip(n - 12).collect::<String>())
+    } else {
+        identity.to_owned()
+    };
+    format!("{} · {display}", super::title(kind))
+}
+
+fn report_card(
+    ui: &mut Ui,
+    report: &Value,
+    entry: &Value,
+    activity: &str,
+    status: &Value,
+    evidence_labels: &Value,
+) -> Option<ReportAction> {
     let mut inspect = None;
     card(ui).show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             ui.label(
-                RichText::new(s(report, "author"))
-                    .strong()
-                    .color(theme::palette(ui).text),
+                RichText::new(person_name(
+                    status,
+                    s(report, "author"),
+                    s(report, "author_kind"),
+                ))
+                .strong()
+                .color(theme::palette(ui).text),
             );
             theme::badge(ui, s(report, "author_kind"), TEAL);
             ui.weak(
@@ -386,30 +499,45 @@ fn report_card(ui: &mut Ui, report: &Value, entry: &Value, activity: &str) -> Op
             .on_hover_text(format!("{activity}\n{}", s(report, "work")));
         if let Some(parent) = report["reply_to"].as_str() {
             if ui
-                .small_button(format!("In reply to {}", s(report, "recipient")))
+                .small_button(format!(
+                    "In reply to {}",
+                    person_name(status, s(report, "recipient"), s(report, "recipient_kind"))
+                ))
                 .on_hover_text(parent)
                 .clicked()
             {
                 inspect = Some(ReportAction::Inspect(parent.to_owned()));
             }
         }
-        ui.label(s(report, "text"));
+        let text = s(report, "text");
+        if text.chars().count() > 320 {
+            let id = ui.id().with(("full-report", s(report, "reference")));
+            let expanded = ui.data(|d| d.get_temp::<bool>(id).unwrap_or(false));
+            if expanded {
+                ui.label(text);
+            } else {
+                ui.label(excerpt(text, 320));
+            }
+            if ui
+                .small_button(if expanded {
+                    "Show less"
+                } else {
+                    "Read full report"
+                })
+                .clicked()
+            {
+                ui.data_mut(|d| d.insert_temp(id, !expanded));
+            }
+        } else {
+            ui.label(text);
+        }
         for reference in report["evidence"]
             .as_array()
             .into_iter()
             .flatten()
             .filter_map(Value::as_str)
         {
-            let (kind, identity) = reference.split_once(':').unwrap_or(("resource", reference));
-            let suffix = identity
-                .chars()
-                .rev()
-                .take(12)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect::<String>();
-            let label = format!("{} · …{suffix}", super::title(kind));
+            let label = evidence_labels[reference].as_str().unwrap_or(reference);
             if ui.link(label).on_hover_text(reference).clicked() {
                 inspect = Some(ReportAction::Inspect(reference.into()));
             }
