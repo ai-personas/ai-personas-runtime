@@ -7,6 +7,7 @@
 #[cfg(unix)]
 pub(crate) mod onboarding;
 mod sse;
+pub(crate) use sse::retained_decision_matches;
 mod http_error;
 pub(crate) use http_error::input_image_patch_rejection;
 mod network_error;

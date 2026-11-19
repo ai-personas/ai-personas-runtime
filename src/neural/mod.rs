@@ -12,6 +12,7 @@ pub mod package_review;
 pub mod relationships;
 mod character;
 pub mod character_paths;
+pub mod revision_uses;
 mod platform_key;
 mod experience;
 mod handoff;

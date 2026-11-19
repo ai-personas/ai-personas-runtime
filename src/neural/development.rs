@@ -528,11 +528,13 @@ fn follow_up_record(
         })?;
     let call = &usage.reference.id;
     let (event,boundary)=subsequent_event(db,snapshot,call,&follow_up.outcome)?;
+    let transition=adoption["decision"].as_str().ok_or_else(||failure("Adoption has no decision"))?;
+    let exposure=super::revision_uses::follow_up(db,&snapshot.actor,transition,call,&event)?;
     Ok(
         json!({"adoption":adoption["decision"],"character_use":usage.reference.handle(),
         "decision":call,"decision_work":usage.body["work"],"decision_effects":boundary,
         "outcome":follow_up.outcome,"outcome_work":event["work"],"outcome_author":event["actor"],
-        "judgment_author":snapshot.actor}),
+        "judgment_author":snapshot.actor,"numerical_comparison":exposure}),
     )
 }
 
@@ -679,7 +681,8 @@ pub(super) fn index(db: &Connection, actor: &str) -> Result<Vec<Value>> {
         entries.push(
             json!({"reference":record.reference.handle(),"origin_work":record.body["origin_work"],
             "question":detail["question"],"disposition":detail["disposition"],"revisit":revisit,
-            "last_adoption":last.map(|a|json!({"candidate":a["candidate"],"model":a["model"],"epoch":a["epoch"],"decision":a["decision"]})),
+            "last_adoption":last.map(|a|json!({"candidate":a["candidate"],"model":a["model"],"epoch":a["epoch"],"decision":a["decision"],
+                "revision_uses":a["decision"].as_str().map(|id|format!("experience:{id}@1"))})),
             "observing_active_model":active,"outcome_observations":record.body["follow_ups"].as_array().map_or(0,Vec::len),
             "application_count":uses.count(),"latest_application":latest.map(|r|json!({"application":r["reference"],"work":r["work"]})),
             "pending_responses":pending,

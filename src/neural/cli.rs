@@ -191,6 +191,8 @@ pub enum Command {
     },
     /// Trace the supplied weights, appraisal and optional alternate for a recorded choice, offline.
     CharacterPaths(super::character_paths::Query),
+    /// Inspect numerical differences on actual decisions for an exact character switch or proposed revision.
+    RevisionUses(super::revision_uses::Query),
     /// Check a completed comparison against its original provider calls, offline.
     VerifyAssessment { reference:String },
     /// Trace supplied reminders, full records, explicit applications and revisions through accepted decisions.
@@ -458,6 +460,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
                 Command::Find(query)=>store.snapshot(|db|super::discovery::find(db,&query)),
                 Command::Read{reference,start,end}=>context::read(&store.db,&reference,start,end),
                 Command::QuestionHistory{reference}=>store.snapshot(|db|super::question_history::inspect(db,&reference)),
+                Command::RevisionUses(query)=>store.snapshot(|db|super::revision_uses::inspect(db,None,&query)),
                 Command::CharacterPaths(query)=>store.snapshot(|db|super::character_paths::inspect(db,None,&query)),
                 Command::AppraisalContext{work,persona}=>store.snapshot(|db|{
                     let part:Participation=serde_json::from_value(store::required(db,"participation",&format!("{work}/{persona}"))?.body)?;

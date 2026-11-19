@@ -23,7 +23,7 @@ pub struct Query {
     pub compare: Option<String>,
 }
 
-fn package(db: &Connection, digest: &str, owner: &str) -> Result<ModelPackage> {
+pub(super) fn package(db: &Connection, digest: &str, owner: &str) -> Result<ModelPackage> {
     let package: ModelPackage = store::object(db, digest)?;
     if package.persona != owner || package.digest().map_err(failure)? != digest {
         return Err(failure(

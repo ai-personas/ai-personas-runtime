@@ -89,6 +89,40 @@ impl Carrier {
         self.text.ok_or(protocol("terminal_carrier_missing"))
     }
 }
+/// Compare accepted bytes with the decision carrier in a retained terminal
+/// response. The historical read never returns reasoning or commentary text.
+pub(crate) fn retained_decision_matches(items: &Value, expected: &[u8]) -> bool {
+    fn extract(items: &Value) -> Result<String> {
+        let mut carrier = Carrier::new();
+        for (index, item) in array(items, "terminal_output")?.iter().enumerate() {
+            match item_kind(item)? {
+                Kind::Message => {
+                    let terminal = message_phase(item)?;
+                    let done = &items["completed_item_events"][index.to_string()];
+                    let earlier = if done.is_null() {
+                        None
+                    } else {
+                        if done["id"] != item["id"] || done["type"] != item["type"] {
+                            return Err(protocol("retained_item_identity_mismatch"));
+                        }
+                        message_phase(done)?
+                    };
+                    if earlier.is_some() && terminal.is_some() && earlier != terminal {
+                        return Err(protocol("retained_item_phase_mismatch"));
+                    }
+                    carrier.consider(terminal.or(earlier), message_text(item)?)?;
+                }
+                Kind::Decision => {
+                    carrier.consider(Some(Phase::FinalAnswer), decision_text(item, "completed")?)?
+                }
+                Kind::Reasoning => {}
+            }
+        }
+        carrier.finish()
+    }
+    extract(items).is_ok_and(|s| s.as_bytes() == expected)
+}
+
 struct Item {
     id: String,
     phase: Option<Phase>,
