@@ -1,6 +1,7 @@
 use super::*;
 use ai_personas::persona_model::Evaluation;
 mod appraisal;
+mod follow_ups;
 use appraisal::Basis;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -607,10 +608,14 @@ impl App {
             self.development_scope = scope;
             self.development_anchor.clear();
         }
+        let width = ui.available_width();
         egui::ScrollArea::vertical()
             .id_salt(("character-development", &self.persona, &self.work, &self.development_anchor,
                 self.development_filter, self.development_all_work))
-            .show(ui, |ui| self.character_development_contents(ui));
+            .show(ui, |ui| {
+                ui.set_max_width(width.min(ui.available_width()));
+                self.character_development_contents(ui);
+            });
     }
     fn character_development_contents(&mut self, ui: &mut Ui) {
         let questions:Vec<_>=self.records("development").iter()
@@ -627,12 +632,30 @@ impl App {
                 let text=s(detail,"question");
                 let pending = applications.iter().flat_map(|a| a["linked_responses_now"].as_array().into_iter().flatten())
                     .filter(|r| r["interpretations"].as_array().is_some_and(Vec::is_empty)).count();
-                let mut heading = excerpt(text,68);
+                let mut heading = excerpt(text,if ui.available_width() < 510. {44} else {68});
                 let closed = detail["disposition"] == "closed";
-                if closed { heading.push_str(" · Closed"); }
+                let follow_ups = body["follow_ups"].as_array().map_or(0, Vec::len);
+                if follow_ups > 0 { heading.push_str(&format!(" · {}", counted(follow_ups as u64, "follow-up", "follow-ups"))); }
+                if let Some(disposition) = detail["disposition"].as_str() {
+                    heading.push_str(&format!(" · {}", title(disposition)));
+                }
                 if pending > 0 { heading.push_str(&format!(" · {pending} awaiting interpretation")); }
+                // CollapsingHeader's default single-line text otherwise widens the entire scroll area.
+                let wrap = (ui.available_width() - ui.spacing().indent - 2. * ui.spacing().button_padding.x).max(1.);
+                let heading = egui::WidgetText::from(heading).into_galley(ui, Some(egui::TextWrapMode::Wrap), wrap, egui::TextStyle::Button);
                 egui::CollapsingHeader::new(heading).id_salt("question").show(ui,|ui|{
                     ui.add(egui::Label::new(RichText::new(text).strong()).wrap());
+                    if let Some(disposition) = detail["disposition"].as_str() {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.small("Current disposition");
+                            theme::badge(ui, &title(disposition), theme::palette(ui).muted);
+                            if let Some(call) = body["origin_decision"].as_str() {
+                                if ui.link("Opening decision").clicked() {
+                                    self.open_resource(ui.ctx(), format!("experience:{call}@1"));
+                                }
+                            }
+                        });
+                    }
                     if closed {
                         if let Some(reason) = body["closure"]["reason"].as_str() {
                             ui.label(format!("Closed · {reason}"));
@@ -641,6 +664,7 @@ impl App {
                             }
                         }
                     }
+                    self.development_follow_ups(ui, &reference, body);
                     if let Some(text)=detail["interpretation"].as_str(){ui.label(text);}
                     if let Some(text)=detail["prediction"].as_str(){ui.small(format!("Prediction · {text}"));}
                     if let Some(text)=detail["alternatives"].as_str(){ui.small(format!("Other possible causes · {text}"));}
@@ -667,7 +691,7 @@ impl App {
                             self.open_resource(ui.ctx(),s(application,"reference").into());
                         }
                         for feedback in application["linked_responses_now"].as_array().into_iter().flatten(){
-                            let relation=if feedback["relation"]=="delivery_review"{"Delivery review"}else{"Direct reply"};
+                            let relation=title(s(feedback,"relation"));
                             ui.horizontal_wrapped(|ui| {
                                 if ui.small_button(format!("{relation} #{} from {} ↗",feedback["sequence"],self.label(s(feedback,"author"))))
                                     .on_hover_text(s(feedback,"experience")).clicked(){
