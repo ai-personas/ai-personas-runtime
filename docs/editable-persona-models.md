@@ -91,6 +91,20 @@ ai-personas --state-root "$workspace" --operator "$operator" neural asset-feedba
 ai-personas --state-root "$workspace" --operator "$operator" neural asset-feedback-history "$asset"
 ```
 
+### Reviewing a package under its brief
+
+Use `result.review` to record one criterion, a supported, concern or inconclusive verdict, a finding and supporting references. An issued `delivery` supplies its exact files, submitted brief and declared inputs. For a proposal, supply `artifacts` and any governing `inputs`. The reporting activity supplies the proposal’s brief. A reviewer in another activity can assess an older delivery under its original brief. An optional `expected_mandate` prevents a finding drafted under one brief from being published under a later amendment.
+
+`result.reviews` compares a subject with earlier findings. It identifies added, removed or changed paths, byte matches, differences in governing inputs and changes of brief. The result lists matching findings before related findings and sorts each group from newest to oldest. For an issued delivery it also identifies which findings existed at submission and which ones the issuer explicitly relied on. Use `review_inputs` and `reviews` on `result.deliver` to name the governing inputs and current findings. Historical reviews may be cited in `evidence`. The runtime refuses a claimed current review on different files, inputs or brief. Findings and operator acceptance have separate records.
+
+Operator equivalents include the following commands. Supply the exact handles returned by your workspace.
+
+```bash
+ai-personas --state-root "$STATE" neural package-reviews --delivery "$DELIVERY"
+ai-personas --state-root "$STATE" neural package-reviews --work "$WORK" --artifact "$DRAWING" --artifact "$NOTE" --input "$SPEC" --review "$FINDING"
+ai-personas --state-root "$STATE" --operator "$REVIEWER" neural package-review "$WORK" --delivery "$DELIVERY" --criterion "$CRITERION" --verdict concern --finding "$OBSERVATION" --evidence "$RECEIPT" --request-id "$REQUEST"
+```
+
 ### Portable command-line programs
 
 Personas can discover installations across activities with `command.history`. Use `command.install` for a retained WASI Preview 1 command or the published ngspice simulator. A WASI installation checks the module's declarations without executing its start function. The simulator installation verifies the package digest and runs ngspice's version probe. It needs a Node.js executable that supports `--permission`. The first installation can download the pinned package or use an exact retained copy. [Simulator package](https://www.npmjs.com/package/@o.z/ngspice-wasm/v/0.0.0)
@@ -115,6 +129,8 @@ ai-personas neural command-history asset:ID@1
 For OpenSCAD projects, a persona can choose `geometry.install` to install the published `openscad-wasm` 0.0.4 module in its workspace. Installation verifies the SHA-256 and runs the compiler’s version probe. The host needs a Node.js executable with `--permission` on its PATH. The first install can download the pinned module or take an exact retained copy. Later renders and restores use the installed bytes offline. [Published package](https://www.npmjs.com/package/openscad-wasm/v/0.0.4)
 
 `geometry.render` takes an exact source revision, optional companion assets at their library paths, and literal OpenSCAD variable overrides. It builds the project in compiler memory. The result preserves the supplied file digests, parameters, compiler arguments, Node options and environment-key list, diagnostics, generated dependency file when available, and measured STL output. A compiler can emit warnings alongside a usable mesh. `geometry.inspect_stl` measures existing mesh bytes independently of the original render. Bounds are in model coordinates. The source defines their intended unit.
+
+Use `geometry.profile_stl` or `neural mesh-profile "$MESH" --axis x --u 60.4 --v 11` to intersect an exact STL with a line. For an X measurement, the fixed coordinates are Y and Z. For Y they are X and Z, and for Z they are X and Y. The receipt gives crossing positions, bounded spans, mesh digest, actor and any reporting activity or decision. On an edge-validated mesh with a clean sequence of crossings, inside and outside alternate. Coplanar triangles, conflicting contacts, ambiguous crossings and failed mesh validation withhold that classification. For a doorway, place the line through the wall at a height above the floor and read the gap between the two material spans.
 
 `geometry.history` finds actual receipts by exact source revision or mesh bytes, including re-registrations under another name. Each result identifies its author, origin, source, output, diagnostics and compiler warnings. STL inspection includes the first page of this history. Additional pages are available by offset. The operator CLI exposes the same query as `neural geometry-history REFERENCE`.
 
