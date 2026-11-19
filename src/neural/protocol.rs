@@ -236,8 +236,18 @@ pub struct Participation {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Work {
     pub id: String,
+    #[serde(default)]
+    pub kind: ActivityKind,
     pub original_need: String,
     pub requester: String,
     pub phase: String,
     pub amendments: Vec<Value>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivityKind {
+    #[default]
+    Task,
+    Social,
 }

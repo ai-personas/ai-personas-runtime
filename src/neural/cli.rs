@@ -44,6 +44,30 @@ pub enum Command {
         #[arg(long, required = true, value_delimiter = ',')]
         invite: Vec<String>,
     },
+    /// Invite personas to an open social conversation without assigning work.
+    Social {
+        #[arg(long, default_value = "")]
+        topic: String,
+        #[arg(long, required = true, value_delimiter = ',')]
+        invite: Vec<String>,
+    },
+    /// Create a fresh identity with an attributed seed and an existing inference configuration.
+    AddPersona {
+        #[arg(long)]
+        id: Option<String>,
+        #[arg(long)]
+        label: String,
+        #[arg(long)]
+        seed: String,
+        #[arg(long)]
+        provider_from: String,
+    },
+    /// Invite another existing persona to an already open task or conversation.
+    Invite {
+        work: String,
+        persona: String,
+        reason: String,
+    },
     /// Continue eligible decisions and accepted effects. Never resumes an explicit stop.
     Run {
         #[arg(long)]
@@ -117,10 +141,27 @@ fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
     Ok(serde_json::from_value(value)?)
 }
 fn required<T>(value: Option<T>, flag: &str) -> Result<T> {
-    value.ok_or_else(|| failure(format!("{flag} required for Codex authentication")))
+    value.ok_or_else(|| failure(format!("{flag} is required for this provider configuration")))
+}
+
+fn validate_seed(seed: &Seed) -> Result<()> {
+    if seed.id.is_empty() || !seed.id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_')) {
+        return Err(failure("Use letters, digits, hyphens or underscores for the persona ID"));
+    }
+    if seed.label.trim().is_empty() || seed.seed.trim().is_empty() {
+        return Err(failure("Supply a display name and an initial character seed"));
+    }
+    Ok(())
+}
+
+fn create_seed(db: &rusqlite::Connection, seed: Seed, author: &str, provider: &crate::provider::DirectSettings) -> Result<store::Reference> {
+    let persona = Persona { id: seed.id, label: seed.label, seed: seed.seed, seed_author: author.into(),
+        model: None, epoch: 0, lifecycle: "pending".into(), provider: provider.clone() };
+    store::write(db, "persona", &persona.id, 0, &persona, None)
 }
 
 pub async fn execute(root: &Path, operator: &str, command: Command) -> Result<Value> {
+    if operator.trim().is_empty() { return Err(failure("An operator name is required for attribution")); }
     match command {
         Command::Init {
             seeds,
@@ -139,16 +180,9 @@ pub async fn execute(root: &Path, operator: &str, command: Command) -> Result<Va
                 return Err(failure("at least one persona seed is required"));
             }
             for seed in &seeds.personas {
-                if seed.id.is_empty()
-                    || !seed
-                        .id
-                        .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-                    || !seen.insert(seed.id.clone())
-                    || seed.label.trim().is_empty()
-                    || seed.seed.trim().is_empty()
-                {
-                    return Err(failure("seed ids must be distinct alphanumeric/-/_ identifiers, with a label and character seed"));
+                validate_seed(seed)?;
+                if !seen.insert(seed.id.clone()) {
+                    return Err(failure("Each seed must have a distinct persona ID"));
                 }
             }
             let working_directory = working_directory.canonicalize()?;
@@ -196,17 +230,7 @@ pub async fn execute(root: &Path, operator: &str, command: Command) -> Result<Va
             store.transaction(|db| {
                 store::write(db, "config", "runtime", 0, &config, None)?;
                 for seed in seeds.personas {
-                    let persona = Persona {
-                        id: seed.id,
-                        label: seed.label,
-                        seed: seed.seed,
-                        seed_author: operator.into(),
-                        model: None,
-                        epoch: 0,
-                        lifecycle: "pending".into(),
-                        provider: provider.clone(),
-                    };
-                    store::write(db, "persona", &persona.id, 0, &persona, None)?;
+                    create_seed(db, seed, operator, &provider)?;
                 }
                 Ok(())
             })?;
@@ -218,12 +242,19 @@ pub async fn execute(root: &Path, operator: &str, command: Command) -> Result<Va
         command => {
             let mut store = Store::open(root)?;
             match command {
-                Command::Request{need,invite}=>store.transaction(|db|{
-                    if need.trim().is_empty(){return Err(failure("need cannot be empty"));}
-                    let work=Work{id:id("work")?,original_need:need,requester:operator.into(),phase:"open".into(),amendments:vec![]};
-                    let reference=store::write(db,"work",&work.id,0,&work,None)?;
-                    for actor in &invite{store::required(db,"persona",actor)?;operations::invite(db,&work.id,actor,operator,"User explicitly invited you; choose your contribution",None)?;}
-                    Ok(json!({"work":work.id,"reference":reference.handle(),"invited":invite,"need":work.original_need}))
+                Command::Request{need,invite}=>store.transaction(|db|operations::create_activity(db,ActivityKind::Task,need,&invite,operator,None)),
+                Command::Social{topic,invite}=>store.transaction(|db|operations::create_activity(db,ActivityKind::Social,topic,&invite,operator,None)),
+                Command::AddPersona{id: requested,label,seed,provider_from}=>store.transaction(|db|{
+                    let source:Persona=serde_json::from_value(store::required(db,"persona",&provider_from)?.body)?;
+                    let seed=Seed{id:match requested{Some(id)=>id,None=>id("persona")?},label,seed};
+                    validate_seed(&seed)?;
+                    let reference=create_seed(db,seed,operator,&source.provider)?;
+                    Ok(json!({"persona":reference.id,"reference":reference.handle(),"provider_from":provider_from,"model":source.provider.model,"invited":false}))
+                }),
+                Command::Invite{work,persona,reason}=>store.transaction(|db|{
+                    if reason.trim().is_empty(){return Err(failure("Describe the invitation"));}
+                    operations::invite(db,&work,&persona,operator,&reason,None)?;
+                    Ok(json!({"work":work,"invited":[persona]}))
                 }),
                 Command::Status=>store.status(),
                 Command::Read{reference,start,end}=>context::read(&store.db,&reference,start,end),
@@ -245,11 +276,13 @@ pub async fn execute(root: &Path, operator: &str, command: Command) -> Result<Va
                     Ok(json!({"resumed":persona,"work":work,"other_controls_preserved":true}))
                 }),
                 Command::Message{work,persona,text}=>store.transaction(|db|{
+                    if text.trim().is_empty(){return Err(failure("Write a message before sending"));}
                     store::required(db,"participation",&format!("{work}/{persona}"))?;
                     let event=store::event(db,&work,operator,&persona,"user_message",&json!({"text":text}),None)?;
                     Ok(json!({"event":event,"stopped_participation_resumed":false}))
                 }),
                 Command::Amend{work,text}=>store.transaction(|db|{
+                    if text.trim().is_empty(){return Err(failure("Describe the amended requirement"));}
                     let record=store::required(db,"work",&work)?;let mut body:Work=serde_json::from_value(record.body)?;
                     body.amendments.push(json!({"author":operator,"text":text,"time":now()}));
                     let r=store::write(db,"work",&work,record.reference.revision,&body,None)?;
@@ -257,6 +290,7 @@ pub async fn execute(root: &Path, operator: &str, command: Command) -> Result<Va
                     Ok(json!({"reference":r.handle(),"original_need":body.original_need}))
                 }),
                 Command::Accept{delivery,reject,reason}=>store.transaction(|db|{
+                    if reason.trim().is_empty(){return Err(failure("Explain the delivery review"));}
                     let record=store::exact(db,&delivery)?;
                     if record.reference.kind!="delivery"{return Err(failure("acceptance needs an exact delivered result"));}
                     let decision=json!({"delivery":delivery,"user":operator,"accepted":!reject,"reason":reason});

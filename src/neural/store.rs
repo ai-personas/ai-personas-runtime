@@ -130,10 +130,28 @@ pub fn status(db: &Connection) -> Result<Value> {
     let controls=scopes.iter().map(|scope|super::controls::current(db,scope)).collect::<Result<Vec<_>>>()?.into_iter().flatten().collect::<Vec<_>>();
     Ok(json!({"format":"neural-runtime-v2","personas":list(db,"persona")?,
         "work":list(db,"work")?,"participation":list(db,"participation")?,
-        "development":list(db,"development")?,"acceptances":list(db,"acceptance")?,"outcomes":list(db,"outcome")?,"deliveries":list(db,"delivery")?,
+        "development":list(db,"development")?,"acceptances":list(db,"acceptance")?,"delivery_reviews":delivery_reviews(db)?,"outcomes":list(db,"outcome")?,"deliveries":list(db,"delivery")?,
         "jobs":job_index(db,false)?,
         "invocations":counts,"operations":effect_counts,"controls":controls,
         "meaning":"Stored activity, authored judgments and retained deliveries; not an independent quality verdict."}))
+}
+
+/// Human reviews apply to the exact delivered revision. The committed write
+/// order also covers older review records that had no timestamp in their body.
+pub fn delivery_reviews(db: &Connection) -> Result<std::collections::BTreeMap<String, Value>> {
+    let mut reviews = std::collections::BTreeMap::new();
+    let mut query = db.prepare("SELECT id,revision,digest,created FROM versions WHERE kind='acceptance' ORDER BY rowid")?;
+    let mut rows = query.query([])?;
+    while let Some(row) = rows.next()? {
+        let id: String = row.get(0)?;
+        let revision: i64 = row.get(1)?;
+        let digest: String = row.get(2)?;
+        let review: Value = object(db, &digest)?;
+        let delivery = review["delivery"].as_str().ok_or_else(|| failure("Review is missing its exact delivery"))?;
+        reviews.insert(delivery.to_owned(), json!({"reference":format!("acceptance:{id}@{revision}"),
+            "reviewer":review["user"],"accepted":review["accepted"],"reason":review["reason"],"created":row.get::<_,i64>(3)?}));
+    }
+    Ok(reviews)
 }
 
 pub fn put_bytes(db: &Connection, media: &str, bytes: &[u8]) -> Result<String> {

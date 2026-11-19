@@ -149,6 +149,10 @@ pub struct CreatePersona {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RequestWork {
+    /// A social invitation has no assigned task and may have no opening topic.
+    #[serde(default)]
+    pub kind: super::protocol::ActivityKind,
+    #[serde(default)]
     pub need: String,
     pub invitees: Vec<String>,
 }
@@ -200,7 +204,7 @@ pub const NAMES: &[(&str,&str)] = &[
     ("peer.respond","Accept or decline your actual invitation, recording your own commitment only."),
     ("work.commitment","Revise your own accepted contribution as the work develops, retaining the earlier commitment and explaining unfinished obligations. Does not change the original need, assign peers or resume anyone."),
     ("work.outcome","Record/update your intended outcome, exact artifacts, remaining work and dependencies. Authored assessment does not prove correctness."),
-    ("work.request","Originate a new need and invite existing personas voluntarily; preserves originating work."),
+    ("work.request","Originate a task or an optional social conversation and invite existing personas. Participants choose whether and how to contribute."),
     ("result.deliver","Deliver exact retained artifacts with supported use, evidence and remaining gaps; claimed completion is separate from user acceptance."),
 ];
 

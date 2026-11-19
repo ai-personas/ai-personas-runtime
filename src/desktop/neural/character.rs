@@ -303,11 +303,7 @@ impl App {
             let b = &d["body"];
             ui.strong(s(b, "title"));
             theme::badge(ui, s(b, "scope"), theme::ACCENT);
-            ui.small(if b["user_accepted"] == true {
-                "Accepted by you"
-            } else {
-                "Not accepted by you"
-            });
+            self.delivery_review(ui, &d);
             ui.label(s(b, "supported_use"));
             ui.add_space(8.);
         }
@@ -559,7 +555,7 @@ impl App {
                             if self.development_all_work {
                                 let work = s(decision, "work");
                                 let need = self.records("work").iter().find(|w| w["body"]["id"] == work)
-                                    .map(|w| s(&w["body"], "original_need")).unwrap_or(work);
+                                    .map(|w| activity_title(&w["body"])).unwrap_or(work);
                                 ui.add(egui::Label::new(RichText::new(format!("Task: {}", excerpt(need, 100))).small().weak()).wrap())
                                     .on_hover_text(need);
                             }

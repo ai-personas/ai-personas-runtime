@@ -43,9 +43,18 @@ impl App {
                         if theme::icon_button(ui, Icon::Settings, "Workspace settings").clicked() {
                             self.dialog = Some(Dialog::Settings);
                         }
-                        if ui.button("+ Task").clicked() {
-                            self.dialog = Some(Dialog::Task);
-                        }
+                        ui.menu_button("+ New", |ui| {
+                            for (social, label) in [(false, "Task"), (true, "Social conversation")] {
+                                if ui.button(label).clicked() {
+                                    self.dialog = Some(Dialog::activity(social));
+                                    ui.close();
+                                }
+                            }
+                            if ui.button("Persona").clicked() {
+                                self.dialog = Some(Dialog::persona(&self.persona));
+                                ui.close();
+                            }
+                        });
                     });
                 });
             });
@@ -62,7 +71,7 @@ impl App {
                         egui::Label::new(RichText::new(excerpt(self.task_title(), 65)).strong())
                             .truncate(),
                     );
-                    let active = self.snapshot.active.len();
+                    let active = self.snapshot.active.iter().filter(|call| call["work"] == self.work).count();
                     if active > 0 {
                         theme::badge(ui, &format!("{active} active"), TEAL);
                     }
@@ -70,7 +79,7 @@ impl App {
                         .snapshot
                         .active_effects
                         .iter()
-                        .filter(|e| e["state"] == "dispatched")
+                        .filter(|e| e["work"] == self.work && e["state"] == "dispatched")
                         .count();
                     if tools > 0 {
                         let label = if tools == 1 {
@@ -98,7 +107,7 @@ impl App {
                             }
                             if ui
                                 .add_enabled(
-                                    !self.running && !self.busy && active == 0,
+                                    !self.running && !self.busy && self.snapshot.active.is_empty(),
                                     egui::Button::new("Continue eligible work"),
                                 )
                                 .clicked()
@@ -122,9 +131,18 @@ impl App {
                             }
                             ui.weak("Explicitly stopped participants stay stopped until resumed.");
                         });
-                        if ui.button("Write message").clicked() {
-                            self.dialog = Some(Dialog::Message);
-                        }
+                        ui.add_enabled_ui(!self.work.is_empty(), |ui| {
+                            ui.menu_button("Participate", |ui| {
+                                for (action, label) in [(dialogs::Action::Message, "Write message"),
+                                    (dialogs::Action::Amend, "Amend brief"), (dialogs::Action::Invite, "Invite a persona"),
+                                    (dialogs::Action::Resume, "Resume participant")] {
+                                    if ui.button(label).clicked() {
+                                        self.dialog = Some(self.participation_dialog(action));
+                                        ui.close();
+                                    }
+                                }
+                            });
+                        });
                         if theme::icon_button(ui, Icon::People, "Toggle inspector").clicked() {
                             if ctx.content_rect().width() > 1100. {
                                 self.layout.inspector = !self.layout.inspector;
@@ -248,18 +266,18 @@ impl App {
                 egui::ScrollArea::vertical()
                     .id_salt("outliner-scroll")
                     .show(ui, |ui| {
-                        section(ui, "Tasks", &self.records("work").len().to_string());
+                        section(ui, "Activities", &self.records("work").len().to_string());
                         for task in self.records("work").to_vec() {
                             let b = &task["body"];
                             let id = s(b, "id");
                             if ui
                                 .add_sized(
                                     [ui.available_width(), 32.],
-                                    egui::Button::new(excerpt(s(b, "original_need"), 32))
+                                    egui::Button::new(excerpt(activity_title(b), 32))
                                         .selected(id == self.work)
                                         .truncate(),
                                 )
-                                .on_hover_text(s(b, "original_need"))
+                                .on_hover_text(activity_title(b))
                                 .clicked()
                             {
                                 self.work = id.into();
@@ -446,10 +464,10 @@ impl App {
                     .count();
                 ui.horizontal_wrapped(|ui| {
                     for (value, label, color) in [
-                        (self.snapshot.active.len(), "active calls", TEAL),
+                        (self.snapshot.active.iter().filter(|c| c["work"] == self.work).count(), "active calls", TEAL),
                         (
                             self.snapshot.assets.len(),
-                            "retained artifacts",
+                            "library artifacts",
                             theme::ACCENT,
                         ),
                         (peers, "peer messages", PURPLE),
@@ -523,7 +541,7 @@ impl App {
                         cols[0]
                             .weak("Messages will appear as personas exchange ideas and results.");
                     }
-                    section(&mut cols[1], "Recent artifacts", "Exact retained files");
+                    section(&mut cols[1], "Workspace library", "Recent files");
                     for asset in &assets {
                         self.artifact_row(&mut cols[1], asset, false);
                         cols[1].add_space(5.);
@@ -560,7 +578,8 @@ impl App {
             });
     }
     fn collaboration_map(&mut self, ui: &mut Ui) {
-        let people: Vec<Value> = self.records("personas").to_vec();
+        let people: Vec<Value> = self.records("personas").iter()
+            .filter(|p| self.work.is_empty() || !self.participation(s(&p["body"], "id")).is_null()).cloned().collect();
         let n = people.len();
         if n == 0 {
             ui.weak("Personas appear here after the workspace loads.");
@@ -688,13 +707,13 @@ impl App {
             p.text(
                 box_rect.min + egui::vec2(30., 30.),
                 egui::Align2::LEFT_TOP,
-                if self.snapshot.active.iter().any(|a| a["actor"] == id) {
+                if self.snapshot.active.iter().any(|a| a["actor"] == id && a["work"] == self.work) {
                     "INFERENCE"
                 } else if self
                     .snapshot
                     .active_effects
                     .iter()
-                    .any(|a| a["actor"] == id)
+                    .any(|a| a["actor"] == id && a["work"] == self.work)
                 {
                     "TOOL"
                 } else {
@@ -893,6 +912,9 @@ impl App {
                                 ui.heading(s(body, "title"));
                                 ui.label(s(body, "supported_use"));
                                 theme::badge(ui, s(body, "scope"), theme::ACCENT);
+                                if let Some(reference) = event["body"]["reference"].as_str() {
+                                    self.review_controls(ui, reference, s(body, "title"));
+                                }
                                 for gap in body["remaining"].as_array().into_iter().flatten() {
                                     ui.label(format!("• {}", gap.as_str().unwrap_or("")));
                                 }
@@ -1065,17 +1087,9 @@ impl App {
                             for d in deliveries {
                                 let b = &d["body"];
                                 ui.strong(s(b, "title"));
-                                ui.label(format!(
-                                    "{} · {} · {}",
-                                    self.label(s(b, "owner")),
-                                    s(b, "scope"),
-                                    if b["user_accepted"] == true {
-                                        "Accepted by you"
-                                    } else {
-                                        "Not accepted"
-                                    }
-                                ));
+                                ui.label(format!("{} · {}", self.label(s(b, "owner")), title(s(b, "scope"))));
                                 ui.label(s(b, "supported_use"));
+                                self.delivery_review(ui, &d);
                                 for gap in b["remaining"].as_array().into_iter().flatten() {
                                     ui.small(format!("• {}", gap.as_str().unwrap_or("")));
                                 }
@@ -1275,24 +1289,5 @@ impl App {
                     });
             });
         self.layout.bottom_height = panel.response.rect.height();
-    }
-    pub(super) fn dialogs(&mut self, ctx: &egui::Context) {
-        let Some(kind) = self.dialog.as_ref().map(|d| match d {
-            Dialog::Task => 0,
-            Dialog::Message => 1,
-            Dialog::Settings => 2,
-        }) else {
-            return;
-        };
-        let mut open = true;
-        egui::Window::new(["New task","Message the workspace","Workspace settings"][kind]).id(egui::Id::new("studio-dialog")).open(&mut open).default_width(540.).resizable(true).show(ctx,|ui|{match kind{
-            0=>{ui.label("What would you like to work on?");ui.add(egui::TextEdit::multiline(&mut self.need).desired_rows(5).desired_width(f32::INFINITY));ui.add_space(10.);ui.strong("Invite personas");for p in self.records("personas").to_vec(){let b=&p["body"];let id=s(b,"id");let mut selected=self.invited.contains(id);if ui.checkbox(&mut selected,s(b,"label")).changed(){if selected{self.invited.insert(id.into());}else{self.invited.remove(id);}}}if ui.add_enabled(!self.busy&&!self.need.trim().is_empty()&&!self.invited.is_empty(),theme::primary("Create task")).clicked(){let need=std::mem::take(&mut self.need);self.command(ctx,Command::Request{need,invite:self.invited.iter().cloned().collect()});self.dialog=None;}},
-            1=>{ui.strong(self.task_title());ui.add_space(8.);egui::ComboBox::from_id_salt("message-recipient").selected_text(self.label(&self.persona)).show_ui(ui,|ui|{for p in self.records("personas").to_vec(){ui.selectable_value(&mut self.persona,s(&p["body"],"id").into(),s(&p["body"],"label"));}});ui.add(egui::TextEdit::multiline(&mut self.message).hint_text("Feedback, clarification or a reason to resume…").desired_rows(6).desired_width(f32::INFINITY));let enabled=!self.busy&&!self.message.trim().is_empty()&&!self.work.is_empty()&&!self.persona.is_empty();ui.horizontal_wrapped(|ui|{if ui.add_enabled(enabled,theme::primary("Send message")).clicked(){let text=std::mem::take(&mut self.message);self.command(ctx,Command::Message{work:self.work.clone(),persona:self.persona.clone(),text});self.dialog=None;}if ui.add_enabled(enabled,egui::Button::new("Resume participant")).clicked(){let reason=std::mem::take(&mut self.message);self.command(ctx,Command::Resume{work:self.work.clone(),persona:self.persona.clone(),reason});self.dialog=None;}if ui.add_enabled(enabled,egui::Button::new("Amend task")).clicked(){let text=std::mem::take(&mut self.message);self.command(ctx,Command::Amend{work:self.work.clone(),text});self.dialog=None;}});},
-            _=>{ui.strong("Appearance");let changed=ui.checkbox(&mut self.layout.dark,"Dark workspace").changed()|ui.add(egui::Slider::new(&mut self.layout.scale,theme::MIN_ZOOM..=theme::MAX_ZOOM).text("Interface scale").step_by(0.05)).changed();if changed{theme::apply(ctx,self.layout.dark,self.layout.scale);self.save_layout();}ui.separator();ui.strong("Panels");ui.checkbox(&mut self.layout.outliner,"Outliner");ui.checkbox(&mut self.layout.inspector,"Inspector");ui.checkbox(&mut self.layout.activity,"Activity dock");ui.small("Drag panel boundaries to resize. Double-click a persona to open Character Lab.");ui.horizontal(|ui|{if ui.button("Reset layout").clicked(){self.layout=Layout::default();theme::apply(ctx,self.layout.dark,self.layout.scale);self.save_layout();}if ui.button("Save layout").clicked(){self.save_layout();self.notice="Workspace layout saved".into();}});ui.separator();ui.strong("Workspace location");ui.label(self.root.display().to_string());if ui.button("Copy location").clicked(){ctx.copy_text(self.root.display().to_string());}}
-        }});
-        if !open {
-            self.dialog = None;
-            self.save_layout();
-        }
     }
 }

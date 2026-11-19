@@ -20,6 +20,7 @@ use std::{
 mod character;
 mod explorer;
 mod data;
+mod dialogs;
 mod export;
 mod workspace;
 
@@ -61,11 +62,7 @@ impl Default for Layout {
         }
     }
 }
-enum Dialog {
-    Task,
-    Message,
-    Settings,
-}
+use dialogs::Dialog;
 enum Update {
     Status(Result<data::Snapshot, String>),
     Done(Result<Value, String>),
@@ -92,10 +89,8 @@ pub struct App {
     layout: Layout,
     work: String,
     persona: String,
-    need: String,
-    invited: BTreeSet<String>,
-    message: String,
     dialog: Option<Dialog>,
+    submitting_dialog: bool,
     conversation_filter: String,
     conversation_persona: String,
     conversation_channel: usize,
@@ -158,10 +153,8 @@ impl App {
             layout,
             work: String::new(),
             persona: String::new(),
-            need: String::new(),
-            invited: BTreeSet::new(),
-            message: String::new(),
             dialog: None,
+            submitting_dialog: false,
             conversation_filter: String::new(),
             conversation_persona: String::new(),
             conversation_channel: 0,
@@ -324,11 +317,14 @@ impl App {
                 },
                 Update::Done(result) => {
                     self.busy = false;
+                    if self.submitting_dialog {
+                        if result.is_ok() { self.dialog = None; }
+                        self.submitting_dialog = false;
+                    }
                     self.command_finished(result);
                 }
                 Update::RunDone(result) => {
                     self.running = false;
-                    self.busy = false;
                     self.command_finished(result);
                 }
             }
@@ -337,8 +333,15 @@ impl App {
     fn command_finished(&mut self, result: Result<Value, String>) {
         match result {
             Ok(v) => {
-                self.notice = if let Some(need) = v["need"].as_str() {
-                    format!("Created: {need}")
+                self.notice = if let Some(kind) = v["kind"].as_str() {
+                    self.work = s(&v, "work").to_owned();
+                    self.conversation_page = 0;
+                    if kind == "social" { "Conversation opened".into() } else { "Task created".into() }
+                } else if let Some(persona) = v["persona"].as_str() {
+                    self.persona = persona.to_owned();
+                    "Persona created".into()
+                } else if let Some(accepted) = v["accepted"].as_bool() {
+                    if accepted { "Delivery accepted".into() } else { "Changes requested".into() }
                 } else if let Some(state) = v["state"].as_str() {
                     format!("Scheduling {state}")
                 } else {
@@ -380,7 +383,7 @@ impl App {
         self.records("work")
             .iter()
             .find(|p| p["body"]["id"] == self.work)
-            .and_then(|p| p["body"]["original_need"].as_str())
+            .map(|p| activity_title(&p["body"]))
             .unwrap_or("Your workspace")
     }
     fn delivered_refs(&self) -> BTreeSet<String> {
@@ -486,6 +489,13 @@ impl eframe::App for App {
 }
 fn s<'a>(v: &'a Value, key: &str) -> &'a str {
     v[key].as_str().unwrap_or("")
+}
+fn activity_title(work: &Value) -> &str {
+    match work["original_need"].as_str().filter(|s| !s.trim().is_empty()) {
+        Some(need) => need,
+        None if work["kind"] == "social" => "Open conversation",
+        None => "Untitled activity",
+    }
 }
 fn title(s: &str) -> String {
     let mut c = s.replace('_', " ").chars().collect::<Vec<_>>();

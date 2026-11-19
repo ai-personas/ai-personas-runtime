@@ -627,32 +627,37 @@ fn internal(
         }
         "work.request" => {
             let x: tools::RequestWork = decode(input)?;
-            if x.need.trim().is_empty() {
-                return Err(failure("new work requires a need"));
-            }
-            let new = Work {
-                id: id("work")?,
-                original_need: x.need,
-                requester: actor.clone(),
-                phase: "open".into(),
-                amendments: vec![],
-            };
-            let r = store::write(db, "work", &new.id, 0, &new, Some(call))?;
-            for peer in x.invitees {
-                store::required(db, "persona", &peer)?;
-                invite(
-                    db,
-                    &new.id,
-                    &peer,
-                    actor,
-                    "Choose a useful contribution to this need",
-                    Some(call),
-                )?;
-            }
-            Ok(json!({"work":new.id,"reference":r.handle()}))
+            create_activity(db, x.kind, x.need, &x.invitees, actor, Some(call))
         }
         _ => Err(failure("not an internal tool")),
     }
+}
+
+pub(super) fn create_activity(
+    db: &Connection,
+    kind: ActivityKind,
+    need: String,
+    invitees: &[String],
+    requester: &str,
+    invocation: Option<&str>,
+) -> Result<Value> {
+    if kind == ActivityKind::Task && need.trim().is_empty() {
+        return Err(failure("Describe what you would like the task to accomplish"));
+    }
+    if invitees.iter().collect::<BTreeSet<_>>().len() != invitees.len() {
+        return Err(failure("Each persona may appear only once in an invitation"));
+    }
+    let invitation = match kind {
+        ActivityKind::Task => "Choose whether and how to contribute to this need",
+        ActivityKind::Social => "An open social invitation. Choose whether to join, what to discuss and when to leave",
+    };
+    let activity = Work { id: id("work")?, kind, original_need: need, requester: requester.into(),
+        phase: "open".into(), amendments: Vec::new() };
+    let reference = store::write(db, "work", &activity.id, 0, &activity, invocation)?;
+    for actor in invitees {
+        invite(db, &activity.id, actor, requester, invitation, invocation)?;
+    }
+    Ok(json!({"work":activity.id,"kind":kind,"reference":reference.handle(),"invited":invitees,"need":activity.original_need}))
 }
 
 pub fn invite(
@@ -663,6 +668,8 @@ pub fn invite(
     contribution: &str,
     invocation: Option<&str>,
 ) -> Result<()> {
+    store::required(db, "work", work)?;
+    store::required(db, "persona", actor)?;
     let part = Participation {
         persona: actor.into(),
         work: work.into(),
