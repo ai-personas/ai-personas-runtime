@@ -182,7 +182,11 @@ impl Choice {
                 record.reference.kind == "asset"
                     && b["owner"] == snapshot.actor
                     && b["path"] == op.input["path"]
-                    && b["previous_revision"] == op.input["base"]
+                    && super::asset_history::proof::matches_base(
+                        record,
+                        &op.input["base"],
+                        snapshot.development_version,
+                    )
                     && b["qualifications"] == op.input["qualifications"]
                     && b["cues"] == op.input["cues"]
                     && blob

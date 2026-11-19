@@ -6,24 +6,56 @@ use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
+/// The exact issued revision and accepted operation identify the predecessor.
+/// Records that store explicit provenance must agree with that same address.
+pub(in crate::neural) fn matches_base(
+    record: &store::Record,
+    base: &Value,
+    input_version: u32,
+) -> bool {
+    let r = &record.reference;
+    let canonical = match r.revision {
+        1 => base.is_null(),
+        n if n > 1 => base == &format!("asset:{}@{}", r.id, n - 1),
+        _ => false,
+    };
+    canonical
+        && match record.body.get("previous_revision") {
+            Some(stored) => stored == base,
+            None => {
+                input_version < 3
+                    && ![
+                        "created_by",
+                        "last_content_author",
+                        "work",
+                        "origin_decision",
+                        "origin_operation",
+                        "resource",
+                    ]
+                    .iter()
+                    .any(|field| record.body.get(*field).is_some())
+            }
+        }
+}
+
 // A content write creates a new library record, even if its bytes equal the
 // previous version. The previous resource classification is inherited unless
 // the accepted operation supplies one.
-fn metadata(db: &Connection, source: &store::Record, op: &Operation) -> Result<bool> {
+fn metadata(
+    db: &Connection,
+    source: &store::Record,
+    op: &Operation,
+    input_version: u32,
+) -> Result<bool> {
     let r = &source.reference;
     let body = &source.body;
-    let previous = if r.revision == 1 {
-        if !op.input["base"].is_null() {
-            return Ok(false);
-        }
-        None
-    } else {
-        let previous = format!("asset:{}@{}", r.id, r.revision - 1);
-        if op.input["base"] != previous {
-            return Ok(false);
-        }
-        Some(store::exact(db, &previous)?)
-    };
+    if !matches_base(source, &op.input["base"], input_version) {
+        return Ok(false);
+    }
+    let previous = op.input["base"]
+        .as_str()
+        .map(|reference| store::exact(db, reference))
+        .transpose()?;
     let resource = if op.input["resource"].is_null() {
         previous
             .as_ref()
@@ -77,7 +109,7 @@ pub(in crate::neural) fn verified_source(
                 .get("origin_operation")
                 .is_none_or(|id| id == &op.id)
             && choice.issued_alias(&op, &source, &result)?
-            && metadata(db, &source, &op)?);
+            && metadata(db, &source, &op, snapshot.development_version)?);
     }
     // The host file read completes after adoption. Bind the actual outbox
     // operation and its returned reference to the authored import.
@@ -146,9 +178,8 @@ pub(in crate::neural) fn verified_source(
             && output["blob"] == asset.blob
             && output["bytes"] == size
             && output["source"].as_str().map(std::path::Path::new) == Some(source_path.as_path())
-            && metadata(db, &source, &authored)?
+            && metadata(db, &source, &authored, snapshot.development_version)?
             && b["path"] == authored.input["path"]
-            && b["previous_revision"] == authored.input["base"]
             && b["cues"] == authored.input["cues"]
             && b["qualifications"] == authored.input["qualifications"]
             && b.get("origin_operation")

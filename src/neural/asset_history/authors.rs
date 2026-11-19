@@ -133,10 +133,16 @@ fn collect_file(
             *unverified += usize::from(recorded_actor == Some(person));
             return Ok(());
         }
-        if row["content_origin"]["person"] != person {
-            return Ok(());
+        // An intermediate edition can have a different author and path. Keep
+        // that edition searchable once this person's contribution is verified.
+        if let Some(path) = row["path"].as_str() {
+            names.push(Name {
+                reference: reference.into(),
+                path: path.into(),
+            });
         }
         if row["editor"]["person"] == person
+            && row["content_origin"]["person"] == person
             && matches!(
                 row["tool"].as_str(),
                 Some("asset.save" | "asset.register" | "asset.import")
@@ -146,12 +152,6 @@ fn collect_file(
             contribution_count += 1;
             authored = Some(summary(&row));
             last_write = order;
-        }
-        if let Some(path) = row["path"].as_str() {
-            names.push(Name {
-                reference: reference.into(),
-                path: path.into(),
-            });
         }
         Ok(())
     })?;
