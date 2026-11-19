@@ -26,6 +26,7 @@ mod dialogs;
 mod export;
 mod life;
 mod question_history;
+mod relationships;
 mod library_search;
 mod asset_feedback;
 mod package_reviews;
@@ -143,6 +144,7 @@ pub struct App {
     development_all_work: bool,
     development_scope: (String, String),
     question_history: question_history::History,
+    relationships: relationships::Panel,
     character_paths: character_paths::Window,
     contextual: bool,
     parameter_filter: String,
@@ -228,6 +230,7 @@ impl App {
             development_all_work: false,
             development_scope: (String::new(), String::new()),
             question_history: Default::default(),
+            relationships: Default::default(),
             character_paths: Default::default(),
             contextual: true,
             parameter_filter: String::new(),
