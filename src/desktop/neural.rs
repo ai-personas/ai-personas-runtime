@@ -19,6 +19,7 @@ use std::{
 };
 mod character;
 mod character_paths;
+mod revision_uses;
 mod comparisons;
 mod explorer;
 mod data;
@@ -146,6 +147,7 @@ pub struct App {
     question_history: question_history::History,
     relationships: relationships::Panel,
     character_paths: character_paths::Window,
+    revision_uses: revision_uses::Panel,
     contextual: bool,
     parameter_filter: String,
     tensor_filter: String,
@@ -232,6 +234,7 @@ impl App {
             question_history: Default::default(),
             relationships: Default::default(),
             character_paths: Default::default(),
+            revision_uses: Default::default(),
             contextual: true,
             parameter_filter: String::new(),
             tensor_filter: String::new(),

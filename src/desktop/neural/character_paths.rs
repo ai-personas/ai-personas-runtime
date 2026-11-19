@@ -16,14 +16,31 @@ pub(super) struct Window {
 
 impl Window {
     pub(super) fn open(&mut self, ctx: &egui::Context, root: &Path, decision: &Value) {
-        self.owner = s(decision, "actor").into();
-        self.accepted = s(decision, "accepted_utc").into();
-        self.query = Some(Query {
-            decision: format!("experience:{}@1", s(decision, "invocation")),
-            axis: None,
-            hidden_unit: None,
-            compare: None,
-        });
+        self.open_query(
+            ctx,
+            root,
+            s(decision, "actor"),
+            s(decision, "accepted_utc"),
+            Query {
+                decision: format!("experience:{}@1", s(decision, "invocation")),
+                axis: None,
+                hidden_unit: None,
+                compare: None,
+            },
+        );
+    }
+
+    pub(super) fn open_query(
+        &mut self,
+        ctx: &egui::Context,
+        root: &Path,
+        owner: &str,
+        accepted: &str,
+        query: Query,
+    ) {
+        self.owner = owner.into();
+        self.accepted = accepted.into();
+        self.query = Some(query);
         self.load(ctx, root);
     }
 
@@ -121,14 +138,18 @@ impl Window {
                             s(&c["body"], "model").chars().take(8).collect::<String>()
                         )
                     };
-                    let selected = choices
-                        .clone()
-                        .find(|c| Some(s(c, "reference")) == query.compare.as_deref());
+                    let comparison = query.compare.as_deref();
+                    let selected = choices.clone().find(|c| {
+                        comparison == Some(s(c, "reference")) || comparison
+                            .and_then(|v| v.strip_prefix("object:"))
+                            .is_some_and(|v| c["body"]["model"] == v)
+                    });
                     egui::ComboBox::from_id_salt("paths-package")
                         .width(236.)
                         .selected_text(
                             selected
                                 .map(&caption)
+                                .or_else(|| query.compare.as_deref().map(|p| excerpt(p,25)))
                                 .unwrap_or_else(|| "Compare another package…".into()),
                         )
                         .show_ui(ui, |ui| {

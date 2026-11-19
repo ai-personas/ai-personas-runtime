@@ -521,20 +521,7 @@ impl App {
             5 => egui::ScrollArea::vertical().id_salt("character-explorer").show(ui,|ui| {
                 self.explorer.show(ui,&character);
             }).inner,
-            _ => {
-                egui::ScrollArea::vertical().id_salt("character-revisions").show(ui,|ui|{
-                section(ui,"Package fingerprint", "Exact immutable version");ui.add(egui::Label::new(RichText::new(&character.baseline.model).monospace().size(12.)).wrap());
-                ui.small("Numerical fingerprint");ui.add(egui::Label::new(RichText::new(&character.numerical).monospace().size(12.)).wrap());
-                if ui.button("Inspect model JSON").clicked(){self.open_resource(ui.ctx(),format!("object:{}",character.baseline.model));}
-                ui.add_space(16.);section(ui,"Authored candidates", "Candidate ≠ activation");
-                let candidates:Vec<Value>=self.snapshot.candidates.iter().filter(|c|c["body"]["owner"]==self.persona).cloned().collect();
-                for candidate in candidates{let b=&candidate["body"];card(ui).show(ui,|ui|{let active=b["model"]==character.baseline.model;theme::badge(ui,if active{"Active"}else{"Retained candidate"},if active{TEAL}else{theme::ACCENT});ui.label(s(b,"intent"));ui.add_space(7.);if ui.small_button("Open candidate record").clicked(){self.open_resource(ui.ctx(),s(&candidate,"reference").into());}if let Some(parent)=b["predecessor"].as_str(){if ui.small_button("Open predecessor").clicked(){self.open_resource(ui.ctx(),format!("object:{parent}"));}}});ui.add_space(8.);}
-                ui.add_space(16.);section(ui,"Activation history", "Saved events");
-                let events:Vec<Value>=self.events.iter().rev().filter(|e|e["kind"]=="model_changed"&&e["actor"]==self.persona).cloned().collect();
-                for event in events{ui.collapsing(format!("{} · model changed",time_label(event["created"].as_i64().unwrap_or(0))),|ui|{super::super::data_view::parameters(ui,&event["body"]);});}
-                ui.add_space(12.);ui.weak("A revision records a change. Useful learning requires evidence from subsequent behavior and outcomes.");
-            });
-            }
+            _ => self.character_revisions(ui, &character),
         }
     }
     fn character_development(&mut self, ui: &mut Ui) {

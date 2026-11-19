@@ -567,7 +567,7 @@ fn name<'a>(status: &'a Value, id: &'a str) -> &'a str {
         .and_then(|p| p["body"]["label"].as_str())
         .unwrap_or(id)
 }
-fn work_name<'a>(status: &'a Value, id: &'a str) -> &'a str {
+pub(super) fn work_name<'a>(status: &'a Value, id: &'a str) -> &'a str {
     items(status, "work")
         .find(|p| p["body"]["id"] == id)
         .map(|p| activity_title(&p["body"]))
