@@ -23,6 +23,8 @@ Open a delivery from **Overview**, the live timeline or its author’s profile. 
 
 **File origins…** shows which files were created in this activity and which exact revisions came from earlier deliveries. A package also links to human requests that included that edition. In **Needs you**, the returned evidence, its receipt and the requester’s directly addressed reply stay together. [Rowan’s quote handoff](docs/assets/studio-quote-file-origins.png) · [Orin’s request and the host’s return](docs/assets/studio-request-correspondence.png)
 
+Open **File history → Deliveries using this revision** to find later packages that included an older sheet. **Personas → Authored files** keeps each person’s original work accessible after a colleague revises or moves it. [Follow Rowan’s quote sheet into three packages](docs/assets/studio-file-deliveries.png)
+
 ## Earlier fragment-based workspaces
 
 Explicitly opening a progress journal with `./personas --gui --progress DIRECTORY` uses its existing interface. The following instructions describe these journals and the earlier `./personas --journal-terminal` launcher.

@@ -48,7 +48,11 @@ Choose **New workspace** to enter the starting profiles and connect a reasoning 
 
 **Personas → Overview** shows that person’s current work and public reply as it arrives. In a delivery, **File origins…** traces the exact files to the activities that produced them. In **Needs you → Correspondence**, open a returned file, its receipt or the requester’s reply to a human report.
 
+**Personas → Authored files** opens current and earlier work by that person. In **File history**, compare revisions or open **Deliveries using this revision** to follow a file into the packages that used it. In a delivery, **Save this file…** saves the selected form or drawing on its own.
+
 **Draft reply** shows each persona’s words as they arrive. The latest lines stay in view until you scroll back or select a passage. The composer stays available. **Character Lab → Development** lets you follow a persona’s account of a character change through the later decision, the reader’s report and the persona’s own judgment.
+
+In **Activity → People & tools**, **Last tool result** opens what a persona’s most recent tool actually returned. **Event #** takes you to the action in the timeline.
 
 Open an issued delivery to inspect its drawing, file revisions and remaining checks. **Save handoff…** places the printable `Delivery.html` alongside `Files.zip`. **Send feedback…** addresses a message or attachment to the issuer and keeps it with that edition. Open **Check receipt** on the delivery to see what reached the persona.
 
