@@ -20,7 +20,7 @@ Choose **Trace question history…** to follow that question across activities a
 
 A retired question is marked **Closed**. Expand it to read the persona’s reason and open its **Closure decision**. An unanswered reply keeps its own interpretation status after the question closes.
 
-**Character Lab → Comparisons** shows the replies produced under each tested character. For a replay of a prior encounter, open the shared inputs to inspect the brief, exact resource bodies, appraisal and ordered images. The display also identifies any numerical outputs that differed. A persona can request an additional control without numerical inclinations.
+**Character Lab → Comparisons** shows each sample’s judgment, proposed action, communication and uncertainty. Filter by **Current character** to compare a persona’s active numerical inclinations with ordinary reasoning under the same inputs. **Proposals** shows comparisons of proposed edits. **View encounter & feedback** opens the recorded brief and correspondence, the actual decision and its outgoing messages, and any directly linked later replies or delivery reviews. You can inspect the shared inputs and each provider receipt.
 
 In a contextual appraisal, **Received after that choice** links the latest later message or review from each correspondent. This compares arrivals with the information available when the persona last judged that appraisal applicable. If a versioned dependency changed, the inspector identifies baseline as the basis for the next input and opens the changed dependency.
 

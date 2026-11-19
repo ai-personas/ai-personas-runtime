@@ -183,9 +183,13 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
         .map(|r| json!({"reference":r.reference.handle(),"body":r.body}))
         .collect();
     let mut assessments=Vec::new();
-    for record in store::list(&db,"assessment")? {
+    let mut assessment_heads = db.prepare("SELECT h.id,h.revision,h.digest FROM heads h JOIN versions v
+        ON (h.kind,h.id,h.revision)=(v.kind,v.id,v.revision) WHERE h.kind='assessment' ORDER BY v.created DESC,v.rowid DESC")?;
+    for row in assessment_heads.query_map([], |r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?)))? {
+        let (id,revision,digest) = row?;
+        let body: Value = store::object(&db,&digest)?;
         let mut cases=Vec::new();
-        for case in record.body["observations"].as_array().into_iter().flatten() {
+        for case in body["observations"].as_array().into_iter().flatten() {
             let arms=case["arms"].as_array().into_iter().flatten().map(|arm|{
                 let outputs=arm["evaluation"]["outputs"].as_object().map(|axes|axes.iter()
                     .map(|(name,axis)|(name.clone(),axis["value"].clone())).collect::<serde_json::Map<_,_>>());
@@ -195,8 +199,8 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
             cases.push(json!({"origin":case["origin"],"situation":case["probe"]["situation"],"matched_input":case["matched_input"],
                 "image_count":case["image_count"],"arms":arms}));
         }
-        assessments.push(json!({"reference":record.reference.handle(),"owner":record.body["owner"],
-            "candidate":record.body["candidate"],"completed":record.body["completed"],"interruption":record.body["interruption"],
+        assessments.push(json!({"reference":format!("assessment:{id}@{revision}"),"owner":body["owner"],"kind":body["comparison_kind"],
+            "candidate":body["candidate"],"completed":body["completed"],"interruption":body["interruption"],
             "cases":cases}));
     }
     // Completion can arrive out of dispatch order, including decisions that
@@ -282,6 +286,28 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
         active_effects,
         directory,
     })
+}
+
+/// Read the actual decision and explicitly linked responses only when the
+/// operator opens an encounter. These later records never enter a probe.
+pub(super) fn comparison_encounter(root: &Path, decision: &str, matched: Option<&str>) -> neural::Result<Value> {
+    let db = open(root)?;
+    let actual = neural::context::read(&db, decision, None, None)?;
+    let record = &actual["record"];
+    let read_events = |list: &Value| -> neural::Result<Vec<Value>> {
+        list.as_array().into_iter().flatten().map(|item| {
+            let reference = item["experience"].as_str().ok_or_else(||neural::failure("Missing exchange reference"))?;
+            let event = neural::context::read(&db, reference, None, None)?;
+            Ok(event["record"].clone())
+        }).collect()
+    };
+    let situation = matched.map(|reference| {
+        let digest = reference.strip_prefix("object:").ok_or_else(||neural::failure("Missing matched input digest"))?;
+        Ok::<_,neural::Error>(store::object::<Value>(&db, digest)?["data"]["situation"].clone())
+    }).transpose()?;
+    Ok(json!({"actor":record["actor"],"work":record["body"]["work"],"situation":situation,
+        "decision":decision,"receipt":record["provider_receipt"],"outgoing":read_events(&record["outgoing"])?,
+        "feedback":read_events(&actual["linked_responses_now"])?}))
 }
 
 fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {

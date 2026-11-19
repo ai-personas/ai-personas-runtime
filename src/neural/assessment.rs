@@ -103,6 +103,26 @@ fn authorized_comparison(
     let (actor, work, snapshot, receipt, decision): (String, String, String, String, String) = db.query_row(
         "SELECT actor,work,snapshot,receipt,response FROM invocations WHERE id=?1 AND state='accepted'",
         [source], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?;
+    store::verify_completion(
+        db,
+        source,
+        &actor,
+        &work,
+        &snapshot,
+        &decision,
+        &receipt,
+        "responded",
+    )?;
+    let usage = store::required(db, "character_use", source)?.body;
+    if usage["snapshot"] != format!("object:{snapshot}")
+        || usage["provider_receipt"] != format!("object:{receipt}")
+        || usage["response"] != format!("object:{decision}")
+        || usage["package"] != body["active_model"]
+    {
+        return Err(failure(
+            "The comparison request differs from its recorded character use",
+        ));
+    }
     let snapshot: Snapshot = store::object(db, &snapshot)?;
     let attempt: Value = store::object(db, &receipt)?;
     super::character::verify_input(db, &snapshot, source, &attempt)?;
@@ -303,6 +323,16 @@ pub(super) fn verify(db: &Connection, record: &store::Record) -> Result<Value> {
                 .ok_or_else(|| failure("Missing original comparison prompt"))?;
             let audit = &attempt["audit"];
             if let Some(request) = &authorization {
+                store::verify_completion(
+                    db,
+                    call,
+                    &actor,
+                    &work,
+                    &snapshot,
+                    &output,
+                    &receipt,
+                    "probe_complete",
+                )?;
                 if work != request.work
                     || audit["configuration_sha256"] != request.configuration
                     || input["origin"] != case["origin"]

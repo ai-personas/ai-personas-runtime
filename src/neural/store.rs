@@ -205,6 +205,21 @@ pub fn bytes(db: &Connection, digest: &str) -> Result<Vec<u8>> {
 pub fn object<T: serde::de::DeserializeOwned>(db: &Connection, digest: &str) -> Result<T> {
     Ok(serde_json::from_slice(&bytes(db, digest)?)?)
 }
+
+/// Compare an invocation's retained objects to the record written when the
+/// provider completed. Adoption and read-only comparisons share this binding.
+pub(super) fn verify_completion(
+    db: &Connection, call: &str, actor: &str, work: &str, snapshot: &str,
+    response: &str, receipt: &str, disposition: &str,
+) -> Result<()> {
+    let terminal = required(db, "provider_completion", call)?.body;
+    if terminal["actor"] != actor || terminal["work"] != work || terminal["invocation"] != call
+        || terminal["response"] != format!("object:{response}") || terminal["snapshot"] != format!("object:{snapshot}")
+        || terminal["receipt"] != format!("object:{receipt}") || terminal["disposition"] != disposition {
+        return Err(failure("The retained decision, input or receipt differs from the observed provider completion"));
+    }
+    Ok(())
+}
 pub fn head(db: &Connection, kind: &str, id: &str) -> Result<Option<Record>> {
     let row: Option<(i64, String)> = db
         .query_row(

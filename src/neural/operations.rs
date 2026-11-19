@@ -933,13 +933,8 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
         if snapshot.invocation!=call || snapshot.work!=work || snapshot.actor!=actor {return Err(failure("retained snapshot does not own this invocation"));}
         let response=response.ok_or_else(|| failure("missing retained response"))?;
         if snapshot.development_version>=3 {
-            let terminal=store::required(db,"provider_completion",call)?;
             let receipt=receipt.ok_or_else(||failure("Missing completed provider receipt"))?;
-            if terminal.body["actor"]!=actor || terminal.body["work"]!=work || terminal.body["invocation"]!=call
-                || terminal.body["response"]!=format!("object:{response}") || terminal.body["snapshot"]!=format!("object:{source}")
-                || terminal.body["receipt"]!=format!("object:{receipt}") || terminal.body["disposition"]!="responded" {
-                return Err(failure("The retained decision, input or receipt differs from the observed provider completion"));
-            }
+            store::verify_completion(db,call,&actor,&work,&source,&response,&receipt,"responded")?;
         }
         let retained=parse_decision(&store::bytes(db,&response)?)?;
         let decision=&retained;
