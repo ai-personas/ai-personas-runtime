@@ -299,7 +299,8 @@ pub fn event<T: Serialize>(
     Ok(db.last_insert_rowid())
 }
 pub fn events(db: &Connection, work: &str, actor: &str, after: i64) -> Result<Vec<Value>> {
-    let mut statement=db.prepare("SELECT seq,actor,target,kind,digest,invocation,created FROM events WHERE work=?1 AND seq>?2 AND (target=?3 OR target='*') ORDER BY seq")?;
+    let mut statement=db.prepare("SELECT seq,actor,target,kind,digest,invocation,created FROM events e WHERE work=?1 AND seq>?2 AND
+        (target=?3 OR (target='*' AND EXISTS(SELECT 1 FROM events j WHERE j.work=e.work AND j.target=?3 AND j.kind='invitation' AND j.seq<=e.seq))) ORDER BY seq")?;
     let rows = statement
         .query_map(params![work, after, actor], |r| {
             Ok((
@@ -314,6 +315,16 @@ pub fn events(db: &Connection, work: &str, actor: &str, after: i64) -> Result<Ve
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     rows.into_iter().map(|(seq,actor,target,kind,digest,invocation,created)| Ok(json!({"event":seq,"experience":format!("experience:event-{seq}@1"),"actor":actor,"target":target,"kind":kind,"body":object::<Value>(db,&digest)?,"digest":digest,"invocation":invocation,"created":created}))).collect()
+}
+
+pub fn has_arrival(db:&Connection, work:&str, actor:&str, after:i64, kinds:&[String])->Result<bool> {
+    let mut query=db.prepare("SELECT e.kind FROM events e WHERE work=?1 AND seq>?2 AND
+        (target=?3 OR (target='*' AND EXISTS(SELECT 1 FROM events j WHERE j.work=e.work AND j.target=?3 AND j.kind='invitation' AND j.seq<=e.seq)))")?;
+    let mut rows=query.query(params![work,after,actor])?;
+    while let Some(row)=rows.next()? {
+        if kinds.is_empty() || kinds.contains(&row.get::<_,String>(0)?) {return Ok(true);}
+    }
+    Ok(false)
 }
 pub fn stopped(db: &Connection, work: &str, actor: &str) -> Result<Option<Value>> {
     for scope in [

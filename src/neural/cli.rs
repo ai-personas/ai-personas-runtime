@@ -121,6 +121,14 @@ pub enum Command {
     },
     /// Provider bindings, prompt sizes, use, activation history and dispatch counts.
     Audit,
+    /// Save a consistent private snapshot of all numerical workspace records.
+    Backup { archive: PathBuf },
+    /// Restore a numerical archive into a new workspace without starting work.
+    Restore {
+        archive: PathBuf,
+        #[arg(long)]
+        sha256: Option<String>,
+    },
 }
 
 #[derive(Deserialize)]
@@ -163,6 +171,7 @@ fn create_seed(db: &rusqlite::Connection, seed: Seed, author: &str, provider: &c
 pub async fn execute(root: &Path, operator: &str, command: Command) -> Result<Value> {
     if operator.trim().is_empty() { return Err(failure("An operator name is required for attribution")); }
     match command {
+        Command::Restore{archive,sha256}=>super::archive::restore(root,&archive,sha256.as_deref(),operator),
         Command::Init {
             seeds,
             working_directory,
@@ -298,6 +307,7 @@ pub async fn execute(root: &Path, operator: &str, command: Command) -> Result<Va
                 }),
                 Command::Export{directory,work}=>export(&mut store,&directory,work.as_deref()),
                 Command::Audit=>audit(&mut store),
+                Command::Backup{archive}=>super::archive::backup(&store,&archive),
                 _=>unreachable!(),
             }
         }

@@ -16,6 +16,18 @@ use std::{
 /// Walk from the open workspace directory. A rename or symlink substitution
 /// cannot redirect a later path component to an unrelated host file.
 pub(super) fn read_file(directory: &Path, name: &str) -> Result<(PathBuf, Vec<u8>)> {
+    let (path, mut file) = open_entry(directory, name)?;
+    if !file.metadata()?.is_file() {
+        return Err(failure(
+            "The selected workspace entry is not a regular file",
+        ));
+    }
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    Ok((path, bytes))
+}
+
+fn open_entry(directory: &Path, name: &str) -> Result<(PathBuf, File)> {
     let path = Path::new(name);
     let relative = if path.is_absolute() {
         path.strip_prefix(directory)?
@@ -41,14 +53,49 @@ pub(super) fn read_file(directory: &Path, name: &str) -> Result<(PathBuf, Vec<u8
         }
         parent = unsafe { File::from_raw_fd(next) };
     }
-    if !parent.metadata()?.is_file() {
-        return Err(failure(
-            "The selected workspace entry is not a regular file",
+    Ok((directory.join(relative), parent))
+}
+
+pub(super) fn list(
+    directory: &Path,
+    query: &super::tools::ListDirectory,
+) -> Result<serde_json::Value> {
+    use serde_json::json;
+    let (selected, opened) = open_entry(directory, &query.directory)?;
+    if !opened.metadata()?.is_dir() {
+        return Err(failure("Choose a directory to list"));
+    }
+    // Reopen the anchored descriptor for enumeration, including if the original
+    // directory name changes while this observation is being made.
+    #[cfg(target_os = "linux")]
+    let descriptors = Path::new("/proc/self/fd");
+    #[cfg(not(target_os = "linux"))]
+    let descriptors = Path::new("/dev/fd");
+    let mut entries = Vec::new();
+    for entry in std::fs::read_dir(descriptors.join(opened.as_raw_fd().to_string()))? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        let name = entry.file_name();
+        entries.push((
+            name,
+            if kind.is_dir() {
+                "directory"
+            } else if kind.is_file() {
+                "file"
+            } else if kind.is_symlink() {
+                "symlink"
+            } else {
+                "other"
+            },
         ));
     }
-    let mut bytes = Vec::new();
-    parent.read_to_end(&mut bytes)?;
-    Ok((directory.join(relative), bytes))
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    let count = entries.len();
+    let entries:Vec<_>=entries.into_iter().skip(query.offset).take(query.page_size).map(|(name,kind)|
+        json!({"name":name.to_string_lossy(),"kind":kind,"utf8_name":name.to_str().is_some()})).collect();
+    Ok(
+        json!({"directory":selected.strip_prefix(directory)?,"entries":entries,"total":count,"offset":query.offset,"contents_supplied":false}),
+    )
 }
 
 pub(super) fn program(db: &Connection, reference: &str) -> Result<String> {
@@ -74,10 +121,10 @@ pub(super) async fn compute(
     use tokio::io::AsyncWriteExt;
     // An application update can unlink the running binary while its decisions
     // are still in flight. Linux can execute the same open image directly.
-    #[cfg(target_os="linux")]
-    let executable=std::path::PathBuf::from("/proc/self/exe");
-    #[cfg(not(target_os="linux"))]
-    let executable=std::env::current_exe()?;
+    #[cfg(target_os = "linux")]
+    let executable = std::path::PathBuf::from("/proc/self/exe");
+    #[cfg(not(target_os = "linux"))]
+    let executable = std::env::current_exe()?;
     let mut child = tokio::process::Command::new(executable)
         .arg("compute-worker")
         .stdin(Stdio::piped())
@@ -114,7 +161,10 @@ pub(super) async fn compute(
 }
 
 pub fn compute_worker() -> Result<()> {
-    let (program,input):(String,String)=serde_json::from_reader(std::io::stdin().lock())?;
-    serde_json::to_writer(std::io::stdout().lock(), &crate::computation::execute(&program,&input))?;
+    let (program, input): (String, String) = serde_json::from_reader(std::io::stdin().lock())?;
+    serde_json::to_writer(
+        std::io::stdout().lock(),
+        &crate::computation::execute(&program, &input),
+    )?;
     Ok(())
 }

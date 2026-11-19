@@ -13,7 +13,15 @@ impl App {
             )
             .show(ctx, |ui| {
                 ui.horizontal_wrapped(|ui| {
-                    theme::glyph(ui, Icon::Workspaces, theme::ACCENT);
+                    if theme::icon_button(ui,Icon::Workspaces,"Open workspace library").clicked() {
+                        if self.running {
+                            if let Err(error)=std::env::current_exe().and_then(|exe|std::process::Command::new(exe).spawn()) {
+                                self.error=Some(error.to_string());
+                            }
+                        } else if !self.busy {
+                            self.show_library=true;
+                        }
+                    }
                     ui.label(
                         RichText::new("PERSONAS")
                             .size(15.)
@@ -263,7 +271,8 @@ impl App {
                         }
                         ui.small(format!("{} artifacts", self.snapshot.assets.len()));
                         ui.separator();
-                        ui.small(format!("{} personas", self.records("personas").len()));
+                        let count=self.records("personas").len();
+                        ui.small(format!("{count} {}",if count==1{"persona"}else{"personas"}));
                     });
                 });
             });

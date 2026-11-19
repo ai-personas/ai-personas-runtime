@@ -48,6 +48,9 @@ pub struct Snapshot {
     pub epoch: u64,
     pub model: Option<String>,
     pub cursor: i64,
+    /// Last global event committed when the input was prepared.
+    #[serde(default, skip_serializing_if="Option::is_none")]
+    pub observation_through: Option<i64>,
     pub data: Value,
     /// Retain the actual wire ordering, independently of later layout changes.
     /// Empty identifies historical snapshots sent in canonical JSON key order.
@@ -357,7 +360,11 @@ pub(super) fn read_for(
             if start.is_some() || end.is_some() {
                 return Err(failure("Byte excerpts require an asset or object reference; structured records are supplied whole"));
             }
-            return Ok(json!({"reference":reference,"record":record.body}));
+            let mut observed=json!({"reference":reference,"record":record.body});
+            if record.reference.kind=="character_use" {
+                observed["related_development_now"]=json!(super::development::related_to_use(db,&record.body)?);
+            }
+            return Ok(observed);
         }
         let blob = record.body["blob"]
             .as_str()
@@ -732,11 +739,14 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
             "peers":if bootstrap{vec![]}else{peers},"participants":if bootstrap{vec![]}else{participants},"outcomes":if bootstrap{vec![]}else{outcomes},"deliveries":if bootstrap{vec![]}else{deliveries},"new_events":supplied_events,
             "selected_resources":selected,"previously_selected_tools_unavailable":unavailable_tools,"available_tools":tool_schemas,"host_working_directory":if bootstrap{Value::Null}else{config.body["working_directory"].clone()}});
         if !bootstrap {
+            data["lifetime_experience"]=super::experience::availability(db,actor,work_id)?;
             let questions = super::development::index(db, actor)?;
             let open = questions.iter().filter(|q|!matches!(q["disposition"].as_str(),Some("closed"|"no_change")));
             data["development"] = json!({"open_count":open.clone().count(),
-                "revisit_cues":open.filter(|q|q["due_by_time"]==true || !q["matching_experience"].is_null()
+                "revisit_cues":open.filter(|q|q["observing_active_model"]==true || q["due_by_time"]==true || !q["matching_experience"].is_null()
                     || q["origin_work"]==work_id).collect::<Vec<_>>(),
+                "later_feedback":questions.iter().filter(|q|!q["later_feedback"].is_null()).map(|q|json!({
+                    "question":q["reference"],"experience":q["later_feedback"],"origin_work":q["origin_work"]})).collect::<Vec<_>>(),
                 "discovery":"Use development.search for other question metadata. Read a chosen exact revision with asset.read."});
         }
         let component_bytes=data.as_object().expect("snapshot is an object").iter().map(|(name,value)|Ok((name.clone(),serde_json::to_vec(value)?.len()))).collect::<Result<std::collections::BTreeMap<_,_>>>()?;
@@ -749,8 +759,9 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
         let contract_object=store::put_bytes(db,"text/plain; charset=utf-8",prefix.as_bytes())?;
         let data_order=data_order(&data);
         let snapshot=Snapshot{contract_object,invocation:invocation.clone(),persona_revision:p.reference.revision,participation_revision:part.reference.revision,
-            work:work_id.into(),actor:actor.into(),epoch:persona.epoch,model:persona.model,cursor,data,
-            development_version:2,data_order,supplied_references:refs.into_iter().collect(),tool_names,image_blobs};
+            work:work_id.into(),actor:actor.into(),epoch:persona.epoch,model:persona.model,cursor,
+            observation_through:Some(db.query_row("SELECT COALESCE(MAX(seq),0) FROM events",[],|r|r.get(0))?),data,
+            development_version:3,data_order,supplied_references:refs.into_iter().collect(),tool_names,image_blobs};
         let digest=store::put(db,&snapshot)?;
         db.execute("INSERT INTO invocations VALUES(?1,?2,?3,'prepared',?4,NULL,NULL,?5,?5)",params![invocation,work_id,actor,digest,now()])?;
         Ok(snapshot)

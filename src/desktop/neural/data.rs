@@ -62,7 +62,7 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
     // Each new tool result is verified once, then reduced to outcome metadata.
     // Keep commands, log bodies and provider payloads out of the activity feed.
     let mut q = db.prepare(
-        "SELECT seq,work,actor,target,kind,digest,created FROM events WHERE seq>?1 ORDER BY seq",
+        "SELECT seq,work,actor,target,kind,digest,created,strftime('%Y-%m-%d %H:%M:%S UTC',created,'unixepoch') FROM events WHERE seq>?1 ORDER BY seq",
     )?;
     let rows = q
         .query_map([after], |r| {
@@ -74,17 +74,18 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
                 r.get::<_, String>(4)?,
                 r.get::<_, String>(5)?,
                 r.get::<_, i64>(6)?,
+                r.get::<_, Option<String>>(7)?,
             ))
         })?
         .collect::<Result<Vec<_>, _>>()?;
-    for (seq, work, actor, target, kind, digest, created) in rows {
+    for (seq, work, actor, target, kind, digest, created, created_utc) in rows {
         let body = store::object::<Value>(&db, &digest)?;
         let outcome = if kind == "tool_result" {
             tool_outcome(&db, &body)?
         } else {
             Value::Null
         };
-        events.push(json!({"event":seq,"work":work,"actor":actor,"target":target,"kind":kind,"body":body,"tool_outcome":outcome,"digest":digest,"created":created}));
+        events.push(json!({"event":seq,"work":work,"actor":actor,"target":target,"kind":kind,"body":body,"tool_outcome":outcome,"digest":digest,"created":created,"created_utc":created_utc}));
     }
     let cursor = db.query_row("SELECT COALESCE(MAX(seq),0) FROM events", [], |r| r.get(0))?;
     let mut assets = Vec::new();
@@ -341,7 +342,7 @@ pub(super) fn preview(root: &Path, reference: &str) -> neural::Result<Preview> {
             }
             (
                 store::bytes(&db, &record.reference.digest)?,
-                format!("{}-{}.json", record.reference.kind, record.reference.id),
+                format!("record-{}.json", &record.reference.digest[..12]),
                 metadata,
             )
         }

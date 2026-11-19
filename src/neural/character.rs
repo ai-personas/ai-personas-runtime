@@ -48,6 +48,56 @@ pub(super) fn saw_record(snapshot: &Snapshot, reference: &str, kind: &str) -> bo
             })
 }
 
+/// An immutable candidate or comparison can have been supplied on an earlier
+/// accepted decision under the same active generation. Recover the real input
+/// and receipt. A reference in a note or index does not satisfy saw_record.
+pub(super) fn observed_input(
+    db: &Connection,
+    current: &Snapshot,
+    reference: &str,
+    kind: &str,
+) -> Result<Option<Value>> {
+    let mut statement=db.prepare("SELECT i.id,i.snapshot,i.receipt FROM invocations i JOIN objects o ON o.digest=i.snapshot
+        WHERE i.actor=?1 AND (i.state='accepted' OR (i.id=?2 AND i.state='responded')) AND i.receipt IS NOT NULL
+        AND instr(CAST(o.bytes AS TEXT),?3)>0 ORDER BY i.rowid DESC")?;
+    let mut rows = statement.query(rusqlite::params![
+        current.actor,
+        current.invocation,
+        reference
+    ])?;
+    while let Some(row) = rows.next()? {
+        let call: String = row.get(0)?;
+        let source: String = row.get(1)?;
+        let stored: Snapshot;
+        let input = if call == current.invocation {
+            current
+        } else {
+            stored = store::object(db, &source)?;
+            &stored
+        };
+        if input.actor == current.actor
+            && input.epoch == current.epoch
+            && input.model == current.model
+            && saw_record(input, reference, kind)
+        {
+            let receipt: String = row.get(2)?;
+            let attempt: Value = store::object(db, &receipt)?;
+            if attempt["response_completed"] != true || attempt["audit"]["invocation_id"] != call {
+                continue;
+            }
+            let prompt = context::prompt(db, input)?;
+            if attempt["audit"]["prompt_sha256"] != crate::store::sha256_bytes(prompt.as_bytes()) {
+                continue;
+            }
+            return Ok(Some(
+                json!({"reference":reference,"invocation":call,"snapshot":format!("object:{source}"),
+                "provider_receipt":format!("object:{receipt}"),"evidence":"fully_supplied"}),
+            ));
+        }
+    }
+    Ok(None)
+}
+
 pub(super) fn select_appraisal(
     snapshot: &Snapshot,
     part: &Participation,

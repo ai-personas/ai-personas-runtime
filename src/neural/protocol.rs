@@ -79,9 +79,12 @@ pub enum Maintenance {
         /// For a character deferral, keep the condition under which to reconsider.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         revisit: Option<super::development::Revisit>,
-        /// Optional exact current question being deferred.
+        /// The behavioral question in your own words.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         question: Option<String>,
+        /// Exact development:id@revision when revisiting an existing question.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        base: Option<String>,
     },
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -91,6 +94,10 @@ pub enum NextModel {
     /// An exact candidate already observed; never a same-response guessed hash.
     Activate {
         candidate: String,
+        /// If the linked question has changed since proposal, name the observed
+        /// current revision you reconsidered when judging this candidate.
+        #[serde(default)]
+        current_development: Option<String>,
         /// What to observe after adopting a developmental revision.
         #[serde(default)]
         follow_up: Option<String>,
@@ -180,6 +187,10 @@ pub enum Continuation {
     Wait {
         reason: String,
         wake_at_unix: Option<i64>,
+        /// Optional exact incoming event kinds that should wake this participation.
+        /// Empty receives any new event. A chosen wake time is an independent trigger.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        on_events: Vec<String>,
     },
     Stop {
         reason: String,

@@ -16,6 +16,8 @@ use serde_json::{json, Value};
 pub enum Disposition {
     Investigating,
     AwaitingEvidence,
+    Assessed,
+    Rejected,
     NoChange,
     Supported,
     NoEffect,
@@ -45,6 +47,7 @@ pub struct Update {
     pub base: Option<String>,
     pub question: String,
     pub interpretation: String,
+    /// Exact experience:event-N@1 or experience:call-ID@1 observations. Put a character-use receipt in follow_up.character_use.
     pub evidence: Vec<String>,
     #[serde(default)]
     pub contrary_evidence: Vec<String>,
@@ -57,6 +60,18 @@ pub struct Update {
     /// A scoped judgment after a real decision using the adopted character.
     #[serde(default)]
     pub follow_up: Option<FollowUp>,
+    /// Your judgment about an inactive candidate and its observed comparison.
+    #[serde(default)]
+    pub candidate_review: Option<CandidateReview>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CandidateReview {
+    pub candidate: String,
+    pub assessment: Option<String>,
+    pub reason: String,
+    pub scope: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
@@ -113,6 +128,9 @@ fn revisit_condition(db: &Connection, actor: &str, revisit: &Revisit) -> Result<
 }
 
 fn observed_experience(db: &Connection, snapshot: &Snapshot, reference: &str) -> Result<()> {
+    if !reference.starts_with("experience:") {
+        return Err(failure(format!("Expected an experience:event-N@1 or experience:call-ID@1 observation, received {reference}. Cite the character-use receipt in follow_up.character_use.")));
+    }
     experience::metadata(db, Some(&snapshot.actor), reference)?;
     if !observed(snapshot, reference) {
         return Err(failure(format!(
@@ -135,6 +153,7 @@ pub(super) fn consider(db: &Connection, snapshot: &Snapshot, decision: &Decision
         reason,
         revisit,
         question,
+        base,
     } = &decision.persona_maintenance
     else {
         return Ok(());
@@ -143,7 +162,10 @@ pub(super) fn consider(db: &Connection, snapshot: &Snapshot, decision: &Decision
         .as_ref()
         .ok_or_else(|| failure("A character deferral needs a revisit condition"))?;
     revisit_condition(db, &snapshot.actor, revisit)?;
-    let (key, revision, mut body) = match question {
+    let legacy_reference = question
+        .as_deref()
+        .filter(|q| q.starts_with("development:"));
+    let (key, revision, mut body) = match base.as_deref().or(legacy_reference) {
         Some(reference) => {
             let current = owned(db, &snapshot.actor, reference)?;
             if !observed(snapshot, reference) {
@@ -160,18 +182,14 @@ pub(super) fn consider(db: &Connection, snapshot: &Snapshot, decision: &Decision
             0,
             json!({"owner":snapshot.actor,"origin_work":snapshot.work,
             "origin_decision":snapshot.invocation,"origin_experiences":evidence,"adoptions":[],
-            "interpretation":{"question":reason,"evidence":evidence}}),
+            "interpretation":{"question":question.as_deref().filter(|q|!q.trim().is_empty()).unwrap_or(reason),"evidence":evidence}}),
         ),
     };
     body["interpretation"]["disposition"] = json!("awaiting_evidence");
     body["interpretation"]["revisit"] = serde_json::to_value(revisit)?;
     body["deferral"] =
         json!({"decision":snapshot.invocation,"reason":reason,"considered_experience":evidence});
-    body["revisit_after_event"] = json!(db.query_row(
-        "SELECT COALESCE(MAX(seq),0) FROM events",
-        [],
-        |r| r.get::<_, i64>(0)
-    )?);
+    body["revisit_after_event"] = json!(snapshot.observation_through.unwrap_or(snapshot.cursor));
     store::write(
         db,
         "development",
@@ -230,6 +248,46 @@ pub(super) fn update(db: &Connection, snapshot: &Snapshot, update: Update) -> Re
             observed_experience(db, snapshot, reference)?;
         }
     }
+    if let Some(review) = &update.candidate_review {
+        let candidate = store::exact(db, &review.candidate)?;
+        let origin = candidate.body["development"]
+            .as_str()
+            .ok_or_else(|| failure("Candidate has no development question"))?;
+        if candidate.reference.kind != "candidate"
+            || candidate.body["owner"] != snapshot.actor
+            || store::exact(db, origin)?.reference.id != key
+            || review.reason.trim().is_empty()
+            || review.scope.trim().is_empty()
+            || !super::character::saw_record(snapshot, &review.candidate, "candidate")
+        {
+            return Err(failure(
+                "Review the observed candidate for this question and give the scope and reason",
+            ));
+        }
+        if let Some(reference) = &review.assessment {
+            let assessment = store::exact(db, reference)?;
+            if assessment.reference.kind != "assessment"
+                || assessment.body["candidate"] != review.candidate
+                || assessment.body["completed"] != true
+                || !super::character::saw_record(snapshot, reference, "assessment")
+            {
+                return Err(failure(
+                    "Read the completed comparison for this exact candidate",
+                ));
+            }
+        }
+        if !body["candidate_reviews"].is_array() {
+            body["candidate_reviews"] = json!([]);
+        }
+        body["candidate_reviews"].as_array_mut().unwrap().push(json!({"review":review,"decision":snapshot.invocation,"disposition":update.disposition,"scope_of_evidence":"candidate comparison"}));
+    } else if matches!(
+        update.disposition,
+        Disposition::Rejected | Disposition::Assessed
+    ) {
+        return Err(failure(
+            "Identify the exact candidate and reason in candidate_review",
+        ));
+    }
     if let Some(follow_up) = &update.follow_up {
         let observation = follow_up_record(db, snapshot, &body, follow_up)?;
         if !body["follow_ups"].is_array() {
@@ -238,15 +296,21 @@ pub(super) fn update(db: &Connection, snapshot: &Snapshot, update: Update) -> Re
         body["follow_ups"].as_array_mut().unwrap().push(json!({"observation":observation,
             "interpretation":follow_up,"disposition":update.disposition,"alternative_explanations":update.alternatives,
             "decision":snapshot.invocation,"work":snapshot.work}));
-    } else if matches!(
-        update.disposition,
-        Disposition::Supported | Disposition::Regressed | Disposition::NoEffect
-    ) {
-        return Err(failure("A claimed effect requires an adopted revision, subsequent character use and observed consequence"));
+    } else if snapshot.development_version >= 2
+        && matches!(
+            update.disposition,
+            Disposition::Supported | Disposition::Regressed | Disposition::NoEffect
+        )
+        && !(matches!(update.disposition, Disposition::NoEffect)
+            && update
+                .candidate_review
+                .as_ref()
+                .is_some_and(|r| r.assessment.is_some()))
+    {
+        return Err(failure("For a live effect, cite adoption, later use and an observed consequence. For a matched probe with no effect, supply candidate_review with the exact assessment."));
     }
-    let cursor: i64 = db.query_row("SELECT COALESCE(MAX(seq),0) FROM events", [], |r| r.get(0))?;
     body["interpretation"] = serde_json::to_value(&update)?;
-    body["revisit_after_event"] = json!(cursor);
+    body["revisit_after_event"] = json!(snapshot.observation_through.unwrap_or(snapshot.cursor));
     body["model_at_interpretation"] = json!(snapshot.model);
     let r = store::write(
         db,
@@ -343,6 +407,7 @@ pub(super) fn owned(db: &Connection, actor: &str, reference: &str) -> Result<sto
 /// due question never changes work eligibility or another persona's judgment.
 pub(super) fn index(db: &Connection, actor: &str) -> Result<Vec<Value>> {
     let mut entries = Vec::new();
+    let persona=store::required(db,"persona",actor)?;
     for record in store::list(db, "development")?
         .into_iter()
         .filter(|r| r.body["owner"] == actor)
@@ -352,18 +417,41 @@ pub(super) fn index(db: &Connection, actor: &str) -> Result<Vec<Value>> {
         let matching: Option<i64> = if let Some(kind) = revisit["event_kind"].as_str() {
             db.query_row("SELECT MIN(e.seq) FROM events e WHERE e.seq>?1 AND e.kind=?2
                 AND (?3 IS NULL OR e.work=?3) AND (e.actor=?4 OR e.target=?4 OR (e.target='*' AND EXISTS
-                (SELECT 1 FROM heads h WHERE h.kind='participation' AND h.id=e.work||'/'||?4)))",
+                (SELECT 1 FROM events j WHERE j.work=e.work AND j.target=?4 AND j.kind='invitation' AND j.seq<=e.seq)))",
                 params![record.body["revisit_after_event"].as_i64().unwrap_or(0),kind,revisit["work"].as_str(),actor],
                 |r|r.get(0))?
         } else {
             None
         };
+        let feedback:Option<i64>=db.query_row("SELECT MAX(e.seq) FROM events e WHERE e.work=?1 AND e.seq>?2
+            AND e.kind IN ('user_message','user_acceptance','requirements_amended') AND (e.target=?3 OR (e.target='*'
+            AND EXISTS(SELECT 1 FROM events j WHERE j.work=e.work AND j.target=?3 AND j.kind='invitation' AND j.seq<=e.seq)))",
+            params![record.body["origin_work"].as_str(),record.body["revisit_after_event"].as_i64().unwrap_or(0),actor],|r|r.get(0))?;
+        let last=record.body["adoptions"].as_array().and_then(|a|a.last());
+        let active=last.is_some_and(|a|a["model"]==persona.body["model"] && a["epoch"]==persona.body["epoch"]);
         entries.push(
             json!({"reference":record.reference.handle(),"origin_work":record.body["origin_work"],
             "question":detail["question"],"disposition":detail["disposition"],"revisit":revisit,
+            "last_adoption":last.map(|a|json!({"candidate":a["candidate"],"model":a["model"],"epoch":a["epoch"],"decision":a["decision"]})),
+            "observing_active_model":active,"outcome_observations":record.body["follow_ups"].as_array().map_or(0,Vec::len),
             "due_by_time":revisit["at_unix"].as_i64().is_some_and(|t|t<=super::now()),
-            "matching_experience":matching.map(|n|format!("experience:event-{n}@1"))}),
+            "matching_experience":matching.map(|n|format!("experience:event-{n}@1")),
+            "later_feedback":feedback.map(|n|format!("experience:event-{n}@1"))}),
         );
     }
     Ok(entries)
+}
+
+pub(super) fn related_to_use(db:&Connection,usage:&Value)->Result<Vec<Value>> {
+    let mut related=Vec::new();
+    for record in store::list(db,"development")? {
+        if record.body["owner"]!=usage["owner"] {continue;}
+        for adoption in record.body["adoptions"].as_array().into_iter().flatten() {
+            if adoption["model"]==usage["package"] && adoption["epoch"]==usage["epoch"] {
+                related.push(json!({"current_question":record.reference.handle(),"adopted_from":adoption["origin"],
+                    "candidate":adoption["candidate"],"adoption_decision":adoption["decision"]}));
+            }
+        }
+    }
+    Ok(related)
 }

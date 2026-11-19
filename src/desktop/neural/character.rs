@@ -352,7 +352,7 @@ impl App {
         });
         ui.add_space(12.);
         ui.horizontal_wrapped(|ui| {
-            for (i, label) in ["Characteristics", "Network", "Parameters", "Revisions", "Development", "What if…"]
+            for (i, label) in ["Characteristics", "Network", "Parameters", "Revisions", "Development", "What if…", "Life history"]
                 .iter()
                 .enumerate()
             {
@@ -398,6 +398,7 @@ impl App {
             }
             2 => self.parameter_table(ui, &character),
             4 => self.character_development(ui),
+            6 => self.life_history(ui),
             5 => egui::ScrollArea::vertical().id_salt("character-explorer").show(ui,|ui| {
                 self.explorer.show(ui,&character);
             }).inner,

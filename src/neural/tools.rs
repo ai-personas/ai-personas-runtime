@@ -44,6 +44,16 @@ pub struct Save {
     pub base: Option<String>,
     pub cues: Vec<String>,
     pub qualifications: Vec<String>,
+    #[serde(default)]
+    pub resource: Option<Resource>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Resource {
+    /// Free-form resource type, such as skill, guide, data, or program.
+    pub kind: String,
+    /// Exact retained resources you used or adapted.
+    pub sources: Vec<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -53,6 +63,19 @@ pub struct Import {
     pub base: Option<String>,
     pub cues: Vec<String>,
     pub qualifications: Vec<String>,
+    #[serde(default)]
+    pub resource: Option<Resource>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ListDirectory {
+    /// A directory relative to the shared workspace. Use "." for its root.
+    pub directory: String,
+    #[serde(default)]
+    pub offset: usize,
+    #[serde(default="page_size")]
+    pub page_size:usize,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -180,6 +203,7 @@ pub struct AssetMetadata {
 }
 
 pub const NAMES: &[(&str,&str)] = &[
+    ("workspace.list","List names and file types in one chosen shared-workspace directory. Import selected file contents separately."),
     ("tools.search","Find tool names and purposes using literal or regex search; no execution."),
     ("tools.describe","Read exact input schemas for named tools."),
     ("persona.initialize","Author your initial network as explicit sparse numerical parameters. Unspecified coordinates are zero; no training or random initialization."),
@@ -232,6 +256,7 @@ pub fn describe(name: &str) -> Result<Value> {
         "asset.organize" => schema::<AssetMetadata>()?,
         "image.read" => schema::<ImageRead>()?,
         "compute.run" => schema::<Compute>()?,
+        "workspace.list" => schema::<ListDirectory>()?,
         "peer.message" => schema::<Message>()?,
         "peer.invite" => schema::<Invite>()?,
         "peer.respond" => schema::<Respond>()?,
@@ -279,6 +304,11 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
         "asset.organize" => parse::<AssetMetadata>(value),
         "image.read" => parse::<ImageRead>(value),
         "compute.run" => parse::<Compute>(value),
+        "workspace.list" => {
+            let page:ListDirectory=serde_json::from_value(value.clone())?;
+            if page.page_size==0 || page.directory.trim().is_empty() {return Err(failure("Choose a directory and positive page size"));}
+            Ok(())
+        }
         "peer.message" => parse::<Message>(value),
         "peer.invite" => parse::<Invite>(value),
         "peer.respond" => parse::<Respond>(value),
@@ -293,7 +323,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
 pub fn is_external(name: &str) -> bool {
     matches!(
         name,
-        "compute.run" | "asset.import" | "image.read" | "persona.assess"
+        "compute.run" | "workspace.list" | "asset.import" | "image.read" | "persona.assess"
     )
 }
 pub fn asset_mutation(name: &str) -> bool {

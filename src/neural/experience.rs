@@ -1,6 +1,6 @@
 //! Deliberate discovery across the work and social life of one continuing identity.
 use super::{failure, store, tools::Search, Result};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 
 const EVENTS: &str = "SELECT 'event-' || e.seq AS id, e.work,e.actor,e.target,e.kind,e.digest,
@@ -100,6 +100,24 @@ fn locate(db: &Connection, actor: Option<&str>, reference: &str) -> Result<Exper
 
 pub(super) fn metadata(db: &Connection, actor: Option<&str>, reference: &str) -> Result<Value> {
     Ok(locate(db, actor, reference)?.metadata())
+}
+
+/// A compact invitation to deliberate retrieval. Other activities contribute
+/// counts and an exact feedback pointer, never a carried-over brief or duty.
+pub(super) fn availability(db: &Connection, actor: &str, work: &str) -> Result<Value> {
+    let (tasks,conversations):(i64,i64)=db.query_row("SELECT COALESCE(SUM(CASE WHEN COALESCE(json_extract(CAST(wo.bytes AS TEXT),'$.kind'),'task')='task' THEN 1 ELSE 0 END),0),
+        COALESCE(SUM(CASE WHEN json_extract(CAST(wo.bytes AS TEXT),'$.kind')='social' THEN 1 ELSE 0 END),0)
+        FROM heads w JOIN objects wo ON w.digest=wo.digest JOIN heads m ON m.kind='participation' AND m.id=w.id||'/'||?1
+        WHERE w.kind='work' AND w.id<>?2",[actor,work],|r|Ok((r.get(0)?,r.get(1)?)))?;
+    let sql=format!("{EVENTS} WHERE {VISIBLE} AND e.work<>?2 AND e.kind IN ('user_message','user_acceptance','requirements_amended') ORDER BY e.seq DESC LIMIT 1");
+    let feedback = db
+        .query_row(&sql, [actor, work], Experience::row)
+        .optional()?;
+    Ok(
+        json!({"other_invited_tasks":tasks,"other_social_invitations":conversations,
+        "latest_feedback_elsewhere":feedback.map(|r|r.metadata()),
+        "discovery":"experience.search finds your earlier choices and exchanges. Select an exact experience to inspect it. Other activities have their own briefs."}),
+    )
 }
 
 pub(super) fn read(db: &Connection, actor: Option<&str>, reference: &str) -> Result<Value> {

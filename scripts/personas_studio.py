@@ -1,5 +1,6 @@
 """Interactive terminal for the same native commands and workspace as Personas Desktop."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -31,7 +32,15 @@ def call(root, operator, args, capture=False):
 def choose_workspace():
     home = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state")
     library = home / "ai-personas/editable-workspaces"
-    saved = sorted(p.parent for p in library.glob("*/neural.sqlite"))
+    saved = {p.parent for p in library.glob("*/neural.sqlite")}
+    for entry in (library.parent / "recent-workspaces").glob("*.json"):
+        try:
+            path = Path(json.loads(entry.read_text(encoding="utf-8")))
+            if (path / "neural.sqlite").is_file():
+                saved.add(path)
+        except (ValueError, TypeError, OSError):
+            continue
+    saved = sorted(saved)
     for i, path in enumerate(saved, 1):
         print(f"  {i}  {path.name}")
     choice = ask("Choose a saved number, enter a folder, or enter new", "new")
@@ -40,6 +49,21 @@ def choose_workspace():
     if choice.isdecimal() and 1 <= int(choice) <= len(saved):
         return saved[int(choice) - 1]
     return Path(choice).expanduser()
+
+def remember_workspace(root):
+    state = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state")
+    recent = state / "ai-personas/recent-workspaces"
+    recent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    root = root.resolve()
+    key = hashlib.sha256(os.fsencode(root)).hexdigest()
+    with tempfile.NamedTemporaryFile(dir=recent, delete=False) as stage:
+        temporary = Path(stage.name)
+        try:
+            stage.write(json.dumps(str(root)).encode("utf-8"))
+            stage.flush()
+            os.replace(temporary, recent / (key + ".json"))
+        finally:
+            temporary.unlink(missing_ok=True)
 
 
 def setup(root, operator):
@@ -88,6 +112,10 @@ def session(root, operator):
             raise ValueError("This folder contains a historical journal. Open it with ./personas --journal-terminal.")
         setup(root, operator)
     summary(call(root, operator, ["status"], True))
+    try:
+        remember_workspace(root)
+    except OSError as error:
+        print(f"Could not save this folder in the workspace library. {error}", file=sys.stderr)
     print("Enter task, social, summary, help or a native workspace command. Enter quit to leave.")
     while True:
         try:

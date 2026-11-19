@@ -22,6 +22,7 @@ mod explorer;
 mod data;
 mod dialogs;
 mod export;
+mod life;
 mod workspace;
 
 const TEAL: Color32 = Color32::from_rgb(103, 198, 185);
@@ -71,6 +72,7 @@ enum Update {
     Saved(u64, Result<String, String>),
 }
 pub struct App {
+    pub(super) show_library: bool,
     root: PathBuf,
     snapshot: data::Snapshot,
     events: Vec<Value>,
@@ -109,6 +111,7 @@ pub struct App {
     files: artifacts::Viewer,
     character_tab: usize,
     explorer: explorer::Explorer,
+    life_filter: usize,
     development_anchor: String,
     development_filter: usize,
     development_all_work: bool,
@@ -135,6 +138,7 @@ impl App {
         theme::apply(ctx, layout.dark, layout.scale);
         let (tx, rx) = mpsc::channel();
         Self {
+            show_library: false,
             root,
             snapshot: Default::default(),
             events: vec![],
@@ -173,6 +177,7 @@ impl App {
             files: artifacts::Viewer::new(ctx, gl),
             character_tab: 0,
             explorer: explorer::Explorer::default(),
+            life_filter: 0,
             development_anchor: String::new(),
             development_filter: 0,
             development_all_work: false,

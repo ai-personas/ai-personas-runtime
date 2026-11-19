@@ -174,6 +174,11 @@ pub async fn invoke(
                         }
                     }
                 }
+                let snapshot:String=db.query_row("SELECT snapshot FROM invocations WHERE id=?1",[&call_id],|r|r.get(0))?;
+                store::write(db,"provider_completion",&call_id,0,&json!({"invocation":call_id,"work":work,"actor":actor,
+                    "snapshot":format!("object:{snapshot}"),"response":format!("object:{response}"),"receipt":format!("object:{receipt}"),
+                    "disposition":state,"model":output.reported_model,"prompt_sha256":output.attempt.audit.prompt_sha256,
+                    "wire_sha256":output.attempt.audit.request_sha256}),Some(&call_id))?;
                 db.execute(
                     "UPDATE invocations SET state=?2,response=?3,receipt=?4,updated=?5 WHERE id=?1",
                     params![
@@ -341,6 +346,10 @@ async fn external(
     let mut store = Store::open(root)?;
     let cfg = config(&store)?;
     match op.tool.as_str() {
+        "workspace.list" => {
+            let page:tools::ListDirectory=serde_json::from_value(op.input.clone())?;
+            super::workspace::list(&cfg.working_directory,&page)
+        }
         "compute.run" => {
             let input: tools::Compute = serde_json::from_value(op.input.clone())?;
             let program = super::workspace::program(&store.db, &input.program)?;
@@ -354,7 +363,10 @@ async fn external(
             let (path, bytes) = super::workspace::read_file(&cfg.working_directory, &input.host_path)?;
             store.transaction(|db|{
                 let blob=store::put_bytes(db,"application/octet-stream",&bytes)?;
-                let saved=operations::save_asset(db,actor,invocation,&input.path,input.base.as_deref(),&blob,&input.cues,&input.qualifications);
+                db.execute_batch("SAVEPOINT import_metadata")?;
+                let saved=operations::save_asset(db,actor,invocation,&input.path,input.base.as_deref(),&blob,&input.cues,&input.qualifications,input.resource.as_ref());
+                if saved.is_err(){db.execute_batch("ROLLBACK TO import_metadata")?;}
+                db.execute_batch("RELEASE import_metadata")?;
                 // A stale metadata base cannot erase the already observed read.
                 Ok(match saved{Ok(r)=>json!({"reference":r.handle(),"blob":blob,"bytes":bytes.len(),"source":path}),Err(e)=>json!({"retained_blob":format!("object:{blob}"),"bytes":bytes.len(),"source":path,"asset_update_failed":e.to_string()})})
             })
@@ -513,13 +525,12 @@ pub async fn run(root: &Path, watch: bool) -> Result<Value> {
                 && match &part.continuation {
                     Continuation::Ready { .. } => true,
                     Continuation::Stop { .. } => false,
-                    Continuation::Wait { wake_at_unix, .. } => {
+                    Continuation::Wait { wake_at_unix, on_events, .. } => {
                         if wake_at_unix.is_some_and(|t| t > now()) {
                             future_wake = true;
                         }
                         wake_at_unix.is_some_and(|t| t <= now())
-                            || !store::events(&store.db, &part.work, &part.persona, part.cursor)?
-                                .is_empty()
+                            || store::has_arrival(&store.db,&part.work,&part.persona,part.cursor,on_events)?
                     }
                 };
             if ready {

@@ -160,25 +160,35 @@ pub fn save_asset(
     blob: &str,
     cues: &[String],
     qualifications: &[String],
+    resource: Option<&tools::Resource>,
 ) -> Result<Reference> {
     if path.trim().is_empty() || cues.iter().any(|s| s.trim().is_empty()) {
         return Err(failure("asset needs a path and nonblank discovery cues"));
     }
-    let (asset_id, revision) = if let Some(base) = base {
+    if let Some(description)=resource {
+        if description.kind.trim().is_empty() {return Err(failure("Give the resource a type or omit its classification"));}
+        check_references(db,&description.sources)?;
+    }
+    let work:String=db.query_row("SELECT work FROM invocations WHERE id=?1",[invocation],|r|r.get(0))?;
+    let (asset_id, revision, creator, prior_resource) = if let Some(base) = base {
         let record = store::exact(db, base)?;
         if record.reference.kind != "asset" {
             return Err(failure("asset base must be an exact asset"));
         }
-        (record.reference.id, record.reference.revision)
+        let first=store::exact(db,&format!("asset:{}@1",record.reference.id))?;
+        let creator=first.body["owner"].as_str().ok_or_else(||failure("Original asset author unavailable"))?.to_owned();
+        (record.reference.id, record.reference.revision,creator,record.body["resource"].clone())
     } else {
-        (id("asset")?, 0)
+        (id("asset")?, 0,actor.to_owned(),Value::Null)
     };
+    let description=match resource {Some(resource)=>serde_json::to_value(resource)?,None=>prior_resource};
     let reference = store::write(
         db,
         "asset",
         &asset_id,
         revision,
-        &json!({"path":path,"owner":actor,"blob":blob,"cues":cues,"qualifications":qualifications,"retired":false}),
+        &json!({"path":path,"owner":actor,"created_by":creator,"last_content_author":actor,"work":work,"origin_decision":invocation,
+            "previous_revision":base,"resource":description,"blob":blob,"cues":cues,"qualifications":qualifications,"retired":false}),
         Some(invocation),
     )?;
     db.execute("INSERT INTO asset_index VALUES(?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET path=excluded.path,owner=excluded.owner,cues=excluded.cues",
@@ -271,7 +281,7 @@ fn internal(
         "experience.search" => super::experience::search(db, actor, &decode(input)?),
         "history.search" => {
             let query: tools::Search = decode(input)?;
-            let mut statement = db.prepare("SELECT e.seq,e.actor,e.target,e.kind,e.digest,e.invocation,e.created,i.snapshot,i.response,i.receipt FROM events e LEFT JOIN invocations i ON i.id=e.invocation AND i.actor=?2 WHERE e.work=?1 AND (e.actor=?2 OR e.target=?2 OR e.target='*') ORDER BY e.seq DESC")?;
+            let mut statement = db.prepare("SELECT e.seq,e.actor,e.target,e.kind,e.digest,e.invocation,e.created,i.snapshot,i.response,i.receipt FROM events e LEFT JOIN invocations i ON i.id=e.invocation AND i.actor=?2 WHERE e.work=?1 AND (e.actor=?2 OR e.target=?2 OR (e.target='*' AND EXISTS(SELECT 1 FROM events j WHERE j.work=e.work AND j.target=?2 AND j.kind='invitation' AND j.seq<=e.seq))) ORDER BY e.seq DESC")?;
             let rows = statement
                 .query_map(params![work, actor], |r| {
                     Ok((
@@ -323,7 +333,8 @@ fn internal(
         "asset.search" => {
             let q: tools::Search = decode(input)?;
             let mut statement =
-                db.prepare("SELECT id,path,owner,cues FROM asset_index ORDER BY path,id")?;
+                db.prepare("SELECT a.id,a.path,a.owner,a.cues,json_extract(CAST(o.bytes AS TEXT),'$.resource.kind')
+                    FROM asset_index a JOIN heads h ON h.kind='asset' AND h.id=a.id JOIN objects o ON o.digest=h.digest ORDER BY a.path,a.id")?;
             let rows = statement
                 .query_map([], |r| {
                     Ok((
@@ -331,14 +342,16 @@ fn internal(
                         r.get::<_, String>(1)?,
                         r.get::<_, String>(2)?,
                         r.get::<_, String>(3)?,
+                        r.get::<_,Option<String>>(4)?,
                     ))
                 })?
                 .collect::<std::result::Result<Vec<_>, _>>()?;
             let mut hits = Vec::new();
-            for (id, path, owner, cues) in rows {
-                if tools::matches(&q, &format!("{path} {cues}"))? {
+            for (id, path, owner, cues, kind) in rows {
+                if tools::matches(&q, &format!("{path} {owner} {} {cues}",kind.as_deref().unwrap_or("")))? {
                     let record = store::required(db, "asset", &id)?;
-                    hits.push(json!({"reference":record.reference.handle(),"path":path,"owner":owner,"cues":decode::<Value>(&serde_json::from_str::<Value>(&cues)?)?,"retired":record.body["retired"]}));
+                    hits.push(json!({"reference":record.reference.handle(),"path":path,"owner":owner,"kind":kind,"created_by":record.body["created_by"],
+                        "source_count":record.body["resource"]["sources"].as_array().map(Vec::len),"cues":serde_json::from_str::<Value>(&cues)?,"retired":record.body["retired"]}));
                 }
             }
             Ok(
@@ -364,6 +377,7 @@ fn internal(
                 &blob,
                 &x.cues,
                 &x.qualifications,
+                x.resource.as_ref(),
             )?;
             Ok(
                 json!({"reference":r.handle(),"blob":blob,"bytes":x.text.len(),"host_file_written":false}),
@@ -383,6 +397,7 @@ fn internal(
             body["cues"] = json!(x.cues);
             body["retired"] = json!(x.retired);
             body["organization_reason"] = json!(x.reason);
+            body["organized_by"] = json!(actor);
             let r = store::write(
                 db,
                 "asset",
@@ -718,18 +733,16 @@ fn switch_model(
         NextModel::Preserve => return Ok(()),
         NextModel::Activate {
             candidate,
+            current_development,
             follow_up,
             expected_model,
             reason,
         } => {
-            if expected_model != &persona.model
-                || reason.trim().is_empty()
-                || !super::character::saw_record(snapshot,candidate,"candidate")
-            {
-                return Err(failure(
-                    "activation requires an observed candidate, exact current model and reason",
-                ));
+            if expected_model != &persona.model || reason.trim().is_empty() {
+                return Err(failure("Activation needs the exact current model and a reason"));
             }
+            let candidate_input=super::character::observed_input(db,snapshot,candidate,"candidate")?
+                .ok_or_else(||failure(format!("Read or select {candidate} in a preceding decision so its full record reaches you before activation")))?;
             let record = store::exact(db, candidate)?;
             if record.reference.kind != "candidate"
                 || record.body["owner"] != persona.id
@@ -742,12 +755,13 @@ fn switch_model(
                 if snapshot.development_version>0 && follow_up.as_deref().is_none_or(|s|s.trim().is_empty()) {
                     return Err(failure("State what later behavior or outcome you intend to observe"));
                 }
-                assessment = store::list(db, "assessment")?.into_iter().find(|r| {
-                    r.body["candidate"] == *candidate
-                        && r.body["completed"] == true
-                        && r.body["owner"] == persona.id && r.body["predecessor"] == json!(persona.model)
-                        && super::character::saw_record(snapshot,&r.reference.handle(),"assessment")
-                }).map(|r|r.reference.handle());
+                for r in store::list(db,"assessment")? {
+                    if r.body["candidate"]==*candidate && r.body["completed"]==true && r.body["owner"]==persona.id
+                        && r.body["predecessor"]==json!(persona.model) {
+                        assessment=super::character::observed_input(db,snapshot,&r.reference.handle(),"assessment")?;
+                        if assessment.is_some(){break;}
+                    }
+                }
                 if assessment.is_none() {
                     return Err(failure(
                         "observe completed comparative assessment before activating a revision",
@@ -757,12 +771,18 @@ fn switch_model(
             if let Some(question)=record.body["development"].as_str() {
                 let origin=store::exact(db,question)?;
                 let mut current=store::required(db,"development",&origin.reference.id)?;
-                if origin.reference!=current.reference || origin.reference.kind!="development" || current.body["owner"]!=persona.id {
-                    return Err(failure("The development question changed since the proposal. Reconsider the candidate against its current interpretation."));
+                if origin.reference.kind!="development" || current.body["owner"]!=persona.id {
+                    return Err(failure("The proposal and development question must belong to this persona"));
+                }
+                if current_development.as_ref().is_some_and(|r|r!=&current.reference.handle()) ||
+                    (origin.reference!=current.reference && (current_development.as_deref()!=Some(current.reference.handle().as_str())
+                    || !super::development::observed(snapshot,&current.reference.handle()))) {
+                    return Err(failure("Read the changed development question, reconsider the assessment and name the current_development revision when activating"));
                 }
                 current.body["adoptions"].as_array_mut().ok_or_else(||failure("Invalid development history"))?.push(
-                    json!({"candidate":candidate,"origin":question,"decision":snapshot.invocation,
-                        "work":snapshot.work,"model":record.body["model"],"assessment":assessment,
+                    json!({"candidate":candidate,"origin":question,"reviewed_question":current.reference.handle(),"decision":snapshot.invocation,
+                        "work":snapshot.work,"model":record.body["model"],"candidate_input":candidate_input,
+                        "assessment":assessment.as_ref().map(|s|&s["reference"]),"assessment_input":assessment,
                         "epoch":persona.epoch.checked_add(1).ok_or_else(||failure("epoch overflow"))?,
                         "reason":reason,"follow_up":follow_up}));
                 store::write(db,"development",&current.reference.id,current.reference.revision,&current.body,Some(&snapshot.invocation))?;
@@ -873,13 +893,22 @@ fn switch_model(
 /// Reopening an already adopted call returns its original choice.
 pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
     store.transaction(|db|{
-        let (work,actor,state,source,response):(String,String,String,String,Option<String>)=db.query_row(
-            "SELECT work,actor,state,snapshot,response FROM invocations WHERE id=?1", [call],
-            |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?)))?;
+        let (work,actor,state,source,response,receipt):(String,String,String,String,Option<String>,Option<String>)=db.query_row(
+            "SELECT work,actor,state,snapshot,response,receipt FROM invocations WHERE id=?1", [call],
+            |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?)))?;
         if !matches!(state.as_str(),"responded"|"accepted") {return Err(failure("invocation has no adoptable retained response"));}
         let snapshot=&store::object::<Snapshot>(db,&source)?;
         if snapshot.invocation!=call || snapshot.work!=work || snapshot.actor!=actor {return Err(failure("retained snapshot does not own this invocation"));}
         let response=response.ok_or_else(|| failure("missing retained response"))?;
+        if snapshot.development_version>=3 {
+            let terminal=store::required(db,"provider_completion",call)?;
+            let receipt=receipt.ok_or_else(||failure("Missing completed provider receipt"))?;
+            if terminal.body["actor"]!=actor || terminal.body["work"]!=work || terminal.body["invocation"]!=call
+                || terminal.body["response"]!=format!("object:{response}") || terminal.body["snapshot"]!=format!("object:{source}")
+                || terminal.body["receipt"]!=format!("object:{receipt}") || terminal.body["disposition"]!="responded" {
+                return Err(failure("The retained decision, input or receipt differs from the observed provider completion"));
+            }
+        }
         let retained=parse_decision(&store::bytes(db,&response)?)?;
         let decision=&retained;
         if decision.invocation!=call {return Err(failure("response must name the invocation that produced it"));}
@@ -900,6 +929,9 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
         if decision.work.reason.trim().is_empty(){return Err(failure("work judgment needs a reason"));}
         check_references(db,&decision.work.evidence)?;
         match &decision.continuation {Continuation::Ready{purpose} if purpose.trim().is_empty()=>return Err(failure("ready needs a purpose")),Continuation::Wait{reason,..}|Continuation::Stop{reason} if reason.trim().is_empty()=>return Err(failure("waiting/stopping needs a reason")),_=>{}}
+        if let Continuation::Wait{on_events,..}=&decision.continuation {
+            if on_events.iter().any(|kind|kind.trim().is_empty()) {return Err(failure("Use nonblank event kinds for wait.on_events"));}
+        }
         let switching=!matches!(decision.next_model,NextModel::Preserve);
         if switching&&!snapshot.data["context_recovery"].is_null(){return Err(failure("Context recovery supplies metadata, not observed candidate/assessment bodies. Recover the needed evidence before activating or rolling back a character model."));}
         if switching&&!decision.operations.is_empty(){return Err(failure("activate/rollback in a separate response with no operations; the next call uses the replacement model"));}
@@ -967,6 +999,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
 
 pub fn validate_external(db: &Connection, persona: &Persona, op: &Operation) -> Result<()> {
     match op.tool.as_str() {
+        "workspace.list" => {let _:tools::ListDirectory=decode(&op.input)?;}
         "compute.run" => {
             let compute: tools::Compute = decode(&op.input)?;
             let _ = super::workspace::program(db, &compute.program)?;

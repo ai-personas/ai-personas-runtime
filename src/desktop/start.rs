@@ -65,6 +65,43 @@ fn field(ui: &mut egui::Ui, label: &str, value: &mut String) {
     ui.add(egui::TextEdit::singleline(value).desired_width(f32::INFINITY));
 }
 
+fn recent_directory() -> PathBuf {
+    base_directory("XDG_STATE_HOME", ".local/state").join("ai-personas/recent-workspaces")
+}
+
+fn remember_workspace(root: &std::path::Path) -> std::io::Result<()> {
+    use std::os::unix::{ffi::OsStrExt,fs::DirBuilderExt};
+    let directory=recent_directory();
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&directory)?;
+    let path=root.canonicalize()?;
+    let id=ai_personas::store::sha256_bytes(path.as_os_str().as_bytes());
+    let mut file=tempfile::NamedTempFile::new_in(&directory)?;
+    serde_json::to_writer(file.as_file_mut(),&path)?;
+    file.persist(directory.join(format!("{id}.json")))?;
+    Ok(())
+}
+
+fn saved_workspaces() -> Vec<PathBuf> {
+    let base=base_directory("XDG_STATE_HOME",".local/state").join("ai-personas/editable-workspaces");
+    let mut paths=std::collections::BTreeMap::new();
+    for root in std::fs::read_dir(base).into_iter().flatten().flatten().map(|entry|entry.path()).chain(journal::candidates()) {
+        if root.join("neural.sqlite").is_file() || root.join("progress.json").is_file() {
+            let modified=std::fs::metadata(&root).and_then(|m|m.modified()).ok();
+            paths.insert(std::fs::canonicalize(&root).unwrap_or(root),modified);
+        }
+    }
+    for entry in std::fs::read_dir(recent_directory()).into_iter().flatten().flatten() {
+        if entry.path().extension().is_none_or(|ext|ext!="json") {continue;}
+        let Some(path)=std::fs::read(entry.path()).ok().and_then(|b|serde_json::from_slice::<PathBuf>(&b).ok()) else {continue;};
+        if path.join("neural.sqlite").is_file() {
+            paths.insert(path,entry.metadata().and_then(|m|m.modified()).ok());
+        }
+    }
+    let mut items:Vec<_>=paths.into_iter().collect();
+    items.sort_by_key(|(_,modified)|std::cmp::Reverse(*modified));
+    items.into_iter().map(|(path,_)|path).collect()
+}
+
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, requested: Option<PathBuf>) -> Self {
         let ctx = &cc.egui_ctx;
@@ -75,21 +112,7 @@ impl App {
         let base = base_directory("XDG_STATE_HOME", ".local/state")
             .join("ai-personas/editable-workspaces");
         let name = journal::id("workspace");
-        let mut saved: Vec<_> = std::fs::read_dir(&base)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| path.join("neural.sqlite").is_file())
-            .collect();
-        saved.extend(
-            journal::candidates()
-                .into_iter()
-                .filter(|root| root.join("progress.json").is_file()),
-        );
-        saved.sort_by_key(|root| {
-            std::cmp::Reverse(std::fs::metadata(root).and_then(|m| m.modified()).ok())
-        });
+        let saved = saved_workspaces();
         let codex = helpers::codex(None).unwrap_or_else(|| {
             let home = std::env::var("HOME").unwrap_or_default();
             journal::CodexPaths {
@@ -99,13 +122,13 @@ impl App {
                     .unwrap_or_else(|_| format!("{home}/.codex")),
             }
         });
-        let state_root = requested
-            .clone()
+        let existing=requested.as_ref().filter(|p|p.join("neural.sqlite").is_file()).cloned();
+        let state_root = requested.clone().filter(|_|existing.is_none())
             .unwrap_or_else(|| base.join(name.as_deref().unwrap_or("new-workspace")));
         let working = base_directory("XDG_DATA_HOME", ".local/share")
             .join("ai-personas/workspaces")
             .join(name.as_deref().unwrap_or("new-workspace"));
-        Self {
+        let mut app=Self {
             gl: cc.gl.clone(),
             workspace: None,
             tx,
@@ -134,8 +157,10 @@ impl App {
                 name: "Persona 1".into(),
                 profile: String::new(),
             }],
-            create_mode: requested.is_some(),
-        }
+            create_mode: requested.is_some() && existing.is_none(),
+        };
+        if let Some(root)=existing {app.open(ctx,root);}
+        app
     }
 
     fn open(&mut self, ctx: &egui::Context, root: PathBuf) {
@@ -286,6 +311,7 @@ impl App {
                     self.busy = false;
                     match result {
                         Ok(root) => {
+                            let _=remember_workspace(&root);
                             self.workspace = Some(neural::App::new(ctx, root, self.gl.as_ref()))
                         }
                         Err(error) => self.error = Some(error),
@@ -482,6 +508,14 @@ impl eframe::App for App {
         self.drain(ctx);
         if let Some(workspace) = &mut self.workspace {
             workspace.update(ctx, frame);
+            if workspace.show_library {
+                workspace.on_exit(self.gl.as_deref());
+                self.workspace=None;
+                self.saved=saved_workspaces();
+                self.create_mode=false;
+                self.error=None;
+                theme::apply(ctx,true,1.);
+            }
             return;
         }
         let palette = theme::Palette::new(true);
