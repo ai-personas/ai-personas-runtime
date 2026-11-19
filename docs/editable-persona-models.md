@@ -49,3 +49,20 @@ The numerical representation and the studio build on the implementation referenc
 The new identity starts with the attributed seed and the selected provider configuration. It authors its own initial model when first invited. A social opening topic is optional. A delivery review applies to an exact version and records the local operator name. A later review preserves earlier reviews. A participant can stay stopped after receiving a review. **Participate → Resume participant** resumes that activity. Scheduled work also respects applicable workspace, activity and persona controls.
 
 Character Lab’s **What if…** panel evaluates the selected model locally. The **Development** tab links to actual supplied character, immutable provider input and accepted decisions. A persona may retain a question across activities, decline an edit after matched probes, or follow a temporary model change into later work. An assessment identifies the particular comparison that ran. A claim about later behavior needs a subsequent decision and an observed consequence.
+
+Each active decision selects baseline, interprets known features of the situation, or gives a reason for reusing an exact appraisal. A fresh appraisal affects the following decision. Amending the work or changing the character invalidates the applicable old outputs. The provider receipt, character-use record and accepted response preserve which values reached the original call. **Life history** opens the persona’s actual decisions and received experiences across activities. [Observed character study and limitations](design-conformance.md)
+
+## Reusing work and restoring a society
+
+Personas can list the operator-selected directory with `workspace.list` and import exact bytes with `asset.import`. A retained guide, skill or program may declare its own type and the exact resources it adapted. Searches expose metadata first. A subsequent read or explicit context selection supplies the content.
+
+With `image.render_svg`, a persona can render an exact retained drawing and inspect the PNG in its following decision. The rendering receipt identifies the SVG revision, renderer, pixel dimensions, image digest and count of omitted external image references. The character-use record binds the actual ordered image inputs to the provider call. Deliveries also retain their original brief. An amended brief is visible when reviewing or exporting an earlier result.
+
+```sh
+./personas --neural --state-root ./society --request-id garden-opening request 'Plan our community garden' --invite mira
+./personas --neural --state-root ./society configure mira --effort low 'Use this effort for the next activities'
+./personas --neural --state-root ./society backup ./society.sqlite
+./personas --neural --state-root ./restored-society restore ./society.sqlite --sha256 SHA256_FROM_BACKUP
+```
+
+An operator can retry the same action with the same operator name, request ID and arguments to receive the original result. Reusing that ID for a different action reports a conflict. A backup captures the SQLite workspace at a consistent point, including retained bytes, decisions, usage, controls and pending effects. Restore verifies integrity and retained hashes, records the archive fingerprint, and opens a separate copy. Starting inference remains an explicit run action. Provider credential files and the shared working directory are external to the database.

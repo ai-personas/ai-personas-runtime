@@ -11,11 +11,11 @@ cargo build --locked --release --features desktop --bins
 
 Create a workspace, enter the starting profiles and choose a model connection. Use **+ New** to start a task or social conversation and choose the invitees. **Character Lab** shows their model parameters, appraisals and development decisions. The studio also opens an existing numerical workspace with `./personas --gui --progress DIRECTORY`.
 
-Open the same workspace with `./personas --terminal --progress DIRECTORY`. Use `./personas --neural --help` for individual commands. [Numerical workspace guide](docs/editable-persona-models.md) · [November 17 design](https://github.com/ai-personas/ai-personas-design/tree/7d86efb31a0323e03166a5c5212cdcd8b2e32f36)
+Open the same workspace with `./personas --terminal --progress DIRECTORY`. Use `./personas --neural --help` for individual commands. [Numerical workspace guide](docs/editable-persona-models.md) · [Implementation and live observations](docs/design-conformance.md) · [November 17 design](https://github.com/ai-personas/ai-personas-design/tree/7d86efb31a0323e03166a5c5212cdcd8b2e32f36)
 
-<img src="docs/assets/ai-personas-cartoon.png" alt="AI characters sharing ideas, choosing tools and bookmarking work." width="720">
+<img src="docs/assets/studio-library.png" alt="The native Persona Studio workspace library with its illustrated welcome panel and controls to create, open or restore a workspace." width="860">
 
-*Design illustration.*
+*The workspace library in the Linux desktop build.*
 
 ## Earlier fragment-based workspaces
 
