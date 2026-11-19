@@ -487,6 +487,18 @@ impl App {
         }
         .into()
     }
+    fn peer_exchange(event:&Value)->bool {
+        let kind=s(event,"kind");
+        let actor=s(event,"actor");
+        let recipient=if matches!(kind,"request_message_sent"|"request_review_sent"){s(&event["body"],"to")}else{s(event,"target")};
+        if event["invocation"].is_null() || actor==recipient {return false;}
+        match kind {
+            "message"|"reply"|"delivery"=>recipient!="user" && recipient!="*",
+            "asset_feedback"=>event["body"]["author_kind"]=="persona" && event["body"]["recipient_kind"]=="persona",
+            "invitation"|"contribution_proposal"=>true,
+            _=>requested_activities::label(kind).is_some(),
+        }
+    }
     pub(super) fn studio(&mut self, ui: &mut Ui) {
         egui::ScrollArea::vertical()
             .id_salt(("studio-overview",self.work.clone()))
@@ -507,7 +519,7 @@ impl App {
                     .events
                     .iter()
                     .filter(|e| {
-                        e["work"] == self.work && e["kind"] == "message" && e["actor"] != "user"
+                        e["work"] == self.work && Self::peer_exchange(e)
                     })
                     .count();
                 ui.horizontal_wrapped(|ui| {
@@ -518,7 +530,7 @@ impl App {
                             "library artifacts",
                             theme::ACCENT,
                         ),
-                        (peers, "peer messages", PURPLE),
+                        (peers, "peer exchanges", PURPLE),
                         (
                             self.records("deliveries")
                                 .iter()
@@ -917,9 +929,7 @@ impl App {
                         || actor == self.conversation_persona
                         || target == self.conversation_persona || e["body"]["to"]==self.conversation_persona)
                     && match self.conversation_channel {
-                        1 => (matches!(kind,"message"|"reply"|"delivery") && target != "user") || requested_activities::label(kind).is_some()
-                            || (kind == "asset_feedback" && e["body"]["author_kind"]=="persona" && e["body"]["recipient_kind"]=="persona")
-                            || (matches!(kind, "invitation" | "contribution_proposal") && e["invocation"].is_string()),
+                        1 => Self::peer_exchange(e),
                         2 => kind == "user_message" || target == "user"
                             || (kind == "asset_feedback" && (e["body"]["author_kind"]=="operator" || e["body"]["recipient_kind"]=="operator"))
                             || (kind == "invitation" && e["invocation"].is_null()),
