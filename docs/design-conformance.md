@@ -2,7 +2,7 @@
 
 The numerical Studio runs continuing personas through direct provider calls. Real participants produced editable designs, exchanged messages, reused other projects’ files and completed a reversible character experiment. **Beneficial self-directed numerical maturation over ordinary work remains unproven.** In the five-person cohort, all five authored and used initial models. Three retained developmental questions after feedback. None proposed a subsequent numerical revision across the eleven main-cohort activities.
 
-The design revision is `7d86efb`, published November 17, 2026. The Linux evaluation used successive runtime revisions from `0345495` through `9b93550` on November 19. Each saved decision retains the interface and observations supplied by its own build. [Design](https://github.com/ai-personas/ai-personas-design/tree/7d86efb31a0323e03166a5c5212cdcd8b2e32f36) · [Runtime evaluated](https://github.com/ai-personas/ai-personas-runtime/tree/9b9355038998877383c721f29e643117d61a6665)
+The design revision is `7d86efb`, published November 17, 2026. The Linux evaluation used successive runtime revisions from `0345495` through `d277ea5` on November 19. Each saved decision retains the interface and observations supplied by its own build. [Design](https://github.com/ai-personas/ai-personas-design/tree/7d86efb31a0323e03166a5c5212cdcd8b2e32f36) · [Runtime evaluated](https://github.com/ai-personas/ai-personas-runtime/tree/d277ea5009a8e6e7ebe1b780631b9f335e65b4a9)
 
 ## What happened in ordinary work
 
@@ -103,6 +103,25 @@ The earlier release supplied the original appraisal and the incoming cancellatio
 
 In a subsequent debrief, the evaluator described reading these lines and recalled the earlier unnecessary hold after a signed booking. Ren revised its existing question to ask what each recipient would still owe after reading a commitment message. Two proposed decisions were rejected, one for attempting to defer an already persistent question and one for claiming an unread experience. The adopted revision cited the exact earlier correction. In a new repair-café task, Ren’s reminder reached both inputs. Ren released Niko’s spare lamps and asked Mo to keep holding the dimmer because the packing list remained unresolved. Both decisions used baseline at epoch 3. The exchange produced appropriate advice and a more specific development question. It supplied no new numerical revision or isolated numerical benefit.
 
+### Tracing a conditional weight through actual choices
+
+The operator asked Ren to examine two of its own recorded choices. Ren called `persona.paths` twice, received both results and read the original exchanges. Its alternate package changed the ambiguity-value coefficient for clarification from 0.3 to 0.9. The bias stayed at 0.1. The other eleven inclinations stayed numerically identical on both inputs.
+
+| Original choice | Appraised ambiguity | Clarification supplied | Clarification under the alternate | What Ren actually said |
+|---|---:|---:|---:|---|
+| Cancellation with no replacement room | +0.2 | +0.15865 | +0.27291 | Reported the cancellation and asked Jo to keep the backup. |
+| Explicit confirmation of Saturday afternoon | −0.9 | −0.16838 | −0.61068 | Thanked the sender for confirming Saturday. |
+
+Ren explained the opposite directions and identified that its earlier temporary deployment had supplied baseline inputs. An independent calculation checked all twelve supplied outputs on 68 of Ren’s accepted choices. The alternate changed clarification on all five contextual inputs and on none of the 63 baseline inputs. The evaluator also checked 15 accepted choices by Inez. Both personas’ inspected packages had zero hidden units. Separate offline arithmetic checks covered known zero, an unknown input, active and inactive hidden units, a disconnected output weight, saturation and overflow. A mismatched provider receipt failed verification. These calculations establish the numerical inputs to reasoning. The only live words observed in the two situations above came from the original package.
+
+### A drafting habit across ordinary activities
+
+Inez authored a new general character at medium reasoning effort. Its first two-line mending-table sign used 24 and 23 character cells. The local preview retained all three directions. In a later photo-table draft, Inez preserved the uncertainty about camera delivery and added a promise in the operator’s voice to ask for confirmation and report back. The operator removed that sentence and explained they would be offline. Inez corrected the text and independently retained a question about making promises for others. In a library draft it subsequently kept an authorized Tuesday delivery and left an unconfirmed Friday scan open.
+
+The operator then invited Inez to pursue its own question. In the first run, two decisions attempted to revise a superseded question and another attempted a deferral before reading the revision. Three related question records existed by the end. In a second run from the same pre-discussion backup, the revised runtime identified the question version written by a deferral, linked older reads to the current head and explained how to keep a question pending while gathering evidence. Inez used one continuing question and encountered one rejection for an omitted appraisal choice. The two discussions used seven and six accepted decisions respectively. Each had its own provider sampling.
+
+In both discussions Inez chose to check the authorization behind each commitment and to retain its numerical character. On a new activity after the second discussion, Inez wrote two personal sentences about Sunday matinees and a ticket stub, with no new errand or promise in the sender’s voice. These observations extend the evidence for a remembered drafting practice. Its numerical contribution to later improvement remains unestablished.
+
 ## Controlled lookup and source continuity
 
 Ren registered a fictional 124,153-byte collection-desk register, preserved its warning about dated bulletins and moved the same asset to a new library name. This setup took six accepted calls and 58,342 provider-reported tokens. Four independent copies of the same prepared activity then asked Ren about two desk exchanges at 16:10. They shared the question, exact asset, starting numerical state and medium-effort reasoning configuration. The evaluator specified the retrieval method. Ren chose its calls, search terms, surrounding lines and answer.
@@ -131,10 +150,10 @@ Each row identifies the implementation, observation or outstanding evidence for 
 | UR-001, UR-002, UR-035, UR-054 | The design repository publishes the consolidated illustrated specification. Runtime code, launch instructions, the Studio screenshot and this implementation report live here. Reliability claims are limited to the cases inspected. |
 | UR-003 | The same continuing personas participated in architecture, electronics, manufacturing and unassigned conversation. General human-like behavior across arbitrary settings remains an empirical question. |
 | UR-004, UR-005 | The stored seed names its author. The initial provider interaction authored parameters, and separate observed activation preceded ordinary work. |
-| UR-006, UR-007, UR-009 | Owner, version, forward arithmetic, numerical fingerprint and supplied outputs are inspectable. Resource bodies and factual history have their own versions. Causal behavioral influence remains only partly assessed. |
+| UR-006, UR-007, UR-009 | Owner, version, forward arithmetic, numerical fingerprint and supplied outputs are inspectable. Ren traced exact weights on two accepted decisions and calculated a retained alternate against the same inputs. Resource bodies and factual history have their own versions. Causal behavioral influence remains only partly assessed. |
 | UR-008 | Individual starting models and different contributions were observed. Longitudinal preservation through beneficial development remains open. |
 | UR-010, UR-025 | Ren exercised numerical editing, assessment and rollback under evaluator direction. In a later ordinary booking it independently opened an evidence-linked question after its wording prolonged standby. The question reached two subsequent activities. Ren later revised it during a debrief and received its revised condition during a repair-café handoff. |
-| UR-026, UR-027 | Improvement of whole-person behavior and later useful work from self-directed numerical development remains undemonstrated. |
+| UR-026, UR-027 | Inez retained an evidence-linked drafting safeguard and used its existing package in later work. Improvement of whole-person behavior and later useful work from self-directed numerical development remains undemonstrated. |
 | UR-028, UR-031, UR-043 | Both transfer sequences included follow-ups with observed resource reuse and domain-specific limits. Tavi reused the exact compiled printer check and later reused Orin’s installed compiler and editable geometry for a measured base extension. A beneficial numerical component remains unidentified. |
 | UR-015, UR-016, UR-018 | Adoption validates work, maintenance, considered experience and next context together. Personas can preserve character, defer with a revisit condition, revise, organize or retire resources. Current calls explicitly select a contextual disposition. |
 | UR-051 | Live calls went directly to OpenAI's Responses interface using the selected API-key route and requested model `gpt-6.1-sol`. |
@@ -197,9 +216,14 @@ The independent evaluator parsed exported SVGs, rendered them with CairoSVG 2.9.
 | Fresh mesh review from the two-delivery workspace | 5 | 0 | 0 | 53,302 |
 | Same cancellation after an earlier applicability decision, two builds | 3 | 0 | 0 | 33,095 |
 | Open commitment debrief and repair-café handoff | 6 | 2 | 0 | 81,198 |
-| **Total** | **872** | **56** | **13** | **11,116,148** |
+| Inez’s mending-table sign, photo-table correction and library reply | 10 | 0 | 0 | 94,503 |
+| Two reflections from one backup and a subsequent theatre note | 15 | 4 | 0 | 240,803 |
+| Ren’s inspection of two recorded numerical paths | 4 | 0 | 0 | 60,753 |
+| **Total** | **901** | **60** | **13** | **11,512,207** |
 
-The requested model was `gpt-6.1-sol`, with low effort in the main and character studies. The restored reading-group and collection-desk studies used the same model at medium effort. Some older receipts omitted the returned model name. The provider supplied token counts, including 4,702,810 cached input tokens. Monetary charge and credit balance were unavailable. Restored historical calls are counted once. The membership studies had 32 completed calls with verified inputs. One additional local preparation stopped before provider dispatch because the saved account binding was absent from the process environment. It had no usage receipt.
+The requested model was `gpt-6.1-sol`, with low effort in the main cohort and Ren’s character studies. Inez and the restored reading-group and collection-desk studies used the same model at medium effort. Some older receipts omitted the returned model name. The provider supplied token counts, including 4,871,076 cached input tokens. Monetary charge and credit balance were unavailable. Restored historical calls are counted once. The membership studies had 32 completed calls with verified inputs. One additional local preparation stopped before provider dispatch because the saved account binding was absent from the process environment. It had no usage receipt.
+
+The 33 completed calls for Inez and Ren’s numerical-path review had verified provider inputs. The live summary had SHA-256 `e51bc4ae3c1a39b9bd01dc7f625938ffb76e017459afdaf012a599ed6b208ff6`. The separate reconstruction of 83 accepted choices had SHA-256 `ae6cc7372d0601c6bf7f0a1b8e4ec8286279c3f4dd3e8670c3700abb6b755ea4`.
 
 All eleven completed cancellation, debrief and lamp-handoff inputs verified. Their independent summary had SHA-256 `68a1d5cd69c945ac612030be26042549df6340b0d5c2058afe29750d9f2619a6`.
 
