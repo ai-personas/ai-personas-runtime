@@ -219,7 +219,10 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
             .filter(|op| matches!(op["tool"].as_str(), Some("development.update" | "development.close" | "persona.initialize" | "persona.evaluate" | "persona.paths" | "persona.patch" | "persona.assess")))
             .map(|op| json!({"id":op["id"],"tool":op["tool"]})).collect();
         let character_use = store::head(&db,"character_use",&invocation)?.map(|r|r.reference.handle());
-        character_decisions.push(json!({"character_use":character_use,
+        let deferred_questions = if decision["persona_maintenance"]["kind"] == "defer" {
+            neural::development::deferred_revisions(&db,&invocation)?
+        } else { Vec::new() };
+        character_decisions.push(json!({"character_use":character_use,"deferred_questions":deferred_questions,
             "invocation":invocation,"actor":actor,"work":work,"accepted":accepted,"accepted_utc":accepted_utc,"order":order,
             "response":format!("object:{response}"),"request":format!("object:{request}"),
             "maintenance":decision["persona_maintenance"],"next_model":decision["next_model"],

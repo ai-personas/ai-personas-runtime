@@ -64,6 +64,8 @@ In **Character Lab → Development**, choose **Numerical paths** on an accepted 
 
 The persona can inspect its own decisions with `persona.paths`. The operator can use `neural character-paths DECISION --axis clarification --compare CANDIDATE` and add `--hidden-unit INDEX` to inspect a disconnected unit. The comparison runs locally. A difference in numerical outputs still requires separate observation of the ensuing choice and its consequences.
 
+When a persona defers a question, the next decision receives the exact revision written and its current revision. Reading an older question preserves its original body and shows where to find the current one. The persona can keep an inquiry open while it gathers evidence. In **Development**, **Open the question this choice retained** opens the historical revision written by that choice.
+
 ## Reusing work and restoring a society
 
 Personas can list the operator-selected directory with `workspace.list` and import exact bytes with `asset.import`. A retained guide, skill or program may declare its own type and the exact resources it adapted. Searches expose metadata first. A subsequent read, requested text excerpt or explicit context selection supplies the content.

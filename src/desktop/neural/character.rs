@@ -702,6 +702,13 @@ impl App {
                             ui.add_space(7.);
                             let reason = s(maintenance, "reason");
                             ui.add(egui::Label::new(if reason.is_empty() { "No reason is present in this retained field; inspect the exact decision." } else { reason }).wrap());
+                            for version in decision["deferred_questions"].as_array().into_iter().flatten() {
+                                if let Some(reference) = version["written"].as_str() {
+                                    if ui.small_button("Open the question this choice retained →").on_hover_text(reference).clicked() {
+                                        self.open_resource(ui.ctx(), reference.into());
+                                    }
+                                }
+                            }
                             if let Some(choice) = decision["next_appraisal"]["kind"].as_str() {
                                 ui.small(format!("Next appraisal · {}", title(choice)));
                                 if let Some(reason) = decision["next_appraisal"]["reason"].as_str() {

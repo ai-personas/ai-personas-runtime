@@ -562,17 +562,29 @@ fn subsequent_event(
 
 pub(super) fn owned(db: &Connection, actor: &str, reference: &str) -> Result<store::Record> {
     let item = store::exact(db, reference)?;
-    if item.reference.kind != "development"
-        || item.body["owner"] != actor
-        || store::required(db, "development", &item.reference.id)?.reference != item.reference
-    {
-        return Err(failure(
-            "Development revision must be the current question of this persona",
-        ));
+    if item.reference.kind != "development" || item.body["owner"] != actor {
+        return Err(failure("Choose one of your own development questions"));
+    }
+    let current = store::required(db, "development", &item.reference.id)?;
+    if current.reference != item.reference {
+        return Err(failure(format!("You selected {reference}. The current question is {}. Read its body before revising it, or choose no_change to leave it pending.", current.reference.handle())));
     }
     Ok(item)
 }
 
+/// Exact versions written by an accepted deferral and their heads in this
+/// read snapshot. The implicit maintenance decision has no tool result.
+pub fn deferred_revisions(db: &Connection, call: &str) -> Result<Vec<Value>> {
+    let mut query = db.prepare("SELECT v.id,v.revision,h.revision FROM versions v
+        JOIN heads h USING(kind,id) WHERE v.kind='development' AND v.invocation=?1 ORDER BY v.id,v.revision")?;
+    let rows = query.query_map([call], |row| {
+        let id: String = row.get(0)?;
+        let written: i64 = row.get(1)?;
+        let current: i64 = row.get(2)?;
+        Ok(json!({"written":format!("development:{id}@{written}"),"current":format!("development:{id}@{current}")}))
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
 pub(super) fn applications(
     db: &Connection,
     actor: Option<&str>,
