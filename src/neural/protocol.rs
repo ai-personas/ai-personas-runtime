@@ -28,7 +28,7 @@ pub struct DecisionV4 {
     pub next_context: ContextChoice,
     pub continuation: Continuation,
     pub reply: Option<String>,
-    /// Exact observed human message, invitation, amendment or review that this reply answers.
+    /// Optional experience:event-N@1 for the human exchange this answers. Use a supplied reply_targets address for recipient_for_reply=user, a received inbox event, or an exact experience you read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply_to: Option<String>,
     pub operations: Vec<Operation>,

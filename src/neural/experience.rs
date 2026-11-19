@@ -2,6 +2,7 @@
 use super::{failure, store, tools::Search, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
+use std::collections::BTreeSet;
 
 const EVENTS: &str = "SELECT 'event-' || e.seq AS id, e.work,e.actor,e.target,e.kind,e.digest,
                       e.invocation,e.created FROM events e";
@@ -102,6 +103,37 @@ pub(super) fn metadata(db: &Connection, actor: Option<&str>, reference: &str) ->
     Ok(locate(db, actor, reference)?.metadata())
 }
 
+fn reply_recipient<'a>(exchange: &'a Experience, actor: &str) -> Option<&'a str> {
+    let addressed = exchange.target == actor;
+    match exchange.kind.as_str() {
+        "user_message" | "user_acceptance" | "requirements_amended" if addressed || exchange.target == "*" => Some("user"),
+        "invitation" if addressed && exchange.invocation.is_none() => Some("user"),
+        "message" if addressed && exchange.actor != "user" => Some(&exchange.actor),
+        "invitation" | "contribution_proposal" if addressed && exchange.actor != "user" && exchange.invocation.is_some() => Some(&exchange.actor),
+        _ => None,
+    }
+}
+
+/// Keep a reply address for the latest received exchange from each correspondent.
+/// The event's text remains available through an exact read.
+pub(super) fn reply_targets(db: &Connection, actor: &str, work: &str) -> Result<Vec<Value>> {
+    let sql = format!("{EVENTS} WHERE {VISIBLE} AND e.work=?2 AND e.kind IN
+        ('user_message','user_acceptance','requirements_amended','invitation','message','contribution_proposal') ORDER BY e.seq DESC");
+    let mut statement = db.prepare(&sql)?;
+    let mut seen = BTreeSet::new();
+    let mut targets = Vec::new();
+    for row in statement.query_map([actor, work], Experience::row)? {
+        let exchange = row?;
+        if let Some(recipient) = reply_recipient(&exchange, actor) {
+            if seen.insert((exchange.actor.clone(), recipient.to_owned())) {
+                targets.push(json!({"experience":format!("experience:{}@1",exchange.id),"author":exchange.actor,
+                    "recipient_for_reply":recipient,"kind":exchange.kind,"received_at":exchange.created}));
+            }
+        }
+    }
+    Ok(targets)
+}
+
 /// A reply names an exchange the sender received and addresses its original
 /// author. Named local human operators share the user-facing inbox.
 pub(super) fn check_reply(
@@ -118,26 +150,7 @@ pub(super) fn check_reply(
                 && original.target == "user"
                 && matches!(original.kind.as_str(), "message" | "reply")
         }
-        Some(actor) if to == "user" => {
-            (original.target == actor
-                && original.kind == "invitation"
-                && original.invocation.is_none())
-                || ((original.target == actor || original.target == "*")
-                    && matches!(
-                        original.kind.as_str(),
-                        "user_message" | "user_acceptance" | "requirements_amended"
-                    ))
-        }
-        Some(actor) => {
-            original.target == actor
-                && original.actor == to
-                && (original.kind == "message"
-                    || (original.invocation.is_some()
-                        && matches!(
-                            original.kind.as_str(),
-                            "invitation" | "contribution_proposal"
-                        )))
-        }
+        Some(actor) => reply_recipient(&original, actor) == Some(to),
     };
     if original.work != work || !reciprocal {
         return Err(failure(

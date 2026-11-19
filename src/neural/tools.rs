@@ -108,7 +108,7 @@ pub struct Message {
     pub to: String,
     pub text: String,
     pub references: Vec<String>,
-    /// Exact incoming exchange when replying directly to its author.
+    /// Optional experience:event-N@1 for the received exchange. Use its reply_targets address for this recipient, the incoming event or an exact experience you read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply_to: Option<String>,
 }

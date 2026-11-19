@@ -803,6 +803,7 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
         if !bootstrap {
             let open_offers=super::handoff::offers(db,Some(work_id))?.into_iter().filter(|h|h["state"]=="offered").collect::<Vec<_>>();
             if !open_offers.is_empty(){data["handoff_offers"]=json!(open_offers);}
+            data["reply_targets"] = json!(super::experience::reply_targets(db, actor, work_id)?);
             data["lifetime_experience"]=super::experience::availability(db,actor,work_id)?;
             let questions = super::development::index(db, actor)?;
             let occasion = !participation.accepted || data["new_events"].as_array().into_iter().flatten().any(|event| {

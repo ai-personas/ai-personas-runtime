@@ -347,14 +347,14 @@ fn internal(
                 );
                 if tools::matches(&query, &searchable)? {
                     let object = |digest: Option<String>| digest.map(|d| format!("object:{d}"));
-                    hits.push(json!({"event":seq,"work":work,"actor":author,"target":target,"kind":kind,"created_unix":created,
+                    hits.push(json!({"event":seq,"experience":format!("experience:event-{seq}@1"),"work":work,"actor":author,"target":target,"kind":kind,"created_unix":created,
                         "body_reference":format!("object:{digest}"),"invocation":invocation,"request_reference":object(request),
                         "response_reference":object(response),"provider_receipt_reference":object(receipt),
                         "tool":body["tool"],"operation":body["operation"],"tool_result_reference":body["result"]}));
                 }
             }
             Ok(
-                json!({"total":hits.len(),"offset":query.offset,"items":hits.into_iter().skip(query.offset).take(query.page_size).collect::<Vec<_>>(),"body_supplied":false,"scope":"Your authored or addressed events in this work; exact bodies are available through asset.read."}),
+                json!({"total":hits.len(),"offset":query.offset,"items":hits.into_iter().skip(query.offset).take(query.page_size).collect::<Vec<_>>(),"body_supplied":false,"scope":"Events you sent or received in this activity. Read an experience handle with asset.read for the attributed exchange and its body."}),
             )
         }
         "asset.search" => super::discovery::catalog(db,&decode(input)?),
@@ -1023,9 +1023,12 @@ fn check_observed_reply(
     to: &str,
     parent: &str,
 ) -> Result<()> {
-    if !super::development::observed(snapshot, parent) {
+    let supplied_address = snapshot.data["reply_targets"].as_array().is_some_and(|targets| {
+        targets.iter().any(|target| target["experience"] == parent && target["recipient_for_reply"] == to)
+    });
+    if !supplied_address && !super::development::observed(snapshot, parent) {
         return Err(failure(
-            "Reply to a received exchange in the current input or read its exact experience first",
+            "For reply_to, use the experience:event-N@1 in reply_targets or a received exchange in this input. For an older exchange, read its experience handle with asset.read first. An unthreaded reply can omit reply_to.",
         ));
     }
     super::experience::check_reply(db, &snapshot.work, Some(&snapshot.actor), to, parent)
