@@ -237,7 +237,7 @@ pub const NAMES: &[(&str,&str)] = &[
     ("experience.search","Search your lifetime of work and social experiences by keyword or regular expression. Matches return exact origin and reference. Read chosen records with asset.read or select them for context."),
     ("history.search","Rediscover authored/addressed events in this work by literal or regex search, with exact prior request, response, tool-result and provider-receipt references. Returns metadata, not replayed history. Empty query lists events; results are paginated."),
     ("persona.create","Create an attributed pending identity with a fresh own-model initialization. This does not invite or assign responsibility."),
-    ("asset.search","Search current shared asset metadata by literal or regex. Set history=true to find earlier names and revisions. Use asset.find for exact text search with optional excerpts, or asset.read for a chosen range."),
+    ("asset.search","Search current shared asset metadata by literal or regex. Set history=true for previous library names. same_content finds registrations of identical retained bytes. Use asset.find for exact text search with optional excerpts, or asset.read for a chosen range."),
     ("asset.find","Locate literal or regex matches in one exact retained UTF-8 asset or object. Returns byte and line ranges. Set excerpts=true to receive the matched lines directly. before and after choose surrounding lines. You can also select a range later."),
     ("asset.read","Read exact retained text or record, optionally a measured UTF-8 byte range. A read does not rerun a tool."),
     ("asset.save","Save UTF-8 supporting content with path/cues and exact base. New identity/receipt is returned by the host. Does not write a host file."),

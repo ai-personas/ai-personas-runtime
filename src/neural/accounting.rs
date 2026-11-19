@@ -40,6 +40,7 @@ impl Measure {
 
 #[derive(Default)]
 struct Coverage {
+    path: Option<String>,
     supplied: u64,
     appearances: usize,
     whole: usize,
@@ -62,7 +63,7 @@ impl Coverage {
             unique_bytes += end.saturating_sub(start.max(covered_to));
             covered_to = covered_to.max(end);
         }
-        json!({"reference":reference,"appearances":self.appearances,"whole":self.whole,
+        json!({"reference":reference,"path":self.path,"appearances":self.appearances,"whole":self.whole,
             "distinct_ranges":self.ranges.len(),"text_bytes_with_repeats":self.supplied,
             "unique_covered_bytes":unique_bytes})
     }
@@ -118,6 +119,7 @@ fn frozen_input(db: &Connection, digest: &str) -> Result<Input> {
 fn resource_row(
     value: &Value,
     via: &str,
+    metadata: Option<&Value>,
     coverage: &mut BTreeMap<String, Coverage>,
 ) -> Result<Option<Value>> {
     let Some(reference) = value["reference"].as_str() else {
@@ -137,10 +139,14 @@ fn resource_row(
             ));
         }
         let whole = start == 0 && Some(end) == value["bytes"].as_u64();
-        coverage
-            .entry(reference.to_owned())
-            .or_default()
-            .add(start, end, whole);
+        let covered = coverage.entry(reference.to_owned()).or_default();
+        if covered.path.is_none() {
+            covered.path = metadata
+                .or_else(|| value.get("metadata"))
+                .and_then(|m| m["path"].as_str())
+                .map(str::to_owned);
+        }
+        covered.add(start, end, whole);
         row["kind"] = json!("text");
         row["range"] = json!([start, end]);
         row["text_bytes"] = json!(text.len());
@@ -285,11 +291,16 @@ pub fn activity(db: &Connection, work: &str) -> Result<Value> {
                 verified += 1;
                 let data = &input.data;
                 for source in context::supplied_resources(data) {
-                    observed.extend(resource_row(source.value, source.via, &mut coverage)?);
+                    observed.extend(resource_row(
+                        source.value,
+                        source.via,
+                        source.shared_metadata,
+                        &mut coverage,
+                    )?);
                 }
                 if input.mode == "assessment" {
                     for value in data["resources"].as_array().into_iter().flatten() {
-                        observed.extend(resource_row(value, "assessment", &mut coverage)?);
+                        observed.extend(resource_row(value, "assessment", None, &mut coverage)?);
                     }
                 }
                 for (digest, mime) in input.images {

@@ -8,6 +8,7 @@ use std::{
 #[derive(Default)]
 pub(super) struct Panel {
     storage: bool,
+    selected_call: Option<String>,
     scope: Option<String>,
     pending: Option<Receiver<Result<Value, String>>>,
     report: Option<Value>,
@@ -62,6 +63,9 @@ impl Panel {
             work.to_owned()
         };
         if self.scope.as_ref() != Some(&scope) || refresh {
+            if self.scope.as_ref() != Some(&scope) {
+                self.selected_call = None;
+            }
             self.scope = Some(scope);
             self.load(ui.ctx(), root, work);
         }
@@ -92,7 +96,7 @@ impl Panel {
                 if self.storage {
                     storage_view(ui, report)
                 } else {
-                    open = activity_view(ui, report);
+                    open = activity_view(ui, report, &mut self.selected_call);
                 }
             });
         open
@@ -113,29 +117,27 @@ fn fact(ui: &mut Ui, label: &str, detail: String, color: Color32) {
     });
 }
 
-fn activity_view(ui: &mut Ui, report: &Value) -> Option<String> {
+fn activity_view(
+    ui: &mut Ui,
+    report: &Value,
+    selected_call: &mut Option<String>,
+) -> Option<String> {
     let totals = &report["totals"];
     let p = theme::palette(ui);
-    ui.columns(3, |cols| {
-        fact(
-            &mut cols[0],
-            "Input tokens",
-            value(&totals["input_tokens"]["sum"]),
-            TEAL,
-        );
-        fact(
-            &mut cols[1],
-            "Output tokens",
-            value(&totals["output_tokens"]["sum"]),
-            PURPLE,
-        );
-        fact(
-            &mut cols[2],
-            "Recorded calls",
-            value(&report["call_count"]),
-            p.text,
-        );
-    });
+    let cards = [
+        ("Total tokens", &totals["total_tokens"]["sum"], p.text),
+        ("Input tokens", &totals["input_tokens"]["sum"], TEAL),
+        ("Output tokens", &totals["output_tokens"]["sum"], PURPLE),
+        ("Recorded calls", &report["call_count"], p.muted),
+    ];
+    let columns = if ui.available_width() < 560. { 2 } else { 4 };
+    for group in cards.chunks(columns) {
+        ui.columns(group.len(), |cols| {
+            for (column, (label, quantity, color)) in cols.iter_mut().zip(group) {
+                fact(column, label, value(quantity), *color);
+            }
+        });
+    }
     let cached = &totals["cached_input_tokens"];
     let cost = &totals["actual_cost_microusd"];
     ui.add_space(5.);
@@ -178,12 +180,21 @@ fn activity_view(ui: &mut Ui, report: &Value) -> Option<String> {
             if ui.small_button("Open ↗").on_hover_text(reference).clicked() {
                 open = Some(reference.into());
             }
-            ui.monospace(excerpt(reference, 44))
-                .on_hover_text(reference);
+            if let Some(path) = source["path"].as_str() {
+                ui.strong(path).on_hover_text(reference);
+            } else {
+                ui.monospace(excerpt(reference, 44))
+                    .on_hover_text(reference);
+            }
         });
         ui.small(format!(
-            "{} appearances  ·  {} bytes supplied  ·  {} distinct bytes covered",
+            "{} {}  ·  {} bytes supplied  ·  {} distinct bytes covered",
             value(&source["appearances"]),
+            if source["appearances"] == 1 {
+                "appearance"
+            } else {
+                "appearances"
+            },
             value(&source["text_bytes_with_repeats"]),
             value(&source["unique_covered_bytes"])
         ));
@@ -224,13 +235,47 @@ fn activity_view(ui: &mut Ui, report: &Value) -> Option<String> {
         "Call receipts",
         &format!("{} recorded", report["call_count"]),
     );
-    for call in report["calls"].as_array().into_iter().flatten().rev() {
-        ui.push_id(s(call, "id"), |ui| {
+    let calls = report["calls"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let max = calls
+        .iter()
+        .filter_map(|c| {
+            c["usage"]["input_tokens"]
+                .as_u64()?
+                .checked_add(c["usage"]["output_tokens"].as_u64()?)
+        })
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    if !calls.is_empty() {
+        ui.horizontal_wrapped(|ui| {
+            for (label, color) in [
+                ("Input", TEAL),
+                ("Cached input", CACHED),
+                ("Output", PURPLE),
+            ] {
+                ui.colored_label(color, "■");
+                ui.small(label);
+            }
+        });
+    }
+    for (i, call) in calls.iter().enumerate().rev() {
+        let id = s(call, "id");
+        ui.push_id(id, |ui| {
+            let expanded = selected_call.as_deref() == Some(id);
             ui.horizontal_wrapped(|ui| {
-                ui.strong(s(call, "actor"));
-                ui.label(title(s(call, "mode")));
-                theme::badge(ui, &title(s(call, "state")), p.muted);
+                let choose = ui
+                    .selectable_label(expanded, format!("{}   {}", i + 1, title(s(call, "actor"))))
+                    .on_hover_text(id)
+                    .clicked();
+                let bar = token_bar(ui, &call["usage"], max);
+                if choose || bar {
+                    *selected_call = if expanded { None } else { Some(id.to_owned()) };
+                }
                 ui.label(format!("{} tokens", value(&call["usage"]["total_tokens"])));
+                theme::badge(ui, &title(s(call, "state")), p.muted);
                 if ui.small_button("Input ↗").clicked() {
                     open = Some(s(call, "snapshot").into());
                 }
@@ -240,12 +285,87 @@ fn activity_view(ui: &mut Ui, report: &Value) -> Option<String> {
                     }
                 }
             });
+            if selected_call.as_deref() == Some(id) {
+                ui.indent("call-details", |ui| {
+                    ui.small(format!(
+                        "{}  ·  {}  ·  {}",
+                        title(s(call, "mode")),
+                        time_label(call["created"].as_i64().unwrap_or_default()),
+                        s(call, "reported_model")
+                    ));
+                    ui.label(format!(
+                        "{} input  ·  {} cached  ·  {} output tokens",
+                        value(&call["usage"]["input_tokens"]),
+                        value(&call["usage"]["cached_input_tokens"]),
+                        value(&call["usage"]["output_tokens"])
+                    ));
+                    for source in call["sources"].as_array().into_iter().flatten() {
+                        let reference = s(source, "reference");
+                        let range = if let Some(range) = source["range"].as_array() {
+                            format!("  ·  bytes {}–{}", range[0], range[1])
+                        } else {
+                            String::new()
+                        };
+                        ui.horizontal_wrapped(|ui| {
+                            ui.monospace(s(source, "via"));
+                            ui.small(format!("{}{range}", excerpt(reference, 37)))
+                                .on_hover_text(reference);
+                        });
+                    }
+                });
+            }
             if call["input_evidence"] != "verified_completed_input" {
                 ui.weak(title(s(call, "input_evidence")));
             }
         });
     }
     open
+}
+
+const CACHED: Color32 = Color32::from_rgb(102, 154, 208);
+
+fn token_bar(ui: &mut Ui, usage: &Value, max: u64) -> bool {
+    let width = (ui.available_width() * 0.29).clamp(64., 190.);
+    let (bounds, response) = ui.allocate_exact_size(egui::vec2(width, 12.), egui::Sense::click());
+    let track = bounds.shrink2(egui::vec2(0., 2.));
+    ui.painter()
+        .rect_filled(track, 2., theme::palette(ui).field);
+    if let (Some(input), Some(output)) = (
+        usage["input_tokens"].as_u64(),
+        usage["output_tokens"].as_u64(),
+    ) {
+        let cached = usage["cached_input_tokens"]
+            .as_u64()
+            .filter(|n| *n <= input);
+        let mut x = track.left();
+        for (tokens, color) in [
+            (input - cached.unwrap_or(0), TEAL),
+            (cached.unwrap_or(0), CACHED),
+            (output, PURPLE),
+        ] {
+            if tokens == 0 {
+                continue;
+            }
+            let right = x + width * (tokens as f64 / max as f64) as f32;
+            ui.painter().rect_filled(
+                egui::Rect::from_min_max(
+                    egui::pos2(x, track.top()),
+                    egui::pos2(right, track.bottom()),
+                ),
+                0.,
+                color,
+            );
+            x = right;
+        }
+    }
+    response
+        .on_hover_text(format!(
+            "{} input tokens, including {} cached. {} output tokens. Select to inspect this call.",
+            value(&usage["input_tokens"]),
+            value(&usage["cached_input_tokens"]),
+            value(&usage["output_tokens"])
+        ))
+        .clicked()
 }
 
 fn storage_view(ui: &mut Ui, report: &Value) {

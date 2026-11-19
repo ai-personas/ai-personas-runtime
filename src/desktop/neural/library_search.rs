@@ -16,6 +16,7 @@ enum Reply {
 pub(super) struct Window {
     open: bool,
     document: Option<String>,
+    same_content: Option<String>,
     term: String,
     regex: bool,
     history: bool,
@@ -34,6 +35,15 @@ impl Window {
             term,
             ..Default::default()
         };
+    }
+    pub(super) fn registrations(&mut self, ctx: &egui::Context, root: &Path, reference: String) {
+        *self = Self {
+            open: true,
+            history: true,
+            same_content: Some(reference),
+            ..Default::default()
+        };
+        self.search(ctx, root);
     }
     pub(super) fn document(&mut self, reference: String) {
         *self = Self {
@@ -97,6 +107,7 @@ impl Window {
                 page_size: 20,
                 history: self.history,
                 author: None,
+                same_content: self.same_content.clone(),
                 work: None,
             };
             self.worker(ctx, root, move |db| {
@@ -129,14 +140,16 @@ impl Window {
         let mut open_reference = None;
         let title = if self.document.is_some() {
             "Find in this version"
+        } else if self.same_content.is_some() {
+            "Registrations with matching content"
         } else {
             "Search retained library"
         };
         egui::Window::new(title).id(egui::Id::new("neural-library-search")).open(&mut open)
             .default_width(620.).resizable(true).show(ctx,|ui|{
-                if let Some(reference)=&self.document{ui.small(reference);}
+                if let Some(reference)=self.document.as_ref().or(self.same_content.as_ref()){ui.small(reference);}
                 let edit=ui.horizontal(|ui|{
-                    let edit=ui.add(egui::TextEdit::singleline(&mut self.term).hint_text(if self.document.is_some(){"Text or pattern…"}else{"Name, cue or qualification…"}).desired_width((ui.available_width()-83.).max(100.)));
+                    let edit=ui.add(egui::TextEdit::singleline(&mut self.term).hint_text(if self.document.is_some(){"Text or pattern…"}else{"Name, cue or qualification…"}).desired_width((ui.available_width()-83.).clamp(85.,470.)));
                     let submit=ui.add_enabled(self.document.is_none() || !self.term.is_empty(),theme::primary("Search")).clicked()
                         || (edit.lost_focus() && ui.input(|i|i.key_pressed(egui::Key::Enter)));
                     (edit.changed(),submit)
@@ -191,7 +204,10 @@ impl Window {
                                     if ui.small_button("Read excerpt ↗").clicked(){read=Some((selection.clone(),range.clone()));}
                                 });
                             }else{
-                                ui.strong(s(item,"path"));
+                                ui.horizontal_wrapped(|ui|{
+                                    ui.strong(s(item,"path"));
+                                    if item["reference"]!=item["current_reference"] {ui.weak(format!("Current name  ·  {}",s(item,"current_path")));}
+                                });
                                 ui.horizontal_wrapped(|ui|{
                                     let reference=s(item,"reference");
                                     if item["retired"]==true{ui.weak("Retired");}

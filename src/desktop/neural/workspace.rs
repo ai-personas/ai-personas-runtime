@@ -1219,16 +1219,20 @@ impl App {
                     ui.label("Preview drawings, images, documents, data, 3D models and packages.");
                     ui.weak("The inspector shows its owner, exact version and qualifications.");
                 } else {
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         if ui.button("Save file…").clicked() {
                             self.save_artifact(ui.ctx());
                         }
                         if ui.small_button("Copy reference").clicked() {
                             ui.ctx().copy_text(self.selected_reference.clone());
                         }
-                        if (self.selected_reference.starts_with("asset:") || self.selected_reference.starts_with("object:"))
-                            && ui.small_button("Find in this version…").clicked() {
-                            self.library_search.document(self.selected_reference.clone());
+                        if self.selected_reference.starts_with("asset:") || self.selected_reference.starts_with("object:") {
+                            if ui.small_button("Find in this version…").clicked() {
+                                self.library_search.document(self.selected_reference.clone());
+                            }
+                            if ui.small_button("Matching registrations…").clicked() {
+                                self.library_search.registrations(ui.ctx(),&self.root,self.selected_reference.clone());
+                            }
                         }
                     });
                     ui.separator();

@@ -399,6 +399,8 @@ fn internal(
             body["retired"] = json!(x.retired);
             body["organization_reason"] = json!(x.reason);
             body["organized_by"] = json!(actor);
+            body["organized_in_work"] = json!(work);
+            body["previous_revision"] = json!(record.reference.handle());
             let r = store::write(
                 db,
                 "asset",

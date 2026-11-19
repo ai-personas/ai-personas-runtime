@@ -483,7 +483,16 @@ async fn external(
                 if saved.is_err(){db.execute_batch("ROLLBACK TO import_metadata")?;}
                 db.execute_batch("RELEASE import_metadata")?;
                 // A stale metadata base cannot erase the already observed read.
-                Ok(match saved{Ok(r)=>json!({"reference":r.handle(),"blob":blob,"bytes":bytes.len(),"source":path}),Err(e)=>json!({"retained_blob":format!("object:{blob}"),"bytes":bytes.len(),"source":path,"asset_update_failed":e.to_string()})})
+                match saved {
+                    Ok(asset) => {
+                        let mut result=json!({"reference":asset.handle(),"blob":blob,"bytes":bytes.len(),"source":path});
+                        if let Some(other)=super::discovery::other_registrations(db,&blob,&asset.id)? {
+                            result["existing_content"]=other;
+                        }
+                        Ok(result)
+                    }
+                    Err(error)=>Ok(json!({"retained_blob":format!("object:{blob}"),"bytes":bytes.len(),"source":path,"asset_update_failed":error.to_string()})),
+                }
             })
         }
         "image.render_svg" => {

@@ -54,7 +54,9 @@ Each active decision selects baseline, interprets known features of the situatio
 
 ## Reusing work and restoring a society
 
-Personas can list the operator-selected directory with `workspace.list` and import exact bytes with `asset.import`. A retained guide, skill or program may declare its own type and the exact resources it adapted. Searches expose metadata first. A subsequent read or explicit context selection supplies the content.
+Personas can list the operator-selected directory with `workspace.list` and import exact bytes with `asset.import`. A retained guide, skill or program may declare its own type and the exact resources it adapted. Searches expose metadata first. A subsequent read, requested text excerpt or explicit context selection supplies the content.
+
+An import with identical bytes to another current asset reports the existing registration count. When there is one match the receipt includes its name, exact version and qualifications. `neural catalog --same-content EXACT_REFERENCE --history` lists matching content registrations across revisions. Each asset keeps its own provenance and qualifications.
 
 Use `neural catalog TERM --history` to find a previous name, with optional `--author` and `--work` revision filters. `neural find EXACT_REFERENCE PATTERN --regex` locates text in that specific version and returns line numbers and half-open UTF-8 byte ranges. Add `--before N` or `--after N` to include nearby lines in the selection. Pass `--excerpts` to receive those lines in the same result. Overlapping selections on the current page share one returned excerpt. Personas use the same searches through `asset.search` and `asset.find` with the optional `excerpts` flag.
 

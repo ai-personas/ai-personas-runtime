@@ -16,7 +16,13 @@ fn page_size() -> usize {
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
     /// Literal text (case-insensitive), or a regular expression with --regex.
+    #[arg(default_value = "")]
+    #[serde(default)]
     pub query: String,
+    /// Limit matches to revisions with the same retained bytes as this exact asset or object.
+    #[arg(long)]
+    #[serde(default)]
+    pub same_content: Option<String>,
     #[arg(long)]
     #[serde(default)]
     pub regex: bool,
@@ -86,15 +92,49 @@ pub fn catalog(db: &Connection, lookup: &Catalog) -> Result<Value> {
         re.as_ref()
             .map_or_else(|| s.to_lowercase().contains(&literal), |r| r.is_match(s))
     };
+    let matching_blob = lookup
+        .same_content
+        .as_deref()
+        .map(|reference| -> Result<String> {
+            if let Some(digest) = reference.strip_prefix("object:") {
+                let exists: bool = db.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM objects WHERE digest=?1)",
+                    [digest],
+                    |r| r.get(0),
+                )?;
+                return if exists {
+                    Ok(digest.into())
+                } else {
+                    Err(failure("Unknown immutable object"))
+                };
+            }
+            let asset = store::exact(db, reference)?;
+            if asset.reference.kind != "asset" || asset.reference.handle() != reference {
+                return Err(failure(
+                    "Choose an exact asset revision or immutable object",
+                ));
+            }
+            asset.body["blob"]
+                .as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| failure("Missing asset content"))
+        })
+        .transpose()?;
     let mut query = db.prepare(
         "SELECT v.id,v.revision,v.digest,h.revision,h.digest,i.actor,i.work
         FROM versions v JOIN heads h ON h.kind=v.kind AND h.id=v.id
         JOIN objects o ON o.digest=v.digest LEFT JOIN invocations i ON i.id=v.invocation
         WHERE v.kind='asset' AND (?1 OR v.revision=h.revision)
         AND (?2 IS NULL OR i.actor=?2) AND (?3 IS NULL OR i.work=?3)
+        AND (?4 IS NULL OR json_extract(CAST(o.bytes AS TEXT),'$.blob')=?4)
         ORDER BY json_extract(CAST(o.bytes AS TEXT),'$.path'),v.id,v.revision DESC",
     )?;
-    let mut rows = query.query(params![lookup.history, lookup.author, lookup.work])?;
+    let mut rows = query.query(params![
+        lookup.history,
+        lookup.author,
+        lookup.work,
+        matching_blob
+    ])?;
     let (mut scanned, mut total) = (0usize, 0usize);
     let mut items = Vec::new();
     while let Some(row) = rows.next()? {
@@ -148,10 +188,38 @@ pub fn catalog(db: &Connection, lookup: &Catalog) -> Result<Value> {
     let next = lookup.offset.saturating_add(items.len());
     Ok(
         json!({"scope":if lookup.history{"all retained matching revisions"}else{"current asset revisions"},
-        "author":lookup.author,"work":lookup.work,"surface":["path","owner","kind","cues","qualifications"],
+        "author":lookup.author,"work":lookup.work,"same_content":lookup.same_content,"surface":["path","owner","kind","cues","qualifications"],
         "scanned_revisions":scanned,"total":total,"offset":lookup.offset,"page_size":lookup.page_size,
         "next_offset":(next<total).then_some(next),"items":items,"body_supplied":false}),
     )
+}
+
+/// Metadata about other registrations of the bytes just read. Equal content alone
+/// establishes neither a preferred name nor the applicability of a peer's qualification.
+pub(super) fn other_registrations(db: &Connection, blob: &str, id: &str) -> Result<Option<Value>> {
+    let mut statement = db.prepare("SELECT h.id,h.revision,o.bytes FROM heads h JOIN objects o ON o.digest=h.digest
+        WHERE h.kind='asset' AND h.id<>?1 AND json_extract(CAST(o.bytes AS TEXT),'$.blob')=?2 ORDER BY h.id")?;
+    let mut rows = statement.query(params![id, blob])?;
+    let mut count = 0;
+    let mut registration = None;
+    while let Some(row) = rows.next()? {
+        count += 1;
+        if count == 1 {
+            let bytes: Vec<u8> = row.get(2)?;
+            let body: Value = serde_json::from_slice(&bytes)?;
+            let id: String = row.get(0)?;
+            let revision: i64 = row.get(1)?;
+            registration = Some(
+                json!({"reference":format!("asset:{id}@{revision}"),"path":body["path"],
+                "owner":body["owner"],"retired":body["retired"],"qualifications":body["qualifications"]}),
+            );
+        } else {
+            registration = None;
+        }
+    }
+    Ok((count>0).then(||json!({"other_current_registrations":count,"single_registration":registration,
+        "catalog_lookup":{"same_content":format!("object:{blob}"),"history":true},
+        "meaning":"The bytes match. Each registration retains its own name, history and qualifications."})))
 }
 
 pub fn find(db: &Connection, search: &FindText) -> Result<Value> {
