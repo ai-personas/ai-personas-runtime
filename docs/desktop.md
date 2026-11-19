@@ -2,7 +2,19 @@
 
 Personas Desktop is a native Rust workspace for Linux and macOS. Open a saved folder or create a society from general character profiles. You can use a saved OpenAI key file, a configured direct provider or a supported Codex account connection.
 
-**Workspace** shows the need, each participant's current purpose or reason for waiting, requests for a human, and the packages delivered in this activity. **Created here** shows files from the selected activity. Open **Personas** or select a name to see that person's origin, numerical character at baseline, activities, authored files and requests. **Character Lab** opens their model and decision evidence.
+**Workspace** opens on **Live activity**. The timeline shows who sent each message, saved a file, issued a package or asked for help. Click a filename to inspect the exact revision. Filter the timeline by person or event type. **Pause feed** holds your place while the personas continue. **Return to latest** catches up with the recorded events.
+
+**People & tools** shows which participants have a call in progress and which tools are queued or running. During a response, Studio displays the bytes received from the provider and the time of the last observation. Published messages and files appear after the runtime records them. On a narrow window, use the **Timeline** and **People & tools** tabs.
+
+![Studio observing Mira's live response, with the timeline and the human message composer visible.](assets/studio-live.png)
+
+[Watch the recorded interaction](assets/studio-live.gif)
+
+In **Your message**, choose a recipient, write and select **Send**. You can send while a persona is working. Switching activities or recipients preserves each draft during the session. **Delivery status** on a sent message opens its record. Once the runtime can verify the incoming text in an accepted decision, the receipt links to that decision. The persona chooses how to respond.
+
+**Work & deliveries** shows the need, each participant's purpose or reason for waiting, requests for a human and delivered packages. **Created here** lists files from the selected activity. Open **Personas** or select a name to see that person's origin, numerical character at baseline, activities, authored files and requests. **Character Lab** opens their model and decision evidence.
+
+**Earlier work** traces files from other activities. Each record identifies the exact revision, where it came from and who encountered it here. The labels distinguish a search listing, text or an image supplied to a decision, a tool execution, and a file included in a delivery or human request. Open **Details** to inspect its evidence or visit the source activity.
 
 **Run activity** follows this activity and any further activities its participants originate while the window is open. A waiting persona chooses which arrivals or times will wake it. **Finish run** lets the current work settle and releases the listener. **Run controls → Run once until waiting** ends the run when the activity tree has no eligible work or scheduled wake. **Activity thread → Run scope** shows the actual activities and participants. **+ New** creates an activity or persona. **Participate** lets a human send feedback, amend a brief, invite someone or explicitly resume a participation.
 

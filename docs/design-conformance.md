@@ -2,7 +2,19 @@
 
 The numerical Studio runs continuing personas through direct provider calls. Real participants produced editable designs, exchanged messages, reused other projects’ files and completed a reversible character experiment. **Beneficial self-directed numerical maturation over ordinary work remains unproven.** In the five-person cohort, all five authored and used initial models. Three retained developmental questions after feedback. None proposed a subsequent numerical revision across the eleven main-cohort activities.
 
-The design revision is `7d86efb`, published November 17, 2026. The Linux evaluation started at runtime revision `0345495` and continued through the autonomous house and reading-light requests on November 19. Each saved decision retains the interface and observations supplied by its own build. [Design](https://github.com/ai-personas/ai-personas-design/tree/7d86efb31a0323e03166a5c5212cdcd8b2e32f36) · [Runtime evaluated](https://github.com/ai-personas/ai-personas-runtime/tree/021da0cfb487d81dcb27fbbcede569326e6751e0)
+The design revision is `7d86efb`, published November 17, 2026. The Linux evaluation started at runtime revision `0345495` and continued through the live Studio observations on November 19. Each saved decision retains the interface and observations supplied by its own build. [Design](https://github.com/ai-personas/ai-personas-design/tree/7d86efb31a0323e03166a5c5212cdcd8b2e32f36) · [Studio evaluated](https://github.com/ai-personas/ai-personas-runtime/tree/885d29b4087285fda26b7465f62011e493ec55ce)
+
+## Observing autonomous activity in Studio
+
+A restored copy of Mira’s house workspace received one further brief, “Design a 36-storey residential tower.” Mira, Orin and Tavi received the same invitation. They chose their responsibilities, exchanged 128 messages and saved 64 files. Orin issued two structural packages, Tavi issued a services package and Mira issued an integrated concept. All four identified their scope as partial. Each exported ZIP member matched the file revision and digest named in its delivery.
+
+The trial used the existing `021da0c` runner so changes to the display could be checked independently. The observer entered an unsent draft in Studio. It survived 33 additional recorded events. The trial received zero operator task messages, amendments, reviews or resumptions. To limit further credit use after the live display check, the evaluator closed admission to this study. All three calls in flight at that point reached accepted decisions. The participants still chose `ready`. The observation ended with unfinished work.
+
+The receipts for the 239 accepted ordinary decisions contained no verified earlier-house file listing, supplied file body, execution input or package member. Four initialization choices and eight rejected responses were recorded separately. In the explicitly commissioned printer comparison, Tavi ran Orin's exact earlier heater-budget program. File history distinguishes the source revision, an actual received byte range, a completed tool operation and direct membership in a package. The numerical contribution to either outcome remains unverified.
+
+In a separate Studio workspace with no provider calls, a human message was saved exactly once while the runner lock was held. The UI showed a pending delivery receipt. Three previously received human messages resolved to their exact accepted decisions. An isolated substitution of other text in a copied event failed the receipt check.
+
+Studio build `20bc9ab` then observed a fresh request to Mira for a neighborhood book exchange name. Mira chose “The Reading Roundabout” and stopped after two accepted decisions. The observer recorded 22 cumulative byte counts while the calls were in progress. Each count was bounded by its own final provider receipt. The two completed streams contained 85,267 and 71,802 bytes respectively. The timeline displayed the accepted invitation and reply, with the human composer available throughout. The activity received only its initial invitation.
 
 ## Autonomous work and human requests
 
@@ -359,9 +371,11 @@ The independent evaluator parsed exported SVGs, rendered them with CairoSVG 2.9.
 | Gallery notice, two editions and cross-activity review | 17 | 1 | 0 | 228,085 |
 | In-person shift invitation and attributed decline | 6 | 0 | 0 | 62,842 |
 | One-brief house concept and reading-light request, with no subsequent operator actions | 25 | 0 | 0 | 303,393 |
-| **Total** | **1,256** | **86** | **30** | **16,381,193** |
+| Independently coordinated tower, observed until the study stopped admitting calls | 243 | 8 | 0 | 4,747,934 |
+| Book exchange naming request observed in packaged Studio | 2 | 0 | 0 | 18,593 |
+| **Total** | **1,501** | **94** | **30** | **21,147,720** |
 
-The requested model was `gpt-6.1-sol`, with low effort in the main cohort and Ren’s character studies. Inez and the restored reading-group and collection-desk studies used the same model at medium effort. Some older receipts omitted the returned model name. The provider supplied token counts, including 7,112,647 cached input tokens. Monetary charge and credit balance were unavailable. Restored historical calls are counted once. The membership studies had 32 completed calls with verified inputs. One additional local preparation stopped before provider dispatch because the saved account binding was absent from the process environment. It had no usage receipt.
+The requested model was `gpt-6.1-sol`, with low effort in the main cohort and Ren’s character studies. Inez and the restored reading-group and collection-desk studies used the same model at medium effort. Some older receipts omitted the returned model name. The provider supplied token counts, including 8,714,611 cached input tokens. Monetary charge and credit balance were unavailable. Restored historical calls are counted once. The membership studies had 32 completed calls with verified inputs. One additional local preparation stopped before provider dispatch because the saved account binding was absent from the process environment. It had no usage receipt.
 
 The request-return studies added 70 completed `gpt-6.1-sol` calls at low effort, using 786,106 tokens including 426,815 cached. The paused baseline also had one unconfirmed call with no reported usage. The five decisions before the fork appear once. The independent receipt audit checked the provider’s terminal output, exact input and character record for every completed call. Its SHA-256 was `4c51bee5f0f3e72421a7a2af0a2d353e149f04c5ea14116c2ec59cd16637616c`. The routes and read receipts produced `7b78e4c7fa444627d9fc6ab8eec6f6e4ade78e8ed827e2f9f42c9a18abc378be`, the independent print checks produced `ac7789bc3854416ba9c08b85102f0a5ca4711f1b7f632950c229b3f1ad3e02c1`, and the boundary checks produced `14dbe95420bbb9dc086b70eacb71a87d5db5e316b231105f6770d8f919714504`.
 

@@ -1,5 +1,9 @@
 # Numerical workspaces
 
+`neural message-receipt EVENT_NUMBER` traces an operator's saved message to the first accepted ordinary decision whose verified incoming events contained its exact text. The result names the recipient, sender, time sent and the consuming decision when one is recorded.
+
+`neural activity-sources WORK` shows exact file revisions from another activity that appeared in accepted inputs, tool executions and issued packages. Use `--persona`, `--source-work`, `--offset` and `--page-size` to narrow the report. A persona can choose `work.sources` to look up its own history in the current activity. The records distinguish displayed search metadata, supplied byte ranges, execution results and package membership.
+
 `neural run --from-activity WORK` follows a root and the activities its participants actually request, including nested requests. Add `--watch` to keep listening for each participant's chosen wake events. `neural activity-tree WORK` reads the scope and participation states. The exact `--work` and `--persona` filters remain available for intentionally narrow runs.
 
 Personas may use `human.request` to ask for a real-world action, include exact asset revisions and describe what they need back. A requester can use `human.withdraw` on an open request. The Studio inbox and `neural status` show these records even when the requesting persona stops or works elsewhere. `neural export-package REFERENCE DESTINATION.zip` saves the attached files for one exact request or delivery.
