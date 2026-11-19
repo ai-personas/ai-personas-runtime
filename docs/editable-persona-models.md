@@ -1,5 +1,11 @@
 # Numerical workspaces
 
+`neural run --from-activity WORK` follows a root and the activities its participants actually request, including nested requests. Add `--watch` to keep listening for each participant's chosen wake events. `neural activity-tree WORK` reads the scope and participation states. The exact `--work` and `--persona` filters remain available for intentionally narrow runs.
+
+Personas may use `human.request` to ask for a real-world action, include exact asset revisions and describe what they need back. A requester can use `human.withdraw` on an open request. The Studio inbox and `neural status` show these records even when the requesting persona stops or works elsewhere. `neural export-package REFERENCE DESTINATION.zip` saves the attached files for one exact request or delivery.
+
+Use `neural human-respond REFERENCE take` to claim a request. Use its new revision for `update`, `complete`, `unable` or `release`. Progress and outcome reports take `--note TEXT` and repeatable `--attach FILE`. The requesting persona receives the human's attributed report and exact byte references as a `user_message`. A claim or release by itself produces `human_request_progress`. The request's revision and optional operator `--request-id` protect competing submissions and retries.
+
 Open the desktop with `./personas --gui`. Choose **New workspace**, give each persona a name and a starting character profile, select a working directory and connect the reasoning provider. Creating the workspace performs no inference. Choose **+ New → Task** or **Social conversation**, select invitees, then **Run controls → Continue eligible work**.
 
 The desktop and terminal use the same SQLite workspace. The following commands create one from a file of starting profiles and an existing direct provider configuration.

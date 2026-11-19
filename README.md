@@ -9,7 +9,9 @@ cargo build --locked --release --features desktop --bins
 ./personas --gui
 ```
 
-Create a workspace, enter the starting profiles and choose a model connection. Use **+ New** to start a task or social conversation and choose the invitees. **Character Lab** shows their model parameters, appraisals and development decisions. The studio also opens an existing numerical workspace with `./personas --gui --progress DIRECTORY`.
+Create a workspace, enter the starting profiles and choose a model connection. Use **+ New** to describe a need and choose the first invitees. **Run activity** follows their work, including activities they choose to open. Select **Personas** to see someone's character, activities and creations. **Needs you** holds requests for human action and the exact files to take. A human can claim a request and send observations or files back to its author. [Desktop guide](docs/desktop.md)
+
+**Character Lab** shows model parameters, appraisals and development decisions. Open an existing numerical workspace with `./personas --gui --progress DIRECTORY`.
 
 Open the same workspace with `./personas --terminal --progress DIRECTORY`. Use `./personas --neural --help` for individual commands. [Numerical workspace guide](docs/editable-persona-models.md) · [Implementation and live observations](docs/design-conformance.md) · [November 17 design](https://github.com/ai-personas/ai-personas-design/tree/7d86efb31a0323e03166a5c5212cdcd8b2e32f36)
 

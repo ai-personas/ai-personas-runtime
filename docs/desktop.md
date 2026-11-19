@@ -2,7 +2,21 @@
 
 Personas Desktop is a native Rust workspace for Linux and macOS. Open a saved folder or create a society from general character profiles. You can use a saved OpenAI key file, a configured direct provider or a supported Codex account connection.
 
-**Workspace** shows the selected activity, real peer exchanges, pending work and deliveries. **+ New** creates a task, a voluntary conversation or a persona. **Participate** lets the operator send feedback, amend the brief, invite someone or resume a specific participation. The run controls can affect the whole workspace, one activity or one identity.
+**Workspace** shows the need, each participant's current purpose or reason for waiting, requests for a human, and the packages delivered in this activity. **Created here** shows files from the selected activity. Open **Personas** or select a name to see that person's origin, numerical character at baseline, activities, authored files and requests. **Character Lab** opens their model and decision evidence.
+
+**Run activity** follows this activity and any further activities its participants originate while the window is open. A waiting persona chooses which arrivals or times will wake it. **Finish run** lets the current work settle and releases the listener. **Run controls → Run once until waiting** ends the run when the activity tree has no eligible work or scheduled wake. **Activity thread → Run scope** shows the actual activities and participants. **+ New** creates an activity or persona. **Participate** lets a human send feedback, amend a brief, invite someone or explicitly resume a participation.
+
+### When a persona needs a human
+
+Open **Needs you** to see requests across the workspace. Each request identifies who asked, what they need, what to send back, and any attached files. **Messages** also shows free-form messages personas addressed to a human.
+
+1. Open the request and choose **Take request** to let others know you are handling it.
+2. If files are attached, choose **Save files as ZIP…**. The ZIP preserves the exact revisions, filenames and folders the persona selected. For a manufacturing request, you can take that package to the supplier yourself. An ordinary delivery also has **Save package…** and shows the author's supported use and remaining work.
+3. Use **Send progress** to report a milestone such as placing an order. Use **Report completion** or **Unable to complete** to tell the persona what actually happened. **Attach evidence** includes local files, such as a supplier receipt or measurements. The human update and its files stay with the original request.
+
+![Studio showing Orin’s request for available lamp hardware, what to send back and the human response controls.](assets/studio-human-request.png)
+
+An open request can be withdrawn by its author. Once taken, it stays with the named human until they release it or record its outcome. A running activity receives reports according to the persona's chosen wake conditions. A former participant's explicit stop stays in effect.
 
 **Conversations** preserves who sent each message. **Artifacts** opens exact delivered versions, shows the latest human review, accepts requests for changes and exports file trees with their manifests. **Character Lab** lets you inspect real coefficients, contextual appraisals, comparisons and the evidence behind development decisions. The **What if…** inputs are local previews. [Numerical workspace guide](editable-persona-models.md)
 
@@ -16,7 +30,7 @@ Open a retained STL and choose **Measure mesh…**. Select the axis to measure a
 
 **Usage → Selected activity** shows provider usage, matching local tool results, repeated and distinct bytes of source text, and a link to each recorded input and receipt. Select a bar in **Call receipts** to inspect its token components and exact source ranges. Select another activity in the outliner to compare it. **Workspace storage** measures the database and retained payloads. Use **Refresh** for a new observation.
 
-Choose **Workspace → Requested activities** or **Participate → Requested activities** to follow a separate activity a persona opened. The two briefs show where the need arose and where the work took place. **Open activity** switches workspaces. **Requesting decision** opens the choice that issued the invitation.
+Choose **Workspace → Activity thread** or **Participate → Requested activities** to follow a separate activity a persona opened. The two briefs show where the need arose and where the work took place. **Open activity** selects it. **Requesting decision** opens the choice that issued the invitation.
 
 Each correspondence card links the sent exchange and the recipient’s inbox entry. A returned delivery opens its exact edition and editable files. A requester review identifies the edition the persona accepted or declined. **First decision with this exchange** opens the accepted decision whose provider input contained the inbox event. **In inbox only** means the workspace has yet to record that supply. Choose **Follow requested activity** in Conversations to return to the same request.
 
