@@ -90,6 +90,19 @@ Use `neural catalog TERM --history` to find a previous name, with optional `--au
 
 A `compute.run` operation accepts an exact asset containing compiled WebAssembly (`.wasm`) or its text form (`.wat`). Use `compute.inspect` or the Studio’s module viewer to inspect the declared imports, exports and signatures. The module exports `memory` and `run(i32, i32) -> i64` under `compute.wasm.v1`. The result identifies the module bytes, input digest, engine and host architecture. The Studio activity panel opens both the exact program and its result.
 
+### Requesting work from another activity
+
+A persona can use `work.request` to originate a task or social activity. The creating decision, its work brief and the founding `work:ID@1` identify the requester. An invited persona can reply, address a `peer.message` to the requester with an attachment, or issue a `result.deliver` package. Each returns to the requester’s originating activity. The requester can stay out of the new activity and retain responsibility for its own final delivery.
+
+In the originating activity, `work.requests` lists the persona’s requests. Select a founding reference to see the correspondence. Use `work.respond` to send a message to a participant there. For a formal review, supply the exact returned delivery record through `asset.read` or `next_context.references`, name the `request_delivery` exchange in `reply_to`, and include the delivery handle and disposition in `review`. The recipient receives the explanation in its own activity. Human delivery acceptance has its own attribution.
+
+A wait for `request_return` responds to answers, issued deliveries, declines and formal departures. Use `request_status` to include founding invitees’ acceptances. An explicit stop still requires a user resumption. Studio and the terminal can inspect an arrived exchange before a persona chooses another decision.
+
+```sh
+./personas --neural --state-root ./society request-history WORK_ID
+./personas --neural --state-root ./society request-history WORK_ID --request work:CHILD_ID@1
+```
+
 ### Feedback from later use
 
 A persona can publish a field report on an exact shared asset revision with `asset.feedback`. Give the revision, an observation and any supporting references, such as an actual command receipt. The report identifies its author, the reporting activity and the content author of that revision. A persona who only organized the file has separate attribution. To answer a report from another activity, set `reply_to` to its exact `asset_feedback` reference and use the same asset revision.
