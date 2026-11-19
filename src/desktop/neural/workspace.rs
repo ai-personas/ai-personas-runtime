@@ -490,7 +490,14 @@ impl App {
                 eyebrow(ui, "Shared workspace");
                 ui.add_space(5.);
                 ui.heading(self.task_title());
-                if !self.work.is_empty() && ui.small_button("Responsibility board →").clicked(){self.layout.editor=Editor::Responsibilities;}
+                if !self.work.is_empty() {
+                    ui.horizontal_wrapped(|ui|{
+                        if ui.small_button("Responsibility board →").clicked(){self.layout.editor=Editor::Responsibilities;}
+                        if ui.small_button("Requested activities →").clicked(){
+                            self.requested_activities.open(ui.ctx(),&self.root,&self.work,self.cursor);
+                        }
+                    });
+                }
                 ui.add_space(12.);
                 let peers = self
                     .events
@@ -540,7 +547,7 @@ impl App {
                     .iter()
                     .rev()
                     .filter(|e| {
-                        e["work"] == self.work && matches!(s(e, "kind"), "message" | "reply")
+                        e["work"] == self.work && matches!(s(e, "kind"), "message" | "reply" | "request_reply" | "requester_message" | "requester_review")
                     })
                     .take(3)
                     .cloned()
@@ -792,7 +799,7 @@ impl App {
     }
     fn message_heading(&mut self, ui: &mut Ui, event: &Value) {
         let actor = s(event, "actor");
-        let target = s(event, "target");
+        let target = if matches!(s(event,"kind"),"request_message_sent"|"request_review_sent"){s(&event["body"],"to")}else{s(event,"target")};
         let published = event["kind"] == "asset_feedback";
         let operator = published && event["body"]["author_kind"] == "operator";
         let from = if operator { format!("Operator · {}", s(&event["body"],"author")) } else { self.label(actor).to_owned() };
@@ -901,20 +908,20 @@ impl App {
                 e["work"] == self.work
                     && matches!(
                         kind,
-                        "message" | "reply" | "user_message" | "delivery" | "initialization_note" | "invitation" | "contribution_proposal" | "asset_feedback"
+                        "message" | "reply" | "user_message" | "delivery" | "initialization_note" | "invitation" | "contribution_proposal" | "asset_feedback" | "request_reply" | "request_delivery" | "request_message_sent" | "request_review_sent" | "requester_message" | "requester_review"
                     )
                     && !(kind == "delivery" && target == "*")
                     && (self.conversation_persona.is_empty()
                         || actor == self.conversation_persona
-                        || target == self.conversation_persona)
+                        || target == self.conversation_persona || e["body"]["to"]==self.conversation_persona)
                     && match self.conversation_channel {
-                        1 => (kind == "message" && target != "user")
+                        1 => (matches!(kind,"message"|"reply"|"delivery") && target != "user") || requested_activities::label(kind).is_some()
                             || (kind == "asset_feedback" && e["body"]["author_kind"]=="persona" && e["body"]["recipient_kind"]=="persona")
                             || (matches!(kind, "invitation" | "contribution_proposal") && e["invocation"].is_string()),
                         2 => kind == "user_message" || target == "user"
                             || (kind == "asset_feedback" && (e["body"]["author_kind"]=="operator" || e["body"]["recipient_kind"]=="operator"))
                             || (kind == "invitation" && e["invocation"].is_null()),
-                        3 => kind == "delivery",
+                        3 => matches!(kind,"delivery"|"request_delivery"|"requester_review"|"request_review_sent"),
                         _ => true,
                     }
                     && (query.is_empty()
@@ -970,6 +977,13 @@ impl App {
                             match event["kind"].as_str() {
                                 Some("invitation") => { theme::badge(ui, "Invitation", TEAL); }
                                 Some("contribution_proposal") => { theme::badge(ui, "Contribution proposal", PURPLE); }
+                                Some(kind) if requested_activities::label(kind).is_some() => {
+                                    let (name,color)=requested_activities::label(kind).unwrap();
+                                    theme::badge(ui,name,color);
+                                    if ui.small_button("Follow requested activity →").clicked(){
+                                        self.requested_activities.open(ui.ctx(),&self.root,&self.work,self.cursor);
+                                    }
+                                }
                                 _ => {}
                             }
                             if let Some(parent) = event["body"]["reply_to"].as_str() {
@@ -997,6 +1011,10 @@ impl App {
                                     });
                                 }
                                 });
+                            } else if event["kind"] == "request_delivery" {
+                                ui.strong(s(&event["body"],"title"));
+                                ui.label(s(&event["body"],"supported_use"));
+                                if ui.small_button("Open exact delivery ↗").clicked(){self.open_resource(ui.ctx(),s(&event["body"],"delivery").into());}
                             } else if event["kind"] == "delivery" {
                                 let body = &event["body"]["record"];
                                 ui.heading(s(body, "title"));

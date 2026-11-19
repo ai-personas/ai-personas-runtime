@@ -31,6 +31,7 @@ mod relationships;
 mod library_search;
 mod asset_feedback;
 mod package_reviews;
+mod requested_activities;
 mod mesh_profile;
 mod workspace;
 mod usage;
@@ -126,6 +127,7 @@ pub struct App {
     library_search: library_search::Window,
     asset_feedback: asset_feedback::Window,
     package_reviews: package_reviews::Desk,
+    requested_activities: requested_activities::Window,
     mesh_profile: mesh_profile::Window,
     command_bench: command_bench::Bench,
     usage: usage::Panel,
@@ -213,6 +215,7 @@ impl App {
             library_search: Default::default(),
             asset_feedback: Default::default(),
             package_reviews: Default::default(),
+            requested_activities: Default::default(),
             mesh_profile: Default::default(),
             command_bench: Default::default(),
             usage: Default::default(),
@@ -597,6 +600,12 @@ impl eframe::App for App {
         self.command_bench = bench;
         self.dialogs(ctx);
         self.export_window(ctx);
+        if let Some(action)=self.requested_activities.show(ctx,&self.root,&self.snapshot.status,self.cursor) {
+            match action {
+                requested_activities::Action::Inspect(r)=>self.open_resource(ctx,r),
+                requested_activities::Action::OpenWork(id)=>{self.work=id;self.conversation_page=0;self.layout.editor=Editor::Studio;}
+            }
+        }
         if let Some(reference)=self.mesh_profile.show(ctx,&self.root,&self.operator){self.open_resource(ctx,reference);}
         if let Some(reference)=self.package_reviews.show(ctx,&self.root,&self.operator,&self.snapshot.status) {
             self.open_resource(ctx,reference);
