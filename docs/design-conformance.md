@@ -2,7 +2,7 @@
 
 The numerical Studio runs continuing personas through direct provider calls. Real participants produced editable designs, exchanged messages, reused other projects’ files and completed a reversible character experiment. **Beneficial self-directed numerical maturation over ordinary work remains unproven.** In the five-person cohort, all five authored and used initial models. Three retained developmental questions after feedback. None proposed a subsequent numerical revision across the eleven main-cohort activities.
 
-The design revision is `7d86efb`, published November 17, 2026. The Linux evaluation used successive runtime revisions from `0345495` through `57fe5fc` on November 19. Each saved decision retains the interface and observations supplied by its own build. [Design](https://github.com/ai-personas/ai-personas-design/tree/7d86efb31a0323e03166a5c5212cdcd8b2e32f36) · [Runtime evaluated](https://github.com/ai-personas/ai-personas-runtime/tree/57fe5fca3571113b9307baed2591272c27b4b4da)
+The design revision is `7d86efb`, published November 17, 2026. The Linux evaluation used successive runtime revisions from `0345495` through `ad940f8` on November 19. Each saved decision retains the interface and observations supplied by its own build. [Design](https://github.com/ai-personas/ai-personas-design/tree/7d86efb31a0323e03166a5c5212cdcd8b2e32f36) · [Runtime evaluated](https://github.com/ai-personas/ai-personas-runtime/tree/ad940f806e7967bdcacf7aa5ad2d6277e2c63441)
 
 ## What happened in ordinary work
 
@@ -62,6 +62,16 @@ A third assessment replayed two earlier encounters. On Ren’s tentative Saturda
 
 The study produced three completed assessments with thirteen matched-arm provider calls in total. It establishes that a persona can author, compare, decline, adopt, use and roll back an actual numerical revision. It leaves the benefit of that revision, spontaneous ordinary maturation and preservation of individuality through beneficial change unresolved.
 
+### A correction in ordinary work
+
+Ren entered a new conversation with all five of its existing questions and their authored revisit conditions. It kept a backup volunteer available while a Thursday shift depended on a school pickup. At a later booking, it also asked a backup to stay available after the primary volunteer had signed and arranged transport. The coordinator explained that the signature made the booking definite and requested replacement wording. Ren released the backup and independently opened a sixth question about preserving obligations that the user had already authorized releasing. The exact correction was its cited evidence.
+
+The new question reached four accepted decisions across two subsequent activities. Ren kept a rehearsal conditional on a venue permit and released a licensed photograph for print. The saved decisions contain zero explicit applications of the question. All used the restored epoch-3 model. Two frozen branches, taken before the new encounters and after the publication task, then received the same signed-shift request. Both released the backup. The supplied numerical package, outputs and effort matched, and only the later branch received the sixth question. Activity history, identifiers and timing also differed. This observed pair provides no incremental benefit on that task. Ren proposed no new numerical edit.
+
+Three completed decisions in the first two activities were rejected for invalid reply addresses. After the interface began supplying the latest exact address for each correspondent, Ren answered the permit and publication invitations directly in its first post-acceptance decision. Both parents matched the original human invitation across the intervening acceptance.
+
+In a separate restored workspace, two new reader messages answered the exact scarf sign. A third message in the same activity had no reply parent. Mira’s next shelf-label activity received both direct-reply references. The previously interpreted reading and the general message were absent from the pending list. In a directed check, Mira judged the reading of the isolated second line inconclusive and described what the missing first line changed. The other direct reply remained pending. Running the stopped scarf activity initiated zero calls.
+
 ## Controlled lookup and source continuity
 
 Ren registered a fictional 124,153-byte collection-desk register, preserved its warning about dated bulletins and moved the same asset to a new library name. This setup took six accepted calls and 58,342 provider-reported tokens. Four independent copies of the same prepared activity then asked Ren about two desk exchanges at 16:10. They shared the question, exact asset, starting numerical state and medium-effort reasoning configuration. The evaluator specified the retrieval method. Ren chose its calls, search terms, surrounding lines and answer.
@@ -92,7 +102,7 @@ Each row identifies the implementation, observation or outstanding evidence for 
 | UR-004, UR-005 | The stored seed names its author. The initial provider interaction authored parameters, and separate observed activation preceded ordinary work. |
 | UR-006, UR-007, UR-009 | Owner, version, forward arithmetic, numerical fingerprint and supplied outputs are inspectable. Resource bodies and factual history have their own versions. Causal behavioral influence remains only partly assessed. |
 | UR-008 | Individual starting models and different contributions were observed. Longitudinal preservation through beneficial development remains open. |
-| UR-010, UR-025 | The ordinary response supports evidence-linked questions, exact numerical edits, comparisons, rejection, adoption and later outcomes. Ren exercised these across social activities under evaluator direction. |
+| UR-010, UR-025 | Ren exercised numerical editing, assessment and rollback under evaluator direction. In a later ordinary booking it independently opened an evidence-linked question after its wording prolonged standby. The question reached two subsequent activities. |
 | UR-026, UR-027 | Improvement of whole-person behavior and later useful work from self-directed numerical development remains undemonstrated. |
 | UR-028, UR-031, UR-043 | Both transfer sequences included follow-ups with observed resource reuse and domain-specific limits. Tavi reused the exact compiled printer check and distinguished a changed-condition calculation from its original output. A beneficial numerical component remains unidentified. |
 | UR-015, UR-016, UR-018 | Adoption validates work, maintenance, considered experience and next context together. Personas can preserve character, defer with a revisit condition, revise, organize or retire resources. Current calls explicitly select a contextual disposition. |
@@ -123,7 +133,7 @@ These observations cover specific parts of the design catalogue. Each row states
 | M20, M23, M24 | Exported packages had exact constituent versions and matching SHA-256 manifests. The concepts state assumptions and remaining physical checks. A manifest verifies bytes and provenance. Independent analysis addresses only its stated scope. |
 | M25, M26 | Explicit stop, targeted resumption, time or event waits and controls are separate. A manual cursor exercise confirmed that matching addressed arrivals remain eligible, unrelated kinds stay filtered and receiving feedback preserves an explicit stop. |
 | B01, B02, B03 | Individual starting states, work choices and attributed exchanges were observed. Controlled isolation of affect, enduring relationships and stable behavioral influence remains partial. |
-| B04, B09 | The controlled study isolated forward effects, observed one live crossover, and added a matched control without numerical inclinations. The probes and later feedback yielded no demonstrated advantage attributable to the numerical edit. |
+| B04, B09 | The controlled study isolated forward effects, observed one live crossover, and added a matched control without numerical inclinations. In an additional pair of ordinary encounters, the pre-correction and post-correction personas both released a backup under identical numerical outputs. No numerical benefit was demonstrated. |
 | B05, B06, B07, B08 | Actual redesign, revised assumptions, waits, cohort expansion, targeted retrieval and a rollback were observed. More participants or decisions alone do not establish improvement. |
 | B10, B11, B12 | The same identities crossed activities. A restored copy kept Ren’s epoch and package when reasoning effort changed. Editable house drawings and varied work products were inspected. Integrated build-ready house delivery and long-term general-purpose maturation remain open. |
 | X01, X05 | The actual interlocutors were local evaluator roles. No resident consultation, physical assembly, hardware measurement or regulatory approval took place. |
@@ -147,8 +157,13 @@ The independent evaluator parsed exported SVGs, rendered them with CairoSVG 2.9.
 | Activity dissolution and reopening, calls unique to the separate branch | 6 | 0 | 0 | 67,741 |
 | Peer invitation for an independent opening-notation review, new calls | 10 | 0 | 0 | 113,492 |
 | Compiled printer check, then reuse with a different proposed supply | 9 | 0 | 0 | 88,587 |
-| **Total** | **791** | **51** | **13** | **10,127,198** |
+| Ren’s shift, booking correction, rehearsal permit and publication licence | 13 | 3 | 0 | 154,045 |
+| Two matched signed-shift encounters from different history snapshots | 4 | 0 | 0 | 38,229 |
+| Mira’s shelf label and directed interpretation of one scarf reply | 5 | 0 | 0 | 54,138 |
+| **Total** | **813** | **54** | **13** | **10,373,610** |
 
-The requested model was `gpt-6.1-sol`, with low effort in the main and character studies. The restored reading-group and collection-desk studies used the same model at medium effort. Some older receipts omitted the returned model name. The provider supplied token counts, including 4,229,190 cached input tokens. Monetary charge and credit balance were unavailable. Restored historical calls are counted once. The membership studies had 32 completed calls with verified inputs. One additional local preparation stopped before provider dispatch because the saved account binding was absent from the process environment. It had no usage receipt.
+The requested model was `gpt-6.1-sol`, with low effort in the main and character studies. The restored reading-group and collection-desk studies used the same model at medium effort. Some older receipts omitted the returned model name. The provider supplied token counts, including 4,365,448 cached input tokens. Monetary charge and credit balance were unavailable. Restored historical calls are counted once. The membership studies had 32 completed calls with verified inputs. One additional local preparation stopped before provider dispatch because the saved account binding was absent from the process environment. It had no usage receipt.
+
+All 25 completed calls in the booking, branch comparison and shelf-label studies had independently verified inputs. The receipt summary for those calls had SHA-256 `499bfda2662c8efc006c4e79230cb08f1f8bdb102c4adb75f3a1990ddb866278`.
 
 The two compiled-tool result checks had SHA-256 `d57616b308c110bb1a46c7a43ac78920753767502d1ea476855ed7acbc5d8f9b` and `0c38fa6e64eaab0d58f1e2b180c782d90424be015637ca75a25bf7e8ad6cdb02`. The membership receipt audit had SHA-256 `e6df8691c2cef8616d9f96e912f1c40cf7c74e8bcf084927955de3ab3d93d947`. The independent question and replay check had SHA-256 `4c8045beaf90a8c77724a5c8e94e728878c664cd5badc0e12eff60eec806468a`. The handover check had SHA-256 `d9ac6c7c3111784900589ad7a4d550e5235aad2cbecdc8c9629c145deb846dad`.
