@@ -1,5 +1,9 @@
 use super::*;
-use crate::neural::{character, context::Snapshot, protocol::NextModel};
+use crate::neural::{
+    character,
+    context::Snapshot,
+    protocol::{InitializeModel, NextModel, PatchModel},
+};
 use rusqlite::OptionalExtension;
 
 pub(super) struct Subject {
@@ -59,12 +63,18 @@ pub(super) fn accepted(
         binding = "provider_completion";
     }
     if let Some(items) = attempt.get("private_output_items").filter(|v| !v.is_null()) {
-        if !crate::provider::retained_decision_matches(items, &bytes) {
-            return Err(failure(
-                "The accepted decision differs from the provider’s retained final output",
-            ));
+        let profile = attempt["audit"]["transport_profile"]
+            .as_str()
+            .unwrap_or_default();
+        match crate::provider::retained_decision_matches(items, &bytes, profile) {
+            Some(true) => binding = "provider_output",
+            Some(false) => {
+                return Err(failure(
+                    "The accepted decision differs from the provider’s retained final output",
+                ))
+            }
+            None => {}
         }
-        binding = "provider_output";
     }
     Ok(Accepted {
         snapshot,
@@ -73,96 +83,114 @@ pub(super) fn accepted(
     })
 }
 
-fn candidate(db: &Connection, who: Option<&str>, handle: &str) -> Result<(store::Record, String)> {
-    let r = store::exact(db, handle)?;
-    let owner = r.body["owner"]
+struct Proposal {
+    record: store::Record,
+    author: Accepted,
+}
+
+fn candidate(db: &Connection, who: Option<&str>, handle: &str) -> Result<Proposal> {
+    let record = store::exact(db, handle)?;
+    let body = &record.body;
+    let owner = body["owner"]
         .as_str()
-        .ok_or_else(|| failure("Candidate has no owner"))?
-        .to_owned();
-    if r.reference.kind != "candidate"
-        || r.reference.handle() != handle
+        .ok_or_else(|| failure("Candidate has no owner"))?;
+    if record.reference.kind != "candidate"
+        || record.reference.handle() != handle
         || who.is_some_and(|p| p != owner)
     {
         return Err(failure("Choose an exact candidate owned by the observer"));
     }
-    let proposal = r.body["model"]
+    let digest = body["model"]
         .as_str()
         .ok_or_else(|| failure("Candidate has no package"))?;
-    let proposed = character_paths::package(db, proposal, &owner)?;
-    if r.body["predecessor"] != json!(proposed.predecessor) {
-        return Err(failure("Candidate predecessor differs from its package"));
-    }
-    if r.body.get("numerical").is_some()
-        || r.body.get("prior_numerical").is_some()
-        || r.body.get("numerical_change").is_some()
+    let proposed = character_paths::package(db, digest, owner)?;
+    let call: String = db.query_row(
+        "SELECT invocation FROM versions WHERE kind='candidate' AND id=?1 AND revision=?2",
+        params![record.reference.id, record.reference.revision],
+        |row| row.get(0),
+    )?;
+    let author = accepted(db, owner, &call, true)?;
+    if body["predecessor"] != json!(proposed.predecessor)
+        || proposed.predecessor != author.snapshot.model
+        || body["intent"] != proposed.intent
+        || body["evidence"] != json!(proposed.evidence)
     {
-        let contract = crate::persona_model::FeatureContract::standard();
+        return Err(failure(
+            "Candidate differs from its package or its author's active predecessor",
+        ));
+    }
+    let contract = crate::persona_model::FeatureContract::standard();
+    let prior = proposed
+        .predecessor
+        .as_deref()
+        .map(|id| character_paths::package(db, id, owner))
+        .transpose()?;
+    let mut authored = false;
+    for op in author.response["operations"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        let (package, question) = match (op["tool"].as_str(), prior.as_ref()) {
+            (Some("persona.initialize"), None) => {
+                let input: InitializeModel = serde_json::from_value(op["input"].clone())?;
+                (input.package, None)
+            }
+            (Some("persona.patch"), Some(parent)) => {
+                let input: PatchModel = serde_json::from_value(op["input"].clone())?;
+                (
+                    parent.patch(&contract, &input.patch).map_err(failure)?,
+                    input.development,
+                )
+            }
+            _ => continue,
+        };
+        if package.digest().map_err(failure)? == digest && body["development"] == json!(question) {
+            authored = true;
+            break;
+        }
+    }
+    if !authored {
+        return Err(failure(
+            "Candidate package was not authored by its recorded decision",
+        ));
+    }
+    let fields = ["numerical", "prior_numerical", "numerical_change"];
+    if author.snapshot.development_version >= 1 || fields.iter().any(|key| body.get(key).is_some())
+    {
         let numerical = proposed.numerical_digest(&contract).map_err(failure)?;
-        let prior = proposed
-            .predecessor
-            .as_deref()
-            .map(|id| {
-                character_paths::package(db, id, &owner)?
-                    .numerical_digest(&contract)
-                    .map_err(failure)
-            })
+        let previous = prior
+            .map(|p| p.numerical_digest(&contract).map_err(failure))
             .transpose()?;
-        if r.body["numerical"] != numerical
-            || r.body["prior_numerical"] != json!(prior)
-            || r.body["numerical_change"] != json!(prior.as_ref().map(|p| p != &numerical))
+        if fields.iter().any(|key| body.get(key).is_none())
+            || body["numerical"] != numerical
+            || body["prior_numerical"] != json!(previous)
+            || body["numerical_change"] != json!(previous.as_ref().map(|p| p != &numerical))
         {
             return Err(failure(
                 "Candidate numerical fingerprints differ from its character packages",
             ));
         }
     }
-    Ok((r, owner))
+    Ok(Proposal { record, author })
 }
 
 pub(super) fn resolve(db: &Connection, who: Option<&str>, reference: &str) -> Result<Subject> {
     if reference.starts_with("candidate:") {
-        let (r, owner) = candidate(db, who, reference)?;
-        let predecessor=r.body["predecessor"].as_str().ok_or_else(||failure("An initial candidate has no preceding character. Select its recorded activation to inspect later use."))?;
-        let prior = character_paths::package(db, predecessor, &owner)?;
-        let proposal = r.body["model"]
+        let proposal = candidate(db, who, reference)?;
+        let body = &proposal.record.body;
+        let predecessor=body["predecessor"].as_str().ok_or_else(||failure("An initial candidate has no preceding character. Select its recorded activation to inspect later use."))?;
+        let proposed = body["model"]
             .as_str()
             .ok_or_else(|| failure("Candidate has no package"))?;
-        let call: String = db.query_row(
-            "SELECT invocation FROM versions WHERE kind='candidate' AND id=?1 AND revision=?2",
-            params![r.reference.id, r.reference.revision],
-            |row| row.get(0),
-        )?;
-        let original = accepted(db, &owner, &call, true)?;
-        let contract = crate::persona_model::FeatureContract::standard();
-        let mut authored = false;
-        for op in original.response["operations"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|op| op["tool"] == "persona.patch")
-        {
-            let input: crate::neural::protocol::PatchModel =
-                serde_json::from_value(op["input"].clone())?;
-            let changed = prior.patch(&contract, &input.patch).map_err(failure)?;
-            if changed.digest().map_err(failure)? == proposal
-                && json!(input.development) == r.body["development"]
-            {
-                authored = true;
-                break;
-            }
-        }
-        if original.snapshot.model.as_deref() != Some(predecessor) || !authored {
-            return Err(failure(
-                "Candidate is not a revision from its author's accepted patch decision",
-            ));
-        }
+        let author = proposal.author;
         return Ok(Subject {
-            owner,
+            owner: author.snapshot.actor,
             supplied: predecessor.into(),
-            alternate: Some(proposal.into()),
+            alternate: Some(proposed.into()),
             epoch: None,
-            detail: json!({"kind":"candidate","reference":reference,"before":predecessor,"after":proposal,
-                "proposal_decision":format!("experience:{call}@1"),"development":r.body["development"],"response_binding":original.binding}),
+            detail: json!({"kind":"candidate","reference":reference,"before":predecessor,"after":proposed,
+                "proposal_decision":format!("experience:{}@1",author.snapshot.invocation),"development":body["development"],"response_binding":author.binding}),
         });
     }
     let meta = experience::metadata(db, who, reference)?;
@@ -216,6 +244,15 @@ pub(super) fn resolve(db: &Connection, who: Option<&str>, reference: &str) -> Re
         || next.body["epoch"] != epoch
         || old.body["model"] != json!(snap.model)
         || old.body["epoch"] != snap.epoch
+        || (snap.development_version >= 1
+            && [
+                "previous_package",
+                "numerical",
+                "prior_numerical",
+                "numerical_change",
+            ]
+            .iter()
+            .any(|k| event.get(k).is_none()))
         || ((snap.development_version >= 1 || event.get("previous_package").is_some())
             && event["previous_package"] != json!(snap.model))
         || event["epoch"] != epoch
@@ -231,7 +268,7 @@ pub(super) fn resolve(db: &Connection, who: Option<&str>, reference: &str) -> Re
             expected_model,
             ..
         } => {
-            let (proposal, _) = candidate(db, Some(owner), ref_id)?;
+            let proposal = candidate(db, Some(owner), ref_id)?.record;
             if expected_model != &snap.model
                 || proposal.body["model"] != model
                 || proposal.body["predecessor"] != json!(snap.model)

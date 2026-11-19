@@ -3,7 +3,7 @@
 use super::*;
 use std::collections::BTreeMap;
 
-const FORMAT: &str = "retained-responses-output-items-v1";
+pub(super) const FORMAT: &str = "retained-responses-output-items-v1";
 
 #[derive(Clone, Serialize)]
 pub struct RetainedOutputItems {

@@ -89,38 +89,87 @@ impl Carrier {
         self.text.ok_or(protocol("terminal_carrier_missing"))
     }
 }
-/// Compare accepted bytes with the decision carrier in a retained terminal
-/// response. The historical read never returns reasoning or commentary text.
-pub(crate) fn retained_decision_matches(items: &Value, expected: &[u8]) -> bool {
-    fn extract(items: &Value) -> Result<String> {
-        let mut carrier = Carrier::new();
-        for (index, item) in array(items, "terminal_output")?.iter().enumerate() {
+/// A completed stream can carry its message phase on an item-added event.
+/// The archive keeps terminal and item-done snapshots. Multiple unphased
+/// messages can therefore leave the exact carrier ambiguous on a later read.
+pub(crate) fn retained_decision_matches(
+    items: &Value,
+    expected: &[u8],
+    profile: &str,
+) -> Option<bool> {
+    fn inspect<'a>(items: &'a Value, expected: &[u8], profile: &str) -> Result<Option<bool>> {
+        if items["format"] != super::output_items::FORMAT {
+            return Err(protocol("retained_format"));
+        }
+        let terminal = array(items, "terminal_output")?;
+        let events = items["completed_item_events"]
+            .as_object()
+            .ok_or(protocol("retained_events"))?;
+        let thin = terminal.is_empty() && profile == super::AccessMode::SiwcOAuth.profile();
+        let count = if thin { events.len() } else { terminal.len() };
+        if events.keys().any(|k| {
+            k.parse::<usize>()
+                .map_or(true, |i| i >= count || i.to_string() != *k)
+        }) {
+            return Err(protocol("retained_item_index"));
+        }
+        let mut ids = BTreeSet::new();
+        let mut finals: Vec<&'a str> = Vec::new();
+        let mut unphased: Vec<&'a str> = Vec::new();
+        for index in 0..count {
+            let done = events.get(&index.to_string());
+            let item = terminal
+                .get(index)
+                .or(done)
+                .ok_or(protocol("retained_item_missing"))?;
+            let id = wire_id(item, "id")?;
+            if !ids.insert(id) || done.is_some_and(|d| d["id"] != id || d["type"] != item["type"]) {
+                return Err(protocol("retained_item_identity_mismatch"));
+            }
             match item_kind(item)? {
                 Kind::Message => {
-                    let terminal = message_phase(item)?;
-                    let done = &items["completed_item_events"][index.to_string()];
-                    let earlier = if done.is_null() {
-                        None
-                    } else {
-                        if done["id"] != item["id"] || done["type"] != item["type"] {
-                            return Err(protocol("retained_item_identity_mismatch"));
-                        }
-                        message_phase(done)?
-                    };
-                    if earlier.is_some() && terminal.is_some() && earlier != terminal {
-                        return Err(protocol("retained_item_phase_mismatch"));
+                    let text = message_text(item)?;
+                    let phase = message_phase(item)?;
+                    let earlier = done.map(message_phase).transpose()?.flatten();
+                    if done
+                        .map(message_text)
+                        .transpose()?
+                        .is_some_and(|d| d != text)
+                        || (earlier.is_some() && phase.is_some() && earlier != phase)
+                    {
+                        return Err(protocol("retained_message_mismatch"));
                     }
-                    carrier.consider(terminal.or(earlier), message_text(item)?)?;
+                    match phase.or(earlier) {
+                        Some(Phase::FinalAnswer) => finals.push(text),
+                        Some(Phase::Commentary) => {}
+                        None => unphased.push(text),
+                    }
                 }
                 Kind::Decision => {
-                    carrier.consider(Some(Phase::FinalAnswer), decision_text(item, "completed")?)?
+                    let text = decision_text(item, "completed")?;
+                    if let Some(other) = done {
+                        if decision_text(other, "completed")? != text
+                            || decision_call_id(other)? != decision_call_id(item)?
+                        {
+                            return Err(protocol("retained_decision_mismatch"));
+                        }
+                    }
+                    finals.push(text);
                 }
                 Kind::Reasoning => {}
             }
         }
-        carrier.finish()
+        Ok(match finals.as_slice() {
+            [answer] => Some(answer.as_bytes() == expected),
+            [] => match unphased.as_slice() {
+                [answer] => Some(answer.as_bytes() == expected),
+                possible if possible.iter().any(|s| s.as_bytes() == expected) => None,
+                _ => Some(false),
+            },
+            _ => Some(false),
+        })
     }
-    extract(items).is_ok_and(|s| s.as_bytes() == expected)
+    inspect(items, expected, profile).unwrap_or(Some(false))
 }
 
 struct Item {
