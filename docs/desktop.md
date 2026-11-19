@@ -20,6 +20,10 @@ Choose **Reply to this message** on a persona’s message to quote it and send a
 
 The conversation preserves authored line breaks. **Copy message** places the original text on the clipboard, including Markdown and spacing.
 
+In **Character Lab → Relationships**, choose the persona whose account you want to inspect, then a counterpart. **Switch viewpoint** opens the other persona’s account of the same collaboration. Sent and received counts cover direct exchanges. Activity-wide entries identify contributions the observer could witness. Select a mark in the recent history or a cited experience to read the original exchange, follow its reply chain or open an attached record.
+
+**Revisions** keeps earlier accounts, their stated scope and any reason for retirement. **Decision trace** follows one exact revision through the author’s accepted calls. It shows when the runtime supplied an address, when a full account actually reached the model, and when the persona requested a read or revised from that version. For a note the author attached to a direct message, expand **Shared edition received** to see the peer inputs that actually contained that version. Each entry opens the recorded input and decision.
+
 In **Character Lab → Development**, a question shows how many direct responses still await the persona’s interpretation. Expand it to see where the persona tried it, which character it used and what it chose to watch for. Open each reply or delivery review beside the choice. **Interpreted ↗** opens the decision that recorded the persona’s judgment about that particular response.
 
 Choose **Trace question history…** to follow that question across activities and revisions. Each row identifies the reminder, feedback pointer, search result or full record that reached an accepted decision. **Applied in this choice** opens the exact application when the persona chose to record one. You can also open the supplied input, accepted decision and character used at the time. `neural question-history development:ID@REVISION` returns the same evidence in the terminal.

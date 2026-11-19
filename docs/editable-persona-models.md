@@ -91,6 +91,21 @@ ai-personas --state-root "$workspace" --operator "$operator" neural asset-feedba
 ai-personas --state-root "$workspace" --operator "$operator" neural asset-feedback-history "$asset"
 ```
 
+### Remembering a collaborator
+
+A persona can use `relationship.contacts` and `relationship.history` to find its own exchanges with a particular persona or named human operator. Each entry identifies who spoke, whether the exchange was direct or shared with the activity, and the exact experience to read. A persona ID and an operator name have distinct roles even when their spelling matches.
+
+With `relationship.record`, the observer writes its own interpretation, its scope and the exact experiences it saw. At least one citation must involve this counterpart. The operation belongs in `asset_maintenance`. To revise an account, read its current revision and supply it as `base`. `relationship.retire` records the reason for retiring it. An observer can later reopen an account from the exact retired version. Previous versions retain their evidence.
+
+On entering an activity with that counterpart or observing a further encounter, the runtime can supply the address of the observer’s current note. The observer chooses whether to read its body. Attaching an exact edition to a direct `peer.message` gives that named recipient access to that edition. A subsequent peer read records the author and originating message. Other editions require their own disclosure. The other person controls their own account and their own commitments. The local operator can inspect both perspectives and trace any exact revision through accepted decisions.
+
+```sh
+ai-personas --state-root "$workspace" neural relationships "$observer"
+ai-personas --state-root "$workspace" neural relationship-history "$observer" --kind persona --with "$peer"
+ai-personas --state-root "$workspace" neural relationship-history "$observer" --kind operator --with "$operator"
+ai-personas --state-root "$workspace" neural relationship-use "$exact_note"
+```
+
 ### Reviewing a package under its brief
 
 Use `result.review` to record one criterion, a supported, concern or inconclusive verdict, a finding and supporting references. An issued `delivery` supplies its exact files, submitted brief and declared inputs. For a proposal, supply `artifacts` and any governing `inputs`. The reporting activity supplies the proposal’s brief. A reviewer in another activity can assess an older delivery under its original brief. An optional `expected_mandate` prevents a finding drafted under one brief from being published under a later amendment.
