@@ -111,6 +111,14 @@ pub enum Command {
     ActivityTree { work: String },
     /// Check when a human message and its attached material reached an accepted ordinary decision.
     MessageReceipt { event: i64 },
+    /// Read a physical request's original issue, human updates and explicitly addressed requester responses.
+    RequestCorrespondence {
+        reference: String,
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
+        #[arg(long, default_value_t = 10)]
+        page_size: usize,
+    },
     /// Recover your previously committed operator result without reopening any local files.
     OperatorReceipt { #[arg(value_name = "REQUEST_ID")] key: String },
     /// Observe the live executor and the exact activities it schedules, including while idle.
@@ -533,6 +541,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
                 Command::RunnerStatus=>store.snapshot(|db|Ok(serde_json::to_value(super::live::observe_runner(root,db))?)),
                 Command::ActivityTree{work}=>store.snapshot(|db|super::activity_tree::describe(db,&work)),
                 Command::MessageReceipt{event}=>store.snapshot(|db|super::live::message_receipt(db,event)),
+                Command::RequestCorrespondence{reference,offset,page_size}=>store.snapshot(|db|super::human_requests::correspondence(db,&reference,offset,page_size)),
                 Command::DeliveryFeedback{delivery,offset,limit}=>store.snapshot(|db|super::delivery_feedback::history(db,&delivery,offset,limit)),
                 Command::OperatorReceipt{key}=>store.snapshot(|db|{
                     let address=operator_request_address(operator,&key)?;

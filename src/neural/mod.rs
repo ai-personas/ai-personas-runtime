@@ -14,6 +14,7 @@ pub(crate) mod pdf_evidence;
 pub mod activity_requests;
 pub mod activity_tree;
 pub mod activity_sources;
+mod accepted_choice;
 pub mod package_review;
 pub mod relationships;
 mod character;
