@@ -15,6 +15,7 @@ try:
     with contextlib.redirect_stdout(sys.stderr):
         import weasyprint
         from PIL import Image
+        from tinyhtml5.inputstream import HTMLBinaryInputStream
         from weasyprint import HTML
         from weasyprint.text.fonts import FontConfiguration
         from weasyprint.urls import URLFetcher, URLFetcherResponse
@@ -100,7 +101,11 @@ class ProjectFiles(URLFetcher):
                 "path or embed it as a data URL.")
         if path not in self.resources:
             # Never include query strings, remote URLs or data in a receipt.
-            label = "".join(c if c.isprintable() else "?" for c in path)
+            if "://" in path or path.lower().startswith("data:"):
+                raise PrintProblem("A requested print resource is missing from the project.")
+            label = "".join(c if c.isprintable() else "?" for c in path[:160])
+            if len(path) > 160:
+                label += "…"
             raise PrintProblem(f"Missing print resource at project path {label!r}.")
         return self.resources[path], mimetypes.guess_type(path)[0] or "application/octet-stream"
 
@@ -119,6 +124,8 @@ class LayoutErrors(logging.Handler):
     def emit(self, record):
         message = str(record.msg)
         if record.levelno >= logging.ERROR:
+            if message.startswith(("No anchor #", 'Missing href in <link rel="attachment">')):
+                return  # These annotations do not change the printed page.
             if isinstance((cause := sys.exc_info()[1]), PrintProblem):
                 raise cause
             if "image" in message.lower() or "svg" in message.lower():
@@ -144,12 +151,10 @@ def render():
     source = pipe.read(length)
     fetcher = ProjectFiles({path: pipe.read(size) for path, size in files})
     protect_process()
-    try:
-        source = source.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        pass  # Let the HTML5 parser honor BOMs and declared legacy encodings.
+    # Honor HTML's BOM and meta charset rules. Unlabelled workspace text is UTF-8.
+    encoding = HTMLBinaryInputStream(source, default_encoding="utf-8").encoding[0].name
     document = HTML(
-        string=source, media_type="print", url_fetcher=fetcher,
+        string=source, encoding=encoding, media_type="print", url_fetcher=fetcher,
         base_url=PROJECT + quote(source_path or "", safe="/"),
     ).render(font_config=Fonts())
     # Printed forms keep their visible content. Only navigation within the PDF

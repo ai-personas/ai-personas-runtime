@@ -72,10 +72,11 @@ PY
 cat > "$licenses/README.txt" <<'NOTICE'
 CPython 3.12.16, Astral python-build-standalone 20261110.
 Interpreter and component notices are in python-build-standalone/.
-Sources and build recipes: https://github.com/astral-sh/python-build-standalone/tree/20261110
-CPython sources: https://www.python.org/downloads/release/python-31216/
+The standalone build recipes are available at
+https://github.com/astral-sh/python-build-standalone/tree/20261110
+CPython sources are available at https://www.python.org/downloads/release/python-31216/
 
-WeasyPrint and its dependencies are installed as their complete Python wheels.
+WeasyPrint and its dependencies use the libraries and metadata from the published wheels.
 wheels.json lists their exact versions, upstream URLs and hashes. Individual
 notices are under lib/python3.12/site-packages/*dist-info/licenses, alongside
 the bundled modules and Pyphen dictionaries. Pillow includes the notices of
