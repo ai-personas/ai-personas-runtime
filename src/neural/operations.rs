@@ -357,34 +357,8 @@ fn internal(
                 json!({"total":hits.len(),"offset":query.offset,"items":hits.into_iter().skip(query.offset).take(query.page_size).collect::<Vec<_>>(),"body_supplied":false,"scope":"Your authored or addressed events in this work; exact bodies are available through asset.read."}),
             )
         }
-        "asset.search" => {
-            let q: tools::Search = decode(input)?;
-            let mut statement =
-                db.prepare("SELECT a.id,a.path,a.owner,a.cues,json_extract(CAST(o.bytes AS TEXT),'$.resource.kind')
-                    FROM asset_index a JOIN heads h ON h.kind='asset' AND h.id=a.id JOIN objects o ON o.digest=h.digest ORDER BY a.path,a.id")?;
-            let rows = statement
-                .query_map([], |r| {
-                    Ok((
-                        r.get::<_, String>(0)?,
-                        r.get::<_, String>(1)?,
-                        r.get::<_, String>(2)?,
-                        r.get::<_, String>(3)?,
-                        r.get::<_,Option<String>>(4)?,
-                    ))
-                })?
-                .collect::<std::result::Result<Vec<_>, _>>()?;
-            let mut hits = Vec::new();
-            for (id, path, owner, cues, kind) in rows {
-                if tools::matches(&q, &format!("{path} {owner} {} {cues}",kind.as_deref().unwrap_or("")))? {
-                    let record = store::required(db, "asset", &id)?;
-                    hits.push(json!({"reference":record.reference.handle(),"path":path,"owner":owner,"kind":kind,"created_by":record.body["created_by"],
-                        "source_count":record.body["resource"]["sources"].as_array().map(Vec::len),"cues":serde_json::from_str::<Value>(&cues)?,"retired":record.body["retired"]}));
-                }
-            }
-            Ok(
-                json!({"total":hits.len(),"offset":q.offset,"items":hits.into_iter().skip(q.offset).take(q.page_size).collect::<Vec<_>>(),"body_supplied":false}),
-            )
-        }
+        "asset.search" => super::discovery::catalog(db,&decode(input)?),
+        "asset.find" => super::discovery::find(db,&decode(input)?),
         "asset.read" | "persona.read" => {
             let x: tools::Read = decode(input)?;
             if persona.model.is_none() {

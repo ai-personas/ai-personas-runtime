@@ -1098,6 +1098,9 @@ impl App {
             {
                 self.files.workspace_mode();
             }
+            if ui.button("Search library…").clicked(){
+                self.library_search.catalogue(self.asset_filter.clone());
+            }
             egui::containers::menu::MenuButton::new("Open reference")
                 .config(egui::containers::menu::MenuConfig::new()
                     .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside))
@@ -1221,6 +1224,10 @@ impl App {
                         }
                         if ui.small_button("Copy reference").clicked() {
                             ui.ctx().copy_text(self.selected_reference.clone());
+                        }
+                        if (self.selected_reference.starts_with("asset:") || self.selected_reference.starts_with("object:"))
+                            && ui.small_button("Find in this version…").clicked() {
+                            self.library_search.document(self.selected_reference.clone());
                         }
                     });
                     ui.separator();

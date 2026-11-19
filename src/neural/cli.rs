@@ -93,6 +93,10 @@ pub enum Command {
         persona:Option<String>,
     },
     Status,
+    /// Search shared catalogue metadata and optionally retained earlier revisions.
+    Catalog(super::discovery::Catalog),
+    /// Locate byte ranges in an exact retained UTF-8 asset or object without printing its body.
+    Find(super::discovery::FindText),
     /// Read an exact immutable resource or object.
     Read {
         reference: String,
@@ -311,6 +315,8 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
             let mut store = Store::open(root)?;
             match command {
                 Command::Status=>store.status(),
+                Command::Catalog(query)=>store.snapshot(|db|super::discovery::catalog(db,&query)),
+                Command::Find(query)=>store.snapshot(|db|super::discovery::find(db,&query)),
                 Command::Read{reference,start,end}=>context::read(&store.db,&reference,start,end),
                 Command::VerifyAssessment{reference}=>store.snapshot(|db|super::assessment::verify(db,&store::exact(db,&reference)?)),
                 Command::ReplayInput{decision,resources}=>store.snapshot(|db|{

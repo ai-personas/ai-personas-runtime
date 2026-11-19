@@ -24,6 +24,7 @@ mod data;
 mod dialogs;
 mod export;
 mod life;
+mod library_search;
 mod workspace;
 
 const TEAL: Color32 = Color32::from_rgb(103, 198, 185);
@@ -106,6 +107,7 @@ pub struct App {
     artifact_mode: usize,
     selected_reference: String,
     reference_input: String,
+    library_search: library_search::Window,
     preview_generation: u64,
     preview_pending: bool,
     preview_metadata: Value,
@@ -174,6 +176,7 @@ impl App {
             artifact_mode: 0,
             selected_reference: String::new(),
             reference_input: String::new(),
+            library_search: Default::default(),
             preview_generation: 0,
             preview_pending: false,
             preview_metadata: Value::Null,
@@ -494,6 +497,9 @@ impl eframe::App for App {
         }
         self.dialogs(ctx);
         self.export_window(ctx);
+        if let Some(reference)=self.library_search.show(ctx,&self.root){
+            self.open_resource(ctx,reference);
+        }
     }
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.save_layout();

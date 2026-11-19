@@ -237,7 +237,8 @@ pub const NAMES: &[(&str,&str)] = &[
     ("experience.search","Search your lifetime of work and social experiences by keyword or regular expression. Matches return exact origin and reference. Read chosen records with asset.read or select them for context."),
     ("history.search","Rediscover authored/addressed events in this work by literal or regex search, with exact prior request, response, tool-result and provider-receipt references. Returns metadata, not replayed history. Empty query lists events; results are paginated."),
     ("persona.create","Create an attributed pending identity with a fresh own-model initialization. This does not invite or assign responsibility."),
-    ("asset.search","Find retained shared resources by path and lexical/regex cues."),
+    ("asset.search","Search current shared asset metadata by literal or regex. Set history=true to find earlier names and revisions. Exact content remains available through asset.find and asset.read."),
+    ("asset.find","Locate literal or regex matches in one exact retained UTF-8 asset or object. Returns byte and line ranges. Select a returned selection in next_context.references or use asset.read to receive its text."),
     ("asset.read","Read exact retained text or record, optionally a measured UTF-8 byte range. A read does not rerun a tool."),
     ("asset.save","Save UTF-8 supporting content with path/cues and exact base. New identity/receipt is returned by the host. Does not write a host file."),
     ("asset.import","Retain exact bytes read from a host file after dispatch; metadata is not prior body supply. The exact asset reference arrives in a later tool receipt. Same-response $operation_id references cannot name this import; read its result before selecting or citing the resulting asset."),
@@ -265,7 +266,9 @@ pub fn describe(name: &str) -> Result<Value> {
         .ok_or_else(|| failure(format!("unknown tool {name}")))?
         .1;
     let inputs = match name {
-        "tools.search" | "asset.search" | "history.search" | "experience.search" | "development.search" => schema::<Search>()?,
+        "tools.search" | "history.search" | "experience.search" | "development.search" => schema::<Search>()?,
+        "asset.search" => schema::<super::discovery::Catalog>()?,
+        "asset.find" => schema::<super::discovery::FindText>()?,
         "tools.describe" => schema::<Describe>()?,
         "development.update" => schema::<super::development::Update>()?,
         "persona.initialize" => schema::<protocol::InitializeModel>()?,
@@ -300,7 +303,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
         Ok(())
     }
     match name {
-        "tools.search" | "asset.search" | "history.search" | "experience.search" | "development.search" => {
+        "tools.search" | "history.search" | "experience.search" | "development.search" => {
             let x: Search = serde_json::from_value(value.clone())?;
             if x.regex {
                 regex::Regex::new(&x.query)?;
@@ -317,6 +320,8 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
             }
             Ok(())
         }
+        "asset.search" => parse::<super::discovery::Catalog>(value),
+        "asset.find" => parse::<super::discovery::FindText>(value),
         "development.update" => parse::<super::development::Update>(value),
         "persona.initialize" => parse::<protocol::InitializeModel>(value),
         "persona.read" | "asset.read" => parse::<Read>(value),

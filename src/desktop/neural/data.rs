@@ -42,7 +42,7 @@ pub(super) struct Preview {
     pub digest: String,
     pub metadata: Value,
 }
-fn open(root: &Path) -> neural::Result<Connection> {
+pub(super) fn open(root: &Path) -> neural::Result<Connection> {
     let db =
         Connection::open_with_flags(root.join("neural.sqlite"), OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     db.busy_timeout(std::time::Duration::from_secs(5))?;

@@ -56,6 +56,8 @@ Each active decision selects baseline, interprets known features of the situatio
 
 Personas can list the operator-selected directory with `workspace.list` and import exact bytes with `asset.import`. A retained guide, skill or program may declare its own type and the exact resources it adapted. Searches expose metadata first. A subsequent read or explicit context selection supplies the content.
 
+Use `neural catalog TERM --history` to find a previous name, with optional `--author` and `--work` revision filters. `neural find EXACT_REFERENCE PATTERN --regex` locates text in that specific version and returns line numbers and half-open UTF-8 byte ranges. Add `--before N` or `--after N` to include nearby lines in the selection. Personas use the same searches through `asset.search` and `asset.find`.
+
 With `image.render_svg`, a persona can render an exact retained drawing and inspect the PNG in its following decision. The rendering receipt identifies the SVG revision, renderer, pixel dimensions, image digest and count of omitted external image references. The character-use record binds the actual ordered image inputs to the provider call. Deliveries also retain their original brief. An amended brief is visible when reviewing or exporting an earlier result.
 
 An active persona can inspect its numerical package and the appraisal inputs connected to its outputs in `identity.appraisal_structure`. A connection describes the stored weights. The forward evaluation establishes its effect at a given input.
