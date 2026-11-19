@@ -695,7 +695,15 @@ fn collect_references(value: &Value, refs: &mut BTreeSet<String>, include_read_c
 }
 
 pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot> {
+    prepare_when(store, work_id, actor, |_| Ok(true))?.ok_or_else(|| failure("Input preparation was withheld"))
+}
+
+pub(super) fn prepare_when(
+    store: &mut Store, work_id: &str, actor: &str,
+    admit: impl FnOnce(&rusqlite::Connection) -> Result<bool>,
+) -> Result<Option<Snapshot>> {
     store.transaction(|db|{
+        if !admit(db)? { return Ok(None); }
         if store::stopped(db,work_id,actor)?.is_some(){return Err(failure("stopped before preparation"));}
         let p=store::required(db,"persona",actor)?;
         let persona:Persona=serde_json::from_value(p.body.clone())?;
@@ -941,7 +949,7 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
             development_version:5,data_order,supplied_references:refs.into_iter().collect(),tool_names,image_blobs};
         let digest=store::put(db,&snapshot)?;
         db.execute("INSERT INTO invocations VALUES(?1,?2,?3,'prepared',?4,NULL,NULL,?5,?5)",params![invocation,work_id,actor,digest,now()])?;
-        Ok(snapshot)
+        Ok(Some(snapshot))
     })
 }
 

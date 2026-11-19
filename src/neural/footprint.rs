@@ -88,6 +88,8 @@ pub fn observe(db: &Connection, root: &Path, archives: &[PathBuf]) -> Result<Val
         "neural.sqlite-shm",
         "neural.sqlite-journal",
         "runner.lock",
+        ".runner-session.json",
+        ".runner-workers.json",
     ]
     .iter()
     .map(|name| measured_file(&root.join(name)))
@@ -96,6 +98,11 @@ pub fn observe(db: &Connection, root: &Path, archives: &[PathBuf]) -> Result<Val
         let entry = entry?;
         let name = entry.file_name();
         let name = name.to_string_lossy();
+        if name.strip_prefix(".stream-").is_some_and(|suffix| suffix.len() == 64 && suffix.bytes().all(|b| b.is_ascii_hexdigit()))
+            && entry.file_type()?.is_file()
+        {
+            files.push(measured_file(&entry.path()));
+        }
         if (name.starts_with(".personas-init-") || name.starts_with(".personas-restore-"))
             && entry.file_type()?.is_dir()
         {

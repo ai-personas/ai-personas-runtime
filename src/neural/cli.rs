@@ -113,6 +113,10 @@ pub enum Command {
     MessageReceipt { event: i64 },
     /// Recover your previously committed operator result without reopening any local files.
     OperatorReceipt { #[arg(value_name = "REQUEST_ID")] key: String },
+    /// Observe the live executor and the exact activities it schedules, including while idle.
+    RunnerStatus,
+    /// Let an exact runner finish its admitted work and release the workspace.
+    FinishRun { session: String },
     /// Inspect earlier activities' exact assets in accepted inputs, executions and issued packages.
     ActivitySources {
         work: String,
@@ -386,11 +390,11 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
     let mutation = matches!(&command, Command::Request { .. } | Command::Social { .. } | Command::AddPersona { .. }
         | Command::Invite { .. } | Command::Resume { .. } | Command::Message { .. } | Command::Amend { .. }
         | Command::PackageReview { .. } | Command::AssetFeedback { .. } | Command::Accept { .. } | Command::Control { .. } | Command::Configure { .. }
-        | Command::Dissolve { .. } | Command::Reopen { .. } | Command::HumanRespond { .. });
+        | Command::Dissolve { .. } | Command::Reopen { .. } | Command::HumanRespond { .. } | Command::FinishRun { .. });
     if mutation {
         let mut store = Store::open(root)?;
         return store.transaction(|db| {
-            let Some(key) = request_id else { return operator_action(db, operator, command); };
+            let Some(key) = request_id else { return operator_action(root, db, operator, command); };
             let id = operator_request_address(operator, key)?;
             let intent = serde_json::to_value(&command)?;
             if let Some(previous) = store::head(db, "operator_request", &id)? {
@@ -399,7 +403,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
                 }
                 return Ok(previous.body["result"].clone());
             }
-            let result = operator_action(db, operator, command)?;
+            let result = operator_action(root, db, operator, command)?;
             store::write(db, "operator_request", &id, 0,
                 &json!({"operator":operator,"request_id":key,"command":intent,"result":result}), None)?;
             Ok(result)
@@ -514,6 +518,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
             let mut store = Store::open(root)?;
             match command {
                 Command::Status=>store.status(),
+                Command::RunnerStatus=>store.snapshot(|db|Ok(serde_json::to_value(super::live::observe_runner(root,db))?)),
                 Command::ActivityTree{work}=>store.snapshot(|db|super::activity_tree::describe(db,&work)),
                 Command::MessageReceipt{event}=>store.snapshot(|db|super::live::message_receipt(db,event)),
                 Command::OperatorReceipt{key}=>store.snapshot(|db|{
@@ -566,8 +571,9 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
     }
 }
 
-fn operator_action(db: &rusqlite::Connection, operator: &str, command: Command) -> Result<Value> {
+fn operator_action(root: &Path, db: &rusqlite::Connection, operator: &str, command: Command) -> Result<Value> {
     match command {
+        Command::FinishRun{session}=>super::live::request_finish(root,db,&session,operator),
         Command::Configure{persona,model,effort,expected,reason} => {
             if reason.trim().is_empty() || (model.is_none() && effort.is_none()) {
                 return Err(failure("Select a reasoning model or effort and explain the change"));

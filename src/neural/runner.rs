@@ -245,14 +245,21 @@ fn reject(store: &mut Store, snapshot: &Snapshot, error: &str) -> Result<()> {
     })
 }
 
-async fn decision(root: &Path, work: &str, actor: &str) -> Result<()> {
+fn admission_paused(db: &rusqlite::Connection) -> Result<bool> {
+    Ok(db.query_row("SELECT EXISTS(SELECT 1 FROM controls WHERE scope='admission' AND state!='running')",[], |r| r.get(0))?)
+}
+
+async fn decision(root: &Path, work: &str, actor: &str, session: Option<&str>) -> Result<()> {
     let mut store = Store::open(root)?;
-    let snapshot = context::prepare(&mut store, work, actor)?;
+    let Some(snapshot) = context::prepare_when(&mut store, work, actor, |db| {
+        Ok(crate::process_control::signal().is_none() && !admission_paused(db)?
+            && !super::live::finish_requested(db,session)? && store::stopped(db,work,actor)?.is_none())
+    })? else { return Ok(()); };
     let persona = source_persona(&store.db, &snapshot)?;
     let request = context::request(&store.db, &snapshot)?;
     eprintln!(
         "{}",
-        json!({"event":"decision_dispatched","actor":actor,"work":work,"invocation":snapshot.invocation,"model":persona.provider.model,"effort":persona.provider.effort,"character_model":persona.model,"prompt_bytes":request.prompt.len()})
+        json!({"event":"decision_prepared","actor":actor,"work":work,"invocation":snapshot.invocation,"model":persona.provider.model,"effort":persona.provider.effort,"character_model":persona.model,"prompt_bytes":request.prompt.len()})
     );
     let output = match invoke(root, work, actor, persona.provider, request, false).await {
         Ok(output) => output,
@@ -706,6 +713,15 @@ pub async fn follow_activity(root:&Path,work:&str,finish:&std::sync::atomic::Ato
     drive(root,true,None,None,Some(work),Some(finish)).await
 }
 
+/// Schedule every eligible participation, including activities opened after the listener starts.
+pub async fn follow_workspace(root:&Path,finish:&std::sync::atomic::AtomicBool)->Result<Value> {
+    drive(root,true,None,None,None,Some(finish)).await
+}
+
+fn data_version(db: &rusqlite::Connection) -> Result<i64> {
+    Ok(db.query_row("PRAGMA data_version", [], |r| r.get(0))?)
+}
+
 async fn drive(root:&Path,watch:bool,work:Option<&str>,actor:Option<&str>,from_activity:Option<&str>,finish:Option<&std::sync::atomic::AtomicBool>)->Result<Value> {
     let mut store = Store::open(root)?;
     let _lock = RunnerLock::acquire(&store.root)?;
@@ -715,15 +731,22 @@ async fn drive(root:&Path,watch:bool,work:Option<&str>,actor:Option<&str>,from_a
     if let Some(id)=work.or(from_activity){store::required(&store.db,"work",id)?;}
     if let Some(id)=actor{store::required(&store.db,"persona",id)?;}
     if let (Some(work),Some(actor))=(work,actor){store::required(&store.db,"participation",&format!("{work}/{actor}"))?;}
+    let scope=super::live::RunScope::selected(work,actor,from_activity);
+    // A failure to publish optional Studio observations cannot prevent work.
+    let mut owner=super::live::SessionOwner::publish(&store.root,scope,watch).map_err(|e| {
+        eprintln!("Could not publish the runner observation: {e}"); e
+    }).ok();
     recover(&mut store,work.or(from_activity),actor)?;
     let mut tree = from_activity.map(super::activity_tree::Tree::new);
     let root = store.root.clone();
-    let mut busy = BTreeSet::new();
+    let mut busy = std::collections::BTreeMap::new();
     let mut tasks = tokio::task::JoinSet::new();
     let mut served = std::collections::BTreeMap::new();
     let mut scheduling_order = 0u64;
     let mut observed_signal = None;
+    let mut finish_requested = false;
     loop {
+        let version = data_version(&store.db)?;
         if let Some(tree) = &mut tree {
             loop {
                 let added = tree.refresh(&store.db)?;
@@ -747,22 +770,16 @@ async fn drive(root:&Path,watch:bool,work:Option<&str>,actor:Option<&str>,from_a
             }
         }
         let released = finish.is_some_and(|flag|flag.load(std::sync::atomic::Ordering::Acquire));
-        let shutting_down = released || crate::process_control::signal().is_some();
-        let admission: Option<String> = store
-            .db
-            .query_row(
-                "SELECT state FROM controls WHERE scope='admission'",
-                [],
-                |r| r.get(0),
-            )
-            .optional()?;
-        let draining = admission.is_some_and(|state| state != "running");
+        let session = owner.as_ref().map(|o| o.id.as_str());
+        finish_requested = finish_requested || super::live::finish_requested(&store.db,session)?;
+        let shutting_down = released || finish_requested || crate::process_control::signal().is_some();
+        let draining = admission_paused(&store.db)?;
         let mut eligible = Vec::new();
-        let mut future_wake = false;
+        let mut next_wake = None::<i64>;
         for record in store::list(&store.db, "participation")? {
             let part: Participation = serde_json::from_value(record.body)?;
             if work.is_some_and(|w|w!=part.work) || tree.as_ref().is_some_and(|t|!t.contains(&part.work))
-                || actor.is_some_and(|a|a!=part.persona) || busy.contains(&part.persona) || occupied.contains(&part.persona)
+                || actor.is_some_and(|a|a!=part.persona) || busy.contains_key(&part.persona) || occupied.contains(&part.persona)
                 || store::stopped(&store.db, &part.work, &part.persona)?.is_some()
             {
                 continue;
@@ -777,8 +794,8 @@ async fn drive(root:&Path,watch:bool,work:Option<&str>,actor:Option<&str>,from_a
                     Continuation::Ready { .. } => true,
                     Continuation::Stop { .. } => false,
                     Continuation::Wait { wake_at_unix, on_events, .. } => {
-                        if wake_at_unix.is_some_and(|t| t > now()) {
-                            future_wake = true;
+                        if let Some(t) = wake_at_unix.filter(|t| *t > now()) {
+                            next_wake = Some(next_wake.map_or(t, |prior| prior.min(t)));
                         }
                         wake_at_unix.is_some_and(|t| t <= now())
                             || store::has_arrival(&store.db,&part.work,&part.persona,part.cursor,on_events)?
@@ -790,12 +807,14 @@ async fn drive(root:&Path,watch:bool,work:Option<&str>,actor:Option<&str>,from_a
                         .ok_or_else(|| failure("invalid retained inference recovery time"))?;
                     if now() < not_before {
                         ready = false;
-                        future_wake = true;
+                        next_wake = Some(next_wake.map_or(not_before, |prior| prior.min(not_before)));
                     }
                 }
             }
             if !shutting_down && (pending > 0 || ready) {
-                eligible.push((part.persona, part.work, ready));
+                // Earlier accepted effects can take time and deliver new events.
+                // Recheck continuation and admission after they settle.
+                eligible.push((part.persona, part.work, pending == 0 && ready));
             }
         }
         eligible.sort_by_key(|(actor, work, _)| {
@@ -805,32 +824,47 @@ async fn drive(root:&Path,watch:bool,work:Option<&str>,actor:Option<&str>,from_a
                 .unwrap_or(0)
         });
         for (actor, work, ready) in eligible {
-            if !busy.insert(actor.clone()) {
+            if finish.is_some_and(|flag|flag.load(std::sync::atomic::Ordering::Acquire)) { break; }
+            if busy.contains_key(&actor) {
                 continue;
             }
+            busy.insert(actor.clone(), work.clone());
             scheduling_order = scheduling_order
                 .checked_add(1)
                 .ok_or_else(|| failure("scheduler order overflow"))?;
             served.insert((actor.clone(), work.clone()), scheduling_order);
             let prior_closure = store::required(&store.db, "work", &work)?.body["last_dissolution"].clone();
             let root = root.clone();
+            let session = session.map(str::to_owned);
             tasks.spawn(async move {
                 let result = async {
-                    effects(&root, &actor,&work).await?;
                     if ready {
-                        decision(&root, &work, &actor).await?;
-                        effects(&root, &actor,&work).await?;
+                        decision(&root, &work, &actor,session.as_deref()).await?;
                     }
+                    effects(&root, &actor,&work).await?;
                     Ok::<(), super::Error>(())
                 }
                 .await;
                 (actor, work, prior_closure, result)
             });
         }
+        if let Some(owner) = &mut owner { owner.update_workers(&busy); }
         if tasks.is_empty()
-            && (draining || !watch && !future_wake || shutting_down)
+            && (draining || !watch && next_wake.is_none() || shutting_down)
         {
             break;
+        }
+        // In a quiet workspace, wait for a commit or the earliest actual timer
+        // without repeatedly decoding every participation, outcome and request.
+        if tasks.is_empty() {
+            while data_version(&store.db)? == version
+                && next_wake.is_none_or(|t| now() < t)
+                && !finish.is_some_and(|flag|flag.load(std::sync::atomic::Ordering::Acquire))
+                && crate::process_control::signal().is_none()
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+            continue;
         }
         tokio::select! {
             Some(joined)=tasks.join_next(),if !tasks.is_empty()=>{

@@ -23,6 +23,9 @@ pub fn read(root: &Path, call: &str) -> Option<Progress> {
 
 mod message_receipt;
 pub use message_receipt::inspect as message_receipt;
+mod session;
+pub use session::{observe_runner, RunScope, RunnerObservation, RunnerSession};
+pub(crate) use session::{finish_requested, request_finish, SessionOwner};
 
 pub(super) struct Publisher {
     path: PathBuf,
