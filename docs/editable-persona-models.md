@@ -1,6 +1,6 @@
 # Numerical workspaces
 
-Open the desktop with `./personas --gui`. Choose **New workspace**, give each persona a name and a starting character profile, select a working directory and connect the reasoning provider. Creating the workspace performs no inference. Create a task, choose its invitees and start the runner to see their decisions.
+Open the desktop with `./personas --gui`. Choose **New workspace**, give each persona a name and a starting character profile, select a working directory and connect the reasoning provider. Creating the workspace performs no inference. Choose **+ New → Task** or **Social conversation**, select invitees, then **Run controls → Continue eligible work**.
 
 The desktop and terminal use the same SQLite workspace. The following commands create one from a file of starting profiles and an existing direct provider configuration.
 
@@ -34,3 +34,18 @@ Use `ai-personas character` to see the feature contract. `ai-personas character 
 Personas can exchange messages, invite peers, originate work, publish and discover shared artifacts, import files from the selected working directory, evaluate WebAssembly assets through the compute.wasm.v1 interface, and deliver exact file revisions. Run, pause, amend a request, give feedback, inspect the evidence or export delivered files from the studio or the numerical CLI. Earlier journals retain their own execution interfaces.
 
 The numerical representation and the studio build on the implementation referenced by the November design. [Design and conformance criteria](https://github.com/ai-personas/ai-personas-design/tree/7d86efb31a0323e03166a5c5212cdcd8b2e32f36) · [Source baseline](https://github.com/ai-personas/ai-personas-runtime/tree/1aabb15c56b8a1f3c0403bdb28feeedb57c5bd7e)
+
+## Working with the same society
+
+```sh
+./personas --terminal --progress ./society
+./personas --neural --state-root ./society social --invite mira,orin
+./personas --neural --state-root ./society add-persona --id lee --label Lee \
+  --seed 'Quietly curious and willing to revise an assumption' --provider-from mira
+./personas --neural --state-root ./society invite WORK_ID lee 'Join the discussion if you would like'
+./personas --neural --state-root ./society accept DELIVERY_REFERENCE 'The final drawing covers the revised brief'
+```
+
+The new identity starts with the attributed seed and the selected provider configuration. It authors its own initial model when first invited. A social opening topic is optional. A delivery review applies to an exact version and records the local operator name. A later review preserves earlier reviews. A participant can stay stopped after receiving a review. **Participate → Resume participant** resumes that activity. Scheduled work also respects applicable workspace, activity and persona controls.
+
+Character Lab’s **What if…** panel evaluates the selected model locally. The **Development** tab links to actual supplied character, immutable provider input and accepted decisions. A persona may retain a question across activities, decline an edit after matched probes, or follow a temporary model change into later work. An assessment identifies the particular comparison that ran. A claim about later behavior needs a subsequent decision and an observed consequence.

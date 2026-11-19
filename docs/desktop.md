@@ -1,13 +1,10 @@
 # Personas Desktop
 
-Personas Desktop is a native Rust window for Linux and macOS. It discovers Codex,
-loads model and reasoning choices, provides browser or device-code sign-in, and
-keeps tasks, conversations, files, questions, and persona activity together.
-Its Blender-inspired interface uses embedded Inter and DejaVu Sans Mono fonts,
-a dark theme, compact editor headers,
-resizable panels, a task outliner, a persona properties inspector, and a session
-history panel. Blue marks selection and primary actions; orange marks workspace
-icons and items needing attention.
+Personas Desktop is a native Rust workspace for Linux and macOS. Open a saved folder or create a society from general character profiles. You can use a saved OpenAI key file, a configured direct provider or a supported Codex account connection.
+
+**Workspace** shows the selected activity, real peer exchanges, pending work and deliveries. **+ New** creates a task, a voluntary conversation or a persona. **Participate** lets the operator send feedback, amend the brief, invite someone or resume a specific participation. The run controls can affect the whole workspace, one activity or one identity.
+
+**Conversations** preserves who sent each message. **Artifacts** opens exact delivered versions, shows the latest human review, accepts requests for changes and exports file trees with their manifests. **Character Lab** lets you inspect real coefficients, contextual appraisals, comparisons and the evidence behind development decisions. The **What if…** inputs are local previews. [Numerical workspace guide](editable-persona-models.md)
 
 ## Build and open
 
@@ -35,7 +32,11 @@ selection in the window or with `--helpers /path/to/helpers` is checked the same
 way and never falls back to a different installation. A packaged user
 does not need Python or Cargo. The terminal interface still requires Python.
 
-## Daily use
+## Earlier progress journals
+
+The following sections document the fragment-based desktop opened for an existing progress journal. The numerical desktop stores its own activities and evidence in `neural.sqlite`.
+
+### Daily use
 
 Existing workspaces appear first when the app finds several saved runtimes.
 Search by folder name or task text, select a row to inspect its properties, then

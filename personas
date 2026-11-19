@@ -7,10 +7,13 @@ set -eu
 # Pass its arguments intact; do not reinterpret exact needs or model selections.
 if [ "${1-}" = "--neural" ]; then
     shift
-    editable_dir=$(CDPATH= cd -P "${0%/*}" && pwd -P)
+    case "$0" in */*) launcher_path=$0 ;; *) launcher_path=$(command -v "$0") ;; esac
+    editable_dir=$(CDPATH= cd -P "${launcher_path%/*}" && pwd -P)
     if [ "${PERSONAS_BIN+x}" = x ]; then
         [ -n "$PERSONAS_BIN" ] && [ -f "$PERSONAS_BIN" ] && [ -x "$PERSONAS_BIN" ] || { printf '%s\n' 'PERSONAS_BIN must name an executable.' >&2; exit 126; }
         editable_bin=$PERSONAS_BIN
+    elif [ -f "$editable_dir/ai-personas" ] && [ -x "$editable_dir/ai-personas" ]; then
+        editable_bin=$editable_dir/ai-personas
     elif [ -x "$editable_dir/target/debug/ai-personas" ]; then
         editable_bin=$editable_dir/target/debug/ai-personas
     elif [ -x "$editable_dir/target/release/ai-personas" ]; then
@@ -25,6 +28,7 @@ interface=auto
 case "${1-}" in
     -gui|--gui) interface=gui; shift ;;
     --terminal) interface=terminal; shift ;;
+    --journal-terminal) interface=journal; shift ;;
 esac
 if [ "$interface" = gui ] || { [ "$#" -eq 0 ] && [ "$interface" = auto ]; }; then
     case "$0" in */*) ui_launcher=$0 ;; *) ui_launcher=$(command -v "$0") ;; esac
@@ -50,6 +54,11 @@ if [ "$interface" = gui ] || { [ "$#" -eq 0 ] && [ "$interface" = auto ]; }; the
 fi
 
 # Python is only the local terminal UI; no model or external agent authors work.
+if [ "$interface" = terminal ] || { [ "$#" -eq 0 ] && [ "$interface" = auto ]; }; then
+    case "$0" in */*) launcher_path=$0 ;; *) launcher_path=$(command -v "$0") ;; esac
+    studio_dir=$(CDPATH= cd -P "${launcher_path%/*}" && pwd -P)
+    exec python3 -I -B "$studio_dir/scripts/personas_studio.py" "$@"
+fi
 if [ "$#" -eq 0 ]; then
     [ -t 0 ] && [ -t 1 ] || { printf '%s\n' 'Interactive ./personas needs a terminal; pass explicit arguments for noninteractive use.' >&2; exit 2; }
     dialogue_dir=$(CDPATH= cd -P "${0%/*}" && pwd -P) || exit 1
@@ -70,7 +79,8 @@ fi
 usage() {
     printf '%s\n' 'Usage: ./personas --neural [OPTIONS] COMMAND
        ./personas --gui [--progress PATH] [--helpers PATH]
-       ./personas --terminal
+       ./personas --terminal [--progress PATH]
+       ./personas --journal-terminal
        ./personas [OPTIONS] "Your need"
        ./personas [OPTIONS]                 # explicit-option prompt; no arguments open onboarding
        ./personas [OPTIONS] --resume WORK
@@ -80,12 +90,12 @@ usage() {
        ./personas [OPTIONS] --questions WORK
        ./personas [OPTIONS] --answer-question FILE.json
 
-Editable numerical characters: use --neural init, request, run, status, read, audit,
-control, resume, message, amend, accept or export. Run ./personas --neural --help
+Editable numerical characters: use --neural init, request, social, add-persona, invite,
+run, status, read, audit, control, resume, message, amend, accept or export. Run ./personas --neural --help
 for native command help; see docs/editable-persona-models.md for setup.
 New desktop workspaces use the editable-character runtime. Existing journals can
 still be opened explicitly. No arguments choose desktop in a graphical session,
-or historical terminal onboarding otherwise. --terminal requires that terminal UI.
+or the numerical terminal otherwise. Use --journal-terminal for earlier journals.
 --gui (or -gui) requires the desktop app.
 
 The remaining explicit options below use the historical journal runtime and saved

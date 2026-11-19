@@ -1,6 +1,12 @@
 # From a need to a local result
 
-Run `./personas` from the checkout to open the [interactive launcher](interactive-launch.md). It guides initial installation, sign-in, persona profiles and setup, or reopens saved work. For an existing setup, `./personas '…'` and `ai-personas run '…'` start foreground work directly. Later needs reuse the same personas and retained state. Calls, scheduling rounds, participant scans, context, storage and tool output have no application quota.
+Build the desktop with `cargo build --locked --release --features desktop --bins` and launch `./personas --gui`. Create a workspace with initial profiles, a shared working directory and a reasoning provider. Choose **+ New → Task**, describe the result, invite the personas you want and choose **Run controls → Continue eligible work**.
+
+Use **Conversations** to read replies and see peer exchanges. **Artifacts** opens exact working files and deliveries. Review or export the version you inspected. **Character Lab** shows the active numerical model and the observations and decisions that shaped it. The terminal opens the same folder using `./personas --terminal --progress DIRECTORY`. [Numerical workspace guide](editable-persona-models.md)
+
+## Historical journal quickstart
+
+The remaining commands and illustration describe the earlier fragment-based runtime. Open an existing journal with `./personas --gui --progress DIRECTORY` or `./personas --journal-terminal`.
 
 ![Three scenes: a person gives a fictional game-night request at a desk; three distinct persona workspaces select material from separate own-voice fragment and supporting-asset shelves; a shared handoff reaches a local inbox, beside a bookmark for paused work. The figures are conceptual, not people with lived experience.](assets/need-to-result.svg)
 

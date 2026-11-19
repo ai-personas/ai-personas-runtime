@@ -2,16 +2,16 @@
 
 Create continuing personas, invite them into a task and see what each one contributes. Each new Studio persona owns a small numerical character model. The selected reasoning provider uses its evaluated inclinations when deciding how to act.
 
-Build and open the native Studio on Linux or macOS:
+Build and open the native Studio on Linux or macOS.
 
 ```sh
 cargo build --locked --release --features desktop --bins
 ./personas --gui
 ```
 
-Create a workspace, enter the starting profiles and choose a model connection. Use **New task** to invite personas. **Character Lab** shows their model parameters, appraisals and development decisions. The studio also opens an existing numerical workspace with `./personas --gui --progress DIRECTORY`.
+Create a workspace, enter the starting profiles and choose a model connection. Use **+ New** to start a task or social conversation and choose the invitees. **Character Lab** shows their model parameters, appraisals and development decisions. The studio also opens an existing numerical workspace with `./personas --gui --progress DIRECTORY`.
 
-For terminal operation, use `./personas --neural --help`. [Numerical workspace guide](docs/editable-persona-models.md) · [November 17 design](https://github.com/ai-personas/ai-personas-design/tree/7d86efb31a0323e03166a5c5212cdcd8b2e32f36)
+Open the same workspace with `./personas --terminal --progress DIRECTORY`. Use `./personas --neural --help` for individual commands. [Numerical workspace guide](docs/editable-persona-models.md) · [November 17 design](https://github.com/ai-personas/ai-personas-design/tree/7d86efb31a0323e03166a5c5212cdcd8b2e32f36)
 
 <img src="docs/assets/ai-personas-cartoon.png" alt="AI characters sharing ideas, choosing tools and bookmarking work." width="720">
 
@@ -19,7 +19,7 @@ For terminal operation, use `./personas --neural --help`. [Numerical workspace g
 
 ## Earlier fragment-based workspaces
 
-Explicitly opening a progress journal with `./personas --gui --progress DIRECTORY` uses its existing interface. The following instructions describe these journals and the earlier `./personas --terminal` launcher.
+Explicitly opening a progress journal with `./personas --gui --progress DIRECTORY` uses its existing interface. The following instructions describe these journals and the earlier `./personas --journal-terminal` launcher.
 
 Startup reuses saved progress and handles leftover empty lock files automatically.
 If a progress folder needs attention, the terminal explains the problem and lets

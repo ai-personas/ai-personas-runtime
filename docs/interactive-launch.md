@@ -1,17 +1,8 @@
 # Interactive launch
 
-Ordinary Continue now runs without work, session, consideration or lifetime call
-quotas and without another approval prompt. Setup no longer asks for these caps.
-See [execution resources](execution-resources.md) for retained historical settings
-and remaining enforcement paths. Explicit stops and pauses are still honored.
+Run `./personas` to open the desktop in a graphical session or the numerical Studio in a terminal. Use `./personas --gui --progress DIRECTORY` or `./personas --terminal --progress DIRECTORY` to open a specific numerical workspace. The terminal accepts `help` for the native commands, `summary` for activity and persona IDs, and `task` or `social` for a guided invitation. [Workspace guide](editable-persona-models.md)
 
-
-Run `./personas` with no arguments to open the [Rust desktop app](desktop.md)
-when installed in a graphical session. Use `./personas --gui` to require it, or
-`./personas --terminal` for the terminal dialogue described below. Rust remains responsible for provider evidence,
-authentication, atomic setup, intake, execution, permissions and accounting.
-Explicit argument-based wrapper commands retain their earlier behavior; see
-[the explicit CLI guide](launcher.md).
+The journal dialogue described below is available with `./personas --journal-terminal`. [Historical command reference](launcher.md)
 
 ## Reopen an existing journal
 

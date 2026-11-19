@@ -29,22 +29,19 @@ pub struct Store {
 }
 
 impl Store {
-    pub fn create(root: &Path) -> Result<Self> {
-        std::fs::create_dir_all(root)?;
+    pub fn create(root: &Path, initialize: impl FnOnce(&Transaction<'_>)->Result<()>) -> Result<Self> {
+        let mut folders=std::fs::DirBuilder::new();
+        folders.recursive(true);
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(root, std::fs::Permissions::from_mode(0o700))?;
+            use std::os::unix::fs::DirBuilderExt;
+            folders.mode(0o700);
         }
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        drop(options.open(root.join("neural.sqlite"))?);
-        let db = Connection::open(root.join("neural.sqlite"))?;
+        folders.create(root)?;
+        let root=root.canonicalize()?;
+        let stage=tempfile::Builder::new().prefix(".personas-init-").tempdir_in(&root)?;
+        let file=tempfile::NamedTempFile::new_in(stage.path())?;
+        let mut db=Connection::open(file.path())?;
         db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;
             BEGIN IMMEDIATE;
             CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -63,11 +60,15 @@ impl Store {
             CREATE TABLE asset_index(id TEXT PRIMARY KEY,path TEXT NOT NULL,owner TEXT NOT NULL,cues TEXT NOT NULL);
             CREATE INDEX asset_paths ON asset_index(path);
             COMMIT;")?;
-        db.busy_timeout(std::time::Duration::from_secs(30))?;
-        Ok(Self {
-            root: root.canonicalize()?,
-            db,
-        })
+        let transaction=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        initialize(&transaction)?;
+        transaction.commit()?;
+        db.close().map_err(|(_,e)|e)?;
+        file.as_file().sync_all()?;
+        file.persist_noclobber(root.join("neural.sqlite")).map_err(|e|e.error)?;
+        #[cfg(unix)]
+        std::fs::File::open(&root)?.sync_all()?;
+        Self::open(&root)
     }
 
     pub fn open(root: &Path) -> Result<Self> {

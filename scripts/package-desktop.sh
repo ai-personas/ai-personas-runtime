@@ -33,7 +33,7 @@ done
 # Include the optional terminal interface without making Python a GUI dependency.
 cp "$checkout/personas" "$binaries/personas"
 mkdir -p "$binaries/scripts"
-cp "$checkout/scripts/personas_dialogue.py" "$binaries/scripts/"
+cp "$checkout/scripts/personas_dialogue.py" "$checkout/scripts/personas_studio.py" "$binaries/scripts/"
 cp "$checkout/LICENSE" "$output/LICENSE"
 mkdir -p "$output/licenses/fonts"
 cp "$checkout/src/desktop/fonts/Inter-OFL.txt" "$checkout/src/desktop/fonts/DejaVu-LICENSE.txt" "$checkout/src/desktop/fonts/README.txt" "$output/licenses/fonts/"

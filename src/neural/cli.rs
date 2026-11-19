@@ -226,8 +226,7 @@ pub async fn execute(root: &Path, operator: &str, command: Command) -> Result<Va
                 auth_route,
                 platform_key_file,
             };
-            let mut store = Store::create(root)?;
-            store.transaction(|db| {
+            let store = Store::create(root, |db| {
                 store::write(db, "config", "runtime", 0, &config, None)?;
                 for seed in seeds.personas {
                     create_seed(db, seed, operator, &provider)?;
@@ -307,6 +306,7 @@ pub async fn execute(root: &Path, operator: &str, command: Command) -> Result<Va
 
 pub fn export(store: &mut Store, directory: &Path, work: Option<&str>) -> Result<Value> {
     let data = store.snapshot(|db| {
+        if let Some(id)=work { store::required(db,"work",id)?; }
         let deliveries = store::list(db, "delivery")?
             .into_iter()
             .filter(|r| work.is_none_or(|w| r.body["work"] == w))
@@ -330,13 +330,14 @@ pub fn export(store: &mut Store, directory: &Path, work: Option<&str>) -> Result
         }
         Ok((deliveries, artifacts))
     })?;
-    std::fs::create_dir(directory)?;
+    let parent=directory.parent().filter(|p|!p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let staging=tempfile::Builder::new().prefix(".personas-export-").tempdir_in(parent)?;
     let mut manifest = Vec::new();
     // Each exact delivery preserves its logical file tree. Separate packages
     // can retain different versions without breaking relative imports/links.
     for (delivery, reference, path, metadata, bytes) in data.1 {
         let relative = PathBuf::from(delivery.replace([':', '@'], "_")).join(path);
-        let target = directory.join(&relative);
+        let target = staging.path().join(&relative);
         std::fs::create_dir_all(target.parent().unwrap())?;
         use std::io::Write;
         let mut file = std::fs::OpenOptions::new()
@@ -344,15 +345,42 @@ pub fn export(store: &mut Store, directory: &Path, work: Option<&str>) -> Result
             .create_new(true)
             .open(&target)?;
         file.write_all(&bytes)?;
+        file.sync_all()?;
         manifest.push(json!({"delivery":delivery,"reference":reference,"export_path":relative,"metadata":metadata,"bytes":bytes.len(),"sha256":crate::store::sha256_bytes(&bytes)}));
     }
     let value =
         json!({"deliveries":data.0,"artifacts":manifest,"quality_verified_by_export":false});
     std::fs::write(
-        directory.join("manifest.json"),
+        staging.path().join("manifest.json"),
         serde_json::to_vec_pretty(&value)?,
     )?;
+    std::fs::File::open(staging.path().join("manifest.json"))?.sync_all()?;
+    publish_directory(staging.path(),directory)?;
+    #[cfg(unix)]
+    std::fs::File::open(parent)?.sync_all()?;
     Ok(json!({"directory":directory,"artifact_count":manifest.len(),"manifest":"manifest.json"}))
+}
+
+fn publish_directory(from:&Path,to:&Path)->Result<()> {
+    #[cfg(any(target_os="linux",target_os="macos"))]
+    {
+        use std::{ffi::CString,os::unix::ffi::OsStrExt};
+        let from=CString::new(from.as_os_str().as_bytes())?;
+        let to=CString::new(to.as_os_str().as_bytes())?;
+        // Both names are live C strings. No existing destination, including an
+        // empty directory created by a competing export, can be replaced.
+        #[cfg(target_os="linux")]
+        let result=unsafe{libc::renameat2(libc::AT_FDCWD,from.as_ptr(),libc::AT_FDCWD,to.as_ptr(),libc::RENAME_NOREPLACE)};
+        #[cfg(target_os="macos")]
+        let result=unsafe{libc::renamex_np(from.as_ptr(),to.as_ptr(),libc::RENAME_EXCL)};
+        if result!=0 {return Err(std::io::Error::last_os_error().into());}
+    }
+    #[cfg(not(any(target_os="linux",target_os="macos")))]
+    {
+        if to.try_exists()? {return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists).into());}
+        std::fs::rename(from,to)?;
+    }
+    Ok(())
 }
 
 pub fn audit(store: &mut Store) -> Result<Value> {
