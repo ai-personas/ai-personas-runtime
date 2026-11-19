@@ -108,16 +108,23 @@ pub(super) fn publish(
         "author":author,"author_kind":if invocation.is_some(){"persona"}else{"operator"},
         "work":work,"decision":invocation,"recipient":recipient,"recipient_kind":recipient_kind,
         "text":feedback.text,"evidence":feedback.evidence,"reply_to":feedback.reply_to});
-    let target = if recipient_kind == "operator" {
-        "user"
+    // Persona IDs cannot contain a colon. Operator display names may coincide
+    // with a persona, so route the event using a distinct address.
+    let sender = if invocation.is_some() {
+        author.to_owned()
     } else {
-        &recipient
+        format!("operator:{author}")
+    };
+    let target = if recipient_kind == "operator" {
+        format!("operator:{recipient}")
+    } else {
+        recipient.clone()
     };
     let sequence = store::event(
         db,
         work,
-        author,
-        target,
+        &sender,
+        &target,
         "asset_feedback",
         &report,
         invocation,
@@ -227,7 +234,7 @@ pub(super) fn responses(db: &Connection, actor: &str, call: &str) -> Result<Vec<
         let (digest, answered) = row?;
         let r: Value = store::object(db, &digest)?;
         replies.push(json!({"experience":r["experience"],"sequence":r["sequence"],"author":r["author"],
-            "kind":"asset_feedback","relation":if answered{"feedback_reply"}else{"asset_feedback"},
+            "author_kind":r["author_kind"],"kind":"asset_feedback","relation":if answered{"feedback_reply"}else{"asset_feedback"},
             "target":if answered{&r["reply_to"]}else{&r["asset"]},"report":r["reference"],"work":r["work"]}));
     }
     Ok(replies)
