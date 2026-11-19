@@ -1,4 +1,5 @@
 //! Inspect an account from its author's perspective and trace it back to the exchange.
+mod reader;
 use super::*;
 use ai_personas::neural::{
     self,
@@ -95,6 +96,7 @@ pub(super) struct Panel {
     revisions: usize,
     trace_reference: Option<String>,
     trace_start: usize,
+    exchanges: Vec<String>,
 }
 
 enum Action {
@@ -102,6 +104,7 @@ enum Action {
     Select(Contact),
     Reverse(String),
     Inspect(String),
+    Raw(String),
     Trace(String),
     Page { encounters: usize, revisions: usize },
 }
@@ -118,6 +121,7 @@ impl Panel {
         self.trace_reference = None;
         self.trace_start = 0;
         self.filter.clear();
+        self.exchanges.clear();
         self.tab = 0;
     }
     fn load(&mut self, ctx: &egui::Context, root: &Path) {
@@ -252,7 +256,7 @@ impl Panel {
                         );
                         if person.kind == Kind::Persona
                             && ui
-                                .small_button("Switch viewpoint ⇄")
+                                .small_button("Switch viewpoint")
                                 .on_hover_text(format!("Read {partner}’s own account of {owner}"))
                                 .clicked()
                         {
@@ -274,6 +278,10 @@ impl Panel {
                                     "activities"
                                 }
                             ));
+                            if ui.available_width() > 225. {
+                                ui.add_space(12.);
+                                reader::markers(ui, &view.history, &mut action);
+                            }
                         });
                     }
                 });
@@ -567,8 +575,24 @@ impl App {
             self.relationships.load(&ctx, &self.root);
         }
         let color = self.color(&self.persona);
-        match self.relationships.show(ui, &self.snapshot.status, color) {
-            Some(Action::Inspect(reference)) => {
+        let selected = self.relationships.show(ui, &self.snapshot.status, color);
+        let reading = reader::show(
+            &ctx,
+            &self.snapshot.status,
+            &self.events,
+            &mut self.relationships.exchanges,
+        );
+        match reading.or(selected) {
+            Some(Action::Inspect(reference))
+                if reader::event(&self.events, &reference).is_some() =>
+            {
+                if self.relationships.exchanges.last() != Some(&reference) {
+                    self.relationships.exchanges.push(reference);
+                }
+                return;
+            }
+            Some(Action::Inspect(reference) | Action::Raw(reference)) => {
+                self.relationships.exchanges.clear();
                 self.open_resource(&ctx, reference);
                 return;
             }
