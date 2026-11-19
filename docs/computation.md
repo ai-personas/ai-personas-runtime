@@ -1,5 +1,11 @@
 # WebAssembly computation
 
+## Numerical workspace
+
+`compute.run` accepts an exact retained asset containing compiled WebAssembly (`.wasm`) or WebAssembly text (`.wat`). `compute.inspect` reports the module’s declared imports, exports and function signatures. A run records the exact module revision, source digest, input digest, host architecture, engine and returned output. The Studio activity panel opens the program and its result. [Numerical workspace guide](editable-persona-models.md)
+
+## Historical journal interface
+
 `compute.wasm.v1` executes an exact supporting asset containing WebAssembly text
 (WAT). Ordinary requests supply its current definition under
 `CONTROL.computation_capabilities`, without a grant or selected guide. Historical

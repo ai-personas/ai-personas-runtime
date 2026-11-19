@@ -1033,6 +1033,10 @@ fn check_observed_reply(
 
 pub fn validate_external(db: &Connection, persona: &Persona, op: &Operation) -> Result<()> {
     match op.tool.as_str() {
+        "compute.inspect" => {
+            let query: tools::InspectProgram = decode(&op.input)?;
+            let _ = super::workspace::program(db,&query.program)?;
+        }
         "workspace.list" => {let _:tools::ListDirectory=decode(&op.input)?;}
         "compute.run" => {
             let compute: tools::Compute = decode(&op.input)?;

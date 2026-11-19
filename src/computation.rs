@@ -36,12 +36,56 @@ fn engine() -> Engine {
 /// Validation never instantiates or executes the program. No imports, including
 /// WASI, filesystem, network, clocks, randomness or model calls, are linked.
 pub fn validate(program: &str) -> Result<(), &'static str> {
-    compile(program).map(|_| ())
+    compile(program.as_bytes()).map(|_| ())
 }
-fn compile(program: &str) -> Result<(Engine, Module), &'static str> {
+fn compile(program: &[u8]) -> Result<(Engine, Module), &'static str> {
     let engine = engine();
-    let module = Module::new(&engine, program.as_bytes()).map_err(|_| "invalid_module")?;
+    let module = Module::new(&engine, program).map_err(|_| "invalid_module")?;
     Ok((engine, module))
+}
+
+/// Declarations read from a module without instantiating it or running its start function.
+pub struct ModuleInterface {
+    pub imports: Vec<(String, String)>,
+    pub exports: Vec<(String, String)>,
+    pub compute_exports: bool,
+}
+
+pub fn module_interface(program: &[u8]) -> Result<ModuleInterface, &'static str> {
+    use wasmi::{ExternType, ValType};
+    fn signature(ty: &ExternType) -> String {
+        match ty {
+            ExternType::Func(f) => {
+                let list = |types: &[ValType]| {
+                    types
+                        .iter()
+                        .map(|t| format!("{t:?}").to_lowercase())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
+                format!("({}) → ({})", list(f.params()), list(f.results()))
+            }
+            ExternType::Memory(m) => format!("memory · initial pages {}", m.minimum()),
+            ExternType::Table(_) => "table".into(),
+            ExternType::Global(_) => "global".into(),
+        }
+    }
+    let (_, module) = compile(program)?;
+    let imports = module
+        .imports()
+        .map(|i| (format!("{} / {}", i.module(), i.name()), signature(i.ty())))
+        .collect();
+    let exports = module
+        .exports()
+        .map(|e| (e.name().to_owned(), signature(e.ty())))
+        .collect();
+    let compute_exports = matches!(module.get_export("memory"), Some(ExternType::Memory(_)))
+        && matches!(module.get_export("run"),Some(ExternType::Func(f)) if f.params()==[ValType::I32,ValType::I32] && f.results()==[ValType::I64]);
+    Ok(ModuleInterface {
+        imports,
+        exports,
+        compute_exports,
+    })
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,6 +103,10 @@ pub struct Outcome {
 /// Call only after durable dispatch. Every invocation gets fresh linear memory.
 /// Module declarations, the exported ABI and actual host resources still apply.
 pub fn execute(program: &str, input: &str) -> Outcome {
+    execute_bytes(program.as_bytes(), input)
+}
+
+pub(crate) fn execute_bytes(program: &[u8], input: &str) -> Outcome {
     let result = (|| {
         let input_length = u32::try_from(input.len()).map_err(|_| "input_abi_length")?;
         let (engine, module) = compile(program)?;
@@ -83,9 +131,14 @@ pub fn execute(program: &str, input: &str) -> Outcome {
             let offset = (packed >> 32) as usize;
             let length = (packed & 0xffff_ffff) as usize;
             let end = offset.checked_add(length).ok_or("output_memory")?;
-            let bytes = memory.data(&store).get(offset..end).ok_or("output_memory")?;
+            let bytes = memory
+                .data(&store)
+                .get(offset..end)
+                .ok_or("output_memory")?;
             let mut output = Vec::new();
-            output.try_reserve_exact(bytes.len()).map_err(|_| "output_allocation")?;
+            output
+                .try_reserve_exact(bytes.len())
+                .map_err(|_| "output_allocation")?;
             output.extend_from_slice(bytes);
             String::from_utf8(output).map_err(|_| "output_utf8")
         })()

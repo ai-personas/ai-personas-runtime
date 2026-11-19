@@ -12,7 +12,7 @@ use eframe::egui::{self, Color32, FontId, RichText, Stroke, Ui};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     path::PathBuf,
     sync::{mpsc, Arc},
     time::{Duration, Instant},
@@ -83,6 +83,7 @@ pub struct App {
     root: PathBuf,
     snapshot: data::Snapshot,
     events: Vec<Value>,
+    program_runs: BTreeMap<String, Vec<usize>>,
     character_decisions: Vec<Value>,
     known_decisions: BTreeSet<String>,
     cursor: i64,
@@ -154,6 +155,7 @@ impl App {
             root,
             snapshot: Default::default(),
             events: vec![],
+            program_runs: BTreeMap::new(),
             character_decisions: vec![],
             known_decisions: BTreeSet::new(),
             cursor: 0,
@@ -274,6 +276,13 @@ impl App {
                     match result {
                         Ok(mut snapshot) => {
                             self.cursor = snapshot.cursor;
+                            for (offset,event) in snapshot.events.iter().enumerate() {
+                                if event["body"]["tool"]=="compute.run" {
+                                    if let Some(program)=event["tool_outcome"]["program"].as_str() {
+                                        self.program_runs.entry(program.to_owned()).or_default().push(self.events.len()+offset);
+                                    }
+                                }
+                            }
                             self.events.append(&mut snapshot.events);
                             for decision in snapshot.character_decisions.drain(..) {
                                 self.known_decisions.insert(s(&decision, "invocation").into());

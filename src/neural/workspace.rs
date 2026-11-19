@@ -1,6 +1,8 @@
 //! Files selected from the workspace and the runtime's portable computation interface.
 use super::{failure, store, Result};
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 use std::{
     ffi::CString,
     fs::File,
@@ -98,7 +100,21 @@ pub(super) fn list(
     )
 }
 
-pub(super) fn program(db: &Connection, reference: &str) -> Result<String> {
+pub(super) struct Program {
+    pub source: String,
+    pub bytes: Vec<u8>,
+}
+impl Program {
+    pub fn format(&self) -> &'static str {
+        if self.bytes.starts_with(b"\0asm") {
+            "wasm"
+        } else {
+            "wat"
+        }
+    }
+}
+
+pub(super) fn program(db: &Connection, reference: &str) -> Result<Program> {
     let record = store::exact(db, reference)?;
     if record.reference.kind != "asset" {
         return Err(failure(
@@ -108,13 +124,28 @@ pub(super) fn program(db: &Connection, reference: &str) -> Result<String> {
     let digest = record.body["blob"]
         .as_str()
         .ok_or_else(|| failure("Program bytes unavailable"))?;
-    Ok(String::from_utf8(store::bytes(db, digest)?)?)
+    let bytes = store::bytes(db, digest)?;
+    if !bytes.starts_with(b"\0asm") {
+        std::str::from_utf8(&bytes)
+            .map_err(|_| failure("Use a WebAssembly binary module or UTF-8 WebAssembly text"))?;
+    }
+    Ok(Program {
+        source: format!("object:{digest}"),
+        bytes,
+    })
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+enum WorkerProgram {
+    Text(String),
+    Binary { wasm_base64: String },
 }
 
 /// The worker runs only the retained module through the import-free compute ABI.
 /// Its process lifetime allows pause and cancel to interrupt a long calculation.
 pub(super) async fn compute(
-    program: String,
+    program: Program,
     input: String,
     stopped: impl Fn() -> bool,
 ) -> Result<crate::computation::Outcome> {
@@ -136,7 +167,14 @@ pub(super) async fn compute(
         .stdin
         .take()
         .ok_or_else(|| failure("Worker input unavailable"))?;
-    let payload = serde_json::to_vec(&(program, input))?;
+    let module = if program.format() == "wasm" {
+        WorkerProgram::Binary {
+            wasm_base64: STANDARD.encode(program.bytes),
+        }
+    } else {
+        WorkerProgram::Text(String::from_utf8(program.bytes)?)
+    };
+    let payload = serde_json::to_vec(&(module, input))?;
     let completed = async move {
         stdin.write_all(&payload).await?;
         drop(stdin);
@@ -161,10 +199,15 @@ pub(super) async fn compute(
 }
 
 pub fn compute_worker() -> Result<()> {
-    let (program, input): (String, String) = serde_json::from_reader(std::io::stdin().lock())?;
+    let (module, input): (WorkerProgram, String) =
+        serde_json::from_reader(std::io::stdin().lock())?;
+    let bytes = match module {
+        WorkerProgram::Text(text) => text.into_bytes(),
+        WorkerProgram::Binary { wasm_base64 } => STANDARD.decode(wasm_base64)?,
+    };
     serde_json::to_writer(
         std::io::stdout().lock(),
-        &crate::computation::execute(&program, &input),
+        &crate::computation::execute_bytes(&bytes, &input),
     )?;
     Ok(())
 }

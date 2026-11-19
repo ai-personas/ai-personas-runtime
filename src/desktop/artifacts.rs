@@ -56,6 +56,7 @@ enum Body {
     Mesh(Arc<mesh::Mesh>),
     Archive(ArchiveFormat, Vec<ArchiveEntry>),
     Native(Arc<native_preview::Document>),
+    Wasm(ai_personas::computation::ModuleInterface, usize),
     Unsupported(String),
 }
 struct Decoded {
@@ -423,7 +424,7 @@ impl Viewer {
         }
         ui.horizontal_wrapped(|ui| {
             ui.menu_button("Viewer support", |ui| {
-                ui.label("Built in: images/SVG, Markdown/code, JSON/CSV, STL/OBJ/GLB/glTF, ZIP.");
+                ui.label("Built-in viewers include images and SVG, Markdown and code, JSON and CSV, 3D models, WebAssembly interfaces and ZIP packages.");
                 ui.label("TAR, TAR.GZ/TGZ, TAR.BZ2 and TAR.XZ packages: Python 3 standard library.");
                 ui.separator();
                 for route in native_preview::ROUTES {
@@ -706,6 +707,23 @@ impl Viewer {
             Body::Image(_, info) => image_preview(ui, self.texture.as_ref(), &mut self.image_zoom, &mut self.image_pan, &mut self.white_paper, info),
             Body::Native(_) => image_preview(ui, self.texture.as_ref(), &mut self.image_zoom, &mut self.image_pan, &mut self.white_paper, &self.native_info),
             Body::Mesh(mesh) => self.model.ui(ui, mesh),
+            Body::Wasm(module, size) => {
+                ui.heading("WebAssembly module");
+                ui.small(format!("{} bytes · Static interface",size));
+                if module.compute_exports && module.imports.is_empty() {
+                    ui.label("Declares the compute.wasm.v1 interface");
+                }
+                egui::ScrollArea::vertical().id_salt("module-interface").show(ui, |ui| {
+                    for (heading, entries) in [("Exports", &module.exports),("Imports", &module.imports)] {
+                        ui.add_space(8.);
+                        ui.strong(format!("{heading} · {}",entries.len()));
+                        ui.separator();
+                        for (name, kind) in entries {
+                            ui.horizontal_wrapped(|ui| {ui.monospace(name);ui.weak(kind);});
+                        }
+                    }
+                });
+            }
             Body::Text(text, markdown) => {
                 ui.horizontal_wrapped(|ui| {
                     if *markdown {
@@ -974,7 +992,7 @@ fn category(path: &Path) -> usize {
         "csv" | "tsv" | "json" | "h5" | "hdf5" | "hdf" => 4,
         "kicad_pcb" | "kicad_sch" | "brd" | "sch" | "gbr" | "ger" | "gerber" | "gtl" | "gbl" | "gts" | "gbs" | "gto" | "gbo" | "gko" | "gml" | "gm1" | "drl" | "xln" => 7,
         "mp3" | "wav" | "ogg" | "flac" | "m4a" | "aac" | "mp4" | "mov" | "webm" | "avi" | "mkv" | "m4v" => 8,
-        "bin" | "dwg" => 6,
+        "bin" | "dwg" | "wasm" => 6,
         _ => 3,
     }
 }

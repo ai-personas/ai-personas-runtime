@@ -313,6 +313,11 @@ pub(super) fn decode(source: &Source, cancel: &native_preview::Cancellation) -> 
         let entries = format.entries(&bytes, cancel)?;
         return Ok(Decoded { body: Body::Archive(format, entries), note: String::new() });
     }
+    if ext == "wasm" || bytes.starts_with(b"\0asm") {
+        let interface=ai_personas::computation::module_interface(&bytes)
+            .map_err(|code|format!("WebAssembly module could not be decoded ({code})"))?;
+        return Ok(Decoded {body:Body::Wasm(interface,bytes.len()),note:String::new()});
+    }
     let mut note = String::new();
     let body = match ext.as_str() {
         "svg" => svg(source, &bytes, 2.0)?,

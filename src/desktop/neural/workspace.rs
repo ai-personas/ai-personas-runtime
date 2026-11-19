@@ -1346,6 +1346,12 @@ impl App {
                                     if let Some(ms) = result["elapsed_milliseconds"].as_u64() {
                                         ui.weak(format!("{:.1}s", ms as f64 / 1000.));
                                     }
+                                    if matches!(e["body"]["tool"].as_str(),Some("compute.run"|"compute.inspect")) {
+                                        if let Some(program)=result["program"].as_str() {
+                                            let label=result["program_format"].as_str().map_or("Program ↗".to_owned(),|f|format!("Program .{f} ↗"));
+                                            if ui.small_button(label).on_hover_text(program).clicked() {self.open_resource(ctx,program.into());}
+                                        }
+                                    }
                                     if ui.small_button("Inspect result").on_hover_text("Open the exact retained result, including its input and observations.").clicked() {
                                         self.open_resource(ctx, s(result, "result").into());
                                     }

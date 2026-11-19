@@ -91,9 +91,15 @@ pub struct RenderSvg {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Compute {
-    /// Exact retained asset containing WebAssembly text with the compute.wasm.v1 ABI.
+    /// Exact retained asset containing compiled WebAssembly (.wasm) or WebAssembly text (.wat) with the compute.wasm.v1 ABI.
     pub program: String,
     pub input: String,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct InspectProgram {
+    /// Exact asset revision containing compiled or text WebAssembly.
+    pub program: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -245,7 +251,8 @@ pub const NAMES: &[(&str,&str)] = &[
     ("asset.organize","Move/update discovery metadata or retire a resource while preserving exact prior bytes and history."),
     ("image.read","Capture a host image and supply its exact bytes as image input in the next decision."),
     ("image.render_svg","Render an exact retained SVG drawing, diagram or card. The following decision receives the actual PNG pixels. External image files are omitted."),
-    ("compute.run","Execute an exact retained WebAssembly text asset with the compute.wasm.v1 ABI. Supply UTF-8 input. The module returns text using its exported memory and run(i32,i32) -> i64. High 32 bits give the output offset and low 32 bits its length."),
+    ("compute.inspect","Read the declared imports, exports and function signatures of an exact WebAssembly asset without running it. Execution produces a separate result receipt."),
+    ("compute.run","Execute an exact retained compiled WebAssembly (.wasm) or WebAssembly text (.wat) asset with the compute.wasm.v1 ABI. Supply UTF-8 input. The module returns text using its exported memory and run(i32,i32) -> i64. High 32 bits give the output offset and low 32 bits its length."),
     ("peer.message","Deliver an attributed message and exact references; does not invent attention, assent or resume a stopped participation."),
     ("peer.invite","Invite an existing persona to choose a contribution to this work."),
     ("peer.respond","Accept or decline your actual invitation, recording your own commitment only."),
@@ -284,6 +291,7 @@ pub fn describe(name: &str) -> Result<Value> {
         "asset.organize" => schema::<AssetMetadata>()?,
         "image.read" => schema::<ImageRead>()?,
         "image.render_svg" => schema::<RenderSvg>()?,
+        "compute.inspect" => schema::<InspectProgram>()?,
         "compute.run" => schema::<Compute>()?,
         "workspace.list" => schema::<ListDirectory>()?,
         "peer.message" => schema::<Message>()?,
@@ -338,6 +346,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
         "asset.organize" => parse::<AssetMetadata>(value),
         "image.read" => parse::<ImageRead>(value),
         "image.render_svg" => parse::<RenderSvg>(value),
+        "compute.inspect" => parse::<InspectProgram>(value),
         "compute.run" => parse::<Compute>(value),
         "workspace.list" => {
             let page:ListDirectory=serde_json::from_value(value.clone())?;
@@ -361,7 +370,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
 pub fn is_external(name: &str) -> bool {
     matches!(
         name,
-        "compute.run" | "workspace.list" | "asset.import" | "image.read" | "image.render_svg" | "persona.assess"
+        "compute.inspect" | "compute.run" | "workspace.list" | "asset.import" | "image.read" | "image.render_svg" | "persona.assess"
     )
 }
 pub fn asset_mutation(name: &str) -> bool {

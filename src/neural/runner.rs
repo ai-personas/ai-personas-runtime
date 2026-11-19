@@ -474,13 +474,26 @@ async fn external(
             let page:tools::ListDirectory=serde_json::from_value(op.input.clone())?;
             super::workspace::list(&cfg.working_directory,&page)
         }
+        "compute.inspect" => {
+            let input: tools::InspectProgram = serde_json::from_value(op.input.clone())?;
+            let program = super::workspace::program(&store.db,&input.program)?;
+            let format=program.format();
+            let size=program.bytes.len();
+            let interface=tokio::task::spawn_blocking(move || crate::computation::module_interface(&program.bytes)).await?.map_err(failure)?;
+            Ok(json!({"program":input.program,"source":program.source,"format":format,"bytes":size,
+                "engine":crate::computation::engine_revision(),"imports":interface.imports,"exports":interface.exports,
+                "declares_compute_interface":interface.compute_exports && interface.imports.is_empty(),"executed":false}))
+        }
         "compute.run" => {
             let input: tools::Compute = serde_json::from_value(op.input.clone())?;
             let program = super::workspace::program(&store.db, &input.program)?;
+            let evidence=json!({"format":program.format(),"source":program.source,"bytes":program.bytes.len(),
+                "profile":crate::computation::PROFILE,"arch":std::env::consts::ARCH,"os":std::env::consts::OS,
+                "input_sha256":crate::store::sha256_bytes(input.input.as_bytes()),"input_bytes":input.input.len()});
             let outcome = super::workspace::compute(program, input.input, move || {
                 control_observation(&store, work, actor).is_some()
             }).await?;
-            Ok(json!({"program":input.program,"engine":crate::computation::engine_revision(),"outcome":outcome}))
+            Ok(json!({"program":input.program,"engine":crate::computation::engine_revision(),"execution":evidence,"outcome":outcome}))
         }
         "asset.import" => {
             let input: tools::Import = serde_json::from_value(op.input.clone())?;

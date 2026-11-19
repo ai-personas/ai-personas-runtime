@@ -291,6 +291,16 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
     let outcome = &result["outcome"];
     let (label, problem) = if result["error"].is_string() {
         ("Failed".to_owned(), true)
+    } else if result["dispatched"] == false && result["success"] == false {
+        ("Superseded before dispatch".to_owned(), false)
+    } else if body["tool"] == "compute.inspect" && result["executed"]==false {
+        ("Interface inspected".to_owned(), false)
+    } else if body["tool"] == "compute.run" {
+        match outcome["succeeded"].as_bool() {
+            Some(true) => ("Computation completed".to_owned(), false),
+            Some(false) => (outcome["failure"].as_str().unwrap_or("Computation failed").replace('_', " "), true),
+            None => ("Computation outcome unavailable".to_owned(), true),
+        }
     } else if body["tool"] == "host.start" && result["submitted"] == true {
         ("Job submitted".to_owned(), false)
     } else if body["tool"] == "host.cancel" && result["cancellation_requested"] == true {
@@ -316,7 +326,8 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
         ("Outcome unavailable".to_owned(), true)
     };
     Ok(
-        json!({"label":label,"problem":problem,"elapsed_milliseconds":outcome["elapsed_milliseconds"],"failure":outcome["failure"],"error":result["error"],"result":reference}),
+        json!({"label":label,"problem":problem,"elapsed_milliseconds":outcome["elapsed_milliseconds"],"failure":outcome["failure"],"error":result["error"],"result":reference,
+            "program":result["program"],"program_format":result["execution"].get("format").or_else(||result.get("format"))}),
     )
 }
 pub(super) fn preview(root: &Path, reference: &str) -> neural::Result<Preview> {

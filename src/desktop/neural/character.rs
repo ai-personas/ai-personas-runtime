@@ -289,6 +289,23 @@ impl App {
             ui.label(format!("• {}", q.as_str().unwrap_or("")));
             ui.add_space(4.);
         }
+        let mut selected_result = None;
+        if let Some(runs) = self.program_runs.get(&self.selected_reference) {
+            ui.add_space(10.);
+            egui::CollapsingHeader::new(format!("Recorded runs · {}",runs.len()))
+                .id_salt(("program-runs",&self.selected_reference)).default_open(runs.len()==1)
+                .show(ui,|ui| {
+                    for &index in runs.iter().rev() {
+                        let event = &self.events[index];
+                        let result=&event["tool_outcome"];
+                        ui.small(format!("{} · {}",self.label(s(event,"actor")),s(result,"label")));
+                        if ui.small_button(s(event,"created_utc")).on_hover_text("Open the exact execution result").clicked() {
+                            selected_result=Some(s(result,"result").to_owned());
+                        }
+                    }
+                });
+        }
+        if let Some(reference)=selected_result { self.open_resource(ui.ctx(),reference); return; }
         if let Some(cues) = metadata["cues"].as_array() {
             ui.add_space(12.);
             eyebrow(ui, "Discovery cues");
