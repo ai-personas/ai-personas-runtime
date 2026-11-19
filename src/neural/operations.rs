@@ -983,7 +983,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
         for (ordinal,raw) in decision.operations.iter().enumerate() {
             let mut op=raw.clone();
             if op.tool == "command.run" {
-                if let Some(files) = op.input["files"].as_object_mut() {
+                if let Some(files) = op.input.get_mut("files").and_then(Value::as_object_mut) {
                     for reference in files.values_mut() { resolve(reference,&aliases)?; }
                 }
                 if let Some(stdin) = op.input.get_mut("stdin") { resolve(stdin,&aliases)?; }
