@@ -4,13 +4,13 @@ Personas Desktop is a native Rust workspace for Linux and macOS. Open a saved fo
 
 New workspaces open on **Overview**. **Run workspace** listens across existing activities and picks up new invitations. You can also open Studio while a terminal or another window owns the run. The Overview identifies its scope and shows which personas are actually working. **Finish run** lets already admitted work settle and releases that run. A workspace can keep listening while its personas wait for their chosen events or times.
 
-**People & live work** groups calls and tools by persona and activity. **Message** addresses the composer at the bottom of Overview. You can keep watching other personas, attach a file, and open the saved message receipt. The activity title above the composer opens its full timeline. **Close message** keeps your draft for that recipient and activity. On wide windows, live work and handoffs sit side by side. **Recent contributions** shows committed replies, messages and file revisions from across the workspace. Open a reply to read it in place, including what preceded it. **Recent deliveries** opens the exact issued package, its files, declared scope, remaining work and review. **Human requests** opens the action and return instructions from the persona who asked. [Maple Street Studio overview](assets/studio-overview.png)
+**People & live work** groups calls and tools by persona and activity. **Message** addresses the composer at the bottom of Overview. You can keep watching other personas, attach a file, and open the saved message receipt. The activity title above the composer opens its full timeline. **Close message** keeps your draft for that recipient and activity. On wide windows, live work and handoffs sit side by side. An active card’s **Last tool** opens its latest recorded result in that activity. **Recent contributions** shows committed replies, messages and file revisions from across the workspace. Open a reply to read it in place, including what preceded it. **Recent deliveries** opens the exact issued package, its files, declared scope, remaining work and review. **Human requests** opens the action and return instructions from the persona who asked. [Maple Street Studio overview](assets/studio-overview.png)
 
 Open a delivery title to see what its author produced. The page shows the selected file, the author’s supported use, and every remaining item. The file list includes exact revisions, contributors and qualifications. **Open full file** opens the selected revision. You can also open a file directly from **Recent deliveries**. **Back to delivery** returns to its package with that file selected. On small screens the folder button opens the workspace browser over the current page. [Recorded prototype delivery](assets/studio-booklight-live.gif)
 
 **Save handoff…** creates a folder you can take to a fabricator or colleague. Open or print `Delivery.html` to read the brief at issue, limitations, file list and recorded findings. `Files.zip` holds the original files. **Save files ZIP…** saves the archive alone. To take a single form or drawing, select it in **File preview** and choose **Save this file…**. The suggested filename comes from the exact edition in the delivery. [Rowan’s circuit handoff in Studio](assets/studio-delivery.png)
 
-An HTML form opens on **Document text**, with headings, field labels and table rows in reading order. The reading preview supports UTF-8 HTML up to 256 KiB. **HTML source** shows the markup. **Open full file** and **Save this file…** give access to the complete edition. Open an accompanying PDF to inspect its page layout. [Inez’s form in the delivery preview](assets/studio-volunteer-form.png)
+An HTML form opens on **Document text**, with headings, field labels and table rows in reading order. The reading preview supports UTF-8 HTML up to 256 KiB. **HTML source** shows the markup. **Open full file** and **Save this file…** give access to the complete edition. Choose **Print preview** to inspect the actual print pages of that HTML. Use **Previous** and **Next** or the Page Up and Page Down keys. **Save PDF…** saves the pages you inspected. The window shows the source edition. Open it from a delivery to use stylesheets, images and fonts supplied in that exact package. A standalone file uses its own contents and embedded resources. A missing resource is named in the preview. [Inez’s form in the delivery preview](assets/studio-volunteer-form.png)
 
 Choose **File origins…** to see who saved, registered or imported each file, in which activity, and the decision behind it. Filter by the current activity, other activities or an earlier delivery that shares the exact file revisions. **Human requests using this edition** opens each request that explicitly included the package. The action and request number identify it even when two requests share a title. [Rowan’s volunteer quote handoff](assets/studio-quote-file-origins.png)
 
@@ -475,11 +475,16 @@ terminal instructions. Login and model selection perform no inference.
 
 ## Local bundles
 
-After building all binaries on the target operating system:
+After building all binaries on the target operating system, prepare the bundled document printer, then package Studio.
 
 ```sh
+sh scripts/prepare-document-printer.sh target/release/document-printer
 sh scripts/package-desktop.sh target/release target/desktop-bundle
 ```
+
+Preparation downloads the interpreter and WeasyPrint wheels and prints a sample on the release host. The resulting bundle prints offline using GLib, Pango with PangoFT2, HarfBuzz, Fontconfig and the system’s fonts. The page viewer uses the Poppler utilities `pdfinfo` and `pdftoppm`. On Debian and Ubuntu the viewer utilities are in `poppler-utils`. On macOS the native libraries and viewer utilities are available through Homebrew as `pango` and `poppler`.
+
+For a source build or a bundle prepared without the document printer, Studio can use an installed WeasyPrint 70 environment. Set `PERSONAS_PRINT_PYTHON` to the absolute path of its Python interpreter. Otherwise the runtime looks beside its executable for the packaged interpreter, then on PATH for `python3`.
 
 The script refuses to overwrite an existing destination. On Linux, launch
 `target/desktop-bundle/Personas`. The bundle includes a `.desktop` entry and SVG

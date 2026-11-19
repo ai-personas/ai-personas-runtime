@@ -87,6 +87,7 @@ enum Action {
     Select(String),
     Page(usize),
     Open(Target),
+    Print { reference: String, path: String },
     RetryHistory,
     RetryComparison,
 }
@@ -114,12 +115,14 @@ impl History {
                     }
                     for row in page["rows"].as_array_mut().into_iter().flatten() {
                         if let Some(t) = row["created"].as_i64() {
-                            let utc: Option<String> = db.query_row(
-                                "SELECT strftime('%Y-%m-%d %H:%M:%S UTC',?1,'unixepoch')",
-                                [t],
-                                |r| r.get(0),
+                            let (utc, media): (Option<String>, Option<String>) = db.query_row(
+                                "SELECT strftime('%Y-%m-%d %H:%M:%S UTC',?1,'unixepoch'),
+                                    (SELECT media FROM objects WHERE digest=?2)",
+                                rusqlite::params![t, row["sha256"].as_str()],
+                                |r| Ok((r.get(0)?, r.get(1)?)),
                             )?;
                             row["created_utc"] = utc.into();
+                            row["media"] = media.into();
                         }
                     }
                     Ok(page)
@@ -203,6 +206,7 @@ fn rows(page: &Value) -> &[Value] {
 
 impl App {
     pub(super) fn open_file_history(&mut self, ctx: &egui::Context, reference: &str) {
+        self.print_preview = None;
         let package = match self.layout.editor {
             Editor::Delivery => Some(delivery_desk::ReturnTo {
                 package: self.layout.delivery.clone(),
@@ -249,6 +253,7 @@ impl App {
         if !matches || !ui.link("← Back to file history").clicked() {
             return;
         }
+        self.print_preview = None;
         let Some(origin) = self.file_history.origin.clone() else {
             return;
         };
@@ -323,18 +328,17 @@ impl App {
             }
             Some(Action::RetryHistory) => self.file_history.read_page(ctx, &self.root, None),
             Some(Action::RetryComparison) => self.file_history.comparing = None,
+            Some(Action::Print { reference, path }) => {
+                self.file_history.visible = false;
+                self.open_history_file(ctx, &reference);
+                let package = self.delivery_desk.print_package(&reference);
+                self.open_print_preview(ctx, &reference, &path, package, None);
+                self.file_history.target = Some(Target::File(reference));
+            }
             Some(Action::Open(target)) => {
                 self.file_history.visible = false;
                 match &target {
-                    Target::File(r) => {
-                        self.open_resource(ctx, r.clone());
-                        let target = self
-                            .file_history
-                            .origin
-                            .as_ref()
-                            .and_then(|o| o.package.clone());
-                        self.delivery_desk.set_return(r, target);
-                    }
+                    Target::File(r) => self.open_history_file(ctx, r),
                     Target::Activity(work) => self.open_home_activity(work),
                     Target::Delivery(reference) => self.open_issued_package(ctx, reference),
                 }
@@ -342,5 +346,11 @@ impl App {
             }
             None => {}
         }
+    }
+
+    fn open_history_file(&mut self, ctx: &egui::Context, reference: &str) {
+        self.open_resource(ctx, reference.into());
+        let target = self.file_history.origin.as_ref().and_then(|o| o.package.clone());
+        self.delivery_desk.set_return(reference, target);
     }
 }

@@ -1,17 +1,42 @@
 use super::*;
 
 impl App {
-    pub(super) fn last_tool_result(&mut self, ui: &mut Ui, person: &str, now: i64) {
-        let Some(seq) = self.home_index.latest_tool_event(&self.work, person) else {
-            return;
-        };
-        let Ok(i) = self
+    fn latest_tool_notice(&self, work: &str, person: &str) -> Option<(i64, &Value)> {
+        let seq = self.home_index.latest_tool_event(work, person)?;
+        let index = self
             .events
             .binary_search_by_key(&seq, |e| e["event"].as_i64().unwrap_or(0))
-        else {
+            .ok()?;
+        Some((seq, &self.events[index]))
+    }
+
+    pub(in super::super) fn overview_tool_result(
+        &self,
+        ui: &mut Ui,
+        work: &str,
+        person: &str,
+    ) -> Option<String> {
+        let (seq, event) = self.latest_tool_notice(work, person)?;
+        let receipt = &event["tool_outcome"];
+        let reference = receipt["result"].as_str()?;
+        let tool = s(&event["body"], "tool");
+        let mut open = false;
+        ui.horizontal_wrapped(|ui| {
+            ui.weak(RichText::new("Last tool").small());
+            open = ui.link(RichText::new(operation_name(tool)).small())
+                .on_hover_text(format!("Open the {tool} receipt · event {seq}\n{}", s(event, "created_utc")))
+                .clicked();
+            if let Some(status) = result_status(receipt) {
+                ui.colored_label(theme::palette(ui).ink(theme::ACCENT), RichText::new(status).small());
+            }
+        });
+        open.then(|| reference.into())
+    }
+
+    pub(super) fn last_tool_result(&mut self, ui: &mut Ui, person: &str, now: i64) {
+        let Some((seq, event)) = self.latest_tool_notice(&self.work, person) else {
             return;
         };
-        let event = &self.events[i];
         let receipt = &event["tool_outcome"];
         let Some(reference) = receipt["result"].as_str() else {
             return;
@@ -28,6 +53,7 @@ impl App {
         };
         let mut open_result = false;
         let mut open_event = false;
+        let mut open_pdf = None;
         ui.push_id(("latest-tool", seq), |ui| {
             ui.add_space(3.);
             ui.horizontal_wrapped(|ui| {
@@ -49,6 +75,11 @@ impl App {
                             .color(theme::palette(ui).ink(theme::ACCENT)),
                     );
                 }
+                if let Some(pdf) = receipt["pdf"].as_str() {
+                    if text_action(ui, "Open PDF").on_hover_text(s(receipt, "label")).clicked() {
+                        open_pdf = Some(pdf.to_owned());
+                    }
+                }
                 open_event = text_action(ui, &format!("Event #{seq}"))
                     .on_hover_text("Locate this recorded tool action in the activity timeline")
                     .clicked();
@@ -56,6 +87,8 @@ impl App {
         });
         if open_result {
             self.open_resource(ui.ctx(), reference.into());
+        } else if let Some(pdf) = open_pdf {
+            self.open_resource(ui.ctx(), pdf);
         } else if open_event {
             self.live_board.show_event(&self.work, seq);
         }
@@ -110,6 +143,7 @@ fn operation_name(tool: &str) -> &str {
         "image.read" => "Image read",
         "image.render_svg" => "SVG render",
         "document.render_pdf" => "PDF page render",
+        "document.print_html" => "HTML print layout",
         "peer.message" => "Persona message",
         "peer.invite" => "Persona invitation",
         "peer.respond" => "Invitation response",
@@ -137,9 +171,10 @@ fn result_status(receipt: &Value) -> Option<&'static str> {
         "Job submitted" => Some("Submitted"),
         "Cancellation requested" => Some("Cancellation requested"),
         "Canceled by control" => Some("Canceled"),
+        "Print cancelled" => Some("Cancelled"),
         "Rendered with warnings" => Some("Warnings"),
         "Timed out" => Some("Timed out"),
-        "Failed" | "Render failed" | "Could not complete" => Some("Failed"),
+        "Failed" | "Render failed" | "Print layout failed" | "Could not complete" => Some("Failed"),
         "Did not start" => Some("Did not start"),
         "Command outcome unavailable"
         | "Computation outcome unavailable"

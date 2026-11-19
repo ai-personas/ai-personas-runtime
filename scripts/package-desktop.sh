@@ -10,6 +10,10 @@ case "$platform" in Linux|Darwin) ;; *) printf '%s\n' 'Desktop bundles support L
 for name in personas-desktop ai-personas personas-auth personas-provider personas-session; do
     [ -f "$build/$name" ] && [ -x "$build/$name" ] || { printf 'Missing executable: %s\nBuild with cargo build --locked --release --features desktop --bins first.\n' "$build/$name" >&2; exit 1; }
 done
+if [ -d "$build/document-printer" ] && [ ! -x "$build/document-printer/bin/python3" ]; then
+    printf 'Document printer is incomplete: %s\n' "$build/document-printer" >&2
+    exit 1
+fi
 # Refuse to overwrite a bundle that may be in use.
 [ ! -e "$output" ] || { printf 'Destination already exists: %s\nChoose a new output folder.\n' "$output" >&2; exit 1; }
 mkdir -p "$output"
@@ -30,6 +34,10 @@ for name in personas-desktop ai-personas personas-auth personas-provider persona
     cp "$build/$name" "$binaries/$name"
     chmod 755 "$binaries/$name"
 done
+if [ -d "$build/document-printer" ]; then
+    mkdir "$binaries/document-printer"
+    cp -RP "$build/document-printer/." "$binaries/document-printer/"
+fi
 # Include the optional terminal interface without making Python a GUI dependency.
 cp "$checkout/personas" "$binaries/personas"
 mkdir -p "$binaries/scripts"
@@ -56,7 +64,7 @@ In **Activity → People & tools**, **Last tool result** opens what a persona’
 
 Open an issued delivery to inspect its drawing, file revisions and remaining checks. **Save handoff…** places the printable `Delivery.html` alongside `Files.zip`. **Send feedback…** addresses a message or attachment to the issuer and keeps it with that edition. Open **Check receipt** on the delivery to see what reached the persona.
 
-Studio and the personas can render individual PDF pages when the local Poppler programs `pdfinfo` and `pdftoppm` are on PATH. A PDF attachment keeps the original bytes and its page receipts.
+Choose **Print preview** on a saved HTML document to see its paginated print layout and save that PDF. Studio and the personas use local WeasyPrint for layout and the Poppler programs `pdfinfo` and `pdftoppm` on PATH to display individual PDF pages. A PDF attachment keeps its original bytes and its page receipts.
 
 [Desktop guide](https://github.com/ai-personas/ai-personas-runtime/blob/main/docs/desktop.md) · [Numerical workspace and terminal guide](https://github.com/ai-personas/ai-personas-runtime/blob/main/docs/editable-persona-models.md) · [Implementation and live observations](https://github.com/ai-personas/ai-personas-runtime/blob/main/docs/design-conformance.md)
 GUIDE

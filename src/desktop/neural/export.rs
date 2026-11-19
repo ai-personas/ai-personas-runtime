@@ -6,6 +6,7 @@ use std::io::Write;
 #[derive(Clone)]
 enum Contents {
     Artifact { reference: String, metadata_view: bool, source: Option<(String, String)>, member: Option<Member> },
+    Printed { source: print_preview::Source, document: print_preview::Document },
     Deliveries(String),
     Package(String),
     Handoff { reference: String, files: usize },
@@ -21,6 +22,17 @@ struct Member {
 fn basename(path: &str) -> &str {
     std::path::Path::new(path).file_name().and_then(|name| name.to_str())
         .filter(|name| !name.is_empty()).unwrap_or("resource.json")
+}
+
+fn save_new_file(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+    let mut file = tempfile::NamedTempFile::new_in(path.parent().unwrap())
+        .map_err(|e| e.to_string())?;
+    file.write_all(bytes)
+        .and_then(|_| file.as_file().sync_all())
+        .map_err(|e| e.to_string())?;
+    file.persist_noclobber(path)
+        .map_err(|e| format!("Cannot save {}: {e}", path.display()))?;
+    Ok(())
 }
 
 fn title_stem(title: &str, fallback: &str) -> String {
@@ -61,6 +73,15 @@ impl Dialog {
     }
 }
 impl App {
+    pub(super) fn save_print_pdf(&mut self, source: &print_preview::Source, document: &print_preview::Document) {
+        let name = std::path::Path::new(basename(&source.path)).with_extension("pdf");
+        self.export_generation += 1;
+        self.export_dialog = Some(Dialog::new(
+            self.export_generation,
+            Contents::Printed { source: source.clone(), document: document.clone() },
+            name.to_string_lossy().into_owned(),
+        ));
+    }
     pub(super) fn export_package(&mut self, reference: &str, title: &str) {
         self.export_generation += 1;
         let name = title_stem(title, "Delivery");
@@ -125,12 +146,13 @@ impl App {
         let Some(dialog) = &mut self.export_dialog else {
             return;
         };
-        let file = matches!(dialog.contents, Contents::Artifact { .. } | Contents::Package(_));
+        let file = matches!(dialog.contents, Contents::Artifact { .. } | Contents::Printed { .. } | Contents::Package(_));
         let (heading, description, action) = match &dialog.contents {
             Contents::Artifact { metadata_view: true, .. } => (
                 "Save receipt metadata", "Save the public receipt view, including its audit and usage.", "Save file"),
             Contents::Artifact { member: Some(_), .. } => ("Save package file", "Save this exact issued file to your computer.", "Save file"),
             Contents::Artifact { .. } => ("Save artifact", "Save the exact retained file to your computer.", "Save file"),
+            Contents::Printed { .. } => ("Save print PDF", "Save the PDF generated for this preview.", "Save PDF"),
             Contents::Deliveries(_) => ("Export deliveries", "Export this task's delivered files with their delivery records.", "Export deliveries"),
             Contents::Package(_) => ("Save file package", "The ZIP contains the selected file revisions with their original names and folders.", "Save file"),
             Contents::Handoff { reference, .. } if reference.starts_with("delivery:") => (
@@ -154,6 +176,12 @@ impl App {
             if let Contents::Artifact { reference, member: Some(member), .. } = &dialog.contents {
                 let edition = reference.rsplit_once('@').map(|(_, n)| n).unwrap_or(reference);
                 ui.small(format!("{}  ·  Revision {edition}", member.path)).on_hover_text(reference);
+            }
+            if let Contents::Printed { source, document } = &dialog.contents {
+                ui.strong(&source.path);
+                ui.small(format!("{}  ·  {}", counted(document.pages.into(), "page", "pages"), size(document.pdf.len() as u64)));
+                ui.small(&source.reference);
+                if let Some(package) = &source.package { ui.small(package); }
             }
             ui.add_space(12.);
             ui.add_enabled_ui(!dialog.busy, |ui| {
@@ -188,6 +216,9 @@ impl App {
             }
         });
         if !open || cancel {
+            if let Some(preview) = &mut self.print_preview {
+                preview.finish_export(dialog.serial, None);
+            }
             self.export_dialog = None;
             return;
         }
@@ -216,6 +247,10 @@ impl App {
                     return Err("The destination folder does not exist.".into());
                 }
                 match contents {
+                    Contents::Printed { document, .. } => {
+                        save_new_file(&path, &document.pdf)?;
+                        return Ok(format!("Saved print PDF to {}", path.display()));
+                    }
                     Contents::Package(reference) => {
                         let db = data::open(&root).map_err(|e|e.to_string())?;
                         ai_personas::neural::human_requests::export_package(&db, &reference, &path).map_err(|e|e.to_string())?;
@@ -241,13 +276,7 @@ impl App {
                                 return Err("The retained file differs from the selected package member.".into());
                             }
                         }
-                        let mut file = tempfile::NamedTempFile::new_in(path.parent().unwrap())
-                            .map_err(|e| e.to_string())?;
-                        file.write_all(&bytes)
-                            .and_then(|_| file.as_file().sync_all())
-                            .map_err(|e| e.to_string())?;
-                        file.persist_noclobber(&path)
-                            .map_err(|e| format!("Cannot save {}: {e}", path.display()))?;
+                        save_new_file(&path, &bytes)?;
                         if member.is_some() {
                             let edition = reference.rsplit_once('@').map(|(_, n)| n).unwrap_or(&reference);
                             return Ok(format!("Saved file revision {edition} to {}", path.display()));

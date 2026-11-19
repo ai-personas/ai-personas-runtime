@@ -142,7 +142,9 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
         .collect::<Result<Vec<_>, _>>()?;
     for (seq, work, actor, target, kind, digest, created, created_utc, invocation) in rows {
         let body = store::object::<Value>(&db, &digest)?;
-        let outcome = if kind == "tool_result" || kind=="operator_render" {
+        let outcome = if kind == "tool_result" && body["tool"] == "document.print_html" {
+            print_outcome(&db, seq, &body)
+        } else if kind == "tool_result" || kind=="operator_render" {
             tool_outcome(&db, &body)?
         } else {
             Value::Null
@@ -404,6 +406,23 @@ pub(super) fn comparison_encounter(root: &Path, decision: &str, matched: Option<
         "feedback":read_events(&actual["linked_responses_now"])?}))
 }
 
+fn print_outcome(db: &Connection, sequence: i64, body: &Value) -> Value {
+    match neural::html_print::event_result(db, sequence) {
+        Ok(result) if result["success"] == true => {
+            let pages = result["page_count"].as_u64().unwrap_or(0);
+            json!({"label":format!("Printed HTML · {}", super::counted(pages, "page", "pages")),
+                "problem":false, "pdf":result["reference"], "result":body["result"]})
+        }
+        Ok(result) => {
+            let label = if result["dispatched"] == false { "Superseded before dispatch" }
+                else if result["cancelled"] == true { "Print cancelled" }
+                else { "Print layout failed" };
+            json!({"label":label, "problem":true, "error":result.get("error").or(result.get("reason")), "result":body["result"]})
+        }
+        Err(reason) => json!({"label":"Unverified print receipt", "problem":true, "error":reason.to_string()}),
+    }
+}
+
 fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
     let reference = body["result"]
         .as_str()
@@ -504,7 +523,7 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
     }
     Ok(projection)
 }
-fn preview_bytes(db:&Connection,digest:&str)->neural::Result<(Vec<u8>,bool)> {
+pub(super) fn preview_bytes(db:&Connection,digest:&str)->neural::Result<(Vec<u8>,bool)> {
     let bytes=store::bytes(db,digest)?;
     match neural::provider_evidence::historical_view(db,digest,&bytes)? {
         Some(metadata)=>Ok((serde_json::to_vec_pretty(&metadata)?,true)),
@@ -548,6 +567,8 @@ pub(super) fn preview_output(root: &Path, reference: &str, output: Option<&(Stri
         let media:String=db.query_row("SELECT media FROM objects WHERE digest=?1",[digest],|row|row.get(0))?;
         let suffix = match media.split(';').next().unwrap_or_default() {
             "application/json"=>"json",
+            "application/pdf"=>"pdf",
+            "text/html" | "application/xhtml+xml"=>"html",
             "model/stl"=>"stl",
             "image/png"=>"png",
             "image/jpeg"=>"jpg",
@@ -598,7 +619,11 @@ pub(super) fn preview_output(root: &Path, reference: &str, output: Option<&(Stri
         } else if projected {
             format!("receipt-{}-metadata.json", &digest[..12])
         } else {
-            format!("object-{}.{}",digest.chars().take(12).collect::<String>(),suffix)
+            let name = format!("object-{}.{}",digest.chars().take(12).collect::<String>(),suffix);
+            if matches!(suffix, "pdf" | "html") {
+                metadata["path"] = json!(name);
+            }
+            name
         };
         (bytes,name,metadata)
     } else if reference.starts_with("experience:") {
@@ -616,7 +641,9 @@ pub(super) fn preview_output(root: &Path, reference: &str, output: Option<&(Stri
                 .to_string_lossy()
                 .into_owned();
             let (bytes, projected) = preview_bytes(&db, digest)?;
+            let media: String = db.query_row("SELECT media FROM objects WHERE digest=?1", [digest], |r| r.get(0))?;
             let mut metadata=record.body;
+            metadata["media"] = json!(media);
             if projected { metadata["view"]=json!("provider_receipt_metadata"); }
             (bytes, name, metadata)
         } else {

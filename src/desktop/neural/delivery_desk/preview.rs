@@ -9,8 +9,7 @@ use std::{
 
 #[path = "html.rs"]
 mod html;
-#[path = "pdf.rs"]
-mod pdf;
+use super::super::pdf_pages as pdf;
 
 // These bounds apply to the inline preview only. The original revision stays
 // available in the full file viewer and in the package.
@@ -56,7 +55,7 @@ impl Format {
                 "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "image/tiff"
                 | "image/bmp" | "image/x-icon",
             ) => Kind::Raster,
-            ("html" | "htm" | "xhtml", _) | (_, "text/html" | "application/xhtml+xml") => {
+            _ if print_preview::is_html(path, media) => {
                 Kind::Html
             }
             (
@@ -92,6 +91,9 @@ impl Format {
     }
     pub fn inline(&self) -> bool {
         !matches!(self.kind, Kind::Other)
+    }
+    pub fn html(&self) -> bool {
+        matches!(self.kind, Kind::Html)
     }
 }
 
@@ -239,7 +241,7 @@ impl Inline {
                         View::Pdf(ui.ctx().load_texture(
                             format!("delivery-{}-page-{}", file.reference, self.pages.page),
                             pixels,
-                            egui::TextureOptions::LINEAR,
+                            pdf::SAMPLING,
                         ))
                     }
                     Ok(Content::Html(page)) => View::Html(page),
@@ -382,16 +384,9 @@ fn load(job: &Job, cancelled: impl Fn() -> bool) -> ai_personas::neural::Result<
     };
     match kind {
         Kind::Pdf => {
-            let page = ai_personas::pdf_preview::render_with_control(&bytes, job.page, cancelled)?;
-            let image =
-                image::load_from_memory_with_format(&page.png, image::ImageFormat::Png)?.to_rgba8();
-            let max_side = job.ctx.input(|i| i.max_texture_side).clamp(1, 2400) as u32;
-            let image = sized_thumbnail(image, max_side);
-            let pixels = egui::ColorImage::from_rgba_unmultiplied(
-                [image.width() as usize, image.height() as usize],
-                image.as_raw(),
-            );
-            Ok(Content::Pdf(pixels, page.page_count))
+            let max_side = job.ctx.input(|i| i.max_texture_side);
+            let (image, count) = pdf::render(&bytes, job.page, max_side, cancelled)?;
+            Ok(Content::Pdf(image, count))
         }
         Kind::Vector => {
             let drawing = ai_personas::vector_preview::render(&bytes, 1.5, None)

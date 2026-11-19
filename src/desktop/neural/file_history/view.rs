@@ -272,6 +272,13 @@ impl App {
                 ui.small("Retired");
             }
             link(ui, "Open exact file", Some(reference), action);
+            let path = s(row, "path");
+            if row["record_verified"] == true && print_preview::is_html(path, s(row, "media"))
+                && ui.add_enabled(row["bytes_verified"] == true, egui::Button::new("Print preview"))
+                    .on_disabled_hover_text("The retained contents are unavailable.").clicked()
+            {
+                *action = Some(Action::Print { reference: reference.into(), path: path.into() });
+            }
         });
         if let Some(path) = row["path"].as_str() {
             if path != self.file_history.opened_path {

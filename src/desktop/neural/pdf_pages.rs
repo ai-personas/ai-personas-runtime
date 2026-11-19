@@ -1,6 +1,31 @@
 //! Paging and local zoom for a single rendered PDF page.
 use super::*;
 
+pub(super) const SAMPLING: egui::TextureOptions = egui::TextureOptions {
+    mipmap_mode: Some(egui::TextureFilter::Linear),
+    ..egui::TextureOptions::LINEAR
+};
+
+pub(super) fn render(
+    bytes: &[u8],
+    page: u32,
+    max_side: usize,
+    cancelled: impl FnMut() -> bool,
+) -> ai_personas::neural::Result<(egui::ColorImage, u32)> {
+    let raster = ai_personas::pdf_preview::render_with_control(bytes, page, cancelled)?;
+    let mut image = image::load_from_memory_with_format(&raster.png, image::ImageFormat::Png)?;
+    let side = max_side.clamp(1, 2400) as u32;
+    if image.width().max(image.height()) > side {
+        image = image.thumbnail(side, side);
+    }
+    let image = image.into_rgba8();
+    let pixels = egui::ColorImage::from_rgba_unmultiplied(
+        [image.width() as usize, image.height() as usize],
+        image.as_raw(),
+    );
+    Ok((pixels, raster.page_count))
+}
+
 #[derive(Default, Clone, Copy, PartialEq, Eq, Hash)]
 enum Zoom {
     #[default]
@@ -22,6 +47,7 @@ impl Zoom {
 pub(super) struct Pages {
     pub page: u32,
     pub count: Option<u32>,
+    pub height_limit: Option<f32>,
     zoom: Zoom,
 }
 
@@ -30,6 +56,7 @@ impl Default for Pages {
         Self {
             page: 1,
             count: None,
+            height_limit: None,
             zoom: Default::default(),
         }
     }
@@ -78,7 +105,7 @@ impl Pages {
     pub fn loading(&self, ui: &mut Ui) {
         let frame = page_frame(ui);
         frame.show(ui, |ui| {
-            let size = viewport(ui);
+            let size = viewport(ui, self.height_limit);
             ui.allocate_ui_with_layout(size, egui::Layout::top_down(egui::Align::Center), |ui| {
                 ui.set_min_size(size);
                 ui.add_space((size.y * 0.40).max(0.));
@@ -90,7 +117,7 @@ impl Pages {
 
     pub fn show(&self, ui: &mut Ui, texture: &egui::TextureHandle, path: &str, reference: &str) {
         page_frame(ui).show(ui, |ui| {
-            let available = viewport(ui);
+            let available = viewport(ui, self.height_limit);
             let pixels = texture.size_vec2();
             let width_scale = (available.x - 14.).max(1.) / pixels.x;
             let scale = match self.zoom {
@@ -139,11 +166,13 @@ impl Pages {
     }
 }
 
-fn viewport(ui: &Ui) -> egui::Vec2 {
+fn viewport(ui: &Ui, height_limit: Option<f32>) -> egui::Vec2 {
     let width = ui.available_width();
-    let height = (width * 0.8)
-        .clamp(170., 455.)
-        .min(ui.ctx().content_rect().height() * 0.54);
+    let height = height_limit.unwrap_or_else(|| {
+        (width * 0.8)
+            .clamp(170., 455.)
+            .min(ui.ctx().content_rect().height() * 0.54)
+    });
     egui::vec2(width, height)
 }
 

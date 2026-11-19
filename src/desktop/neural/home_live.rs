@@ -356,7 +356,13 @@ impl App {
                     .is_some_and(|a| a.members.iter().any(|other| other == id));
                 shown += usize::from(member);
                 self.home_activity_line(ui, work, id, person.name, member, action);
-                if let Some(reference) = self.work_observations(ui, id, work, observations, now) {
+                let observation = self.work_observations(ui, id, work, observations, now);
+                let latest = if self.runner_observation.has_worker(work, id) {
+                    self.overview_tool_result(ui, work, id)
+                } else {
+                    None
+                };
+                if let Some(reference) = observation.or(latest) {
                     *action = Some(Action::Resource {
                         work: (*work).into(),
                         reference,

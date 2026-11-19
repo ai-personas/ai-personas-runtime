@@ -1473,6 +1473,11 @@ impl App {
                         }
                     }
                     if kind == "tool_result" {
+                        if let Some(pdf) = result["pdf"].as_str() {
+                            if text_action(ui, "Open printed PDF").clicked() {
+                                action = Some(EventAction::Open(pdf.into()));
+                            }
+                        }
                         if let Some(image) = result["page_image"].as_str() {
                             if text_action(ui, "Open rendered page").clicked() {
                                 action = Some(EventAction::Open(image.into()));
@@ -1558,6 +1563,9 @@ impl App {
                 ) {
                     ("document.render_pdf", _, label) if result["page_image"].is_string() => {
                         label.replacen("Rendered", "rendered", 1)
+                    }
+                    ("document.print_html", _, label) if result["pdf"].is_string() => {
+                        label.replacen("Printed", "printed", 1)
                     }
                     ("asset.register", true, _) => "registered a file".into(),
                     ("asset.save", true, _) => "saved a file revision".into(),

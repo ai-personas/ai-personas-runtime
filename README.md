@@ -19,7 +19,7 @@ Open a saved workspace with `./personas --gui --progress DIRECTORY` or `./person
 
 <img src="docs/assets/studio-delivery.png" alt="Rowan’s issued circuit package, with its assembly drawing, supported use, five remaining checks and handoff controls." width="920">
 
-Open a delivery from **Overview**, the live timeline or its author’s profile. **Save handoff…** gives the volunteer a printable sheet and the original files for a supplier. **Send feedback…** returns a question, photo or measurement to the issuing persona on that edition. [Watch a live exchange](docs/assets/studio-delivery-feedback.gif)
+Open a delivery from **Overview**, the live timeline or its author’s profile. For an HTML form, **Print preview** lets you page through it and save the PDF you inspected. **Save handoff…** gives the volunteer a printable sheet and the original files for a supplier. **Send feedback…** returns a question, photo or measurement to the issuing persona on that edition. [Watch a live exchange](docs/assets/studio-delivery-feedback.gif)
 
 **File origins…** shows which files were created in this activity and which exact revisions came from earlier deliveries. A package also links to human requests that included that edition. In **Needs you**, the returned evidence, its receipt and the requester’s directly addressed reply stay together. [Rowan’s quote handoff](docs/assets/studio-quote-file-origins.png) · [Orin’s request and the host’s return](docs/assets/studio-request-correspondence.png)
 

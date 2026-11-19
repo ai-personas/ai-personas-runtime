@@ -1283,6 +1283,16 @@ impl App {
                 } else {
                     ui.horizontal_wrapped(|ui| {
                         let projected=self.preview_metadata["view"]=="provider_receipt_metadata";
+                        if !projected && (self.selected_reference.starts_with("asset:") || self.selected_reference.starts_with("object:"))
+                            && print_preview::is_html(s(&self.preview_metadata,"path"), s(&self.preview_metadata, "media")) {
+                            let print = ui.button("Print preview").on_hover_text("Render the print layout of this retained HTML");
+                            if print.clicked() {
+                                let path = self.preview_metadata["path"].as_str().unwrap_or("document.html").to_owned();
+                                let reference = self.selected_reference.clone();
+                                let package = self.delivery_desk.print_package(&reference);
+                                self.open_print_preview(ui.ctx(), &reference, &path, package, Some(print.id));
+                            }
+                        }
                         if ui.add_enabled(!self.preview_metadata.is_null(), egui::Button::new(if projected {"Save metadata…"} else {"Save file…"})).clicked() {
                             self.save_artifact(ui.ctx());
                         }

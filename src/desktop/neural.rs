@@ -29,6 +29,8 @@ mod home_live;
 mod home_navigation;
 mod home_updates;
 mod delivery_desk;
+mod pdf_pages;
+mod print_preview;
 mod file_history;
 mod delivery_followups;
 mod dialogs;
@@ -176,6 +178,8 @@ pub struct App {
     preview_generation: u64,
     preview_pending: bool,
     preview_metadata: Value,
+    print_preview: Option<print_preview::Preview>,
+    print_worker: print_preview::Worker,
     viewer: artifacts::Viewer,
     files: artifacts::Viewer,
     character_tab: usize,
@@ -282,6 +286,8 @@ impl App {
             preview_generation: 0,
             preview_pending: false,
             preview_metadata: Value::Null,
+            print_preview: None,
+            print_worker: Default::default(),
             viewer: artifacts::Viewer::new(ctx, gl),
             files: artifacts::Viewer::new(ctx, gl),
             character_tab: 0,
@@ -383,6 +389,7 @@ impl App {
         self.open_named_resource(ctx, reference, None);
     }
     fn open_named_resource(&mut self, ctx: &egui::Context, reference: String, output: Option<(String,String)>) {
+        self.print_preview = None;
         self.delivery_desk.record_origin(self.layout.editor == Editor::Delivery, &self.layout.delivery, &self.work, &reference);
         self.selected_reference = reference.clone();
         self.reference_input = reference.clone();
@@ -493,6 +500,9 @@ impl App {
                 Update::Preview(_, _) => {}
                 Update::Saved(serial, result) => match result {
                     Ok(note) => {
+                        if let Some(preview) = &mut self.print_preview {
+                            preview.finish_export(serial, Some(&note));
+                        }
                         self.notice = note;
                         if self
                             .export_dialog
@@ -732,6 +742,7 @@ impl eframe::App for App {
                 }
             });
         self.file_history_window(ctx);
+        self.print_preview_window(ctx);
         if self.inspector_window {
             let mut open = true;
             egui::Window::new("Inspector")
@@ -775,6 +786,8 @@ impl eframe::App for App {
     }
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.finish_following();
+        self.print_preview = None;
+        self.print_worker.shutdown();
         self.save_layout();
         self.viewer.destroy();
         self.files.destroy();

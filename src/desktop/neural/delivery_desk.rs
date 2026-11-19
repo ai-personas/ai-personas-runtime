@@ -30,6 +30,17 @@ pub(super) struct ReturnTo {
 }
 
 impl Desk {
+    pub(super) fn selected_file(&self) -> Option<&str> {
+        self.model.as_ref()?.files.get(self.selected).map(|f| f.reference.as_str())
+    }
+
+    pub(super) fn print_package(&self, inspected: &str) -> Option<String> {
+        let target = self.return_for(inspected)?;
+        let package = self.model.as_ref()?;
+        (package.reference == target.package && package.files.iter().any(|f| f.reference == inspected))
+            .then_some(target.package)
+    }
+
     pub(super) fn record_origin(
         &mut self,
         from_delivery: bool,
@@ -398,6 +409,7 @@ impl App {
         enum Action {
             Open,
             History,
+            Print(egui::Id),
             Save,
         }
         let desk = &mut self.delivery_desk;
@@ -433,6 +445,14 @@ impl App {
                     }
                 });
                 ui.add_space(3.);
+                if file.format.html() && !desk.inline.detected_pdf(&file.reference) {
+                    let print = ui.add_enabled(file.digest.is_some(), egui::Button::new("Print preview"))
+                        .on_hover_text("Lay out this issued HTML and its package files for printing");
+                    if print.clicked() {
+                        action = Some(Action::Print(print.id));
+                    }
+                    ui.add_space(3.);
+                }
                 desk.inline.show(ui, &self.root, file);
                 ui.add_space(4.);
                 ui.horizontal_wrapped(|ui| {
@@ -468,6 +488,9 @@ impl App {
         match action {
             Some(Action::Open) => self.open_resource(ui.ctx(), file.reference.clone()),
             Some(Action::History) => self.open_file_history(ui.ctx(), &file.reference),
+            Some(Action::Print(id)) => self.open_print_preview(
+                ui.ctx(), &file.reference, &file.path, Some(p.reference.clone()), Some(id),
+            ),
             Some(Action::Save) => {
                 if let Some(digest) = &file.digest {
                     self.save_package_member(&p.reference, &file.reference, &file.path, digest);
@@ -480,6 +503,7 @@ impl App {
     fn package_manifest(&mut self, ui: &mut Ui, p: &Package) {
         const PAGE: usize = 8;
         let mut open = None;
+        let mut print = None;
         panel(ui).show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal_wrapped(|ui| {
@@ -564,6 +588,14 @@ impl App {
                             self.delivery_desk.focus_preview = true;
                             ui.ctx().request_repaint();
                         }
+                        if file.format.html() && file.digest.is_some() {
+                            let button = ui.small_button("Print preview").on_hover_text(&file.path);
+                            if button.clicked() {
+                                self.delivery_desk.selected = index;
+                                self.delivery_desk.focus_preview = true;
+                                print = Some((file, button.id));
+                            }
+                        }
                     });
                     if file.qualifications.is_empty() {
                         ui.weak("No qualifications recorded.");
@@ -612,6 +644,8 @@ impl App {
         });
         if let Some(r) = open {
             self.open_resource(ui.ctx(), r);
+        } else if let Some((file, id)) = print {
+            self.open_print_preview(ui.ctx(), &file.reference, &file.path, Some(p.reference.clone()), Some(id));
         }
     }
 
