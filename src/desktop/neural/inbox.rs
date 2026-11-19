@@ -1,11 +1,21 @@
 use super::*;
 use ai_personas::neural::human_requests::Response;
+mod correspondence;
 
 #[derive(Default)]
 pub(super) struct Inbox {
     tab: usize,
     selected: String,
     drafts: BTreeMap<String, Draft>,
+    detail_tab: Option<DetailTab>,
+    correspondence: correspondence::Panel,
+}
+
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+enum DetailTab {
+    Request,
+    Conversation,
+    Response,
 }
 
 #[derive(Default)]
@@ -14,15 +24,58 @@ struct Draft {
     note: String,
     picker: super::input_files::Picker,
     attachments: Vec<ai_personas::neural::input_files::CapturedFile>,
+    attempt: Option<Attempt>,
+}
+
+#[derive(Clone)]
+struct Attempt {
+    id: String,
+    basis: String,
+    operator: String,
+    action: Response,
+    note: String,
+    attachments: Vec<ai_personas::neural::input_files::CapturedFile>,
+}
+
+impl Attempt {
+    fn same_draft(&self, draft: &Draft) -> bool {
+        self.basis == draft.basis
+            && self.note == draft.note
+            && self.attachments.len() == draft.attachments.len()
+            && self
+                .attachments
+                .iter()
+                .zip(&draft.attachments)
+                .all(|(a, b)| a.sha256() == b.sha256() && a.name() == b.name())
+    }
 }
 
 impl Inbox {
     pub(super) fn list(&mut self) {
         self.selected.clear();
+        self.detail_tab = None;
     }
     pub(super) fn response_saved(&mut self, reference: &str) {
-        if let Some((key, _)) = reference.rsplit_once('@') {
+        let Some((key, rev)) = reference.rsplit_once('@') else {
+            return;
+        };
+        let Some(prior) = rev.parse::<u64>().ok().and_then(|n| n.checked_sub(1)) else {
+            return;
+        };
+        let Some(draft) = self.drafts.get_mut(key) else {
+            return;
+        };
+        let Some(sent) = draft
+            .attempt
+            .as_ref()
+            .filter(|sent| sent.basis == format!("{key}@{prior}"))
+        else {
+            return;
+        };
+        if sent.same_draft(draft) {
             self.drafts.remove(key);
+        } else {
+            draft.attempt = None;
         }
     }
 }
@@ -32,7 +85,7 @@ pub(super) fn handle(record: &Value) -> String {
     format!("{}:{}@{}", s(r, "kind"), s(r, "id"), r["revision"])
 }
 
-fn phase(state: &str) -> (&'static str, Color32) {
+pub(super) fn phase(state: &str) -> (&'static str, Color32) {
     match state {
         "open" => ("Open", theme::ACCENT),
         "in_progress" => ("In progress", TEAL),
@@ -56,6 +109,9 @@ impl App {
     }
 
     pub(super) fn show_human_request(&mut self, id: &str) {
+        if self.inbox.selected != id {
+            self.inbox.detail_tab = None;
+        }
         if let Some(body) = self
             .records("human_requests")
             .iter()
@@ -71,7 +127,10 @@ impl App {
     }
 
     pub(super) fn work_name(&self, work: &str) -> String {
-        self.home_index.activity(work).map(|a| a.title.clone()).unwrap_or_else(|| work.into())
+        self.home_index
+            .activity(work)
+            .map(|a| a.title.clone())
+            .unwrap_or_else(|| work.into())
     }
 
     pub(super) fn attachment_links(&mut self, ui: &mut Ui, references: &Value) {
@@ -96,10 +155,16 @@ impl App {
     }
 
     pub(super) fn human_inbox(&mut self, ui: &mut Ui) {
-        egui::ScrollArea::vertical().id_salt(("human-inbox",self.inbox.selected.clone(),self.inbox.tab)).show(ui, |ui| {
-            if let Some(r)=self.records("human_requests").iter().find(|r|r["reference"]["id"]==self.inbox.selected).cloned() {
-                if ui.small_button("← All human requests").clicked() { self.inbox.selected.clear(); }
-                else { self.request_detail(ui,&r); }
+        let tab = (ui.available_width() < 870.).then_some(self.inbox.detail_tab).flatten();
+        egui::ScrollArea::vertical().id_salt(("human-inbox",&self.inbox.selected,self.inbox.tab,tab)).show(ui, |ui| {
+            if !self.inbox.selected.is_empty() {
+                if ui.small_button("← All human requests").clicked() { self.inbox.list(); }
+                else if let Some(r)=self.records("human_requests").iter().find(|r|r["reference"]["id"]==self.inbox.selected).cloned() {
+                    self.request_detail(ui,&r);
+                } else {
+                    ui.heading("Request unavailable");
+                    ui.weak("This workspace view has no retained request matching the selection.");
+                }
                 return;
             }
             ui.heading("Needs you");
@@ -186,7 +251,8 @@ impl App {
                     ui.weak(format!("{n} attached {}", if n == 1 { "file" } else { "files" }));
                 }
                 if let Some(who) = body["claimed_by"].as_str() {
-                    ui.weak(format!("Taken by {who}"));
+                    let verb = if body["state"] == "in_progress" { "Taken by" } else { "Reported by" };
+                    ui.weak(format!("{verb} {who}"));
                 }
                 if ui.button("Open request →").clicked() {
                     self.show_human_request(s(&record["reference"], "id"));
@@ -195,127 +261,247 @@ impl App {
         });
     }
 
-    fn request_detail(&mut self, ui: &mut Ui, r: &Value) {
-        let b = &r["body"];
-        let reference = handle(r);
-        let (state, color) = phase(s(b, "state"));
-        let requester = s(b, "requester");
-        let files = b["artifacts"].as_array().map_or(0, Vec::len);
-        ui.add_space(12.);
-        ui.horizontal_wrapped(|ui| {
-            avatar(ui, self.label(requester), self.color(requester), 32.);
-            ui.strong(self.label(requester));
-            theme::badge(ui, state, color);
-            if let Some(who) = b["claimed_by"].as_str() {
-                ui.weak(format!("Taken by {who}"));
-            }
+    fn request_detail(&mut self, ui: &mut Ui, record: &Value) {
+        let body = &record["body"];
+        let reference = handle(record);
+        let (key, revision) = reference.rsplit_once('@').unwrap();
+        let requester = s(body, "requester");
+        let work = s(body, "work");
+        let state = s(body, "state");
+        let (status, color) = phase(state);
+        let active = matches!(state, "open" | "in_progress");
+        let owns = active && (body["claimed_by"].is_null() || body["claimed_by"] == self.operator.trim());
+        let has_draft = self.inbox.drafts.get(key).is_some_and(|d| {
+            !d.note.is_empty()
+                || !d.attachments.is_empty()
+                || d.picker.busy()
+                || d.attempt.is_some()
         });
-        ui.heading(s(b, "title"));
-        if ui
-            .link(excerpt(&self.work_name(s(b, "work")), 100))
-            .clicked()
-        {
-            self.work = s(b, "work").into();
-            self.persona = requester.into();
-            self.layout.editor = Editor::Studio;
-        }
-        ui.add_space(6.);
-        ui.horizontal_wrapped(|ui| {
-            let contents = if files == 0 {
-                "Save Request.html in a new folder for offline reading"
-            } else {
-                "Save Request.html and the requester’s attached files together in a new folder"
-            };
-            if ui.add(theme::primary("Save handoff…")).on_hover_text(contents).clicked() {
-                self.save_request_handoff(&reference, s(b, "title"), files);
-            }
-            if files > 0 && ui.button("Save files as ZIP…")
-                .on_hover_text("Save the attached files with their original paths").clicked() {
-                self.export_package(&reference, s(b, "title"));
-            }
-        });
-        ui.add_space(12.);
-        card(ui).show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
-            ui.strong("Requested action");
-            ui.label(s(b, "action"));
-            if let Some(reply) = b["return_requested"]
-                .as_str()
-                .filter(|v| !v.trim().is_empty())
-            {
-                ui.add_space(8.);
-                ui.strong("What to send back");
-                ui.label(reply);
-            }
-            self.request_packages(ui, b);
-            if files > 0 {
-                ui.add_space(10.);
-                ui.separator();
-                ui.strong(format!("Attached files · {files}"));
-                self.attachment_links(ui, &b["artifacts"]);
-            }
-        });
-        ui.add_space(12.);
-        let active = matches!(s(b, "state"), "open" | "in_progress");
-        if let Some(reason) = b["withdrawal"]["reason"].as_str() {
-            ui.strong("Reason for withdrawal");
-            ui.label(reason);
-        }
-        if active && (b["claimed_by"].is_null() || b["claimed_by"] == self.operator) {
-            self.human_response_form(ui, &reference, b);
-        }
-        let key = reference.split_once('@').unwrap().0;
-        let history: Vec<_> = self
-            .events
-            .iter()
-            .rev()
-            .filter(|e| {
-                matches!(s(e, "kind"), "user_message" | "human_request_progress")
-                    && e["body"]["human_request"]
-                        .as_str()
-                        .and_then(|r| r.split_once('@'))
-                        .is_some_and(|(k, _)| k == key)
-            })
-            .cloned()
-            .collect();
-        if !history.is_empty() {
-            ui.add_space(12.);
-            section(ui, "Human updates", &history.len().to_string());
-            for e in history {
-                let report = &e["body"];
+        let response_visible = owns || has_draft;
+        let files = body["artifacts"].as_array().map_or(0, Vec::len);
+        let p = theme::palette(ui);
+        ui.add_space(8.);
+        egui::Frame::new()
+            .fill(p.header)
+            .stroke(Stroke::new(1., p.border))
+            .corner_radius(8)
+            .inner_margin(14)
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
                 ui.horizontal_wrapped(|ui| {
-                    ui.strong(s(&e, "actor"));
-                    let (status, c) = phase(s(report, "state"));
-                    theme::badge(ui, status, c);
-                    ui.weak(s(&e, "created_utc"));
-                    if let Some(seq) = e["event"].as_i64().filter(|_| e["invocation"].is_null()) {
-                        if ui.small_button("Delivery status")
-                            .on_hover_text("Check whether the requester received this update in a decision")
-                            .clicked()
-                        {
-                            self.open_message_receipt(ui.ctx(), seq);
-                        }
+                    theme::badge(ui, status, color);
+                    let mut context = Vec::new();
+                    if !active { context.push("Closed".to_owned()); }
+                    if let Some(who) = body["claimed_by"].as_str() {
+                        let verb = if active { "Taken by" } else { "Reported by" };
+                        context.push(format!("{verb} {who}"));
                     }
+                    context.push(format!("Revision {revision}"));
+                    ui.small(context.join("  ·  ")).on_hover_text(&reference);
                 });
-                ui.label(s(report, "text"));
-                for file in report["attachments"].as_array().into_iter().flatten() {
+                ui.add_space(3.);
+                ui.add(egui::Label::new(RichText::new(s(body, "title")).size(25.).strong()).wrap());
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(
+                        RichText::new(format!("Requested by {}", self.label(requester))).strong(),
+                    )
+                    .on_hover_text(requester);
+                    ui.label(RichText::new(format!("· {}", self.work_name(work))).color(p.muted))
+                        .on_hover_text(work);
+                });
+                ui.add_space(4.);
+                ui.horizontal_wrapped(|ui| {
                     if ui
-                        .link(s(file, "name"))
-                        .on_hover_text(s(file, "reference"))
+                        .add(theme::primary("Open live activity"))
+                        .on_hover_text(format!(
+                            "Open this activity with the composer addressed to {}",
+                            self.label(requester)
+                        ))
                         .clicked()
                     {
-                        self.open_named_resource(
-                            ui.ctx(),
-                            s(file, "reference").into(),
-                            Some((s(report, "human_request").into(), s(file, "name").into())),
-                        );
+                        self.open_home_message(work, requester);
                     }
+                    let handoff = if files == 0 {
+                        "Save the printable Request.html"
+                    } else {
+                        "Save the printable Request.html and the attached files in a new folder"
+                    };
+                    if ui.button("Save handoff…").on_hover_text(handoff).clicked() {
+                        self.save_request_handoff(&reference, s(body, "title"), files);
+                    }
+                    if files > 0
+                        && ui
+                            .button("Save files as ZIP…")
+                            .on_hover_text("Save the request files with their original paths")
+                            .clicked()
+                    {
+                        self.export_package(&reference, s(body, "title"));
+                    }
+                });
+            });
+        ui.add_space(12.);
+        let wide = ui.available_width() >= 870.;
+        if wide {
+            let gap = 16.;
+            let width = ui.available_width() - gap;
+            let thread_width = width * 0.56;
+            let has_returns = body["last_report"].is_object();
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = gap;
+                ui.allocate_ui_with_layout(
+                    egui::vec2(thread_width, 0.),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        ui.set_width(thread_width);
+                        if has_returns {
+                            self.request_correspondence(ui, &reference, work, requester, true);
+                        } else {
+                            self.request_instructions(ui, body);
+                            self.request_materials(ui, body);
+                        }
+                    },
+                );
+                ui.allocate_ui_with_layout(
+                    egui::vec2(width - thread_width, 0.),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        ui.set_width(width - thread_width);
+                        if has_returns {
+                            self.request_instructions(ui, body);
+                            ui.add_space(10.);
+                        }
+                        if response_visible {
+                            self.request_response(ui, &reference, body, owns);
+                        }
+                        if has_returns {
+                            self.request_materials(ui, body);
+                        } else {
+                            ui.add_space(10.);
+                            self.request_correspondence(ui, &reference, work, requester, true);
+                        }
+                    },
+                );
+            });
+        } else {
+            let default = if body["last_report"].is_object() {
+                DetailTab::Conversation
+            } else {
+                DetailTab::Request
+            };
+            let mut tab = self.inbox.detail_tab.unwrap_or(default);
+            if tab == DetailTab::Response && !response_visible {
+                tab = default;
+            }
+            ui.horizontal_wrapped(|ui| {
+                ui.selectable_value(&mut tab, DetailTab::Request, "Request & files");
+                ui.selectable_value(&mut tab, DetailTab::Conversation, "Correspondence");
+                if response_visible {
+                    ui.selectable_value(&mut tab, DetailTab::Response, "Your response");
                 }
-                ui.separator();
+            });
+            self.inbox.detail_tab = Some(tab);
+            ui.add_space(7.);
+            match tab {
+                DetailTab::Request => {
+                    self.request_instructions(ui, body);
+                    self.request_materials(ui, body);
+                }
+                DetailTab::Conversation => {
+                    self.request_correspondence(ui, &reference, work, requester, false)
+                }
+                DetailTab::Response => self.request_response(ui, &reference, body, owns),
             }
         }
-        if ui.small_button("View requesting decision ↗").clicked() {
-            self.open_resource(ui.ctx(), s(b, "decision").into());
+    }
+
+    fn request_instructions(&mut self, ui: &mut Ui, body: &Value) {
+        card(ui).show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.label(RichText::new("Requested action").size(18.).strong());
+            ui.add(egui::Label::new(s(body, "action")).wrap());
+            if let Some(text) = body["return_requested"]
+                .as_str()
+                .filter(|s| !s.trim().is_empty())
+            {
+                ui.add_space(6.);
+                ui.strong("What to send back");
+                ui.add(egui::Label::new(text).wrap());
+            }
+            if let Some(reason) = body["withdrawal"]["reason"].as_str() {
+                ui.add_space(6.);
+                ui.strong("Reason for withdrawal");
+                ui.add(egui::Label::new(reason).wrap());
+            }
+            if let Some(decision) = body["decision"].as_str() {
+                if ui
+                    .link("Requesting decision")
+                    .on_hover_text(decision)
+                    .clicked()
+                {
+                    self.open_resource(ui.ctx(), decision.to_owned());
+                }
+            }
+        });
+    }
+
+    fn request_materials(&mut self, ui: &mut Ui, body: &Value) {
+        let files = body["artifacts"].as_array().map_or(0, Vec::len);
+        if files == 0 && !body["deliveries"].as_array().is_some_and(|d| !d.is_empty()) {
+            return;
+        }
+        ui.add_space(10.);
+        card(ui).show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            self.request_packages(ui, body);
+            if files > 0 {
+                if body["deliveries"].as_array().is_some_and(|d| !d.is_empty()) {
+                    ui.separator();
+                }
+                ui.label(
+                    RichText::new(format!("Attached files · {files}"))
+                        .size(16.)
+                        .strong(),
+                );
+                self.attachment_links(ui, &body["artifacts"]);
+            }
+        });
+    }
+
+    fn request_response(&mut self, ui: &mut Ui, reference: &str, body: &Value, owns: bool) {
+        let mut retry = None;
+        card(ui).show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            if owns {
+                self.human_response_form(ui, reference, body);
+            } else {
+                ui.strong("Your unsent response");
+                if let Some(draft) = reference
+                    .rsplit_once('@')
+                    .and_then(|(key, _)| self.inbox.drafts.get_mut(key))
+                {
+                    draft.picker.poll(&mut draft.attachments);
+                    ui.add_enabled_ui(!self.busy, |ui| {
+                        retry = retry_return(ui, draft, self.operator.trim());
+                    });
+                    if !draft.note.is_empty() {
+                        ui.add(egui::Label::new(&draft.note).wrap().selectable(true));
+                    }
+                    for file in &draft.attachments {
+                        ui.small(format!("{} · {}", file.name(), size(file.len() as u64)));
+                    }
+                    if let Some(who) = body["claimed_by"]
+                        .as_str()
+                        .filter(|_| body["state"] == "in_progress")
+                    {
+                        ui.weak(format!("{who} holds this request."));
+                    } else {
+                        ui.weak("This request is closed.");
+                    }
+                }
+            }
+        });
+        if let Some(attempt) = retry {
+            self.submit_human_return(ui.ctx(), attempt);
         }
     }
 
@@ -335,36 +521,60 @@ impl App {
             .flatten()
             .filter_map(|package| Some((package["reference"].as_str()?, package)))
             .collect();
-        ui.add_space(8.);
-        ui.separator();
-        ui.strong(format!("Included packages · {}", references.len()));
+        ui.label(
+            RichText::new(format!("Included packages · {}", references.len()))
+                .size(16.)
+                .strong(),
+        );
         for reference in references {
             ui.push_id(reference, |ui| {
                 let Some(&package) = summaries.get(reference) else {
-                    if ui.link(reference).on_hover_text("Open this package revision").clicked() {
-                        self.open_resource(ui.ctx(), reference.to_owned());
+                    if ui
+                        .link(reference)
+                        .on_hover_text("Open this package revision")
+                        .clicked()
+                    {
+                        self.open_issued_package(ui.ctx(), reference);
                     }
                     return;
                 };
                 ui.add_space(4.);
-                ui.add(egui::Label::new(RichText::new(s(package, "title")).strong()).wrap());
+                if ui
+                    .link(RichText::new(s(package, "title")).strong())
+                    .on_hover_text(reference)
+                    .clicked()
+                {
+                    self.open_issued_package(ui.ctx(), reference);
+                }
                 ui.horizontal_wrapped(|ui| {
                     let issuer = s(package, "owner");
-                    ui.small(format!("Issued by {}", self.label(issuer))).on_hover_text(issuer);
+                    ui.small(format!("Issued by {}", self.label(issuer)))
+                        .on_hover_text(issuer);
                     let scope = s(package, "scope");
                     ui.small("Declared scope");
-                    theme::badge(ui, ai_personas::neural::human_requests::declared_scope(scope),
-                        if scope == "partial" { theme::ACCENT } else { PURPLE });
+                    theme::badge(
+                        ui,
+                        ai_personas::neural::human_requests::declared_scope(scope),
+                        if scope == "partial" {
+                            theme::ACCENT
+                        } else {
+                            PURPLE
+                        },
+                    );
                     let revision = reference.rsplit_once('@').map_or_else(
-                        || reference.to_owned(), |(_, n)| format!("Open revision {n}")
+                        || reference.to_owned(),
+                        |(_, n)| format!("Open revision {n}"),
                     );
                     if ui.link(revision).on_hover_text(reference).clicked() {
-                        self.open_resource(ui.ctx(), reference.to_owned());
+                        self.open_issued_package(ui.ctx(), reference);
                     }
                 });
                 ui.small("Supported use");
                 ui.add(egui::Label::new(s(package, "supported_use")).wrap());
-                if let Some(items) = package["remaining"].as_array().filter(|items| !items.is_empty()) {
+                if let Some(items) = package["remaining"]
+                    .as_array()
+                    .filter(|items| !items.is_empty())
+                {
                     ui.small("Remaining work");
                     for item in items.iter().filter_map(Value::as_str) {
                         ui.add(egui::Label::new(format!("• {item}")).wrap());
@@ -376,82 +586,149 @@ impl App {
         }
     }
 
-    fn human_response_form(&mut self, ui: &mut Ui, reference: &str, b: &Value) {
+    fn human_response_form(&mut self, ui: &mut Ui, reference: &str, body: &Value) {
         let key = reference.rsplit_once('@').unwrap().0.to_owned();
-        let draft = self.inbox.drafts.entry(key).or_insert_with(|| Draft {
-            basis: reference.into(),
-            ..Default::default()
-        });
-        let mut response = None;
+        let operator = self.operator.trim().to_owned();
+        let draft = self
+            .inbox
+            .drafts
+            .entry(key.clone())
+            .or_insert_with(|| Draft {
+                basis: reference.into(),
+                ..Default::default()
+            });
         draft.picker.poll(&mut draft.attachments);
         if draft.basis != reference
             && draft.note.is_empty()
             && !draft.picker.busy()
             && draft.attachments.is_empty()
+            && draft.attempt.is_none()
         {
-            draft.basis = reference.into();
+            draft.basis = reference.to_owned();
         }
-        if draft.basis != reference {
-            ui.label("This request changed while you were writing.");
-            if ui.button("Use the displayed revision").clicked() {
-                draft.basis = reference.into();
-            }
-            return;
-        }
+        ui.label(RichText::new("Your response").size(18.).strong());
+        let mut action = None;
+        let mut retry = None;
         ui.add_enabled_ui(!self.busy, |ui| {
-            ui.strong("Your response");
+            retry = retry_return(ui, draft, &operator);
+            if draft.basis != reference {
+                ui.label("This request changed while you were writing.");
+                if ui.button("Use the displayed revision").clicked() {
+                    draft.basis = reference.into();
+                }
+            }
             ui.add(
                 egui::TextEdit::multiline(&mut draft.note)
+                    .id(egui::Id::new(("human-return", &self.root, key)))
                     .hint_text("Describe what you did, observed or still need…")
                     .desired_rows(3)
                     .desired_width(f32::INFINITY),
             );
             draft.picker.show(ui, &mut draft.attachments);
-            ui.add_enabled_ui(!draft.picker.busy(), |ui| ui.horizontal_wrapped(|ui| {
-                if b["state"] == "open" && ui.add(theme::primary("Take request")).clicked() {
-                    response = Some(Response::Take);
-                }
-                if ui
-                    .add_enabled(
-                        !draft.note.trim().is_empty(),
-                        egui::Button::new("Report completion"),
-                    )
-                    .clicked()
-                {
-                    response = Some(Response::Complete);
-                }
-                if ui
-                    .add_enabled(
-                        !draft.note.trim().is_empty(),
-                        egui::Button::new("Unable to complete"),
-                    )
-                    .clicked()
-                {
-                    response = Some(Response::Unable);
-                }
-                if b["state"] == "in_progress"
-                    && ui
-                        .add_enabled(
-                            !draft.note.trim().is_empty(),
-                            egui::Button::new("Send progress"),
-                        )
-                        .clicked()
-                {
-                    response = Some(Response::Update);
-                }
-                if b["state"] == "in_progress" && ui.button("Release request").clicked() {
-                    response = Some(Response::Release);
-                }
-            }));
+            ui.add_enabled_ui(
+                draft.basis == reference && !operator.is_empty() && !draft.picker.busy(),
+                |ui| {
+                    let written = !draft.note.trim().is_empty();
+                    ui.horizontal_wrapped(|ui| {
+                        if body["state"] == "open"
+                            && ui.add(theme::primary("Take request")).clicked()
+                        {
+                            action = Some(Response::Take);
+                        }
+                        if body["state"] == "in_progress"
+                            && ui
+                                .add_enabled(written, theme::primary("Send progress"))
+                                .clicked()
+                        {
+                            action = Some(Response::Update);
+                        }
+                        if ui
+                            .add_enabled(written, egui::Button::new("Report completion"))
+                            .clicked()
+                        {
+                            action = Some(Response::Complete);
+                        }
+                        if ui
+                            .add_enabled(written, egui::Button::new("Unable to complete"))
+                            .clicked()
+                        {
+                            action = Some(Response::Unable);
+                        }
+                        if body["state"] == "in_progress" && ui.button("Release request").clicked()
+                        {
+                            action = Some(Response::Release);
+                        }
+                    });
+                },
+            );
         });
-        if let Some(response) = response {
-            let cmd = Command::HumanRespond {
-                request: draft.basis.clone(),
-                response,
-                note: draft.note.clone(),
-                files: draft.attachments.clone().into(),
-            };
-            self.command(ui.ctx(), cmd);
+        if let Some(action) = action {
+            if let Some(attempt) = draft.attempt.as_ref().filter(|old| {
+                old.operator == operator
+                    && std::mem::discriminant(&old.action) == std::mem::discriminant(&action)
+                    && old.same_draft(draft)
+            }) {
+                retry = Some(attempt.clone());
+            } else {
+                let id = match ai_personas::neural::id("studio-human-return") {
+                    Ok(id) => id,
+                    Err(e) => {
+                        self.error = Some(e.to_string());
+                        return;
+                    }
+                };
+                let attempt = Attempt {
+                    id,
+                    basis: draft.basis.clone(),
+                    operator,
+                    action,
+                    note: draft.note.clone(),
+                    attachments: draft.attachments.clone(),
+                };
+                draft.attempt = Some(attempt.clone());
+                retry = Some(attempt);
+            }
         }
+        if let Some(attempt) = retry {
+            self.submit_human_return(ui.ctx(), attempt);
+        }
+    }
+
+    fn submit_human_return(&mut self, ctx: &egui::Context, attempt: Attempt) {
+        self.busy = true;
+        self.error = None;
+        let (root, tx, ctx) = (self.root.clone(), self.tx.clone(), ctx.clone());
+        std::thread::spawn(move || {
+            let cmd = Command::HumanRespond {
+                request: attempt.basis,
+                response: attempt.action,
+                note: attempt.note,
+                files: attempt.attachments.into(),
+            };
+            let result = operator_call(&root, &attempt.operator, cmd, Some(&attempt.id));
+            let _ = tx.send(Update::Done(result));
+            ctx.request_repaint();
+        });
+    }
+}
+
+fn retry_return(ui: &mut Ui, draft: &Draft, operator: &str) -> Option<Attempt> {
+    let attempt = draft.attempt.as_ref()?;
+    if !ui.is_enabled() {
+        return None;
+    }
+    ui.small("Previous submission unconfirmed");
+    if attempt.operator == operator
+        && ui
+            .small_button("Retry exact submission")
+            .on_hover_text(format!(
+                "Resend the same recorded operation for {}",
+                attempt.basis
+            ))
+            .clicked()
+    {
+        Some(attempt.clone())
+    } else {
+        None
     }
 }

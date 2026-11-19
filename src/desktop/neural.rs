@@ -575,7 +575,7 @@ impl App {
                     format!("Backup saved to {archive}")
                 } else if v["reference"].as_str().is_some_and(|r|r.starts_with("human_request:")) {
                     self.inbox.response_saved(v["reference"].as_str().unwrap());
-                    "Update sent to the requesting persona".into()
+                    "Human update recorded".into()
                 } else if let Some(state) = v["state"].as_str() {
                     format!("Scheduling {state}")
                 } else {

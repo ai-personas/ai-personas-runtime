@@ -175,11 +175,12 @@ impl Picker {
         }
         let p = theme::palette(ui);
         let mut remove = None;
-        let rows = Self::visible_rows(ui) as f32;
+        let rows = files.len().min(Self::visible_rows(ui)) as f32;
+        let height = rows * 20. + (rows - 1.) * ui.spacing().item_spacing.y;
         egui::ScrollArea::vertical()
             .id_salt("attached-files")
-            .max_height(rows * 20. + (rows - 1.) * ui.spacing().item_spacing.y)
-            .min_scrolled_height(0.)
+            .max_height(height)
+            .min_scrolled_height(height)
             .auto_shrink([false, true])
             .show_rows(ui, 20., files.len(), |ui, rows| {
                 for index in rows {

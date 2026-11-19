@@ -86,7 +86,7 @@ impl App {
                 } else if report["request"].is_string() {("Human report","report")} else {("Message","message")};
                 ui.label(RichText::new(format!("{heading} to {recipient}")).strong().size(19.));
                 let action = if delivery.is_some() { "Recorded" } else { "Sent" };
-                ui.weak(format!("{action} by {} · {}", self.label(s(report,"sender")), time_label(report["sent_at"].as_i64().unwrap_or(0))));
+                ui.weak(format!("{action} by {} · {}", s(report,"sender"), time_label(report["sent_at"].as_i64().unwrap_or(0))));
                 if let Some(reference) = delivery {
                     if live_composer::feedback_link(ui, s(report, "delivery_title"), reference, usize::MAX).clicked() {
                         open_package = Some((reference.to_owned(), s(report, "work").to_owned()));
