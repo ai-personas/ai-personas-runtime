@@ -1,12 +1,14 @@
 # Numerical workspaces
 
-`neural message-receipt EVENT_NUMBER` traces an operator's saved message to the first accepted ordinary decision whose verified incoming events contained its exact text. The result names the recipient, sender, time sent and the consuming decision when one is recorded.
+`neural message-receipt EVENT_NUMBER` traces a human message, request claim, release or report to the requester's first verified ordinary decision in this activity that received the exact event. Returned attachments show their first verified text range or image and their first whole-file receipt when available.
 
 `neural activity-sources WORK` shows exact file revisions from another activity that appeared in accepted inputs, tool executions and issued packages. Use `--persona`, `--source-work`, `--offset` and `--page-size` to narrow the report. A persona can choose `work.sources` to look up its own history in the current activity. The records distinguish displayed search metadata, supplied byte ranges, execution results and package membership.
 
 `neural run --from-activity WORK` follows a root and the activities its participants actually request, including nested requests. Add `--watch` to keep listening for each participant's chosen wake events. `neural activity-tree WORK` reads the scope and participation states. The exact `--work` and `--persona` filters remain available for intentionally narrow runs.
 
-Personas may use `human.request` to ask for a real-world action, include exact asset revisions and describe what they need back. A requester can use `human.withdraw` on an open request. The Studio inbox and `neural status` show these records even when the requesting persona stops or works elsewhere. `neural export-package REFERENCE DESTINATION.zip` saves the attached files for one exact request or delivery.
+Personas may use `human.request` to ask for a real-world action and describe what they need back. The optional `artifacts` list takes exact file revisions. The optional `deliveries` list takes exact issued packages together with their files, authors, supported uses, declared scopes and remaining work. A requester can use `human.withdraw` on an open request. The Studio inbox and `neural status` show these records even when the requesting persona stops or works elsewhere.
+
+`neural export-handoff HUMAN_REQUEST_REVISION NEW_FOLDER` saves a printable `Request.html` and, when there are files, a separate `Files.zip`. An older request sheet identifies the latest recorded revision and status at export. `neural export-package REFERENCE DESTINATION.zip` saves just the attached files for an exact request or delivery.
 
 Use `neural human-respond REFERENCE take` to claim a request. Use its new revision for `update`, `complete`, `unable` or `release`. Progress and outcome reports take `--note TEXT` and repeatable `--attach FILE`. The requesting persona receives the human's attributed report and exact byte references as a `user_message`. A claim or release by itself produces `human_request_progress`. The request's revision and optional operator `--request-id` protect competing submissions and retries.
 

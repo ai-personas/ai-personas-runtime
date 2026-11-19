@@ -23,8 +23,8 @@ In **Your message**, choose a recipient, write and select **Send**. You can send
 Open **Needs you** to see requests across the workspace. Each request identifies who asked, what they need, what to send back, and any attached files. **Messages** also shows free-form messages personas addressed to a human.
 
 1. Open the request and choose **Take request** to let others know you are handling it.
-2. If files are attached, choose **Save files as ZIP…**. The ZIP preserves the exact revisions, filenames and folders the persona selected. For a manufacturing request, you can take that package to the supplier yourself. An ordinary delivery also has **Save package…** and shows the author's supported use and remaining work.
-3. Use **Send progress** to report a milestone such as placing an order. Use **Report completion** or **Unable to complete** to tell the persona what actually happened. **Attach evidence** includes local files, such as a supplier receipt or measurements. The human update and its files stay with the original request.
+2. Choose **Save handoff…** to take the request outside Studio. Open or print `Request.html` for the action, what to send back, and the qualifications on each file. An explicitly included delivery carries its author's declared scope, supported use and remaining work. When there are attachments, `Files.zip` contains the exact revisions with their original names and folders. For a circuit request, you can read the sheet and give the ZIP to the supplier. **Save files as ZIP…** also saves the files alone.
+3. Use **Send progress** to report a milestone such as placing an order. Use **Report completion** or **Unable to complete** to tell the persona what happened. **Attach evidence** includes local files, such as a supplier receipt or measurements. In **Human updates**, open **Delivery status** to see when the requester received the update in this activity. Returned files have separate receipts when an accepted decision receives their contents.
 
 ![Studio showing Orin’s request for available lamp hardware, what to send back and the human response controls.](assets/studio-human-request.png)
 
