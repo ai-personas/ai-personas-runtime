@@ -1352,6 +1352,13 @@ impl App {
                                             if ui.small_button(label).on_hover_text(program).clicked() {self.open_resource(ctx,program.into());}
                                         }
                                     }
+                                    if e["body"]["tool"]=="geometry.render" {
+                                        for (key,label) in [("source","Source"),("mesh","Mesh")] {
+                                            if let Some(reference)=result[key].as_str() {
+                                                if ui.small_button(label).on_hover_text(reference).clicked() {self.open_resource(ctx,reference.into());}
+                                            }
+                                        }
+                                    }
                                     if ui.small_button("Inspect result").on_hover_text("Open the exact retained result, including its input and observations.").clicked() {
                                         self.open_resource(ctx, s(result, "result").into());
                                     }

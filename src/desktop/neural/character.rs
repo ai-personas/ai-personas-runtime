@@ -158,6 +158,53 @@ impl App {
             ui.label(s(&person, "seed"));
         });
     }
+    fn render_history(&self, ui:&mut Ui, metadata:&Value) -> Option<String> {
+        let content=metadata["blob"].as_str().map(|digest|format!("object:{digest}"));
+        let runs=self.model_renders.get(&self.selected_reference)
+            .or_else(||content.as_ref().and_then(|reference|self.model_renders.get(reference)))?;
+        let mut open=None;
+        ui.add_space(10.);
+        for &index in runs.iter().rev() {
+            let event=&self.events[index];
+            let result=&event["tool_outcome"];
+            let newest=Some(&index)==runs.last();
+            egui::CollapsingHeader::new(format!("{} · {}",s(result,"label"),self.label(s(event,"actor"))))
+                .id_salt(("cad-render",&self.selected_reference,index)).default_open(newest).show(ui,|ui|{
+                    ui.small(s(event,"created_utc"));
+                    if let Some(version)=result["compiler_version"].as_str() { ui.small(version); }
+                    let geometry=&result["geometry"];
+                    if let Some(triangles)=geometry["triangles"].as_u64() {
+                        ui.strong(format!("{triangles} triangles"));
+                        egui::Grid::new(("mesh-bounds",index)).spacing([9.,2.]).show(ui,|ui|{
+                            for label in ["Axis","Min","Max","Span"] { ui.small(label); }
+                            ui.end_row();
+                            for (axis,name) in ["X","Y","Z"].iter().enumerate() {
+                                ui.strong(*name);
+                                for key in ["minimum","maximum","span"] {
+                                    if let Some(v)=geometry[key][axis].as_f64() {ui.monospace(format!("{v:.2}")).on_hover_text(v.to_string());}
+                                }
+                                ui.end_row();
+                            }
+                        });
+                        ui.small("Model coordinates · STL stores no unit");
+                    }
+                    if let Some(error)=result["error"].as_str() { ui.label(error); }
+                    for key in ["warnings","errors"] {
+                        for line in result[key].as_array().into_iter().flatten().filter_map(Value::as_str) {
+                            ui.small(line);
+                        }
+                    }
+                    ui.horizontal_wrapped(|ui|{
+                        for (key,label) in [("mesh","Open mesh"),("source","Editable source"),("result","Render receipt"),("diagnostics","Compiler log"),("installation","Compiler")] {
+                            if let Some(reference)=result[key].as_str() {
+                                if reference!=self.selected_reference && Some(reference)!=content.as_deref() && ui.small_button(label).clicked() {open=Some(reference.to_owned());}
+                            }
+                        }
+                    });
+                });
+        }
+        open
+    }
     fn artifact_inspector(&mut self, ui: &mut Ui) {
         let asset = self
             .snapshot
@@ -174,7 +221,7 @@ impl App {
         ui.add_space(8.);
         let path = s(&metadata, "path");
         ui.add(egui::Label::new(RichText::new(if path.is_empty() {
-            match metadata["kind"].as_str() { Some("job") => "Background command", Some("control") => "Execution control", _ => "Exact resource" }
+            match metadata["kind"].as_str() { Some("job") => "Background command", Some("control") => "Execution control", Some("installation")=>"Installed compiler", _ if metadata["format"]=="stl"=>"STL mesh", _ => "Exact resource" }
         } else {
             path.rsplit('/').next().unwrap_or(path)
         }).size(18.).strong()).wrap());
@@ -195,6 +242,7 @@ impl App {
             );
         }
         ui.add_space(12.);
+        if let Some(reference)=self.render_history(ui,&metadata) { self.open_resource(ui.ctx(),reference); return; }
         eyebrow(ui, "Exact reference");
         ui.add(
             egui::Label::new(
@@ -274,9 +322,11 @@ impl App {
             return;
         }
         if !self.selected_reference.starts_with("asset:") {
-            ui.add_space(15.);
-            section(ui, "Retained record", "");
-            ui.weak("The preview shows this exact stored record. Later observations remain separate.");
+            if metadata["format"]!="stl" {
+                ui.add_space(15.);
+                section(ui, "Retained record", "");
+                ui.weak("The preview shows this exact stored record. Later observations remain separate.");
+            }
             return;
         }
         ui.add_space(15.);

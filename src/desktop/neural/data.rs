@@ -293,6 +293,14 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
         ("Failed".to_owned(), true)
     } else if result["dispatched"] == false && result["success"] == false {
         ("Superseded before dispatch".to_owned(), false)
+    } else if body["tool"] == "geometry.install" {
+        (if result["already_installed"]==true { "Compiler already installed" } else { "Compiler installed" }.to_owned(), false)
+    } else if body["tool"] == "geometry.render" {
+        if result["success"]!=true { ("Render failed".to_owned(),true) }
+        else if result["warnings"].as_array().is_some_and(|warnings|!warnings.is_empty()) { ("Rendered with warnings".to_owned(),true) }
+        else { ("Mesh rendered".to_owned(),false) }
+    } else if body["tool"] == "geometry.inspect_stl" {
+        ("Mesh measured".to_owned(),false)
     } else if body["tool"] == "compute.inspect" && result["executed"]==false {
         ("Interface inspected".to_owned(), false)
     } else if body["tool"] == "compute.run" {
@@ -325,19 +333,31 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
     } else {
         ("Outcome unavailable".to_owned(), true)
     };
-    Ok(
-        json!({"label":label,"problem":problem,"elapsed_milliseconds":outcome["elapsed_milliseconds"],"failure":outcome["failure"],"error":result["error"],"result":reference,
-            "program":result["program"],"program_format":result["execution"].get("format").or_else(||result.get("format"))}),
-    )
+    let mut projection=json!({"label":label,"problem":problem,"elapsed_milliseconds":outcome["elapsed_milliseconds"],"failure":outcome["failure"],"error":result["error"],"result":reference,
+        "program":result["program"],"program_format":result["execution"].get("format").or_else(||result.get("format"))});
+    if body["tool"]=="geometry.render" {
+        for key in ["source","mesh","geometry","installation","compiler_version","diagnostics","warnings","errors","parameters"] {
+            projection[key]=result[key].clone();
+        }
+    }
+    Ok(projection)
 }
 pub(super) fn preview(root: &Path, reference: &str) -> neural::Result<Preview> {
     let db = open(root)?;
     let (bytes, name, metadata) = if let Some(digest) = reference.strip_prefix("object:") {
         let bytes = store::bytes(&db, digest)?;
-        let suffix = if serde_json::from_slice::<Value>(&bytes).is_ok() {
-            "json"
-        } else {
-            "bin"
+        let media:String=db.query_row("SELECT media FROM objects WHERE digest=?1",[digest],|row|row.get(0))?;
+        let suffix = match media.split(';').next().unwrap_or_default() {
+            "application/json"=>"json",
+            "model/stl"=>"stl",
+            "image/png"=>"png",
+            "image/jpeg"=>"jpg",
+            "image/gif"=>"gif",
+            "image/webp"=>"webp",
+            "text/plain"=>"txt",
+            _ if bytes.len()>=84 && 84+50*u64::from(u32::from_le_bytes(bytes[80..84].try_into()?))==bytes.len() as u64=>"stl",
+            _ if serde_json::from_slice::<Value>(&bytes).is_ok()=>"json",
+            _=>"bin",
         };
         (
             bytes,
@@ -346,7 +366,7 @@ pub(super) fn preview(root: &Path, reference: &str) -> neural::Result<Preview> {
                 digest.chars().take(12).collect::<String>(),
                 suffix
             ),
-            json!({"reference":reference}),
+            json!({"reference":reference,"media":media,"format":suffix}),
         )
     } else if reference.starts_with("experience:") {
         let observed = neural::context::read(&db,reference,None,None)?;

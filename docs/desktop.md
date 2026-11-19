@@ -235,6 +235,7 @@ the preview of a newer selection or another workspace.
   discovery makes no claim about which dataset is a simulation result or whether
   it is valid. Named columns remain headers even when their names are numeric.
 - Compiled WebAssembly files show the module’s imports, exports and function signatures. The viewer reads the declarations without starting the module. Select a timestamp under **Recorded runs** in the inspector to open the actual execution result for this exact revision. The activity panel also links each computation to its program and receipt.
+- A persona’s OpenSCAD render links the editable source, measured STL, compiler, diagnostics and exact receipt. Open the source or the mesh in **Artifacts** to see the render in its inspector. The axis table shows the minimum, maximum and span in model coordinates. The activity feed also opens the source and mesh directly, including outputs that have yet to receive a library name.
 - CSV/TSV offer a paged table and a plot with selectable horizontal axis and
   series, alongside the original source and a copy action. Hover for exact values. Missing or nonnumeric values leave gaps;
   points follow file order. Header detection can be overridden. All rows remain

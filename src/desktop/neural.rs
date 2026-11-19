@@ -85,6 +85,7 @@ pub struct App {
     snapshot: data::Snapshot,
     events: Vec<Value>,
     program_runs: BTreeMap<String, Vec<usize>>,
+    model_renders: BTreeMap<String, Vec<usize>>,
     character_decisions: Vec<Value>,
     known_decisions: BTreeSet<String>,
     cursor: i64,
@@ -158,6 +159,7 @@ impl App {
             snapshot: Default::default(),
             events: vec![],
             program_runs: BTreeMap::new(),
+            model_renders: BTreeMap::new(),
             character_decisions: vec![],
             known_decisions: BTreeSet::new(),
             cursor: 0,
@@ -283,6 +285,12 @@ impl App {
                                 if event["body"]["tool"]=="compute.run" {
                                     if let Some(program)=event["tool_outcome"]["program"].as_str() {
                                         self.program_runs.entry(program.to_owned()).or_default().push(self.events.len()+offset);
+                                    }
+                                } else if event["body"]["tool"]=="geometry.render" {
+                                    for key in ["source","mesh","result"] {
+                                        if let Some(reference)=event["tool_outcome"][key].as_str() {
+                                            self.model_renders.entry(reference.to_owned()).or_default().push(self.events.len()+offset);
+                                        }
                                     }
                                 }
                             }
