@@ -51,6 +51,7 @@ pub(super) struct Dialog {
     contents: Contents,
     directory: String,
     name: String,
+    focus_on_open: bool,
     pub busy: bool,
     pub error: Option<String>,
 }
@@ -67,6 +68,7 @@ impl Dialog {
                 .display()
                 .to_string(),
             name,
+            focus_on_open: true,
             busy: false,
             error: None,
         }
@@ -195,7 +197,11 @@ impl App {
                 } else {
                     "New folder name"
                 });
-                ui.add(egui::TextEdit::singleline(&mut dialog.name).desired_width(f32::INFINITY));
+                let filename = ui.add(egui::TextEdit::singleline(&mut dialog.name).desired_width(f32::INFINITY));
+                if std::mem::take(&mut dialog.focus_on_open) {
+                    ctx.move_to_top(ui.layer_id());
+                    filename.request_focus();
+                }
                 ui.add_space(8.);
                 ui.small("Choose a new name if a file or folder already exists.");
                 ui.horizontal_wrapped(|ui| {
