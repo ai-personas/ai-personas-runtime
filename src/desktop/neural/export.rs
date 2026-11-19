@@ -5,7 +5,7 @@ use std::io::Write;
 
 #[derive(Clone)]
 enum Contents {
-    Artifact(String),
+    Artifact { reference: String, metadata_view: bool },
     Deliveries(String),
 }
 pub(super) struct Dialog {
@@ -40,16 +40,21 @@ impl App {
             return;
         }
         let path = s(&self.preview_metadata, "path");
-        let name = std::path::Path::new(path)
-            .file_name()
-            .and_then(|name| name.to_str())
-            .filter(|name| !name.is_empty())
-            .unwrap_or("resource.json")
-            .to_owned();
+        let metadata_view = self.preview_metadata["view"] == "provider_receipt_metadata";
+        let name = if metadata_view {
+            "provider-receipt-metadata.json".to_owned()
+        } else {
+            std::path::Path::new(path)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .filter(|name| !name.is_empty())
+                .unwrap_or("resource.json")
+                .to_owned()
+        };
         self.export_generation += 1;
         self.export_dialog = Some(Dialog::new(
             self.export_generation,
-            Contents::Artifact(self.selected_reference.clone()),
+            Contents::Artifact { reference: self.selected_reference.clone(), metadata_view },
             name,
         ));
     }
@@ -65,25 +70,23 @@ impl App {
         let Some(dialog) = &mut self.export_dialog else {
             return;
         };
-        let artifact = matches!(dialog.contents, Contents::Artifact(_));
+        let artifact = matches!(dialog.contents, Contents::Artifact { .. });
+        let (heading, description) = match &dialog.contents {
+            Contents::Artifact { metadata_view: true, .. } => (
+                "Save receipt metadata", "Save the public receipt view, including its audit and usage."),
+            Contents::Artifact { .. } => ("Save artifact", "Save the exact retained file to your computer."),
+            Contents::Deliveries(_) => ("Export deliveries", "Export this task's delivered files with their delivery records."),
+        };
         let mut open = true;
         let mut save = false;
         let mut cancel = false;
-        egui::Window::new(if artifact {
-            "Save artifact"
-        } else {
-            "Export deliveries"
-        })
+        egui::Window::new(heading)
         .id(egui::Id::new("studio-export"))
         .open(&mut open)
         .default_width(560.)
         .collapsible(false)
         .show(ctx, |ui| {
-            ui.label(if artifact {
-                "Save the exact retained file to your computer."
-            } else {
-                "Export this task's delivered files with their delivery records."
-            });
+            ui.label(description);
             ui.add_space(12.);
             ui.add_enabled_ui(!dialog.busy, |ui| {
                 ui.strong("Destination folder");
@@ -149,7 +152,7 @@ impl App {
                     return Err("The destination folder does not exist.".into());
                 }
                 match contents {
-                    Contents::Artifact(reference) => {
+                    Contents::Artifact { reference, .. } => {
                         let preview =
                             data::preview(&root, &reference).map_err(|e| e.to_string())?;
                         let bytes = std::fs::read(&preview.path).map_err(|e| e.to_string())?;

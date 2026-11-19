@@ -1252,7 +1252,8 @@ impl App {
                     ui.weak("The inspector shows its owner, exact version and qualifications.");
                 } else {
                     ui.horizontal_wrapped(|ui| {
-                        if ui.button("Save file…").clicked() {
+                        let projected=self.preview_metadata["view"]=="provider_receipt_metadata";
+                        if ui.add_enabled(!self.preview_pending, egui::Button::new(if projected {"Save metadata…"} else {"Save file…"})).clicked() {
                             self.save_artifact(ui.ctx());
                         }
                         if ui.small_button("Copy reference").clicked() {
@@ -1268,7 +1269,7 @@ impl App {
                         if self.selected_reference.starts_with("asset:") && path.to_ascii_lowercase().ends_with(".scad") && ui.button("Render model…").clicked() {
                             self.dialog=Some(Dialog::Render(super::render::RenderDialog::new(path,&self.selected_reference)));
                         }
-                        if self.selected_reference.starts_with("asset:") || self.selected_reference.starts_with("object:") {
+                        if !projected && (self.selected_reference.starts_with("asset:") || self.selected_reference.starts_with("object:")) {
                             if ui.small_button("Use in command…").clicked() {
                                 self.command_bench.mount(&self.selected_reference,path);
                             }

@@ -436,6 +436,8 @@ pub(super) fn preview_output(root: &Path, reference: &str, output: Option<&(Stri
             metadata["command_run"]=json!(receipt);
             Path::new(path).file_name().and_then(|part|part.to_str())
                 .ok_or_else(||neural::failure("Command output has no filename"))?.to_owned()
+        } else if projected {
+            format!("receipt-{}-metadata.json", &digest[..12])
         } else {
             format!("object-{}.{}",digest.chars().take(12).collect::<String>(),suffix)
         };
