@@ -493,6 +493,71 @@ impl App {
             .address(&self.work, Destination::conversation(person));
     }
 
+    pub(super) fn address_on_overview(&mut self, work: String, person: &str) {
+        self.live_composer
+            .address(&work, Destination::conversation(person));
+        self.home.message_work = Some(work);
+    }
+
+    pub(super) fn overview_composer(&mut self, ui: &mut Ui) {
+        let Some(work) = self.home.message_work.clone() else {
+            return;
+        };
+        let available = ui.available_height();
+        let title = self.work_name(&work);
+        let mut close = false;
+        let mut open = false;
+        egui::TopBottomPanel::bottom("overview-message-composer")
+            .frame(egui::Frame::new().inner_margin(egui::Margin {
+                top: 8,
+                ..Default::default()
+            }))
+            .default_height(145.)
+            .resizable(false)
+            .show_separator_line(false)
+            .show_inside(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        close = ui
+                            .small_button("Close message")
+                            .on_hover_text("Hide the composer and keep this draft")
+                            .clicked();
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(ui.available_width().max(1.), 23.),
+                            egui::Layout::left_to_right(egui::Align::Center),
+                            |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                theme::glyph(ui, Icon::Conversation, theme::palette(ui).muted);
+                                open = ui
+                                    .link(&title)
+                                    .on_hover_text(format!("Open this conversation\n{title}"))
+                                    .clicked();
+                            },
+                        );
+                    });
+                });
+                // Measure the fields independently of last frame's dock height.
+                // A newly attached file or a failed send may add another row.
+                ui.scope(|ui| {
+                    ui.set_max_height((available * 0.48).max(40.));
+                    egui::ScrollArea::vertical()
+                        .id_salt(("overview-message-fields", &work))
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| self.compose_for_work(ui, &work));
+                });
+            });
+        ui.set_clip_rect(ui.clip_rect().intersect(ui.available_rect_before_wrap()));
+        if close {
+            self.home.message_work = None;
+        }
+        if open {
+            self.open_home_activity(&work);
+            if let Some(activity) = self.live_composer.activities.get(&work) {
+                self.persona.clone_from(&activity.selected.person);
+            }
+        }
+    }
+
     pub(super) fn open_delivery_feedback(
         &mut self,
         reference: &str,
@@ -530,14 +595,18 @@ impl App {
     }
 
     pub(super) fn live_composer(&mut self, ui: &mut Ui) {
-        if self.work.is_empty() {
+        self.compose_for_work(ui, &self.work.clone());
+    }
+
+    fn compose_for_work(&mut self, ui: &mut Ui, work: &str) {
+        if work.is_empty() {
             return;
         }
         let members: Vec<_> = self
             .records("participation")
             .iter()
             .map(|row| &row["body"])
-            .filter(|body| body["work"] == self.work)
+            .filter(|body| body["work"] == work)
             .filter_map(|body| {
                 let id = body["persona"].as_str()?;
                 let status = if body["closed_by_activity"].is_string() {
@@ -563,11 +632,11 @@ impl App {
             && self
                 .records("work")
                 .iter()
-                .any(|row| row["body"]["id"] == self.work && row["body"]["phase"] != "dissolved");
+                .any(|row| row["body"]["id"] == work && row["body"]["phase"] != "dissolved");
         let activity = self
             .live_composer
             .activities
-            .entry(self.work.clone())
+            .entry(work.to_owned())
             .or_default();
         for draft in activity.drafts.values_mut() {
             draft.picker.poll(&mut draft.input.files);
@@ -641,7 +710,7 @@ impl App {
                     } else if bound {
                         ui.weak("Issuer unavailable");
                     } else {
-                        egui::ComboBox::from_id_salt(("message-to", &self.work))
+                        egui::ComboBox::from_id_salt(("message-to", work))
                             .width(75.)
                             .truncate()
                             .selected_text(
@@ -677,7 +746,7 @@ impl App {
                         .find(|person| person.id == activity.selected.person);
                     if let Some(person) = selected {
                         let draft = activity.drafts.entry(activity.selected.clone()).or_default();
-                        ui.push_id(("attach-to", &self.work, &person.id, &activity.selected.delivery), |ui| {
+                        ui.push_id(("attach-to", work, &person.id, &activity.selected.delivery), |ui| {
                             draft.picker.button(ui, draft.input.files.len())
                         });
                     }
@@ -728,16 +797,17 @@ impl App {
                     ui.weak("Set your operator name in Workspace settings to send.");
                 }
                 let draft = activity.drafts.entry(activity.selected.clone()).or_default();
-                draft.editor(ui, &self.work, &activity.selected, person, operator)
+                draft.editor(ui, work, &activity.selected, person, operator)
             })
             .inner;
         if let Some(reference) = open_package {
-            self.open_home_delivery(&reference, &self.work.clone());
+            self.open_home_delivery(&reference, work);
         }
         if let Some(event) = receipt {
             self.open_message_receipt(ui.ctx(), event);
         }
         if invite {
+            self.select_activity(work);
             self.dialog = Some(self.participation_dialog(super::dialogs::Action::Invite));
         }
         let Some(attempt) = sent else {

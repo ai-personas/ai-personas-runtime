@@ -271,7 +271,7 @@ impl App {
         match action {
             Some(Action::Profile(id)) => self.show_person(&id),
             Some(Action::Activity(work)) => self.open_home_activity(&work),
-            Some(Action::Message { work, person }) => self.open_home_message(&work, &person),
+            Some(Action::Message { work, person }) => self.address_on_overview(work, &person),
             Some(Action::Resource { work, reference }) => {
                 self.open_home_activity(&work);
                 self.open_resource(ui.ctx(), reference);
@@ -298,9 +298,11 @@ impl App {
             .unwrap_or_default();
         let member_rows = || memberships.iter().map(|i| &records[*i]["body"]);
         let mut shown = 0;
+        let admitted = person.work.keys().any(|work| self.runner_observation.has_worker(work, id));
+        let outline = if admitted { p.ink(self.color(id)) } else { p.border };
         let frame = egui::Frame::new()
             .fill(p.panel)
-            .stroke(Stroke::new(1., p.border))
+            .stroke(Stroke::new(if admitted { 1.6 } else { 1. }, outline))
             .corner_radius(7)
             .inner_margin(10);
         frame.show(ui, |ui| {
@@ -512,7 +514,7 @@ impl App {
                             )
                         });
                         if button
-                            .on_hover_text(format!("Message {name} on {title}"))
+                            .on_hover_text(format!("Write to {name} here while following the workspace\n{title}"))
                             .clicked()
                         {
                             *action = Some(Action::Message {

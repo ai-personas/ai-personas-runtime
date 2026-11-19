@@ -9,6 +9,7 @@ pub(super) struct Home {
     matching: Vec<usize>,
     request_page: usize,
     delivery_page: usize,
+    pub(super) message_work: Option<String>,
 }
 
 #[derive(Clone, Copy, Default, PartialEq)]
@@ -19,10 +20,12 @@ enum ActivityFilter {
     Conversations,
 }
 
-#[derive(PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 enum Section {
     People,
     Activities,
+    Requests,
+    Deliveries,
 }
 
 enum SelectedDelivery {
@@ -37,6 +40,7 @@ const ACTIVITY_ROWS: usize = 6;
 
 impl App {
     pub(super) fn workspace_home(&mut self, ui: &mut Ui) {
+        self.overview_composer(ui);
         egui::ScrollArea::vertical()
             .id_salt("workspace-overview")
             .auto_shrink([false, false])
@@ -55,42 +59,38 @@ impl App {
                     return;
                 }
                 ui.add_space(14.);
-                let wide = ui.available_width() >= 840.;
-                let requests = !self.home_index.requests.is_empty();
-                let deliveries = !self.home_index.deliveries.is_empty();
-                if wide && requests != deliveries {
-                    if requests {
-                        self.home_requests(ui);
-                        quiet_queue(
-                            ui,
-                            Icon::Files,
-                            "No packages have been delivered in this workspace.",
-                        );
-                    } else {
-                        self.home_deliveries(ui);
-                        quiet_queue(
-                            ui,
-                            Icon::Questions,
-                            "No human requests are open or in progress.",
-                        );
-                    }
-                } else if wide {
-                    ui.columns(2, |columns| {
-                        self.home_requests(&mut columns[0]);
-                        self.home_deliveries(&mut columns[1]);
-                    });
-                } else {
-                    self.home_requests(ui);
-                    ui.add_space(10.);
-                    self.home_deliveries(ui);
-                }
-                ui.add_space(16.);
                 if jump == Some(Section::People) {
                     ui.scroll_to_cursor(Some(egui::Align::Min));
                 }
-                self.workspace_live_people(ui);
-                ui.add_space(16.);
-                self.workspace_updates(ui);
+                let width = ui.available_width();
+                let handoffs =
+                    !self.home_index.requests.is_empty() || !self.home_index.deliveries.is_empty();
+                if width >= 1080. && handoffs {
+                    let gap = 16.;
+                    let live_width = (width - gap) * 0.58;
+                    let spacing = ui.spacing().item_spacing.x;
+                    ui.horizontal_top(|ui| {
+                        ui.spacing_mut().item_spacing.x = gap;
+                        ui.vertical(|ui| {
+                            ui.spacing_mut().item_spacing.x = spacing;
+                            ui.set_width(live_width);
+                            self.workspace_live_people(ui);
+                            ui.add_space(14.);
+                            self.workspace_updates(ui);
+                        });
+                        ui.vertical(|ui| {
+                            ui.spacing_mut().item_spacing.x = spacing;
+                            ui.set_width((width - gap - live_width).max(1.));
+                            self.home_handoffs(ui, jump);
+                        });
+                    });
+                } else {
+                    self.workspace_live_people(ui);
+                    ui.add_space(14.);
+                    self.home_handoffs(ui, jump);
+                    ui.add_space(14.);
+                    self.workspace_updates(ui);
+                }
                 ui.add_space(16.);
                 if jump == Some(Section::Activities) {
                     ui.scroll_to_cursor(Some(egui::Align::Min));
@@ -98,6 +98,34 @@ impl App {
                 self.home_activities(ui);
                 ui.add_space(8.);
             });
+    }
+
+    fn home_handoffs(&mut self, ui: &mut Ui, jump: Option<Section>) {
+        let requests = !self.home_index.requests.is_empty();
+        let deliveries = !self.home_index.deliveries.is_empty();
+        if requests {
+            if jump == Some(Section::Requests) {
+                ui.scroll_to_cursor(Some(egui::Align::Min));
+            }
+            self.home_requests(ui);
+            ui.add_space(10.);
+        }
+        if deliveries {
+            if jump == Some(Section::Deliveries) {
+                ui.scroll_to_cursor(Some(egui::Align::Min));
+            }
+            self.home_deliveries(ui);
+        } else if requests {
+            quiet_queue(ui, Icon::Files, "No packages delivered yet.");
+        }
+        if !requests {
+            let state = if deliveries {
+                "No open human requests."
+            } else {
+                "No open human requests or delivery packages yet."
+            };
+            quiet_queue(ui, Icon::Questions, state);
+        }
     }
 
     fn home_heading(&mut self, ui: &mut Ui) -> Option<Section> {
@@ -192,6 +220,27 @@ impl App {
                     .clicked()
                 {
                     jump = Some(Section::People);
+                }
+                for (count, one, many, section) in [
+                    (
+                        self.home_index.requests.len(),
+                        "human request",
+                        "human requests",
+                        Section::Requests,
+                    ),
+                    (
+                        self.home_index.deliveries.len(),
+                        "delivery",
+                        "deliveries",
+                        Section::Deliveries,
+                    ),
+                ] {
+                    if count > 0 {
+                        ui.weak("·");
+                        if ui.link(counted(count as u64, one, many)).clicked() {
+                            jump = Some(section);
+                        }
+                    }
                 }
                 ui.add_space(8.);
                 self.workspace_run_controls(ui);
