@@ -23,6 +23,20 @@ pub fn check_references(db: &Connection, refs: &[String]) -> Result<()> {
     }
     Ok(())
 }
+pub(super) fn check_shared_evidence(db:&Connection, actor:Option<&str>, references:&[String])->Result<()>{
+    for reference in references {
+        if let Some(digest) = reference.strip_prefix("object:") {
+            store::bytes(db, digest)?;
+        } else if reference.starts_with("experience:") {
+            super::experience::metadata(db, actor, reference)?;
+        } else if store::exact(db, reference)?.reference.handle() != *reference {
+            return Err(failure(
+                "Use the exact supporting reference returned by the workspace",
+            ));
+        }
+    }
+    Ok(())
+}
 pub(super) fn check_appraisal(db: &Connection, a: &Appraisal) -> Result<()> {
     a.validate(&FeatureContract::standard()).map_err(failure)?;
     for f in a.features.values() {
@@ -103,7 +117,7 @@ pub fn package_paths(
 fn resolve(value: &mut Value, aliases: &BTreeMap<String, String>) -> Result<()> {
     match value {
         Value::String(s) if s.starts_with('$') => {
-            *s=aliases.get(&s[1..]).ok_or_else(||failure(format!("unavailable local reference {s}; use an earlier asset.save or asset.register operation")))?.clone();
+            *s=aliases.get(&s[1..]).ok_or_else(||failure(format!("unavailable local reference {s}; use an earlier asset.save, asset.register, result.review or result.deliver operation")))?.clone();
         }
         Value::Array(a) => {
             for v in a {
@@ -121,6 +135,11 @@ fn resolve(value: &mut Value, aliases: &BTreeMap<String, String>) -> Result<()> 
                     "context_sources",
                     "base",
                     "artifacts",
+                    "review",
+                    "reviews",
+                    "inputs",
+                    "review_inputs",
+                    "delivery",
                     "evidence",
                 ]
                 .contains(&key.as_str())
@@ -618,6 +637,8 @@ fn internal(
             )?;
             Ok(json!({"reference":r.handle()}))
         }
+        "result.review" => super::package_review::publish(db,work,actor,Some(call),&decode(input)?),
+        "result.reviews" => super::package_review::lookup_for(db,Some(work),Some(actor),&decode(input)?),
         "result.deliver" => {
             let x: tools::Deliver = decode(input)?;
             if x.title.trim().is_empty()
@@ -630,6 +651,9 @@ fn internal(
             }
             check_references(db, &x.evidence)?;
             package_paths(db, &x.artifacts)?;
+            let mandate=snapshot.data["work"]["reference"].as_str().ok_or_else(||failure("Missing delivery mandate"))?;
+            check_shared_evidence(db,Some(actor),&x.review_inputs)?;
+            super::package_review::check_reliance(db,&x.artifacts,mandate,&x.review_inputs,&x.reviews)?;
             let mut body = serde_json::to_value(x)?;
             body["work"] = json!(work);
             body["mandate"] = snapshot.data["work"]["reference"].clone();
@@ -967,7 +991,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
         // Host commands may be read-only; explicit asset mutations must be acknowledged.
         maintenance(&decision.persona_maintenance,&decision.operations,tools::model_mutation,|name|matches!(name,"persona.evaluate"|"persona.assess"|"development.update"),switching)
             .map_err(|e|failure(format!("persona_maintenance: {e}")))?;
-        maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"asset.feedback"|"image.read"|"image.render_svg"|"command.run"|"geometry.render"|"geometry.inspect_stl"|"work.outcome"|"result.deliver"),false)
+        maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"result.review"|"asset.feedback"|"image.read"|"image.render_svg"|"command.run"|"geometry.render"|"geometry.inspect_stl"|"work.outcome"|"result.deliver"),false)
             .map_err(|e|failure(format!("asset_maintenance: {e}")))?;
         super::development::record_applications(db,snapshot,&decision.examining)?;
         super::development::consider(db,snapshot,decision)?;
@@ -1000,7 +1024,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
             }else{
                 let result=internal(db,snapshot,&mut persona,&mut part,&op)
                     .map_err(|error|failure(format!("Operation {} ({}): {error}",op.id,op.tool)))?;
-                if matches!(op.tool.as_str(),"asset.save"|"asset.register") {if let Some(r)=result["reference"].as_str(){aliases.insert(op.id.clone(),r.to_owned());}}
+                if matches!(op.tool.as_str(),"asset.save"|"asset.register"|"result.review"|"result.deliver") {if let Some(r)=result["reference"].as_str(){aliases.insert(op.id.clone(),r.to_owned());}}
                 let digest=store::put(db,&result)?;
                 store::event(db,&snapshot.work,&snapshot.actor,&snapshot.actor,"tool_result",&json!({"operation":op.id,"tool":op.tool,"result":format!("object:{digest}"),"context":"complete","bootstrap":snapshot.model.is_none()}),Some(&snapshot.invocation))?;
             }

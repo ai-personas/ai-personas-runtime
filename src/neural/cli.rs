@@ -168,6 +168,10 @@ pub enum Command {
     },
     /// Read the reports and replies published on this exact shared asset revision.
     AssetFeedbackHistory(super::asset_feedback::History),
+    /// Publish a criterion and finding on the exact delivery or proposed files.
+    PackageReview {work:String,#[command(flatten)] review:super::package_review::Review},
+    /// Compare retained findings with exact files and their brief.
+    PackageReviews {#[arg(long)] work:Option<String>,#[command(flatten)] query:super::package_review::Lookup},
     /// Inspect the frozen inputs available for a matched replay. No provider call.
     ReplayInput {
         /// The experience:call-ID@1 of an accepted ordinary decision.
@@ -305,7 +309,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
     if operator.trim().is_empty() { return Err(failure("An operator name is required for attribution")); }
     let mutation = matches!(&command, Command::Request { .. } | Command::Social { .. } | Command::AddPersona { .. }
         | Command::Invite { .. } | Command::Resume { .. } | Command::Message { .. } | Command::Amend { .. }
-        | Command::AssetFeedback { .. } | Command::Accept { .. } | Command::Control { .. } | Command::Configure { .. }
+        | Command::PackageReview { .. } | Command::AssetFeedback { .. } | Command::Accept { .. } | Command::Control { .. } | Command::Configure { .. }
         | Command::Dissolve { .. } | Command::Reopen { .. });
     if mutation {
         let mut store = Store::open(root)?;
@@ -435,6 +439,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
                 Command::Status=>store.status(),
                 Command::CommandHistory(query)=>store.snapshot(|db|super::commands::history(db,&query)),
                 Command::GeometryHistory{reference,offset,page_size}=>store.snapshot(|db|super::geometry::history::lookup(db,&super::geometry::history::Lookup{reference,offset,page_size})),
+                Command::PackageReviews{work,query}=>store.snapshot(|db|super::package_review::lookup(db,work.as_deref(),&query)),
                 Command::AssetFeedbackHistory(query)=>store.snapshot(|db|super::asset_feedback::history(db,&query)),
                 Command::Catalog(query)=>store.snapshot(|db|super::discovery::catalog(db,&query)),
                 Command::Find(query)=>store.snapshot(|db|super::discovery::find(db,&query)),
@@ -548,6 +553,7 @@ fn operator_action(db: &rusqlite::Connection, operator: &str, command: Command) 
         },
         Command::Dissolve{work,reason,expected}=>super::membership::change_activity(db,&work,operator,&reason,expected.as_deref(),false),
         Command::Reopen{work,reason,expected}=>super::membership::change_activity(db,&work,operator,&reason,expected.as_deref(),true),
+        Command::PackageReview{work,review}=>super::package_review::publish(db,&work,operator,None,&review),
         Command::AssetFeedback{work,feedback}=>super::asset_feedback::publish(db,&work,operator,None,&feedback),
         Command::Accept{delivery,reject,reason}=>{
             if reason.trim().is_empty(){return Err(failure("Explain the delivery review"));}
@@ -588,7 +594,8 @@ pub fn export(store: &mut Store, directory: &Path, work: Option<&str>) -> Result
                 ));
             }
         }
-        Ok((deliveries, artifacts, store::delivery_mandates(db,work)?))
+        let reviews=super::package_review::exported(db,&deliveries)?;
+        Ok((deliveries, artifacts, store::delivery_mandates(db,work)?,reviews))
     })?;
     let parent=directory.parent().filter(|p|!p.as_os_str().is_empty()).unwrap_or(Path::new("."));
     let staging=tempfile::Builder::new().prefix(".personas-export-").tempdir_in(parent)?;
@@ -609,7 +616,7 @@ pub fn export(store: &mut Store, directory: &Path, work: Option<&str>) -> Result
         manifest.push(json!({"delivery":delivery,"reference":reference,"export_path":relative,"metadata":metadata,"bytes":bytes.len(),"sha256":crate::store::sha256_bytes(&bytes)}));
     }
     let value =
-        json!({"deliveries":data.0,"delivery_mandates":data.2,"artifacts":manifest,"quality_verified_by_export":false});
+        json!({"deliveries":data.0,"delivery_mandates":data.2,"package_reviews":data.3,"artifacts":manifest,"quality_verified_by_export":false});
     std::fs::write(
         staging.path().join("manifest.json"),
         serde_json::to_vec_pretty(&value)?,

@@ -1,6 +1,6 @@
 //! Attributed feedback on an exact shared resource revision. Publishing also
 //! creates an addressed experience in the reporting activity.
-use super::{experience, failure, id, store, Result};
+use super::{failure, id, store, Result};
 use clap::Args;
 use rusqlite::{params, Connection, OptionalExtension};
 use schemars::JsonSchema;
@@ -65,17 +65,7 @@ pub(super) fn publish(
         .as_str()
         .or(source.body["owner"].as_str())
         .ok_or_else(|| failure("The asset has no recorded content author"))?;
-    for reference in &feedback.evidence {
-        if let Some(digest) = reference.strip_prefix("object:") {
-            store::bytes(db, digest)?;
-        } else if reference.starts_with("experience:") {
-            experience::metadata(db, invocation.map(|_| author), reference)?;
-        } else if store::exact(db, reference)?.reference.handle() != *reference {
-            return Err(failure(
-                "Use the exact supporting reference returned by the workspace",
-            ));
-        }
-    }
+    super::operations::check_shared_evidence(db, invocation.map(|_| author), &feedback.evidence)?;
     let (recipient, recipient_kind) = if let Some(parent) = &feedback.reply_to {
         let report = store::exact(db, parent)?;
         if report.reference.kind != "asset_feedback"

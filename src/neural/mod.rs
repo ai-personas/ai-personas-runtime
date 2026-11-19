@@ -8,6 +8,7 @@ pub mod geometry;
 mod archive;
 mod assessment;
 pub mod asset_feedback;
+pub mod package_review;
 mod character;
 pub mod character_paths;
 mod platform_key;

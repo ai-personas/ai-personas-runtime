@@ -179,6 +179,13 @@ pub struct Deliver {
     /// Exact assets forming one coherent package. Logical paths must be relative
     /// and unambiguous; exported files preserve these paths within the delivery.
     pub artifacts: Vec<String>,
+    /// Additional exact inputs governing this release and its reviews, such as a material specification.
+    #[serde(default,skip_serializing_if="Vec::is_empty")]
+    pub review_inputs: Vec<String>,
+    /// Optional package_review handles relied on for this exact file set, declared inputs and current brief.
+    /// Put reviews of earlier editions in evidence as historical context.
+    #[serde(default,skip_serializing_if="Vec::is_empty")]
+    pub reviews: Vec<String>,
     pub scope: DeliveryScope,
     pub supported_use: String,
     pub evidence: Vec<String>,
@@ -294,6 +301,8 @@ pub const NAMES: &[(&str,&str)] = &[
     ("work.handoff","Offer an exact unfinished outcome to another participant, withdraw your offer or answer an offer addressed to you. Responsibility transfers only on the recipient's accepted response."),
     ("work.outcome","Record/update your intended outcome, exact artifacts, remaining work and dependencies. Authored assessment does not prove correctness."),
     ("work.request","Originate a task or an optional social conversation and invite existing personas. Participants choose whether and how to contribute."),
+    ("result.review","Publish your finding on a criterion for an exact issued delivery or proposed set of assets. Choose subject.delivery to assess that delivery under its original brief, or subject.artifacts to assess those files under this activity’s brief."),
+    ("result.reviews","Compare published package reviews with subject.delivery or a proposed subject.artifacts set. See matching and changed files, actual brief, evidence and whether each review existed at delivery. Optionally select a particular review."),
     ("result.deliver","Deliver exact retained artifacts with supported use, evidence and remaining gaps; claimed completion is separate from user acceptance."),
 ];
 
@@ -347,6 +356,8 @@ pub fn describe(name: &str) -> Result<Value> {
         "work.handoff" => schema::<super::handoff::Handoff>()?,
         "work.outcome" => schema::<Outcome>()?,
         "work.request" => schema::<RequestWork>()?,
+        "result.review" => schema::<super::package_review::Review>()?,
+        "result.reviews" => schema::<super::package_review::Lookup>()?,
         "result.deliver" => schema::<Deliver>()?,
         _ => return Err(failure("missing tool schema")),
     };
@@ -418,6 +429,8 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
         "work.handoff" => parse::<super::handoff::Handoff>(value),
         "work.outcome" => parse::<Outcome>(value),
         "work.request" => parse::<RequestWork>(value),
+        "result.review" => parse::<super::package_review::Review>(value),
+        "result.reviews" => parse::<super::package_review::Lookup>(value),
         "result.deliver" => parse::<Deliver>(value),
         _ => Err(failure(format!("unknown tool {name}"))),
     }
