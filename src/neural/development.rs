@@ -485,7 +485,7 @@ pub(super) fn update(db: &Connection, snapshot: &Snapshot, update: Update) -> Re
     Ok(json!({"reference":r.handle(),"record":body}))
 }
 
-fn follow_up_record(
+pub(super) fn follow_up_record(
     db: &Connection,
     snapshot: &Snapshot,
     item: &Value,
