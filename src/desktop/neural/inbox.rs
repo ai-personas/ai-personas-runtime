@@ -185,6 +185,7 @@ impl App {
         let reference = handle(r);
         let (state, color) = phase(s(b, "state"));
         let requester = s(b, "requester");
+        let files = b["artifacts"].as_array().map_or(0, Vec::len);
         ui.add_space(12.);
         ui.horizontal_wrapped(|ui| {
             avatar(ui, self.label(requester), self.color(requester), 32.);
@@ -203,6 +204,21 @@ impl App {
             self.persona = requester.into();
             self.layout.editor = Editor::Studio;
         }
+        ui.add_space(6.);
+        ui.horizontal_wrapped(|ui| {
+            let contents = if files == 0 {
+                "Save Request.html in a new folder for offline reading"
+            } else {
+                "Save Request.html and the requester’s attached files together in a new folder"
+            };
+            if ui.add(theme::primary("Save handoff…")).on_hover_text(contents).clicked() {
+                self.save_request_handoff(&reference, s(b, "title"), files);
+            }
+            if files > 0 && ui.button("Save files as ZIP…")
+                .on_hover_text("Save the attached files with their original paths").clicked() {
+                self.export_package(&reference, s(b, "title"));
+            }
+        });
         ui.add_space(12.);
         card(ui).show(ui, |ui| {
             ui.set_min_width(ui.available_width());
@@ -216,14 +232,12 @@ impl App {
                 ui.strong("What to send back");
                 ui.label(reply);
             }
-            if b["artifacts"].as_array().is_some_and(|v| !v.is_empty()) {
+            self.request_packages(ui, b);
+            if files > 0 {
                 ui.add_space(10.);
                 ui.separator();
-                ui.strong("Files to take");
+                ui.strong(format!("Attached files · {files}"));
                 self.attachment_links(ui, &b["artifacts"]);
-                if ui.add(theme::primary("Save files as ZIP…")).clicked() {
-                    self.export_package(&reference, s(b, "title"));
-                }
             }
         });
         ui.add_space(12.);
@@ -259,6 +273,14 @@ impl App {
                     let (status, c) = phase(s(report, "state"));
                     theme::badge(ui, status, c);
                     ui.weak(s(&e, "created_utc"));
+                    if let Some(seq) = e["event"].as_i64().filter(|_| e["invocation"].is_null()) {
+                        if ui.small_button("Delivery status")
+                            .on_hover_text("Check whether the requester received this update in a decision")
+                            .clicked()
+                        {
+                            self.open_message_receipt(ui.ctx(), seq);
+                        }
+                    }
                 });
                 ui.label(s(report, "text"));
                 for file in report["attachments"].as_array().into_iter().flatten() {
@@ -279,6 +301,63 @@ impl App {
         }
         if ui.small_button("View requesting decision ↗").clicked() {
             self.open_resource(ui.ctx(), s(b, "decision").into());
+        }
+    }
+
+    fn request_packages(&mut self, ui: &mut Ui, request: &Value) {
+        let references: Vec<_> = request["deliveries"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
+        if references.is_empty() {
+            return;
+        }
+        let summaries: BTreeMap<_, _> = request["delivery_details"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|package| Some((package["reference"].as_str()?, package)))
+            .collect();
+        ui.add_space(8.);
+        ui.separator();
+        ui.strong(format!("Included packages · {}", references.len()));
+        for reference in references {
+            ui.push_id(reference, |ui| {
+                let Some(&package) = summaries.get(reference) else {
+                    if ui.link(reference).on_hover_text("Open this package revision").clicked() {
+                        self.open_resource(ui.ctx(), reference.to_owned());
+                    }
+                    return;
+                };
+                ui.add_space(4.);
+                ui.add(egui::Label::new(RichText::new(s(package, "title")).strong()).wrap());
+                ui.horizontal_wrapped(|ui| {
+                    let issuer = s(package, "owner");
+                    ui.small(format!("Issued by {}", self.label(issuer))).on_hover_text(issuer);
+                    let scope = s(package, "scope");
+                    ui.small("Declared scope");
+                    theme::badge(ui, ai_personas::neural::human_requests::declared_scope(scope),
+                        if scope == "partial" { theme::ACCENT } else { PURPLE });
+                    let revision = reference.rsplit_once('@').map_or_else(
+                        || reference.to_owned(), |(_, n)| format!("Open revision {n}")
+                    );
+                    if ui.link(revision).on_hover_text(reference).clicked() {
+                        self.open_resource(ui.ctx(), reference.to_owned());
+                    }
+                });
+                ui.small("Supported use");
+                ui.add(egui::Label::new(s(package, "supported_use")).wrap());
+                if let Some(items) = package["remaining"].as_array().filter(|items| !items.is_empty()) {
+                    ui.small("Remaining work");
+                    for item in items.iter().filter_map(Value::as_str) {
+                        ui.add(egui::Label::new(format!("• {item}")).wrap());
+                    }
+                } else {
+                    ui.small("Remaining work · None listed");
+                }
+            });
         }
     }
 

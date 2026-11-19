@@ -8,6 +8,12 @@ enum Contents {
     Artifact { reference: String, metadata_view: bool },
     Deliveries(String),
     Package(String),
+    Handoff { reference: String, files: usize },
+}
+
+fn title_stem(title: &str) -> String {
+    title.split_whitespace().collect::<Vec<_>>().join("-").chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '_' }).take(72).collect()
 }
 pub(super) struct Dialog {
     pub serial: u64,
@@ -38,9 +44,18 @@ impl Dialog {
 impl App {
     pub(super) fn export_package(&mut self, reference: &str, title: &str) {
         self.export_generation += 1;
-        let name: String = title.split_whitespace().collect::<Vec<_>>().join("-").chars()
-            .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '_' }).take(72).collect();
+        let name = title_stem(title);
         self.export_dialog = Some(Dialog::new(self.export_generation, Contents::Package(reference.into()), format!("{name}.zip")));
+    }
+    pub(super) fn save_request_handoff(&mut self, reference: &str, title: &str, files: usize) {
+        let stem = title_stem(title);
+        let folder = if stem.is_empty() { "Request-handoff".into() } else { format!("{stem}-handoff") };
+        self.export_generation += 1;
+        self.export_dialog = Some(Dialog::new(
+            self.export_generation,
+            Contents::Handoff { reference: reference.into(), files },
+            folder,
+        ));
     }
     pub(super) fn save_artifact(&mut self, _ctx: &egui::Context) {
         if self.selected_reference.is_empty() {
@@ -77,13 +92,15 @@ impl App {
         let Some(dialog) = &mut self.export_dialog else {
             return;
         };
-        let file = !matches!(dialog.contents, Contents::Deliveries(_));
-        let (heading, description) = match &dialog.contents {
+        let file = matches!(dialog.contents, Contents::Artifact { .. } | Contents::Package(_));
+        let (heading, description, action) = match &dialog.contents {
             Contents::Artifact { metadata_view: true, .. } => (
-                "Save receipt metadata", "Save the public receipt view, including its audit and usage."),
-            Contents::Artifact { .. } => ("Save artifact", "Save the exact retained file to your computer."),
-            Contents::Deliveries(_) => ("Export deliveries", "Export this task's delivered files with their delivery records."),
-            Contents::Package(_) => ("Save file package", "The ZIP contains the selected file revisions with their original names and folders."),
+                "Save receipt metadata", "Save the public receipt view, including its audit and usage.", "Save file"),
+            Contents::Artifact { .. } => ("Save artifact", "Save the exact retained file to your computer.", "Save file"),
+            Contents::Deliveries(_) => ("Export deliveries", "Export this task's delivered files with their delivery records.", "Export deliveries"),
+            Contents::Package(_) => ("Save file package", "The ZIP contains the selected file revisions with their original names and folders.", "Save file"),
+            Contents::Handoff { files: 0, .. } => ("Save handoff", "Open Request.html in the new folder to read the request offline.", "Save handoff"),
+            Contents::Handoff { .. } => ("Save handoff", "The new folder contains Request.html for offline reading and Files.zip with the requester’s attached files.", "Save handoff"),
         };
         let mut open = true;
         let mut save = false;
@@ -92,6 +109,7 @@ impl App {
         .id(egui::Id::new("studio-export"))
         .open(&mut open)
         .default_width(560.)
+        .max_width((ctx.content_rect().width() - 32.).max(160.))
         .collapsible(false)
         .show(ctx, |ui| {
             ui.label(description);
@@ -110,15 +128,11 @@ impl App {
                 ui.add(egui::TextEdit::singleline(&mut dialog.name).desired_width(f32::INFINITY));
                 ui.add_space(8.);
                 ui.small("Choose a new name if a file or folder already exists.");
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     save = ui
                         .add_enabled(
                             !dialog.directory.trim().is_empty() && !dialog.name.trim().is_empty(),
-                            theme::primary(if file {
-                                "Save file"
-                            } else {
-                                "Export deliveries"
-                            }),
+                            theme::primary(action),
                         )
                         .clicked();
                     cancel = ui.button("Cancel").clicked();
@@ -128,7 +142,7 @@ impl App {
                 ui.label("Saving…");
             }
             if let Some(error) = &dialog.error {
-                ui.colored_label(Color32::LIGHT_RED, error);
+                ui.colored_label(ui.visuals().error_fg_color, error);
             }
         });
         if !open || cancel {
@@ -141,7 +155,7 @@ impl App {
         let name = std::path::Path::new(&dialog.name);
         if name.file_name() != Some(name.as_os_str()) || matches!(dialog.name.as_str(), "." | "..")
         {
-            dialog.error = Some("Enter a file name without folder separators.".into());
+            dialog.error = Some(format!("Enter a {} name without folder separators.", if file { "file" } else { "folder" }));
             return;
         }
         let path = PathBuf::from(&dialog.directory).join(name);
@@ -163,6 +177,11 @@ impl App {
                     Contents::Package(reference) => {
                         let db = data::open(&root).map_err(|e|e.to_string())?;
                         ai_personas::neural::human_requests::export_package(&db, &reference, &path).map_err(|e|e.to_string())?;
+                    }
+                    Contents::Handoff { reference, .. } => {
+                        let db = data::open(&root).map_err(|e| e.to_string())?;
+                        ai_personas::neural::human_requests::export_handoff(&db, &reference, &path)
+                            .map_err(|e| e.to_string())?;
                     }
                     Contents::Artifact { reference, .. } => {
                         let preview =
