@@ -5,7 +5,7 @@ use ai_personas::{
     neural::{cli, store::Store},
     provider::Cancellation,
 };
-use eframe::egui;
+use eframe::egui::{self, Color32, RichText};
 use serde_json::{json, Value};
 use std::{io::Write, path::PathBuf, sync::mpsc};
 
@@ -42,7 +42,8 @@ pub struct App {
     model: String,
     effort: String,
     provider_file: String,
-    use_provider_file: bool,
+    provider_route: usize,
+    platform_key: String,
     personas: Vec<PersonaDraft>,
     create_mode: bool,
 }
@@ -68,6 +69,7 @@ impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, requested: Option<PathBuf>) -> Self {
         let ctx = &cc.egui_ctx;
         theme::install_fonts(ctx);
+        egui_extras::install_image_loaders(ctx);
         theme::apply(ctx, true, 1.0);
         let (tx, rx) = mpsc::channel();
         let base = base_directory("XDG_STATE_HOME", ".local/state")
@@ -80,7 +82,14 @@ impl App {
             .map(|entry| entry.path())
             .filter(|path| path.join("neural.sqlite").is_file())
             .collect();
-        saved.sort();
+        saved.extend(
+            journal::candidates()
+                .into_iter()
+                .filter(|root| root.join("progress.json").is_file()),
+        );
+        saved.sort_by_key(|root| {
+            std::cmp::Reverse(std::fs::metadata(root).and_then(|m| m.modified()).ok())
+        });
         let codex = helpers::codex(None).unwrap_or_else(|| {
             let home = std::env::var("HOME").unwrap_or_default();
             journal::CodexPaths {
@@ -117,9 +126,10 @@ impl App {
             codex,
             models: Value::Null,
             model: String::new(),
-            effort: String::new(),
+            effort: "low".into(),
             provider_file: String::new(),
-            use_provider_file: false,
+            provider_route: 0,
+            platform_key: String::new(),
             personas: vec![PersonaDraft {
                 name: "Persona 1".into(),
                 profile: String::new(),
@@ -129,6 +139,18 @@ impl App {
     }
 
     fn open(&mut self, ctx: &egui::Context, root: PathBuf) {
+        if !root.join("neural.sqlite").is_file() && root.join("progress.json").is_file() {
+            let opened = std::env::current_exe().and_then(|exe| {
+                std::process::Command::new(exe)
+                    .arg("--progress")
+                    .arg(root)
+                    .spawn()
+            });
+            if let Err(error) = opened {
+                self.error = Some(error.to_string());
+            }
+            return;
+        }
         self.busy = true;
         self.cancellable = false;
         self.error = None;
@@ -209,8 +231,9 @@ impl App {
         let c = self.codex.clone();
         let model = self.model.clone();
         let effort = self.effort.clone();
-        let provider = self
-            .use_provider_file
+        let platform_key_file =
+            (self.provider_route == 1).then(|| journal::expand(&PathBuf::from(&self.platform_key)));
+        let provider = (self.provider_route == 2)
             .then(|| journal::expand(&PathBuf::from(&self.provider_file)));
         let tx = self.tx.clone();
         let ctx = ctx.clone();
@@ -231,16 +254,18 @@ impl App {
                 let mut file = tempfile::NamedTempFile::new().map_err(|e| e.to_string())?;
                 serde_json::to_writer(file.as_file_mut(), &seeds).map_err(|e| e.to_string())?;
                 file.flush().map_err(|e| e.to_string())?;
-                let codex = provider.is_none();
+                let codex = provider.is_none() && platform_key_file.is_none();
+                let choose_model = provider.is_none();
                 let command = cli::Command::Init {
                     seeds: file.path().into(),
                     working_directory: directory,
                     provider_config: provider,
+                    platform_key_file,
                     codex_executable: codex.then(|| PathBuf::from(c.executable)),
                     host_home: codex.then(|| PathBuf::from(c.host_home)),
                     codex_home: codex.then(|| PathBuf::from(c.codex_home)),
-                    model: codex.then_some(model),
-                    effort: codex.then_some(effort),
+                    model: choose_model.then_some(model),
+                    effort: choose_model.then_some(effort),
                 };
                 tokio::runtime::Runtime::new()
                     .map_err(|e| e.to_string())?
@@ -260,7 +285,9 @@ impl App {
                 Update::Opened(result) => {
                     self.busy = false;
                     match result {
-                        Ok(root) => self.workspace = Some(neural::App::new(ctx, root, self.gl.as_ref())),
+                        Ok(root) => {
+                            self.workspace = Some(neural::App::new(ctx, root, self.gl.as_ref()))
+                        }
                         Err(error) => self.error = Some(error),
                     }
                 }
@@ -284,8 +311,8 @@ impl App {
     }
 
     fn setup(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        ui.heading("Create your personas");
-        ui.label("Each persona starts from your character profile and develops its own editable character model. Add as many as you want.");
+        ui.heading("Starting personas");
+        ui.weak("Give each persona a name and the character profile it should start from.");
         let mut remove = None;
         for (i, persona) in self.personas.iter_mut().enumerate() {
             ui.push_id(i, |ui| ui.group(|ui| {
@@ -308,11 +335,22 @@ impl App {
         }
         ui.add_space(12.0);
         ui.heading("Model connection");
-        ui.checkbox(
-            &mut self.use_provider_file,
-            "Use a saved provider configuration",
-        );
-        if self.use_provider_file {
+        ui.horizontal_wrapped(|ui| {
+            ui.selectable_value(&mut self.provider_route, 0, "Codex account");
+            ui.selectable_value(&mut self.provider_route, 1, "OpenAI API key");
+            ui.selectable_value(&mut self.provider_route, 2, "Configuration file");
+        });
+        if self.provider_route == 1 {
+            field(ui, "Private key file", &mut self.platform_key);
+            if ui.button("Choose key file…").clicked() {
+                if let Some(path) = rfd::FileDialog::new().pick_file() {
+                    self.platform_key = path.display().to_string();
+                }
+            }
+            ui.weak("Use a private text file containing your key or an existing Studio credential file.");
+            field(ui, "Model", &mut self.model);
+            field(ui, "Reasoning effort", &mut self.effort);
+        } else if self.provider_route == 2 {
             field(ui, "Provider configuration file", &mut self.provider_file);
             ui.label("Uses that file's model, reasoning and credential references from this process's environment.");
         } else {
@@ -394,7 +432,7 @@ impl App {
         ui.add_space(12.0);
         ui.heading("Workspace");
         field(ui, "Working folder", &mut self.working_directory);
-        ui.label("Personas can create files, run commands and install tools using this computer's account and environment.");
+        ui.label("Choose the folder containing the files this group can import. Deliveries can be exported from the studio.");
         ui.collapsing("Saved progress location", |ui| {
             field(ui, "New saved-progress folder", &mut self.state_root);
         });
@@ -408,7 +446,11 @@ impl App {
                 .all(|p| !p.name.trim().is_empty() && !p.profile.trim().is_empty())
             && !self.state_root.trim().is_empty()
             && !self.working_directory.trim().is_empty()
-            && if self.use_provider_file {
+            && if self.provider_route == 1 {
+                !self.platform_key.trim().is_empty()
+                    && !self.model.trim().is_empty()
+                    && !self.effort.trim().is_empty()
+            } else if self.provider_route == 2 {
                 !self.provider_file.trim().is_empty()
             } else {
                 !self.model.trim().is_empty()
@@ -442,45 +484,218 @@ impl eframe::App for App {
             workspace.update(ctx, frame);
             return;
         }
-        egui::CentralPanel::default().show(ctx, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.heading("Personas");
-                if let Some(error) = &self.error { ui.colored_label(egui::Color32::LIGHT_RED, error); }
-                if self.busy {
-                    ui.label("Working…");
-                    if self.cancellable && ui.button("Cancel connection").clicked() {
-                        self.cancellation.cancel();
-                    }
-                }
-                if !self.login_event.is_null() {
-                    for key in ["url", "auth_url", "verification_url", "user_code", "code"] {
-                        if let Some(value) = self.login_event[key].as_str() {
-                            if value.starts_with("https://") { ui.hyperlink_to("Open sign-in", value); }
-                            else { ui.label(value); }
-                        }
-                    }
-                    ui.collapsing("Sign-in details", |ui| { ui.label(self.login_event.to_string()); });
-                }
-                ui.add_enabled_ui(!self.busy, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.selectable_value(&mut self.create_mode, false, "Open workspace");
-                        ui.selectable_value(&mut self.create_mode, true, "New workspace");
-                    });
+        let palette = theme::Palette::new(true);
+        egui::TopBottomPanel::top("studio-masthead")
+            .frame(
+                egui::Frame::new()
+                    .fill(palette.field)
+                    .inner_margin(egui::Margin::symmetric(28, 14)),
+            )
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    theme::glyph(ui, theme::Icon::Workspaces, theme::ACCENT);
+                    ui.label(RichText::new("Persona Studio").strong().size(19.));
                     ui.separator();
-                    if self.create_mode { self.setup(ui, ctx); }
-                    else {
-                        field(ui, "Saved-progress folder", &mut self.existing_root);
-                        if ui.add_enabled(!self.existing_root.trim().is_empty(), egui::Button::new("Open workspace")).clicked() {
-                            self.open(ctx, journal::expand(&PathBuf::from(&self.existing_root)));
-                        }
-                        let mut chosen = None;
-                        for root in &self.saved {
-                            if ui.button(root.display().to_string()).clicked() { chosen = Some(root.clone()); }
-                        }
-                        if let Some(root) = chosen { self.open(ctx, root); }
-                        if self.saved.is_empty() { ui.label("Create a workspace or enter the location of one you already saved."); }
-                    }
+                    ui.label(
+                        RichText::new(if self.create_mode {
+                            "New workspace"
+                        } else {
+                            "Workspaces"
+                        })
+                        .color(palette.muted),
+                    );
                 });
+            });
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::new()
+                    .fill(palette.canvas)
+                    .inner_margin(egui::Margin::symmetric(28, 22)),
+            )
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("home-scroll")
+                    .show(ui, |ui| {
+                        let width = ui.available_width().min(1150.);
+                        let pad = ((ui.available_width() - width) / 2.).max(0.);
+                        ui.horizontal_top(|ui| {
+                            if pad > 0. {
+                                ui.add_space(pad);
+                            }
+                            ui.vertical(|ui| {
+                                ui.set_width(width);
+                                if self.create_mode {
+                                    if ui
+                                        .add_enabled(
+                                            !self.busy,
+                                            egui::Button::new("←  All workspaces").frame(false),
+                                        )
+                                        .clicked()
+                                    {
+                                        self.create_mode = false;
+                                        self.error = None;
+                                    }
+                                    ui.add_space(10.);
+                                    let content = ui.available_width().min(820.);
+                                    ui.set_max_width(content);
+                                    ui.label(
+                                        RichText::new("Create a workspace").strong().size(34.),
+                                    );
+                                    ui.add_space(12.);
+                                    self.connection_status(ui);
+                                    ui.add_enabled_ui(!self.busy, |ui| self.setup(ui, ctx));
+                                } else {
+                                    ui.add_space(if width > 800. { 42. } else { 8. });
+                                    self.welcome(ui, ctx);
+                                    self.connection_status(ui);
+                                }
+                            });
+                        });
+                    });
+            });
+    }
+}
+
+impl App {
+    fn connection_status(&mut self, ui: &mut egui::Ui) {
+        if let Some(error) = &self.error {
+            ui.colored_label(Color32::LIGHT_RED, error);
+        }
+        if self.busy {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Working…");
+                if self.cancellable && ui.button("Cancel connection").clicked() {
+                    self.cancellation.cancel();
+                }
+            });
+        }
+        if let Some(url) = ["url", "auth_url", "verification_url"]
+            .into_iter()
+            .find_map(|key| self.login_event[key].as_str())
+        {
+            if url.starts_with("https://") {
+                ui.hyperlink_to("Open sign-in", url);
+            }
+        }
+        if let Some(code) = self.login_event["user_code"]
+            .as_str()
+            .or(self.login_event["code"].as_str())
+        {
+            ui.monospace(code);
+        }
+    }
+
+    fn welcome(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        let p = theme::palette(ui);
+        let w = ui.available_width();
+        let cover = |ui: &mut egui::Ui, width: f32| {
+            ui.set_width(width);
+            ui.add(
+                egui::Image::new(egui::include_image!(
+                    "../../docs/assets/ai-personas-cartoon.png"
+                ))
+                .fit_to_exact_size(egui::vec2(width, width * 941. / 1672.))
+                .corner_radius(14.)
+                .alt_text("Illustration of a group of characters working around a drawing table"),
+            );
+        };
+        if w >= 790. {
+            ui.horizontal_top(|ui| {
+                let left = (w * 0.55).min(620.);
+                ui.vertical(|ui| cover(ui, left));
+                ui.add_space(24.);
+                ui.vertical(|ui| {
+                    ui.set_max_width((w - left - 42.).max(260.));
+                    self.library_intro(ui, ctx);
+                });
+            });
+        } else {
+            cover(ui, w);
+            ui.add_space(16.);
+            self.library_intro(ui, ctx);
+        }
+        ui.add_space(32.);
+        ui.separator();
+        ui.add_space(14.);
+        ui.heading("Saved workspaces");
+        ui.add_space(8.);
+        if self.saved.is_empty() {
+            ui.weak("New workspaces saved in your studio folder appear here.");
+        }
+        let mut selected = None;
+        for root in &self.saved {
+            let name = root.file_name().unwrap_or_default().to_string_lossy();
+            egui::Frame::new()
+                .fill(p.panel)
+                .corner_radius(8.)
+                .inner_margin(14)
+                .show(ui, |ui| {
+                    ui.set_width((ui.available_width() - 2.).max(80.));
+                    ui.horizontal(|ui| {
+                        if ui
+                            .add_enabled(
+                                !self.busy,
+                                egui::Button::new(RichText::new(name).strong()),
+                            )
+                            .clicked()
+                        {
+                            selected = Some(root.clone());
+                        }
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(root.display().to_string())
+                                    .small()
+                                    .color(p.muted),
+                            )
+                            .truncate(),
+                        )
+                        .on_hover_text(root.display().to_string());
+                    });
+                });
+            ui.add_space(4.);
+        }
+        if let Some(root) = selected {
+            self.open(ctx, root);
+        }
+    }
+
+    fn library_intro(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        ui.add_space(6.);
+        ui.label(RichText::new("Your workspaces").strong().size(36.));
+        ui.add_space(8.);
+        ui.label("Bring a group of personas together. Follow their conversations, inspect their character models and open the work they deliver.");
+        ui.add_space(20.);
+        ui.add_enabled_ui(!self.busy, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .add_sized([150., 38.], theme::primary("New workspace"))
+                    .clicked()
+                {
+                    self.create_mode = true;
+                    self.error = None;
+                }
+                if ui
+                    .add_sized([132., 38.], egui::Button::new("Open folder…"))
+                    .clicked()
+                {
+                    if let Some(root) = rfd::FileDialog::new().pick_folder() {
+                        self.open(ctx, root);
+                    }
+                }
+            });
+            ui.add_space(8.);
+            ui.collapsing("Open by path", |ui| {
+                field(ui, "Saved workspace folder", &mut self.existing_root);
+                if ui
+                    .add_enabled(
+                        !self.existing_root.trim().is_empty(),
+                        egui::Button::new("Open workspace"),
+                    )
+                    .clicked()
+                {
+                    self.open(ctx, journal::expand(&PathBuf::from(&self.existing_root)));
+                }
             });
         });
     }

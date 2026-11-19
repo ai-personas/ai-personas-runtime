@@ -15,6 +15,8 @@ use std::{
 #[derive(Clone)]
 pub(super) struct Character {
     pub model: ModelPackage,
+    pub previous: Option<ModelPackage>,
+    pub numerical: String,
     pub baseline: Evaluation,
 }
 #[derive(Default)]
@@ -133,9 +135,21 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
             let baseline = model
                 .evaluate(&contract, &Appraisal::default())
                 .map_err(neural::failure)?;
+            if model.persona!=actor || model.digest().map_err(neural::failure)?!=digest {
+                return Err(neural::failure("Character package owner or fingerprint differs"));
+            }
+            let previous = model.predecessor.as_deref().map(|digest| -> neural::Result<_> {
+                let package:ModelPackage=store::object(&db,digest)?;
+                package.validate(&contract).map_err(neural::failure)?;
+                if package.persona!=actor || package.digest().map_err(neural::failure)?!=digest {
+                    return Err(neural::failure("Predecessor is not an exact model of this persona"));
+                }
+                Ok(package)
+            }).transpose()?;
+            let numerical=model.numerical_digest(&contract).map_err(neural::failure)?;
             characters.insert(
                 p["body"]["id"].as_str().unwrap_or("").into(),
-                Character { model, baseline },
+                Character { model, previous, numerical, baseline },
             );
         }
     }
@@ -181,9 +195,10 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
         if known_decisions.contains(&invocation) { continue; }
         let decision: Value = store::object(&db, &response)?;
         let operations: Vec<Value> = decision["operations"].as_array().into_iter().flatten()
-            .filter(|op| matches!(op["tool"].as_str(), Some("persona.initialize" | "persona.evaluate" | "persona.patch" | "persona.assess")))
+            .filter(|op| matches!(op["tool"].as_str(), Some("development.update" | "persona.initialize" | "persona.evaluate" | "persona.patch" | "persona.assess")))
             .map(|op| json!({"id":op["id"],"tool":op["tool"]})).collect();
-        character_decisions.push(json!({
+        let character_use = store::head(&db,"character_use",&invocation)?.map(|r|r.reference.handle());
+        character_decisions.push(json!({"character_use":character_use,
             "invocation":invocation,"actor":actor,"work":work,"accepted":accepted,"accepted_utc":accepted_utc,"order":order,
             "response":format!("object:{response}"),"request":format!("object:{request}"),
             "maintenance":decision["persona_maintenance"],"next_model":decision["next_model"],
@@ -300,6 +315,9 @@ pub(super) fn preview(root: &Path, reference: &str) -> neural::Result<Preview> {
             ),
             json!({"reference":reference}),
         )
+    } else if reference.starts_with("experience:") {
+        let observed = neural::context::read(&db,reference,None,None)?;
+        (serde_json::to_vec_pretty(&observed["record"])?,"experience.json".into(),json!({"reference":reference,"kind":"experience"}))
     } else {
         let record = store::exact(&db, reference)?;
         if record.reference.kind == "asset" {

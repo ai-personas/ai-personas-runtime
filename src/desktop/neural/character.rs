@@ -315,7 +315,7 @@ impl App {
     pub(super) fn character(&mut self, ui: &mut Ui) {
         eyebrow(ui, "Character Lab");
         ui.horizontal_wrapped(|ui| {
-            ui.heading("A model behind each persona");
+            ui.heading("Character models");
         });
         ui.add_space(10.);
         ui.horizontal_wrapped(|ui| {
@@ -356,7 +356,7 @@ impl App {
         });
         ui.add_space(12.);
         ui.horizontal_wrapped(|ui| {
-            for (i, label) in ["Characteristics", "Network", "Parameters", "Revisions", "Development"]
+            for (i, label) in ["Characteristics", "Network", "Parameters", "Revisions", "Development", "What if…"]
                 .iter()
                 .enumerate()
             {
@@ -402,9 +402,13 @@ impl App {
             }
             2 => self.parameter_table(ui, &character),
             4 => self.character_development(ui),
+            5 => egui::ScrollArea::vertical().id_salt("character-explorer").show(ui,|ui| {
+                self.explorer.show(ui,&character);
+            }).inner,
             _ => {
                 egui::ScrollArea::vertical().id_salt("character-revisions").show(ui,|ui|{
-                section(ui,"Active model", "Exact immutable version");ui.add(egui::Label::new(RichText::new(&character.baseline.model).monospace().size(12.)).wrap());
+                section(ui,"Package fingerprint", "Exact immutable version");ui.add(egui::Label::new(RichText::new(&character.baseline.model).monospace().size(12.)).wrap());
+                ui.small("Numerical fingerprint");ui.add(egui::Label::new(RichText::new(&character.numerical).monospace().size(12.)).wrap());
                 if ui.button("Inspect model JSON").clicked(){self.open_resource(ui.ctx(),format!("object:{}",character.baseline.model));}
                 ui.add_space(16.);section(ui,"Authored candidates", "Candidate ≠ activation");
                 let candidates:Vec<Value>=self.snapshot.candidates.iter().filter(|c|c["body"]["owner"]==self.persona).cloned().collect();
@@ -429,6 +433,28 @@ impl App {
             .show(ui, |ui| self.character_development_contents(ui));
     }
     fn character_development_contents(&mut self, ui: &mut Ui) {
+        let questions:Vec<_>=self.records("development").iter()
+            .filter(|q|q["body"]["owner"]==self.persona).cloned().collect();
+        section(ui,"Development questions",&format!("{}",questions.len()));
+        if questions.is_empty() { ui.weak("This persona has not opened a development question."); }
+        for question in questions {
+            let body=&question["body"];
+            let detail=&body["interpretation"];
+            ui.push_id(s(&question,"reference"),|ui|{
+                ui.collapsing(s(detail,"question"),|ui|{
+                    ui.label(s(detail,"interpretation"));
+                    ui.small(format!("Prediction · {}",s(detail,"prediction")));
+                    ui.small(format!("Other possible causes · {}",s(detail,"alternatives")));
+                    if let Some(condition)=detail["revisit"]["condition"].as_str(){ui.small(format!("Revisit when {condition}"));}
+                    for r in detail["evidence"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+                        if ui.small_button(r).clicked(){self.open_resource(ui.ctx(),r.into());}
+                    }
+                    if ui.small_button("Open full question").clicked(){self.open_resource(ui.ctx(),s(&question,"reference").into());}
+                });
+            });
+        }
+        ui.add_space(14.);
+
         ui.horizontal_wrapped(|ui| {
             if ui.checkbox(&mut self.development_all_work, "Across all tasks").changed() {
                 self.development_anchor.clear();
@@ -539,6 +565,9 @@ impl App {
                             }
                             ui.add_space(8.);
                             ui.horizontal_wrapped(|ui| {
+                                if let Some(r)=decision["character_use"].as_str() {
+                                    if ui.small_button("Character supplied →").clicked(){self.open_resource(ui.ctx(),r.into());}
+                                }
                                 if ui.small_button("Inspect decision →").clicked() { self.open_resource(ui.ctx(), s(decision, "response").into()); }
                                 if ui.small_button("Supplied context →").clicked() { self.open_resource(ui.ctx(), s(decision, "request").into()); }
                             });

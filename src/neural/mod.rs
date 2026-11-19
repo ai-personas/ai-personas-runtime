@@ -2,6 +2,7 @@
 //! host executors; history is immutable and never part of a mutable state blob.
 pub mod cli;
 mod character;
+mod platform_key;
 mod experience;
 pub mod development;
 pub mod context;

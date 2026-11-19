@@ -18,6 +18,7 @@ use std::{
     time::{Duration, Instant},
 };
 mod character;
+mod explorer;
 mod data;
 mod export;
 mod workspace;
@@ -112,6 +113,7 @@ pub struct App {
     viewer: artifacts::Viewer,
     files: artifacts::Viewer,
     character_tab: usize,
+    explorer: explorer::Explorer,
     development_anchor: String,
     development_filter: usize,
     development_all_work: bool,
@@ -177,6 +179,7 @@ impl App {
             viewer: artifacts::Viewer::new(ctx, gl),
             files: artifacts::Viewer::new(ctx, gl),
             character_tab: 0,
+            explorer: explorer::Explorer::default(),
             development_anchor: String::new(),
             development_filter: 0,
             development_all_work: false,

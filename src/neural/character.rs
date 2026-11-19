@@ -15,24 +15,37 @@ pub(super) fn saw_record(snapshot: &Snapshot, reference: &str, kind: &str) -> bo
         return false;
     }
     let whole = |body: &Value| body["reference"] == reference && body["record"].is_object();
-    data["selected_resources"].as_array().into_iter().flatten().any(whole)
-        || data["new_events"].as_array().into_iter().flatten().any(|event| {
-            if event["kind"] != "tool_result" || event["actor"] != snapshot.actor {
-                return false;
-            }
-            let body = &event["supplied_result"];
-            match event["body"]["tool"].as_str() {
-                Some("asset.read" | "persona.read") => whole(body),
-                Some("persona.initialize" | "persona.patch") if kind == "candidate" => {
-                    body["candidate"] == reference && body["model_object"].is_string() && !body["probes"].is_null()
+    data["selected_resources"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(whole)
+        || data["new_events"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|event| {
+                if event["kind"] != "tool_result" || event["actor"] != snapshot.actor {
+                    return false;
                 }
-                Some("persona.assess") if kind == "assessment" => {
-                    body["assessment"] == reference && body["result"]["completed"] == true
-                        && body["result"]["observations"].as_array().is_some_and(|v| !v.is_empty())
+                let body = &event["supplied_result"];
+                match event["body"]["tool"].as_str() {
+                    Some("asset.read" | "persona.read") => whole(body),
+                    Some("persona.initialize" | "persona.patch") if kind == "candidate" => {
+                        body["candidate"] == reference
+                            && body["model_object"].is_string()
+                            && !body["probes"].is_null()
+                    }
+                    Some("persona.assess") if kind == "assessment" => {
+                        body["assessment"] == reference
+                            && body["result"]["completed"] == true
+                            && body["result"]["observations"]
+                                .as_array()
+                                .is_some_and(|v| !v.is_empty())
+                    }
+                    _ => false,
                 }
-                _ => false,
-            }
-        })
+            })
 }
 
 pub(super) fn select_appraisal(
@@ -40,7 +53,10 @@ pub(super) fn select_appraisal(
     part: &Participation,
     decision: &DecisionV4,
 ) -> Result<Option<AppraisalUse>> {
-    let evaluated = decision.operations.iter().any(|op| op.tool == "persona.evaluate");
+    let evaluated = decision
+        .operations
+        .iter()
+        .any(|op| op.tool == "persona.evaluate");
     let reason = match &decision.next_context.appraisal {
         Some(AppraisalChoice::Reuse { evaluation, reason }) => {
             if reason.trim().is_empty()
@@ -57,10 +73,18 @@ pub(super) fn select_appraisal(
         _ => return Ok(None),
     };
     Ok(Some(AppraisalUse {
-        evaluation: part.last_evaluation.clone().ok_or_else(|| failure("Missing evaluation"))?,
-        work_version: snapshot.data["work"]["reference"].as_str()
-            .ok_or_else(|| failure("Missing work version"))?.into(),
-        model: snapshot.model.clone().ok_or_else(|| failure("Appraisal requires an active model"))?,
+        evaluation: part
+            .last_evaluation
+            .clone()
+            .ok_or_else(|| failure("Missing evaluation"))?,
+        work_version: snapshot.data["work"]["reference"]
+            .as_str()
+            .ok_or_else(|| failure("Missing work version"))?
+            .into(),
+        model: snapshot
+            .model
+            .clone()
+            .ok_or_else(|| failure("Appraisal requires an active model"))?,
         decision: snapshot.invocation.clone(),
         reason,
     }))
@@ -72,16 +96,23 @@ pub(super) fn contextual(
     work: &Reference,
     active: Option<&str>,
 ) -> Result<Value> {
-    let Some(selected) = &part.appraisal_use else { return Ok(Value::Null) };
+    let Some(selected) = &part.appraisal_use else {
+        return Ok(Value::Null);
+    };
     let mut view = context::evaluation_view(db, &selected.evaluation)?;
     let mut stale = Vec::new();
-    if selected.work_version != work.handle() { stale.push(selected.work_version.clone()); }
+    if selected.work_version != work.handle() {
+        stale.push(selected.work_version.clone());
+    }
     if Some(selected.model.as_str()) != active || view["model"] != selected.model {
         stale.push(format!("object:{}", selected.model));
     }
-    let appraisal: crate::persona_model::Appraisal = serde_json::from_value(view["appraisal"].clone())?;
+    let appraisal: crate::persona_model::Appraisal =
+        serde_json::from_value(view["appraisal"].clone())?;
     for reference in appraisal.features.values().flat_map(|f| &f.evidence) {
-        if reference.starts_with("object:") || reference.starts_with("experience:") { continue; }
+        if reference.starts_with("object:") || reference.starts_with("experience:") {
+            continue;
+        }
         let record = store::exact(db, reference)?;
         let head = store::required(db, &record.reference.kind, &record.reference.id)?;
         if head.reference != record.reference || head.body["retired"] == true {
@@ -89,12 +120,18 @@ pub(super) fn contextual(
         }
     }
     if !stale.is_empty() {
-        return Ok(json!({"reference":selected.evaluation,"changed_dependencies":stale,
-            "status":"refresh_appraisal","outputs_supplied":false}));
+        return Ok(
+            json!({"reference":selected.evaluation,"changed_dependencies":stale,
+            "status":"refresh_appraisal","outputs_supplied":false}),
+        );
     }
     view["selection"] = serde_json::to_value(selected)?;
     view["provenance"] = serde_json::to_value(context::appraisal_provenance(
-        db, &part.work, &part.persona, &selected.evaluation, part.turn,
+        db,
+        &part.work,
+        &part.persona,
+        &selected.evaluation,
+        part.turn,
     )?)?;
     Ok(view)
 }
@@ -108,12 +145,22 @@ pub(super) fn record_supply(
     response: &str,
     attempt: &crate::provider::AttemptReceipt,
 ) -> Result<()> {
-    let source: String = db.query_row("SELECT snapshot FROM invocations WHERE id=?1", [call], |r| r.get(0))?;
+    let source: String = db.query_row(
+        "SELECT snapshot FROM invocations WHERE id=?1",
+        [call],
+        |r| r.get(0),
+    )?;
     let snapshot: Snapshot = store::object(db, &source)?;
-    if snapshot.model.is_none() || !attempt.response_completed { return Ok(()) }
+    if snapshot.model.is_none() || !attempt.response_completed {
+        return Ok(());
+    }
     let prompt = context::prompt(db, &snapshot)?;
-    if attempt.audit.invocation_id != call || attempt.audit.prompt_sha256 != crate::store::sha256_bytes(prompt.as_bytes()) {
-        return Err(failure("Completed provider call does not match its retained character input"));
+    if attempt.audit.invocation_id != call
+        || attempt.audit.prompt_sha256 != crate::store::sha256_bytes(prompt.as_bytes())
+    {
+        return Err(failure(
+            "Completed provider call does not match its retained character input",
+        ));
     }
     let data = &snapshot.data;
     let contextual = &data["last_contextual_evaluation"];

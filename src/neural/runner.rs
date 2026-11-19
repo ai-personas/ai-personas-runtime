@@ -30,12 +30,21 @@ pub struct AuthRoute {
 pub struct Config {
     pub working_directory: PathBuf,
     pub auth_route: Option<AuthRoute>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platform_key_file: Option<PathBuf>,
 }
 
 pub fn connect(
     settings: provider::DirectSettings,
     config: &Config,
 ) -> Result<provider::DirectProvider> {
+    if let Some(path) = &config.platform_key_file {
+        if config.auth_route.is_some() || settings.mode != provider::AccessMode::PlatformApiKey {
+            return Err(failure("The saved key file does not match this provider configuration"));
+        }
+        return Ok(provider::DirectProvider::new(settings,Arc::new(super::platform_key::FileSource(path.clone())),
+            Arc::new(provider::ReqwestTransport::new()?),Arc::new(provider::SystemClock))?);
+    }
     if let Some(route) = &config.auth_route {
         let factory = crate::auth::codex_jsonrpc::ProcessJsonRpcPeerFactory::new(
             route.codex_executable.clone(),
@@ -140,7 +149,8 @@ pub async fn invoke(
         }
     };
     match response {
-        Ok(output) => {
+        Ok(mut output) => {
+            output.attempt.reported_model.clone_from(&output.reported_model);
             store.transaction(|db| {
                 let response =
                     store::put_bytes(db, "application/json", output.response.as_bytes())?;

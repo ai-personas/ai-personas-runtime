@@ -21,22 +21,21 @@ pub enum Command {
         seeds: PathBuf,
         #[arg(long)]
         working_directory: PathBuf,
-        #[arg(
-            long,
-            required_unless_present = "codex_executable",
-            conflicts_with = "codex_executable"
-        )]
+        #[arg(long, required_unless_present_any = ["codex_executable","platform_key_file"], conflicts_with_all = ["codex_executable","platform_key_file"])]
         provider_config: Option<PathBuf>,
-        /// Explicit Codex authentication helper. Persona inference uses direct Responses calls.
-        #[arg(long, required_unless_present = "provider_config")]
+        /// Private plain-text OpenAI key file or a saved Studio provider-credentials.json.
+        #[arg(long, required_unless_present_any = ["provider_config","codex_executable"], conflicts_with = "codex_executable")]
+        platform_key_file: Option<PathBuf>,
+        /// Codex account connection for authentication only.
+        #[arg(long, required_unless_present_any = ["provider_config","platform_key_file"])]
         codex_executable: Option<PathBuf>,
         #[arg(long, requires = "codex_executable")]
         host_home: Option<PathBuf>,
         #[arg(long, requires = "codex_executable")]
         codex_home: Option<PathBuf>,
-        #[arg(long, requires = "codex_executable")]
+        #[arg(long, conflicts_with = "provider_config")]
         model: Option<String>,
-        #[arg(long, requires = "codex_executable")]
+        #[arg(long, conflicts_with = "provider_config")]
         effort: Option<String>,
     },
     /// Record the exact need and explicit invitees. Personas choose whether to accept.
@@ -127,6 +126,7 @@ pub async fn execute(root: &Path, operator: &str, command: Command) -> Result<Va
             seeds,
             working_directory,
             provider_config,
+            platform_key_file,
             codex_executable,
             host_home,
             codex_home,
@@ -155,6 +155,10 @@ pub async fn execute(root: &Path, operator: &str, command: Command) -> Result<Va
             if !working_directory.is_dir() {
                 return Err(failure("working directory must exist"));
             }
+            let platform_key_file=platform_key_file.map(|p|p.canonicalize()).transpose()?;
+            if platform_key_file.as_ref().is_some_and(|p|p.starts_with(&working_directory)) {
+                return Err(failure("Keep the private key file outside the shared working directory"));
+            }
             let (provider, auth_route) = if let Some(executable) = codex_executable {
                 let route = AuthRoute {
                     codex_executable: executable.canonicalize()?,
@@ -171,6 +175,8 @@ pub async fn execute(root: &Path, operator: &str, command: Command) -> Result<Va
                     &effort,
                 )?;
                 (provider, Some(route))
+            } else if let Some(path)=&platform_key_file {
+                (super::platform_key::settings(path,&required(model,"--model")?,&required(effort,"--effort")?)?,None)
             } else {
                 (
                     read_json::<crate::provider::DirectSettings>(&required(
@@ -184,6 +190,7 @@ pub async fn execute(root: &Path, operator: &str, command: Command) -> Result<Va
             let config = Config {
                 working_directory,
                 auth_route,
+                platform_key_file,
             };
             let mut store = Store::create(root)?;
             store.transaction(|db| {
