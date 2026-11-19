@@ -31,6 +31,7 @@ mod workspace;
 mod usage;
 mod responsibilities;
 mod render;
+mod command_bench;
 
 const TEAL: Color32 = Color32::from_rgb(103, 198, 185);
 const PURPLE: Color32 = Color32::from_rgb(172, 150, 221);
@@ -76,6 +77,7 @@ use dialogs::Dialog;
 enum Update {
     Status(Result<data::Snapshot, String>),
     Done(Result<Value, String>),
+    BenchDone(Result<Value, String>),
     RunDone(Result<Value, String>),
     Preview(u64, Result<data::Preview, String>),
     Saved(u64, Result<String, String>),
@@ -117,6 +119,7 @@ pub struct App {
     selected_reference: String,
     reference_input: String,
     library_search: library_search::Window,
+    command_bench: command_bench::Bench,
     usage: usage::Panel,
     responsibilities: responsibilities::Board,
     preview_generation: u64,
@@ -192,6 +195,7 @@ impl App {
             selected_reference: String::new(),
             reference_input: String::new(),
             library_search: Default::default(),
+            command_bench: Default::default(),
             usage: Default::default(),
             responsibilities: Default::default(),
             preview_generation: 0,
@@ -233,6 +237,7 @@ impl App {
     fn command(&mut self, ctx: &egui::Context, command: Command) {
         let operator = self.operator.trim().to_owned();
         let run = matches!(command, Command::Run { .. });
+        let bench = matches!(&command,Command::InstallCommand{..}|Command::RunCommand{..}|Command::CommandHistory(_));
         if run {
             self.running = true
         } else {
@@ -249,6 +254,8 @@ impl App {
                 });
             let _ = tx.send(if run {
                 Update::RunDone(result)
+            } else if bench {
+                Update::BenchDone(result)
             } else {
                 Update::Done(result)
             });
@@ -256,6 +263,9 @@ impl App {
         });
     }
     fn open_resource(&mut self, ctx: &egui::Context, reference: String) {
+        self.open_named_resource(ctx, reference, None);
+    }
+    fn open_named_resource(&mut self, ctx: &egui::Context, reference: String, output: Option<(String,String)>) {
         self.selected_reference = reference.clone();
         self.reference_input = reference.clone();
         self.layout.editor = Editor::Artifacts;
@@ -272,7 +282,7 @@ impl App {
             ctx.clone(),
         );
         std::thread::spawn(move || {
-            let result = data::preview(&root, &reference).map_err(|e| e.to_string());
+            let result = data::preview_output(&root, &reference, output.as_ref()).map_err(|e| e.to_string());
             let _ = tx.send(Update::Preview(serial, result));
             ctx.request_repaint();
         });
@@ -360,6 +370,11 @@ impl App {
                         }
                     }
                 },
+                Update::BenchDone(result) => {
+                    self.busy=false;
+                    self.command_bench.receive(result);
+                    self.last_poll=Instant::now()-Duration::from_secs(3);
+                }
                 Update::Done(result) => {
                     self.busy = false;
                     if self.submitting_dialog {
@@ -489,7 +504,7 @@ impl eframe::App for App {
         self.drain(ctx);
         self.poll(ctx);
         ctx.request_repaint_after(Duration::from_secs(2));
-        if ctx.input(|i| i.viewport().close_requested()) && self.running {
+        if ctx.input(|i| i.viewport().close_requested()) && (self.running || self.command_bench.executing()) {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             if !self.closing {
                 self.closing = true;
@@ -503,7 +518,7 @@ impl eframe::App for App {
                 );
             }
         }
-        if self.closing && !self.running {
+        if self.closing && !self.running && !self.command_bench.executing() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
         self.header(ctx);
@@ -559,6 +574,9 @@ impl eframe::App for App {
                 });
             self.inspector_window = open;
         }
+        let mut bench = std::mem::take(&mut self.command_bench);
+        bench.window(ctx,self);
+        self.command_bench = bench;
         self.dialogs(ctx);
         self.export_window(ctx);
         if let Some(reference)=self.library_search.show(ctx,&self.root){

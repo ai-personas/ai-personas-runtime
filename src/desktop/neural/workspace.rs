@@ -1133,6 +1133,9 @@ impl App {
                     ui.close();
                 }
             });
+            if ui.button("Command bench…").clicked() {
+                self.command_bench.open = true;
+            }
             if ui.button("Export deliveries…").clicked() {
                 self.export_deliveries(ui.ctx());
             }
@@ -1247,8 +1250,15 @@ impl App {
                             self.dialog=Some(Dialog::Render(super::render::RenderDialog::new(path,&self.selected_reference)));
                         }
                         if self.selected_reference.starts_with("asset:") || self.selected_reference.starts_with("object:") {
+                            if ui.small_button("Use in command…").clicked() {
+                                self.command_bench.mount(&self.selected_reference,path);
+                            }
                             if ui.small_button("Find in this version…").clicked() {
                                 self.library_search.document(self.selected_reference.clone());
+                            }
+                            if ui.add_enabled(!self.busy,egui::Button::new("Command receipts…").small()).clicked() {
+                                let command=self.command_bench.locate(self.selected_reference.clone());
+                                self.command(ui.ctx(),command);
                             }
                             if ui.small_button("Matching registrations…").clicked() {
                                 self.library_search.registrations(ui.ctx(),&self.root,self.selected_reference.clone());

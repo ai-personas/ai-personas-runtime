@@ -165,7 +165,10 @@ pub fn parameters(ui: &mut Ui, value: &serde_json::Value) {
     entry(ui, "Parameters", value);
 }
 
+type Series = Vec<(String, Vec<Option<[f64; 2]>>)>;
 pub struct TableView {
+    series: Series,
+    selection: Option<(bool, Option<usize>, BTreeSet<usize>)>,
     plot: bool,
     header: bool,
     page: usize,
@@ -177,6 +180,8 @@ pub struct TableView {
 impl Default for TableView {
     fn default() -> Self {
         Self {
+            series: Vec::new(),
+            selection: None,
             plot: false,
             header: true,
             page: 0,
@@ -261,32 +266,36 @@ impl TableView {
                     }
                 }
             });
-            let series: Vec<_> = self
-                .y
-                .iter()
-                .map(|&c| {
-                    let points: Vec<_> = data
-                        .iter()
-                        .enumerate()
-                        .map(|(i, r)| {
-                            let x = match self.x {
-                                Some(x) => r.get(x).and_then(|v| number(v)),
-                                None => Some((i + 1) as f64),
-                            }?;
-                            let y = r.get(c).and_then(|v| number(v))?;
-                            Some([x, y])
-                        })
-                        .collect();
-                    (label(c), points)
-                })
-                .collect();
+            let selection = (self.header, self.x, self.y.clone());
+            if self.selection.as_ref() != Some(&selection) {
+                self.series = self
+                    .y
+                    .iter()
+                    .map(|&c| {
+                        let points: Vec<_> = data
+                            .iter()
+                            .enumerate()
+                            .map(|(i, r)| {
+                                let x = match self.x {
+                                    Some(x) => r.get(x).and_then(|v| number(v)),
+                                    None => Some((i + 1) as f64),
+                                }?;
+                                let y = r.get(c).and_then(|v| number(v))?;
+                                Some([x, y])
+                            })
+                            .collect();
+                        (label(c), points)
+                    })
+                    .collect();
+                self.selection = Some(selection);
+            }
             let height = (ui.available_height() - 2.0 * ui.spacing().interact_size.y)
                 .clamp(220.0, 500.0);
             egui::ScrollArea::vertical()
                 .id_salt("plot-viewport")
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    plot(ui, &series, &self.x.map(label).unwrap_or_else(|| "Row number".into()), height);
+                    plot(ui, &self.series, &self.x.map(label).unwrap_or_else(|| "Row number".into()), height);
                 });
         } else {
             const PAGE: usize = 200;
@@ -348,29 +357,28 @@ fn plot(ui: &mut Ui, series: &[(String, Vec<Option<[f64; 2]>>)], x_label: &str, 
         egui::Color32::from_rgb(186, 148, 220),
         egui::Color32::from_rgb(235, 198, 112),
     ];
-    let points: Vec<_> = series
+    let mut min = [f64::INFINITY; 2];
+    let mut max = [f64::NEG_INFINITY; 2];
+    for point in series
         .iter()
         .flat_map(|(_, points)| points.iter().flatten())
-        .collect();
-    if points.is_empty() {
+    {
+        for axis in 0..2 {
+            min[axis] = min[axis].min(point[axis]);
+            max[axis] = max[axis].max(point[axis]);
+        }
+    }
+    if !min[0].is_finite() {
         ui.weak(
             "Choose columns containing finite numbers to plot. Units come from your column names.",
         );
         return;
     }
     // Normalize before subtracting so finite extreme values cannot overflow.
-    let scale = [
-        points.iter().map(|p| p[0].abs()).fold(1.0, f64::max),
-        points.iter().map(|p| p[1].abs()).fold(1.0, f64::max),
-    ];
-    let mut min = [f64::INFINITY; 2];
-    let mut max = [f64::NEG_INFINITY; 2];
-    for point in &points {
-        for axis in 0..2 {
-            let v = point[axis] / scale[axis];
-            min[axis] = min[axis].min(v);
-            max[axis] = max[axis].max(v);
-        }
+    let scale = std::array::from_fn::<_, 2, _>(|i| min[i].abs().max(max[i].abs()).max(1.0));
+    for axis in 0..2 {
+        min[axis] /= scale[axis];
+        max[axis] /= scale[axis];
     }
     for axis in 0..2 {
         if min[axis] == max[axis] {
@@ -384,10 +392,7 @@ fn plot(ui: &mut Ui, series: &[(String, Vec<Option<[f64; 2]>>)], x_label: &str, 
         }
     });
     let (outer, response) = ui.allocate_exact_size(
-        egui::vec2(
-            ui.available_width().max(180.0),
-            height,
-        ),
+        egui::vec2(ui.available_width().max(180.0), height),
         egui::Sense::hover(),
     );
     let rect = egui::Rect::from_min_max(
@@ -434,26 +439,36 @@ fn plot(ui: &mut Ui, series: &[(String, Vec<Option<[f64; 2]>>)], x_label: &str, 
                 - ((point[1] / scale[1] - min[1]) / (max[1] - min[1])) as f32 * rect.height(),
         )
     };
-    let mut nearest: Option<(f32, String, [f64; 2], egui::Pos2)> = None;
+    let mut nearest: Option<(f32, &str, [f64; 2], egui::Pos2)> = None;
+    let hover = response.hover_pos().filter(|cursor| rect.contains(*cursor));
+    let pixels = ui.ctx().pixels_per_point();
     for (n, (label, values)) in series.iter().enumerate() {
-        let mut previous = None;
-        for value in values {
-            let Some(value) = value else {
-                previous = None;
-                continue;
-            };
-            let point = position(*value);
-            let color = colors[n % colors.len()];
-            if let Some(last) = previous {
-                painter.line_segment([last, point], egui::Stroke::new(1.5_f32, color));
-            }
-            painter.circle_filled(point, 2.0, color);
-            previous = Some(point);
-            if let Some(cursor) = response.hover_pos() {
-                let d = cursor.distance_sq(point);
-                if nearest.as_ref().is_none_or(|p| d < p.0) {
-                    nearest = Some((d, label.clone(), *value, point));
+        let color = colors[n % colors.len()];
+        for segment in values
+            .split(Option::is_none)
+            .filter(|segment| !segment.is_empty())
+        {
+            let dense = segment.len() as f32 > rect.width() * pixels;
+            let mut line = Vec::new();
+            let mut bin = PixelColumn::default();
+            for (i, value) in segment.iter().flatten().enumerate() {
+                let point = position(*value);
+                if dense {
+                    bin.push(i, point, (point.x * pixels).floor() as i64, &mut line);
+                } else {
+                    painter.circle_filled(point, 2.0, color);
+                    line.push(point);
                 }
+                if let Some(cursor) = hover {
+                    let distance = cursor.distance_sq(point);
+                    if nearest.as_ref().is_none_or(|item| distance < item.0) {
+                        nearest = Some((distance, label, *value, point));
+                    }
+                }
+            }
+            bin.flush(&mut line);
+            if line.len() > 1 {
+                painter.add(egui::Shape::line(line, egui::Stroke::new(1.5, color)));
             }
         }
     }
@@ -472,5 +487,49 @@ fn plot(ui: &mut Ui, series: &[(String, Vec<Option<[f64; 2]>>)], x_label: &str, 
         ui.weak(format!(
             "{missing} missing or nonnumeric values are shown as gaps. Points follow file order."
         ));
+    }
+}
+
+// Draw the first, last and both extrema in each contiguous screen-pixel
+// column, in source order. Hover and the table still use every input sample.
+#[derive(Default)]
+struct PixelColumn {
+    x: Option<i64>,
+    first: (usize, egui::Pos2),
+    last: (usize, egui::Pos2),
+    low: (usize, egui::Pos2),
+    high: (usize, egui::Pos2),
+}
+impl PixelColumn {
+    fn push(&mut self, index: usize, point: egui::Pos2, x: i64, line: &mut Vec<egui::Pos2>) {
+        let sample = (index, point);
+        if self.x != Some(x) {
+            self.flush(line);
+            self.x = Some(x);
+            self.first = sample;
+            self.low = sample;
+            self.high = sample;
+        }
+        self.last = sample;
+        if point.y < self.low.1.y {
+            self.low = sample;
+        }
+        if point.y > self.high.1.y {
+            self.high = sample;
+        }
+    }
+    fn flush(&mut self, line: &mut Vec<egui::Pos2>) {
+        if self.x.take().is_none() {
+            return;
+        }
+        let mut samples = [self.first, self.low, self.high, self.last];
+        samples.sort_unstable_by_key(|sample| sample.0);
+        let mut previous = None;
+        for (index, point) in samples {
+            if previous != Some(index) {
+                line.push(point);
+            }
+            previous = Some(index);
+        }
     }
 }

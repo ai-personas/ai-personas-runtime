@@ -2,7 +2,7 @@
 
 The numerical Studio runs continuing personas through direct provider calls. Real participants produced editable designs, exchanged messages, reused other projects’ files and completed a reversible character experiment. **Beneficial self-directed numerical maturation over ordinary work remains unproven.** In the five-person cohort, all five authored and used initial models. Three retained developmental questions after feedback. None proposed a subsequent numerical revision across the eleven main-cohort activities.
 
-The design revision is `7d86efb`, published November 17, 2026. The Linux evaluation used successive runtime revisions from `0345495` through `d277ea5` on November 19. Each saved decision retains the interface and observations supplied by its own build. [Design](https://github.com/ai-personas/ai-personas-design/tree/7d86efb31a0323e03166a5c5212cdcd8b2e32f36) · [Runtime evaluated](https://github.com/ai-personas/ai-personas-runtime/tree/d277ea5009a8e6e7ebe1b780631b9f335e65b4a9)
+The design revision is `7d86efb`, published November 17, 2026. The Linux evaluation used successive runtime revisions from `0345495` through `73f1636` on November 19. Each saved decision retains the interface and observations supplied by its own build. [Design](https://github.com/ai-personas/ai-personas-design/tree/7d86efb31a0323e03166a5c5212cdcd8b2e32f36) · [Runtime evaluated](https://github.com/ai-personas/ai-personas-runtime/tree/d277ea5009a8e6e7ebe1b780631b9f335e65b4a9)
 
 ## What happened in ordinary work
 
@@ -122,6 +122,19 @@ The operator then invited Inez to pursue its own question. In the first run, two
 
 In both discussions Inez chose to check the authorization behind each commitment and to retain its numerical character. On a new activity after the second discussion, Inez wrote two personal sentences about Sunday matinees and a ticket stub, with no new errand or promise in the sender’s voice. These observations extend the evidence for a remembered drafting practice. Its numerical contribution to later improvement remains unestablished.
 
+### A circuit substitution and independent waveform review
+
+Tavi returned to its earlier five-watt inverter design when the exhibit's load changed from 7.2 Ω to 9 Ω. It installed ngspice, ran both editable netlists in the numerical workspace and delivered seven files. The files include both sources, two full waveforms, both simulator logs and a reproduction note. The source comparison confirmed that the supply, switching model, pulse timing and measurement window stayed the same. The changed netlist used 9 Ω for both the physical load and its power calculation.
+
+| Resistive load | Simulated RMS voltage | Simulated mean load power | Samples in the retained trace |
+|---|---:|---:|---:|
+| 7.2 Ω | 5.983391 V | 4.972357 W | 50,481 |
+| 9 Ω | 5.986708 V | 3.982297 W | 50,481 |
+
+Vale retrieved the traces in a separate activity. The operator supplied an independently compiled WASI time-series utility and its calling convention. Vale ran it four times and delivered a numerical review. The utility integrated the voltage and physical load power over 40–100 ms. An independent calculation from the exact waveform bytes reproduced all four figures. A separate native ngspice 36 run agreed at the precision of its printed measurements. The 9 Ω substitution missed the five-watt target by about 1.018 W. Hardware measurements were outside this simulation exercise.
+
+Nine proposals were rejected before Tavi acknowledged the installation operation and its request was accepted. During a pause before circuit execution, the runtime feedback was revised to identify the exact local IDs that require acknowledgment. The accepted installation preceded that feedback change. One additional provider attempt exceeded the context length and ended before a completed response or usage report. The workspace retained the failure, and Tavi continued with smaller references and byte ranges. Both personas eventually chose to stop.
+
 ## Controlled lookup and source continuity
 
 Ren registered a fictional 124,153-byte collection-desk register, preserved its warning about dated bulletins and moved the same asset to a new library name. This setup took six accepted calls and 58,342 provider-reported tokens. Four independent copies of the same prepared activity then asked Ren about two desk exchanges at 16:10. They shared the question, exact asset, starting numerical state and medium-effort reasoning configuration. The evaluator specified the retrieval method. Ren chose its calls, search terms, surrounding lines and answer.
@@ -219,9 +232,13 @@ The independent evaluator parsed exported SVGs, rendered them with CairoSVG 2.9.
 | Inez’s mending-table sign, photo-table correction and library reply | 10 | 0 | 0 | 94,503 |
 | Two reflections from one backup and a subsequent theatre note | 15 | 4 | 0 | 240,803 |
 | Ren’s inspection of two recorded numerical paths | 4 | 0 | 0 | 60,753 |
-| **Total** | **901** | **60** | **13** | **11,512,207** |
+| Inverter load substitution and simulator installation | 11 | 9 | 0 | 265,101 |
+| Independent waveform review with a portable analysis command | 7 | 0 | 0 | 89,519 |
+| **Total** | **919** | **69** | **13** | **11,866,827** |
 
-The requested model was `gpt-6.1-sol`, with low effort in the main cohort and Ren’s character studies. Inez and the restored reading-group and collection-desk studies used the same model at medium effort. Some older receipts omitted the returned model name. The provider supplied token counts, including 4,871,076 cached input tokens. Monetary charge and credit balance were unavailable. Restored historical calls are counted once. The membership studies had 32 completed calls with verified inputs. One additional local preparation stopped before provider dispatch because the saved account binding was absent from the process environment. It had no usage receipt.
+The requested model was `gpt-6.1-sol`, with low effort in the main cohort and Ren’s character studies. Inez and the restored reading-group and collection-desk studies used the same model at medium effort. Some older receipts omitted the returned model name. The provider supplied token counts, including 5,018,223 cached input tokens. Monetary charge and credit balance were unavailable. Restored historical calls are counted once. The membership studies had 32 completed calls with verified inputs. One additional local preparation stopped before provider dispatch because the saved account binding was absent from the process environment. It had no usage receipt.
+
+The 27 completed circuit and review calls used `gpt-6.1-sol` at low effort. Stored character use and provider inputs verified for all 27. The additional provider failure had no reported usage. The independent source, waveform, receipt and review summary had SHA-256 `a37a2f68f20e5b8f8f9d2e8c3ef71b7751616cd579494689e8d1f54d48a494c2`.
 
 The 33 completed calls for Inez and Ren’s numerical-path review had verified provider inputs. The live summary had SHA-256 `e51bc4ae3c1a39b9bd01dc7f625938ffb76e017459afdaf012a599ed6b208ff6`. The separate reconstruction of 83 accepted choices had SHA-256 `ae6cc7372d0601c6bf7f0a1b8e4ec8286279c3f4dd3e8670c3700abb6b755ea4`.
 

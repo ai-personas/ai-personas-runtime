@@ -298,6 +298,17 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
         ("Failed".to_owned(), true)
     } else if result["dispatched"] == false && result["success"] == false {
         ("Superseded before dispatch".to_owned(), false)
+    } else if body["tool"] == "command.install" {
+        (format!("Available · {}", result["record"]["name"].as_str().unwrap_or("command")),false)
+    } else if body["tool"] == "command.run" {
+        let run=&result["result"];
+        let label=match (run["error"].as_str(),run["exit_code"].as_i64(),run["outputs_complete"].as_bool()) {
+            (Some(error),_,_)=>error.to_owned(),
+            (_,Some(code),Some(false))=>format!("Exit {code} · missing output"),
+            (_,Some(code),_)=>format!("Exit {code}"),
+            _=>"Command outcome unavailable".into(),
+        };
+        (label,run["success"]!=true)
     } else if body["tool"] == "geometry.install" {
         (if result["already_installed"]==true { "Compiler already installed" } else { "Compiler installed" }.to_owned(), false)
     } else if body["tool"] == "geometry.render" {
@@ -340,6 +351,12 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
     };
     let mut projection=json!({"label":label,"problem":problem,"elapsed_milliseconds":outcome["elapsed_milliseconds"],"failure":outcome["failure"],"error":result["error"],"result":reference,
         "program":result["program"],"program_format":result["execution"].get("format").or_else(||result.get("format"))});
+    if body["tool"]=="command.run" {
+        projection["receipt"]=result["receipt"].clone();
+        for key in ["installation","program","exit_code","error","stdout","stderr","outputs","missing_outputs"] {
+            projection[key]=result["result"][key].clone();
+        }
+    }
     if body["tool"]=="geometry.render" {
         for key in ["source","mesh","geometry","installation","compiler_version","diagnostics","warnings","errors","parameters"] {
             projection[key]=result[key].clone();
@@ -348,6 +365,9 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
     Ok(projection)
 }
 pub(super) fn preview(root: &Path, reference: &str) -> neural::Result<Preview> {
+    preview_output(root, reference, None)
+}
+pub(super) fn preview_output(root: &Path, reference: &str, output: Option<&(String,String)>) -> neural::Result<Preview> {
     let db = open(root)?;
     let (bytes, name, metadata) = if let Some(digest) = reference.strip_prefix("object:") {
         let bytes = store::bytes(&db, digest)?;
@@ -364,15 +384,27 @@ pub(super) fn preview(root: &Path, reference: &str) -> neural::Result<Preview> {
             _ if serde_json::from_slice::<Value>(&bytes).is_ok()=>"json",
             _=>"bin",
         };
-        (
-            bytes,
-            format!(
-                "object-{}.{}",
-                digest.chars().take(12).collect::<String>(),
-                suffix
-            ),
-            json!({"reference":reference,"media":media,"format":suffix}),
-        )
+        let mut metadata=json!({"reference":reference,"media":media,"format":suffix});
+        let name=if let Some((receipt,path))=output {
+            let run=store::exact(&db,receipt)?;
+            let role=["outputs","files_supplied"].into_iter().find(|&key|
+                run.body[key].get(path).and_then(|file|file["object"].as_str())==Some(reference));
+            if run.reference.kind!="command_run" || role.is_none() {
+                return Err(neural::failure("This command receipt does not contain the selected bytes and filename"));
+            }
+            metadata["command_file_role"]=json!(role);
+            metadata["command_name"]=run.body["argv0"].clone();
+            metadata["command_origin"]=run.body["origin"].clone();
+            metadata["command_actor"]=run.body["actor"].clone();
+            metadata["command_exit"]=run.body["exit_code"].clone();
+            metadata["path"]=json!(path);
+            metadata["command_run"]=json!(receipt);
+            Path::new(path).file_name().and_then(|part|part.to_str())
+                .ok_or_else(||neural::failure("Command output has no filename"))?.to_owned()
+        } else {
+            format!("object-{}.{}",digest.chars().take(12).collect::<String>(),suffix)
+        };
+        (bytes,name,metadata)
     } else if reference.starts_with("experience:") {
         let observed = neural::context::read(&db,reference,None,None)?;
         (serde_json::to_vec_pretty(&observed["record"])?,"experience.json".into(),json!({"reference":reference,"kind":"experience"}))

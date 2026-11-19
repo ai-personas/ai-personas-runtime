@@ -240,7 +240,7 @@ impl App {
         ui.add_space(8.);
         let path = s(&metadata, "path");
         ui.add(egui::Label::new(RichText::new(if path.is_empty() {
-            match metadata["kind"].as_str() { Some("job") => "Background command", Some("control") => "Execution control", Some("installation")=>"Installed compiler", _ if metadata["format"]=="stl"=>"STL mesh", _ if self.model_renders.contains_key(&self.selected_reference)=>"OpenSCAD render receipt", _ => "Exact resource" }
+            match metadata["kind"].as_str() { Some("job") => "Background command", Some("control") => "Execution control", Some("installation")=>"Installed program", Some("command_run")=>"Execution receipt", _ if metadata["format"]=="stl"=>"STL mesh", _ if self.model_renders.contains_key(&self.selected_reference)=>"OpenSCAD render receipt", _ => "Exact resource" }
         } else {
             path.rsplit('/').next().unwrap_or(path)
         }).size(18.).strong()).wrap());
@@ -301,6 +301,18 @@ impl App {
             ui.weak("A control change is separate from process termination and participation resumption.");
             if let Some(reference) = control["previous"]["record"].as_str() {
                 if ui.button("Open previous control record").clicked() { self.open_resource(ui.ctx(), reference.into()); }
+            }
+            return;
+        }
+        if let Some(receipt) = metadata["command_run"].as_str() {
+            ui.add_space(12.);
+            section(ui, if metadata["command_file_role"]=="outputs" {"Produced by"} else {"Supplied to"}, "");
+            ui.strong(s(&metadata,"command_name"));
+            ui.label(format!("{} · {}",s(&metadata,"command_origin"),self.label(s(&metadata,"command_actor"))));
+            if let Some(code)=metadata["command_exit"].as_i64(){ui.small(format!("Exit {code}"));}
+            if ui.add_enabled(!self.busy,egui::Button::new("Open execution receipt")).clicked() {
+                let command=self.command_bench.locate(receipt.into());
+                self.command(ui.ctx(),command);
             }
             return;
         }
