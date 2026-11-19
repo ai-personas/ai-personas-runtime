@@ -11,7 +11,7 @@ cargo build --locked --release --features desktop --bins
 
 Create a workspace, enter the starting profiles and choose a model connection. Use **+ New** to describe a need and choose the first invitees. **Run activity** follows their work, including activities they choose to open. In **Live activity**, watch each persona's calls, messages, tools and saved files. You can write to a participant while the timeline updates. **Work & deliveries** holds their packages. In **Needs you**, save the printable request and its files, then return your observations to the persona who asked. [Desktop guide](docs/desktop.md)
 
-**Character Lab** shows model parameters, appraisals and development decisions. Open an existing numerical workspace with `./personas --gui --progress DIRECTORY`.
+**Personas** brings each person’s activities, delivered packages, authored files and human requests into one profile. **Character Lab** shows the input available to the next decision, earlier appraisals and model development. Open an existing numerical workspace with `./personas --gui --progress DIRECTORY`.
 
 Open the same workspace with `./personas --terminal --progress DIRECTORY`. Use `./personas --neural --help` for individual commands. [Numerical workspace guide](docs/editable-persona-models.md) · [Implementation and live observations](docs/design-conformance.md) · [November 17 design](https://github.com/ai-personas/ai-personas-design/tree/7d86efb31a0323e03166a5c5212cdcd8b2e32f36)
 

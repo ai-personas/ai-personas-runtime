@@ -2,7 +2,7 @@
 
 Personas Desktop is a native Rust workspace for Linux and macOS. Open a saved folder or create a society from general character profiles. You can use a saved OpenAI key file, a configured direct provider or a supported Codex account connection.
 
-**Workspace** opens on **Live activity**. The timeline shows who sent each message, saved a file, issued a package or asked for help. Click a filename to inspect the exact revision. Filter the timeline by person or event type. **Pause feed** holds your place while the personas continue. **Return to latest** catches up with the recorded events.
+**Workspace** opens on **Live activity**. The timeline shows who sent each message, saved a file, issued a package or asked for help. Click a filename to inspect the exact revision. Filter the timeline by person or event type. Opening a long message or choosing **Pause feed** holds your place while the personas continue. The counter shows how many matching events arrived. **Return to latest** brings them into view.
 
 **People & tools** shows which participants have a call in progress and which tools are queued or running. During a response, Studio displays the bytes received from the provider and the time of the last observation. Published messages and files appear after the runtime records them. On a narrow window, use the **Timeline** and **People & tools** tabs.
 
@@ -12,7 +12,11 @@ Personas Desktop is a native Rust workspace for Linux and macOS. Open a saved fo
 
 In **Your message**, choose a recipient, write and select **Send**. You can send while a persona is working. Switching activities or recipients preserves each draft during the session. **Delivery status** on a sent message opens its record. Once the runtime can verify the incoming text in an accepted decision, the receipt links to that decision. The persona chooses how to respond.
 
-**Work & deliveries** shows the need, each participant's purpose or reason for waiting, requests for a human and delivered packages. **Created here** lists files from the selected activity. Open **Personas** or select a name to see that person's origin, numerical character at baseline, activities, authored files and requests. **Character Lab** opens their model and decision evidence.
+**Work & deliveries** shows the need, each participant's purpose or reason for waiting, requests for a human and delivered packages. **Created here** lists files from the selected activity.
+
+Open **Personas** and choose a name. **Overview** shows the persona’s origin, baseline inclinations and activities. The message button on an activity opens its live timeline with that person addressed. **Delivered packages** brings together the work that person issued across activities, with the intended use, remaining items, human review when available and an exact file download. **Authored files** lists current revisions. **Human requests** puts active requests first and opens the action, attachments and return instructions.
+
+![Mira’s profile shows her baseline character, the seed-shelf activity she finished, and the house activity where she is waiting for feedback.](assets/studio-profile.png)
 
 **Earlier work** traces files from other activities. Each record identifies the exact revision, where it came from and who encountered it here. The labels distinguish a search listing, text or an image supplied to a decision, a tool execution, and a file included in a delivery or human request. Open **Details** to inspect its evidence or visit the source activity.
 
@@ -31,6 +35,8 @@ Open **Needs you** to see requests across the workspace. Each request identifies
 An open request can be withdrawn by its author. Once taken, it stays with the named human until they release it or record its outcome. A running activity receives reports according to the persona's chosen wake conditions. A former participant's explicit stop stays in effect.
 
 **Conversations** preserves who sent each message. **Artifacts** opens exact delivered versions, shows the latest human review, accepts requests for changes and exports file trees with their manifests. **Character Lab** lets you inspect real coefficients, contextual appraisals, comparisons and the evidence behind development decisions. The **What if…** inputs are local previews. [Numerical workspace guide](editable-persona-models.md)
+
+In **Character Lab → Characteristics**, **Next input** shows the values a new decision would receive. **Recorded appraisal** opens the earlier situational calculation. If the persona chose a deadline or an incoming event for reconsideration, Studio displays the condition and, when applicable, links to the event that met it.
 
 In **Artifacts**, choose **Search library…** to search names, cues and qualifications. Enable **Include earlier revisions** to follow an old name to the original version or the current one. **Find in this version…** locates literal text or a regular expression. Open a match to inspect its exact lines or copy its byte selection. **Matching registrations…** shows library versions that retain identical content, including earlier paths.
 
