@@ -98,13 +98,21 @@ pub(super) fn feedback_link(
     ui: &mut Ui,
     title: &str,
     reference: &str,
-    wrap: egui::TextWrapMode,
+    max_rows: usize,
 ) -> egui::Response {
     let title = package_title(title, reference);
+    let mut label = egui::text::LayoutJob::simple_format(
+        format!("Feedback on {}", excerpt(&title, 180)),
+        egui::TextFormat {
+            font_id: egui::TextStyle::Body.resolve(ui.style()),
+            color: ui.visuals().hyperlink_color,
+            ..Default::default()
+        },
+    );
+    label.wrap.max_rows = max_rows;
     ui.scope(|ui| {
-        ui.style_mut().wrap_mode = Some(wrap);
-        ui.link(format!("Feedback on {}", excerpt(&title, 180)))
-            .on_hover_text(format!("{title}\n{reference}"))
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+        ui.link(label).on_hover_text(format!("{title}\n{reference}"))
     })
     .inner
 }
@@ -595,7 +603,7 @@ impl App {
                             .on_hover_text("Return to the regular conversation and keep this feedback draft.")
                             .clicked();
                         ui.allocate_ui_with_layout(egui::vec2(ui.available_width().max(1.), 22.), egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                                    if feedback_link(ui, title, reference, egui::TextWrapMode::Truncate).clicked() {
+                                    if feedback_link(ui, title, reference, 2).clicked() {
                                 open_package = Some(reference.clone());
                             }
                         });

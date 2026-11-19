@@ -71,7 +71,7 @@ impl App {
                 let action = if delivery.is_some() { "Recorded" } else { "Sent" };
                 ui.weak(format!("{action} by {} · {}", self.label(s(report,"sender")), time_label(report["sent_at"].as_i64().unwrap_or(0))));
                 if let Some(reference) = delivery {
-                    if live_composer::feedback_link(ui, s(report, "delivery_title"), reference, egui::TextWrapMode::Wrap).clicked() {
+                    if live_composer::feedback_link(ui, s(report, "delivery_title"), reference, usize::MAX).clicked() {
                         open_package = Some((reference.to_owned(), s(report, "work").to_owned()));
                     }
                 }

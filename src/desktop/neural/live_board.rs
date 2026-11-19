@@ -1333,7 +1333,7 @@ impl App {
                 });
                 if let Some(package) = feedback_reference(event) {
                     let title = self.feedback_title(event, package);
-                    if live_composer::feedback_link(ui, title, package, egui::TextWrapMode::Wrap).clicked() {
+                    if live_composer::feedback_link(ui, title, package, 3).clicked() {
                         action = Some(EventAction::Package {
                             reference: package.into(),
                             work: s(event, "work").into(),

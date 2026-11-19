@@ -27,8 +27,9 @@ enum Section {
 
 enum SelectedDelivery {
     Package(String, String),
-    File(String, String),
-    Save(String, String),
+    File { file: String, delivery: String, work: String },
+    SaveZip(String, String),
+    Handoff(String, String, usize),
 }
 
 const RECENT_ROWS: usize = 2;
@@ -328,12 +329,14 @@ impl App {
                                 "Changes requested"
                             });
                         }
-                        if ui
-                            .small_button("Save package…")
-                            .on_hover_text("Save this issued edition with its original file paths")
-                            .clicked()
-                        {
-                            selected = Some(SelectedDelivery::Save(
+                        if ui.small_button("Save handoff…")
+                            .on_hover_text("Save the printable delivery sheet and its exact files").clicked() {
+                            selected = Some(SelectedDelivery::Handoff(reference.clone(), s(body, "title").into(),
+                                body["artifacts"].as_array().map_or(0, Vec::len)));
+                        }
+                        if ui.small_button("Save files ZIP…")
+                            .on_hover_text("Save this edition’s files with their original paths").clicked() {
+                            selected = Some(SelectedDelivery::SaveZip(
                                 reference.clone(),
                                 s(body, "title").to_owned(),
                             ));
@@ -372,10 +375,11 @@ impl App {
                                         .on_hover_text(format!("{path}\n{file}"))
                                         .clicked()
                                     {
-                                        selected = Some(SelectedDelivery::File(
-                                            file.to_owned(),
-                                            work.to_owned(),
-                                        ));
+                                        selected = Some(SelectedDelivery::File {
+                                            file: file.into(),
+                                            delivery: reference.clone(),
+                                            work: work.into(),
+                                        });
                                     }
                                     if let Some((_, revision)) = file.rsplit_once('@') {
                                         ui.small(format!("rev {revision}"));
@@ -408,12 +412,15 @@ impl App {
             Some(SelectedDelivery::Package(reference, work)) => {
                 self.open_home_delivery(&reference, &work)
             }
-            Some(SelectedDelivery::File(reference, work)) => {
-                self.open_home_activity(&work);
-                self.open_resource(ui.ctx(), reference);
+            Some(SelectedDelivery::File { file, delivery, work }) => {
+                self.open_home_delivery(&delivery, &work);
+                self.open_resource(ui.ctx(), file);
             }
-            Some(SelectedDelivery::Save(reference, title)) => {
+            Some(SelectedDelivery::SaveZip(reference, title)) => {
                 self.export_package(&reference, &title)
+            }
+            Some(SelectedDelivery::Handoff(reference, title, files)) => {
+                self.save_delivery_handoff(&reference, &title, files)
             }
             None => {}
         }

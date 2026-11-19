@@ -367,7 +367,10 @@ impl App {
                 ui.weak(format!("Still needed · {}", excerpt(first, 190))).on_hover_text(first);
             }
             ui.horizontal_wrapped(|ui| {
-                if ui.button("Save package…").clicked() {
+                if ui.button("Save handoff…").clicked() {
+                    self.save_delivery_handoff(&handle, s(b, "title"), n);
+                }
+                if ui.small_button("Save files ZIP…").clicked() {
                     self.export_package(&handle, s(b, "title"));
                 }
                 if ui.small_button("Open delivery ↗").clicked() {
