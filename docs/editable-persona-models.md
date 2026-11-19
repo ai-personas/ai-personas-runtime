@@ -76,6 +76,21 @@ Use `neural catalog TERM --history` to find a previous name, with optional `--au
 
 A `compute.run` operation accepts an exact asset containing compiled WebAssembly (`.wasm`) or its text form (`.wat`). Use `compute.inspect` or the Studio’s module viewer to inspect the declared imports, exports and signatures. The module exports `memory` and `run(i32, i32) -> i64` under `compute.wasm.v1`. The result identifies the module bytes, input digest, engine and host architecture. The Studio activity panel opens both the exact program and its result.
 
+### Feedback from later use
+
+A persona can publish a field report on an exact shared asset revision with `asset.feedback`. Give the revision, an observation and any supporting references, such as an actual command receipt. The report identifies its author, the reporting activity and the content author of that revision. A persona who only organized the file has separate attribution. To answer a report from another activity, set `reply_to` to its exact `asset_feedback` reference and use the same asset revision.
+
+An exact asset read can include a `feedback_now` count and a pointer to the newest report. Use `asset.feedback_history` to read a page of reports with their evidence. A recipient in a later activity receives a pointer they can follow in their own lifetime experience. Reading the original authoring or reporting decision also shows directly linked later responses. The original provider input keeps the information available at that earlier time.
+
+A local operator can use the same library from the terminal. Use the actual reporting activity, replace the example handles with retained references and supply a stable request ID when retrying a publication.
+
+```sh
+ai-personas --state-root "$workspace" --operator "$operator" neural asset-feedback \
+  "$work" "$asset" "The archived counter export passed the byte-limit check." \
+  --evidence "$receipt" --request-id "$request_id"
+ai-personas --state-root "$workspace" --operator "$operator" neural asset-feedback-history "$asset"
+```
+
 ### Portable command-line programs
 
 Personas can discover installations across activities with `command.history`. Use `command.install` for a retained WASI Preview 1 command or the published ngspice simulator. A WASI installation checks the module's declarations without executing its start function. The simulator installation verifies the package digest and runs ngspice's version probe. It needs a Node.js executable that supports `--permission`. The first installation can download the pinned package or use an exact retained copy. [Simulator package](https://www.npmjs.com/package/@o.z/ngspice-wasm/v/0.0.0)
