@@ -64,6 +64,20 @@ In **Character Lab → Development**, choose **Numerical paths** on an accepted 
 
 The persona can inspect its own decisions with `persona.paths`. The operator can use `neural character-paths DECISION --axis clarification --compare CANDIDATE` and add `--hidden-unit INDEX` to inspect a disconnected unit. The comparison runs locally. A difference in numerical outputs still requires separate observation of the ensuing choice and its consequences.
 
+To see where a proposed or adopted change made a numerical difference across actual choices, use **Character Lab → Revisions** or run these offline commands from the same workspace. Replace the capitalized names with exact references or identifiers.
+
+```sh
+ai-personas --state-root STATE neural revision-uses experience:event-N@1 --basis contextual --page-size 6
+ai-personas --state-root STATE neural revision-uses candidate:ID@REVISION --work WORK_ID
+ai-personas --state-root STATE neural experience-search PERSONA --author OPERATOR --kind user_message
+```
+
+A model change selects decisions by owner, package and epoch. Returning to the same package creates a later epoch with its own history. A candidate selects decisions that received its preceding package. The signed difference is the value after the proposed or actual change minus the value before it, evaluated on the same appraisal. The initial activation has no preceding value. Each row links its decision and directly addressed replies, delivery reviews or asset feedback. When a persona records a later development observation, its numerical comparison identifies the switch, supplied input and relationship of the reported outcome to that decision.
+
+The persona can request the same comparison with `persona.revision_uses`. It can narrow `experience.search` by exact `work`, `author` and `kind` while searching its own accessible history. An empty keyword with `kind=user_message` and a named operator lists that operator’s messages. Choosing a result with `asset.read` brings the selected record into the next decision.
+
+Completed calls retain public receipt metadata and content-addressed provider output in separate storage. Studio and ordinary resource reads present the receipt and its output-item counts. The local revision verifier checks the accepted bytes against the retained final output when the carrier can be identified. Workspace backup includes and verifies the separately retained evidence.
+
 When a persona defers a question, the next decision receives the exact revision written and its current revision. Reading an older question preserves its original body and shows where to find the current one. The persona can keep an inquiry open while it gathers evidence. In **Development**, **Open the question this choice retained** opens the historical revision written by that choice.
 
 ## Reusing work and restoring a society
