@@ -7,6 +7,8 @@
 #[cfg(unix)]
 pub(crate) mod onboarding;
 mod sse;
+mod public_reply;
+mod reply_progress;
 pub(crate) use sse::retained_decision_matches;
 mod http_error;
 pub(crate) use http_error::input_image_patch_rejection;
@@ -915,20 +917,33 @@ pub trait PreparedCall: Send {
 pub struct Cancellation {
     sender: watch::Sender<bool>,
     stream_bytes: Arc<std::sync::atomic::AtomicU64>,
+    reply: Option<Arc<reply_progress::ReplyProgress>>,
 }
 impl Default for Cancellation {
     fn default() -> Self {
         let (sender, _) = watch::channel(false);
-        Self { sender, stream_bytes: Default::default() }
+        Self { sender, stream_bytes: Default::default(), reply: None }
     }
 }
 impl Cancellation {
-    /// Response-stream bytes received so far. No output or provisional decisions are exposed.
+    /// Opt into one ordinary numerical decision's provisional public reply.
+    pub fn with_public_reply(invocation: &str) -> Self {
+        Self { reply: Some(Arc::new(reply_progress::ReplyProgress::new(invocation))), ..Self::default() }
+    }
+
+    /// Poll with revision 0 initially. A change carries the bounded excerpt and
+    /// its truncation flag, or None when an earlier excerpt has been withdrawn.
+    pub fn public_reply_since(&self, revision: u64) -> Option<(u64, Option<(String, bool)>)> {
+        self.reply.as_ref()?.since(revision)
+    }
+
+    /// Response-stream bytes received so far.
     pub fn stream_bytes(&self) -> u64 {
         self.stream_bytes.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub fn cancel(&self) {
+        if let Some(reply) = &self.reply { reply.close(); }
         self.sender.send_replace(true);
     }
     pub fn is_cancelled(&self) -> bool {
@@ -1513,7 +1528,8 @@ impl DirectCall {
             let settings = &inner.settings;
             let error_secrets = [bearer.clone(), account.clone()];
             let mut collector = sse::Collector::new(&settings.model).with_mode(settings.mode)
-                .with_decision_carrier(decision_carrier);
+                .with_decision_carrier(decision_carrier)
+                .with_public_reply(&cancellation, &audit.invocation_id, &settings.effort);
             let diagnostics = TransportDiagnostics::default();
             let started = tokio::time::Instant::now();
             let result = {

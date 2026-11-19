@@ -217,8 +217,15 @@ impl Item {
     }
 }
 
+struct ReplyCarrier {
+    projection: super::reply_progress::Projection,
+    candidates: BTreeSet<usize>,
+    changed_item: Option<usize>,
+}
+
 pub(super) struct Collector {
     model: String,
+    public_reply: Option<ReplyCarrier>,
     decision_carrier: bool,
     allow_thin_completed: bool,
     thin_lifecycle: bool,
@@ -260,6 +267,7 @@ impl Collector {
     pub fn new(model: &str) -> Self {
         Self {
             model: model.into(),
+            public_reply: None,
             decision_carrier: false,
             allow_thin_completed: false,
             thin_lifecycle: true,
@@ -304,6 +312,21 @@ impl Collector {
         self.decision_carrier = enabled;
         self
     }
+    pub fn with_public_reply(
+        mut self,
+        cancellation: &super::Cancellation,
+        invocation: &str,
+        effort: &str,
+    ) -> Self {
+        self.public_reply = cancellation.reply.as_ref()
+            .and_then(|reply| reply.bind(invocation, effort))
+            .map(|projection| ReplyCarrier {
+                projection,
+                candidates: BTreeSet::new(),
+                changed_item: None,
+            });
+        self
+    }
     pub fn push(&mut self, bytes: &[u8]) -> std::result::Result<(), Failure> {
         if let Some(failure) = self.failure {
             return Err(failure.failure);
@@ -312,6 +335,7 @@ impl Collector {
         result.map_err(|failure| self.retain_failure(failure))
     }
     fn retain_failure(&mut self, failure: StreamFailure) -> Failure {
+        self.public_reply = None;
         self.failure = Some(failure);
         self.response = None;
         self.diagnostic = Some(StreamDiagnostic {
@@ -397,6 +421,7 @@ impl Collector {
                 if self.saw_data {
                     let data = std::mem::take(&mut self.data);
                     self.event(&data)?;
+                    self.observe_public_reply();
                 } else if self.event_name.is_some() {
                     return Err(protocol("frame_event_without_data"));
                 }
@@ -436,6 +461,7 @@ impl Collector {
         Ok(())
     }
     pub fn finish(&mut self) -> std::result::Result<String, Failure> {
+        self.public_reply = None;
         if let Some(failure) = self.failure {
             return Err(failure.failure);
         }
@@ -874,6 +900,53 @@ impl Collector {
         }
         Ok(())
     }
+    fn observe_public_reply(&mut self) {
+        let Some(carrier) = self.public_reply.as_mut() else { return };
+        if self.reported_effort.as_ref()
+            .is_some_and(|effort| *effort != carrier.projection.expected_effort)
+        {
+            self.public_reply = None;
+            return;
+        }
+        if let Some(selected) = &self.response {
+            carrier.projection.terminal(selected);
+            return;
+        }
+        let Some(changed) = carrier.changed_item.take() else { return };
+        let item = &self.items[&changed];
+        if item.incomplete {
+            self.public_reply = None;
+            return;
+        }
+        // An unphased message or anonymous delta still competes for the output,
+        // but cannot expose text. Revisit only the item touched by this event.
+        if item.kind == Kind::Decision || item.kind == Kind::Message && item.phase != Some(Phase::Commentary) {
+            carrier.candidates.insert(changed);
+        } else {
+            carrier.candidates.remove(&changed);
+        }
+        if carrier.candidates.len() != 1 {
+            carrier.projection.unbind_item();
+            return;
+        }
+        let index = *carrier.candidates.first().unwrap();
+        let item = &self.items[&index];
+        let bound = match item.kind {
+            Kind::Message => !self.decision_carrier && item.phase == Some(Phase::FinalAnswer),
+            Kind::Decision => self.decision_carrier && item.call_id.is_some(),
+            Kind::Reasoning => false,
+        };
+        if !bound || !(item.added || item.done) {
+            carrier.projection.unbind_item();
+            return;
+        }
+        carrier.projection.observe_item(
+            index,
+            item.final_text.as_deref().unwrap_or(&item.deltas),
+            item.final_text.is_some(),
+        );
+    }
+
     fn thin_completion_text(&self) -> Result<String> {
         if !self.thin_lifecycle {
             return Err(protocol("thin_lifecycle_not_complete"));
@@ -946,6 +1019,9 @@ impl Collector {
         Ok(())
     }
     fn track(&mut self, index: usize, id: &str, kind: Kind) -> Result<&mut Item> {
+        if let Some(carrier) = &mut self.public_reply {
+            carrier.changed_item = Some(index);
+        }
         if self
             .items
             .iter()

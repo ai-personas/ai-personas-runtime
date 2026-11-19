@@ -163,7 +163,17 @@ pub async fn invoke(
         let changed=db.execute("UPDATE invocations SET state=?2,receipt=?3,updated=?4 WHERE id=?1 AND state IN ('prepared','probe_prepared')",params![call_id,if probe{"probe_dispatched"}else{"dispatched"},digest,now()])?;
         if changed!=1{return Err(failure("provider dispatch no longer owned"));}Ok(())
     })?;
-    let cancellation = provider::Cancellation::default();
+    // Only ordinary active-character decisions can have a public draft. A
+    // missing or unreadable observation must not prevent provider dispatch.
+    let ordinary = !probe && source_snapshot(&store.db, &call_id).is_ok_and(|snapshot| {
+        snapshot.invocation == call_id && snapshot.actor == actor && snapshot.work == work
+            && snapshot.model.is_some() && snapshot.data["context_recovery"].is_null()
+    });
+    let cancellation = if ordinary {
+        provider::Cancellation::with_public_reply(&call_id)
+    } else {
+        provider::Cancellation::default()
+    };
     let mut progress = super::live::Publisher::new(root, &call_id);
     let pending = prepared.dispatch(cancellation.clone());
     eprintln!("{}", json!({"event": if probe { "assessment_dispatched" } else { "decision_dispatched" },
@@ -174,11 +184,12 @@ pub async fn invoke(
         tokio::select! {
             value=&mut pending=>break value.and_then(|value|value.bound_to(&audit,&intent)),
             _=tokio::time::sleep(std::time::Duration::from_millis(100))=>{
-                progress.observe(cancellation.stream_bytes());
                 if control_observation(&store,work,actor).is_some(){cancellation.cancel();}
+                progress.observe(&cancellation);
             }
         }
     };
+    drop(progress);
     match response {
         Ok(mut output) => {
             output.attempt.reported_model.clone_from(&output.reported_model);
@@ -675,7 +686,8 @@ async fn effects(root: &Path, actor: &str, selected_work:&str) -> Result<()> {
 }
 
 fn recover(store: &mut Store,work:Option<&str>,actor:Option<&str>) -> Result<()> {
-    store.transaction(|db|{
+    let interrupted = store.transaction(|db|{
+        let mut interrupted = Vec::new();
         let mut statement=db.prepare("SELECT id,work,actor,state FROM invocations WHERE state IN ('prepared','dispatched','probe_prepared','probe_dispatched') AND (?1 IS NULL OR work=?1) AND (?2 IS NULL OR actor=?2)")?;
         let rows=statement.query_map(params![work,actor],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?)))?.collect::<std::result::Result<Vec<_>,_>>()?;
         for (call,work,actor,state) in rows {
@@ -683,6 +695,7 @@ fn recover(store: &mut Store,work:Option<&str>,actor:Option<&str>) -> Result<()>
             db.execute("UPDATE invocations SET state=?2,updated=?3 WHERE id=?1",params![call,if uncertain{"uncertain"}else{"abandoned_preparation"},now()])?;
             store::event(db,&work,"runtime",&actor,"recovered_invocation",&json!({"invocation":call,"prior_state":state,"remote_result_unknown":uncertain,"automatic_retry":false}),Some(&call))?;
             if uncertain{pause(db,&actor,"Interrupted provider dispatch requires explicit review/resume; remote effects or charges may remain",Some(&call))?;}
+            interrupted.push(call);
         }
         let mut statement=db.prepare("SELECT id,work,actor,invocation FROM outbox WHERE state='dispatched' AND (?1 IS NULL OR work=?1) AND (?2 IS NULL OR actor=?2)")?;
         let rows=statement.query_map(params![work,actor],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?)))?.collect::<std::result::Result<Vec<_>,_>>()?;
@@ -690,8 +703,11 @@ fn recover(store: &mut Store,work:Option<&str>,actor:Option<&str>) -> Result<()>
             db.execute("UPDATE outbox SET state='uncertain' WHERE id=?1",[&effect])?;
             store::event(db,&work,"runtime",&actor,"uncertain_effect",&json!({"effect":effect,"automatic_retry":false,"action":"Inspect the actual host state before deciding any new action"}),Some(&call))?;
             pause(db,&actor,"Interrupted host dispatch requires reconciliation; it is never replayed automatically",Some(&call))?;
-        }Ok(())
+        }Ok(interrupted)
     })?;
+    for call in interrupted {
+        super::live::remove(&store.root, &call);
+    }
     // A complete response can be adopted after a crash only against its exact
     // retained authority. It is never silently replayed against a fresh snapshot.
     let mut statement = store

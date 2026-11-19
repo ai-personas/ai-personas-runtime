@@ -147,7 +147,7 @@ impl Drop for SessionOwner {
     }
 }
 
-fn locked_by_owner(file: &File) -> io::Result<bool> {
+pub(super) fn locked_by_owner(file: &File) -> io::Result<bool> {
     loop {
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) } == 0 {
             return Ok(false);
