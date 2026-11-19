@@ -62,6 +62,7 @@ impl Desk {
 struct File {
     reference: String,
     path: String,
+    digest: Option<String>,
     bytes: Option<u64>,
     author: Option<String>,
     qualifications: Vec<String>,
@@ -97,6 +98,7 @@ impl Package {
                 File {
                     reference: reference.into(),
                     path: path.into(),
+                    digest: metadata["blob"].as_str().map(str::to_owned),
                     bytes: asset["size"].as_u64(),
                     author: metadata["last_content_author"]
                         .as_str()
@@ -393,9 +395,13 @@ impl App {
     }
 
     fn package_preview(&mut self, ui: &mut Ui, p: &Package) {
+        enum Action {
+            Open,
+            History,
+            Save,
+        }
         let desk = &mut self.delivery_desk;
-        let mut open = None;
-        let mut history = None;
+        let mut action = None;
         let response = panel(ui)
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
@@ -435,14 +441,22 @@ impl App {
                         .on_hover_text(format!("{}\n{}", file.path, file.reference))
                         .clicked()
                     {
-                        open = Some(file.reference.clone());
+                        action = Some(Action::Open);
                     }
                     if ui
                         .link("File history…")
                         .on_hover_text(&file.reference)
                         .clicked()
                     {
-                        history = Some(file.reference.clone());
+                        action = Some(Action::History);
+                    }
+                    if ui
+                        .add_enabled(file.digest.is_some(), egui::Link::new("Save this file…"))
+                        .on_hover_text(format!("Save {} from this delivery", file.path))
+                        .on_disabled_hover_text("This edition’s byte reference is unavailable.")
+                        .clicked()
+                    {
+                        action = Some(Action::Save);
                     }
                 });
             })
@@ -450,10 +464,16 @@ impl App {
         if std::mem::take(&mut desk.focus_preview) {
             response.scroll_to_me(Some(egui::Align::Min));
         }
-        if let Some(reference) = open {
-            self.open_resource(ui.ctx(), reference);
-        } else if let Some(reference) = history {
-            self.open_file_history(ui.ctx(), &reference);
+        let file = &p.files[desk.selected];
+        match action {
+            Some(Action::Open) => self.open_resource(ui.ctx(), file.reference.clone()),
+            Some(Action::History) => self.open_file_history(ui.ctx(), &file.reference),
+            Some(Action::Save) => {
+                if let Some(digest) = &file.digest {
+                    self.save_package_member(&p.reference, &file.reference, &file.path, digest);
+                }
+            }
+            None => {}
         }
     }
 

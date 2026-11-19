@@ -5,10 +5,22 @@ use std::io::Write;
 
 #[derive(Clone)]
 enum Contents {
-    Artifact { reference: String, metadata_view: bool, source: Option<(String, String)> },
+    Artifact { reference: String, metadata_view: bool, source: Option<(String, String)>, member: Option<Member> },
     Deliveries(String),
     Package(String),
     Handoff { reference: String, files: usize },
+}
+
+#[derive(Clone)]
+struct Member {
+    delivery: String,
+    path: String,
+    digest: String,
+}
+
+fn basename(path: &str) -> &str {
+    std::path::Path::new(path).file_name().and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty()).unwrap_or("resource.json")
 }
 
 fn title_stem(title: &str, fallback: &str) -> String {
@@ -81,18 +93,24 @@ impl App {
         let name = if metadata_view {
             "provider-receipt-metadata.json".to_owned()
         } else {
-            std::path::Path::new(path)
-                .file_name()
-                .and_then(|name| name.to_str())
-                .filter(|name| !name.is_empty())
-                .unwrap_or("resource.json")
-                .to_owned()
+            basename(path).to_owned()
         };
         self.export_generation += 1;
         self.export_dialog = Some(Dialog::new(
             self.export_generation,
-            Contents::Artifact { reference: self.selected_reference.clone(), metadata_view, source },
+            Contents::Artifact { reference: self.selected_reference.clone(), metadata_view, source, member: None },
             name,
+        ));
+    }
+    pub(super) fn save_package_member(&mut self, delivery: &str, reference: &str, path: &str, digest: &str) {
+        self.export_generation += 1;
+        self.export_dialog = Some(Dialog::new(
+            self.export_generation,
+            Contents::Artifact {
+                reference: reference.into(), source: None, metadata_view: false,
+                member: Some(Member { delivery: delivery.into(), path: path.into(), digest: digest.into() }),
+            },
+            basename(path).into(),
         ));
     }
     pub(super) fn export_deliveries(&mut self, _ctx: &egui::Context) {
@@ -111,6 +129,7 @@ impl App {
         let (heading, description, action) = match &dialog.contents {
             Contents::Artifact { metadata_view: true, .. } => (
                 "Save receipt metadata", "Save the public receipt view, including its audit and usage.", "Save file"),
+            Contents::Artifact { member: Some(_), .. } => ("Save package file", "Save this exact issued file to your computer.", "Save file"),
             Contents::Artifact { .. } => ("Save artifact", "Save the exact retained file to your computer.", "Save file"),
             Contents::Deliveries(_) => ("Export deliveries", "Export this task's delivered files with their delivery records.", "Export deliveries"),
             Contents::Package(_) => ("Save file package", "The ZIP contains the selected file revisions with their original names and folders.", "Save file"),
@@ -132,6 +151,10 @@ impl App {
         .collapsible(false)
         .show(ctx, |ui| {
             ui.label(description);
+            if let Contents::Artifact { reference, member: Some(member), .. } = &dialog.contents {
+                let edition = reference.rsplit_once('@').map(|(_, n)| n).unwrap_or(reference);
+                ui.small(format!("{}  ·  Revision {edition}", member.path)).on_hover_text(reference);
+            }
             ui.add_space(12.);
             ui.add_enabled_ui(!dialog.busy, |ui| {
                 ui.strong("Destination folder");
@@ -202,10 +225,22 @@ impl App {
                         ai_personas::neural::human_requests::export_handoff(&db, &reference, &path)
                             .map_err(|e| e.to_string())?;
                     }
-                    Contents::Artifact { reference, source, .. } => {
+                    Contents::Artifact { reference, source, member, .. } => {
+                        if let Some(selected) = &member {
+                            let db = data::open(&root).map_err(|e| e.to_string())?;
+                            ai_personas::neural::asset_history::verify_delivery_member(&db, &selected.delivery, &reference)
+                                .map_err(|e| e.to_string())?;
+                        }
                         let preview = data::preview_output(&root, &reference, source.as_ref())
                             .map_err(|e| e.to_string())?;
                         let bytes = std::fs::read(&preview.path).map_err(|e| e.to_string())?;
+                        if let Some(selected) = &member {
+                            if preview.metadata["path"] != selected.path || preview.metadata["blob"] != selected.digest
+                                || preview.metadata["view"] == "provider_receipt_metadata"
+                                || ai_personas::store::sha256_bytes(&bytes) != selected.digest {
+                                return Err("The retained file differs from the selected package member.".into());
+                            }
+                        }
                         let mut file = tempfile::NamedTempFile::new_in(path.parent().unwrap())
                             .map_err(|e| e.to_string())?;
                         file.write_all(&bytes)
@@ -213,6 +248,10 @@ impl App {
                             .map_err(|e| e.to_string())?;
                         file.persist_noclobber(&path)
                             .map_err(|e| format!("Cannot save {}: {e}", path.display()))?;
+                        if member.is_some() {
+                            let edition = reference.rsplit_once('@').map(|(_, n)| n).unwrap_or(&reference);
+                            return Ok(format!("Saved file revision {edition} to {}", path.display()));
+                        }
                     }
                     Contents::Deliveries(work) => {
                         tokio::runtime::Runtime::new()
