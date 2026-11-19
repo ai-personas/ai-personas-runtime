@@ -183,6 +183,9 @@ pub const NAMES: &[(&str,&str)] = &[
     ("persona.evaluate","Evaluate your active network on evidence-linked contextual features; missing features are unknown."),
     ("persona.patch","Directly replace literal parameters against an exact predecessor and return forward-only before/after probes. Does not activate."),
     ("persona.assess","Compare old/candidate behavior in isolated provider calls. These calls execute no tools or real work. Results are synthetic observations."),
+    ("development.search","Find your development questions across tasks and social activity, including closed items. Read selected exact records with asset.read."),
+    ("development.update","Record or revise your own behavior question with observed experience, competing explanations, a prediction, possible harms and a revisit condition. The item remains available across work and social activity."),
+    ("experience.search","Search your lifetime of work and social experiences by keyword or regular expression. Matches return exact origin and reference. Read chosen records with asset.read or select them for context."),
     ("history.search","Rediscover authored/addressed events in this work by literal or regex search, with exact prior request, response, tool-result and provider-receipt references. Returns metadata, not replayed history. Empty query lists events; results are paginated."),
     ("persona.create","Create an attributed pending identity with a fresh own-model initialization. This does not invite or assign responsibility."),
     ("asset.search","Find retained shared resources by path and lexical/regex cues."),
@@ -211,8 +214,9 @@ pub fn describe(name: &str) -> Result<Value> {
         .ok_or_else(|| failure(format!("unknown tool {name}")))?
         .1;
     let inputs = match name {
-        "tools.search" | "asset.search" | "history.search" => schema::<Search>()?,
+        "tools.search" | "asset.search" | "history.search" | "experience.search" | "development.search" => schema::<Search>()?,
         "tools.describe" => schema::<Describe>()?,
+        "development.update" => schema::<super::development::Update>()?,
         "persona.initialize" => schema::<protocol::InitializeModel>()?,
         "persona.read" | "asset.read" => schema::<Read>()?,
         "persona.evaluate" => schema::<protocol::EvaluateModel>()?,
@@ -242,7 +246,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
         Ok(())
     }
     match name {
-        "tools.search" | "asset.search" | "history.search" => {
+        "tools.search" | "asset.search" | "history.search" | "experience.search" | "development.search" => {
             let x: Search = serde_json::from_value(value.clone())?;
             if x.regex {
                 regex::Regex::new(&x.query)?;
@@ -259,6 +263,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
             }
             Ok(())
         }
+        "development.update" => parse::<super::development::Update>(value),
         "persona.initialize" => parse::<protocol::InitializeModel>(value),
         "persona.read" | "asset.read" => parse::<Read>(value),
         "persona.evaluate" => parse::<protocol::EvaluateModel>(value),

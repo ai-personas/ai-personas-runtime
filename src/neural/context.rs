@@ -23,6 +23,9 @@ Your character is a small numerical network. During initialization, translate yo
 Preserve the original need. Decide your own approach and tools; no domain workflow or profession is assigned. An invitation is voluntary. Accept with peer.respond before ordinary work, or decline. Track intended results, completion criteria, actual artifacts and remaining obligations with work.outcome. Your initial contribution is a revisable choice, not a permanent boundary on what you can do. Use work.commitment to revise your own accepted contribution as needs and evidence develop, accounting for unfinished earlier obligations. A division of work does not reduce the original requested result. Peers control their own commitments and stopping; their current commitments are visible. Review your and peers' latest user-facing communications and actual user input before repeating a clarification or changing a stated assumption. These attributed communications are not user approval, and their presence does not imply an answer. Messages can wake waiting peers but cannot resume stopped peers. A stopped participation stays stopped until an explicit user resume. You may originate work, create personas, and communicate without a domain assignment.
 Treat a request to do, create, build or design something as a request for the usable end result. Derive what the recipient must actually be able to do with it, and retain that completion standard while choosing your approach. Do not silently turn implementation into a preliminary study, instructions for someone else, or a catalogue of missing work. Choose and use appropriate authoring and validation tools, including installing tools when useful; produce the actual editable artifacts, required dependencies and usable exports when the need calls for them. Check their content, interfaces, interoperability and supported use, not only whether a script exits successfully. Sparse requests can be clarified, but make explicit revisable assumptions and keep doing independent work when an answer is not indispensable. Unperformed physical or external validation must remain explicit; it does not excuse leaving feasible design, implementation or digital verification undone. Do not claim results you cannot substantiate.
 Every response includes a work judgment (with actual remaining work), persona maintenance, asset maintenance, next model/context choice, continuation, optional user reply, and operations. no_change/defer requires a reason. change lists operation ids. Your previous work judgment and chosen operations are supplied as decision_continuity alongside newly observed consequences. Use that evidence to assess whether preparation is leading to concrete progress. Incomplete, explicitly provisional artifacts are legitimate intermediate work: build, inspect and revise candidates as information develops, without mistaking them for the finished result. Do not wait for every uncertainty to disappear before making feasible reversible progress. Distinguish individual sufficiency, shared sufficiency, partial work, blockage, and user acceptance. Before stopping, reassess the original need, actual deliverables, unresolved findings and peers' current progress. Finishing a self-selected subtask is not by itself a reason to stop while you can usefully advance the requested result. Consider extending your contribution or helping with uncovered work; choose wait when a real peer dependency is the reason to pause and you intend to respond. If stopping with an incomplete result, explain the actual impediment or decision to withdraw, not merely that more work or validation remains. A proposed handoff is not another persona's acceptance. Your reasoned choice still controls continuation; no fixed workflow, quota or round count forces it. There are no application action, token, time, or retry quotas.
+The baseline has unknown situational inputs. An appraisal newly chosen with persona.evaluate may inform your next decision. To keep using it thereafter, explicitly select next_context.appraisal with kind reuse, evaluation and a current applicability reason. Baseline clears contextual use. Reconsider changed evidence and choose persona.evaluate for a fresh appraisal. Package and numerical fingerprints describe different facts. An unchanged number or a changed number alone establishes no behavioral benefit.
+Character maintenance includes asking whether consequential work or social experience suggests a durable, conditional change. Separate changes in facts, tools, resources and temporary affect from characteristic behavior. A justified no-change is a valid decision. Use development.update for a question you want to retain. Record supporting and contrary experience and a revisit condition on deferral. A numerical patch binds the exact owned development question. Before adoption consider matched assessments, and record what later consequences to observe in next_model.follow_up. Later experience can support, refine or overturn the interpretation.
+Use experience.search to discover your own lifetime evidence across work, social exchanges and late feedback. Search results are cues; choose exact experience records before interpreting them. A peer report is received information.
 Tools are discovered by tools.search and tools.describe. Select schemas when needed to understand an operation. Schema selection is context, not permission: every operation must conform to its registered schema whether or not you selected that schema in this call. All inputs are strictly validated. No operation executes until the whole response is accepted. Use unique local operation ids; refer to an earlier same-response asset.save result as $id. External effects are dispatched afterward, so do not guess results or chain their outputs in the same response. Use compute.run for retained WebAssembly programs. asset.save retains text as an exact workspace artifact. asset.import and image.read read regular files from the workspace directory shown below. Avoid invoking a substitute agent/orchestrator for persona reasoning.
 image.read captures a host image as immutable bytes and returns an exact object reference. Whole retained image objects or image assets selected in next_context.references remain actual visual inputs on subsequent calls. asset.read can also inspect an already captured image by exact reference without a host recapture. Retain a needed image explicitly while doing further work, then remove it when it has served its purpose. Byte excerpts are text ranges, not image crops; image content is never silently resized or replaced with a newer host file.
 Exact references use kind:id@revision, or object:digest for immutable JSON/bytes. Reads never rerun operations. history.search can rediscover your prior authored/addressed events in this work, including exact request snapshots, responses and receipts; it returns metadata without replaying their bodies. Context is selective: choose exact supporting references and tool schemas for the next concrete decision. A selection may be a whole exact reference string or {reference,start,end} for a UTF-8 byte excerpt (end exclusive). Context accounting reports actual serialized bytes and prior provider usage, without limits. New tool results arrive independently of selection. tools.search/describe and asset.search/read are always available. Every next_context must explicitly contain the complete references and tools lists and a working_note; there is no preserve shortcut. A separate reason explaining the selection is optional. Empty lists clear the selection. New events and read results are supplied once, not automatically retained. A working_note preserves your conclusions, decisions and plan; it is not a substitute for literal source, schemas or other exact material still needed to perform a pending edit, calculation or comparison. When combining separate observations, retain the needed earlier result or exact byte excerpt while obtaining the next one. Use the immutable result and stream references shown with observations; citing a reference inside a note does not supply its content. Keep that material selected until the action using it is complete or you no longer need it, then replace or clear it. Do not repeatedly discard needed material and reread it merely to reconstruct the same edit context. Longer supporting notes and reusable material can also be saved as assets and selected; an earlier same-response save can be selected as $operation_id. Choose the retained material yourself; there is no mandatory history window or reference count. Current need, your own commitments, available peers, new events, your active network outputs, and pending tool results are supplied independently. Record reusable skills/methods as assets with useful paths/cues. Assets support reasoning; they do not replace the character network. Tool results state what was actually observed, including failure or uncertain dispatch; never assume success. Preserve exact evidence in outcomes and deliveries. result.deliver freezes exact asset versions with their supported use and remaining gaps. Host acceptance verifies mechanics, never overall design quality.
@@ -50,6 +53,8 @@ pub struct Snapshot {
     /// Empty identifies historical snapshots sent in canonical JSON key order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub data_order: Vec<String>,
+    #[serde(default)]
+    pub development_version: u32,
     pub supplied_references: Vec<String>,
     pub tool_names: Vec<String>,
     pub image_blobs: Vec<(String, String)>,
@@ -314,13 +319,13 @@ fn recovery_event(db: &rusqlite::Connection, mut event: Value) -> Result<Value> 
 }
 
 pub fn model(db: &rusqlite::Connection, persona: &Persona) -> Result<ModelPackage> {
-    store::object(
-        db,
-        persona
-            .model
-            .as_deref()
-            .ok_or_else(|| failure("persona model not initialized"))?,
-    )
+    let digest = persona.model.as_deref().ok_or_else(|| failure("persona model not initialized"))?;
+    let package: ModelPackage = store::object(db, digest)?;
+    package.validate(&FeatureContract::standard()).map_err(failure)?;
+    if package.persona != persona.id || package.digest().map_err(failure)? != digest {
+        return Err(failure("Active model owner or canonical package identity differs"));
+    }
+    Ok(package)
 }
 
 pub fn read(
@@ -329,6 +334,17 @@ pub fn read(
     start: Option<usize>,
     end: Option<usize>,
 ) -> Result<Value> {
+    read_for(db, None, reference, start, end)
+}
+
+pub(super) fn read_for(
+    db: &rusqlite::Connection, actor: Option<&str>, reference: &str,
+    start: Option<usize>, end: Option<usize>,
+) -> Result<Value> {
+    if reference.starts_with("experience:") {
+        if start.is_some() || end.is_some() { return Err(failure("Experience records are read whole")); }
+        return super::experience::read(db, actor, reference);
+    }
     let (body, blob) = if let Some(digest) = reference.strip_prefix("object:") {
         (Value::Null, digest.to_string())
     } else {
@@ -390,6 +406,9 @@ pub fn image_media(bytes: &[u8]) -> Option<&'static str> {
 }
 
 pub fn reference_exists(db: &rusqlite::Connection, reference: &str) -> Result<()> {
+    if reference.starts_with("experience:") {
+        return super::experience::read(db, None, reference).map(|_| ());
+    }
     if let Some(digest) = reference.strip_prefix("object:") {
         store::bytes(db, digest)?;
     } else {
@@ -398,14 +417,14 @@ pub fn reference_exists(db: &rusqlite::Connection, reference: &str) -> Result<()
     Ok(())
 }
 
-fn evaluation_view(db: &rusqlite::Connection, reference: &str) -> Result<Value> {
+pub(super) fn evaluation_view(db: &rusqlite::Connection, reference: &str) -> Result<Value> {
     let digest = reference
         .strip_prefix("object:")
         .ok_or_else(|| failure("evaluation requires an immutable object reference"))?;
     let evaluation: Evaluation = store::object(db, digest)?;
     let outputs = evaluation.inclinations();
     Ok(
-        json!({"reference":reference,"model":evaluation.model,"appraisal":evaluation.appraisal,"outputs":outputs,"full_forward_trace":reference}),
+        json!({"reference":reference,"model":evaluation.model,"contract":evaluation.contract,"appraisal":evaluation.appraisal,"outputs":outputs,"full_forward_trace":reference}),
     )
 }
 
@@ -604,7 +623,7 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
             if recovery.is_some(){let mut metadata=reference_metadata(db,r)?;metadata["selected_range"]=json!({"start":start,"end":end});Ok(metadata)}
             else if start.is_none()&&r==work.reference.handle(){Ok(json!({"reference":r,"supplied_in":"work"}))}
             else if start.is_none()&&participation.last_evaluation.as_deref()==Some(r){Ok(json!({"reference":r,"supplied_in":"last_contextual_evaluation"}))}
-            else{read(db,r,start,end)}
+            else{read_for(db,Some(actor),r,start,end)}
         }).collect::<Result<Vec<_>>>()?;
         for resource in &selected {
             if let (Some(blob),Some(mime))=(resource["image_blob"].as_str(),resource["mime"].as_str()) {
@@ -627,22 +646,21 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
             }
         }
         let mut tool_names=participation.tools.clone();
+        let unavailable_tools:Vec<_>=tool_names.iter().filter(|name|!tools::NAMES.iter().any(|(n,_)|name==n)).cloned().collect();
+        tool_names.retain(|name|!unavailable_tools.contains(name));
         tool_names.extend(["tools.search","tools.describe","asset.search","asset.read"].into_iter().map(str::to_owned));
         if persona.model.is_none(){tool_names.extend(["persona.initialize","persona.read"].into_iter().map(str::to_owned));}
         if persona.model.is_some()&&!participation.accepted{tool_names.push("peer.respond".into());}
         if bootstrap{tool_names.retain(|n|matches!(n.as_str(),"tools.search"|"tools.describe"|"persona.initialize"|"persona.read"));}
         tool_names.sort();tool_names.dedup();
         let tool_schemas=tool_names.iter().map(|name|tools::describe(name)).collect::<Result<Vec<_>>>()?;
-        let baseline=persona.model.as_ref().map(|_|{
-            let evaluation=model(db,&persona)?.evaluate(&contract,&Appraisal::default()).map_err(failure)?;
+        let active=persona.model.as_ref().map(|_| model(db, &persona)).transpose()?;
+        let numerical=active.as_ref().map(|m|m.numerical_digest(&contract).map_err(failure)).transpose()?;
+        let baseline=active.as_ref().map(|m|{
+            let evaluation=m.evaluate(&contract,&Appraisal::default()).map_err(failure)?;
             evaluation_view(db,&format!("object:{}",store::put(db,&evaluation)?))
         }).transpose()?;
-        let evaluation=participation.last_evaluation.as_deref().map(|r|{
-            let mut view=evaluation_view(db,r)?;
-            view["provenance"]=serde_json::to_value(appraisal_provenance(db,work_id,actor,r,participation.turn)?)?;
-            view["meaning"]=json!("Outputs from your recorded appraisal, not a fresh observation of the current situation. Later events do not update these inputs automatically. Decide whether they still apply; persona.evaluate can record a revised appraisal without changing character parameters. Age and decision counts describe provenance, not an expiry rule or a requirement to edit weights.");
-            Ok::<_,super::Error>(view)
-        }).transpose()?;
+        let evaluation=super::character::contextual(db, &participation, &work.reference, persona.model.as_deref())?;
         for event in &mut supplied_events {
             if event["body"]["tool"]=="persona.evaluate"&&event["supplied_result"]["evaluation"]==json!(participation.last_evaluation){
                 event["supplied_result"]=json!({"evaluation":participation.last_evaluation,"supplied_in":"last_contextual_evaluation"});
@@ -695,7 +713,7 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
             "decision_schema":serde_json::to_value(schemars::schema_for!(DecisionV4))?
         });
         let prefix=format!("{CONTRACT}\nHost-owned interface definitions (not observations):\n{}",serde_json::to_string(&definitions)?);
-        let mut data=json!({"invocation":invocation,"now_unix":now(),"control_versions":store::control_versions(db,work_id,actor)?,"identity":{"id":actor,"label":persona.label,"epoch":persona.epoch,"active_model":persona.model},
+        let mut data=json!({"invocation":invocation,"now_unix":now(),"control_versions":store::control_versions(db,work_id,actor)?,"identity":{"id":actor,"label":persona.label,"epoch":persona.epoch,"active_model":persona.model,"numerical":numerical},
             "initial_seed":if persona.model.is_none(){Some(json!({"seed":persona.seed,"author":persona.seed_author,"reference":p.reference.handle()}))}else{None},
             "baseline_character":baseline,"last_contextual_evaluation":evaluation,
             "work":{"reference":work.reference.handle(),"record":if bootstrap{json!({"stage":"character_initialization","need":"Author and activate a general-purpose character network from your attributed seed. Actual work is held for your first active-model decision."})}else{work.body}},"participation":participation_view,
@@ -705,7 +723,15 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
             "background_jobs":background_jobs.iter().filter(|job|job["owner"]==actor).collect::<Vec<_>>(),
             "current_controls":if bootstrap{vec![]}else{super::controls::relevant(db,work_id,actor)?},
             "peers":if bootstrap{vec![]}else{peers},"participants":if bootstrap{vec![]}else{participants},"outcomes":if bootstrap{vec![]}else{outcomes},"deliveries":if bootstrap{vec![]}else{deliveries},"new_events":supplied_events,
-            "selected_resources":selected,"available_tools":tool_schemas,"host_working_directory":if bootstrap{Value::Null}else{config.body["working_directory"].clone()}});
+            "selected_resources":selected,"previously_selected_tools_unavailable":unavailable_tools,"available_tools":tool_schemas,"host_working_directory":if bootstrap{Value::Null}else{config.body["working_directory"].clone()}});
+        if !bootstrap {
+            let questions = super::development::index(db, actor)?;
+            let open = questions.iter().filter(|q|!matches!(q["disposition"].as_str(),Some("closed"|"no_change")));
+            data["development"] = json!({"open_count":open.clone().count(),
+                "revisit_cues":open.filter(|q|q["due_by_time"]==true || !q["matching_experience"].is_null()
+                    || q["origin_work"]==work_id).collect::<Vec<_>>(),
+                "discovery":"Use development.search for other question metadata. Read a chosen exact revision with asset.read."});
+        }
         let component_bytes=data.as_object().expect("snapshot is an object").iter().map(|(name,value)|Ok((name.clone(),serde_json::to_vec(value)?.len()))).collect::<Result<std::collections::BTreeMap<_,_>>>()?;
         let resource_bytes=data["selected_resources"].as_array().expect("resources is an array").iter().map(|value|Ok(json!({"reference":value["reference"],"range":value["range"],"serialized_bytes":serde_json::to_vec(value)?.len()}))).collect::<Result<Vec<_>>>()?;
         let previous:Option<String>=db.query_row("SELECT receipt FROM invocations WHERE actor=?1 AND state='accepted' AND receipt IS NOT NULL ORDER BY updated DESC,rowid DESC LIMIT 1",[actor],|r|r.get(0)).optional()?;
@@ -717,11 +743,16 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
         let data_order=data_order(&data);
         let snapshot=Snapshot{contract_object,invocation:invocation.clone(),persona_revision:p.reference.revision,participation_revision:part.reference.revision,
             work:work_id.into(),actor:actor.into(),epoch:persona.epoch,model:persona.model,cursor,data,
-            data_order,supplied_references:refs.into_iter().collect(),tool_names,image_blobs};
+            development_version:1,data_order,supplied_references:refs.into_iter().collect(),tool_names,image_blobs};
         let digest=store::put(db,&snapshot)?;
         db.execute("INSERT INTO invocations VALUES(?1,?2,?3,'prepared',?4,NULL,NULL,?5,?5)",params![invocation,work_id,actor,digest,now()])?;
         Ok(snapshot)
     })
+}
+
+pub(super) fn prompt(db: &rusqlite::Connection, snapshot: &Snapshot) -> Result<String> {
+    let prefix = String::from_utf8(store::bytes(db, &snapshot.contract_object)?)?;
+    Ok(format!("{prefix}\n{}", render_data(snapshot)?))
 }
 
 pub fn request(

@@ -145,6 +145,9 @@ pub async fn invoke(
                 let response =
                     store::put_bytes(db, "application/json", output.response.as_bytes())?;
                 let receipt = store::put(db, &output.attempt)?;
+                if !probe {
+                    super::character::record_supply(db, &call_id, &receipt, &response, &output.attempt)?;
+                }
                 db.execute(
                     "UPDATE invocations SET state=?2,response=?3,receipt=?4,updated=?5 WHERE id=?1",
                     params![
@@ -273,7 +276,7 @@ async fn assess(
         let resources = probe
             .references
             .iter()
-            .map(|r| context::read(&store.db, r, None, None))
+            .map(|r| context::read_for(&store.db, Some(actor), r, None, None))
             .collect::<Result<Vec<_>>>()?;
         let mut arms = Vec::new();
         for (name, package) in [("active", &old), ("candidate", &new)] {

@@ -294,7 +294,7 @@ pub fn events(db: &Connection, work: &str, actor: &str, after: i64) -> Result<Ve
             ))
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
-    rows.into_iter().map(|(seq,actor,target,kind,digest,invocation,created)| Ok(json!({"event":seq,"actor":actor,"target":target,"kind":kind,"body":object::<Value>(db,&digest)?,"digest":digest,"invocation":invocation,"created":created}))).collect()
+    rows.into_iter().map(|(seq,actor,target,kind,digest,invocation,created)| Ok(json!({"event":seq,"experience":format!("experience:event-{seq}@1"),"actor":actor,"target":target,"kind":kind,"body":object::<Value>(db,&digest)?,"digest":digest,"invocation":invocation,"created":created}))).collect()
 }
 pub fn stopped(db: &Connection, work: &str, actor: &str) -> Result<Option<Value>> {
     for scope in [

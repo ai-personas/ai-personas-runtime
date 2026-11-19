@@ -81,6 +81,9 @@ pub enum NextModel {
     /// An exact candidate already observed; never a same-response guessed hash.
     Activate {
         candidate: String,
+        /// What to observe after adopting a developmental revision.
+        #[serde(default)]
+        follow_up: Option<String>,
         expected_model: Option<String>,
         reason: String,
     },
@@ -94,6 +97,10 @@ pub enum NextModel {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ContextChoice {
+    /// Omit to use a just-requested evaluation once, or the baseline otherwise.
+    /// Explicit reuse names the latest recorded evaluation for this participation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub appraisal: Option<AppraisalChoice>,
     /// Complete explicit resource selection for the next decision. Newly read
     /// observations are supplied once; retain their exact references or a saved
     /// working note if their information is still needed. Empty clears selection.
@@ -111,6 +118,22 @@ pub struct ContextChoice {
     /// the previous selection or supply an inferred rationale.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum AppraisalChoice {
+    Baseline,
+    Reuse { evaluation: String, reason: String },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AppraisalUse {
+    pub evaluation: String,
+    pub model: String,
+    pub work_version: String,
+    pub decision: String,
+    pub reason: String,
 }
 
 /// A whole exact resource, or an explicit byte excerpt of retained UTF-8 data.
@@ -171,6 +194,9 @@ pub struct InitializeModel {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PatchModel {
+    /// Exact owned development question connecting the edit and the observed experience.
+    #[serde(default)]
+    pub development: Option<String>,
     pub patch: ParameterPatch,
     pub probes: Vec<Appraisal>,
 }
@@ -204,6 +230,8 @@ pub struct Participation {
     pub tools: Vec<String>,
     pub last_judgment: Option<WorkJudgment>,
     pub last_evaluation: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub appraisal_use: Option<AppraisalUse>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Work {

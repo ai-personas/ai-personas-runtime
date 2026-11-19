@@ -192,8 +192,15 @@ fn candidate(
     invocation: &str,
     mut package: ModelPackage,
     probes: Value,
+    development: Option<&str>,
 ) -> Result<Value> {
     package.canonicalize();
+    let contract = FeatureContract::standard();
+    let numerical = package.numerical_digest(&contract).map_err(failure)?;
+    let prior_numerical = package.predecessor.as_deref().map(|prior| {
+        store::object::<ModelPackage>(db, prior)?.numerical_digest(&contract).map_err(failure)
+    }).transpose()?;
+    let numerical_change = prior_numerical.as_ref().map(|prior| prior != &numerical);
     let digest = store::put(db, &package)?;
     if digest != package.digest().map_err(failure)? {
         return Err(failure("canonical model digest mismatch"));
@@ -203,11 +210,11 @@ fn candidate(
         "candidate",
         &id("candidate")?,
         0,
-        &json!({"owner":actor,"model":digest,"predecessor":package.predecessor,"intent":package.intent,"evidence":package.evidence,"probes":probes}),
+        &json!({"owner":actor,"model":digest,"numerical":numerical,"prior_numerical":prior_numerical,"numerical_change":numerical_change,"development":development,"predecessor":package.predecessor,"intent":package.intent,"evidence":package.evidence,"probes":probes}),
         Some(invocation),
     )?;
     Ok(
-        json!({"candidate":record.handle(),"model":digest,"model_object":format!("object:{digest}"),"probes":probes,"active":false}),
+        json!({"candidate":record.handle(),"model":digest,"numerical":numerical,"numerical_change":numerical_change,"model_object":format!("object:{digest}"),"probes":probes,"active":false}),
     )
 }
 
@@ -252,9 +259,19 @@ fn internal(
                 json!({"tools":x.names.iter().map(|n|tools::describe(n)).collect::<Result<Vec<_>>>()?}),
             )
         }
+        "development.update" => super::development::update(db,snapshot,decode(input)?),
+        "development.search" => {
+            let query:tools::Search=decode(input)?;
+            let mut matches=Vec::new();
+            for item in super::development::index(db,actor)? {
+                if tools::matches(&query,&item.to_string())? { matches.push(item); }
+            }
+            Ok(json!({"total":matches.len(),"items":matches.into_iter().skip(query.offset).take(query.page_size).collect::<Vec<_>>()}))
+        }
+        "experience.search" => super::experience::search(db, actor, &decode(input)?),
         "history.search" => {
             let query: tools::Search = decode(input)?;
-            let mut statement = db.prepare("SELECT e.seq,e.actor,e.target,e.kind,e.digest,e.invocation,e.created,i.snapshot,i.response,i.receipt FROM events e LEFT JOIN invocations i ON i.id=e.invocation WHERE e.work=?1 AND (e.actor=?2 OR e.target=?2 OR e.target='*') ORDER BY e.seq DESC")?;
+            let mut statement = db.prepare("SELECT e.seq,e.actor,e.target,e.kind,e.digest,e.invocation,e.created,i.snapshot,i.response,i.receipt FROM events e LEFT JOIN invocations i ON i.id=e.invocation AND i.actor=?2 WHERE e.work=?1 AND (e.actor=?2 OR e.target=?2 OR e.target='*') ORDER BY e.seq DESC")?;
             let rows = statement
                 .query_map(params![work, actor], |r| {
                     Ok((
@@ -333,7 +350,7 @@ fn internal(
             if persona.model.is_none() {
                 context::bootstrap_reference(db, actor, &x.reference)?;
             }
-            context::read(db, &x.reference, x.start, x.end)
+            context::read_for(db, Some(actor), &x.reference, x.start, x.end)
         }
         "asset.save" => {
             let x: tools::Save = decode(input)?;
@@ -394,7 +411,7 @@ fn internal(
                 .package
                 .evaluate(&contract, &Appraisal::default())
                 .map_err(failure)?;
-            candidate(db, actor, call, x.package, json!({"baseline":baseline}))
+            candidate(db, actor, call, x.package, json!({"baseline":baseline}), None)
         }
         "persona.evaluate" => {
             let x: EvaluateModel = decode(input)?;
@@ -416,14 +433,26 @@ fn internal(
                 ));
             }
             check_references(db, &x.patch.evidence)?;
+            if let Some(question)=&x.development {
+                super::development::owned(db,actor,question)?;
+                if !super::development::observed(snapshot,question) {
+                    return Err(failure("Read your current development question before proposing the patch"));
+                }
+            } else if snapshot.development_version>0 {
+                return Err(failure("Link a parameter revision to your exact development question"));
+            }
             let old = context::model(db, persona)?;
             let new = old.patch(&contract, &x.patch).map_err(failure)?;
             let mut probes = Vec::new();
             for appraisal in x.probes {
                 check_appraisal(db, &appraisal)?;
-                probes.push(json!({"before":old.evaluate(&contract,&appraisal).map_err(failure)?,"after":new.evaluate(&contract,&appraisal).map_err(failure)?}));
+                let before = old.evaluate(&contract, &appraisal).map_err(failure)?;
+                let after = new.evaluate(&contract, &appraisal).map_err(failure)?;
+                let changed: Vec<_> = before.outputs.iter().filter(|(name, output)| output.value != after.outputs[*name].value)
+                    .map(|(name, _)| name).collect();
+                probes.push(json!({"before":before,"after":after,"changed_outputs_on_this_appraisal":changed}));
             }
-            candidate(db, actor, call, new, json!(probes))
+            candidate(db, actor, call, new, json!(probes), x.development.as_deref())
         }
         "peer.respond" => {
             let x: tools::Respond = decode(input)?;
@@ -648,6 +677,7 @@ pub fn invite(
         tools: vec![],
         last_judgment: None,
         last_evaluation: None,
+        appraisal_use: None,
     };
     store::write(
         db,
@@ -680,12 +710,13 @@ fn switch_model(
         NextModel::Preserve => return Ok(()),
         NextModel::Activate {
             candidate,
+            follow_up,
             expected_model,
             reason,
         } => {
             if expected_model != &persona.model
                 || reason.trim().is_empty()
-                || !snapshot.supplied_references.contains(candidate)
+                || !super::character::saw_record(snapshot,candidate,"candidate")
             {
                 return Err(failure(
                     "activation requires an observed candidate, exact current model and reason",
@@ -699,16 +730,31 @@ fn switch_model(
                 return Err(failure("candidate owner or predecessor mismatch"));
             }
             if persona.model.is_some() {
+                if snapshot.development_version>0 && follow_up.as_deref().is_none_or(|s|s.trim().is_empty()) {
+                    return Err(failure("State what later behavior or outcome you intend to observe"));
+                }
                 let assessed = store::list(db, "assessment")?.iter().any(|r| {
                     r.body["candidate"] == *candidate
                         && r.body["completed"] == true
-                        && snapshot.supplied_references.contains(&r.reference.handle())
+                        && r.body["owner"] == persona.id && r.body["predecessor"] == json!(persona.model)
+                        && super::character::saw_record(snapshot,&r.reference.handle(),"assessment")
                 });
                 if !assessed {
                     return Err(failure(
                         "observe completed comparative assessment before activating a revision",
                     ));
                 }
+            }
+            if let Some(question)=record.body["development"].as_str() {
+                let origin=store::exact(db,question)?;
+                let mut current=store::required(db,"development",&origin.reference.id)?;
+                if origin.reference.kind!="development" || current.body["owner"]!=persona.id {
+                    return Err(failure("Candidate has no matching owner development record"));
+                }
+                current.body["adoptions"].as_array_mut().ok_or_else(||failure("Invalid development history"))?.push(
+                    json!({"candidate":candidate,"origin":question,"decision":snapshot.invocation,
+                        "work":snapshot.work,"model":record.body["model"],"reason":reason,"follow_up":follow_up}));
+                store::write(db,"development",&current.reference.id,current.reference.revision,&current.body,Some(&snapshot.invocation))?;
             }
             record.body["model"]
                 .as_str()
@@ -750,6 +796,12 @@ fn switch_model(
     if package.persona != persona.id {
         return Err(failure("replacement model belongs to another persona"));
     }
+    let contract = FeatureContract::standard();
+    let numerical = package.numerical_digest(&contract).map_err(failure)?;
+    let previous_package = persona.model.clone();
+    let prior_numerical = previous_package.as_deref().map(|prior| {
+        store::object::<ModelPackage>(db, prior)?.numerical_digest(&contract).map_err(failure)
+    }).transpose()?;
     persona.model = Some(replacement);
     persona.epoch = persona
         .epoch
@@ -761,6 +813,7 @@ fn switch_model(
     // Invalidate those pointers in this same activation transaction while
     // retaining their immutable evidence and each task's continuation.
     let mut invalidated = Vec::new();
+    part.appraisal_use = None;
     if let Some(reference) = part.last_evaluation.take() {
         invalidated.push(json!({"work":part.work,"evaluation":reference}));
     }
@@ -769,6 +822,7 @@ fn switch_model(
             continue;
         }
         let mut other: Participation = decode(&record.body)?;
+        other.appraisal_use = None;
         if let Some(reference) = other.last_evaluation.take() {
             store::write(
                 db,
@@ -787,7 +841,7 @@ fn switch_model(
         &snapshot.actor,
         &snapshot.actor,
         "model_changed",
-        &json!({"choice":next,"epoch":persona.epoch,"model":persona.model,"invalidated_contextual_evaluations":invalidated}),
+        &json!({"choice":next,"previous_package":previous_package,"prior_numerical":prior_numerical,"numerical":numerical,"numerical_change":prior_numerical.as_ref().map(|n|n!=&numerical),"epoch":persona.epoch,"model":persona.model,"invalidated_contextual_evaluations":invalidated}),
         Some(&snapshot.invocation),
     )?;
     Ok(())
@@ -817,7 +871,7 @@ pub fn adopt(store: &mut Store, snapshot: &Snapshot, decision: &DecisionV4) -> R
         if switching&&!snapshot.data["context_recovery"].is_null(){return Err(failure("Context recovery supplies metadata, not observed candidate/assessment bodies. Recover the needed evidence before activating or rolling back a character model."));}
         if switching&&!decision.operations.is_empty(){return Err(failure("activate/rollback in a separate response with no operations; the next call uses the replacement model"));}
         // Host commands may be read-only; explicit asset mutations must be acknowledged.
-        maintenance(&decision.persona_maintenance,&decision.operations,tools::model_mutation,|name|matches!(name,"persona.evaluate"|"persona.assess"),switching)
+        maintenance(&decision.persona_maintenance,&decision.operations,tools::model_mutation,|name|matches!(name,"persona.evaluate"|"persona.assess"|"development.update"),switching)
             .map_err(|e|failure(format!("persona_maintenance: {e}")))?;
         maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"image.read"|"work.outcome"|"result.deliver"),false)
             .map_err(|e|failure(format!("asset_maintenance: {e}")))?;
@@ -830,7 +884,7 @@ pub fn adopt(store: &mut Store, snapshot: &Snapshot, decision: &DecisionV4) -> R
         for (ordinal,raw) in decision.operations.iter().enumerate() {
             let mut op=raw.clone();resolve(&mut op.input,&aliases)?;
             if persona.model.is_none()&&!matches!(op.tool.as_str(),"persona.initialize"|"persona.read"|"tools.search"|"tools.describe"|"asset.read") {return Err(failure("initialize and activate your character before accepting or doing work"));}
-            if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.search"|"history.search"|"peer.message") {return Err(failure("accept your invitation before ordinary work"));}
+            if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.search"|"history.search"|"experience.search"|"peer.message") {return Err(failure("accept your invitation before ordinary work"));}
             if part.declined{return Err(failure("declined participation cannot perform operations"));}
             if tools::is_external(&op.tool) {
                 validate_external(db,&persona,&op)?;
@@ -844,11 +898,12 @@ pub fn adopt(store: &mut Store, snapshot: &Snapshot, decision: &DecisionV4) -> R
                 store::event(db,&snapshot.work,&snapshot.actor,&snapshot.actor,"tool_result",&json!({"operation":op.id,"tool":op.tool,"result":format!("object:{digest}"),"context":"complete","bootstrap":snapshot.model.is_none()}),Some(&snapshot.invocation))?;
             }
         }
+        part.appraisal_use = super::character::select_appraisal(snapshot, &part, decision)?;
         switch_model(db,snapshot,&mut persona,&mut part,&decision.next_model)?;
         let mut refs=serde_json::to_value(&decision.next_context.references)?;resolve(&mut refs,&aliases)?;part.context=decode(&refs)?;
         for selection in &part.context{
             let (start,end)=selection.range();
-            context::read(db,selection.reference(),start,end)?;
+            context::read_for(db,Some(&snapshot.actor),selection.reference(),start,end)?;
         }
         for name in &decision.next_context.tools{tools::describe(name)?;}
         part.tools=decision.next_context.tools.clone();
