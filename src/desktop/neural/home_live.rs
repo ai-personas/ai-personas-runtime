@@ -544,6 +544,7 @@ fn observation_line(
                     s(call, "id")
                 ));
             }
+            live_board::draft::home_reply(ui, call, worker);
         }
         Observation::UnresolvedCall(call) => {
             ui.horizontal_wrapped(|ui| {

@@ -301,8 +301,15 @@ impl App {
             export_generation: 0,
         }
     }
+    fn poll_interval(&self) -> Duration {
+        let receiving = self.snapshot.active.iter().any(|call| {
+            call["state"] == "dispatched" && call["stage"] == "ordinary"
+                && self.runner_observation.has_worker(s(call, "work"), s(call, "actor"))
+        });
+        Duration::from_millis(if receiving { 120 } else { 450 })
+    }
     fn poll(&mut self, ctx: &egui::Context) {
-        if self.polling || self.last_poll.elapsed() < Duration::from_millis(450) {
+        if self.polling || self.last_poll.elapsed() < self.poll_interval() {
             return;
         }
         self.polling = true;
@@ -441,13 +448,27 @@ impl App {
                             self.runner_observation = fresh.runner;
                             if let Some(snapshot) = fresh.snapshot { self.apply_snapshot(snapshot); }
                             for call in &mut self.snapshot.active {
+                                if let Some(fields) = call.as_object_mut() {
+                                    fields.remove("reply_draft");
+                                }
                                 if let Some(progress) = fresh.streams.get(s(call, "id")) {
                                     call["stream_bytes"] = serde_json::json!(progress.stream_bytes);
                                     call["observed_at"] = serde_json::json!(progress.observed_at);
+                                    if let Some(draft) = &progress.reply_draft {
+                                        call["reply_draft"] = serde_json::json!(draft);
+                                    }
                                 }
                             }
                         }
-                        Err(e) => self.error = Some(e),
+                        Err(e) => {
+                            self.runner_observation = ai_personas::neural::live::RunnerObservation::Unavailable { reason: e.clone() };
+                            for call in &mut self.snapshot.active {
+                                if let Some(fields) = call.as_object_mut() {
+                                    fields.remove("reply_draft");
+                                }
+                            }
+                            self.error = Some(e);
+                        }
                     }
                 }
                 Update::Preview(serial, result) if serial == self.preview_generation => {
@@ -635,7 +656,7 @@ impl eframe::App for App {
         let _timing = super::timings::frame(ctx, frame);
         self.drain(ctx);
         self.poll(ctx);
-        ctx.request_repaint_after(Duration::from_millis(450));
+        ctx.request_repaint_after(self.poll_interval());
         if ctx.input(|i| i.viewport().close_requested()) && (self.running || self.command_bench.executing()) {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             if !self.closing {

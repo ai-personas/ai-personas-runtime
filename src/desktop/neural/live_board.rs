@@ -1,4 +1,6 @@
 //! Activity-scoped observations, retained events, and human participation.
+pub(super) mod draft;
+
 use super::*;
 use ai_personas::neural::live::RunnerObservation;
 use std::collections::VecDeque;
@@ -142,6 +144,7 @@ pub(super) struct Board {
     jump_to_latest: bool,
     work_focus: Option<WorkSection>,
     expanded: Option<i64>,
+    draft_call: String,
     traces: BTreeMap<String, VecDeque<(i64, u64)>>,
 }
 
@@ -160,6 +163,7 @@ impl Default for Board {
             jump_to_latest: true,
             work_focus: None,
             expanded: None,
+            draft_call: String::new(),
             traces: BTreeMap::new(),
         }
     }
@@ -369,10 +373,12 @@ fn has_recent_bytes(call: &Value, now: i64) -> bool {
 
 pub(super) fn call_stage(call: &Value, now: i64, worker: bool) -> &'static str {
     let initializing = call["stage"] == "initialization";
+    let recovering = call["stage"] == "context_recovery";
     if call["state"] == "uncertain" {
         return match s(call, "stage") {
             "initialization" => "Initialization outcome unresolved",
             "assessment" => "Assessment outcome unresolved",
+            "context_recovery" => "Context recovery outcome unresolved",
             "ordinary" => "Decision outcome unresolved",
             _ => "Call outcome unresolved",
         };
@@ -381,26 +387,33 @@ pub(super) fn call_stage(call: &Value, now: i64, worker: bool) -> &'static str {
         return match s(call, "state") {
             "probe_prepared" => "Recorded assessment preparation",
             "prepared" if initializing => "Recorded initialization preparation",
+            "prepared" if recovering => "Recorded context recovery preparation",
             "prepared" => "Recorded decision preparation",
             "probe_dispatched" => "Recorded assessment dispatch",
             "dispatched" if initializing => "Recorded initialization dispatch",
+            "dispatched" if recovering => "Recorded context recovery dispatch",
             "dispatched" => "Recorded decision dispatch",
             "responded" if initializing => "Recorded initialization response",
+            "responded" if recovering => "Recorded context recovery response",
             "responded" => "Recorded response",
             _ => "Recorded model call",
         };
     }
     match s(call, "state") {
         "prepared" if initializing => "Initialization prepared",
+        "prepared" if recovering => "Context recovery prepared",
         "prepared" => "Decision prepared",
         "probe_prepared" => "Assessment prepared",
         "responded" if initializing => "Initialization response received",
+        "responded" if recovering => "Context recovery response received",
         "responded" => "Response received",
         "probe_dispatched" if has_recent_bytes(call, now) => "Receiving assessment",
         "dispatched" if initializing && has_recent_bytes(call, now) => "Receiving initialization",
+        "dispatched" if recovering && has_recent_bytes(call, now) => "Receiving context recovery",
         "dispatched" if has_recent_bytes(call, now) => "Receiving response",
         "probe_dispatched" => "Assessment dispatched",
         "dispatched" if initializing => "Initialization dispatched",
+        "dispatched" if recovering => "Context recovery dispatched",
         "dispatched" => "Decision dispatched",
         _ => "Model call",
     }
@@ -1143,6 +1156,7 @@ impl App {
                     self.live_board.follow_control(ui, &self.events, self.cursor)
                 }).inner;
                 ui.separator();
+                self.current_reply_area(ui);
                 let start = end.saturating_sub(self.live_board.limit);
                 let mut scroll = egui::ScrollArea::vertical()
                     .id_salt(("live-event-rows", &self.work))

@@ -81,13 +81,23 @@ impl Monitor {
             Some(fresh)
         };
         let calls = snapshot.as_ref().map_or(active, |s| &s.active);
+        let db = self.connection.as_ref().unwrap();
+        let runner = neural::live::observe_runner(root, db);
         let streams = calls.iter()
             .filter(|c| matches!(c["state"].as_str(), Some("dispatched" | "probe_dispatched")))
             .filter_map(|c| {
                 let id = c["id"].as_str()?;
-                Some((id.to_owned(), neural::live::read(root, id)?))
+                let mut progress = neural::live::read(root, id)?;
+                if progress.reply_draft.is_some() {
+                    let (work, actor) = (c["work"].as_str()?, c["actor"].as_str()?);
+                    if c["state"] != "dispatched" || c["stage"] != "ordinary"
+                        || !runner.has_worker(work, actor)
+                        || !matches!(store::stopped(db, work, actor), Ok(None)) {
+                        progress.reply_draft = None;
+                    }
+                }
+                Some((id.to_owned(), progress))
             }).collect();
-        let runner = neural::live::observe_runner(root, self.connection.as_ref().unwrap());
         Ok(Refresh { snapshot, streams, runner })
     }
 }
@@ -303,6 +313,7 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
     }
     let mut q = db.prepare("SELECT i.id,i.actor,i.work,i.state,i.created,i.updated,
         CASE WHEN i.state LIKE 'probe_%' OR json_type(CAST(o.bytes AS TEXT),'$.source_invocation')='text' THEN 'assessment'
+             WHEN json_type(CAST(o.bytes AS TEXT),'$.data.context_recovery')='object' THEN 'context_recovery'
              WHEN json_type(CAST(o.bytes AS TEXT),'$.model')='text' THEN 'ordinary'
              WHEN json_type(CAST(o.bytes AS TEXT),'$.model')='null' THEN 'initialization' ELSE 'unknown' END
         FROM invocations i JOIN objects o ON o.digest=i.snapshot
