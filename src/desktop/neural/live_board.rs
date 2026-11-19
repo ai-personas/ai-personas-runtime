@@ -1159,8 +1159,12 @@ impl App {
                     if expanded {
                         document::message_markdown(ui, text);
                     } else {
+                        let key = egui::Id::new(("timeline-message-preview", kind, s(event, "digest"), limit));
+                        let preview = ui.ctx().data_mut(|cache| {
+                            cache.get_temp_mut_or_insert_with(key, || document::excerpt(text, limit)).clone()
+                        });
                         ui.add(
-                            egui::Label::new(RichText::new(preview_text(text, limit)).size(14.))
+                            egui::Label::new(RichText::new(preview).size(14.))
                                 .wrap(),
                         );
                     }
@@ -1194,7 +1198,7 @@ impl App {
                             action = Some(EventAction::Reply(
                                 actor.into(),
                                 reference(),
-                                preview_text(text, 180),
+                                document::excerpt(text, 180),
                             ));
                         }
                     } else if persona
