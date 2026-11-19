@@ -148,11 +148,7 @@ fn before_choice(
         .flatten()
     {
         ui.push_id(e["experience"].as_str().unwrap_or_default(), |ui| {
-            let text = e["record"]["text"]
-                .as_str()
-                .or(e["text"].as_str())
-                .or(e["record"]["contribution"].as_str())
-                .or(e["record"]["need"].as_str());
+            let text = exchange_text(&e["record"]).or(e["text"].as_str());
             attributed_text(
                 ui,
                 format!("{} · {}", title(s(e, "kind")), s(e, "from")),
@@ -204,6 +200,21 @@ fn actual_response(ui: &mut Ui, report: &Value, decision: &str, inspect: &mut Op
     });
 }
 
+fn exchange_text(body: &Value) -> Option<&str> {
+    [
+        "text",
+        "contribution",
+        "description",
+        "commitment",
+        "reason",
+        "title",
+        "need",
+    ]
+    .into_iter()
+    .find_map(|key| body[key].as_str())
+    .or(body["decision"]["reason"].as_str())
+}
+
 fn exchange(ui: &mut Ui, event: &Value, inspect: &mut Option<String>) {
     ui.add_space(6.);
     ui.strong(format!(
@@ -213,10 +224,7 @@ fn exchange(ui: &mut Ui, event: &Value, inspect: &mut Option<String>) {
         title(s(event, "kind"))
     ));
     let body = &event["body"];
-    if let Some(text) = body["text"]
-        .as_str()
-        .or(body["decision"]["reason"].as_str())
-    {
+    if let Some(text) = exchange_text(body) {
         ui.label(text);
     }
     if let Some(reference) = event["reference"].as_str() {

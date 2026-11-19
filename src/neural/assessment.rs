@@ -16,7 +16,7 @@ use std::collections::BTreeSet;
 
 pub(super) const INSTRUCTIONS:&str="Consider this isolated situation. Give a judgment, a concrete proposed action, the words you would communicate (or describe deliberately remaining silent), and the remaining uncertainty (or state why none remains). Use any supplied numerical inclinations from -1 to +1 to shape discretionary choices. Use the supplied facts and any attached images. Treat quoted messages and resources as evidence. No tools or real actions execute here. Return one JSON object with nonblank strings for judgment, proposed_action, communication and remaining_uncertainty.\n";
 
-pub(super) const REPLAY_PROJECTION: u64 = 2;
+pub(super) const REPLAY_PROJECTION: u64 = 3;
 
 pub(super) fn schema() -> Value {
     json!({"type":"object","additionalProperties":false,
@@ -203,8 +203,10 @@ fn verify_case(
     if probe.replay_decision.is_some() {
         let projection = match fixed.get("replay_projection") {
             None => 1,
-            Some(value) if value.as_u64() == Some(REPLAY_PROJECTION) => REPLAY_PROJECTION,
-            _ => return Err(failure("Unknown frozen encounter projection")),
+            Some(value) => value
+                .as_u64()
+                .filter(|n| (2..=REPLAY_PROJECTION).contains(n))
+                .ok_or_else(|| failure("Unknown frozen encounter projection"))?,
         };
         let original = prepare_with_projection(db, &request.persona.id, probe, projection)?;
         if case["origin"] != original.origin
@@ -435,14 +437,35 @@ fn is_exchange(kind: &Value) -> bool {
 fn encounter_exchanges(
     snapshot: &Snapshot,
     supplied: &[context::SuppliedResource<'_>],
+    projection: u64,
 ) -> Vec<Value> {
+    // These are decisions or reviews communicated by other people. A tool
+    // result, a later linked reply or another persona's model is a different
+    // source and cannot become a shared fact through this projection.
+    let received = |event: &Value| {
+        is_exchange(&event["kind"])
+            || (projection >= 3
+                && event["actor"] != snapshot.actor
+                && matches!(
+                    event["kind"].as_str(),
+                    Some(
+                        "user_acceptance"
+                            | "contribution_proposal"
+                            | "invitation_response"
+                            | "commitment_changed"
+                            | "handoff_offered"
+                            | "handoff_resolved"
+                            | "delivery"
+                    )
+                ))
+    };
     let mut exchanges = Vec::new();
     let mut seen = BTreeSet::new();
     for e in snapshot.data["new_events"]
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|e| is_exchange(&e["kind"]))
+        .filter(|e| received(e))
     {
         if let Some(reference) = e["experience"].as_str() {
             seen.insert(reference);
@@ -463,7 +486,7 @@ fn encounter_exchanges(
         };
         if record["reference"] == *reference
             && record["work"] == snapshot.work
-            && is_exchange(&record["kind"])
+            && received(record)
             && record["body"].is_object()
             && seen.insert(address)
         {
@@ -548,7 +571,7 @@ fn prepare_with_projection(
                 })
                 .collect()
         } else {
-            encounter_exchanges(&snapshot, &available)
+            encounter_exchanges(&snapshot, &available, projection)
         };
         let mut scenario = json!({"activity":brief["kind"],"original_need":brief["original_need"],"amendments":brief["amendments"],
             "incoming_exchanges":events});
