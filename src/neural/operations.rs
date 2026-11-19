@@ -103,7 +103,7 @@ pub fn package_paths(
 fn resolve(value: &mut Value, aliases: &BTreeMap<String, String>) -> Result<()> {
     match value {
         Value::String(s) if s.starts_with('$') => {
-            *s=aliases.get(&s[1..]).ok_or_else(||failure(format!("unavailable local reference {s}; use an earlier asset.save or asset.register operation")) )?.clone();
+            *s=aliases.get(&s[1..]).ok_or_else(||failure(format!("unavailable local reference {s}; use an earlier asset.save or asset.register operation")))?.clone();
         }
         Value::Array(a) => {
             for v in a {
@@ -112,6 +112,7 @@ fn resolve(value: &mut Value, aliases: &BTreeMap<String, String>) -> Result<()> 
         }
         Value::Object(m) => {
             for (key, v) in m.iter_mut() {
+                if key == "parameters" { continue; }
                 if [
                     "reference",
                     "references",
@@ -397,6 +398,7 @@ fn internal(
             let asset = save_asset(db,actor,call,&x.path,x.base.as_deref(),digest,&x.cues,&x.qualifications,x.resource.as_ref())?;
             Ok(json!({"reference":asset.handle(),"blob":digest,"bytes":size,"registered_from":x.reference}))
         }
+        "geometry.history" => super::geometry::history::lookup(db,&decode(input)?),
         "asset.organize" => {
             let x: tools::AssetMetadata = decode(input)?;
             let record = store::exact(db, &x.reference)?;

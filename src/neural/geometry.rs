@@ -1,4 +1,5 @@
 //! Install and run the published OpenSCAD compiler against exact project files.
+pub mod history;
 use super::{failure, operations, store, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use rusqlite::Connection;
@@ -284,11 +285,15 @@ pub async fn inspect(root: &std::path::Path, reference: &str) -> Result<Value> {
     let root = root.to_owned();
     let reference = reference.to_owned();
     tokio::task::spawn_blocking(move||{
-        let store=store::Store::open(&root)?;
-        let digest=blob(&store.db,&reference)?;
-        let bytes=store::bytes(&store.db,&digest)?;
+        let mut store=store::Store::open(&root)?;
+        let (digest,bytes,renders)=store.snapshot(|db|{
+            let digest=blob(db,&reference)?;
+            let bytes=store::bytes(db,&digest)?;
+            let renders=history::lookup(db,&history::Lookup::first(&reference))?;
+            Ok((digest,bytes,renders))
+        })?;
         let geometry=measure(&bytes)?;
-        Ok(json!({"reference":reference,"mesh":format!("object:{digest}"),"bytes":bytes.len(),"geometry":geometry}))
+        Ok(json!({"reference":reference,"mesh":format!("object:{digest}"),"bytes":bytes.len(),"geometry":geometry,"render_history":renders}))
     }).await?
 }
 
@@ -352,7 +357,7 @@ pub async fn render(
     let warnings = messages
         .iter()
         .filter_map(Value::as_str)
-        .filter(|s| s.starts_with("WARNING:"))
+        .filter(|s| s.starts_with("WARNING:") || s.starts_with("EXPORT-WARNING:"))
         .collect::<Vec<_>>();
     let errors = messages
         .iter()
@@ -365,6 +370,7 @@ pub async fn render(
         let mut result=json!({"source":input.reference,"entry":entry,"files_supplied":supplied,"parameters":input.parameters,
             "installation":installed["installation"],"compiler_module":format!("object:{MODULE_SHA256}"),"compiler_version":installed["record"]["compiler_version"],
             "host":run["node"],"host_executable":run["host_executable"],"worker_sha256":crate::store::sha256_bytes(WORKER.as_bytes()),
+            "node_options":run["node_options"],"environment_keys":run["environment_keys"],"compiler_arguments":run["compiler_arguments"],
             "exit_code":run["exit_code"],"worker_error":run["error"],"diagnostics":format!("object:{log}"),"warnings":warnings,"errors":errors,
             "dependencies":dependencies.map(|d|format!("object:{d}")),"success":false});
         if let Some((bytes,geometry))=output {

@@ -168,7 +168,8 @@ impl App {
             let event=&self.events[index];
             let result=&event["tool_outcome"];
             let newest=Some(&index)==runs.last();
-            egui::CollapsingHeader::new(format!("{} · {}",s(result,"label"),self.label(s(event,"actor"))))
+            let by=if event["kind"]=="operator_render" {format!("Operator · {}",s(event,"actor"))} else {self.label(s(event,"actor")).to_owned()};
+            egui::CollapsingHeader::new(format!("{} · {by}",s(result,"label")))
                 .id_salt(("cad-render",&self.selected_reference,index)).default_open(newest).show(ui,|ui|{
                     ui.small(s(event,"created_utc"));
                     if let Some(version)=result["compiler_version"].as_str() { ui.small(version); }
@@ -221,7 +222,7 @@ impl App {
         ui.add_space(8.);
         let path = s(&metadata, "path");
         ui.add(egui::Label::new(RichText::new(if path.is_empty() {
-            match metadata["kind"].as_str() { Some("job") => "Background command", Some("control") => "Execution control", Some("installation")=>"Installed compiler", _ if metadata["format"]=="stl"=>"STL mesh", _ => "Exact resource" }
+            match metadata["kind"].as_str() { Some("job") => "Background command", Some("control") => "Execution control", Some("installation")=>"Installed compiler", _ if metadata["format"]=="stl"=>"STL mesh", _ if self.model_renders.contains_key(&self.selected_reference)=>"OpenSCAD render receipt", _ => "Exact resource" }
         } else {
             path.rsplit('/').next().unwrap_or(path)
         }).size(18.).strong()).wrap());

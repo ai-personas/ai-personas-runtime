@@ -110,6 +110,14 @@ pub enum Command {
     },
     /// Measure the triangles and coordinates of a retained STL asset or byte object.
     InspectStl { reference:String },
+    /// Find recorded renders of an exact source or mesh across activities.
+    GeometryHistory {
+        reference:String,
+        #[arg(long,default_value_t=0)]
+        offset:usize,
+        #[arg(long,default_value_t=20)]
+        page_size:usize,
+    },
     /// Search shared catalogue metadata and optionally retained earlier revisions.
     Catalog(super::discovery::Catalog),
     /// Locate byte ranges in an exact retained UTF-8 asset or object without printing its body.
@@ -359,9 +367,10 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
             let result=super::geometry::render(root,&input,||false).await?;
             let mut store=Store::open(root)?;
             store.transaction(|db|{
-                let receipt=store::put(db,&json!({"operator":operator,"at":now(),"tool":"geometry.render","input":input,"result":result}))?;
+                let receipt=store::write(db,"operator_render",&id("render")?,0,&json!({"operator":operator,"at":now(),"tool":"geometry.render","input":input,"result":result}),None)?;
+                store::event(db,"",operator,operator,"operator_render",&json!({"origin":"operator","tool":"geometry.render","record":receipt.handle(),"result":format!("object:{}",receipt.digest)}),None)?;
                 let mut result=result;
-                result["operator_receipt"]=json!(format!("object:{receipt}"));
+                result["operator_receipt"]=json!(format!("object:{}",receipt.digest));
                 Ok(result)
             })
         }
@@ -371,6 +380,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, command: Command,
             let mut store = Store::open(root)?;
             match command {
                 Command::Status=>store.status(),
+                Command::GeometryHistory{reference,offset,page_size}=>store.snapshot(|db|super::geometry::history::lookup(db,&super::geometry::history::Lookup{reference,offset,page_size})),
                 Command::Catalog(query)=>store.snapshot(|db|super::discovery::catalog(db,&query)),
                 Command::Find(query)=>store.snapshot(|db|super::discovery::find(db,&query)),
                 Command::Read{reference,start,end}=>context::read(&store.db,&reference,start,end),

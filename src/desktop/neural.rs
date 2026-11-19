@@ -29,6 +29,7 @@ mod library_search;
 mod workspace;
 mod usage;
 mod responsibilities;
+mod render;
 
 const TEAL: Color32 = Color32::from_rgb(103, 198, 185);
 const PURPLE: Color32 = Color32::from_rgb(172, 150, 221);
@@ -273,7 +274,7 @@ impl App {
             ctx.request_repaint();
         });
     }
-    fn drain(&mut self) {
+    fn drain(&mut self,ctx:&egui::Context) {
         while let Ok(update) = self.rx.try_recv() {
             match update {
                 Update::Status(result) => {
@@ -359,8 +360,15 @@ impl App {
                 Update::Done(result) => {
                     self.busy = false;
                     if self.submitting_dialog {
-                        if result.is_ok() { self.dialog = None; }
+                        let keep_project=matches!(self.dialog,Some(Dialog::Render(_))) && result.as_ref().is_ok_and(|v|v["already_installed"].is_boolean());
+                        if result.is_ok() && !keep_project { self.dialog = None; }
                         self.submitting_dialog = false;
+                    }
+                    if let Ok(value)=&result {
+                        if let Some(receipt)=value["operator_receipt"].as_str() {
+                            let target=value["mesh"].as_str().filter(|_|value["success"]==true).unwrap_or(receipt);
+                            self.open_resource(ctx,target.into());
+                        }
                     }
                     self.command_finished(result);
                 }
@@ -385,6 +393,12 @@ impl App {
                     if accepted { "Delivery accepted".into() } else { "Changes requested".into() }
                 } else if v["configuration"].is_string() {
                     format!("Saved reasoning settings · {} at {} effort", s(&v["selected"],"model"), s(&v["selected"],"effort"))
+                } else if v["operator_receipt"].is_string() {
+                    if v["success"]!=true {"Render failed · compiler receipt opened".into()}
+                    else if v["warnings"].as_array().is_some_and(|w|!w.is_empty()) {"Mesh rendered with compiler warnings".into()}
+                    else {"Mesh rendered".into()}
+                } else if v["installation"].is_string() {
+                    format!("Workspace compiler available · {}",s(&v["record"],"compiler_version"))
                 } else if let Some(archive) = v["archive"].as_str() {
                     format!("Backup saved to {archive}")
                 } else if let Some(state) = v["state"].as_str() {
@@ -469,7 +483,7 @@ impl App {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         let _timing = super::timings::frame(ctx, frame);
-        self.drain();
+        self.drain(ctx);
         self.poll(ctx);
         ctx.request_repaint_after(Duration::from_secs(2));
         if ctx.input(|i| i.viewport().close_requested()) && self.running {

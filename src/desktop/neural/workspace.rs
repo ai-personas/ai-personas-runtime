@@ -1242,6 +1242,10 @@ impl App {
                         if ui.small_button("Copy reference").clicked() {
                             ui.ctx().copy_text(self.selected_reference.clone());
                         }
+                        let path=s(&self.preview_metadata,"path");
+                        if self.selected_reference.starts_with("asset:") && path.to_ascii_lowercase().ends_with(".scad") && ui.button("Render model…").clicked() {
+                            self.dialog=Some(Dialog::Render(super::render::RenderDialog::new(path,&self.selected_reference)));
+                        }
                         if self.selected_reference.starts_with("asset:") || self.selected_reference.starts_with("object:") {
                             if ui.small_button("Find in this version…").clicked() {
                                 self.library_search.document(self.selected_reference.clone());

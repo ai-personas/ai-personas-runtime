@@ -603,7 +603,7 @@ pub fn bootstrap_reference(db: &rusqlite::Connection, actor: &str, reference: &s
     Ok(())
 }
 
-fn collect_references(value: &Value, refs: &mut BTreeSet<String>) {
+fn collect_references(value: &Value, refs: &mut BTreeSet<String>, include_read_contents:bool) {
     match value {
         Value::String(s)
             if s.starts_with("object:")
@@ -615,12 +615,21 @@ fn collect_references(value: &Value, refs: &mut BTreeSet<String>) {
         }
         Value::Array(a) => {
             for v in a {
-                collect_references(v, refs)
+                collect_references(v, refs,include_read_contents)
             }
         }
         Value::Object(m) => {
+            // A selected immutable JSON receipt is supplied as exact UTF-8
+            // text. Its structured pointers are as visible as a new result.
+            if include_read_contents {
+                if let (Some(digest),Some(text))=(m.get("reference").and_then(Value::as_str).and_then(|s|s.strip_prefix("object:")),m.get("text").and_then(Value::as_str)) {
+                    if text.trim_start().starts_with(['{','[']) && crate::store::sha256_bytes(text.as_bytes())==digest {
+                        if let Ok(body)=serde_json::from_str::<Value>(text) {collect_references(&body,refs,false);}
+                    }
+                }
+            }
             for v in m.values() {
-                collect_references(v, refs)
+                collect_references(v, refs,include_read_contents)
             }
         }
         _ => {}
@@ -848,7 +857,7 @@ pub fn prepare(store: &mut Store, work_id: &str, actor: &str) -> Result<Snapshot
         let previous=previous.map(|digest|store::object::<Value>(db,&digest).map(|receipt|json!({"receipt":format!("object:{digest}"),"usage":receipt["usage"]}))).transpose()?;
         let image_bytes=image_blobs.iter().map(|(blob,mime)|{let bytes:i64=db.query_row("SELECT length(bytes) FROM objects WHERE digest=?1",[blob],|r|r.get(0))?;Ok(json!({"reference":format!("object:{blob}"),"mime":mime,"bytes":bytes}))}).collect::<Result<Vec<_>>>()?;
         data["context_accounting"]=json!({"meaning":"Observed bytes, not token estimates or limits. Choose the exact context useful for your next decision; complete resources remain retained.","developer_prefix_bytes":prefix.len(),"components_serialized_bytes":component_bytes,"selected_resource_bytes":resource_bytes,"images":image_bytes,"previous_accepted_provider_usage":previous});
-        let mut refs=BTreeSet::new();collect_references(&data,&mut refs);
+        let mut refs=BTreeSet::new();collect_references(&data,&mut refs,true);
         let contract_object=store::put_bytes(db,"text/plain; charset=utf-8",prefix.as_bytes())?;
         let data_order=data_order(&data);
         let snapshot=Snapshot{contract_object,invocation:invocation.clone(),persona_revision:p.reference.revision,participation_revision:part.reference.revision,

@@ -52,6 +52,7 @@ pub(super) enum Dialog {
         reason: String,
     },
     Settings,
+    Render(super::render::RenderDialog),
 }
 impl Dialog {
     pub(super) fn activity(social: bool) -> Self {
@@ -79,6 +80,7 @@ impl Dialog {
             Self::Review { .. } => "Review delivery",
             Self::Reasoning { .. } => "Change reasoning settings",
             Self::Settings => "Workspace settings",
+            Self::Render(_) => "Render OpenSCAD project",
         }
     }
 }
@@ -390,9 +392,10 @@ impl App {
                         }
                     }
                     Dialog::Settings => self.workspace_settings(ui, ctx),
+                    Dialog::Render(form) => command=form.show(ui,self),
                 });
                 if self.submitting_dialog {
-                    ui.label("Saving…");
+                    ui.label(if matches!(draft,Dialog::Render(_)) {"Running compiler…"} else {"Saving…"});
                 }
                 if let Some(error) = &self.error {
                     ui.colored_label(Color32::LIGHT_RED, error);

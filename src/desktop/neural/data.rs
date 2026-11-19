@@ -82,7 +82,7 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
         .collect::<Result<Vec<_>, _>>()?;
     for (seq, work, actor, target, kind, digest, created, created_utc, invocation) in rows {
         let body = store::object::<Value>(&db, &digest)?;
-        let outcome = if kind == "tool_result" {
+        let outcome = if kind == "tool_result" || kind=="operator_render" {
             tool_outcome(&db, &body)?
         } else {
             Value::Null
@@ -287,7 +287,8 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
     let digest = reference
         .strip_prefix("object:")
         .ok_or_else(|| neural::failure("Tool result reference is not immutable"))?;
-    let result: Value = store::object(db, digest)?;
+    let stored: Value = store::object(db, digest)?;
+    let result=if body["origin"]=="operator" && body["tool"]=="geometry.render" {&stored["result"]} else {&stored};
     let outcome = &result["outcome"];
     let (label, problem) = if result["error"].is_string() {
         ("Failed".to_owned(), true)

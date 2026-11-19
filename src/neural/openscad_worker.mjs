@@ -4,13 +4,22 @@ const chunks = [];
 for await (const chunk of process.stdin) chunks.push(chunk);
 const request = JSON.parse(Buffer.concat(chunks).toString("utf8"));
 const messages = [];
-const report = { node: process.version, messages };
+const report = {
+    node: process.version,
+    node_options: process.execArgv.slice(0, -1),
+    environment_keys: Object.keys(process.env).sort(),
+    messages,
+};
 try {
     const {createOpenSCAD} = await import("data:text/javascript;base64," + request.compiler);
     const record = line => messages.push(String(line));
     const instance = (await createOpenSCAD({print: record, printErr: record})).getInstance();
+    function compile(args) {
+        report.compiler_arguments = [...args];
+        report.exit_code = instance.callMain(args);
+    }
     if (request.version) {
-        report.exit_code = instance.callMain(["--version"]);
+        compile(["--version"]);
     } else {
         const fs = instance.FS;
         const directories = new Set();
@@ -29,7 +38,7 @@ try {
         for (const [name, value] of Object.entries(request.parameters)) {
             args.push("-D", name + "=" + JSON.stringify(value));
         }
-        report.exit_code = instance.callMain([...args, "/project/" + request.entry]);
+        compile([...args, "/project/" + request.entry]);
         // A failed compile may still return diagnostics or dependency information.
         if (fs.analyzePath("/dependencies.d").exists) report.dependencies = fs.readFile("/dependencies.d", {encoding:"utf8"});
         if (fs.analyzePath("/output.stl").exists) report.mesh = Buffer.from(fs.readFile("/output.stl")).toString("base64");
