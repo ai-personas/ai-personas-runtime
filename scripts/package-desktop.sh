@@ -46,6 +46,8 @@ Choose **New workspace** to enter the starting profiles and connect a reasoning 
 
 **Overview** brings together people, recent contributions, delivery packages and requests for a human. Choose **Message** beside a persona’s activity to open its live timeline and write to that participant. **Needs you → Save handoff…** gives you a printable request and, when attached, the exact file package to take to a supplier or colleague.
 
+Open an issued delivery to inspect its drawing, file revisions and remaining checks. **Save handoff…** places the printable `Delivery.html` alongside `Files.zip`. **Send feedback…** addresses a message or attachment to the issuer and keeps it with that edition. Open **Check receipt** on the delivery to see what reached the persona.
+
 [Desktop guide](https://github.com/ai-personas/ai-personas-runtime/blob/main/docs/desktop.md) · [Numerical workspace and terminal guide](https://github.com/ai-personas/ai-personas-runtime/blob/main/docs/editable-persona-models.md) · [Implementation and live observations](https://github.com/ai-personas/ai-personas-runtime/blob/main/docs/design-conformance.md)
 GUIDE
 if [ "$platform" = Linux ]; then

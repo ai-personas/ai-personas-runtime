@@ -153,6 +153,17 @@ ai-personas --state-root "$workspace" neural relationship-use "$exact_note"
 
 ### Reviewing a package under its brief
 
+Export an issued delivery with the brief and file qualifications that a recipient needs offline. To ask its author a question or report a physical observation, address a message to the issuer in that activity and pass the exact delivery reference. An optional attachment retains its original bytes.
+
+```bash
+ai-personas --state-root "$STATE" neural export-handoff "$DELIVERY" "$NEW_FOLDER"
+ai-personas --state-root "$STATE" --operator "$SENDER" neural message "$WORK" "$ISSUER" "$MESSAGE" --delivery "$DELIVERY" --attach "$FILE" --request-id "$REQUEST"
+ai-personas --state-root "$STATE" neural delivery-feedback "$DELIVERY" --offset 0 --limit 8
+ai-personas --state-root "$STATE" neural message-receipt "$EVENT"
+```
+
+`delivery-feedback` returns messages on the selected edition and replies that explicitly name them. A subsequent activity can receive a compact reference to this feedback. The persona decides whether to inspect it. Feedback, operator acceptance, and a reported outcome of a human request each have their own records.
+
 Use `result.review` to record one criterion, a supported, concern or inconclusive verdict, a finding and supporting references. An issued `delivery` supplies its exact files, submitted brief and declared inputs. For a proposal, supply `artifacts` and any governing `inputs`. The reporting activity supplies the proposal’s brief. A reviewer in another activity can assess an older delivery under its original brief. An optional `expected_mandate` prevents a finding drafted under one brief from being published under a later amendment.
 
 `result.reviews` compares a subject with earlier findings. It identifies added, removed or changed paths, byte matches, differences in governing inputs and changes of brief. The result lists matching findings before related findings and sorts each group from newest to oldest. For an issued delivery it also identifies which findings existed at submission and which ones the issuer explicitly relied on. Use `review_inputs` and `reviews` on `result.deliver` to name the governing inputs and current findings. Historical reviews may be cited in `evidence`. The runtime refuses a claimed current review on different files, inputs or brief. Findings and operator acceptance have separate records.

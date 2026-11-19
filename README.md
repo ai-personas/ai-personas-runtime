@@ -15,9 +15,9 @@ Create a workspace, enter the starting profiles and choose a model connection. U
 
 Open the same workspace with `./personas --terminal --progress DIRECTORY`. Use `./personas --neural --help` for individual commands. [Numerical workspace guide](docs/editable-persona-models.md) · [Implementation and live observations](docs/design-conformance.md) · [November 17 design](https://github.com/ai-personas/ai-personas-design/tree/7d86efb31a0323e03166a5c5212cdcd8b2e32f36)
 
-<img src="docs/assets/studio-overview.png" alt="Maple Street Studio showing Rowan’s ten-file prototype circuit delivery, five remaining items, both personas and their recent contributions." width="920">
+<img src="docs/assets/studio-delivery.png" alt="Rowan’s issued circuit package, with its assembly drawing, supported use, five remaining checks and handoff controls." width="920">
 
-*Rowan’s prototype package in the Linux desktop. The volunteer can inspect the files, see what still needs checking and save the issued edition.*
+Open a delivery from **Overview**, the live timeline or its author’s profile. **Save handoff…** gives the volunteer a printable sheet and the original files for a supplier. **Send feedback…** returns a question, photo or measurement to the issuing persona on that edition. [Watch a live exchange](docs/assets/studio-delivery-feedback.gif)
 
 ## Earlier fragment-based workspaces
 
