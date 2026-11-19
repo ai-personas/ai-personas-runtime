@@ -97,6 +97,7 @@ impl Explorer {
                     )
                 })
                 .collect(),
+            reconsideration: None,
         };
         let current = match character.model.evaluate(&contract, &appraisal) {
             Ok(v) => v,

@@ -6,7 +6,8 @@ use super::{
     store::{self, Reference},
     Result,
 };
-use rusqlite::Connection;
+use crate::persona_model::AppraisalReconsideration;
+use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 
 pub(super) fn saw_record(snapshot: &Snapshot, reference: &str, kind: &str) -> bool {
@@ -162,11 +163,55 @@ pub(super) fn select_appraisal(
     }))
 }
 
+fn reconsideration(
+    db: &Connection,
+    part: &Participation,
+    choice: &AppraisalReconsideration,
+    origin: &Value,
+    observed_at: i64,
+) -> Result<Value> {
+    let decision = origin["invocation"].as_str().ok_or_else(|| failure("Missing appraisal origin"))?;
+    let mut report = serde_json::to_value(choice)?;
+    report["origin_decision"] = json!(format!("experience:{decision}@1"));
+    let mut due = false;
+    if let Some(deadline) = choice.at_unix {
+        due = observed_at >= deadline;
+        report["time_reached"] = json!(due);
+    }
+    if let Some(kind) = &choice.event_kind {
+        // The fresh appraisal's input is the boundary. Reusing that appraisal
+        // or adopting an in-flight response after an arrival cannot move it.
+        let after = origin["input_through_event"].as_i64().ok_or_else(|| failure("Missing appraisal input boundary"))?;
+        let event = db.query_row(
+            "SELECT e.seq,e.actor,e.target FROM events e
+             WHERE e.work=?1 AND e.actor<>?2 AND e.kind=?3 AND e.seq>?4
+               AND (e.target=?2 OR (e.target='*' AND EXISTS (
+                 SELECT 1 FROM events invitation WHERE invitation.work=e.work
+                 AND invitation.target=?2 AND invitation.kind='invitation' AND invitation.seq<=e.seq)))
+             ORDER BY e.seq LIMIT 1",
+            params![part.work, part.persona, kind, after],
+            |row| {
+                let seq: i64 = row.get(0)?;
+                let author: String = row.get(1)?;
+                let target: String = row.get(2)?;
+                Ok(json!({"seq":seq,"experience":format!("experience:event-{seq}@1"),"kind":kind,"author":author,"target":target}))
+            },
+        ).optional()?;
+        if let Some(event) = event {
+            due = true;
+            report["matched_event"] = event;
+        }
+    }
+    report["due"] = json!(due);
+    Ok(report)
+}
+
 pub(super) fn contextual(
     db: &Connection,
     part: &Participation,
     work: &Reference,
     active: Option<&str>,
+    observed_at: i64,
 ) -> Result<Value> {
     let Some(selected) = &part.appraisal_use else {
         return Ok(Value::Null);
@@ -191,24 +236,24 @@ pub(super) fn contextual(
             stale.push(reference.clone());
         }
     }
-    if !stale.is_empty() {
+    let origin = serde_json::to_value(context::appraisal_provenance(
+        db, &part.work, &part.persona, &selected.evaluation, part.turn,
+    )?)?;
+    let review = appraisal.reconsideration.as_ref()
+        .map(|choice| reconsideration(db, part, choice, &origin, observed_at))
+        .transpose()?;
+    if !stale.is_empty() || review.as_ref().is_some_and(|rule| rule["due"] == true) {
         stale.sort();
         stale.dedup();
-        return Ok(
-            json!({"reference":selected.evaluation,"changed_dependencies":stale,
-            "correspondence":context::appraisal_correspondence(db,&part.work,&part.persona,selected)?,
-            "status":"refresh_appraisal","outputs_supplied":false}),
-        );
+        view = json!({"reference":selected.evaluation,"changed_dependencies":stale,
+            "status":"refresh_appraisal","outputs_supplied":false});
+    }
+    if let Some(report) = review {
+        view["reconsideration"] = report;
     }
     view["selection"] = serde_json::to_value(selected)?;
     view["correspondence"]=context::appraisal_correspondence(db,&part.work,&part.persona,selected)?;
-    view["provenance"] = serde_json::to_value(context::appraisal_provenance(
-        db,
-        &part.work,
-        &part.persona,
-        &selected.evaluation,
-        part.turn,
-    )?)?;
+    view["provenance"] = origin;
     Ok(view)
 }
 

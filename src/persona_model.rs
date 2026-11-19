@@ -459,14 +459,38 @@ pub struct FeatureValue {
     pub interpretation: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AppraisalReconsideration {
+    /// Your condition for reconsidering this situational appraisal. You interpret the text.
+    pub condition: String,
+    /// Optional UTC Unix second at which this appraisal ceases to supply current outputs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at_unix: Option<i64>,
+    /// Optional exact kind of the next incoming event addressed to you or broadcast to you in this activity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_kind: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Appraisal {
     /// Omitted axes remain explicitly unknown in the evaluation input mask.
     pub features: BTreeMap<String, FeatureValue>,
+    /// Optional applicability for this appraisal. Reuse retains its original boundary.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reconsideration: Option<AppraisalReconsideration>,
 }
 impl Appraisal {
     pub fn validate(&self, contract: &FeatureContract) -> Result<()> {
+        if let Some(review) = &self.reconsideration {
+            if review.condition.trim().is_empty() {
+                return Err("An appraisal reconsideration needs your condition".into());
+            }
+            if review.event_kind.as_ref().is_some_and(|kind| kind.is_empty() || kind.trim() != kind) {
+                return Err("Use an exact, nonblank event kind for appraisal reconsideration".into());
+            }
+        }
         for (id, feature) in &self.features {
             if !contract.inputs.iter().any(|axis| axis.id == *id)
                 || feature
