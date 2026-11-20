@@ -370,6 +370,12 @@ pub enum Command {
     Usage { work: String },
     /// Current membership, unowned duties, acceptances and effects awaiting resolution.
     Responsibilities { work: String },
+    /// Browse proposed agreement editions or read the signed responses to one edition.
+    Agreements { work: String, #[command(flatten)] query: super::agreements::Lookup },
+    /// Propose complete terms under an exact activity brief as the named operator.
+    ProposeAgreement { work: String, #[command(flatten)] proposal: super::agreements::Proposal },
+    /// Record or change the named operator's own position on an agreement edition.
+    AgreementPosition { work: String, #[command(flatten)] response: super::agreements::Response },
     /// Find a persona’s current and earlier file contributions, including renamed and retired work.
     AuthoredFiles {
         person: String,
@@ -456,6 +462,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
     let mutation = matches!(&command, Command::Request { .. } | Command::Social { .. } | Command::AddPersona { .. }
         | Command::Invite { .. } | Command::Resume { .. } | Command::Message { .. } | Command::Amend { .. }
         | Command::PackageReview { .. } | Command::AssetFeedback { .. } | Command::Accept { .. } | Command::Control { .. } | Command::Configure { .. }
+        | Command::ProposeAgreement { .. } | Command::AgreementPosition { .. }
         | Command::Dissolve { .. } | Command::Reopen { .. } | Command::HumanRespond { .. } | Command::FinishRun { .. });
     if mutation {
         let mut store = Store::open(root)?;
@@ -478,6 +485,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
     if request_id.is_some() && !matches!(&command,Command::RunCommand{..}) { return Err(failure("--request-id applies to operator actions and portable command runs")); }
     if request_id.is_some_and(|id|id.trim().is_empty()) {return Err(failure("Supply a nonblank operator request ID"));}
     match command {
+        Command::Agreements{work,query}=>super::agreements::inspect(&store::open_inspection(root)?,&work,&super::relationships::Contact::operator(operator),&query),
         Command::Restore{archive,sha256}=>super::archive::restore(root,&archive,sha256.as_deref(),operator),
         Command::Init {
             seeds,
@@ -749,6 +757,8 @@ fn operator_action(root: &Path, db: &rusqlite::Connection, operator: &str, comma
             store::event(db,&work,operator,"*","requirements_amended",&notice,None)?;
             Ok(json!({"reference":r.handle(),"original_need":body.original_need}))
         },
+        Command::ProposeAgreement{work,proposal}=>super::agreements::propose(db,&work,super::agreements::Author::Operator(operator),&proposal),
+        Command::AgreementPosition{work,response}=>super::agreements::respond(db,&work,super::agreements::Author::Operator(operator),&response),
         Command::Dissolve{work,reason,expected}=>super::membership::change_activity(db,&work,operator,&reason,expected.as_deref(),false),
         Command::Reopen{work,reason,expected}=>super::membership::change_activity(db,&work,operator,&reason,expected.as_deref(),true),
         Command::PackageReview{work,review}=>super::package_review::publish(db,&work,operator,None,&review),

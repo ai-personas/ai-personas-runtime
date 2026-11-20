@@ -29,6 +29,7 @@ mod handoff;
 pub mod human_requests;
 pub mod input_files;
 pub mod membership;
+pub mod agreements;
 pub mod development;
 pub mod question_history;
 pub mod discovery;

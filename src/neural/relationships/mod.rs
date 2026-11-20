@@ -51,7 +51,7 @@ impl Contact {
             id: id.into(),
         }
     }
-    fn operator(id: &str) -> Self {
+    pub fn operator(id: &str) -> Self {
         Self {
             kind: Kind::Operator,
             id: id.into(),

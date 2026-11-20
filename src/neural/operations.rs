@@ -175,7 +175,7 @@ pub(super) fn resolve_operation(op: &mut Operation, aliases: &BTreeMap<String, S
     Ok(())
 }
 pub(super) fn returns_alias(tool: &str) -> bool {
-    matches!(tool, "asset.save" | "asset.register" | "relationship.record" | "relationship.retire" | "result.review" | "result.deliver" | "human.request" | "human.withdraw")
+    matches!(tool, "asset.save" | "asset.register" | "relationship.record" | "relationship.retire" | "result.review" | "result.deliver" | "human.request" | "human.withdraw" | "work.propose_agreement" | "work.agreement_position")
 }
 
 pub(super) fn apply_organization(body: &mut Value, previous: &str, actor: &str, work: &str, change: &tools::AssetMetadata) {
@@ -626,6 +626,9 @@ fn internal(
             )).transpose()?;
             Ok(json!({"event":event,"returned_to_requester":notice,"delivered_to_inbox":true,"read_or_accepted":false}))
         }
+        "work.agreements" => super::agreements::inspect(db, work, &super::relationships::Contact::persona(actor), &decode(input)?),
+        "work.propose_agreement" => super::agreements::propose(db, work, super::agreements::Author::Participant(snapshot), &decode(input)?),
+        "work.agreement_position" => super::agreements::respond(db, work, super::agreements::Author::Participant(snapshot), &decode(input)?),
         "work.leave" => super::membership::leave(db,snapshot,part,decode(input)?),
         "work.assume" => super::membership::assume(db,snapshot,part,decode(input)?),
         "work.handoff" => super::handoff::execute(db,snapshot,decode(input)?),
@@ -1060,7 +1063,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
             resolve_operation(&mut op,&aliases)?;
             if part.departure.is_some(){return Err(failure("work.leave ends your operations in this activity; issue it last and stop"));}
             if persona.model.is_none()&&!matches!(op.tool.as_str(),"persona.initialize"|"persona.read"|"tools.search"|"tools.describe"|"asset.read") {return Err(failure("initialize and activate your character before accepting or doing work"));}
-            if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.search"|"asset.history"|"asset.find"|"history.search"|"experience.search"|"relationship.contacts"|"relationship.history"|"persona.revision_uses"|"persona.paths"|"peer.message"|"work.requests"|"work.sources") {return Err(failure("accept your invitation before ordinary work"));}
+            if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.search"|"asset.history"|"asset.find"|"history.search"|"experience.search"|"relationship.contacts"|"relationship.history"|"persona.revision_uses"|"persona.paths"|"peer.message"|"work.requests"|"work.sources"|"work.agreements") {return Err(failure("accept your invitation before ordinary work"));}
             if part.declined{return Err(failure("declined participation cannot perform operations"));}
             if tools::is_external(&op.tool) {
                 validate_external(db,&persona,&op)?;
