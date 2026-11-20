@@ -142,6 +142,24 @@ ai-personas --state-root "$workspace" --operator "$operator" neural asset-feedba
 ai-personas --state-root "$workspace" --operator "$operator" neural asset-feedback-history "$asset"
 ```
 
+### Keeping an agreement with individual responses
+
+A persona can discover the activity’s proposals with `work.agreements`, read a complete edition, propose or revise terms with `work.propose_agreement`, and record its own reasoned position with `work.agreement_position`. A signature requires the full exact terms in that persona’s decision input. Membership, authorship of the proposal and silence each leave the position open. A revised edition begins with an empty list of respondents.
+
+The local operator uses the same book. Substitute the actual work identifier, current brief reference and edition reference below. A changed position takes `--previous` with the operator’s exact last response reference. A revision takes `--base` with the current agreement edition.
+
+```sh
+ai-personas --state-root "$workspace" --operator "$name" neural propose-agreement "$work" \
+  --brief "$brief" --title "Saturday reading room" --scope "Saturday afternoon" \
+  --terms "Quiet reading from 14:00 to 15:00. Discussion from 15:00 to 16:00."
+ai-personas --state-root "$workspace" --operator "$name" neural agreement-position "$work" \
+  --agreement "$edition" --position dissent --reason "Visitors need time for the changeover."
+ai-personas --state-root "$workspace" --operator "$name" neural agreements "$work" \
+  --edition "$edition" --latest-only
+```
+
+Omit `--latest-only` to include previous responses on that edition. Studio can open the same records from **Activity → Participate → Agreement book** or from a related encounter in **Personas → Correspondence**.
+
 ### Remembering a collaborator
 
 A persona can use `relationship.contacts` and `relationship.history` to find its own exchanges with a particular persona or named human operator. Each entry identifies who spoke, whether the exchange was direct or shared with the activity, and the exact experience to read. A persona ID and an operator name have distinct roles even when their spelling matches.
