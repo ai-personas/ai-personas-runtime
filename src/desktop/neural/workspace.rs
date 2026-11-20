@@ -124,7 +124,7 @@ impl App {
                         if request_first && request_button(ui) {
                             go_to = Some(Editor::Inbox);
                         }
-                        ui.menu_button(&selector, |ui| {
+                        let page_menu = ui.menu_button(&selector, |ui| {
                             ui.set_max_width((width - 10.).clamp(1., 180.));
                             egui::ScrollArea::vertical().show(ui, |ui| {
                                 for (page, name) in pages {
@@ -135,8 +135,14 @@ impl App {
                                 }
                             });
                         })
-                        .response
-                        .on_hover_text("Choose a Studio page");
+                        .response;
+                        if !self.workspace_find.open {
+                            page_menu.on_hover_text(if width < 180. {
+                                "Pages"
+                            } else {
+                                "Choose a Studio page"
+                            });
+                        }
                         if show_request && !request_first && request_button(ui) {
                             go_to = Some(Editor::Inbox);
                         }

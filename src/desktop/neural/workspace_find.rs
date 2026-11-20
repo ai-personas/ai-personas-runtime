@@ -10,7 +10,7 @@ const OVERLAY: &str = "workspace-find";
 
 #[derive(Default)]
 pub(super) struct Finder {
-    open: bool,
+    pub(super) open: bool,
     focus_input: bool,
     previous_focus: Option<egui::Id>,
     query: String,
@@ -113,24 +113,38 @@ impl Finder {
             (false, false, false)
         };
         let size = ctx.content_rect().size();
-        let page_size = ((size.y - 248.) / 54.).floor().clamp(1., 7.) as usize;
+        let tight = size.x < 320. || size.y < 295.;
+        let margin = if tight { 5 } else { 13 };
+        let row_height = if size.x < 270. { 100. } else { 54. };
+        let page_size = ((size.y - 248.) / row_height).floor().clamp(1., 7.) as usize;
         let mut chosen = None;
         let id = egui::Id::new(OVERLAY);
         let area = egui::Modal::default_area(id).anchor(
             egui::Align2::CENTER_TOP,
-            egui::vec2(0., (size.y * 0.11).clamp(6., 96.)),
+            egui::vec2(
+                0.,
+                if tight {
+                    4.
+                } else {
+                    (size.y * 0.11).clamp(6., 96.)
+                },
+            ),
         );
         let frame = egui::Frame::popup(&ctx.style())
             .corner_radius(9)
-            .inner_margin(13);
+            .inner_margin(margin);
         let response = egui::Modal::new(id)
             .area(area)
             .frame(frame)
             .show(ctx, |ui| {
-                ui.set_width((size.x - 56.).clamp(170., 610.));
-                ui.spacing_mut().item_spacing.y = 6.;
+                ui.set_width((size.x - 2. * f32::from(margin) - 12.).clamp(1., 610.));
+                ui.spacing_mut().item_spacing.y = if tight { 3. } else { 6. };
                 ui.horizontal(|ui| {
-                    ui.heading("Find in workspace");
+                    if tight {
+                        ui.strong("Find");
+                    } else {
+                        ui.heading("Find in workspace");
+                    }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.small_button("Close").clicked() {
                             ui.close();
@@ -146,16 +160,7 @@ impl Finder {
                 if opening {
                     field.request_focus();
                 }
-                let changed_kind = ui
-                    .horizontal_wrapped(|ui| {
-                        let previous = self.kind;
-                        ui.selectable_value(&mut self.kind, None, "All");
-                        for kind in Kind::ALL {
-                            ui.selectable_value(&mut self.kind, Some(kind), kind.filter());
-                        }
-                        self.kind != previous
-                    })
-                    .inner;
+                let changed_kind = self.kind_filters(ui);
                 if changed_kind {
                     field.request_focus();
                 }
@@ -184,7 +189,9 @@ impl Finder {
                 }
                 ui.separator();
                 if self.hits.is_empty() {
-                    ui.weak(if app.snapshot.status.is_null() {
+                    ui.weak(if app.snapshot.status.is_null() && app.error.is_some() {
+                        "Workspace data is unavailable."
+                    } else if app.snapshot.status.is_null() {
                         "Opening workspace…"
                     } else if self.query.trim().is_empty() {
                         "No items in this view."
@@ -207,7 +214,10 @@ impl Finder {
                     if self.hits.len() > page_size {
                         ui.small(format!("{}–{} of {}", start + 1, end, self.hits.len()));
                         if ui
-                            .add_enabled(start > 0, egui::Button::new("Previous").small())
+                            .add_enabled(
+                                start > 0,
+                                egui::Button::new(if tight { "Prev" } else { "Previous" }).small(),
+                            )
                             .clicked()
                         {
                             self.cursor = start.saturating_sub(page_size);
@@ -245,12 +255,50 @@ impl Finder {
         let entry = self.index.entries.get(*self.hits.get(self.cursor)?)?;
         Some((entry.kind, entry.reference.clone()))
     }
+
+    fn kind_filters(&mut self, ui: &mut Ui) -> bool {
+        let previous = self.kind;
+        let mut choices = |ui: &mut Ui| {
+            ui.selectable_value(&mut self.kind, None, "All");
+            for kind in Kind::ALL {
+                ui.selectable_value(&mut self.kind, Some(kind), kind.filter());
+            }
+        };
+        if ui.available_width() < 350. {
+            egui::ComboBox::from_id_salt("find-type")
+                .selected_text(previous.map_or("All types", Kind::filter))
+                .width(ui.available_width().min(160.))
+                .show_ui(ui, |ui| {
+                    choices(ui);
+                });
+        } else {
+            ui.horizontal_wrapped(choices);
+        }
+        self.kind != previous
+    }
 }
 
 fn result_row(ui: &mut Ui, entry: &Entry, selected: bool) -> egui::Response {
     let p = theme::palette(ui);
-    let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), 47.), egui::Sense::click());
+    let width = ui.available_width();
+    let narrow = width < 235.;
+    let inset = if narrow { 5. } else { 33. };
+    let line = |text: &str, font_size, color, rows| {
+        let mut job = egui::text::LayoutJob::simple_singleline(
+            text.to_owned(),
+            FontId::proportional(font_size),
+            color,
+        );
+        job.wrap.max_width = (width - inset - 5.).max(1.);
+        job.wrap.max_rows = rows;
+        job.wrap.break_anywhere = rows == 1;
+        ui.painter().layout_job(job)
+    };
+    let title = line(&entry.title, 16., p.text, if narrow { 3 } else { 1 });
+    let subtitle = line(&entry.subtitle, 13., p.muted, if narrow { 2 } else { 1 });
+    let clipped = title.elided || subtitle.elided;
+    let height = (title.size().y + subtitle.size().y + 10.).max(47.);
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
     if selected || response.hovered() || response.has_focus() {
         ui.painter()
             .rect_filled(rect, 5, if selected { p.selection } else { p.hover });
@@ -259,29 +307,17 @@ fn result_row(ui: &mut Ui, entry: &Entry, selected: bool) -> egui::Response {
         ui.painter()
             .rect_stroke(rect, 5, Stroke::new(1., p.accent), egui::StrokeKind::Inside);
     }
-    let icon = egui::Rect::from_center_size(
-        rect.left_center() + egui::vec2(16., 0.),
-        egui::vec2(17., 17.),
-    );
-    theme::paint_icon(ui.painter(), icon, entry.kind.icon(), p.accent);
-    let left = rect.left() + 33.;
-    let mut clipped = false;
-    for (line, top, size, color) in [
-        (&entry.title, 3., 16., p.text),
-        (&entry.subtitle, 25., 13., p.muted),
-    ] {
-        let mut job = egui::text::LayoutJob::simple_singleline(
-            line.clone(),
-            FontId::proportional(size),
-            color,
+    if !narrow {
+        let icon = egui::Rect::from_center_size(
+            rect.left_center() + egui::vec2(16., 0.),
+            egui::vec2(17., 17.),
         );
-        job.wrap.max_width = (rect.right() - left - 7.).max(1.);
-        job.wrap.max_rows = 1;
-        let galley = ui.painter().layout_job(job);
-        clipped |= galley.elided;
-        ui.painter()
-            .galley(egui::pos2(left, rect.top() + top), galley, color);
+        theme::paint_icon(ui.painter(), icon, entry.kind.icon(), p.accent);
     }
+    let top = rect.left_top() + egui::vec2(inset, 4.);
+    let second = top + egui::vec2(0., title.size().y + 2.);
+    ui.painter().galley(top, title, p.text);
+    ui.painter().galley(second, subtitle, p.muted);
     response.widget_info(|| {
         egui::WidgetInfo::selected(
             egui::WidgetType::SelectableLabel,
