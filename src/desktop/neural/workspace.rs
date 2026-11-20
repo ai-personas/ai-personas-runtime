@@ -34,7 +34,7 @@ impl App {
                             self.show_library = true;
                         }
                     }
-                    let waiting = self.open_human_requests(None);
+                    let waiting = self.home_index.requests.len();
                     let inbox_label = if waiting == 0 {
                         "Needs you".to_owned()
                     } else {
@@ -144,7 +144,7 @@ impl App {
                     if let Some(page) = go_to {
                         self.layout.editor = page;
                         if page == Editor::Inbox {
-                            self.inbox.list();
+                            self.inbox.active_list();
                         }
                     }
                     let remaining = ui.available_size_before_wrap().x;

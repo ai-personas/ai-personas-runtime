@@ -5,11 +5,33 @@ mod field_report;
 
 #[derive(Default)]
 pub(super) struct Inbox {
-    tab: usize,
+    tab: InboxTab,
     selected: String,
     drafts: BTreeMap<String, Draft>,
     detail_tab: Option<DetailTab>,
     correspondence: correspondence::Panel,
+}
+
+#[derive(Clone, Copy, Default, Hash, PartialEq, Eq)]
+enum InboxTab {
+    #[default]
+    Active,
+    Open,
+    InProgress,
+    Closed,
+    Messages,
+}
+
+impl InboxTab {
+    fn includes(self, state: &str) -> bool {
+        match self {
+            Self::Active => matches!(state, "open" | "in_progress"),
+            Self::Open => state == "open",
+            Self::InProgress => state == "in_progress",
+            Self::Closed => matches!(state, "completed" | "unable" | "withdrawn"),
+            Self::Messages => false,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
@@ -56,6 +78,11 @@ impl Attempt {
 }
 
 impl Inbox {
+    pub(super) fn active_list(&mut self) {
+        self.tab = InboxTab::Active;
+        self.list();
+    }
+
     pub(super) fn list(&mut self) {
         self.selected.clear();
         self.detail_tab = None;
@@ -102,17 +129,6 @@ pub(super) fn phase(state: &str) -> (&'static str, Color32) {
 }
 
 impl App {
-    pub(super) fn open_human_requests(&self, work: Option<&str>) -> usize {
-        self.records("human_requests")
-            .iter()
-            .filter(|r| {
-                let b = &r["body"];
-                work.is_none_or(|w| b["work"] == w)
-                    && matches!(s(b, "state"), "open" | "in_progress")
-            })
-            .count()
-    }
-
     pub(super) fn show_human_request(&mut self, id: &str) {
         if self.inbox.selected != id {
             self.inbox.detail_tab = None;
@@ -126,6 +142,10 @@ impl App {
             self.work = s(&body, "work").into();
             self.persona = s(&body, "requester").into();
             self.conversation_page = 0;
+            let state = s(&body, "state");
+            if !self.inbox.tab.includes(state) {
+                self.inbox.tab = if InboxTab::Closed.includes(state) { InboxTab::Closed } else { InboxTab::Active };
+            }
         }
         self.inbox.selected = id.into();
         self.layout.editor = Editor::Inbox;
@@ -179,16 +199,22 @@ impl App {
             requests.sort_by_key(|r|std::cmp::Reverse((r["body"]["updated"].as_i64(),r["reference"]["id"].as_str().unwrap_or("").to_owned())));
             let messages: Vec<_>=self.events.iter().rev().filter(|e|e["target"]=="user" && e["invocation"].is_string()
                 && matches!(s(e,"kind"),"message"|"reply")).collect();
-            let counts=[requests.iter().filter(|r|r["body"]["state"]=="open").count(),
-                requests.iter().filter(|r|r["body"]["state"]=="in_progress").count(),
-                requests.iter().filter(|r|matches!(s(&r["body"],"state"),"completed"|"unable"|"withdrawn")).count(),messages.len()];
+            let open = requests.iter().filter(|r| r["body"]["state"] == "open").count();
+            let in_progress = requests.iter().filter(|r| r["body"]["state"] == "in_progress").count();
+            let closed = requests.iter().filter(|r| InboxTab::Closed.includes(s(&r["body"], "state"))).count();
             ui.horizontal_wrapped(|ui|{
-                for (idx,label) in ["Open","In progress","Closed","Messages"].iter().enumerate() {
-                    ui.selectable_value(&mut self.inbox.tab,idx,format!("{label}  {}",counts[idx]));
+                for (tab, label, count) in [
+                    (InboxTab::Active, "Active", open + in_progress),
+                    (InboxTab::Open, "Open", open),
+                    (InboxTab::InProgress, "In progress", in_progress),
+                    (InboxTab::Closed, "Closed", closed),
+                    (InboxTab::Messages, "Messages", messages.len()),
+                ] {
+                    ui.selectable_value(&mut self.inbox.tab, tab, format!("{label}  {count}"));
                 }
             });
             ui.add_space(14.);
-            if self.inbox.tab==3 {
+            if self.inbox.tab == InboxTab::Messages {
                 let messages=messages.into_iter().cloned().collect::<Vec<_>>();
                 if messages.is_empty() { ui.weak("No persona has sent you a message yet."); }
                 for e in messages {
@@ -214,19 +240,23 @@ impl App {
                 }
                 return;
             }
-            if counts[self.inbox.tab]==0 {
+            let filter = self.inbox.tab;
+            let mut visible = requests.into_iter().filter(|r| filter.includes(s(&r["body"], "state"))).peekable();
+            if visible.peek().is_none() {
+                let (label, detail) = match filter {
+                    InboxTab::Active => ("No active human requests", "Requests waiting for someone and requests already taken appear here."),
+                    InboxTab::Open => ("No open requests", "When a persona asks for help, you can take the request and its files here."),
+                    InboxTab::InProgress => ("No requests in progress", "Requests someone has taken will appear here."),
+                    InboxTab::Closed => ("No closed requests", "Completed requests and reports of difficulties will appear here."),
+                    InboxTab::Messages => return,
+                };
                 card(ui).show(ui,|ui|{
                     ui.set_min_width(ui.available_width());
-                    ui.strong(["No open requests","No requests in progress","No closed requests"][self.inbox.tab]);
-                    ui.weak(["When a persona asks for help, you can take the request and its files here.",
-                        "Requests someone has taken will appear here.","Completed requests and reports of difficulties will appear here."][self.inbox.tab]);
+                    ui.strong(label);
+                    ui.weak(detail);
                 });
             }
-            for r in requests {
-                let b=&r["body"];
-                let state=s(b,"state");
-                if (self.inbox.tab==0 && state!="open") || (self.inbox.tab==1 && state!="in_progress")
-                    || (self.inbox.tab==2 && !matches!(state,"completed"|"unable"|"withdrawn")) { continue; }
+            for r in visible {
                 self.request_card(ui, &r);
                 ui.add_space(8.);
             }

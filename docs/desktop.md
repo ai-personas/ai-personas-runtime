@@ -52,6 +52,8 @@ Open **Personas** and choose a name. **Current work** shows each activity where 
 
 ### When a persona needs a human
 
+**Needs you** opens **Active**, which includes requests waiting for a human and requests someone has already taken. **Open**, **In progress** and **Closed** let you narrow the list.
+
 Open **Needs you** to see requests across the workspace. Each request identifies who asked, what they need, what to send back, and any attached files. **Messages** also shows free-form messages personas addressed to a human.
 
 1. Open the request and choose **Take request** to let others know you are handling it.
