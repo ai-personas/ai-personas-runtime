@@ -361,8 +361,8 @@ impl App {
             }
             let mut primary = None;
             if person.work.is_empty() {
-                // The index orders participations by the most recent activity
-                // event. Prefer an ongoing membership to a historical one.
+                // The index orders the person's own participation revisions.
+                // Prefer an ongoing membership to a historical one.
                 primary = member_rows()
                     .find(|part| {
                         matches!(

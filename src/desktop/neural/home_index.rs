@@ -123,7 +123,7 @@ impl Index {
         }
         let recency = |work: &str| self.last_event.get(work).map(|(seq, _)| *seq);
         for list in self.participations.values_mut() {
-            list.sort_by_key(|i| Reverse(recency(s(&parts[*i]["body"], "work"))));
+            list.sort_by_key(|i| Reverse(parts[*i]["write_order"].as_i64()));
         }
         let requests = rows("human_requests");
         let mut counts = BTreeMap::<&str, usize>::new();
