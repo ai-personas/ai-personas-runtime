@@ -35,15 +35,22 @@ impl App {
         else {
             return;
         };
-        let actor = s(event, "actor").to_owned();
+        let person = if event["invocation"].is_null()
+            && matches!(s(event, "kind"), "user_message" | "human_request_progress")
+        {
+            s(event, "target")
+        } else {
+            s(event, "actor")
+        }
+        .to_owned();
         self.open_home_activity(work);
         if self
             .home_index
             .activity(work)
-            .is_some_and(|a| a.members.contains(&actor))
+            .is_some_and(|a| a.members.contains(&person))
         {
-            self.persona = actor.clone();
-            self.address_in_live(&actor);
+            self.persona = person.clone();
+            self.address_in_live(&person);
         }
         self.live_board.show_event(work, sequence);
     }

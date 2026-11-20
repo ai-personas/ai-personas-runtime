@@ -1,0 +1,23 @@
+.report-jump { color: var(--blue); display: inline-block; margin-top: .5rem; }
+.field-return .instructions { color: var(--muted); }
+.field-entry { margin-top: .9rem; }
+.field-entry label { display: block; font-weight: 600; margin-bottom: .25rem; }
+.field-entry input:not([type=file]), .field-entry textarea {
+    display: block; width: 100%; border: 1px solid #8798a7; border-radius: .3rem;
+    padding: .55rem; background: #fff; color: #17232e; font: inherit;
+}
+.field-entry textarea { resize: vertical; }
+.field-entry input[type=file] { max-width: 100%; }
+.field-return button {
+    margin-top: 1rem; padding: .5rem .8rem; border: 0; border-radius: .3rem;
+    color: #fff; background: var(--blue); font: inherit; font-weight: 600; cursor: pointer;
+}
+.field-return button:disabled { opacity: .65; }
+.field-return [role=status] { margin-top: .4rem; color: var(--muted); }
+.field-print { display: none; }
+@media print {
+    .report-jump, .field-screen { display: none; }
+    .field-print { display: block; white-space: pre-wrap; min-height: 1.6em; border-bottom: 1px solid #8798a7; }
+    #printed-observations { min-height: 3.6em; }
+    .field-entry { margin-top: .45rem; }
+}

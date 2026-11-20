@@ -161,8 +161,8 @@ impl App {
                 "Save delivery handoff",
                 "The new folder contains a printable Delivery.html with the author’s scope and remaining work, plus Files.zip with the exact issued files.",
                 "Save handoff"),
-            Contents::Handoff { files: 0, .. } => ("Save handoff", "Open Request.html in the new folder to read the request offline.", "Save handoff"),
-            Contents::Handoff { .. } => ("Save handoff", "The new folder contains Request.html for offline reading and Files.zip with the requester’s attached files.", "Save handoff"),
+            Contents::Handoff { files: 0, .. } => ("Save handoff", "Open or print Request.html offline. Active requests with a verified origin include a fillable field report.", "Save handoff"),
+            Contents::Handoff { .. } => ("Save handoff", "Open or print Request.html offline. Files.zip contains the exact attachments. Active requests with a verified origin include a fillable field report.", "Save handoff"),
         };
         let mut open = true;
         let mut save = false;

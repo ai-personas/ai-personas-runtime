@@ -1,6 +1,7 @@
 use super::*;
-use ai_personas::neural::human_requests::Response;
+use ai_personas::neural::human_requests::{FieldReport, Response, ReturnForm};
 mod correspondence;
+mod field_report;
 
 #[derive(Default)]
 pub(super) struct Inbox {
@@ -24,6 +25,7 @@ struct Draft {
     note: String,
     picker: super::input_files::Picker,
     attachments: Vec<ai_personas::neural::input_files::CapturedFile>,
+    field: field_report::Reader,
     attempt: Option<Attempt>,
 }
 
@@ -35,12 +37,15 @@ struct Attempt {
     action: Response,
     note: String,
     attachments: Vec<ai_personas::neural::input_files::CapturedFile>,
+    field: Option<Arc<FieldReport>>,
 }
 
 impl Attempt {
     fn same_draft(&self, draft: &Draft) -> bool {
         self.basis == draft.basis
             && self.note == draft.note
+            && self.field.as_ref().map(|f| (f.source().name(), f.source().sha256()))
+                == draft.field.report.as_ref().map(|f| (f.source().name(), f.source().sha256()))
             && self.attachments.len() == draft.attachments.len()
             && self
                 .attachments
@@ -275,6 +280,8 @@ impl App {
             !d.note.is_empty()
                 || !d.attachments.is_empty()
                 || d.picker.busy()
+                || d.field.busy()
+                || d.field.report.is_some()
                 || d.attempt.is_some()
         });
         let response_visible = owns || has_draft;
@@ -321,11 +328,7 @@ impl App {
                     {
                         self.open_home_message(work, requester);
                     }
-                    let handoff = if files == 0 {
-                        "Save the printable Request.html"
-                    } else {
-                        "Save the printable Request.html and the attached files in a new folder"
-                    };
+                    let handoff = "Save the printable request and its exact attachments. Active requests with a verified origin include a fillable field report.";
                     if ui.button("Save handoff…").on_hover_text(handoff).clicked() {
                         self.save_request_handoff(&reference, s(body, "title"), files);
                     }
@@ -480,6 +483,13 @@ impl App {
                     .and_then(|(key, _)| self.inbox.drafts.get_mut(key))
                 {
                     draft.picker.poll(&mut draft.attachments);
+                    if let Some(basis) = draft.field.poll() {
+                        draft.basis = basis;
+                    }
+                    if let Some(report) = &draft.field.report {
+                        ui.label(format!("Field report from {}", report.observer()));
+                        ui.label(excerpt(report.observations(), 300));
+                    }
                     ui.add_enabled_ui(!self.busy, |ui| {
                         retry = retry_return(ui, draft, self.operator.trim());
                     });
@@ -598,9 +608,14 @@ impl App {
                 ..Default::default()
             });
         draft.picker.poll(&mut draft.attachments);
+        if let Some(basis) = draft.field.poll() {
+            draft.basis = basis;
+        }
         if draft.basis != reference
             && draft.note.is_empty()
             && !draft.picker.busy()
+            && !draft.field.busy()
+            && draft.field.report.is_none()
             && draft.attachments.is_empty()
             && draft.attempt.is_none()
         {
@@ -611,8 +626,10 @@ impl App {
         let mut retry = None;
         ui.add_enabled_ui(!self.busy, |ui| {
             retry = retry_return(ui, draft, &operator);
+            draft.field.show(ui, &self.root, reference, &draft.attachments);
             if draft.basis != reference {
-                ui.label("This request changed while you were writing.");
+                let edition = draft.basis.rsplit_once('@').map_or("?", |v| v.1);
+                ui.label(format!("This draft uses request edition {edition}. Review the displayed revision before sending.")).on_hover_text(&draft.basis);
                 if ui.button("Use the displayed revision").clicked() {
                     draft.basis = reference.into();
                 }
@@ -620,18 +637,21 @@ impl App {
             ui.add(
                 egui::TextEdit::multiline(&mut draft.note)
                     .id(egui::Id::new(("human-return", &self.root, key)))
-                    .hint_text("Describe what you did, observed or still need…")
+                    .hint_text(if draft.field.report.is_some() { "Add a note as the submitting operator (optional)…" }
+                        else { "Describe what you did, observed or still need…" })
                     .desired_rows(3)
                     .desired_width(f32::INFINITY),
             );
             draft.picker.show(ui, &mut draft.attachments);
             ui.add_enabled_ui(
-                draft.basis == reference && !operator.is_empty() && !draft.picker.busy(),
+                draft.basis == reference && !operator.is_empty() && !draft.picker.busy() && !draft.field.busy()
+                    && draft.field.report.as_ref().is_none_or(|report| report.missing_evidence(&draft.attachments).is_empty()),
                 |ui| {
-                    let written = !draft.note.trim().is_empty();
+                    let imported = draft.field.report.is_some();
+                    let written = imported || !draft.note.trim().is_empty();
                     ui.horizontal_wrapped(|ui| {
                         if body["state"] == "open"
-                            && ui.add(theme::primary("Take request")).clicked()
+                            && ui.add(theme::primary(if imported { "Take & send report" } else { "Take request" })).clicked()
                         {
                             action = Some(Response::Take);
                         }
@@ -654,7 +674,7 @@ impl App {
                         {
                             action = Some(Response::Unable);
                         }
-                        if body["state"] == "in_progress" && ui.button("Release request").clicked()
+                        if body["state"] == "in_progress" && ui.button(if imported { "Release & send report" } else { "Release request" }).clicked()
                         {
                             action = Some(Response::Release);
                         }
@@ -684,6 +704,7 @@ impl App {
                     action,
                     note: draft.note.clone(),
                     attachments: draft.attachments.clone(),
+                    field: draft.field.report.clone(),
                 };
                 draft.attempt = Some(attempt.clone());
                 retry = Some(attempt);
@@ -704,6 +725,7 @@ impl App {
                 response: attempt.action,
                 note: attempt.note,
                 files: attempt.attachments.into(),
+                field_report: ReturnForm::from_report(attempt.field.as_deref()),
             };
             let result = operator_call(&root, &attempt.operator, cmd, Some(&attempt.id));
             let _ = tx.send(Update::Done(result));

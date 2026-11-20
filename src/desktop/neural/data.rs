@@ -107,7 +107,23 @@ pub(super) fn open(root: &Path) -> neural::Result<Connection> {
 }
 pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<String>) -> neural::Result<Snapshot> {
     let db = open(root)?;
-    let status = store::status(&db)?;
+    let mut status = store::status(&db)?;
+    if let Some(parts) = status["participation"].as_array_mut().filter(|parts| parts.len() > 1) {
+        // A workspace-wide control can append events to every activity without
+        // changing any person's participation. Read the committed revisions'
+        // order once, starting from the current heads, in the same snapshot.
+        let mut query = db.prepare(
+            "SELECT h.id,v.rowid FROM heads h LEFT JOIN versions v USING(kind,id,revision,digest)
+             WHERE h.kind='participation'",
+        )?;
+        let order = query.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<rusqlite::Result<BTreeMap<String, Option<i64>>>>()?;
+        for part in parts {
+            if let Some(sequence) = part["reference"]["id"].as_str().and_then(|id| order.get(id)) {
+                part["write_order"] = Value::from(*sequence);
+            }
+        }
+    }
     let mut events = Vec::new();
     // Each new tool result is verified once, then reduced to outcome metadata.
     // Keep commands, log bodies and provider payloads out of the activity feed.

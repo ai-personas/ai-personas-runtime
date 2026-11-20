@@ -63,6 +63,14 @@ impl fmt::Debug for CapturedFile {
 
 impl CapturedFile {
     pub fn read(path: &Path) -> Result<Self> {
+        Self::capture(path, None)
+    }
+
+    pub(super) fn read_bounded(path: &Path, limit: u64) -> Result<Self> {
+        Self::capture(path, Some(limit))
+    }
+
+    fn capture(path: &Path, limit: Option<u64>) -> Result<Self> {
         let name = path
             .file_name()
             .and_then(|n| n.to_str())
@@ -74,25 +82,33 @@ impl CapturedFile {
             use std::os::unix::fs::OpenOptionsExt;
             options.custom_flags(libc::O_NONBLOCK);
         }
-        let mut file = options
+        let file = options
             .open(path)
             .map_err(|e| failure(format!("Could not open {name}: {e}")))?;
         if !file.metadata()?.is_file() {
             return Err(failure(format!("{name} is not a regular file")));
         }
         let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes)
+        file.take(limit.map_or(u64::MAX, |n| n.saturating_add(1)))
+            .read_to_end(&mut bytes)
             .map_err(|e| failure(format!("Could not read {name}: {e}")))?;
+        if limit.is_some_and(|n| bytes.len() as u64 > n) {
+            return Err(failure("This field report exceeds 1 MiB. Supply larger observations as separate evidence files."));
+        }
+        Ok(Self::from_bytes(name, bytes))
+    }
+
+    pub(super) fn from_bytes(name: &str, bytes: Vec<u8>) -> Self {
         let material = Material::new(
             name.into(),
             bytes.len(),
             crate::store::sha256_bytes(&bytes),
             None,
         );
-        Ok(Self {
+        Self {
             material,
             content: bytes.into(),
-        })
+        }
     }
 
     pub fn name(&self) -> &str {
@@ -106,6 +122,9 @@ impl CapturedFile {
     }
     pub fn sha256(&self) -> &str {
         &self.material.sha256
+    }
+    pub(super) fn content(&self) -> &[u8] {
+        &self.content
     }
 
     fn retain(&self, db: &Connection) -> Result<Material> {
@@ -147,6 +166,20 @@ impl From<Vec<CapturedFile>> for InputFiles {
 }
 
 impl InputFiles {
+    pub(super) fn captured(&self) -> &[CapturedFile] {
+        &self.captured
+    }
+
+    pub(super) fn include(&mut self, file: CapturedFile) {
+        if !self
+            .captured
+            .iter()
+            .any(|f| f.name() == file.name() && f.sha256() == file.sha256())
+        {
+            self.captured.push(file);
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.captured.is_empty() && self.paths.is_empty()
     }
