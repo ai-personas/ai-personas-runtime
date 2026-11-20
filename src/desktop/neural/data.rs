@@ -122,13 +122,13 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
     if let Some(parts) = status["participation"].as_array_mut().filter(|parts| parts.len() > 1) {
         // A workspace-wide control can append events to every activity without
         // changing any person's participation. Read the committed revisions'
-        // order once, in the same snapshot as the records they describe.
+        // order once, starting from the current heads, in the same snapshot.
         let mut query = db.prepare(
-            "SELECT h.id,v.rowid FROM heads h JOIN versions v USING(kind,id,revision,digest)
+            "SELECT h.id,v.rowid FROM heads h LEFT JOIN versions v USING(kind,id,revision,digest)
              WHERE h.kind='participation'",
         )?;
         let order = query.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-            .collect::<rusqlite::Result<BTreeMap<String, i64>>>()?;
+            .collect::<rusqlite::Result<BTreeMap<String, Option<i64>>>>()?;
         for part in parts {
             if let Some(sequence) = part["reference"]["id"].as_str().and_then(|id| order.get(id)) {
                 part["write_order"] = Value::from(*sequence);
