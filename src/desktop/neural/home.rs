@@ -23,9 +23,18 @@ enum ActivityFilter {
 #[derive(Clone, Copy, PartialEq)]
 enum Section {
     People,
+    Feed,
     Activities,
     Requests,
     Deliveries,
+}
+
+impl Section {
+    fn jump_here(self, ui: &Ui, requested: Option<Self>) {
+        if requested == Some(self) {
+            ui.scroll_to_cursor(Some(egui::Align::Min));
+        }
+    }
 }
 
 enum SelectedDelivery {
@@ -41,11 +50,12 @@ const ACTIVITY_ROWS: usize = 6;
 impl App {
     pub(super) fn workspace_home(&mut self, ui: &mut Ui) {
         self.overview_composer(ui);
+        let jump = self.home_sections(ui);
         egui::ScrollArea::vertical()
             .id_salt("workspace-overview")
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                let jump = self.home_heading(ui);
+                self.home_heading(ui);
                 if self.snapshot.status.is_null() {
                     ui.add_space(14.);
                     ui.horizontal(|ui| {
@@ -59,9 +69,7 @@ impl App {
                     return;
                 }
                 ui.add_space(14.);
-                if jump == Some(Section::People) {
-                    ui.scroll_to_cursor(Some(egui::Align::Min));
-                }
+                Section::People.jump_here(ui, jump);
                 let width = ui.available_width();
                 let handoffs =
                     !self.home_index.requests.is_empty() || !self.home_index.deliveries.is_empty();
@@ -76,6 +84,7 @@ impl App {
                             ui.set_width(live_width);
                             self.workspace_live_people(ui);
                             ui.add_space(14.);
+                            Section::Feed.jump_here(ui, jump);
                             self.workspace_updates(ui);
                         });
                         ui.vertical(|ui| {
@@ -89,12 +98,11 @@ impl App {
                     ui.add_space(14.);
                     self.home_handoffs(ui, jump);
                     ui.add_space(14.);
+                    Section::Feed.jump_here(ui, jump);
                     self.workspace_updates(ui);
                 }
                 ui.add_space(16.);
-                if jump == Some(Section::Activities) {
-                    ui.scroll_to_cursor(Some(egui::Align::Min));
-                }
+                Section::Activities.jump_here(ui, jump);
                 self.home_activities(ui);
                 ui.add_space(8.);
             });
@@ -104,16 +112,12 @@ impl App {
         let requests = !self.home_index.requests.is_empty();
         let deliveries = !self.home_index.deliveries.is_empty();
         if requests {
-            if jump == Some(Section::Requests) {
-                ui.scroll_to_cursor(Some(egui::Align::Min));
-            }
+            Section::Requests.jump_here(ui, jump);
             self.home_requests(ui);
             ui.add_space(10.);
         }
         if deliveries {
-            if jump == Some(Section::Deliveries) {
-                ui.scroll_to_cursor(Some(egui::Align::Min));
-            }
+            Section::Deliveries.jump_here(ui, jump);
             self.home_deliveries(ui);
         } else if requests {
             quiet_queue(ui, Icon::Files, "No packages delivered yet.");
@@ -128,9 +132,52 @@ impl App {
         }
     }
 
-    fn home_heading(&mut self, ui: &mut Ui) -> Option<Section> {
-        let p = theme::palette(ui);
+    fn home_sections(&self, ui: &mut Ui) -> Option<Section> {
+        if self.snapshot.status.is_null() {
+            return None;
+        }
         let mut jump = None;
+        ui.horizontal_wrapped(|ui| {
+            ui.weak("Jump to");
+            let items = [
+                (
+                    Section::People,
+                    "People",
+                    Some(self.records("personas").len()),
+                ),
+                (Section::Feed, "Workspace activity", None),
+                (
+                    Section::Requests,
+                    "Human requests",
+                    Some(self.home_index.requests.len()),
+                ),
+                (
+                    Section::Deliveries,
+                    "Deliveries",
+                    Some(self.home_index.deliveries.len()),
+                ),
+                (
+                    Section::Activities,
+                    "Activities",
+                    Some(self.home_index.activities.len()),
+                ),
+            ];
+            for (section, title, count) in items {
+                if count == Some(0) && matches!(section, Section::Requests | Section::Deliveries) {
+                    continue;
+                }
+                let label = count.map_or_else(|| title.to_owned(), |n| format!("{title} ({n})"));
+                if ui.link(label).clicked() {
+                    jump = Some(section);
+                }
+            }
+        });
+        ui.separator();
+        jump
+    }
+
+    fn home_heading(&mut self, ui: &mut Ui) {
+        let p = theme::palette(ui);
         let mut open = None;
         egui::Frame::new()
             .fill(p.header)
@@ -146,7 +193,7 @@ impl App {
                     .is_some_and(|activity| activity.latest_utc.is_some());
                 if ui.available_width() >= 740. && recent {
                     ui.columns(2, |columns| {
-                        jump = self.home_identity(&mut columns[0]);
+                        self.home_identity(&mut columns[0]);
                         let activity = &self.home_index.activities[0];
                         let ui = &mut columns[1];
                         eyebrow(ui, "Latest activity");
@@ -158,16 +205,15 @@ impl App {
                         }
                     });
                 } else {
-                    jump = self.home_identity(ui);
+                    self.home_identity(ui);
                 }
             });
         if let Some(work) = open {
             self.open_home_activity(&work);
         }
-        jump
     }
 
-    fn home_identity(&mut self, ui: &mut Ui) -> Option<Section> {
+    fn home_identity(&mut self, ui: &mut Ui) {
         let name = self
             .root
             .file_name()
@@ -191,7 +237,6 @@ impl App {
             name
         }
         .to_owned();
-        let mut jump = None;
         if title != "Workspace overview" {
             eyebrow(ui, "Workspace overview");
         }
@@ -199,54 +244,8 @@ impl App {
             .on_hover_text(self.root.display().to_string());
         if !self.snapshot.status.is_null() {
             ui.add_space(4.);
-            ui.horizontal_wrapped(|ui| {
-                if ui
-                    .link(counted(
-                        self.home_index.activities.len() as u64,
-                        "activity",
-                        "activities",
-                    ))
-                    .clicked()
-                {
-                    jump = Some(Section::Activities);
-                }
-                ui.weak("·");
-                if ui
-                    .link(counted(
-                        self.records("personas").len() as u64,
-                        "persona",
-                        "personas",
-                    ))
-                    .clicked()
-                {
-                    jump = Some(Section::People);
-                }
-                for (count, one, many, section) in [
-                    (
-                        self.home_index.requests.len(),
-                        "human request",
-                        "human requests",
-                        Section::Requests,
-                    ),
-                    (
-                        self.home_index.deliveries.len(),
-                        "delivery",
-                        "deliveries",
-                        Section::Deliveries,
-                    ),
-                ] {
-                    if count > 0 {
-                        ui.weak("·");
-                        if ui.link(counted(count as u64, one, many)).clicked() {
-                            jump = Some(section);
-                        }
-                    }
-                }
-                ui.add_space(8.);
-                self.workspace_run_controls(ui);
-            });
+            ui.horizontal_wrapped(|ui| self.workspace_run_controls(ui));
         }
-        jump
     }
 
     fn home_activity_title<'a>(&'a self, work: &'a str) -> &'a str {

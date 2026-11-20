@@ -88,6 +88,14 @@ impl App {
                                 ui.close();
                             }
                         });
+                        let find = if ui.ctx().content_rect().width() >= 540. {
+                            ui.button("Find…").on_hover_text(self.find_hint(ui.ctx()))
+                        } else {
+                            theme::icon_button(ui, Icon::Search, &self.find_hint(ui.ctx()))
+                        };
+                        if find.clicked() {
+                            self.open_workspace_find(ui.ctx());
+                        }
                     });
                 });
             });

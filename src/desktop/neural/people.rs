@@ -44,6 +44,22 @@ impl App {
         }
         self.persona = id.into();
         self.layout.editor = Editor::People;
+        self.align_profile_activity();
+    }
+
+    pub(super) fn align_profile_activity(&mut self) {
+        if self.home_index.activity(&self.work).is_some_and(|a| a.members.contains(&self.persona)) {
+            return;
+        }
+        let latest = self.home_index.participations.get(&self.persona)
+            .and_then(|parts| parts.first())
+            .and_then(|index| self.records("participation").get(*index))
+            .and_then(|r| r["body"]["work"].as_str())
+            .unwrap_or_default();
+        if self.work != latest {
+            self.work = latest.to_owned();
+            self.conversation_page = 0;
+        }
     }
 
     pub(super) fn people(&mut self, ui: &mut Ui) {
@@ -52,6 +68,7 @@ impl App {
             ui.label("Create a persona to see their identity and work here.");
             return;
         }
+        self.align_profile_activity();
         self.profile_heading(ui);
         let person = self.selected_person();
         let id = s(&person, "id");
@@ -199,7 +216,7 @@ impl App {
             );
         });
         if let Some(id) = selected {
-            self.persona = id;
+            self.show_person(&id);
         }
     }
 
