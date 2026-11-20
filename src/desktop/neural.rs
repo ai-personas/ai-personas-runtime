@@ -52,6 +52,7 @@ mod activity_sources;
 mod people;
 mod mesh_profile;
 mod workspace;
+mod workspace_find;
 mod usage;
 mod responsibilities;
 mod render;
@@ -125,6 +126,7 @@ pub struct App {
     home_index: home_index::Index,
     home: home::Home,
     home_updates: home_updates::Updates,
+    workspace_find: workspace_find::Finder,
     delivery_desk: delivery_desk::Desk,
     file_history: file_history::History,
     delivery_followups: delivery_followups::Panel,
@@ -233,6 +235,7 @@ impl App {
             home_index: Default::default(),
             home: Default::default(),
             home_updates: Default::default(),
+            workspace_find: Default::default(),
             delivery_desk: Default::default(),
             file_history: Default::default(),
             delivery_followups: Default::default(),
@@ -446,6 +449,9 @@ impl App {
             self.persona = self.records("participation").iter().find(|r|r["body"]["work"]==self.work)
                 .map(|r|s(&r["body"],"persona").into()).or_else(||self.records("personas").first().map(|r|s(&r["body"],"id").into()))
                 .unwrap_or_default();
+        }
+        if self.layout.editor == Editor::People {
+            self.align_profile_activity();
         }
     }
 
@@ -671,6 +677,7 @@ impl eframe::App for App {
         let _timing = super::timings::frame(ctx, frame);
         self.drain(ctx);
         self.poll(ctx);
+        self.find_shortcut(ctx);
         ctx.request_repaint_after(self.poll_interval());
         if ctx.input(|i| i.viewport().close_requested()) && (self.running || self.command_bench.executing()) {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -760,6 +767,7 @@ impl eframe::App for App {
         self.sources_window(ctx);
         self.message_receipt_window(ctx);
         self.export_window(ctx);
+        self.workspace_find_window(ctx);
         if let Some(action)=self.requested_activities.show(ctx,&self.root,&self.snapshot.status,self.cursor) {
             match action {
                 requested_activities::Action::Inspect(r) if r.starts_with("delivery:")=>self.open_issued_package(ctx,&r),

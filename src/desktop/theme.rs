@@ -237,6 +237,7 @@ pub fn property(ui: &mut Ui, label: &str, value: &str) {
 
 #[derive(Clone, Copy)]
 pub enum Icon {
+    Search,
     Workspaces,
     Folder,
     Task,
@@ -276,6 +277,10 @@ pub fn paint_icon(painter: &egui::Painter, rect: Rect, icon: Icon, color: Color3
         );
     };
     match icon {
+        Icon::Search => {
+            painter.circle_stroke(at(0.43, 0.42), rect.width() * 0.28, stroke);
+            line(&[(0.63, 0.63), (0.91, 0.91)]);
+        }
         Icon::Workspaces => {
             for (x, y) in [(0.1, 0.1), (0.57, 0.1), (0.1, 0.57), (0.57, 0.57)] {
                 box_at(x, y, 0.33, 0.33);
