@@ -725,7 +725,7 @@ impl eframe::App for App {
             .frame(
                 egui::Frame::new()
                     .fill(theme::Palette::new(self.layout.dark).canvas)
-                    .inner_margin(16),
+                    .inner_margin(if Self::constrained_activity_layout(ctx) { 4 } else { 16 }),
             )
             .show(ctx, |ui| {
                 self.file_history_return(ui);

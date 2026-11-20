@@ -6,6 +6,7 @@ impl App {
     pub(super) fn header(&mut self, ctx: &egui::Context) {
         let p = theme::Palette::new(self.layout.dark);
         let tight = ctx.content_rect().width() < 340.;
+        let short_toolbar = tight && ctx.content_rect().height() < 260.;
         egui::TopBottomPanel::top("studio-menu")
             .frame(egui::Frame::new().fill(p.field).inner_margin(if tight {
                 egui::Margin::symmetric(5, 5)
@@ -61,8 +62,16 @@ impl App {
                         Editor::Delivery => "Delivery",
                         _ => pages.iter().find(|(page, _)| *page == active).unwrap().1,
                     };
-                    let selector = format!("{current} ↓");
-                    let show_request = waiting > 0 && active != Editor::Inbox;
+                    let short = match self.layout.editor {
+                        Editor::Responsibilities => "Duties",
+                        Editor::Agreements => "Agreements",
+                        Editor::Character => "Character",
+                        Editor::Atlas => "Atlas",
+                        Editor::Inbox => "Needs you",
+                        _ => current,
+                    };
+                    let selector = format!("{} ↓", if short_toolbar { short } else { current });
+                    let show_request = waiting > 0 && active != Editor::Inbox && !short_toolbar;
                     let request_label = if tight {
                         counted(waiting as u64, "request", "requests")
                     } else {
@@ -154,34 +163,20 @@ impl App {
                             self.inbox.active_list();
                         }
                     }
-                    let remaining = ui.available_size_before_wrap().x;
-                    if actions_width <= remaining {
-                        ui.add_space(remaining - actions_width);
+                    if short_toolbar {
+                        ui.menu_button("More", |ui| {
+                            self.header_actions(ui, ctx, false, true);
+                        })
+                        .response
+                        .on_hover_text("Find, create and configure");
                     } else {
-                        ui.end_row();
-                    }
-                    let find = if tight {
-                        theme::icon_button(ui, Icon::Search, &self.find_hint(ctx))
-                    } else {
-                        ui.button("Find…").on_hover_text(self.find_hint(ctx))
-                    };
-                    if find.clicked() {
-                        self.open_workspace_find(ctx);
-                    }
-                    ui.menu_button("+ New", |ui| {
-                        for (social, label) in [(false, "Task"), (true, "Social conversation")] {
-                            if ui.button(label).clicked() {
-                                self.dialog = Some(Dialog::activity(social));
-                                ui.close();
-                            }
+                        let remaining = ui.available_size_before_wrap().x;
+                        if actions_width <= remaining {
+                            ui.add_space(remaining - actions_width);
+                        } else {
+                            ui.end_row();
                         }
-                        if ui.button("Persona").clicked() {
-                            self.dialog = Some(Dialog::persona(&self.persona));
-                            ui.close();
-                        }
-                    });
-                    if theme::icon_button(ui, Icon::Settings, "Workspace settings").clicked() {
-                        self.dialog = Some(Dialog::Settings);
+                        self.header_actions(ui, ctx, tight, false);
                     }
                 });
             });
@@ -303,6 +298,43 @@ impl App {
                     self.workspace_notices(ui);
                 }
             });
+    }
+
+    fn header_actions(&mut self, ui: &mut Ui, ctx: &egui::Context, tight: bool, in_menu: bool) {
+        let find = if tight {
+            theme::icon_button(ui, Icon::Search, &self.find_hint(ctx))
+        } else {
+            ui.button("Find…").on_hover_text(self.find_hint(ctx))
+        };
+        if find.clicked() {
+            self.open_workspace_find(ctx);
+            if in_menu {
+                ui.close();
+            }
+        }
+        ui.menu_button("+ New", |ui| {
+            for (social, label) in [(false, "Task"), (true, "Social conversation")] {
+                if ui.button(label).clicked() {
+                    self.dialog = Some(Dialog::activity(social));
+                    ui.close();
+                }
+            }
+            if ui.button("Persona").clicked() {
+                self.dialog = Some(Dialog::persona(&self.persona));
+                ui.close();
+            }
+        });
+        let settings = if in_menu {
+            ui.button("Settings")
+        } else {
+            theme::icon_button(ui, Icon::Settings, "Workspace settings")
+        };
+        if settings.clicked() {
+            if in_menu {
+                ui.close();
+            }
+            self.dialog = Some(Dialog::Settings);
+        }
     }
 
     pub(super) fn constrained_activity_layout(ctx: &egui::Context) -> bool {

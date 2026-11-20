@@ -9,6 +9,7 @@ pub(super) enum ProfileView {
     Overview,
     Packages,
     Files,
+    Connections,
     Requests,
     Origin,
 }
@@ -36,6 +37,23 @@ pub(super) fn starting_description(ui: &mut Ui, person: &Value) {
     }
 }
 
+pub(super) fn scroll_section<R>(
+    ui: &mut Ui,
+    id: impl std::hash::Hash,
+    page_scrolls: bool,
+    draw: impl FnOnce(&mut Ui) -> R,
+) -> R {
+    if page_scrolls {
+        ui.push_id(id, draw).inner
+    } else {
+        egui::ScrollArea::vertical()
+            .id_salt(id)
+            .auto_shrink([false, false])
+            .show(ui, draw)
+            .inner
+    }
+}
+
 impl App {
     pub(super) fn show_person(&mut self, id: &str) {
         self.compact_browser = false;
@@ -48,10 +66,17 @@ impl App {
     }
 
     pub(super) fn align_profile_activity(&mut self) {
-        if self.home_index.activity(&self.work).is_some_and(|a| a.members.contains(&self.persona)) {
+        if self
+            .home_index
+            .activity(&self.work)
+            .is_some_and(|a| a.members.contains(&self.persona))
+        {
             return;
         }
-        let latest = self.home_index.participations.get(&self.persona)
+        let latest = self
+            .home_index
+            .participations
+            .get(&self.persona)
             .and_then(|parts| parts.first())
             .and_then(|index| self.records("participation").get(*index))
             .and_then(|r| r["body"]["work"].as_str())
@@ -69,6 +94,18 @@ impl App {
             return;
         }
         self.align_profile_activity();
+        let compact = Self::constrained_activity_layout(ui.ctx());
+        if compact {
+            egui::ScrollArea::vertical()
+                .id_salt(("whole-persona-profile", &self.persona, self.profile_view))
+                .min_scrolled_height(1.)
+                .show(ui, |ui| self.profile_page(ui, true));
+        } else {
+            self.profile_page(ui, false);
+        }
+    }
+
+    fn profile_page(&mut self, ui: &mut Ui, page_scrolls: bool) {
         self.profile_heading(ui);
         let person = self.selected_person();
         let id = s(&person, "id");
@@ -98,17 +135,35 @@ impl App {
             format!("Human requests  {}", requests.count())
         };
         ui.add_space(8.);
-        ui.horizontal_wrapped(|ui| {
-            ui.selectable_value(&mut self.profile_view, ProfileView::Overview, "Overview");
-            ui.selectable_value(
-                &mut self.profile_view,
+        let tabs = [
+            (ProfileView::Overview, "Overview".to_owned()),
+            (
                 ProfileView::Packages,
                 format!("Delivered packages  {packages}"),
-            );
-            ui.selectable_value(&mut self.profile_view, ProfileView::Files, files_label);
-            ui.selectable_value(&mut self.profile_view, ProfileView::Requests, request_label);
-            ui.selectable_value(&mut self.profile_view, ProfileView::Origin, "Origin");
-        });
+            ),
+            (ProfileView::Connections, "Correspondence".to_owned()),
+            (ProfileView::Files, files_label),
+            (ProfileView::Requests, request_label),
+            (ProfileView::Origin, "Origin".to_owned()),
+        ];
+        let current = tabs
+            .iter()
+            .find(|(view, _)| *view == self.profile_view)
+            .map(|(_, label)| label.clone())
+            .unwrap_or_default();
+        let mut choose = |ui: &mut Ui| {
+            for (view, label) in &tabs {
+                ui.selectable_value(&mut self.profile_view, *view, label.as_str());
+            }
+        };
+        if Self::constrained_activity_layout(ui.ctx()) || ui.available_width() < 370. {
+            egui::ComboBox::from_id_salt("profile-section")
+                .selected_text(current)
+                .width(ui.available_width().min(230.))
+                .show_ui(ui, &mut choose);
+        } else {
+            ui.horizontal_wrapped(&mut choose);
+        }
         ui.separator();
         let view = self.profile_view;
         let mut contents = |ui: &mut Ui| {
@@ -137,7 +192,8 @@ impl App {
                         ui.add_space(8.);
                     }
                 }
-                ProfileView::Files => self.profile_authored_files(ui, id),
+                ProfileView::Connections => self.show_relationships(ui),
+                ProfileView::Files => self.profile_authored_files(ui, id, page_scrolls),
                 ProfileView::Requests => {
                     let mut sorted_requests: Vec<_> = self
                         .records("human_requests")
@@ -161,13 +217,10 @@ impl App {
                 }
             }
         };
-        if view == ProfileView::Files {
+        if matches!(view, ProfileView::Files | ProfileView::Connections) {
             contents(ui);
         } else {
-            egui::ScrollArea::vertical()
-                .id_salt(("persona-portrait", id, view))
-                .auto_shrink([false, false])
-                .show(ui, contents);
+            scroll_section(ui, ("persona-portrait", id, view), page_scrolls, contents);
         }
     }
 
@@ -175,6 +228,29 @@ impl App {
         let current = self.label(&self.persona);
         let color = theme::palette(ui).ink(self.color(&self.persona));
         let mut selected = None;
+        if Self::constrained_activity_layout(ui.ctx()) || ui.available_width() < 370. {
+            let width = ui.available_width().max(1.);
+            egui::ComboBox::from_id_salt("profile-persona")
+                .width(width.min(230.))
+                .selected_text(current)
+                .show_ui(ui, |ui| {
+                    for record in self.records("personas") {
+                        let person = &record["body"];
+                        let id = s(person, "id");
+                        if ui
+                            .selectable_label(id == self.persona, s(person, "label"))
+                            .on_hover_text(id)
+                            .clicked()
+                        {
+                            selected = Some(id.to_owned());
+                        }
+                    }
+                });
+            if let Some(id) = selected {
+                self.show_person(&id);
+            }
+            return;
+        }
         ui.horizontal(|ui| {
             avatar(ui, current, color, 44.);
             ui.allocate_ui_with_layout(

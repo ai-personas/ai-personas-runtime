@@ -235,7 +235,7 @@ enum Action {
 }
 
 impl App {
-    pub(super) fn profile_authored_files(&mut self, ui: &mut Ui, person: &str) {
+    pub(super) fn profile_authored_files(&mut self, ui: &mut Ui, person: &str, page_scrolls: bool) {
         self.profile_files.controls(ui);
         if let Some(error) = &self.profile_files.error {
             ui.strong("Couldn’t load the file catalogue");
@@ -266,41 +266,38 @@ impl App {
             self.profile_files.offset,
         );
         let mut action = None;
-        egui::ScrollArea::vertical()
-            .id_salt(key)
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.add_space(4.);
-                if let Some(unverified) = page["unverified_editions"].as_u64().filter(|n| *n > 0) {
-                    ui.weak(format!(
-                        "{} in {}’s catalogue could not be verified.",
-                        counted(unverified, "edition", "editions"),
-                        self.label(person)
-                    ));
-                }
-                let rows = page["rows"]
-                    .as_array()
-                    .map(Vec::as_slice)
-                    .unwrap_or_default();
-                if rows.is_empty() {
-                    ui.weak(if self.profile_files.total() == Some(0) {
-                        format!("No verified file contributions by {}.", self.label(person))
-                    } else if !self.profile_files.query.trim().is_empty() {
-                        "No files match this search and filter.".into()
-                    } else {
-                        "No files match this filter.".into()
+        scroll_section(ui, key, page_scrolls, |ui| {
+            ui.add_space(4.);
+            if let Some(unverified) = page["unverified_editions"].as_u64().filter(|n| *n > 0) {
+                ui.weak(format!(
+                    "{} in {}’s catalogue could not be verified.",
+                    counted(unverified, "edition", "editions"),
+                    self.label(person)
+                ));
+            }
+            let rows = page["rows"]
+                .as_array()
+                .map(Vec::as_slice)
+                .unwrap_or_default();
+            if rows.is_empty() {
+                ui.weak(if self.profile_files.total() == Some(0) {
+                    format!("No verified file contributions by {}.", self.label(person))
+                } else if !self.profile_files.query.trim().is_empty() {
+                    "No files match this search and filter.".into()
+                } else {
+                    "No files match this filter.".into()
+                });
+            }
+            for row in rows {
+                ui.push_id(s(row, "id"), |ui| {
+                    card(ui).show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        self.profile_file_row(ui, person, row, &mut action);
                     });
-                }
-                for row in rows {
-                    ui.push_id(s(row, "id"), |ui| {
-                        card(ui).show(ui, |ui| {
-                            ui.set_width(ui.available_width());
-                            self.profile_file_row(ui, person, row, &mut action);
-                        });
-                        ui.add_space(6.);
-                    });
-                }
-            });
+                    ui.add_space(6.);
+                });
+            }
+        });
         match action {
             Some(Action::Open(reference)) => self.open_resource(ui.ctx(), reference),
             Some(Action::History(reference)) => self.open_file_history(ui.ctx(), &reference),

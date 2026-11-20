@@ -13,6 +13,24 @@ pub(super) fn event<'a>(events: &'a [Value], reference: &str) -> Option<&'a Valu
     Some(&events[position])
 }
 
+pub(super) fn sender(status: &Value, e: &Value) -> String {
+    let actor = s(e, "actor");
+    match (e["invocation"].is_null(), s(e, "kind")) {
+        (
+            true,
+            "asset_feedback" | "package_review" | "agreement_proposed" | "agreement_response",
+        ) => format!(
+            "{} · operator",
+            actor.strip_prefix("operator:").unwrap_or(actor)
+        ),
+        (true, "invitation" | "user_message" | "user_acceptance" | "requirements_amended") => {
+            format!("{actor} · operator")
+        }
+        (true, _) => actor.to_owned(),
+        (false, _) => name(status, actor).to_owned(),
+    }
+}
+
 pub(super) fn show(
     ctx: &egui::Context,
     status: &Value,
@@ -22,18 +40,7 @@ pub(super) fn show(
     let reference = stack.last()?;
     let e = event(events, reference)?;
     let body = &e["body"];
-    let actor = s(e, "actor");
-    let sender = match (e["invocation"].is_null(), s(e, "kind")) {
-        (true, "asset_feedback" | "package_review" | "agreement_proposed" | "agreement_response") => format!(
-            "{} · operator",
-            actor.strip_prefix("operator:").unwrap_or(actor)
-        ),
-        (true, "invitation" | "user_message" | "user_acceptance" | "requirements_amended") => {
-            format!("{actor} · operator")
-        }
-        (true, _) => actor.to_owned(),
-        (false, _) => name(status, actor).to_owned(),
-    };
+    let sender = sender(status, e);
     let target = match s(e, "target") {
         "*" => "Activity",
         "user" => "User inbox",
@@ -66,6 +73,21 @@ pub(super) fn show(
                                 .selectable(true)
                                 .wrap(),
                         );
+                    } else if matches!(s(e, "kind"), "agreement_proposed" | "agreement_response") {
+                        ui.strong(s(body, "title"));
+                        if let Some(position) = body["position"].as_str() {
+                            ui.label(format!("Position · {}", title(position)));
+                        }
+                        if let Some(edition) =
+                            body["agreement"].as_str().or(body["reference"].as_str())
+                        {
+                            if ui.button("Open agreement edition").clicked() {
+                                action = Some(Action::Agreement {
+                                    work: s(e, "work").into(),
+                                    edition: edition.into(),
+                                });
+                            }
+                        }
                     } else {
                         let mut rendered = false;
                         for (label, value) in [

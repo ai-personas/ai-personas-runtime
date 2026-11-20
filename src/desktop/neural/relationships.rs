@@ -1,4 +1,5 @@
 //! Inspect an account from its author's perspective and trace it back to the exchange.
+mod map;
 mod reader;
 use super::*;
 use ai_personas::neural::{
@@ -85,6 +86,8 @@ fn fetch(
 
 #[derive(Default)]
 pub(super) struct Panel {
+    map: map::Map,
+    seen_cursor: Option<i64>,
     owner: String,
     selected: Option<Contact>,
     contacts: Option<Arc<Vec<Value>>>,
@@ -101,6 +104,7 @@ pub(super) struct Panel {
 }
 
 enum Action {
+    Agreement { work: String, edition: String },
     Refresh,
     Select(Contact),
     Reverse(String),
@@ -113,6 +117,7 @@ enum Action {
 impl Panel {
     fn select(&mut self, owner: &str, person: Option<Contact>) {
         if self.owner != owner {
+            self.map = Default::default();
             self.contacts = None;
         }
         self.owner = owner.into();
@@ -173,7 +178,13 @@ impl Panel {
         self.result = Some(answer);
         self.pending = None;
     }
-    fn show(&mut self, ui: &mut Ui, status: &Value, owner_color: Color32) -> Option<Action> {
+    fn show(
+        &mut self,
+        ui: &mut Ui,
+        status: &Value,
+        owner_color: Color32,
+        page_scrolls: bool,
+    ) -> Option<Action> {
         self.poll();
         let view = match &self.result {
             Some(Ok(report)) => report,
@@ -240,323 +251,315 @@ impl Panel {
             r["counterpart"]["id"] == person.id && r["counterpart"]["kind"] == role(person.kind)
         });
         ui.add_space(7.);
-        egui::ScrollArea::vertical()
-            .id_salt((
-                "relationship-content",
-                &self.owner,
-                &person.id,
-                role(person.kind),
-                self.tab,
-            ))
-            .show(ui, |ui| {
-                card(ui).show(ui, |ui| {
-                    ui.set_min_width((ui.available_width() - 1.).max(0.));
+        let section_id = (
+            "relationship-content",
+            &self.owner,
+            &person.id,
+            role(person.kind),
+            self.tab,
+        );
+        people::scroll_section(ui, section_id, page_scrolls, |ui| {
+            card(ui).show(ui, |ui| {
+                ui.set_min_width((ui.available_width() - 1.).max(0.));
+                ui.horizontal_wrapped(|ui| {
+                    avatar(ui, owner, owner_color, 32.);
+                    ui.label(
+                        RichText::new(format!("{owner}’s view of {partner}"))
+                            .size(20.)
+                            .strong(),
+                    );
+                    if person.kind == Kind::Persona
+                        && ui
+                            .small_button("Switch viewpoint")
+                            .on_hover_text(format!("Read {partner}’s own account of {owner}"))
+                            .clicked()
+                    {
+                        action = Some(Action::Reverse(person.id.clone()));
+                    }
+                });
+                if let Some(row) = row {
+                    ui.add_space(5.);
                     ui.horizontal_wrapped(|ui| {
-                        avatar(ui, owner, owner_color, 32.);
-                        ui.label(
-                            RichText::new(format!("{owner}’s view of {partner}"))
-                                .size(20.)
-                                .strong(),
-                        );
-                        if person.kind == Kind::Persona
-                            && ui
-                                .small_button("Switch viewpoint")
-                                .on_hover_text(format!("Read {partner}’s own account of {owner}"))
-                                .clicked()
-                        {
-                            action = Some(Action::Reverse(person.id.clone()));
+                        theme::badge(ui, &format!("{} sent", row["sent"]), TEAL);
+                        theme::badge(ui, &format!("{} received", row["received"]), PURPLE);
+                        ui.small(format!(
+                            "{} activity-wide  ·  {} {}",
+                            row["shared_in_activity"],
+                            row["activity_count"],
+                            if row["activity_count"] == 1 {
+                                "activity"
+                            } else {
+                                "activities"
+                            }
+                        ));
+                        if ui.available_width() > 225. {
+                            ui.add_space(12.);
+                            reader::markers(ui, &view.history, &mut action);
                         }
                     });
-                    if let Some(row) = row {
-                        ui.add_space(5.);
-                        ui.horizontal_wrapped(|ui| {
-                            theme::badge(ui, &format!("{} sent", row["sent"]), TEAL);
-                            theme::badge(ui, &format!("{} received", row["received"]), PURPLE);
-                            ui.small(format!(
-                                "{} activity-wide  ·  {} {}",
-                                row["shared_in_activity"],
-                                row["activity_count"],
-                                if row["activity_count"] == 1 {
-                                    "activity"
-                                } else {
-                                    "activities"
-                                }
-                            ));
-                            if ui.available_width() > 225. {
-                                ui.add_space(12.);
-                                reader::markers(ui, &view.history, &mut action);
-                            }
-                        });
-                    }
-                });
-                ui.add_space(6.);
-                let history = &view.history;
-                ui.horizontal_wrapped(|ui| {
-                    ui.selectable_value(&mut self.tab, 0, "Account");
-                    ui.selectable_value(
-                        &mut self.tab,
-                        1,
-                        format!("Encounters ({})", history["total"]),
-                    );
-                    ui.selectable_value(
-                        &mut self.tab,
-                        2,
-                        format!("Revisions ({})", history["revision_count"]),
-                    );
-                    if let Some(r) = history["current"]["reference"].as_str() {
-                        if ui
-                            .selectable_label(self.tab == 3, "Decision trace")
-                            .clicked()
-                        {
-                            action = Some(Action::Trace(r.to_owned()));
-                        }
-                    }
-                });
-                ui.separator();
-                match self.tab {
-                    1 => {
-                        for entry in items(history, "encounters") {
-                            ui.push_id(s(entry, "reference"), |ui| {
-                                let direction = match s(entry, "direction") {
-                                    "received" => format!("From {partner}"),
-                                    "sent" => format!("To {partner}"),
-                                    _ => format!("Shared by {partner}"),
-                                };
-                                ui.horizontal_wrapped(|ui| {
-                                    ui.strong(direction);
-                                    ui.label(title(s(entry, "kind")));
-                                    ui.small(s(entry, "created_utc"));
-                                });
-                                ui.label(excerpt(work_name(status, s(entry, "work")), 110))
-                                    .on_hover_text(work_name(status, s(entry, "work")));
-                                ui.horizontal_wrapped(|ui| {
-                                    link(ui, "Open exchange ↗", &entry["reference"], &mut action);
-                                    link(ui, "In reply to ↗", &entry["linked_to"], &mut action);
-                                });
-                                ui.separator();
-                            });
-                        }
-                        if let Some(offset) =
-                            pager(ui, self.encounters, history["total"].as_u64().unwrap_or(0))
-                        {
-                            action = Some(Action::Page {
-                                encounters: offset,
-                                revisions: self.revisions,
-                            });
-                        }
-                    }
-                    2 => {
-                        if history["revision_count"] == 0 {
-                            ui.weak("No personal account has been recorded.");
-                        }
-                        for revision in items(history, "revisions") {
-                            ui.push_id(s(revision, "reference"), |ui| {
-                                ui.horizontal_wrapped(|ui| {
-                                    ui.strong(format!("Revision {}", revision["revision"]));
-                                    ui.label(if revision["status"] == "retired" {
-                                        "Retired"
-                                    } else {
-                                        "Authored account"
-                                    });
-                                    if revision["reference"] == history["current"]["reference"] {
-                                        theme::badge(ui, "Latest", TEAL);
-                                    }
-                                    if ui.small_button("Decision trace").clicked() {
-                                        action =
-                                            Some(Action::Trace(s(revision, "reference").into()));
-                                    }
-                                    link(
-                                        ui,
-                                        "Read this revision ↗",
-                                        &revision["reference"],
-                                        &mut action,
-                                    );
-                                });
-                                ui.label(excerpt(work_name(status, s(revision, "work")), 110));
-                                ui.separator();
-                            });
-                        }
-                        if let Some(offset) = pager(
-                            ui,
-                            self.revisions,
-                            history["revision_count"].as_u64().unwrap_or(0),
-                        ) {
-                            action = Some(Action::Page {
-                                encounters: self.encounters,
-                                revisions: offset,
-                            });
-                        }
-                    }
-                    3 => {
-                        if let Some(trace) = &view.trace {
-                            let rev = s(trace, "reference").rsplit('@').next().unwrap_or_default();
-                            ui.horizontal_wrapped(|ui| {
-                                ui.strong(format!("Revision {rev}"));
-                                theme::badge(
-                                    ui,
-                                    &format!("{} cue decisions", trace["cue_decisions"]),
-                                    PURPLE,
-                                );
-                                theme::badge(
-                                    ui,
-                                    &format!("{} full-body decisions", trace["body_decisions"]),
-                                    TEAL,
-                                );
-                            });
-                            if let Some(reads) = trace["recipient_inputs"]
-                                .as_array()
-                                .filter(|v| !v.is_empty())
-                            {
-                                egui::CollapsingHeader::new(format!(
-                                    "Shared edition received in {} peer {}",
-                                    reads.len(),
-                                    if reads.len() == 1 {
-                                        "decision"
-                                    } else {
-                                        "decisions"
-                                    }
-                                ))
-                                .id_salt(("shared-edition-inputs", s(trace, "reference")))
-                                .show(ui, |ui| {
-                                    for input in reads.iter().skip(self.recipient_start).take(PAGE)
-                                    {
-                                        ui.push_id(s(input, "decision"), |ui| {
-                                            ui.strong(format!(
-                                                "{} · {}",
-                                                name(status, s(input, "reader")),
-                                                s(input, "accepted_utc")
-                                            ));
-                                            let work = work_name(status, s(input, "work"));
-                                            ui.label(excerpt(work, 90)).on_hover_text(work);
-                                            ui.horizontal_wrapped(|ui| {
-                                                link(
-                                                    ui,
-                                                    "Owner’s message ↗",
-                                                    &input["shared_via"],
-                                                    &mut action,
-                                                );
-                                                link(
-                                                    ui,
-                                                    "Recipient input ↗",
-                                                    &input["input"],
-                                                    &mut action,
-                                                );
-                                                link(
-                                                    ui,
-                                                    "Recipient decision ↗",
-                                                    &input["decision"],
-                                                    &mut action,
-                                                );
-                                            });
-                                        });
-                                    }
-                                    if let Some(next) =
-                                        pager(ui, self.recipient_start, reads.len() as u64)
-                                    {
-                                        self.recipient_start = next;
-                                    }
-                                });
-                            }
-                            let decisions = trace["decisions"]
-                                .as_array()
-                                .map(Vec::as_slice)
-                                .unwrap_or_default();
-                            for row in decisions.iter().skip(self.trace_start).take(PAGE) {
-                                ui.push_id(s(row, "decision"), |ui| {
-                                    ui.add_space(5.);
-                                    let work = work_name(status, s(row, "work"));
-                                    ui.label(RichText::new(excerpt(work, 100)).strong())
-                                        .on_hover_text(work);
-                                    ui.small(s(row, "accepted_utc"));
-                                    ui.horizontal_wrapped(|ui| {
-                                        for signal in
-                                            items(row, "signals").filter_map(Value::as_str)
-                                        {
-                                            let label = match signal {
-                                                "authored" => "Authored revision",
-                                                "cue" => "Address supplied",
-                                                "selected_body" => "Selected body received",
-                                                "read_body" => "Read result received",
-                                                "returned_body" => "Write result received",
-                                                "selected_for_next" => "Selected for next input",
-                                                "requested_read" => "Requested read",
-                                                "revised_from" => "Revised from this version",
-                                                "cited_in_message" => "Cited in peer message",
-                                                _ => signal,
-                                            };
-                                            ui.label(label);
-                                        }
-                                    });
-                                    ui.horizontal_wrapped(|ui| {
-                                        link(ui, "Open input ↗", &row["input"], &mut action);
-                                        link(ui, "Open decision ↗", &row["decision"], &mut action);
-                                    });
-                                    ui.separator();
-                                });
-                            }
-                            if let Some(next) = pager(ui, self.trace_start, decisions.len() as u64)
-                            {
-                                self.trace_start = next;
-                            }
-                        }
-                    }
-                    _ => {
-                        let note = &view.account;
-                        if note.is_null() {
-                            ui.label(format!(
-                                "{owner} has no saved account of working with {partner}."
-                            ));
-                            if ui.button("Browse their encounters").clicked() {
-                                self.tab = 1;
-                            }
-                            return;
-                        }
-                        ui.horizontal_wrapped(|ui| {
-                            eyebrow(
-                                ui,
-                                if note["status"] == "retired" {
-                                    "Retired account"
-                                } else {
-                                    "Personal account"
-                                },
-                            );
-                            ui.small(format!("Revision {}", history["current"]["revision"]));
-                        });
-                        if note["status"] == "retired" {
-                            ui.label(s(note, "reason"));
-                        } else {
-                            ui.add(
-                                egui::Label::new(
-                                    RichText::new(s(note, "interpretation")).size(16.),
-                                )
-                                .wrap(),
-                            );
-                            ui.add_space(8.);
-                            eyebrow(ui, "Scope and uncertainty");
-                            ui.label(s(note, "scope"));
-                            ui.add_space(8.);
-                            eyebrow(ui, "Cited experiences");
-                            for citation in items(note, "evidence") {
-                                let reference = s(citation, "experience");
-                                let label = format!(
-                                    "{} · {}",
-                                    title(s(citation, "kind")),
-                                    reference
-                                        .trim_start_matches("experience:")
-                                        .trim_end_matches("@1")
-                                );
-                                link(ui, &label, &citation["experience"], &mut action);
-                            }
-                        }
-                        if let Some(call) = note["decision"].as_str() {
-                            ui.add_space(6.);
-                            if ui.small_button("Open authoring decision ↗").clicked() {
-                                action = Some(Action::Inspect(format!("experience:{call}@1")));
-                            }
-                        }
+                }
+            });
+            ui.add_space(6.);
+            let history = &view.history;
+            ui.horizontal_wrapped(|ui| {
+                ui.selectable_value(&mut self.tab, 0, "Account");
+                ui.selectable_value(
+                    &mut self.tab,
+                    1,
+                    format!("Encounters ({})", history["total"]),
+                );
+                ui.selectable_value(
+                    &mut self.tab,
+                    2,
+                    format!("Revisions ({})", history["revision_count"]),
+                );
+                if let Some(r) = history["current"]["reference"].as_str() {
+                    if ui
+                        .selectable_label(self.tab == 3, "Decision trace")
+                        .clicked()
+                    {
+                        action = Some(Action::Trace(r.to_owned()));
                     }
                 }
             });
+            ui.separator();
+            match self.tab {
+                1 => {
+                    for entry in items(history, "encounters") {
+                        ui.push_id(s(entry, "reference"), |ui| {
+                            let direction = match s(entry, "direction") {
+                                "received" => format!("From {partner}"),
+                                "sent" => format!("To {partner}"),
+                                _ => format!("Shared by {partner}"),
+                            };
+                            ui.horizontal_wrapped(|ui| {
+                                ui.strong(direction);
+                                ui.label(title(s(entry, "kind")));
+                                ui.small(s(entry, "created_utc"));
+                            });
+                            ui.label(excerpt(work_name(status, s(entry, "work")), 110))
+                                .on_hover_text(work_name(status, s(entry, "work")));
+                            ui.horizontal_wrapped(|ui| {
+                                link(ui, "Open exchange ↗", &entry["reference"], &mut action);
+                                link(ui, "In reply to ↗", &entry["linked_to"], &mut action);
+                            });
+                            ui.separator();
+                        });
+                    }
+                    if let Some(offset) =
+                        pager(ui, self.encounters, history["total"].as_u64().unwrap_or(0))
+                    {
+                        action = Some(Action::Page {
+                            encounters: offset,
+                            revisions: self.revisions,
+                        });
+                    }
+                }
+                2 => {
+                    if history["revision_count"] == 0 {
+                        ui.weak("No personal account has been recorded.");
+                    }
+                    for revision in items(history, "revisions") {
+                        ui.push_id(s(revision, "reference"), |ui| {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.strong(format!("Revision {}", revision["revision"]));
+                                ui.label(if revision["status"] == "retired" {
+                                    "Retired"
+                                } else {
+                                    "Authored account"
+                                });
+                                if revision["reference"] == history["current"]["reference"] {
+                                    theme::badge(ui, "Latest", TEAL);
+                                }
+                                if ui.small_button("Decision trace").clicked() {
+                                    action = Some(Action::Trace(s(revision, "reference").into()));
+                                }
+                                link(
+                                    ui,
+                                    "Read this revision ↗",
+                                    &revision["reference"],
+                                    &mut action,
+                                );
+                            });
+                            ui.label(excerpt(work_name(status, s(revision, "work")), 110));
+                            ui.separator();
+                        });
+                    }
+                    if let Some(offset) = pager(
+                        ui,
+                        self.revisions,
+                        history["revision_count"].as_u64().unwrap_or(0),
+                    ) {
+                        action = Some(Action::Page {
+                            encounters: self.encounters,
+                            revisions: offset,
+                        });
+                    }
+                }
+                3 => {
+                    if let Some(trace) = &view.trace {
+                        let rev = s(trace, "reference").rsplit('@').next().unwrap_or_default();
+                        ui.horizontal_wrapped(|ui| {
+                            ui.strong(format!("Revision {rev}"));
+                            theme::badge(
+                                ui,
+                                &format!("{} cue decisions", trace["cue_decisions"]),
+                                PURPLE,
+                            );
+                            theme::badge(
+                                ui,
+                                &format!("{} full-body decisions", trace["body_decisions"]),
+                                TEAL,
+                            );
+                        });
+                        if let Some(reads) = trace["recipient_inputs"]
+                            .as_array()
+                            .filter(|v| !v.is_empty())
+                        {
+                            egui::CollapsingHeader::new(format!(
+                                "Shared edition received in {} peer {}",
+                                reads.len(),
+                                if reads.len() == 1 {
+                                    "decision"
+                                } else {
+                                    "decisions"
+                                }
+                            ))
+                            .id_salt(("shared-edition-inputs", s(trace, "reference")))
+                            .show(ui, |ui| {
+                                for input in reads.iter().skip(self.recipient_start).take(PAGE) {
+                                    ui.push_id(s(input, "decision"), |ui| {
+                                        ui.strong(format!(
+                                            "{} · {}",
+                                            name(status, s(input, "reader")),
+                                            s(input, "accepted_utc")
+                                        ));
+                                        let work = work_name(status, s(input, "work"));
+                                        ui.label(excerpt(work, 90)).on_hover_text(work);
+                                        ui.horizontal_wrapped(|ui| {
+                                            link(
+                                                ui,
+                                                "Owner’s message ↗",
+                                                &input["shared_via"],
+                                                &mut action,
+                                            );
+                                            link(
+                                                ui,
+                                                "Recipient input ↗",
+                                                &input["input"],
+                                                &mut action,
+                                            );
+                                            link(
+                                                ui,
+                                                "Recipient decision ↗",
+                                                &input["decision"],
+                                                &mut action,
+                                            );
+                                        });
+                                    });
+                                }
+                                if let Some(next) =
+                                    pager(ui, self.recipient_start, reads.len() as u64)
+                                {
+                                    self.recipient_start = next;
+                                }
+                            });
+                        }
+                        let decisions = trace["decisions"]
+                            .as_array()
+                            .map(Vec::as_slice)
+                            .unwrap_or_default();
+                        for row in decisions.iter().skip(self.trace_start).take(PAGE) {
+                            ui.push_id(s(row, "decision"), |ui| {
+                                ui.add_space(5.);
+                                let work = work_name(status, s(row, "work"));
+                                ui.label(RichText::new(excerpt(work, 100)).strong())
+                                    .on_hover_text(work);
+                                ui.small(s(row, "accepted_utc"));
+                                ui.horizontal_wrapped(|ui| {
+                                    for signal in items(row, "signals").filter_map(Value::as_str) {
+                                        let label = match signal {
+                                            "authored" => "Authored revision",
+                                            "cue" => "Address supplied",
+                                            "selected_body" => "Selected body received",
+                                            "read_body" => "Read result received",
+                                            "returned_body" => "Write result received",
+                                            "selected_for_next" => "Selected for next input",
+                                            "requested_read" => "Requested read",
+                                            "revised_from" => "Revised from this version",
+                                            "cited_in_message" => "Cited in peer message",
+                                            _ => signal,
+                                        };
+                                        ui.label(label);
+                                    }
+                                });
+                                ui.horizontal_wrapped(|ui| {
+                                    link(ui, "Open input ↗", &row["input"], &mut action);
+                                    link(ui, "Open decision ↗", &row["decision"], &mut action);
+                                });
+                                ui.separator();
+                            });
+                        }
+                        if let Some(next) = pager(ui, self.trace_start, decisions.len() as u64) {
+                            self.trace_start = next;
+                        }
+                    }
+                }
+                _ => {
+                    let note = &view.account;
+                    if note.is_null() {
+                        ui.label(format!(
+                            "{owner} has no saved account of working with {partner}."
+                        ));
+                        if ui.button("Browse their encounters").clicked() {
+                            self.tab = 1;
+                        }
+                        return;
+                    }
+                    ui.horizontal_wrapped(|ui| {
+                        eyebrow(
+                            ui,
+                            if note["status"] == "retired" {
+                                "Retired account"
+                            } else {
+                                "Personal account"
+                            },
+                        );
+                        ui.small(format!("Revision {}", history["current"]["revision"]));
+                    });
+                    if note["status"] == "retired" {
+                        ui.label(s(note, "reason"));
+                    } else {
+                        ui.add(
+                            egui::Label::new(RichText::new(s(note, "interpretation")).size(16.))
+                                .wrap(),
+                        );
+                        ui.add_space(8.);
+                        eyebrow(ui, "Scope and uncertainty");
+                        ui.label(s(note, "scope"));
+                        ui.add_space(8.);
+                        eyebrow(ui, "Cited experiences");
+                        for citation in items(note, "evidence") {
+                            let reference = s(citation, "experience");
+                            let label = format!(
+                                "{} · {}",
+                                title(s(citation, "kind")),
+                                reference
+                                    .trim_start_matches("experience:")
+                                    .trim_end_matches("@1")
+                            );
+                            link(ui, &label, &citation["experience"], &mut action);
+                        }
+                    }
+                    if let Some(call) = note["decision"].as_str() {
+                        ui.add_space(6.);
+                        if ui.small_button("Open authoring decision ↗").clicked() {
+                            action = Some(Action::Inspect(format!("experience:{call}@1")));
+                        }
+                    }
+                }
+            }
+        });
         action
     }
 }
@@ -630,10 +633,52 @@ impl App {
         let ctx = ui.ctx().clone();
         if self.relationships.owner != self.persona {
             self.relationships.select(&self.persona, None);
+            self.relationships.seen_cursor = Some(self.cursor);
             self.relationships.load(&ctx, &self.root);
         }
-        let color = self.color(&self.persona);
-        let selected = self.relationships.show(ui, &self.snapshot.status, color);
+        self.relationships.poll();
+        if self.relationships.seen_cursor != Some(self.cursor)
+            && self.relationships.pending.is_none()
+        {
+            self.relationships.contacts = None;
+            let prior = self.relationships.result.take();
+            self.relationships.load(&ctx, &self.root);
+            self.relationships.result = prior;
+            self.relationships.seen_cursor = Some(self.cursor);
+        }
+        let profile = self.layout.editor == Editor::People
+            && self.profile_view == people::ProfileView::Connections;
+        let page_scrolls = profile && Self::constrained_activity_layout(&ctx);
+        let on_map = profile && !self.relationships.map.detail;
+        let selected = if on_map {
+            match &self.relationships.result {
+                Some(Ok(view)) => self.relationships.map.show(
+                    ui,
+                    &self.snapshot.status,
+                    &self.persona,
+                    &view.contacts,
+                    &self.events,
+                    page_scrolls,
+                ),
+                Some(Err(error)) => {
+                    ui.colored_label(ui.visuals().error_fg_color, error);
+                    ui.button("Retry").clicked().then_some(Action::Refresh)
+                }
+                None => {
+                    ui.spinner();
+                    None
+                }
+            }
+        } else {
+            if profile && ui.link("← All contacts").clicked() {
+                self.relationships.map.detail = false;
+                self.relationships.exchanges.clear();
+                return;
+            }
+            let color = self.color(&self.persona);
+            self.relationships
+                .show(ui, &self.snapshot.status, color, page_scrolls)
+        };
         let reading = reader::show(
             &ctx,
             &self.snapshot.status,
@@ -654,6 +699,12 @@ impl App {
                 self.open_resource(&ctx, reference);
                 return;
             }
+            Some(Action::Agreement { work, edition }) => {
+                self.relationships.exchanges.clear();
+                self.select_activity(&work);
+                self.show_agreements(Some(edition));
+                return;
+            }
             Some(Action::Trace(reference)) => {
                 self.relationships.tab = 3;
                 self.relationships.trace_reference = Some(reference);
@@ -665,11 +716,19 @@ impl App {
             }
             Some(Action::Select(person)) => {
                 self.relationships.select(&self.persona, Some(person));
+                if on_map {
+                    self.relationships.map.detail = true;
+                    self.relationships.tab = 1;
+                }
             }
             Some(Action::Reverse(next)) => {
                 let old = Contact::persona(&self.persona);
                 self.persona = next;
                 self.relationships.select(&self.persona, Some(old));
+                if profile {
+                    self.relationships.map.detail = true;
+                    self.relationships.tab = 1;
+                }
             }
             Some(Action::Page {
                 encounters,
