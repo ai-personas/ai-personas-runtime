@@ -228,22 +228,40 @@ impl App {
         }
     }
 
-    pub(super) fn home_package_page(&mut self, ui: &mut Ui) {
-        self.refresh_delivery_model();
-        let package = self.delivery_desk.model.clone();
+    fn delivery_breadcrumb(&mut self, ui: &mut Ui, package: Option<&Package>, compact: bool) {
         ui.horizontal_wrapped(|ui| {
-            if ui.link("← Workspace overview").clicked() {
+            let overview = if compact {
+                "← Overview"
+            } else {
+                "← Workspace overview"
+            };
+            if ui.link(overview).clicked() {
                 self.layout.editor = Editor::Home;
             }
-            if let Some(p) = &package {
+            if let Some(p) = package {
                 let work = s(&p.body, "work");
+                let title = self.work_name(work);
+                let (label, detail) = if compact {
+                    ("Activity", title.as_str())
+                } else {
+                    (title.as_str(), work)
+                };
                 ui.weak("/");
-                if ui.link(self.work_name(work)).on_hover_text(work).clicked() {
+                if ui.link(label).on_hover_text(detail).clicked() {
                     self.open_home_activity(work);
                 }
             }
         });
         ui.add_space(6.);
+    }
+
+    pub(super) fn home_package_page(&mut self, ui: &mut Ui) {
+        self.refresh_delivery_model();
+        let package = self.delivery_desk.model.clone();
+        let compact = Self::constrained_activity_layout(ui.ctx());
+        if !compact || package.is_none() {
+            self.delivery_breadcrumb(ui, package.as_deref(), compact);
+        }
         let Some(p) = package else {
             if self.snapshot.status.is_null() {
                 if self.error.is_none() {
@@ -264,6 +282,9 @@ impl App {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 let files_jump = self.package_heading(ui, &p);
+                if compact {
+                    self.delivery_breadcrumb(ui, Some(&p), true);
+                }
                 self.package_human_requests(ui, &p);
                 ui.add_space(12.);
                 if ui.available_width() >= 820. && !p.files.is_empty() {
@@ -315,28 +336,33 @@ impl App {
         let b = &p.body;
         let mut files_jump = false;
         let colors = theme::palette(ui);
+        let compact = Self::constrained_activity_layout(ui.ctx());
+        let (scope, tint) = match s(b, "scope") {
+            "partial" => ("Partial delivery", theme::ACCENT),
+            "claimed_complete" => ("Author claims complete", TEAL),
+            other if !other.is_empty() => (other, TEAL),
+            _ => ("Issued", TEAL),
+        };
         egui::Frame::new()
             .fill(colors.header)
             .stroke(Stroke::new(1., colors.border))
             .corner_radius(9)
-            .inner_margin(15)
+            .inner_margin(if compact { 5 } else { 15 })
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
-                ui.horizontal_wrapped(|ui| {
-                    eyebrow(ui, "Delivery package");
-                    let (scope, tint) = match s(b, "scope") {
-                        "partial" => ("Partial delivery", theme::ACCENT),
-                        "claimed_complete" => ("Author claims complete", TEAL),
-                        other if !other.is_empty() => (other, TEAL),
-                        _ => ("Issued", TEAL),
-                    };
-                    theme::badge(ui, scope, tint);
-                });
+                if !compact {
+                    ui.horizontal_wrapped(|ui| {
+                        eyebrow(ui, "Delivery package");
+                        theme::badge(ui, scope, tint);
+                    });
+                }
                 let title = s(b, "title");
                 ui.add(
                     egui::Label::new(
                         RichText::new(title)
-                            .size(if ui.available_width() < 460. {
+                            .size(if compact {
+                                17.
+                            } else if ui.available_width() < 460. {
                                 23.
                             } else {
                                 27.
@@ -345,6 +371,9 @@ impl App {
                     )
                     .wrap(),
                 );
+                if compact {
+                    ui.colored_label(tint, scope);
+                }
                 ui.horizontal_wrapped(|ui| {
                     ui.label(format!("Issued by {}", self.label(s(b, "owner"))))
                         .on_hover_text(s(b, "owner"));
@@ -425,11 +454,17 @@ impl App {
                     .width(ui.available_width())
                     .truncate()
                     .show_ui(ui, |ui| {
+                        if Self::constrained_activity_layout(ui.ctx()) {
+                            ui.set_max_width((ui.ctx().content_rect().width() - 18.).max(1.));
+                            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+                        }
                         for (i, f) in p.files.iter().enumerate() {
                             ui.selectable_value(&mut desk.selected, i, &f.path)
                                 .on_hover_text(&f.reference);
                         }
-                    });
+                    })
+                    .response
+                    .on_hover_text(&p.files[desk.selected].path);
                 let file = &p.files[desk.selected];
                 ui.horizontal_wrapped(|ui| {
                     ui.small(if desk.inline.detected_pdf(&file.reference) {

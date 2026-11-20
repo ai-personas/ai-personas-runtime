@@ -64,12 +64,15 @@ impl Board {
         work: &str,
         cursor: i64,
     ) -> Option<Action> {
-        ui.horizontal_wrapped(|ui| {
-            ui.heading("Responsibility board");
-            if !work.is_empty() && ui.small_button("Refresh").clicked() {
-                self.refresh(ui.ctx(), root, work, cursor);
-            }
-        });
+        let compact = App::constrained_activity_layout(ui.ctx());
+        if !compact {
+            ui.horizontal_wrapped(|ui| {
+                ui.heading("Responsibility board");
+                if !work.is_empty() && ui.small_button("Refresh").clicked() {
+                    self.refresh(ui.ctx(), root, work, cursor);
+                }
+            });
+        }
         if work.is_empty() {
             ui.weak("Select an activity in the outliner.");
             return None;
@@ -84,20 +87,31 @@ impl Board {
         if self.pending.is_some() {
             ui.spinner();
         }
-        let report = self.report.as_ref()?;
+        let Some(report) = self.report.as_ref() else {
+            if compact && self.pending.is_none() && ui.small_button("Refresh").clicked() {
+                self.refresh(ui.ctx(), root, work, cursor);
+            }
+            return None;
+        };
         let mut action = None;
+        let mut refresh = false;
         egui::ScrollArea::vertical()
             .id_salt(("responsibility-board", work))
             .show(ui, |ui| {
                 let members = items(report, "members");
                 let ended = report["phase"] == "dissolved";
-                ui.horizontal_wrapped(|ui| {
-                    if ended { theme::badge(ui,"Activity ended",theme::ACCENT); }
-                    if ui.small_button(if ended { "Reopen activity…" } else { "End activity…" }).clicked() {
-                        action = Some(Action::ChangeActivity { reopen: ended, brief: s(report,"brief").into() });
-                    }
-                });
-                ui.add_space(3.);
+                let change_activity = |ui: &mut Ui| {
+                    ui.small_button(if ended { "Reopen activity…" } else { "End activity…" })
+                        .clicked()
+                        .then(|| Action::ChangeActivity { reopen: ended, brief: s(report, "brief").into() })
+                };
+                if !compact || ended {
+                    ui.horizontal_wrapped(|ui| {
+                        if ended { theme::badge(ui, "Activity ended", theme::ACCENT); }
+                        if !compact { action = change_activity(ui); }
+                    });
+                    ui.add_space(3.);
+                }
                 ui.horizontal_wrapped(|ui| {
                     for member in members {
                         let actor = s(member, "actor");
@@ -263,7 +277,16 @@ impl Board {
                         });
                     }
                 }
+                if compact {
+                    ui.horizontal_wrapped(|ui| {
+                        if let Some(change) = change_activity(ui) { action = Some(change); }
+                        refresh = ui.small_button("Refresh").clicked();
+                    });
+                }
             });
+        if refresh {
+            self.refresh(ui.ctx(), root, work, cursor);
+        }
         action
     }
 }

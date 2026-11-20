@@ -184,175 +184,437 @@ impl App {
                     }
                 });
             });
-        if self.layout.editor.is_workspace_view() && self.error.is_none() && self.notice.is_empty()
-            && !self.records("controls").iter().any(|c| c["state"] != "running" && !s(c, "scope").starts_with("job:")) { return; }
+        let workspace = self.layout.editor.is_workspace_view();
+        let compact = Self::constrained_activity_layout(ctx);
+        if workspace && (compact || !self.has_workspace_notices()) {
+            return;
+        }
         egui::TopBottomPanel::top("studio-context")
-            .frame(
-                egui::Frame::new()
-                    .fill(p.header)
-                    .inner_margin(egui::Margin::symmetric(14, 6)),
-            )
+            .frame(egui::Frame::new().fill(p.header).inner_margin(if compact {
+                egui::Margin::symmetric(5, 2)
+            } else {
+                egui::Margin::symmetric(14, 6)
+            }))
             .show(ctx, |ui| {
-                if !self.layout.editor.is_workspace_view() {
-                    let ended = self.home_index.activity(&self.work).is_some_and(|a| a.phase == "dissolved");
-                    let compact = ui.available_width() < 720.;
-                    if compact { ui.horizontal(|ui| self.context_title(ui, ended)); }
-                    ui.horizontal(|ui| ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.menu_button("Run controls", |ui| {
-                            self.finish_run_button(ui);
-                            if self.records("controls").iter().any(|c| c["scope"]=="admission" && c["state"]!="running")
-                                && ui.add_enabled(!self.busy, egui::Button::new("Enable new calls")).clicked() {
-                                self.command(ctx, Command::Control {scope:"admission".into(),state:"running".into(),
-                                    reason:"User enabled new calls from Studio".into()});
-                                ui.close();
-                            }
-                            if ui
-                                .add_enabled(!self.busy, egui::Button::new("Enable scheduling"))
-                                .clicked()
-                            {
-                                self.command(
-                                    ctx,
-                                    Command::Control {
-                                        scope: "global".into(),
-                                        state: "running".into(),
-                                        reason: "User enabled scheduling from desktop".into(),
-                                    },
+                if !workspace {
+                    let ended = self
+                        .home_index
+                        .activity(&self.work)
+                        .is_some_and(|a| a.phase == "dissolved");
+                    let mut browser = false;
+                    let mut inspector = false;
+                    if compact {
+                        let screen = ctx.content_rect().size();
+                        ui.horizontal(|ui| {
+                            let menu = egui::containers::menu::MenuButton::new("Activity tools")
+                                .config(
+                                    egui::containers::menu::MenuConfig::new().close_behavior(
+                                        egui::PopupCloseBehavior::CloseOnClickOutside,
+                                    ),
                                 );
-                                ui.close();
-                            }
-                            if !self.work.is_empty() && ui.add_enabled(self.can_start_run(),
-                                egui::Button::new("Run once until waiting")).clicked(){
-                                self.command(ctx,Command::Run{watch:false,work:None,persona:None,from_activity:Some(self.work.clone())});
-                                ui.close();
-                            }
-                            if ui
-                                .add_enabled(
-                                    self.can_start_run(),
-                                    egui::Button::new("Continue all eligible work"),
-                                )
-                                .clicked()
-                            {
-                                self.command(ctx, Command::Run { watch: false,work:None,persona:None,from_activity:None });
-                                ui.close();
-                            }
-                            if ui
-                                .add_enabled(!self.busy, egui::Button::new("Pause all work"))
-                                .clicked()
-                            {
-                                self.command(
-                                    ctx,
-                                    Command::Control {
-                                        scope: "global".into(),
-                                        state: "paused".into(),
-                                        reason: "User paused the desktop workspace".into(),
-                                    },
-                                );
-                                ui.close();
-                            }
-                            ui.weak("Explicitly stopped participants stay stopped until resumed.");
-                            for (scope, label) in [(format!("work:{}", self.work), "This activity"),
-                                (format!("persona:{}", self.persona), "Selected persona across activities")] {
-                                if scope.ends_with(':') { continue; }
-                                ui.separator();
-                                ui.small(label);
-                                ui.horizontal(|ui| {
-                                    for (state, action) in [("running", "Enable"), ("paused", "Pause"), ("canceled", "Cancel")] {
-                                        if ui.add_enabled(!self.busy, egui::Button::new(action)).clicked() {
-                                            self.command(ctx, Command::Control { scope:scope.clone(), state:state.into(),
-                                                reason:format!("Operator selected {action} for {scope} in the desktop") });
-                                            ui.close();
-                                        }
-                                    }
-                                });
-                            }
-                        });
-                        ui.add_enabled_ui(!self.work.is_empty(), |ui| {
-                            ui.menu_button("Participate", |ui| {
-                                if ui.button("Responsibility board").clicked(){self.layout.editor=Editor::Responsibilities;ui.close();}
-                                if ui.button("Requested activities").clicked(){
-                                    self.requested_activities.open(ui.ctx(),&self.root,&self.work,self.cursor);
-                                    ui.close();
-                                }
-                                for (action, label) in [(dialogs::Action::Message, "Write message"),
-                                    (dialogs::Action::Amend, "Amend brief"), (dialogs::Action::Invite, "Invite a persona"),
-                                    (dialogs::Action::Resume, "Resume participant")] {
-                                    if ui.add_enabled(!ended || action==dialogs::Action::Message, egui::Button::new(label)).clicked() {
-                                        self.dialog = Some(self.participation_dialog(action));
-                                        ui.close();
-                                    }
-                                }
+                            let (response, _) = menu.ui(ui, |ui| {
+                                ui.set_max_width((screen.x - 16.).clamp(1., 300.));
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+                                egui::ScrollArea::vertical()
+                                    .id_salt("activity-tools")
+                                    .max_height((screen.y - 18.).max(1.))
+                                    .show(ui, |ui| {
+                                        ui.with_layout(
+                                            egui::Layout::top_down(egui::Align::Min),
+                                            |ui| {
+                                                self.context_title(ui, ended, true);
+                                                ui.separator();
+                                                ui.add_enabled_ui(!self.work.is_empty(), |ui| {
+                                                    egui::CollapsingHeader::new("Participate")
+                                                        .show_unindented(ui, |ui| {
+                                                            self.activity_participation_options(
+                                                                ui, ended,
+                                                            );
+                                                        });
+                                                });
+                                                egui::CollapsingHeader::new("Run controls")
+                                                    .show_unindented(ui, |ui| {
+                                                        self.activity_run_options(ui, ctx);
+                                                    });
+                                                if ui.button("Workspace browser").clicked() {
+                                                    browser = true;
+                                                    ui.close_kind(egui::UiKind::Menu);
+                                                }
+                                                if ui.button("Inspector").clicked() {
+                                                    inspector = true;
+                                                    ui.close_kind(egui::UiKind::Menu);
+                                                }
+                                            },
+                                        );
+                                    });
                             });
-                        });
-                        if theme::icon_button(ui, Icon::People, "Toggle inspector").clicked() {
-                            if ctx.content_rect().width() > 1100. {
-                                self.layout.inspector = !self.layout.inspector;
-                            } else {
-                                self.inspector_window = !self.inspector_window;
+                            response.on_hover_text(self.task_title());
+                            if ui.available_width() > 70. {
+                                ui.add(egui::Label::new(self.task_title()).truncate())
+                                    .on_hover_text(self.task_title());
                             }
+                        });
+                    } else {
+                        let title_row = ui.available_width() < 720.;
+                        if title_row {
+                            ui.horizontal(|ui| self.context_title(ui, ended, false));
                         }
-                        if theme::icon_button(ui, Icon::Folder, "Workspace browser").clicked() {
-                            if ctx.content_rect().width() < COMPACT_BROWSER_WIDTH {
-                                self.compact_browser = !self.compact_browser;
-                            } else { self.layout.outliner = !self.layout.outliner; }
+                        ui.horizontal(|ui| {
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.menu_button("Run controls", |ui| {
+                                    self.activity_run_options(ui, ctx)
+                                });
+                                ui.add_enabled_ui(!self.work.is_empty(), |ui| {
+                                    ui.menu_button("Participate", |ui| {
+                                        self.activity_participation_options(ui, ended)
+                                    });
+                                });
+                                inspector =
+                                    theme::icon_button(ui, Icon::People, "Toggle inspector")
+                                        .clicked();
+                                browser = theme::icon_button(ui, Icon::Folder, "Workspace browser")
+                                    .clicked();
+                                if !title_row {
+                                    ui.with_layout(
+                                        egui::Layout::left_to_right(egui::Align::Center),
+                                        |ui| self.context_title(ui, ended, false),
+                                    );
+                                }
+                            })
+                        });
+                    }
+                    if inspector {
+                        if ctx.content_rect().width() > 1100. {
+                            self.layout.inspector = !self.layout.inspector;
+                        } else {
+                            self.inspector_window = !self.inspector_window;
                         }
-                        if !compact {
-                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| self.context_title(ui, ended));
+                    }
+                    if browser {
+                        if ctx.content_rect().width() < COMPACT_BROWSER_WIDTH {
+                            self.compact_browser = !self.compact_browser;
+                        } else {
+                            self.layout.outliner = !self.layout.outliner;
                         }
-                    }));
+                    }
                 }
-                for control in self
-                    .records("controls")
-                    .iter()
-                    .filter(|c| c["state"] != "running" && !s(c, "scope").starts_with("job:"))
-                {
-                    ui.colored_label(
-                        theme::ACCENT,
-                        format!(
-                            "{} · {} — {}",
-                            s(control, "scope"),
-                            s(control, "state"),
-                            s(control, "reason")
-                        ),
-                    );
-                }
-                if let Some(error) = self.error.clone() {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.colored_label(Color32::LIGHT_RED, error);
-                        if ui.small_button("Dismiss").clicked() {
-                            self.error = None;
-                        }
-                    });
-                }
-                if !self.notice.is_empty() {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.colored_label(TEAL, &self.notice);
-                        if ui.small_button("×").clicked() {
-                            self.notice.clear();
-                        }
-                    });
+                if !compact {
+                    self.workspace_notices(ui);
                 }
             });
     }
-    fn context_title(&self, ui: &mut Ui, ended: bool) {
+
+    pub(super) fn constrained_activity_layout(ctx: &egui::Context) -> bool {
+        let size = ctx.content_rect().size();
+        size.x < 320. || (size.x < 720. && size.y < 360.)
+    }
+
+    fn activity_run_options(&mut self, ui: &mut Ui, ctx: &egui::Context) {
+        self.finish_run_button(ui);
+        if self
+            .records("controls")
+            .iter()
+            .any(|c| c["scope"] == "admission" && c["state"] != "running")
+            && ui
+                .add_enabled(!self.busy, egui::Button::new("Enable new calls"))
+                .clicked()
+        {
+            self.command(
+                ctx,
+                Command::Control {
+                    scope: "admission".into(),
+                    state: "running".into(),
+                    reason: "User enabled new calls from Studio".into(),
+                },
+            );
+            ui.close_kind(egui::UiKind::Menu);
+        }
+        if ui
+            .add_enabled(!self.busy, egui::Button::new("Enable scheduling"))
+            .clicked()
+        {
+            self.command(
+                ctx,
+                Command::Control {
+                    scope: "global".into(),
+                    state: "running".into(),
+                    reason: "User enabled scheduling from desktop".into(),
+                },
+            );
+            ui.close_kind(egui::UiKind::Menu);
+        }
+        if !self.work.is_empty()
+            && ui
+                .add_enabled(
+                    self.can_start_run(),
+                    egui::Button::new("Run once until waiting"),
+                )
+                .clicked()
+        {
+            self.command(
+                ctx,
+                Command::Run {
+                    watch: false,
+                    work: None,
+                    persona: None,
+                    from_activity: Some(self.work.clone()),
+                },
+            );
+            ui.close_kind(egui::UiKind::Menu);
+        }
+        if ui
+            .add_enabled(
+                self.can_start_run(),
+                egui::Button::new("Continue all eligible work"),
+            )
+            .clicked()
+        {
+            self.command(
+                ctx,
+                Command::Run {
+                    watch: false,
+                    work: None,
+                    persona: None,
+                    from_activity: None,
+                },
+            );
+            ui.close_kind(egui::UiKind::Menu);
+        }
+        if ui
+            .add_enabled(!self.busy, egui::Button::new("Pause all work"))
+            .clicked()
+        {
+            self.command(
+                ctx,
+                Command::Control {
+                    scope: "global".into(),
+                    state: "paused".into(),
+                    reason: "User paused the desktop workspace".into(),
+                },
+            );
+            ui.close_kind(egui::UiKind::Menu);
+        }
+        ui.weak("Explicitly stopped participants stay stopped until resumed.");
+        for (scope, label) in [
+            (format!("work:{}", self.work), "This activity"),
+            (
+                format!("persona:{}", self.persona),
+                "Selected persona across activities",
+            ),
+        ] {
+            if scope.ends_with(':') {
+                continue;
+            }
+            ui.separator();
+            ui.small(label);
+            ui.horizontal_wrapped(|ui| {
+                for (state, action) in [
+                    ("running", "Enable"),
+                    ("paused", "Pause"),
+                    ("canceled", "Cancel"),
+                ] {
+                    if ui
+                        .add_enabled(!self.busy, egui::Button::new(action))
+                        .clicked()
+                    {
+                        self.command(
+                            ctx,
+                            Command::Control {
+                                scope: scope.clone(),
+                                state: state.into(),
+                                reason: format!(
+                                    "Operator selected {action} for {scope} in the desktop"
+                                ),
+                            },
+                        );
+                        ui.close_kind(egui::UiKind::Menu);
+                    }
+                }
+            });
+        }
+    }
+
+    fn activity_participation_options(&mut self, ui: &mut Ui, ended: bool) {
+        if ui.button("Responsibility board").clicked() {
+            self.layout.editor = Editor::Responsibilities;
+            ui.close_kind(egui::UiKind::Menu);
+        }
+        if ui.button("Requested activities").clicked() {
+            self.requested_activities
+                .open(ui.ctx(), &self.root, &self.work, self.cursor);
+            ui.close_kind(egui::UiKind::Menu);
+        }
+        for (action, label) in [
+            (dialogs::Action::Message, "Write message"),
+            (dialogs::Action::Amend, "Amend brief"),
+            (dialogs::Action::Invite, "Invite a persona"),
+            (dialogs::Action::Resume, "Resume participant"),
+        ] {
+            if ui
+                .add_enabled(
+                    !ended || action == dialogs::Action::Message,
+                    egui::Button::new(label),
+                )
+                .clicked()
+            {
+                self.dialog = Some(self.participation_dialog(action));
+                ui.close_kind(egui::UiKind::Menu);
+            }
+        }
+    }
+
+    fn has_workspace_notices(&self) -> bool {
+        self.error.is_some()
+            || !self.notice.is_empty()
+            || self
+                .records("controls")
+                .iter()
+                .any(|c| c["state"] != "running" && !s(c, "scope").starts_with("job:"))
+    }
+
+    fn workspace_notices(&mut self, ui: &mut Ui) {
+        for control in self
+            .records("controls")
+            .iter()
+            .filter(|c| c["state"] != "running" && !s(c, "scope").starts_with("job:"))
+        {
+            ui.colored_label(
+                theme::ACCENT,
+                format!(
+                    "{} · {} — {}",
+                    s(control, "scope"),
+                    s(control, "state"),
+                    s(control, "reason")
+                ),
+            );
+        }
+        if let Some(error) = self.error.clone() {
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(Color32::LIGHT_RED, error);
+                if ui.small_button("Dismiss").clicked() {
+                    self.error = None;
+                }
+            });
+        }
+        if !self.notice.is_empty() {
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(TEAL, &self.notice);
+                if ui.small_button("×").clicked() {
+                    self.notice.clear();
+                }
+            });
+        }
+    }
+
+    fn context_title(&self, ui: &mut Ui, ended: bool, full: bool) {
         let p = theme::palette(ui);
-        theme::glyph(ui, Icon::Task, p.muted);
-        if ended { theme::badge(ui, "Activity ended", theme::ACCENT); }
-        let worker = |e: &Value| e["work"] == self.work && self.runner_observation.has_worker(&self.work,s(e,"actor"));
+        if !full {
+            theme::glyph(ui, Icon::Task, p.muted);
+        }
+        if ended {
+            theme::badge(ui, "Activity ended", theme::ACCENT);
+        }
+        let worker = |e: &Value| {
+            e["work"] == self.work
+                && self
+                    .runner_observation
+                    .has_worker(&self.work, s(e, "actor"))
+        };
         let calls = self.snapshot.active.iter().filter(|e| worker(e)).count() as u64;
-        let tools = self.snapshot.active_effects.iter().filter(|e| e["state"] == "dispatched" && worker(e)).count() as u64;
-        if calls > 0 { theme::badge(ui, &counted(calls,"model call","model calls"), TEAL); }
-        if tools > 0 { theme::badge(ui, &counted(tools,"tool running","tools running"), theme::ACCENT); }
-        ui.add(egui::Label::new(RichText::new(self.task_title()).strong()).truncate()).on_hover_text(self.task_title());
+        let tools = self
+            .snapshot
+            .active_effects
+            .iter()
+            .filter(|e| e["state"] == "dispatched" && worker(e))
+            .count() as u64;
+        if calls > 0 {
+            theme::badge(ui, &counted(calls, "model call", "model calls"), TEAL);
+        }
+        if tools > 0 {
+            theme::badge(
+                ui,
+                &counted(tools, "tool running", "tools running"),
+                theme::ACCENT,
+            );
+        }
+        let title = egui::Label::new(RichText::new(self.task_title()).strong());
+        if full {
+            ui.add(title.wrap());
+        } else {
+            ui.add(title.truncate()).on_hover_text(self.task_title());
+        }
     }
     pub(super) fn status_bar(&mut self, ctx: &egui::Context) {
         let p = theme::Palette::new(self.layout.dark);
+        let compact = Self::constrained_activity_layout(ctx);
         egui::TopBottomPanel::bottom("studio-status")
-            .frame(
-                egui::Frame::new()
-                    .fill(p.field)
-                    .inner_margin(egui::Margin::symmetric(12, 4)),
-            )
+            .frame(egui::Frame::new().fill(p.field).inner_margin(if compact {
+                egui::Margin::symmetric(5, 2)
+            } else {
+                egui::Margin::symmetric(12, 4)
+            }))
             .show(ctx, |ui| {
+                let status = self.runner_status_text();
+                let counts = self.snapshot.status.is_object().then(|| {
+                    let accepted = self.snapshot.status["invocations"]["accepted"]
+                        .as_u64()
+                        .unwrap_or(0);
+                    [
+                        counted(accepted, "accepted decision", "accepted decisions"),
+                        counted(self.records("personas").len() as u64, "persona", "personas"),
+                        counted(self.snapshot.assets.len() as u64, "artifact", "artifacts"),
+                    ]
+                });
+                if compact {
+                    // Keep the scrollable work area in view when several physical pixels
+                    // represent one interface point. The menu retains the full observed scope.
+                    let state = match status.as_str() {
+                        "Workspace connected" => "Connected",
+                        "Opening workspace…" => "Opening…",
+                        "Waiting for owned work to settle" => "Closing…",
+                        "Starting or settling run…" => "Run status",
+                        "Runner observation unavailable" => "Status unknown",
+                        other => other.split(" · ").next().unwrap_or(other),
+                    };
+                    let notices = self.has_workspace_notices();
+                    let label = if notices {
+                        format!("{state} !")
+                    } else {
+                        format!("{state} ↓")
+                    };
+                    let screen = ctx.content_rect().size();
+                    ui.menu_button(label, |ui| {
+                        ui.set_max_width((screen.x - 16.).clamp(1., 260.));
+                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+                        egui::ScrollArea::vertical()
+                            .id_salt("compact-workspace-status")
+                            .max_height((screen.y - 18.).max(1.))
+                            .show(ui, |ui| {
+                                ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                                    ui.label(&status);
+                                    if ui
+                                        .selectable_label(self.layout.activity, "Event log")
+                                        .clicked()
+                                    {
+                                        self.layout.activity = !self.layout.activity;
+                                        ui.close();
+                                    }
+                                    if notices {
+                                        self.workspace_notices(ui);
+                                    }
+                                    if let Some(counts) = &counts {
+                                        ui.separator();
+                                        for value in counts {
+                                            ui.label(value);
+                                        }
+                                    }
+                                });
+                            });
+                    })
+                    .response
+                    .on_hover_text(&status);
+                    return;
+                }
                 ui.horizontal_wrapped(|ui| {
                     let (rect, _) =
                         ui.allocate_exact_size(egui::vec2(8., 8.), egui::Sense::hover());
@@ -366,7 +628,6 @@ impl App {
                         3.,
                         if working { TEAL } else { p.muted },
                     );
-                    let status = self.runner_status_text();
                     let mut label = egui::WidgetText::from(RichText::new(&status).small())
                         .into_layout_job(
                             ui.style(),
@@ -376,16 +637,6 @@ impl App {
                     Arc::make_mut(&mut label).wrap.max_rows = 2;
                     ui.add(egui::Label::new(label).wrap())
                         .on_hover_text(&status);
-                    let counts = self.snapshot.status.is_object().then(|| {
-                        let accepted = self.snapshot.status["invocations"]["accepted"]
-                            .as_u64()
-                            .unwrap_or(0);
-                        [
-                            counted(accepted, "accepted decision", "accepted decisions"),
-                            counted(self.records("personas").len() as u64, "persona", "personas"),
-                            counted(self.snapshot.assets.len() as u64, "artifact", "artifacts"),
-                        ]
-                    });
                     let summary = counts.as_ref().map(|items| items.join("  ·  "));
                     let measure = |text: &str, style| {
                         egui::WidgetText::from(text)
