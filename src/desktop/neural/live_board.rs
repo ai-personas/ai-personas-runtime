@@ -1244,7 +1244,7 @@ impl App {
             });
     }
 
-    fn feedback_title<'a>(&'a self, event: &'a Value, reference: &str) -> &'a str {
+    pub(super) fn feedback_title<'a>(&'a self, event: &'a Value, reference: &str) -> &'a str {
         if let Some(title) = event["body"]["delivery_title"]
             .as_str()
             .filter(|s| !s.trim().is_empty())
@@ -1504,7 +1504,7 @@ impl App {
         action
     }
 
-    fn event_heading(&self, event: &Value) -> String {
+    pub(super) fn event_heading(&self, event: &Value) -> String {
         let kind = s(event, "kind");
         let body = &event["body"];
         let target = match recipient(event) {
