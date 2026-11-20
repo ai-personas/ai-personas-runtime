@@ -125,7 +125,7 @@ impl App {
                             go_to = Some(Editor::Inbox);
                         }
                         ui.menu_button(&selector, |ui| {
-                            ui.set_max_width((width - 10.).max(1.));
+                            ui.set_max_width((width - 10.).clamp(1., 180.));
                             egui::ScrollArea::vertical().show(ui, |ui| {
                                 for (page, name) in pages {
                                     if ui.selectable_label(active == page, name).clicked() {
