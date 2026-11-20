@@ -18,6 +18,7 @@ use std::{
     time::{Duration, Instant},
 };
 mod character;
+mod atlas;
 mod character_paths;
 mod revision_uses;
 mod comparisons;
@@ -72,6 +73,7 @@ enum Editor {
     Conversations,
     Artifacts,
     Character,
+    Atlas,
     Usage,
 }
 #[derive(Serialize, Deserialize)]
@@ -183,6 +185,7 @@ pub struct App {
     viewer: artifacts::Viewer,
     files: artifacts::Viewer,
     character_tab: usize,
+    atlas: atlas::Panel,
     comparison_filter: usize,
     encounter: comparisons::Encounter,
     explorer: explorer::Explorer,
@@ -291,6 +294,7 @@ impl App {
             viewer: artifacts::Viewer::new(ctx, gl),
             files: artifacts::Viewer::new(ctx, gl),
             character_tab: 0,
+            atlas: Default::default(),
             comparison_filter: 0,
             encounter: Default::default(),
             explorer: explorer::Explorer::default(),
@@ -640,19 +644,12 @@ impl App {
             .collect()
     }
     fn color(&self, id: &str) -> Color32 {
-        let palette = [
-            TEAL,
-            PURPLE,
-            theme::ACCENT,
-            Color32::from_rgb(121, 166, 230),
-            Color32::from_rgb(219, 134, 158),
-        ];
         let index = self
             .records("personas")
             .iter()
             .position(|p| p["body"]["id"] == id)
             .unwrap_or(0);
-        palette[index % palette.len()]
+        persona_color(index)
     }
     fn save_layout(&self) {
         if let Ok(bytes) = serde_json::to_vec_pretty(&self.layout) {
@@ -734,6 +731,7 @@ impl eframe::App for App {
                 Editor::Conversations => self.conversations(ui),
                 Editor::Artifacts => self.artifacts(ui),
                 Editor::Character => self.character(ui),
+                Editor::Atlas => self.character_atlas(ui),
                 Editor::Usage => {
                     if let Some(reference) = self.usage.show(ui, &self.root, &self.work) {
                         self.open_resource(ctx,reference);
@@ -847,6 +845,10 @@ fn time_label(ts: i64) -> String {
         ts.rem_euclid(3600) / 60,
         ts.rem_euclid(60)
     )
+}
+fn persona_color(index: usize) -> Color32 {
+    let colors = [TEAL, PURPLE, theme::ACCENT, Color32::from_rgb(121, 166, 230), Color32::from_rgb(219, 134, 158)];
+    colors[index % colors.len()]
 }
 fn eyebrow(ui: &mut Ui, text: &str) {
     ui.label(

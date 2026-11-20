@@ -27,6 +27,17 @@ enum Action {
 }
 
 impl App {
+    pub(super) fn open_generation(&mut self, ctx: &egui::Context, owner: String, change: String) {
+        self.compact_browser = false;
+        self.persona = owner.clone();
+        self.character_tab = 3;
+        self.layout.editor = Editor::Character;
+        self.revision_uses.owner = owner;
+        self.revision_uses.load(ctx, &self.root, Query {
+            reference: change, work: None, basis: None, offset: 0, page_size: 6,
+        });
+    }
+
     pub(super) fn character_revisions(&mut self, ui: &mut Ui, character: &data::Character) {
         if self.revision_uses.owner != self.persona {
             self.revision_uses = Panel {

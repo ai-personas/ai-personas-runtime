@@ -439,6 +439,9 @@ impl App {
         eyebrow(ui, "Character Lab");
         ui.horizontal_wrapped(|ui| {
             ui.heading("Character models");
+            if ui.button("Character Atlas →").on_hover_text("Compare people and generations on the same input").clicked() {
+                self.layout.editor = Editor::Atlas;
+            }
         });
         ui.add_space(10.);
         ui.horizontal_wrapped(|ui| {

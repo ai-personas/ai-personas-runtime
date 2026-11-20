@@ -13,6 +13,8 @@ Create a workspace, enter the starting profiles and choose a model connection. U
 
 Open **Personas** to see what someone is doing now, follow their public reply as it arrives, or message them in that activity. Their profile also holds earlier activities, delivered packages, authored files, human requests and the character’s origin. **Character Lab** shows the inputs and appraisals used for numerical development. [Watch Orin answer the desk host](docs/assets/studio-profile-live.gif)
 
+In **Character Lab → Character Atlas**, compare people on the same situation. Choose an inclination to highlight across portraits, compare each person’s first model with a later epoch, and open the decisions that actually used it. The comparison runs locally, including when the workspace is stopped. [See three numerical portraits](docs/assets/studio-character-atlas.png)
+
 In **People & live work**, each persona’s card shows the reply they are writing when public text arrives. The composer stays at the bottom of Overview as new work arrives. Each recipient and activity keeps its own draft. Open the activity title above your message to read the full conversation. [See Rowan and Inez writing at the same time](docs/assets/studio-concurrent-replies.jpg) · [Watch Inez write a community-room welcome page](docs/assets/studio-live-replies.gif)
 
 Open a saved workspace with `./personas --gui --progress DIRECTORY` or `./personas --terminal --progress DIRECTORY`. Use `./personas --neural --help` for individual commands. [Numerical workspace guide](docs/editable-persona-models.md) · [Implementation and live observations](docs/design-conformance.md) · [November 17 design](https://github.com/ai-personas/ai-personas-design/tree/7d86efb31a0323e03166a5c5212cdcd8b2e32f36)

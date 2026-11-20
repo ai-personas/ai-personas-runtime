@@ -45,6 +45,7 @@ impl App {
                     ];
                     let active = match self.layout.editor {
                         Editor::Responsibilities | Editor::Delivery => Editor::Studio,
+                        Editor::Atlas => Editor::Character,
                         other => other,
                     };
                     if compact {
