@@ -1096,6 +1096,7 @@ fn preview_text(source: &str, limit: usize) -> String {
 }
 
 enum EventAction {
+    Agreement(String),
     Open(String),
     Package(String),
     SourceFile {
@@ -1222,6 +1223,7 @@ impl App {
                 }
                 match action {
                     Some(EventAction::Open(reference)) => self.open_resource(ui.ctx(), reference),
+                    Some(EventAction::Agreement(reference)) => self.show_agreements(Some(reference)),
                     Some(EventAction::Package(reference)) => self.open_issued_package(ui.ctx(), &reference),
                     Some(EventAction::SourceFile { source, object, name }) => {
                         self.open_named_resource(ui.ctx(), object, Some((source, name)))
@@ -1355,6 +1357,11 @@ impl App {
                         action = Some(EventAction::Open(reference()));
                     }
                 });
+                if matches!(kind, "agreement_proposed" | "agreement_response") {
+                    if let Some(edition) = body["agreement"].as_str().or(body["reference"].as_str()) {
+                        if text_action(ui, "Read agreement edition").clicked() { action=Some(EventAction::Agreement(edition.into())); }
+                    }
+                }
                 if let Some(package) = feedback_reference(event) {
                     let title = self.feedback_title(event, package);
                     if live_composer::feedback_link(ui, title, package, 3).clicked() {
@@ -1533,6 +1540,10 @@ impl App {
             "invitation" => format!("invited {target}"),
             "invitation_response" if body["accept"] == true => "accepted the invitation".into(),
             "invitation_response" if body["accept"] == false => "declined the invitation".into(),
+            "agreement_proposed" => "proposed agreement terms".into(),
+            "agreement_response" => match s(body,"position") {
+                "endorse" => "endorsed the terms", "dissent" => "dissented from the terms", "withdraw" => "withdrew a position", _ => "responded to the terms",
+            }.into(),
             "commitment_changed" => "updated a commitment".into(),
             "contribution_proposal" => format!("proposed a contribution to {target}"),
             "participation_left" => "left the activity".into(),

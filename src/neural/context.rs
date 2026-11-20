@@ -893,6 +893,9 @@ pub(super) fn prepare_when(
             if !open_offers.is_empty(){data["handoff_offers"]=json!(open_offers);}
             let entering = !participation.accepted || data["new_events"].as_array().into_iter().flatten()
                 .any(|e| e["actor"]==actor && e["kind"]=="invitation_response" && e["body"]["accept"]==true);
+            if entering && super::agreements::available(db,work_id)? {
+                data["activity_agreements"]=json!({"lookup":"work.agreements","available":true});
+            }
             let relationships=super::relationships::cues(db,actor,&data,entering)?;
             if !relationships.is_empty() { data["your_relationship_notes"]=json!(relationships); }
             data["reply_targets"] = json!(super::experience::reply_targets(db, actor, work_id)?);
@@ -902,7 +905,7 @@ pub(super) fn prepare_when(
                 if event["actor"] == actor && event["invocation"].is_string() {
                     event["kind"] == "invitation_response" && event["body"]["accept"] == true
                 } else {
-                    matches!(event["kind"].as_str(), Some("message"|"reply"|"user_message"|"user_acceptance"|"requirements_amended"|"asset_feedback"))
+                    matches!(event["kind"].as_str(), Some("message"|"reply"|"user_message"|"user_acceptance"|"requirements_amended"|"asset_feedback"|"agreement_proposed"|"agreement_response"))
                 }
             });
             let mut reminders = Vec::new();

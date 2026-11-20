@@ -24,7 +24,7 @@ pub(super) fn show(
     let body = &e["body"];
     let actor = s(e, "actor");
     let sender = match (e["invocation"].is_null(), s(e, "kind")) {
-        (true, "asset_feedback" | "package_review") => format!(
+        (true, "asset_feedback" | "package_review" | "agreement_proposed" | "agreement_response") => format!(
             "{} · operator",
             actor.strip_prefix("operator:").unwrap_or(actor)
         ),

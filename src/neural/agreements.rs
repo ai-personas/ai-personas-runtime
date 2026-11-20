@@ -54,6 +54,10 @@ pub struct Lookup {
     /// Omit for the edition index. Select an exact edition to read its terms and attributed responses.
     #[arg(long)]
     pub edition: Option<String>,
+    /// Show only the newest edition of each proposal, or each signer's latest response on the selected edition.
+    #[arg(long)]
+    #[serde(default)]
+    pub latest_only: bool,
     #[arg(long, default_value_t = 0)]
     #[serde(default)]
     pub offset: usize,
@@ -225,6 +229,29 @@ pub(super) fn respond(
     Ok(notice)
 }
 
+pub(super) fn available(db: &Connection, work: &str) -> Result<bool> {
+    Ok(db.query_row("SELECT EXISTS(SELECT 1 FROM events WHERE work=?1 AND target='*' AND kind='agreement_proposed')",
+        [work], |row| row.get(0))?)
+}
+
+fn position_counts(db: &Connection, reference: &str) -> Result<Value> {
+    let mut result = json!({"endorse":0,"dissent":0,"withdraw":0});
+    let mut stmt = db.prepare(
+        "SELECT json_extract(CAST(o.bytes AS TEXT),'$.position'),count(*)
+        FROM heads h JOIN objects o ON h.digest=o.digest WHERE h.kind='agreement_position'
+        AND json_extract(CAST(o.bytes AS TEXT),'$.agreement')=?1 GROUP BY 1",
+    )?;
+    let mut rows = stmt.query([reference])?;
+    while let Some(row) = rows.next()? {
+        let position: String = row.get(0)?;
+        let count = result
+            .get_mut(&position)
+            .ok_or_else(|| failure("Unknown signed agreement position"))?;
+        *count = json!(row.get::<_, i64>(1)?);
+    }
+    Ok(result)
+}
+
 /// Page through actual version writes. Repeated notifications do not create extra signatories.
 pub fn inspect(db: &Connection, work: &str, reader: &Contact, query: &Lookup) -> Result<Value> {
     let brief = store::required(db, "work", work)?;
@@ -239,6 +266,7 @@ pub fn inspect(db: &Connection, work: &str, reader: &Contact, query: &Lookup) ->
             .reference
             .handle());
         report["record"] = record.body;
+        report["positions"] = position_counts(db, reference)?;
         report["your_position"] = json!(store::head(
             db,
             "agreement_position",
@@ -250,21 +278,22 @@ pub fn inspect(db: &Connection, work: &str, reader: &Contact, query: &Lookup) ->
     };
     let filter = "FROM versions v JOIN objects o ON o.digest=v.digest
         JOIN heads h USING(kind,id) LEFT JOIN invocations i ON v.invocation=i.id
-        WHERE v.kind=?1 AND json_extract(CAST(o.bytes AS TEXT),'$.work')=?2
+        WHERE v.kind=?1 AND (NOT ?4 OR v.revision=h.revision) AND json_extract(CAST(o.bytes AS TEXT),'$.work')=?2
         AND (?3 IS NULL OR json_extract(CAST(o.bytes AS TEXT),'$.agreement')=?3)";
     let total: i64 = db.query_row(
         &format!("SELECT count(*) {filter}"),
-        params![kind, work, query.edition],
+        params![kind, work, query.edition, query.latest_only],
         |r| r.get(0),
     )?;
     let mut stmt = db.prepare(&format!(
         "SELECT v.id,v.revision,v.digest,v.created,h.revision,v.invocation,i.actor,i.work {filter}
-        ORDER BY v.rowid DESC LIMIT ?4 OFFSET ?5"
+        ORDER BY v.rowid DESC LIMIT ?5 OFFSET ?6"
     ))?;
     let mut rows = stmt.query(params![
         kind,
         work,
         query.edition,
+        query.latest_only,
         i64::try_from(query.page_size).unwrap_or(i64::MAX),
         i64::try_from(query.offset).unwrap_or(i64::MAX)
     ])?;

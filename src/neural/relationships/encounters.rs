@@ -7,7 +7,7 @@ use serde_json::Value;
 
 const KINDS: &str = "'invitation','invitation_response','message','reply','user_message','requester_message','requester_review','contribution_proposal',
     'handoff_offered','handoff_resolved','asset_feedback','user_acceptance','requirements_amended',
-    'commitment_changed','delivery','outcome_changed','package_review','participation_left','responsibility_accepted'";
+    'commitment_changed','delivery','outcome_changed','package_review','participation_left','responsibility_accepted','agreement_proposed','agreement_response'";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -64,7 +64,10 @@ impl Event {
         if self.invocation.is_some() {
             Contact::persona(&self.actor)
         } else {
-            let name = if matches!(self.kind.as_str(), "asset_feedback" | "package_review") {
+            let name = if matches!(
+                self.kind.as_str(),
+                "asset_feedback" | "package_review" | "agreement_proposed" | "agreement_response"
+            ) {
                 self.actor.strip_prefix("operator:").unwrap_or(&self.actor)
             } else {
                 &self.actor
@@ -82,6 +85,8 @@ impl Event {
                     | "user_acceptance"
                     | "requirements_amended"
                     | "package_review"
+                    | "agreement_proposed"
+                    | "agreement_response"
                     | "asset_feedback"
             )
         {
@@ -92,6 +97,14 @@ impl Event {
         // A public contribution is visible to the group. Only an explicit
         // addressee or an identified source exchange establishes a personal link.
         let to = match self.kind.as_str() {
+            "agreement_proposed" | "agreement_response" => {
+                let notice: Value = store::object(db, &self.digest)?;
+                parent = notice["agreement"]
+                    .as_str()
+                    .or(notice["reference"].as_str())
+                    .map(str::to_owned);
+                None
+            }
             "asset_feedback" => {
                 let body: Value = store::object(db, &self.digest)?;
                 let role = serde_json::from_value(body["recipient_kind"].clone())?;

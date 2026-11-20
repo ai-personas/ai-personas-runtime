@@ -52,11 +52,12 @@ impl App {
                         (Editor::Usage, "Usage"),
                     ];
                     let active = match self.layout.editor {
-                        Editor::Responsibilities | Editor::Delivery => Editor::Studio,
+                        Editor::Responsibilities | Editor::Agreements | Editor::Delivery => Editor::Studio,
                         other => other,
                     };
                     let current = match self.layout.editor {
                         Editor::Responsibilities => "Responsibility board",
+                        Editor::Agreements => "Agreement book",
                         Editor::Delivery => "Delivery",
                         _ => pages.iter().find(|(page, _)| *page == active).unwrap().1,
                     };
@@ -435,6 +436,10 @@ impl App {
     }
 
     fn activity_participation_options(&mut self, ui: &mut Ui, ended: bool) {
+        if ui.button("Agreement book").clicked() {
+            self.show_agreements(None);
+            ui.close_kind(egui::UiKind::Menu);
+        }
         if ui.button("Responsibility board").clicked() {
             self.layout.editor = Editor::Responsibilities;
             ui.close_kind(egui::UiKind::Menu);

@@ -27,6 +27,7 @@ impl Action {
 }
 
 pub(super) enum Dialog {
+    Agreement(agreements::Form),
     ActivityState { work: String, expected: String, reopen: bool, reason: String },
     Activity {
         social: bool,
@@ -89,6 +90,7 @@ impl Dialog {
             Self::Persona { .. } => "New persona",
             Self::Review { .. } => "Review delivery",
             Self::Reasoning { .. } => "Change reasoning settings",
+            Self::Agreement(form) => form.title(),
             Self::Settings => "Workspace settings",
             Self::Render(_) => "Render OpenSCAD project",
         }
@@ -177,11 +179,14 @@ impl App {
         };
         let mut open = true;
         let mut command = None;
-        let scroll = matches!(&draft, Dialog::Activity { .. } | Dialog::Participation { .. });
-        egui::Window::new(draft.title())
+        let scroll = matches!(&draft, Dialog::Activity { .. } | Dialog::Participation { .. } | Dialog::Agreement(_));
+        let width=(ctx.content_rect().width()-24.).max(1.);
+        let mut window=egui::Window::new(draft.title());
+        if matches!(draft,Dialog::Agreement(_)) { window=window.min_width(1.).max_width(width); }
+        window
             .id(egui::Id::new("studio-dialog"))
             .open(&mut open)
-            .default_width(510.)
+            .default_width(510.0_f32.min(width))
             .resizable(true)
             .show(ctx, |ui| dialog_contents(ui, scroll, |ui| {
                 ui.add_enabled_ui(!self.busy, |ui| match &mut draft {
@@ -432,6 +437,7 @@ impl App {
                                 effort: Some(effort.trim().into()), expected: Some(expected.clone()), reason: reason.clone() });
                         }
                     }
+                    Dialog::Agreement(form) => command = form.show(ui,self),
                     Dialog::Settings => self.workspace_settings(ui, ctx),
                     Dialog::Render(form) => command=form.show(ui,self),
                 });
@@ -443,10 +449,18 @@ impl App {
                 }
             }));
         if open {
+            let request = if command.is_some() {
+                if let Dialog::Agreement(form) = &mut draft {
+                    match form.request_id() {
+                        Ok(id) => Some(id),
+                        Err(error) => { self.error=Some(error.to_string()); command=None; None }
+                    }
+                } else { None }
+            } else { None };
             self.dialog = Some(draft);
             if let Some(command) = command {
                 self.submitting_dialog = true;
-                self.command(ctx, command);
+                self.command_with_request(ctx, command, request);
             }
         } else if matches!(draft, Dialog::Settings) {
             self.save_layout();

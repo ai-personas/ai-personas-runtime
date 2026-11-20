@@ -56,6 +56,7 @@ mod workspace;
 mod workspace_find;
 mod usage;
 mod responsibilities;
+mod agreements;
 mod render;
 mod command_bench;
 
@@ -71,6 +72,7 @@ enum Editor {
     People,
     Inbox,
     Responsibilities,
+    Agreements,
     Conversations,
     Artifacts,
     Character,
@@ -182,6 +184,7 @@ pub struct App {
     command_bench: command_bench::Bench,
     usage: usage::Panel,
     responsibilities: responsibilities::Board,
+    agreement_book: agreements::Book,
     preview_generation: u64,
     preview_pending: bool,
     preview_metadata: Value,
@@ -292,6 +295,7 @@ impl App {
             command_bench: Default::default(),
             usage: Default::default(),
             responsibilities: Default::default(),
+            agreement_book: Default::default(),
             preview_generation: 0,
             preview_pending: false,
             preview_metadata: Value::Null,
@@ -373,6 +377,9 @@ impl App {
     }
 
     fn command(&mut self, ctx: &egui::Context, command: Command) {
+        self.command_with_request(ctx, command, None);
+    }
+    fn command_with_request(&mut self, ctx: &egui::Context, command: Command, request: Option<String>) {
         let operator = self.operator.trim().to_owned();
         let run = matches!(command, Command::Run { .. });
         let bench = matches!(&command,Command::InstallCommand{..}|Command::RunCommand{..}|Command::CommandHistory(_));
@@ -384,7 +391,7 @@ impl App {
         self.error = None;
         let (root, tx, ctx) = (self.root.clone(), self.tx.clone(), ctx.clone());
         std::thread::spawn(move || {
-            let result=operator_call(&root,&operator,command,None);
+            let result=operator_call(&root,&operator,command,request.as_deref());
             let _ = tx.send(if run {
                 Update::RunDone(result)
             } else if bench {
@@ -586,6 +593,14 @@ impl App {
                     self.open_home_activity(work);
                     if let Some(invited) = v["invited"].as_array().and_then(|p|p.first()).and_then(Value::as_str) { self.persona = invited.into(); }
                     if kind == "social" { "Conversation opened".into() } else { "Task created".into() }
+                } else if v["reference"].as_str().is_some_and(|r| r.starts_with("agreement:") || r.starts_with("agreement_position:")) {
+                    let position = v["agreement"].as_str();
+                    let edition = position.or(v["reference"].as_str());
+                    if self.layout.editor == Editor::Agreements && v["work"] == self.work {
+                        self.show_agreements(edition.map(str::to_owned));
+                        self.agreement_book.request_refresh();
+                    }
+                    if position.is_some() { "Your signed position was recorded".into() } else { "Agreement edition published".into() }
                 } else if let Some(persona) = v["persona"].as_str() {
                     self.persona = persona.to_owned();
                     "Persona created".into()
@@ -720,8 +735,12 @@ impl eframe::App for App {
                 Editor::Delivery => self.home_package_page(ui),
                 Editor::People => self.people(ui),
                 Editor::Inbox => self.human_inbox(ui),
+                Editor::Agreements => self.agreements(ui),
                 Editor::Responsibilities => {
-                    if ui.small_button("← Activity").clicked(){self.layout.editor=Editor::Studio;}
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.small_button("← Activity").clicked(){self.layout.editor=Editor::Studio;}
+                        if !self.work.is_empty() && ui.small_button("Agreement book").clicked(){self.show_agreements(None);}
+                    });
                     let cursor=self.events.iter().rev().find(|e|e["work"]==self.work).and_then(|e|e["event"].as_i64()).unwrap_or(0);
                     match self.responsibilities.show(ui,&self.root,&self.work,cursor){
                         Some(responsibilities::Action::ChangeActivity{reopen,brief})=>self.dialog=Some(Dialog::ActivityState{
