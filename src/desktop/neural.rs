@@ -647,12 +647,7 @@ impl App {
             .collect()
     }
     fn color(&self, id: &str) -> Color32 {
-        let index = self
-            .records("personas")
-            .iter()
-            .position(|p| p["body"]["id"] == id)
-            .unwrap_or(0);
-        persona_color(index)
+        persona_color(id)
     }
     fn save_layout(&self) {
         if let Ok(bytes) = serde_json::to_vec_pretty(&self.layout) {
@@ -850,9 +845,15 @@ fn time_label(ts: i64) -> String {
         ts.rem_euclid(60)
     )
 }
-fn persona_color(index: usize) -> Color32 {
-    let colors = [TEAL, PURPLE, theme::ACCENT, Color32::from_rgb(121, 166, 230), Color32::from_rgb(219, 134, 158)];
-    colors[index % colors.len()]
+/// A continuing identity keeps its hue when someone joins, leaves or is
+/// filtered out. Names and exact IDs, not colours, distinguish people.
+fn persona_color(id: &str) -> Color32 {
+    let colors = [theme::ACCENT, Color32::from_rgb(219, 134, 158), PURPLE,
+        Color32::from_rgb(121, 166, 230), TEAL, theme::GREEN];
+    let hash = id.bytes().fold(0x811c9dc5u32, |h, byte| (h ^ u32::from(byte)).wrapping_mul(16777619));
+    let slot = hash as usize % (colors.len() * 256);
+    let index = slot / 256;
+    colors[index].lerp_to_gamma(colors[(index + 1) % colors.len()], (slot % 256) as f32 / 256.)
 }
 fn eyebrow(ui: &mut Ui, text: &str) {
     ui.label(

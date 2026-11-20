@@ -198,8 +198,7 @@ impl Panel {
         let visible: Vec<_> = report
             .people
             .iter()
-            .enumerate()
-            .filter(|(_, e)| !self.hidden.contains(&e.owner))
+            .filter(|e| !self.hidden.contains(&e.owner))
             .collect();
         if visible.is_empty() {
             ui.label(if report.people.is_empty() {
@@ -222,13 +221,13 @@ impl Panel {
         let cols = ((ui.available_width() / 268.).floor() as usize).clamp(1, visible.len());
         for group in visible.chunks(cols) {
             ui.columns(cols, |columns| {
-                for ((index, entry), column) in group.iter().zip(columns) {
+                for (entry, column) in group.iter().zip(columns) {
                     column.push_id(&entry.owner, |ui| {
                         let selected = self.epochs.get(&entry.owner).copied();
                         let (choice, result) = portrait::show(
                             ui,
                             entry,
-                            persona_color(*index),
+                            persona_color(&entry.owner),
                             &contract,
                             &mut self.focus,
                             selected,
