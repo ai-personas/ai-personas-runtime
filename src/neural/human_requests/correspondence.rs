@@ -3,7 +3,7 @@
 mod choices;
 mod operator;
 
-use super::{attachments, exact, Request};
+use super::{attachments, exact, same_issue, Request};
 use crate::neural::accepted_choice::Choice;
 use crate::neural::{failure, input_files::Material, store, Result};
 use rusqlite::{params, Connection, OptionalExtension, Row};
@@ -103,6 +103,33 @@ fn origin(
     Ok((event.seq, detail))
 }
 
+pub(super) fn issued_origin(db: &Connection, selected: &store::Record) -> Result<Option<Value>> {
+    let first = exact(db, &format!("human_request:{}@1", selected.reference.id))?;
+    if !same_issue(&selected.body, &first.body) {
+        return Err(failure(
+            "The request edition differs from the original issue.",
+        ));
+    }
+    // A retained request can predate a verifiable decision. Its printable
+    // record stays readable. A contradiction in an existing choice is an error.
+    let has_decision: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM versions v JOIN invocations i ON i.id=v.invocation
+         WHERE v.kind='human_request' AND v.id=?1 AND v.revision=1 AND v.digest=?2)",
+        params![first.reference.id, first.reference.digest],
+        |r| r.get(0),
+    )?;
+    if !has_decision {
+        return Ok(None);
+    }
+    let work = first.body["work"]
+        .as_str()
+        .ok_or_else(|| failure("Missing original activity"))?;
+    let who = first.body["requester"]
+        .as_str()
+        .ok_or_else(|| failure("Missing original requester"))?;
+    Ok(Some(origin(db, &first, work, who)?.1))
+}
+
 struct Entry {
     event: Event,
     request: String,
@@ -123,6 +150,9 @@ impl Entry {
             row[key] = b[key].clone();
         }
         row["attachments"] = b.get("attachments").cloned().unwrap_or_else(|| json!([]));
+        if let Some(report) = b.get("field_report") {
+            row["field_report"] = report.clone();
+        }
         if let Some(refs) = b.get("references") {
             row["references"] = refs.clone();
         }
@@ -161,6 +191,7 @@ fn human_report(
             .is_some_and(|t| !t.trim().is_empty())
         || b["text"] != report["text"]
         || b["attachments"] != report["attachments"]
+        || b.get("field_report") != report.get("field_report")
         || !b["attachments"].is_array()
         || b.get("reply_to").is_some_and(|v| v != origin)
     {
@@ -191,6 +222,19 @@ fn human_report(
                 .sha256
                 .bytes()
                 .all(|b| b.is_ascii_digit() || matches!(b, b'a'..=b'f'))
+        {
+            return Ok(None);
+        }
+    }
+    if let Some(receipt) = b.get("field_report") {
+        if !super::field_report::recorded(
+            db,
+            receipt,
+            reference,
+            b["text"].as_str().unwrap_or(""),
+            &manifest,
+        )
+        .unwrap_or(false)
         {
             return Ok(None);
         }
@@ -329,21 +373,7 @@ pub fn correspondence(
     for n in 2..=current.reference.revision {
         let handle = format!("human_request:{id}@{n}");
         let edition = exact(db, &handle)?;
-        if [
-            "work",
-            "requester",
-            "title",
-            "action",
-            "return_requested",
-            "artifacts",
-            "deliveries",
-            "delivery_details",
-            "decision",
-            "created",
-        ]
-        .iter()
-        .any(|key| edition.body.get(*key) != first.body.get(*key))
-        {
+        if !same_issue(&edition.body, &first.body) {
             return Err(failure("A request edition differs from its original issue"));
         }
         let writer: Option<String> = db.query_row(

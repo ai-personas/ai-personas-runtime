@@ -33,6 +33,8 @@ struct RequestSheet<'a> {
     current: Option<(&'a str, &'a str)>,
     activity: &'a str,
     claimed_by: Option<&'a str>,
+    origin: Option<&'a Value>,
+    return_digest: Option<&'a str>,
     files: &'a [SheetFile],
     deliveries: Vec<SheetDelivery>,
 }
@@ -71,8 +73,9 @@ fn package_files(db: &Connection, refs: &[String], writer: &mut File) -> Result<
         let asset = store::exact(db, &reference)?.body;
         let blob = asset["blob"]
             .as_str()
-            .ok_or_else(|| failure("Attachment is missing its bytes"))?;
-        let bytes = store::bytes(db, blob)?;
+            .ok_or_else(|| failure(format!("Missing bytes for {path} ({reference})")))?;
+        let bytes = store::bytes(db, blob)
+            .map_err(|e| failure(format!("Cannot export {path} ({reference}): {e}")))?;
         zip.start_file(
             &path,
             zip::write::SimpleFileOptions::default()
@@ -130,6 +133,12 @@ fn request_sheet(
 ) -> Result<(String, Value)> {
     let reference = record.reference.handle();
     let latest = store::required(db, "human_request", &record.reference.id)?;
+    if !super::same_issue(&record.body, &latest.body) {
+        return Err(failure(
+            "Request instructions or attachments differ between retained editions.",
+        ));
+    }
+    let origin = super::correspondence::issued_origin(db, &record)?;
     let latest_reference = latest.reference.handle();
     let latest_state = latest.body["state"]
         .as_str()
@@ -143,6 +152,9 @@ fn request_sheet(
         return Err(failure(
             "Attached deliveries differ from the retained human request",
         ));
+    }
+    for delivery in &deliveries {
+        delivery_feedback::issued(db, &delivery.reference)?;
     }
     let name = store::head(db, "persona", &request.requester)?
         .and_then(|p| p.body["label"].as_str().map(str::to_owned));
@@ -162,12 +174,17 @@ fn request_sheet(
             .then(|| (latest_reference.as_str(), state_label(latest_state))),
         activity: &request.work,
         claimed_by: request.claimed_by.as_deref(),
+        origin: origin.as_ref(),
+        return_digest: (origin.is_some()
+            && matches!(latest_state, "open" | "in_progress")
+            && matches!(request.state.as_str(), "open" | "in_progress"))
+        .then_some(record.reference.digest.as_str()),
         files,
         deliveries,
     };
     Ok((
         sheet::render(&sheet),
-        json!({"request":reference,"latest":latest_reference,"state":request.state}),
+        json!({"request":reference,"latest":latest_reference,"state":request.state,"field_report":sheet.return_digest.is_some()}),
     ))
 }
 

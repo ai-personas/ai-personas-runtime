@@ -160,6 +160,9 @@ pub enum Command {
         #[command(flatten)]
         #[serde(flatten)]
         files: InputFiles,
+        #[command(flatten)]
+        #[serde(flatten)]
+        field_report: super::human_requests::ReturnForm,
     },
     /// Save the exact files of one delivery or human request as a portable ZIP.
     ExportPackage { reference: String, destination: PathBuf },
@@ -435,6 +438,9 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
         | Command::Message { files, .. } | Command::HumanRespond { files, .. } => files.capture_paths()?,
         _ => {}
     }
+    if let Command::HumanRespond { note, files, field_report, .. } = &mut command {
+        field_report.prepare(note, files)?;
+    }
     let mutation = matches!(&command, Command::Request { .. } | Command::Social { .. } | Command::AddPersona { .. }
         | Command::Invite { .. } | Command::Resume { .. } | Command::Message { .. } | Command::Amend { .. }
         | Command::PackageReview { .. } | Command::AssetFeedback { .. } | Command::Accept { .. } | Command::Control { .. } | Command::Configure { .. }
@@ -655,7 +661,7 @@ fn operator_action(root: &Path, db: &rusqlite::Connection, operator: &str, comma
             Ok(record)
         }
         Command::Request{need,invite,files}=>operations::create_activity(db,ActivityKind::Task,need,&invite,operator,None,files.retain(db)?),
-        Command::HumanRespond{request,response,note,files}=>super::human_requests::respond(db,operator,&request,response,&note,&files),
+        Command::HumanRespond{request,response,note,files,field_report}=>super::human_requests::respond(db,operator,&request,response,&note,&files,&field_report),
         Command::Social{topic,invite,files}=>operations::create_activity(db,ActivityKind::Social,topic,&invite,operator,None,files.retain(db)?),
         Command::AddPersona{id: requested,label,seed,provider_from}=>{
             let source:Persona=serde_json::from_value(store::required(db,"persona",&provider_from)?.body)?;

@@ -74,6 +74,7 @@ impl Actions {
             || *address != crate::store::sha256_bytes(&serde_json::to_vec(&(&event.author, key))?)
             || cmd["request"] != base
             || cmd["response"] != kind
+            || cmd.get("field_report") != body.get("field_report").and_then(|r| r.get("source"))
             || body["text"].as_str() != expected_note
             || receipt["result"]["event"] != event.seq
             || receipt["result"]["reference"] != result

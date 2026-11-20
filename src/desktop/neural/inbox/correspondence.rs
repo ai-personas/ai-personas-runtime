@@ -286,12 +286,19 @@ impl App {
                 ui.small(RichText::new(time).color(p.muted));
             }
         });
+        if let Some(reference) = row["field_report"]["request"].as_str() {
+            let edition = reference.rsplit_once('@').map_or(reference, |v| v.1);
+            ui.small(format!("Offline field report · Request edition {edition}"))
+                .on_hover_text(reference);
+        }
         let text = s(row, "text");
         if !text.trim().is_empty() {
             let id = ui.make_persistent_id("full-correspondence-text");
             let long = text.chars().nth(360).is_some() || text.lines().nth(4).is_some();
             let full = !long || ui.data(|d| d.get_temp::<bool>(id).unwrap_or(false));
-            if full {
+            if full && row["field_report"].is_object() {
+                ui.add(egui::Label::new(text).wrap().selectable(true));
+            } else if full {
                 document::message_markdown(ui, text);
             } else {
                 ui.add(

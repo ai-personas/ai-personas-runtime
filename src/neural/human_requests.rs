@@ -11,6 +11,8 @@ mod package;
 pub use package::{export_handoff, export_package};
 mod correspondence;
 pub use correspondence::correspondence;
+mod field_report;
+pub use field_report::{FieldReport, ReturnForm};
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -209,6 +211,23 @@ fn exact(db: &Connection, reference: &str) -> Result<store::Record> {
     Ok(record)
 }
 
+fn same_issue(a: &Value, b: &Value) -> bool {
+    [
+        "work",
+        "requester",
+        "title",
+        "action",
+        "return_requested",
+        "artifacts",
+        "deliveries",
+        "delivery_details",
+        "decision",
+        "created",
+    ]
+    .iter()
+    .all(|key| a.get(*key) == b.get(*key))
+}
+
 pub(super) fn respond(
     db: &Connection,
     operator: &str,
@@ -216,21 +235,21 @@ pub(super) fn respond(
     response: Response,
     note: &str,
     files: &super::input_files::InputFiles,
+    field_report: &ReturnForm,
 ) -> Result<Value> {
     let record = exact(db, reference)?;
-    let mut body = record.body;
     if store::required(db, "human_request", &record.reference.id)?.reference != record.reference {
         return Err(failure(
             "This request changed. Read its latest status before responding",
         ));
     }
-    let state = body["state"]
+    let state = record.body["state"]
         .as_str()
         .ok_or_else(|| failure("Request state missing"))?;
     if !matches!(state, "open" | "in_progress") {
         return Err(failure("This request is closed"));
     }
-    if state == "in_progress" && body["claimed_by"] != operator {
+    if state == "in_progress" && record.body["claimed_by"] != operator {
         return Err(failure(
             "The human who took this request owns its next update",
         ));
@@ -254,6 +273,8 @@ pub(super) fn respond(
             ))
         }
     };
+    let field_source = field_report.receipt(db, &record, files.captured())?;
+    let mut body = record.body;
     let attachments = files.retain(db)?;
     let text = if note.trim().is_empty() {
         default_note
@@ -268,6 +289,9 @@ pub(super) fn respond(
     body["state"] = json!(next);
     body["updated"] = json!(now());
     body["last_report"] = json!({"human":operator,"text":text,"attachments":attachments});
+    if let Some(source) = field_source {
+        body["last_report"]["field_report"] = source;
+    }
     let work = body["work"]
         .as_str()
         .ok_or_else(|| failure("Missing request activity"))?;
@@ -288,6 +312,11 @@ pub(super) fn respond(
         &body,
         None,
     )?;
+    let mut notice = json!({"text":text,"human_request":updated.handle(),"reply_to":format!("experience:event-{source}@1"),
+        "title":body["title"],"state":next,"attachments":attachments});
+    if let Some(report) = body["last_report"].get("field_report") {
+        notice["field_report"] = report.clone();
+    }
     let event = store::event(
         db,
         work,
@@ -301,8 +330,7 @@ pub(super) fn respond(
         } else {
             "user_message"
         },
-        &json!({"text":text,"human_request":updated.handle(),"reply_to":format!("experience:event-{source}@1"),
-            "title":body["title"],"state":next,"attachments":attachments}),
+        &notice,
         None,
     )?;
     Ok(

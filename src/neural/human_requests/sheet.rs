@@ -1,5 +1,10 @@
 //! A portable, printable view of the exact request revision and its attachments.
 use super::{RequestSheet, SheetDelivery, SheetFile};
+use crate::neural::human_requests::field_report;
+use base64::{engine::general_purpose::STANDARD, Engine};
+use sha2::{Digest, Sha256};
+
+const RETURN_SCRIPT: &str = include_str!("field_report.js");
 
 /// All workspace strings are text, including filenames, references and quoted markup.
 pub(super) fn append_text(html: &mut String, text: &str) {
@@ -117,8 +122,18 @@ pub(super) fn header(title: &str, kind: &'static str) -> String {
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>"#,
     );
     append_text(&mut html, title);
-    html.push_str(" · Persona Studio</title><style>");
+    html.push_str(" · Persona Studio</title>");
+    if kind == "Human request" {
+        let hash = STANDARD.encode(Sha256::digest(RETURN_SCRIPT.as_bytes()));
+        html.push_str(r#"<meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; form-action 'none'; style-src 'unsafe-inline'; script-src 'sha256-"#);
+        html.push_str(&hash);
+        html.push_str(r#"'">"#);
+    }
+    html.push_str("<style>");
     html.push_str(include_str!("sheet.css"));
+    if kind == "Human request" {
+        html.push_str(include_str!("field_report.css"));
+    }
     html.push_str(
         r#"</style></head><body><main class="sheet">
 <header><div class="masthead"><span class="brand">Persona Studio</span><span>"#,
@@ -155,7 +170,15 @@ pub(super) fn render(request: &RequestSheet<'_>) -> String {
     field(&mut html, "Requested by", request.requester);
     field(&mut html, "Recorded status", request.state);
     if let Some(person) = request.claimed_by {
-        field(&mut html, "Taken by", person);
+        field(
+            &mut html,
+            if request.state == "In progress" {
+                "Taken by"
+            } else {
+                "Reported by"
+            },
+            person,
+        );
     }
     html.push_str("</dl></header>");
     if let Some((reference, status)) = request.current {
@@ -173,17 +196,50 @@ pub(super) fn render(request: &RequestSheet<'_>) -> String {
             .filter(|text| !text.trim().is_empty())
             .unwrap_or("Unspecified by the requester."),
     );
+    if request.return_digest.is_some() {
+        html.push_str(
+            r##"<a class="report-jump" href="#field-report">Fill out the field report</a>"##,
+        );
+    }
     if !request.deliveries.is_empty() {
         html.push_str("<section><h2>Included deliveries</h2><ul class=\"entries\">");
         for package in &request.deliveries {
             delivery(&mut html, package);
         }
         html.push_str("</ul></section>");
+    } else if !request.files.is_empty() {
+        html.push_str("<p>The requester attached the individual file editions listed below. Their qualifications accompany each file.</p>");
     }
     file_section(&mut html, "Attached files", request.files);
+    if let Some(digest) = request.return_digest {
+        html.push_str(r#"<section class="field-return" id="field-report" data-request=""#);
+        append_text(&mut html, request.reference);
+        html.push_str(r#"" data-digest=""#);
+        append_text(&mut html, digest);
+        html.push_str(r#"" data-format=""#);
+        html.push_str(field_report::FORMAT);
+        html.push_str(r#"" data-limit=""#);
+        html.push_str(&field_report::MAX_BYTES.to_string());
+        html.push_str("\">");
+        html.push_str(include_str!("field_report.html"));
+        html.push_str("</section><script>");
+        html.push_str(RETURN_SCRIPT);
+        html.push_str("</script>");
+    }
     html.push_str("<footer><dl class=\"identifiers\">");
     field(&mut html, "Request revision", request.reference);
     field(&mut html, "Activity", request.activity);
+    match request.origin {
+        Some(origin) => {
+            if let Some(decision) = origin["decision"].as_str() {
+                field(&mut html, "Requesting decision", decision);
+            }
+            if let Some(event) = origin["experience"].as_str() {
+                field(&mut html, "Original request", event);
+            }
+        }
+        None => field(&mut html, "Original request", "The recorded publication could not be verified. A digital field report is unavailable for this edition."),
+    }
     html.push_str("</dl></footer></main></body></html>\n");
     html
 }
