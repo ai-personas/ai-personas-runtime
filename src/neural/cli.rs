@@ -267,6 +267,18 @@ pub enum Command {
         #[arg(long="resource")]
         resources:Vec<String>,
     },
+    /// Compare each persona's adopted character generations on one hypothetical input, offline.
+    CharacterAtlas {
+        /// Include this identity (repeatable). By default include the whole workspace, in ID order.
+        #[arg(long = "persona")]
+        personas: Vec<String>,
+        /// Known appraisal axis, e.g. uncertainty=0.75 (repeatable). All other axes stay unknown.
+        #[arg(long = "input", value_name = "AXIS=VALUE")]
+        inputs: Vec<String>,
+        /// Instead use the actual numerical inputs from this exact accepted decision.
+        #[arg(long, conflicts_with = "inputs")]
+        from_decision: Option<String>,
+    },
     /// Trace the supplied weights, appraisal and optional alternate for a recorded choice, offline.
     CharacterPaths(super::character_paths::Query),
     /// Inspect numerical differences on actual decisions for an exact character switch or proposed revision.
@@ -568,6 +580,15 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
         }
         Command::Run { watch,work,persona,from_activity } => runner::run_selected(root, watch,
             work.as_deref(),persona.as_deref(),from_activity.as_deref()).await,
+        Command::CharacterAtlas { personas, inputs, from_decision } => {
+            use super::revision_uses::atlas;
+            let db = store::open_inspection(root)?;
+            let report = match from_decision {
+                Some(decision) => atlas::from_decision(&db, &personas, &decision)?,
+                None => atlas::inspect(&db, &personas, &atlas::parse_inputs(&inputs)?)?,
+            };
+            Ok(serde_json::to_value(report)?)
+        }
         command => {
             let mut store = Store::open(root)?;
             match command {

@@ -2,6 +2,7 @@
 //! inclination values on actual accepted inputs, alongside their observed results.
 mod subject;
 mod judgment;
+pub mod atlas;
 pub use judgment::inspect_follow_up;
 
 use super::{character_paths, experience, failure, store, Result};

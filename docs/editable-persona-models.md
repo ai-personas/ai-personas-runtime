@@ -82,6 +82,10 @@ In **Character Lab → Development**, choose **Numerical paths** on an accepted 
 
 The persona can inspect its own decisions with `persona.paths`. The operator can use `neural character-paths DECISION --axis clarification --compare CANDIDATE` and add `--hidden-unit INDEX` to inspect a disconnected unit. The comparison runs locally. A difference in numerical outputs still requires separate observation of the ensuing choice and its consequences.
 
+For a comparison across identities, `./personas --neural --state-root STATE character-atlas` evaluates each persona’s own adopted generations on one common, all-unknown input. Add `--persona ID` repeatedly to choose the people, or `--input ambiguity=0.8 --input urgency=0` to supply specific known features. A known zero and an unknown input are distinct. Pending identities have no projected values. An unverifiable history is reported for that person rather than replaced with a guess. A rollback appears as a distinct epoch even if its package matches the first. This is read-only arithmetic, not a provider call or a finding that someone improved.
+
+Use `character-atlas --from-decision experience:CALL_ID@1` instead of `--input` to replay a received situation. The report’s `source` identifies the owner, epoch, package, accepted decision, snapshot and provider receipt. Replaying that epoch must reproduce the supplied values. `--persona` can select other people without transferring the source persona’s appraisal authorship, model or history to them. All comparisons use the same read-only database snapshot; no provider credentials are needed.
+
 To see where a proposed or adopted change made a numerical difference across actual choices, use **Character Lab → Revisions** or run these offline commands from the same workspace. Replace the capitalized names with exact references or identifiers.
 
 ```sh

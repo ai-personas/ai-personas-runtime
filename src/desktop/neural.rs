@@ -18,6 +18,7 @@ use std::{
     time::{Duration, Instant},
 };
 mod character;
+mod atlas;
 mod character_paths;
 mod revision_uses;
 mod comparisons;
@@ -73,7 +74,11 @@ enum Editor {
     Conversations,
     Artifacts,
     Character,
+    Atlas,
     Usage,
+}
+impl Editor {
+    fn is_workspace_view(self) -> bool { matches!(self, Self::Home | Self::Atlas) }
 }
 #[derive(Serialize, Deserialize)]
 #[serde(default)]
@@ -185,6 +190,7 @@ pub struct App {
     viewer: artifacts::Viewer,
     files: artifacts::Viewer,
     character_tab: usize,
+    atlas: atlas::Panel,
     comparison_filter: usize,
     encounter: comparisons::Encounter,
     explorer: explorer::Explorer,
@@ -294,6 +300,7 @@ impl App {
             viewer: artifacts::Viewer::new(ctx, gl),
             files: artifacts::Viewer::new(ctx, gl),
             character_tab: 0,
+            atlas: Default::default(),
             comparison_filter: 0,
             encounter: Default::default(),
             explorer: explorer::Explorer::default(),
@@ -646,19 +653,7 @@ impl App {
             .collect()
     }
     fn color(&self, id: &str) -> Color32 {
-        let palette = [
-            TEAL,
-            PURPLE,
-            theme::ACCENT,
-            Color32::from_rgb(121, 166, 230),
-            Color32::from_rgb(219, 134, 158),
-        ];
-        let index = self
-            .records("personas")
-            .iter()
-            .position(|p| p["body"]["id"] == id)
-            .unwrap_or(0);
-        palette[index % palette.len()]
+        persona_color(id)
     }
     fn save_layout(&self) {
         if let Ok(bytes) = serde_json::to_vec_pretty(&self.layout) {
@@ -703,11 +698,12 @@ impl eframe::App for App {
             self.activity_dock(ctx);
         }
         let wide = ctx.content_rect().width() > 1100.;
-        if self.layout.inspector && wide && self.layout.editor != Editor::Home {
+        let workspace_view = self.layout.editor.is_workspace_view();
+        if self.layout.inspector && wide && !workspace_view {
             self.inspector_panel(ctx);
         }
         let show_browser = if ctx.content_rect().width() < COMPACT_BROWSER_WIDTH { self.compact_browser } else { self.layout.outliner };
-        if show_browser && self.layout.editor != Editor::Home {
+        if show_browser && !workspace_view {
             self.outliner(ctx);
         }
         egui::CentralPanel::default()
@@ -741,6 +737,7 @@ impl eframe::App for App {
                 Editor::Conversations => self.conversations(ui),
                 Editor::Artifacts => self.artifacts(ui),
                 Editor::Character => self.character(ui),
+                Editor::Atlas => self.character_atlas(ui),
                 Editor::Usage => {
                     if let Some(reference) = self.usage.show(ui, &self.root, &self.work) {
                         self.open_resource(ctx,reference);
@@ -855,6 +852,16 @@ fn time_label(ts: i64) -> String {
         ts.rem_euclid(3600) / 60,
         ts.rem_euclid(60)
     )
+}
+/// A continuing identity keeps its hue when someone joins, leaves or is
+/// filtered out. Names and exact IDs, not colours, distinguish people.
+fn persona_color(id: &str) -> Color32 {
+    let colors = [theme::ACCENT, Color32::from_rgb(219, 134, 158), PURPLE,
+        Color32::from_rgb(121, 166, 230), TEAL, theme::GREEN];
+    let hash = id.bytes().fold(0x811c9dc5u32, |h, byte| (h ^ u32::from(byte)).wrapping_mul(16777619));
+    let slot = hash as usize % (colors.len() * 256);
+    let index = slot / 256;
+    colors[index].lerp_to_gamma(colors[(index + 1) % colors.len()], (slot % 256) as f32 / 256.)
 }
 fn eyebrow(ui: &mut Ui, text: &str) {
     ui.label(

@@ -60,6 +60,8 @@ Choose **New workspace** to enter the starting profiles and connect a reasoning 
 
 **Draft reply** shows each persona’s words as they arrive. The latest lines stay in view until you scroll back or select a passage. The composer stays available. **Character Lab → Development** lets you follow a persona’s account of a character change through the later decision, the reader’s report and the persona’s own judgment.
 
+**Character Lab → Character Atlas** compares each persona’s first and later models on one shared situation. Choose **Inspect decisions → Use situation in Atlas** to use an actual input instead. The source generation and other local comparisons stay distinct. Neither view starts work.
+
 In **Activity → People & tools**, **Last tool result** opens what a persona’s most recent tool actually returned. **Event #** takes you to the action in the timeline.
 
 Open an issued delivery to inspect its drawing, file revisions and remaining checks. **Save handoff…** places the printable `Delivery.html` alongside `Files.zip`. **Send feedback…** addresses a message or attachment to the issuer and keeps it with that edition. Open **Check receipt** on the delivery to see what reached the persona.

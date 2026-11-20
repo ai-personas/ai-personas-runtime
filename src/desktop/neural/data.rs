@@ -103,18 +103,7 @@ impl Monitor {
 }
 
 pub(super) fn open(root: &Path) -> neural::Result<Connection> {
-    let db =
-        Connection::open_with_flags(root.join("neural.sqlite"), OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-    db.busy_timeout(std::time::Duration::from_secs(5))?;
-    let format: String =
-        db.query_row("SELECT value FROM metadata WHERE key='format'", [], |r| {
-            r.get(0)
-        })?;
-    if format != "neural-runtime-v2" {
-        return Err(neural::failure("Unsupported workspace format"));
-    }
-    db.execute_batch("BEGIN DEFERRED")?;
-    Ok(db)
+    store::open_inspection(root)
 }
 pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<String>) -> neural::Result<Snapshot> {
     let db = open(root)?;

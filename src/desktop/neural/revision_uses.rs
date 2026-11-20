@@ -20,6 +20,7 @@ pub(super) struct Panel {
 
 enum Action {
     Open(String),
+    Atlas { decision: String, owner: String, epoch: u64 },
     Paths {
         query: character_paths::Query,
         accepted: String,
@@ -27,6 +28,17 @@ enum Action {
 }
 
 impl App {
+    pub(super) fn open_generation(&mut self, ctx: &egui::Context, owner: String, change: String) {
+        self.compact_browser = false;
+        self.persona = owner.clone();
+        self.character_tab = 3;
+        self.layout.editor = Editor::Character;
+        self.revision_uses.owner = owner;
+        self.revision_uses.load(ctx, &self.root, Query {
+            reference: change, work: None, basis: None, offset: 0, page_size: 6,
+        });
+    }
+
     pub(super) fn character_revisions(&mut self, ui: &mut Ui, character: &data::Character) {
         if self.revision_uses.owner != self.persona {
             self.revision_uses = Panel {
@@ -40,6 +52,10 @@ impl App {
                 .show(ui, &self.root, &self.snapshot.status)
             {
                 Some(Action::Open(reference)) => self.open_resource(ui.ctx(), reference),
+                Some(Action::Atlas { decision, owner, epoch }) => {
+                    self.atlas.use_decision(decision, owner, epoch);
+                    self.layout.editor = Editor::Atlas;
+                }
                 Some(Action::Paths { query, accepted }) => self.character_paths.open_query(
                     ui.ctx(),
                     &self.root,
@@ -525,6 +541,11 @@ fn decision(ui: &mut Ui, report: &Value, row: &Value, status: &Value, action: &m
         open_link(ui, "Recorded input", &row["input"], action);
         open_link(ui, "Appraisal", &row["evaluation"], action);
         paths(ui, report, row, None, action);
+        if let (Some(decision), Some(owner), Some(epoch)) = (row["decision"].as_str(), report["owner"].as_str(), row["epoch"].as_u64()) {
+            if ui.small_button("Use situation in Atlas").on_hover_text("Compare every model on the numerical input supplied to this decision").clicked() {
+                *action = Some(Action::Atlas { decision: decision.into(), owner: owner.into(), epoch });
+            }
+        }
     });
     if let Some(changes) = row["changed_outputs"].as_array() {
         ui.add_space(6.);
