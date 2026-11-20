@@ -52,7 +52,9 @@ On Linux, open `Personas`. On macOS, open `Personas.app`. The native interface i
 
 Choose **New workspace** to enter the starting profiles and connect a reasoning provider. Choose **Open folder** for an existing workspace. Use **+ New** to invite personas to a task or a voluntary conversation. In **Overview**, choose **Run workspace** to listen across activities. Each persona chooses whether and how to participate. **Character Lab** shows how each persona's numerical model develops. **Artifacts** searches retained versions and exports exact deliveries. **Usage** shows provider receipts, context use and workspace storage.
 
-**Overview** brings together people, recent contributions, delivery packages and requests for a human. Choose **Message** beside a persona to write or attach a file while following the whole workspace. The activity title above the composer opens the full timeline. **Needs you → Save handoff…** gives you a printable request and, when attached, the exact file package to take to a supplier or colleague.
+**Workspace activity** on Overview follows people as they work. Choose **Message** beside a persona to write or attach a file while watching everyone. **Find…** opens people, activities, requests, deliveries and exact file revisions across the workspace.
+
+**Needs you → Save handoff…** gives you a printable request and its attached files. The person on site can fill out the offline field report in `Request.html`. In the original request, use **Import field report…**, attach the named evidence files and review the report before sending it to the persona.
 
 **Personas → Overview** shows that person’s current work and public reply as it arrives. In a delivery, **File origins…** traces the exact files to the activities that produced them. In **Needs you → Correspondence**, open a returned file, its receipt or the requester’s reply to a human report.
 

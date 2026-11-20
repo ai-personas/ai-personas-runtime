@@ -84,6 +84,7 @@ struct EarlierFile {
 pub(super) struct Index {
     pub generation: Option<u64>,
     pub entries: Vec<Entry>,
+    activity_titles: BTreeMap<String, String>,
     events_seen: usize,
     earlier: BTreeMap<String, EarlierFile>,
 }
@@ -91,6 +92,12 @@ pub(super) struct Index {
 impl Index {
     pub fn refresh(&mut self, app: &App) {
         self.generation = Some(app.home_index.generation);
+        self.activity_titles = app
+            .home_index
+            .activities
+            .iter()
+            .map(|a| (a.id.clone(), a.title.to_lowercase()))
+            .collect();
         // Only committed and resolved file operations receive this projection.
         // Read each one once even if live calls keep refreshing the workspace.
         for e in &app.events[self.events_seen..] {
@@ -298,7 +305,10 @@ impl Index {
                 if exact {
                     e.reference.to_lowercase() == query
                 } else {
-                    tokens.iter().all(|t| e.search.contains(t))
+                    let activity = self.activity_titles.get(&e.work);
+                    tokens
+                        .iter()
+                        .all(|t| e.search.contains(t) || activity.is_some_and(|a| a.contains(t)))
                 }
             })
             .map(|(i, _)| i)
