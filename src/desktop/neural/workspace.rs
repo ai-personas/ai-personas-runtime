@@ -267,31 +267,91 @@ impl App {
                     .inner_margin(egui::Margin::symmetric(12, 4)),
             )
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     let (rect, _) =
                         ui.allocate_exact_size(egui::vec2(8., 8.), egui::Sense::hover());
+                    let working = matches!(
+                        &self.runner_observation,
+                        ai_personas::neural::live::RunnerObservation::Observed { workers, .. }
+                            if !workers.is_empty()
+                    );
                     ui.painter().circle_filled(
                         rect.center(),
                         3.,
-                        if matches!(&self.runner_observation, ai_personas::neural::live::RunnerObservation::Observed { workers, .. } if !workers.is_empty()) { TEAL } else { p.muted },
+                        if working { TEAL } else { p.muted },
                     );
                     let status = self.runner_status_text();
-                    ui.add(egui::Label::new(RichText::new(excerpt(&status,48)).small()).truncate()).on_hover_text(status);
-                    ui.separator();
-                    let accepted = self.snapshot.status["invocations"]["accepted"].as_u64().unwrap_or(0);
-                    ui.small(counted(accepted, "accepted decision", "accepted decisions"));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .selectable_label(self.layout.activity, "Event log")
-                            .clicked()
-                        {
-                            self.layout.activity = !self.layout.activity;
-                        }
-                        let count=self.snapshot.assets.len();ui.small(format!("{count} {}",if count==1{"artifact"}else{"artifacts"}));
-                        ui.separator();
-                        let count=self.records("personas").len();
-                        ui.small(format!("{count} {}",if count==1{"persona"}else{"personas"}));
+                    let mut label = egui::WidgetText::from(RichText::new(&status).small())
+                        .into_layout_job(
+                            ui.style(),
+                            egui::FontSelection::Default,
+                            egui::Align::Center,
+                        );
+                    Arc::make_mut(&mut label).wrap.max_rows = 2;
+                    ui.add(egui::Label::new(label).wrap())
+                        .on_hover_text(&status);
+                    let counts = self.snapshot.status.is_object().then(|| {
+                        let accepted = self.snapshot.status["invocations"]["accepted"]
+                            .as_u64()
+                            .unwrap_or(0);
+                        [
+                            counted(accepted, "accepted decision", "accepted decisions"),
+                            counted(self.records("personas").len() as u64, "persona", "personas"),
+                            counted(self.snapshot.assets.len() as u64, "artifact", "artifacts"),
+                        ]
                     });
+                    let summary = counts.as_ref().map(|items| items.join("  ·  "));
+                    let measure = |text: &str, style| {
+                        egui::WidgetText::from(text)
+                            .into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, style)
+                            .size()
+                            .x
+                    };
+                    let button_width = |text| {
+                        measure(text, egui::TextStyle::Button) + 2. * ui.spacing().button_padding.x
+                    };
+                    let remaining = ui.available_size_before_wrap().x;
+                    let log_width = button_width("Event log") + 2.;
+                    let gap = ui.spacing().item_spacing.x;
+                    let inline_width = summary
+                        .as_deref()
+                        .map(|text| measure(text, egui::TextStyle::Small) + gap);
+                    let inline = inline_width.is_some_and(|w| w + log_width <= remaining);
+                    let controls_width = log_width
+                        + match inline_width {
+                            Some(width) if inline => width,
+                            Some(_) => button_width("Counts") + gap,
+                            None => 0.,
+                        };
+                    if controls_width <= remaining {
+                        ui.add_space(remaining - controls_width);
+                    } else {
+                        ui.end_row();
+                    }
+                    if let (Some(values), Some(summary)) = (counts, summary) {
+                        if inline {
+                            ui.small(summary);
+                        } else {
+                            ui.menu_button("Counts", |ui| {
+                                ui.set_max_width(
+                                    (ctx.content_rect().width() - 26.).clamp(1., 240.),
+                                );
+                                ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                                    ui.label(&status);
+                                    ui.separator();
+                                    for value in values {
+                                        ui.label(value);
+                                    }
+                                });
+                            });
+                        }
+                    }
+                    if ui
+                        .selectable_label(self.layout.activity, "Event log")
+                        .clicked()
+                    {
+                        self.layout.activity = !self.layout.activity;
+                    }
                 });
             });
     }
